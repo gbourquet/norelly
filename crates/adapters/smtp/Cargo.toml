@@ -9,6 +9,14 @@ publish.workspace = true
 
 [dependencies]
 norelly-domain.workspace = true
+norelly-tls.workspace = true
+lettre.workspace = true
+tokio.workspace = true
+tokio-rustls.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+norelly-test-support.workspace = true
 
 [lints]
 workspace = true

@@ -47,7 +47,9 @@ ring = "0.17"
 rcgen = { version = "0.14", default-features = false, features = ["crypto", "ring", "pem"] }
 # Protocoles
 imap-next = { version = "0.3.4", default-features = false, features = ["starttls", "ext_condstore_qresync"] }
-lettre = { version = "0.11.23", default-features = false, features = ["smtp-transport", "tokio1-rustls", "ring", "builder", "hostname"] }
+# Sans backend TLS : la négociation TLS est faite par norelly-tls, le flux
+# chiffré est confié à lettre (voir ADR-002 et crates/adapters/smtp).
+lettre = { version = "0.11.23", default-features = false, features = ["smtp-transport", "tokio1"] }
 keyring = "4.2"
 
 [workspace.lints.rust]

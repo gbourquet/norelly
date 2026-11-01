@@ -1,7 +1,263 @@
-//! Adaptateur SMTP : implémentation du port MailSender avec lettre.
+//! Adaptateur SMTP : implémentation du port `MailSender` avec `lettre`.
+//!
+//! `lettre` 0.11 n'accepte pas de `rustls::ClientConfig` fourni par
+//! l'appelant (les champs de `TlsParameters` sont privés) : impossible d'y
+//! brancher notre vérificateur à exceptions par empreinte. On utilise donc
+//! son API publique `AsyncSmtpConnection::connect_with_transport`, qui
+//! accepte un flux déjà établi :
+//! - **465 (TLS implicite)** : TCP puis TLS par `norelly-tls`, flux remis à
+//!   `lettre` qui lit la bannière et envoie `EHLO` ;
+//! - **587 (STARTTLS)** : bannière, `EHLO` et `STARTTLS` faits ici (décision
+//!   du domaine, rejet des données injectées avant la poignée de main), puis
+//!   TLS par `norelly-tls`. Comme le serveur n'envoie pas de nouvelle
+//!   bannière après STARTTLS, le flux remis à `lettre` commence par une
+//!   bannière `220` locale (jamais envoyée sur le réseau).
+//!
+//! `lettre` gère ensuite `EHLO`, `AUTH`, `MAIL`/`RCPT`/`DATA` et `QUIT`. Il
+//! est compilé sans backend TLS ni journalisation.
+
+mod stream;
+
+use std::net::{Ipv4Addr, SocketAddr};
+use std::time::Duration;
+
+use lettre::address::{Address, Envelope};
+use lettre::transport::smtp::authentication::{Credentials as LettreCredentials, Mechanism};
+use lettre::transport::smtp::client::AsyncSmtpConnection;
+use lettre::transport::smtp::commands::Ehlo;
+use lettre::transport::smtp::extension::ClientId;
+use norelly_domain::auth::{AuthError, AuthMechanism, select_smtp_auth_mechanism};
+use norelly_domain::capabilities::ServerCapabilities;
+use norelly_domain::connection::{ConnectionError, TimeoutStage, server_text};
+use norelly_domain::endpoint::{Security, ServerEndpoint};
+use norelly_domain::ports::{ConnectRequest, MailSender, OutgoingMessage, SendError};
+use norelly_domain::security::{StartTlsDecision, decide_starttls};
+use norelly_tls::TlsClientFactory;
+use tokio::net::TcpStream;
+
+use crate::stream::{LettreStream, PlainSession};
+
+/// Nom annoncé dans `EHLO` : littéral d'adresse neutre, pour ne pas
+/// divulguer le nom de la machine.
+fn hello() -> ClientId {
+    ClientId::Ipv4(Ipv4Addr::LOCALHOST)
+}
+
+/// Bannière locale insérée devant le flux après STARTTLS (voir la
+/// documentation du module).
+const LOCAL_GREETING: &[u8] = b"220 norelly STARTTLS local\r\n";
+
+/// Délais d'attente.
+#[derive(Debug, Clone, Copy)]
+pub struct Timeouts {
+    pub connect: Duration,
+    /// Chaque échange commande/réponse.
+    pub response: Duration,
+}
+
+impl Default for Timeouts {
+    fn default() -> Self {
+        Self {
+            connect: Duration::from_secs(20),
+            response: Duration::from_secs(60),
+        }
+    }
+}
+
+/// Envoi SMTP.
+#[derive(Debug, Clone)]
+pub struct SmtpSender {
+    tls: TlsClientFactory,
+    timeouts: Timeouts,
+}
+
+/// Connexion SMTP authentifiée, capacités relues sur le canal final.
+struct Session {
+    conn: AsyncSmtpConnection,
+    capabilities: ServerCapabilities,
+}
+
+fn lettre_error(e: &lettre::transport::smtp::Error) -> ConnectionError {
+    if e.is_timeout() {
+        ConnectionError::Timeout(TimeoutStage::Response)
+    } else if e.is_response() || e.is_permanent() || e.is_transient() {
+        ConnectionError::Protocol(server_text(e.to_string().as_bytes()))
+    } else {
+        ConnectionError::Network(server_text(e.to_string().as_bytes()))
+    }
+}
+
+impl SmtpSender {
+    #[must_use]
+    pub fn new(tls: TlsClientFactory) -> Self {
+        Self {
+            tls,
+            timeouts: Timeouts::default(),
+        }
+    }
+
+    #[must_use]
+    pub fn with_timeouts(mut self, timeouts: Timeouts) -> Self {
+        self.timeouts = timeouts;
+        self
+    }
+
+    async fn timed<T, E>(
+        &self,
+        future: impl Future<Output = Result<T, E>>,
+        map: impl FnOnce(E) -> ConnectionError,
+    ) -> Result<T, ConnectionError> {
+        tokio::time::timeout(self.timeouts.response, future)
+            .await
+            .map_err(|_| ConnectionError::Timeout(TimeoutStage::Response))?
+            .map_err(map)
+    }
+
+    async fn tcp(
+        &self,
+        endpoint: &ServerEndpoint,
+    ) -> Result<(TcpStream, SocketAddr), ConnectionError> {
+        let address = (endpoint.host().as_str(), endpoint.port());
+        let tcp = tokio::time::timeout(self.timeouts.connect, TcpStream::connect(address))
+            .await
+            .map_err(|_| ConnectionError::Timeout(TimeoutStage::Connect))?
+            .map_err(|e| ConnectionError::Network(e.to_string()))?;
+        let peer = tcp
+            .peer_addr()
+            .map_err(|e| ConnectionError::Network(e.to_string()))?;
+        Ok((tcp, peer))
+    }
+
+    /// Connexion, TLS, EHLO ; capacités relues sur le canal final.
+    async fn open(&self, request: &ConnectRequest) -> Result<Session, ConnectionError> {
+        request.plaintext.authorize(&request.endpoint)?;
+        let endpoint = &request.endpoint;
+        let exceptions = &request.certificate_exceptions;
+        tracing::debug!(endpoint = %endpoint, "connexion SMTP");
+        let (tcp, peer) = self.tcp(endpoint).await?;
+
+        let stream = if endpoint.security() == Security::Tls {
+            let tls = self.tls.connect(tcp, endpoint.host(), exceptions).await?;
+            LettreStream::tls(tls, peer, Vec::new())
+        } else {
+            let mut plain = PlainSession::new(tcp, self.timeouts.response);
+            plain.greeting().await?;
+            let caps = plain.ehlo().await?;
+            match decide_starttls(endpoint.security(), caps.starttls())? {
+                StartTlsDecision::Upgrade => {
+                    tracing::debug!(endpoint = %endpoint, "passage en TLS par STARTTLS");
+                    let tcp = plain.starttls().await?;
+                    let tls = self.tls.connect(tcp, endpoint.host(), exceptions).await?;
+                    LettreStream::tls(tls, peer, LOCAL_GREETING.to_vec())
+                }
+                StartTlsDecision::StayPlain | StartTlsDecision::AlreadyEncrypted => {
+                    tracing::warn!(endpoint = %endpoint, "connexion SMTP en clair (consentie)");
+                    LettreStream::plain(plain.into_tcp()?, peer, LOCAL_GREETING.to_vec())
+                }
+            }
+        };
+
+        let hello = hello();
+        let mut conn = self
+            .timed(
+                AsyncSmtpConnection::connect_with_transport(Box::new(stream), &hello),
+                |e| lettre_error(&e),
+            )
+            .await?;
+        let response = self
+            .timed(conn.command(Ehlo::new(hello)), |e| lettre_error(&e))
+            .await?;
+        let capabilities = ServerCapabilities::from_smtp_ehlo(response.message().skip(1));
+        Ok(Session { conn, capabilities })
+    }
+
+    /// Ouvre et authentifie.
+    async fn open_authenticated(
+        &self,
+        request: &ConnectRequest,
+    ) -> Result<Session, ConnectionError> {
+        let mut session = self.open(request).await?;
+        let mechanism = match select_smtp_auth_mechanism(&session.capabilities)? {
+            AuthMechanism::Plain => Mechanism::Plain,
+            AuthMechanism::Login => Mechanism::Login,
+            other => return Err(AuthError::Unsupported(other).into()),
+        };
+        let credentials = &request.credentials;
+        tracing::debug!(user = %credentials.username(), mechanism = ?mechanism, "authentification SMTP");
+        let lettre_credentials = LettreCredentials::new(
+            credentials.username().as_str().to_owned(),
+            credentials.secret().expose().to_owned(),
+        );
+        self.timed(session.conn.auth(&[mechanism], &lettre_credentials), |e| {
+            if e.is_permanent() || e.is_transient() {
+                AuthError::Rejected {
+                    message: server_text(e.to_string().as_bytes()),
+                }
+                .into()
+            } else {
+                lettre_error(&e)
+            }
+        })
+        .await?;
+        Ok(session)
+    }
+
+    async fn quit(&self, mut session: Session) {
+        // Échec du QUIT sans conséquence : le travail est fait.
+        let _ = self.timed(session.conn.quit(), |e| lettre_error(&e)).await;
+    }
+}
+
+impl MailSender for SmtpSender {
+    async fn verify(
+        &self,
+        request: &ConnectRequest,
+    ) -> Result<ServerCapabilities, ConnectionError> {
+        let session = self.open_authenticated(request).await?;
+        let capabilities = session.capabilities.clone();
+        self.quit(session).await;
+        tracing::debug!(endpoint = %request.endpoint, "connexion SMTP vérifiée");
+        Ok(capabilities)
+    }
+
+    async fn send(
+        &self,
+        request: &ConnectRequest,
+        message: &OutgoingMessage,
+    ) -> Result<(), SendError> {
+        let parse = |raw: &str| {
+            raw.parse::<Address>()
+                .map_err(|_| SendError::InvalidAddress(server_text(raw.as_bytes())))
+        };
+        let from = parse(&message.from)?;
+        let recipients = message
+            .recipients
+            .iter()
+            .map(|r| parse(r))
+            .collect::<Result<Vec<_>, _>>()?;
+        let envelope = Envelope::new(Some(from), recipients)
+            .map_err(|e| SendError::InvalidAddress(e.to_string()))?;
+
+        let mut session = self.open_authenticated(request).await?;
+        let sent = tokio::time::timeout(
+            self.timeouts.response,
+            session.conn.send(&envelope, &message.raw),
+        )
+        .await;
+        match sent {
+            Err(_) => Err(ConnectionError::Timeout(TimeoutStage::Response).into()),
+            Ok(Err(e)) if e.is_permanent() || e.is_transient() => {
+                Err(SendError::Rejected(server_text(e.to_string().as_bytes())))
+            }
+            Ok(Err(e)) => Err(lettre_error(&e).into()),
+            Ok(Ok(_)) => {
+                self.quit(session).await;
+                tracing::debug!(endpoint = %request.endpoint, "message envoyé");
+                Ok(())
+            }
+        }
+    }
+}
 
 #[cfg(test)]
-mod tests {
-    #[test]
-    fn crate_compiles() {}
-}
+mod tests;

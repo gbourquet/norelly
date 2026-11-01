@@ -35,6 +35,9 @@ pub enum Expect {
     AnyData,
     /// Une ligne de données contenant ce texte, sans toucher à `{tag}`.
     DataContains(String),
+    /// Des lignes de données jusqu'à une ligne égale à ce texte (sans la
+    /// fin de ligne), par exemple `.` pour la fin de DATA en SMTP.
+    DataUntil(String),
     /// Fermeture de la connexion par le client.
     Eof,
 }
@@ -102,6 +105,13 @@ impl Script {
     pub fn expect_data_with(mut self, needle: impl Into<String>) -> Self {
         self.steps
             .push(Step::Expect(Expect::DataContains(needle.into())));
+        self
+    }
+
+    #[must_use]
+    pub fn expect_data_until(mut self, terminator: impl Into<String>) -> Self {
+        self.steps
+            .push(Step::Expect(Expect::DataUntil(terminator.into())));
         self
     }
 
@@ -345,6 +355,20 @@ impl Connection {
     }
 
     async fn expect(&mut self, expect: Expect) -> Result<(), ScriptError> {
+        if let Expect::DataUntil(terminator) = &expect {
+            loop {
+                let line = match tokio::time::timeout(READ_TIMEOUT, self.read_line()).await {
+                    Err(_) => return Err(ScriptError::Timeout(expect)),
+                    Ok(result) => result?,
+                };
+                let Some(line) = line else {
+                    return Err(ScriptError::ClientClosed(expect));
+                };
+                if String::from_utf8_lossy(&line).trim_end_matches(['\r', '\n']) == terminator {
+                    return Ok(());
+                }
+            }
+        }
         let line = match tokio::time::timeout(READ_TIMEOUT, self.read_line()).await {
             Err(_) => return Err(ScriptError::Timeout(expect)),
             Ok(result) => result?,
@@ -361,7 +385,7 @@ impl Connection {
                 text.to_lowercase().contains(&needle.to_lowercase())
             }
             Expect::Any | Expect::AnyData => true,
-            Expect::Eof => false,
+            Expect::Eof | Expect::DataUntil(_) => false,
         };
         if !matched {
             return Err(ScriptError::Unexpected {

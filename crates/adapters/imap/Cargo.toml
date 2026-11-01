@@ -9,6 +9,20 @@ publish.workspace = true
 
 [dependencies]
 norelly-domain.workspace = true
+norelly-tls.workspace = true
+imap-next.workspace = true
+tokio.workspace = true
+tokio-rustls.workspace = true
+tracing.workspace = true
+zeroize.workspace = true
+# Contournement d'un défaut d'imap-codec 2.0.0-alpha.9 : il utilise
+# `nom::multi::many0` (feature `alloc`) sans l'activer, et ne compile que si
+# un autre crate l'active par unification. Défaut signalé dans ADR-002.
+nom = { version = "7.1", default-features = false, features = ["alloc"] }
+
+[dev-dependencies]
+norelly-test-support.workspace = true
+tracing-subscriber.workspace = true
 
 [lints]
 workspace = true

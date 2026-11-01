@@ -32,7 +32,10 @@ norelly-keyring = { path = "crates/adapters/keyring" }
 # Infra
 tokio = { version = "1.54", features = ["rt-multi-thread", "macros", "net", "io-util", "time", "sync"] }
 testcontainers = "0.28"
-tracing = "0.1"
+# Niveau TRACE supprimé à la compilation pour tout le binaire : imap-next
+# journalise en TRACE chaque octet envoyé, mot de passe compris
+# (imap-next 0.3.4, src/fragment.rs). Voir ADR-002.
+tracing = { version = "0.1", features = ["max_level_debug", "release_max_level_debug"] }
 tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "std"] }
 zeroize = "1.8"
 # TLS : rustls avec le fournisseur ring (aws-lc-rs écarté : licence OpenSSL

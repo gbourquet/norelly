@@ -33,6 +33,8 @@ pub enum Expect {
     /// N'importe quelle ligne de données (réponse SASL, corps DATA…), sans
     /// toucher à `{tag}`.
     AnyData,
+    /// Une ligne de données contenant ce texte, sans toucher à `{tag}`.
+    DataContains(String),
     /// Fermeture de la connexion par le client.
     Eof,
 }
@@ -97,6 +99,13 @@ impl Script {
     }
 
     #[must_use]
+    pub fn expect_data_with(mut self, needle: impl Into<String>) -> Self {
+        self.steps
+            .push(Step::Expect(Expect::DataContains(needle.into())));
+        self
+    }
+
+    #[must_use]
     pub fn expect_eof(mut self) -> Self {
         self.steps.push(Step::Expect(Expect::Eof));
         self
@@ -126,19 +135,19 @@ impl Script {
 pub enum ScriptError {
     #[error("E/S : {0}")]
     Io(#[from] std::io::Error),
-    #[error("délai dépassé en attendant : {0:?}")]
+    #[error("delai depasse en attendant : {0:?}")]
     Timeout(Expect),
-    #[error("le client a fermé la connexion en attendant : {0:?}")]
+    #[error("le client a ferme la connexion en attendant : {0:?}")]
     ClientClosed(Expect),
     #[error("ligne inattendue : {got:?} (attendu : {expected:?})")]
     Unexpected { expected: Expect, got: String },
     #[error("ligne trop longue")]
     LineTooLong,
-    #[error("STARTTLS demandé sur une connexion déjà chiffrée")]
+    #[error("STARTTLS demande sur une connexion deja chiffree")]
     AlreadyTls,
-    #[error("le client a envoyé des données avant la négociation TLS")]
+    #[error("le client a envoye des donnees avant la negociation TLS")]
     EarlyData,
-    #[error("tâche du serveur interrompue")]
+    #[error("tache du serveur interrompue")]
     Join,
 }
 
@@ -348,7 +357,9 @@ impl Connection {
         };
         let text = String::from_utf8_lossy(&line).into_owned();
         let matched = match &expect {
-            Expect::Contains(needle) => text.to_lowercase().contains(&needle.to_lowercase()),
+            Expect::Contains(needle) | Expect::DataContains(needle) => {
+                text.to_lowercase().contains(&needle.to_lowercase())
+            }
             Expect::Any | Expect::AnyData => true,
             Expect::Eof => false,
         };
@@ -409,13 +420,13 @@ pub mod imap {
     /// Salutation `* OK [CAPABILITY …]`.
     #[must_use]
     pub fn greeting(capabilities: &str) -> String {
-        format!("* OK [CAPABILITY {capabilities}] Faux serveur IMAP prêt\r\n")
+        format!("* OK [CAPABILITY {capabilities}] Faux serveur IMAP pret\r\n")
     }
 
     /// Réponse à `CAPABILITY`.
     #[must_use]
     pub fn capability(capabilities: &str) -> String {
-        format!("* CAPABILITY {capabilities}\r\n{{tag}} OK CAPABILITY terminé\r\n")
+        format!("* CAPABILITY {capabilities}\r\n{{tag}} OK CAPABILITY termine\r\n")
     }
 
     /// Réponse étiquetée OK.
@@ -430,7 +441,7 @@ pub mod smtp {
     /// Bannière 220.
     #[must_use]
     pub fn greeting() -> String {
-        "220 faux.serveur ESMTP prêt\r\n".to_owned()
+        "220 faux.serveur ESMTP pret\r\n".to_owned()
     }
 
     /// Réponse multiligne à `EHLO` avec les extensions données.

@@ -12,11 +12,13 @@ const SERVICE: &str = "io.github.gbourquet.Norelly.tests";
 
 #[tokio::test]
 async fn system_store_passes_contract_when_available() -> Result<(), SecretStoreError> {
-    if let Err(e) = SystemSecretStore::availability() {
-        eprintln!("trousseau indisponible, contrat non exécuté : {e}");
-        return Ok(());
-    }
-    let store = SystemSecretStore::new(SERVICE);
+    let store = match SystemSecretStore::with_service(SERVICE) {
+        Ok(store) => store,
+        Err(e) => {
+            eprintln!("trousseau indisponible, contrat non exécuté : {e}");
+            return Ok(());
+        }
+    };
     // Sonde : un trousseau verrouillé ou inaccessible n'est pas « disponible ».
     let Ok(probe) = SecretKey::parse("norelly-test:sonde") else {
         panic!("clé de sonde invalide");

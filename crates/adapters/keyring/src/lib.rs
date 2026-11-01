@@ -1,12 +1,15 @@
 //! Adaptateur `SecretStore` : trousseau du système (Windows Credential
-//! Manager, Secret Service sous Linux) via `keyring`, et faux en mémoire.
+//! Manager, Secret Service sous Linux via libdbus) avec `keyring-core`, et
+//! faux en mémoire.
 //!
 //! Les appels au trousseau sont bloquants : ils passent par
 //! `spawn_blocking`. Les erreurs ne recopient jamais les octets du secret
-//! (certaines variantes de `keyring::Error` les contiennent).
+//! (certaines variantes de `keyring_core::Error` les contiennent).
 
 use std::collections::HashMap;
-use std::sync::{Mutex, PoisonError};
+use std::sync::{Arc, Mutex, PoisonError};
+
+use keyring_core::{CredentialStore, Entry};
 
 use norelly_domain::credentials::Secret;
 use norelly_domain::ports::{SecretKey, SecretStore, SecretStoreError};
@@ -17,8 +20,8 @@ use zeroize::Zeroize;
 pub const SERVICE: &str = "io.github.gbourquet.Norelly";
 
 /// Traduit une erreur `keyring` sans en recopier le contenu sensible.
-fn map_error(error: keyring::Error) -> SecretStoreError {
-    use keyring::Error as E;
+fn map_error(error: keyring_core::Error) -> SecretStoreError {
+    use keyring_core::Error as E;
     match error {
         E::NoStorageAccess(e) => SecretStoreError::AccessDenied(e.to_string()),
         E::PlatformFailure(e) => SecretStoreError::Unavailable(e.to_string()),
@@ -41,50 +44,83 @@ fn map_error(error: keyring::Error) -> SecretStoreError {
     }
 }
 
-fn variant_name(error: &keyring::Error) -> &'static str {
+fn variant_name(error: &keyring_core::Error) -> &'static str {
     match error {
-        keyring::Error::BadStoreFormat(_) => "format du magasin",
+        keyring_core::Error::BadStoreFormat(_) => "format du magasin",
         _ => "inconnue",
     }
 }
 
+/// Magasin natif de la plateforme.
+fn platform_store() -> Result<Arc<CredentialStore>, SecretStoreError> {
+    #[cfg(all(
+        unix,
+        not(any(target_os = "macos", target_os = "ios", target_os = "android"))
+    ))]
+    {
+        let store: Arc<CredentialStore> =
+            dbus_secret_service_keyring_store::Store::new().map_err(map_error)?;
+        Ok(store)
+    }
+    #[cfg(windows)]
+    {
+        let store: Arc<CredentialStore> =
+            windows_native_keyring_store::Store::new().map_err(map_error)?;
+        Ok(store)
+    }
+    #[cfg(not(any(
+        windows,
+        all(
+            unix,
+            not(any(target_os = "macos", target_os = "ios", target_os = "android"))
+        )
+    )))]
+    {
+        Err(SecretStoreError::Unavailable(
+            "plateforme non prise en charge".into(),
+        ))
+    }
+}
+
 /// Trousseau du système.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct SystemSecretStore {
+    store: Arc<CredentialStore>,
     service: String,
 }
 
-impl Default for SystemSecretStore {
-    fn default() -> Self {
-        Self::new(SERVICE)
+impl std::fmt::Debug for SystemSecretStore {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SystemSecretStore")
+            .field("service", &self.service)
+            .finish_non_exhaustive()
     }
 }
 
 impl SystemSecretStore {
-    #[must_use]
-    pub fn new(service: &str) -> Self {
-        Self {
-            service: service.to_owned(),
-        }
+    /// Ouvre le trousseau du système pour le service [`SERVICE`].
+    pub fn open() -> Result<Self, SecretStoreError> {
+        Self::with_service(SERVICE)
     }
 
-    /// Vérifie que le trousseau du système est utilisable.
-    pub fn availability() -> Result<(), SecretStoreError> {
-        match keyring::Entry::store_status() {
-            Ok(()) => Ok(()),
-            Err(e) => Err(SecretStoreError::Unavailable(e.to_string())),
-        }
+    /// Ouvre le trousseau du système pour un autre service (tests).
+    pub fn with_service(service: &str) -> Result<Self, SecretStoreError> {
+        Ok(Self {
+            store: platform_store()?,
+            service: service.to_owned(),
+        })
     }
 
     async fn blocking<T, F>(&self, key: &SecretKey, f: F) -> Result<T, SecretStoreError>
     where
         T: Send + 'static,
-        F: FnOnce(keyring::Entry) -> Result<T, SecretStoreError> + Send + 'static,
+        F: FnOnce(Entry) -> Result<T, SecretStoreError> + Send + 'static,
     {
+        let store = Arc::clone(&self.store);
         let service = self.service.clone();
         let key = key.as_str().to_owned();
         tokio::task::spawn_blocking(move || {
-            let entry = keyring::Entry::new(&service, &key).map_err(map_error)?;
+            let entry = store.build(&service, &key, None).map_err(map_error)?;
             f(entry)
         })
         .await
@@ -96,7 +132,7 @@ impl SecretStore for SystemSecretStore {
     async fn get(&self, key: &SecretKey) -> Result<Option<Secret>, SecretStoreError> {
         self.blocking(key, |entry| match entry.get_password() {
             Ok(password) => Ok(Some(Secret::new(password))),
-            Err(keyring::Error::NoEntry) => Ok(None),
+            Err(keyring_core::Error::NoEntry) => Ok(None),
             Err(e) => Err(map_error(e)),
         })
         .await
@@ -112,7 +148,7 @@ impl SecretStore for SystemSecretStore {
 
     async fn delete(&self, key: &SecretKey) -> Result<(), SecretStoreError> {
         self.blocking(key, |entry| match entry.delete_credential() {
-            Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+            Ok(()) | Err(keyring_core::Error::NoEntry) => Ok(()),
             Err(e) => Err(map_error(e)),
         })
         .await
@@ -160,7 +196,7 @@ mod tests {
     #[test]
     fn errors_never_copy_secret_bytes() {
         let secret = b"Tr3s-S3cret!".to_vec();
-        let rendered = format!("{:?}", map_error(keyring::Error::BadEncoding(secret)));
+        let rendered = format!("{:?}", map_error(keyring_core::Error::BadEncoding(secret)));
         assert!(!rendered.contains("Tr3s"), "{rendered}");
         assert!(!rendered.contains("84, 114, 51"), "{rendered}");
     }

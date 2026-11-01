@@ -50,7 +50,12 @@ imap-next = { version = "0.3.4", default-features = false, features = ["starttls
 # Sans backend TLS : la négociation TLS est faite par norelly-tls, le flux
 # chiffré est confié à lettre (voir ADR-002 et crates/adapters/smtp).
 lettre = { version = "0.11.23", default-features = false, features = ["smtp-transport", "tokio1"] }
-keyring = "4.2"
+# Trousseau : keyring-core et magasins natifs choisis explicitement (le
+# crate `keyring` 4 impose zbus 5, dont des dépendances sont signalées non
+# maintenues : RUSTSEC-2026-0370 à 0372). Sous Linux, libdbus du système.
+keyring-core = "1"
+dbus-secret-service-keyring-store = { version = "1", features = ["crypto-rust"] }
+windows-native-keyring-store = "1"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

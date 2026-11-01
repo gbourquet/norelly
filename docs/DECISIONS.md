@@ -56,6 +56,55 @@ est majoritairement écrit par Claude et relu par le mainteneur.
   - Couverture effective des extensions à confirmer en phase 2 (voir
     PLAN.md). Si une extension manque, on le signale avant de la
     contourner.
+- **Vérification de la phase 2** (2026-11-01, `imap-next` 0.3.4,
+  `imap-codec` 2.0.0-alpha.9, `imap-types` 2.0.0-alpha.7, `lettre`
+  0.11.23), faite dans le code source :
+
+  | Extension | Couverture | Où |
+  |---|---|---|
+  | IDLE | complète (commande, `+`, `DONE`) | `CommandBody::Idle`, `Client::set_idle_done` |
+  | CONDSTORE / QRESYNC | complète avec `ext_condstore_qresync` : paramètres de SELECT/EXAMINE, `CHANGEDSINCE`, `VANISHED`, `UNCHANGEDSINCE`, `HIGHESTMODSEQ`, `MODSEQ` | `command.rs`, `response.rs` |
+  | UIDPLUS | complète : `UID EXPUNGE`, codes `APPENDUID` / `COPYUID` | `CommandBody::ExpungeUid`, `Code::AppendUid` |
+  | MOVE | complète (`MOVE`, `UID MOVE`) | `CommandBody::Move` |
+  | ENABLE | complète (`ENABLE`, réponse `ENABLED`) | `CommandBody::Enable` |
+  | SPECIAL-USE | **partielle** : attributs `\Sent`, `\Drafts`… lus comme attributs d'extension génériques, capacité lue comme capacité inconnue ; `LIST … RETURN (SPECIAL-USE)` et `CREATE … (USE …)` non modélisés | `FlagNameAttribute::Extension` |
+  | COMPRESS | **partielle** : commande et capacité `COMPRESS=DEFLATE` modélisées dans le codec, mais aucune compression dans la couche d'E/S d'`imap-next` | `extensions/compress.rs` |
+
+  Manques signalés au mainteneur, **sans contournement** :
+  - SPECIAL-USE : on s'appuiera sur les attributs renvoyés par un `LIST`
+    ordinaire (à vérifier contre Dovecot en phase 4) et sur l'heuristique
+    de nom déjà prévue ; `RETURN (SPECIAL-USE)` à demander en amont si
+    nécessaire.
+  - COMPRESS=DEFLATE : optimisation non indispensable au MVP, reportée.
+    L'activer demanderait un flux de décompression dans notre pilote d'E/S
+    (avec une borne contre les bombes de décompression).
+
+  Défauts trouvés et contournés (à valider par le mainteneur, à signaler
+  en amont) :
+  - `imap-next` journalise en TRACE chaque fragment envoyé, **mot de passe
+    compris** (`src/fragment.rs`, sans garde `debug_assertions`). Le niveau
+    TRACE est supprimé à la compilation pour tout le binaire
+    (`tracing/max_level_debug`, `Cargo.toml` du workspace). Le test
+    `credentials_never_appear_in_logs_or_debug` échoue si on retire ce
+    plafond (vérifié).
+  - `imap-codec` 2.0.0-alpha.9 utilise des fonctions `nom` de la feature
+    `alloc` sans l'activer : `nom` est ajouté en dépendance directe du crate
+    `imap` avec cette feature.
+  - Le flux `imap_next::stream::Stream` n'est pas utilisé (feature `stream`
+    désactivée) : tampon de lecture non borné, et pas de contrôle des
+    octets reçus avant STARTTLS. Notre pilote d'E/S
+    (`crates/adapters/imap/src/connection.rs`) fournit les lignes une à une
+    à la machine d'états, borne les tailles, applique les délais et rejette
+    toute donnée reçue après la réponse à `STARTTLS`.
+  - `lettre` 0.11.23 n'accepte pas de `rustls::ClientConfig` fourni par
+    l'appelant (`TlsParameters` aux champs privés ; seuls des réglages
+    `dangerous_accept_invalid_*` sont exposés). Contournement par l'API
+    publique `AsyncSmtpConnection::connect_with_transport` : la
+    négociation TLS (et STARTTLS) est faite par `norelly-tls`, puis le flux
+    chiffré est confié à `lettre` ; après STARTTLS, une bannière `220`
+    locale est placée devant le flux car `lettre` en attend une. `lettre`
+    est compilé sans backend TLS. À proposer en amont : un constructeur
+    `TlsParameters` à partir d'un `ClientConfig`.
 
 ## ADR-003 : stockage local et recherche plein texte
 

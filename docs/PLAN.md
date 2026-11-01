@@ -48,38 +48,40 @@ Commandes de référence (détail dans `scripts/check.sh`) :
 
 ## Phase 2 : transport et sécurité de connexion
 
-- [ ] Vérifier dans le code source d'`imap-codec`/`imap-next` la couverture de IDLE, CONDSTORE, QRESYNC, UIDPLUS, MOVE, SPECIAL-USE, COMPRESS, ENABLE, puis mettre ADR-002 à jour (signaler les manques au mainteneur avant tout contournement)
-- [ ] Vérifier que `lettre` accepte notre `rustls::ClientConfig` (vérificateur personnalisé), sinon documenter le blocage
-- [ ] Domaine, types :
+- [x] Vérifier dans le code source d'`imap-codec`/`imap-next` la couverture de IDLE, CONDSTORE, QRESYNC, UIDPLUS, MOVE, SPECIAL-USE, COMPRESS, ENABLE, puis mettre ADR-002 à jour (signaler les manques au mainteneur avant tout contournement)
+- [x] Vérifier que `lettre` accepte notre `rustls::ClientConfig` (vérificateur personnalisé), sinon documenter le blocage
+  - Non : `TlsParameters` n'expose pas de constructeur à partir d'un `ClientConfig`. Contournement par `connect_with_transport` (TLS négocié par `norelly-tls`), détaillé dans ADR-002.
+- [x] Domaine, types :
   - `ServerEndpoint` (hôte, port, `Security::{Tls, StartTls, Plain}`) ;
   - `Credentials`, avec un `Debug`/`Display` qui masque le secret ;
   - `ServerCapabilities`
-- [ ] Domaine, politiques :
+- [x] Domaine, politiques :
   - `TlsTrustPolicy` : certificat valide, exception mémorisée (hôte + empreinte SHA-256), ou rejet avec `CertificateIssue` détaillé ;
   - `PlaintextPolicy` : refus sans consentement explicite par serveur.
 
   Le tout avec des tests unitaires exhaustifs.
-- [ ] Domaine, ports : `SecretStore`, `CertificateExceptionStore`, `RemoteMailboxConnector`, `MailSender`, `Authenticator` (PLAIN, LOGIN ; XOAUTH2 prévu, renvoyant `Unsupported`)
-- [ ] `test-support` : faux serveur IMAP scripté (tokio, étapes « attendre / envoyer », TLS optionnel) et faux serveur SMTP scripté
-- [ ] `test-support` : générateur de certificats `rcgen` (CA de test, autosigné, expiré, mauvais nom d'hôte)
-- [ ] `adapters/tls` : `ClientConfig` qui combine le vérificateur de la plateforme et l'exception par empreinte, plus des tests (autosigné rejeté, expiré rejeté, mauvais hôte rejeté, exception acceptée pour la même empreinte et le même hôte seulement, empreinte changée rejetée)
-- [ ] `adapters/imap`, connexion TLS implicite (993) et STARTTLS (143) :
+- [x] Domaine, ports : `SecretStore`, `CertificateExceptionStore`, `RemoteMailboxConnector`, `MailSender`, `Authenticator` (PLAIN, LOGIN ; XOAUTH2 prévu, renvoyant `Unsupported`)
+- [x] `test-support` : faux serveur IMAP scripté (tokio, étapes « attendre / envoyer », TLS optionnel) et faux serveur SMTP scripté
+- [x] `test-support` : générateur de certificats `rcgen` (CA de test, autosigné, expiré, mauvais nom d'hôte)
+- [x] `adapters/tls` : `ClientConfig` qui combine le vérificateur de la plateforme et l'exception par empreinte, plus des tests (autosigné rejeté, expiré rejeté, mauvais hôte rejeté, exception acceptée pour la même empreinte et le même hôte seulement, empreinte changée rejetée)
+- [x] `adapters/imap`, connexion TLS implicite (993) et STARTTLS (143) :
   - STARTTLS obligatoire si annoncé, sinon erreur (aucun repli silencieux en clair) ;
   - capacités relues après TLS ;
   - données injectées avant la poignée de main TLS rejetées
-- [ ] `adapters/imap` : authentification LOGIN et AUTHENTICATE PLAIN, respect de LOGINDISABLED, LOGOUT, délais d'attente
-- [ ] Tests faux serveur :
+- [x] `adapters/imap` : authentification LOGIN et AUTHENTICATE PLAIN, respect de LOGINDISABLED, LOGOUT, délais d'attente
+- [x] Tests faux serveur :
   - STARTTLS stripping (aucun identifiant envoyé) ;
   - injection après `STARTTLS` ;
   - LOGINDISABLED ;
   - clair refusé sans consentement ;
   - réponses malformées sans panique
-- [ ] `adapters/smtp` : transport `lettre` en 465 (TLS) et 587 (STARTTLS exigé), authentification, vérification de connexion. Tests faux serveur, dont STARTTLS stripping
-- [ ] `adapters/keyring` : `SecretStore` (Credential Manager / Secret Service) + faux en mémoire ; suite de contrat exécutée sur le faux (et sur le vrai en intégration si un Secret Service est disponible)
-- [ ] Test qui vérifie que les identifiants n'apparaissent jamais dans les logs `tracing` ni dans `Debug`
-- [ ] Intégration Dovecot : connexion en 993 et en 143 + STARTTLS avec la CA de test, authentification, capacités attendues présentes
-- [ ] Intégration Mailpit : envoi en 465 et en 587, message reçu vérifié via l'API Mailpit
-- [ ] Application : cas d'usage `TestConnection(paramètres)`, qui renvoie un résultat structuré (succès, problème de certificat, authentification, réseau)
+- [x] `adapters/smtp` : transport `lettre` en 465 (TLS) et 587 (STARTTLS exigé), authentification, vérification de connexion. Tests faux serveur, dont STARTTLS stripping
+- [x] `adapters/keyring` : `SecretStore` (Credential Manager / Secret Service) + faux en mémoire ; suite de contrat exécutée sur le faux (et sur le vrai en intégration si un Secret Service est disponible)
+  - Sur le poste du mainteneur (2026-11-01), aucun Secret Service D-Bus n'est actif : le test `integration_keyring` le détecte et ne lance pas le contrat sur le vrai trousseau. À exécuter une fois sur un bureau avec GNOME Keyring ou KWallet, et sous Windows.
+- [x] Test qui vérifie que les identifiants n'apparaissent jamais dans les logs `tracing` ni dans `Debug`
+- [x] Intégration Dovecot : connexion en 993 et en 143 + STARTTLS avec la CA de test, authentification, capacités attendues présentes
+- [x] Intégration Mailpit : envoi en 465 et en 587, message reçu vérifié via l'API Mailpit
+- [x] Application : cas d'usage `TestConnection(paramètres)`, qui renvoie un résultat structuré (succès, problème de certificat, authentification, réseau)
 - [ ] Revue security-reviewer, consignée dans REVIEWS.md
 
 **Condition de fin** : `./scripts/check.sh full` passe sans erreur.

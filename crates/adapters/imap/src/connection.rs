@@ -31,6 +31,11 @@ use zeroize::Zeroize;
 
 /// Taille maximale d'une réponse (littéraux compris).
 pub(crate) const MAX_RESPONSE_SIZE: u32 = 64 * 1024 * 1024;
+/// Taille maximale d'une réponse avant TLS (salutation, CAPABILITY,
+/// STARTTLS) : rien de légitime n'y dépasse quelques Kio.
+pub(crate) const PRE_TLS_MAX_RESPONSE_SIZE: u32 = 64 * 1024;
+/// Nombre maximal de réponses non étiquetées conservées pour une commande.
+const MAX_UNTAGGED_PER_COMMAND: usize = 10_000;
 
 /// Flux sous-jacent.
 #[derive(Debug)]
@@ -78,6 +83,10 @@ pub(crate) struct Connection {
     client: Client,
     /// Octets reçus, pas encore fournis à `client`.
     inbuf: Vec<u8>,
+    /// Préfixe de `inbuf` déjà examiné sans y trouver de `\n`.
+    scanned: usize,
+    /// Taille maximale d'une réponse sur ce canal.
+    max_response_size: u32,
     timeout: Duration,
     next_tag: u32,
 }
@@ -115,14 +124,23 @@ fn capabilities_of<'a, T: fmt::Display + 'a>(
 
 impl Connection {
     /// `expect_greeting` : faux après STARTTLS (pas de nouvelle salutation).
-    pub(crate) fn new(transport: Transport, expect_greeting: bool, timeout: Duration) -> Self {
+    /// `max_response_size` : [`PRE_TLS_MAX_RESPONSE_SIZE`] sur un canal en
+    /// clair, [`MAX_RESPONSE_SIZE`] sinon.
+    pub(crate) fn new(
+        transport: Transport,
+        expect_greeting: bool,
+        timeout: Duration,
+        max_response_size: u32,
+    ) -> Self {
         let mut options = Options::default();
-        options.max_response_size = MAX_RESPONSE_SIZE;
+        options.max_response_size = max_response_size;
         options.discard_greeting = !expect_greeting;
         Self {
             transport,
             client: Client::new(options),
             inbuf: Vec::new(),
+            scanned: 0,
+            max_response_size,
             timeout,
             next_tag: 0,
         }
@@ -173,12 +191,18 @@ impl Connection {
     /// compris), en lisant le réseau si nécessaire.
     async fn feed_line(&mut self) -> Result<(), ConnectionError> {
         loop {
-            if let Some(pos) = self.inbuf.iter().position(|&b| b == b'\n') {
+            // Reprend après la partie déjà examinée : coût linéaire même
+            // pour une ligne énorme reçue par petits blocs.
+            let unseen = self.inbuf.get(self.scanned..).unwrap_or_default();
+            if let Some(offset) = unseen.iter().position(|&b| b == b'\n') {
+                let pos = self.scanned + offset;
+                self.scanned = 0;
                 let line: Vec<u8> = self.inbuf.drain(..=pos).collect();
                 self.client.enqueue_input(&line);
                 return Ok(());
             }
-            if self.inbuf.len() > MAX_RESPONSE_SIZE as usize {
+            self.scanned = self.inbuf.len();
+            if self.inbuf.len() > self.max_response_size as usize {
                 return Err(protocol("ligne trop longue"));
             }
             let mut chunk = [0u8; 16 * 1024];
@@ -226,7 +250,12 @@ impl Connection {
         loop {
             match self.next_event().await? {
                 Event::CommandSent { .. } => {}
-                Event::DataReceived { data: d } => data.push(d),
+                Event::DataReceived { data: d } => {
+                    if data.len() >= MAX_UNTAGGED_PER_COMMAND {
+                        return Err(protocol("trop de réponses non étiquetées"));
+                    }
+                    data.push(d);
+                }
                 Event::StatusReceived { status } => match status {
                     Status::Tagged(tagged) if tagged.tag == tag => {
                         return Ok(Reply {

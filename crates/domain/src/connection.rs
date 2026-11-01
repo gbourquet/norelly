@@ -15,13 +15,35 @@ pub fn server_text(raw: &[u8]) -> String {
     let text = String::from_utf8_lossy(raw);
     let mut out: String = text
         .chars()
-        .map(|c| if c.is_control() { ' ' } else { c })
+        .map(|c| {
+            if c.is_control() || is_format_char(c) {
+                ' '
+            } else {
+                c
+            }
+        })
         .take(MAX_SERVER_TEXT)
         .collect();
     if text.chars().count() > MAX_SERVER_TEXT {
         out.push('…');
     }
     out.trim().to_owned()
+}
+
+/// Caractères de mise en forme invisibles ou bidirectionnels (catégorie
+/// Unicode Cf usuelle) : ils permettent de maquiller un texte affiché
+/// (U+202E retourne la suite du texte).
+fn is_format_char(c: char) -> bool {
+    matches!(
+        c,
+        '\u{00AD}'
+            | '\u{061C}'
+            | '\u{180E}'
+            | '\u{200B}'..='\u{200F}'
+            | '\u{202A}'..='\u{202E}'
+            | '\u{2060}'..='\u{2069}'
+            | '\u{FEFF}'
+    )
 }
 
 /// Étape pendant laquelle un délai a expiré.
@@ -114,6 +136,10 @@ mod tests {
         assert_eq!(long.chars().count(), MAX_SERVER_TEXT + 1);
         assert!(long.ends_with('…'));
         assert_eq!(server_text(&[0xff, b'o', b'k']), "\u{fffd}ok");
+        assert_eq!(
+            server_text("mot\u{202E}gnp.exe\u{200B}\u{2066}x\u{FEFF}".as_bytes()),
+            "mot gnp.exe  x"
+        );
     }
 
     #[test]

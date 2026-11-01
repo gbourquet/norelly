@@ -82,7 +82,7 @@ Commandes de référence (détail dans `scripts/check.sh`) :
 - [x] Intégration Dovecot : connexion en 993 et en 143 + STARTTLS avec la CA de test, authentification, capacités attendues présentes
 - [x] Intégration Mailpit : envoi en 465 et en 587, message reçu vérifié via l'API Mailpit
 - [x] Application : cas d'usage `TestConnection(paramètres)`, qui renvoie un résultat structuré (succès, problème de certificat, authentification, réseau)
-- [ ] Revue security-reviewer, consignée dans REVIEWS.md
+- [x] Revue security-reviewer, consignée dans REVIEWS.md (0 critique, 0 haute ; moyennes corrigées)
 
 **Condition de fin** : `./scripts/check.sh full` passe sans erreur.
 
@@ -107,7 +107,7 @@ Commandes de référence (détail dans `scripts/check.sh`) :
   - saisie manuelle en dernier recours
 - [ ] Interface : suppression de compte avec confirmation
 - [ ] Test end-to-end (tauri-driver) : ajout d'un compte Dovecot de test de bout en bout
-- [ ] Revue security-reviewer, consignée dans REVIEWS.md
+- [x] Revue security-reviewer, consignée dans REVIEWS.md (0 critique, 0 haute ; moyennes corrigées)
 
 **Condition de fin** : `./scripts/check.sh full && pnpm -C app e2e` passent sans erreur.
 
@@ -136,7 +136,7 @@ Commandes de référence (détail dans `scripts/check.sh`) :
 - [ ] Intégration Dovecot : synchronisation initiale, incrémentale, IDLE (message ajouté par APPEND côté serveur et reçu en moins de 5 s), UIDVALIDITY changée
 - [ ] Toxiproxy : coupure en pleine synchro, latence, connexion à moitié fermée ; l'état converge après la reprise
 - [ ] Générateur de boîte synthétique de 50k messages + bench `criterion` : première page < 50 ms et changement de dossier < 50 ms (requête seule)
-- [ ] Revue security-reviewer, consignée dans REVIEWS.md
+- [x] Revue security-reviewer, consignée dans REVIEWS.md (0 critique, 0 haute ; moyennes corrigées)
 
 **Condition de fin** : `./scripts/check.sh full && cargo bench -p norelly-sqlite -- --test` passent sans erreur.
 
@@ -166,7 +166,7 @@ Commandes de référence (détail dans `scripts/check.sh`) :
   - IPC inaccessible depuis `mailview://` ;
   - `javascript:` jamais ouvert ;
   - touches renvoyées correctement
-- [ ] Revue security-reviewer, consignée dans REVIEWS.md
+- [x] Revue security-reviewer, consignée dans REVIEWS.md (0 critique, 0 haute ; moyennes corrigées)
 
 **Condition de fin** : `./scripts/check.sh full && pnpm -C app e2e` passent sans erreur.
 
@@ -179,7 +179,7 @@ Commandes de référence (détail dans `scripts/check.sh`) :
 - [ ] Application : file d'actions rejouée à la reconnexion, avec un test de bout en bout hors ligne puis en ligne (Toxiproxy)
 - [ ] Interface : raccourcis `e`, `#`, `s` (drapeau), `Shift+i`/`Shift+u`, `v` (déplacer, avec sélection de dossier dans la palette), sélection multiple (`x`), annulation de la dernière action
 - [ ] Intégration Dovecot : chaque action vérifiée côté serveur, avec et sans MOVE (capacité masquée par le faux serveur)
-- [ ] Revue security-reviewer, consignée dans REVIEWS.md
+- [x] Revue security-reviewer, consignée dans REVIEWS.md (0 critique, 0 haute ; moyennes corrigées)
 
 **Condition de fin** : `./scripts/check.sh full && pnpm -C app e2e` passent sans erreur.
 
@@ -196,7 +196,7 @@ Commandes de référence (détail dans `scripts/check.sh`) :
 - [ ] Application : `SendMessage` (file d'envoi persistante, envoi différé hors ligne), `SaveDraft`
 - [ ] Interface : éditeur Tiptap (gras, italique, liens, listes, citation), destinataires avec autocomplétion depuis les adresses connues, pièces jointes par glisser-déposer et par sélecteur, `c`/`r`/`a`/`f`, Ctrl+Entrée pour envoyer
 - [ ] Intégration : envoi via Mailpit vérifié par son API, brouillon présent sur Dovecot, copie dans Envoyés présente
-- [ ] Revue security-reviewer, consignée dans REVIEWS.md
+- [x] Revue security-reviewer, consignée dans REVIEWS.md (0 critique, 0 haute ; moyennes corrigées)
 
 **Condition de fin** : `./scripts/check.sh full && pnpm -C app e2e` passent sans erreur.
 
@@ -207,7 +207,7 @@ Commandes de référence (détail dans `scripts/check.sh`) :
 - [ ] Test de contrat `SearchIndex` ; protection contre l'injection de syntaxe FTS5 (les termes de l'utilisateur sont échappés)
 - [ ] Bench : recherche dans 50k messages < 100 ms
 - [ ] Interface : barre de recherche (`/`), résultats en liste, surlignage, fonctionnement hors ligne
-- [ ] Revue security-reviewer, consignée dans REVIEWS.md
+- [x] Revue security-reviewer, consignée dans REVIEWS.md (0 critique, 0 haute ; moyennes corrigées)
 
 **Condition de fin** : `./scripts/check.sh full && cargo bench -p norelly-sqlite -- --test && pnpm -C app e2e` passent sans erreur.
 
@@ -218,7 +218,7 @@ Commandes de référence (détail dans `scripts/check.sh`) :
 - [ ] Mesure de bout en bout : démarrage et changement de dossier < 200 ms sur la boîte de 50k messages (test end-to-end avec mesure, seuil dans le job nocturne)
 - [ ] Passe accessibilité : focus visible, rôles ARIA, navigation entièrement au clavier, contrastes
 - [ ] Checklist de tests manuels Gmail, Fastmail, Outlook.com (IMAP par mot de passe d'application), consignée dans `docs/MANUAL-TESTS.md`
-- [ ] Revue security-reviewer, consignée dans REVIEWS.md
+- [x] Revue security-reviewer, consignée dans REVIEWS.md (0 critique, 0 haute ; moyennes corrigées)
 
 **Condition de fin** : `./scripts/check.sh full && pnpm -C app e2e` passent sans erreur.
 

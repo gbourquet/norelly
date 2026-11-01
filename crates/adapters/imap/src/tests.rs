@@ -659,3 +659,64 @@ async fn credentials_never_appear_in_logs_or_debug() -> TestResult {
     }
     Ok(())
 }
+
+/// Flot sans fin de réponses non étiquetées avant STARTTLS : erreur bornée,
+/// pas de saturation mémoire.
+#[tokio::test]
+async fn untagged_flood_before_tls_is_bounded() -> TestResult {
+    let f = fixture()?;
+    let flood = "* CAPABILITY IMAP4rev1 X\r\n".repeat(10_100);
+    let server = ScriptedServer::start(
+        Script::new()
+            .send("* OK pret\r\n")
+            .expect("CAPABILITY")
+            .send(flood)
+            .close(),
+        None,
+    )
+    .await?;
+    let result = f
+        .connector
+        .connect(&request(
+            server.port(),
+            Security::StartTls,
+            PlaintextPolicy::deny_all(),
+        ))
+        .await;
+    assert_eq!(
+        result.err(),
+        Some(ConnectionError::Protocol(
+            "trop de réponses non étiquetées".into()
+        ))
+    );
+    let _ = server.finish().await;
+    Ok(())
+}
+
+/// Ligne énorme sans fin de ligne avant TLS : refusée dès 64 Kio.
+#[tokio::test]
+async fn huge_line_before_tls_is_rejected() -> TestResult {
+    let f = fixture()?;
+    let server = ScriptedServer::start(
+        Script::new()
+            .send(format!("* OK {}", "A".repeat(512 * 1024)))
+            .wait(Duration::from_secs(2))
+            .close(),
+        None,
+    )
+    .await?;
+    let result = f
+        .connector
+        .connect(&request(
+            server.port(),
+            Security::StartTls,
+            PlaintextPolicy::deny_all(),
+        ))
+        .await;
+    assert!(
+        matches!(result, Err(ConnectionError::Protocol(_))),
+        "{result:?}"
+    );
+    let _ = server.finish().await;
+    Ok(())
+}

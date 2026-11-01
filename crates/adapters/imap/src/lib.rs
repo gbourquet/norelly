@@ -26,7 +26,9 @@ use norelly_domain::security::{StartTlsDecision, decide_starttls};
 use norelly_tls::TlsClientFactory;
 use tokio::net::TcpStream;
 
-use crate::connection::{Connection, Transport, greeting_capabilities};
+use crate::connection::{
+    Connection, MAX_RESPONSE_SIZE, PRE_TLS_MAX_RESPONSE_SIZE, Transport, greeting_capabilities,
+};
 
 /// Délais d'attente.
 #[derive(Debug, Clone, Copy)]
@@ -90,7 +92,12 @@ impl ImapConnector {
 
         if endpoint.security() == Security::Tls {
             let tls = self.tls.connect(tcp, endpoint.host(), exceptions).await?;
-            let mut conn = Connection::new(Transport::Tls(Box::new(tls)), true, timeout);
+            let mut conn = Connection::new(
+                Transport::Tls(Box::new(tls)),
+                true,
+                timeout,
+                MAX_RESPONSE_SIZE,
+            );
             let greeting = conn.read_greeting().await?;
             let preauth = greeting.kind == GreetingKind::PreAuth;
             let caps = match greeting_capabilities(&greeting) {
@@ -100,7 +107,12 @@ impl ImapConnector {
             return Ok((conn, caps, preauth));
         }
 
-        let mut conn = Connection::new(Transport::Plain(tcp), true, timeout);
+        let mut conn = Connection::new(
+            Transport::Plain(tcp),
+            true,
+            timeout,
+            PRE_TLS_MAX_RESPONSE_SIZE,
+        );
         let greeting = conn.read_greeting().await?;
         if greeting.kind == GreetingKind::PreAuth {
             // Session déjà authentifiée en clair : STARTTLS n'est plus
@@ -121,11 +133,20 @@ impl ImapConnector {
                 tracing::debug!(endpoint = %endpoint, "passage en TLS par STARTTLS");
                 let tcp = conn.starttls().await?;
                 let tls = self.tls.connect(tcp, endpoint.host(), exceptions).await?;
-                let mut conn = Connection::new(Transport::Tls(Box::new(tls)), false, timeout);
+                let mut conn = Connection::new(
+                    Transport::Tls(Box::new(tls)),
+                    false,
+                    timeout,
+                    MAX_RESPONSE_SIZE,
+                );
                 let caps = conn.capability().await?;
                 Ok((conn, caps, false))
             }
             StartTlsDecision::StayPlain | StartTlsDecision::AlreadyEncrypted => {
+                // Le canal garde la limite de réponse d'avant TLS (64 Kio) :
+                // suffisant pour l'authentification ; à relever quand les
+                // sessions en clair consenti transporteront des messages
+                // (phase 4).
                 tracing::warn!(endpoint = %endpoint, "connexion IMAP en clair (consentie)");
                 Ok((conn, plain_caps, false))
             }

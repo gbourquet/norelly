@@ -24,9 +24,28 @@ norelly-test-support = { path = "crates/test-support" }
 # Domaine : seules dépendances autorisées (voir scripts/check-domain-deps.sh)
 thiserror = "2.0"
 serde = { version = "1.0", features = ["derive"] }
+# Adaptateurs internes
+norelly-tls = { path = "crates/adapters/tls" }
+norelly-imap = { path = "crates/adapters/imap" }
+norelly-smtp = { path = "crates/adapters/smtp" }
+norelly-keyring = { path = "crates/adapters/keyring" }
 # Infra
-tokio = { version = "1.54", features = ["rt-multi-thread", "macros", "net", "io-util", "time"] }
+tokio = { version = "1.54", features = ["rt-multi-thread", "macros", "net", "io-util", "time", "sync"] }
 testcontainers = "0.28"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "std"] }
+zeroize = "1.8"
+# TLS : rustls avec le fournisseur ring (aws-lc-rs écarté : licence OpenSSL
+# hors ADR-009 et chaîne de compilation C plus lourde).
+rustls = { version = "0.23.31", default-features = false, features = ["ring", "std", "tls12"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
+rustls-platform-verifier = "0.7"
+ring = "0.17"
+rcgen = { version = "0.14", default-features = false, features = ["crypto", "ring", "pem"] }
+# Protocoles
+imap-next = { version = "0.3.4", default-features = false, features = ["starttls", "ext_condstore_qresync"] }
+lettre = { version = "0.11.23", default-features = false, features = ["smtp-transport", "tokio1-rustls", "ring", "builder", "hostname"] }
+keyring = "4.2"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

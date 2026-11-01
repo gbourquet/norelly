@@ -10,5 +10,9 @@ publish.workspace = true
 [dependencies]
 norelly-domain.workspace = true
 
+[dev-dependencies]
+norelly-test-support.workspace = true
+tokio.workspace = true
+
 [lints]
 workspace = true

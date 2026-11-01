@@ -1,0 +1,376 @@
+//! Cas d'usage `TestConnection` : tente une connexion authentifiée à un
+//! serveur IMAP ou SMTP et renvoie un résultat structuré, prêt à être
+//! présenté à l'utilisateur (sans jamais contenir le secret).
+
+use norelly_domain::auth::AuthError;
+use norelly_domain::capabilities::ServerCapabilities;
+use norelly_domain::connection::{ConnectionError, FailureCategory};
+use norelly_domain::credentials::Credentials;
+use norelly_domain::endpoint::{Protocol, ServerEndpoint};
+use norelly_domain::ports::{
+    CertificateExceptionStore, ConnectRequest, MailSender, RemoteMailboxConnector,
+    RemoteMailboxSession,
+};
+use norelly_domain::security::{CertificateRejection, PlaintextPolicy};
+
+/// Paramètres d'un test de connexion.
+#[derive(Debug, Clone)]
+pub struct TestConnectionParams {
+    pub protocol: Protocol,
+    pub endpoint: ServerEndpoint,
+    pub credentials: Credentials,
+    pub plaintext: PlaintextPolicy,
+}
+
+/// Résultat d'un test de connexion.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TestConnectionOutcome {
+    /// Connexion chiffrée (ou clair consenti) et authentification réussies.
+    Success { capabilities: ServerCapabilities },
+    /// Certificat refusé : l'utilisateur peut, en connaissance de cause,
+    /// ajouter une exception (hôte + empreinte) si
+    /// [`CertificateRejection::can_be_excepted`].
+    Certificate(CertificateRejection),
+    /// Identifiants refusés ou méthode d'authentification impossible.
+    Authentication(AuthError),
+    /// Serveur injoignable, délai dépassé, connexion coupée.
+    Network(ConnectionError),
+    /// Protection déclenchée : clair refusé, STARTTLS absent ou refusé,
+    /// injection détectée, négociation TLS impossible.
+    Security(ConnectionError),
+    /// Serveur non conforme.
+    Protocol(ConnectionError),
+    /// Erreur interne (stockage des exceptions…).
+    Internal(String),
+}
+
+impl From<ConnectionError> for TestConnectionOutcome {
+    fn from(error: ConnectionError) -> Self {
+        match (error.category(), error) {
+            (_, ConnectionError::Certificate(rejection)) => Self::Certificate(rejection),
+            (_, ConnectionError::Authentication(auth)) => Self::Authentication(auth),
+            (FailureCategory::Network, e) => Self::Network(e),
+            (FailureCategory::Protocol, e) => Self::Protocol(e),
+            (
+                FailureCategory::Security
+                | FailureCategory::Certificate
+                | FailureCategory::Authentication,
+                e,
+            ) => Self::Security(e),
+        }
+    }
+}
+
+/// Cas d'usage : tester une connexion.
+#[derive(Debug)]
+pub struct TestConnection<I, S, E> {
+    imap: I,
+    smtp: S,
+    exceptions: E,
+}
+
+impl<I, S, E> TestConnection<I, S, E>
+where
+    I: RemoteMailboxConnector,
+    S: MailSender,
+    E: CertificateExceptionStore,
+{
+    pub fn new(imap: I, smtp: S, exceptions: E) -> Self {
+        Self {
+            imap,
+            smtp,
+            exceptions,
+        }
+    }
+
+    pub async fn execute(&self, params: TestConnectionParams) -> TestConnectionOutcome {
+        // Refus du clair avant toute E/S.
+        if let Err(refused) = params.plaintext.authorize(&params.endpoint) {
+            return ConnectionError::from(refused).into();
+        }
+        let certificate_exceptions =
+            match self.exceptions.exceptions_for(params.endpoint.host()).await {
+                Ok(exceptions) => exceptions,
+                Err(e) => return TestConnectionOutcome::Internal(e.to_string()),
+            };
+        let request = ConnectRequest {
+            endpoint: params.endpoint,
+            credentials: params.credentials,
+            certificate_exceptions,
+            plaintext: params.plaintext,
+        };
+        let result = match params.protocol {
+            Protocol::Imap => match self.imap.connect(&request).await {
+                Ok(session) => {
+                    let capabilities = session.capabilities().clone();
+                    // Échec de LOGOUT sans importance : la connexion a réussi.
+                    let _ = session.logout().await;
+                    Ok(capabilities)
+                }
+                Err(e) => Err(e),
+            },
+            Protocol::Smtp => self.smtp.verify(&request).await,
+        };
+        match result {
+            Ok(capabilities) => TestConnectionOutcome::Success { capabilities },
+            Err(e) => e.into(),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::{Arc, Mutex, PoisonError};
+
+    use norelly_domain::connection::TimeoutStage;
+    use norelly_domain::credentials::{Secret, Username};
+    use norelly_domain::endpoint::{Host, Security};
+    use norelly_domain::ports::{OutgoingMessage, SendError};
+    use norelly_domain::security::{
+        CertificateException, CertificateFingerprint, CertificateIssue, PlaintextConsent,
+    };
+    use norelly_test_support::contracts::InMemoryCertificateExceptionStore;
+
+    use super::*;
+
+    type Seen = Arc<Mutex<Vec<ConnectRequest>>>;
+
+    /// Faux connecteur : renvoie un résultat fixé et mémorise les requêtes.
+    #[derive(Debug, Clone)]
+    struct FakeConnector {
+        result: Result<ServerCapabilities, ConnectionError>,
+        seen: Seen,
+    }
+
+    impl FakeConnector {
+        fn new(result: Result<ServerCapabilities, ConnectionError>) -> Self {
+            Self {
+                result,
+                seen: Seen::default(),
+            }
+        }
+        fn record(&self, request: &ConnectRequest) {
+            self.seen
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .push(request.clone());
+        }
+        fn requests(&self) -> Vec<ConnectRequest> {
+            self.seen
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .clone()
+        }
+    }
+
+    #[derive(Debug)]
+    struct FakeSession(ServerCapabilities);
+
+    impl RemoteMailboxSession for FakeSession {
+        fn capabilities(&self) -> &ServerCapabilities {
+            &self.0
+        }
+        async fn logout(self) -> Result<(), ConnectionError> {
+            Err(ConnectionError::Closed)
+        }
+    }
+
+    impl RemoteMailboxConnector for FakeConnector {
+        type Session = FakeSession;
+        async fn connect(&self, request: &ConnectRequest) -> Result<FakeSession, ConnectionError> {
+            self.record(request);
+            self.result.clone().map(FakeSession)
+        }
+    }
+
+    impl MailSender for FakeConnector {
+        async fn verify(
+            &self,
+            request: &ConnectRequest,
+        ) -> Result<ServerCapabilities, ConnectionError> {
+            self.record(request);
+            self.result.clone()
+        }
+        async fn send(&self, _: &ConnectRequest, _: &OutgoingMessage) -> Result<(), SendError> {
+            Ok(())
+        }
+    }
+
+    fn host(name: &str) -> Host {
+        Host::parse(name).unwrap_or_else(|_| panic!("hôte"))
+    }
+
+    fn params(protocol: Protocol, security: Security) -> TestConnectionParams {
+        TestConnectionParams {
+            protocol,
+            endpoint: ServerEndpoint::new(host("mail.example.com"), 993, security)
+                .unwrap_or_else(|_| panic!("point de connexion")),
+            credentials: Credentials::new(
+                Username::parse("alice").unwrap_or_else(|_| panic!("utilisateur")),
+                Secret::new("pw".into()),
+            )
+            .unwrap_or_else(|_| panic!("identifiants")),
+            plaintext: PlaintextPolicy::deny_all(),
+        }
+    }
+
+    fn rejection() -> CertificateRejection {
+        CertificateRejection {
+            host: host("mail.example.com"),
+            fingerprint: CertificateFingerprint::from_bytes([1; 32]),
+            issue: CertificateIssue::UnknownIssuer,
+            fingerprint_changed: false,
+        }
+    }
+
+    fn use_case(
+        imap: Result<ServerCapabilities, ConnectionError>,
+        smtp: Result<ServerCapabilities, ConnectionError>,
+    ) -> (
+        TestConnection<FakeConnector, FakeConnector, InMemoryCertificateExceptionStore>,
+        FakeConnector,
+        FakeConnector,
+    ) {
+        let (i, s) = (FakeConnector::new(imap), FakeConnector::new(smtp));
+        (
+            TestConnection::new(
+                i.clone(),
+                s.clone(),
+                InMemoryCertificateExceptionStore::default(),
+            ),
+            i,
+            s,
+        )
+    }
+
+    #[tokio::test]
+    async fn success_reports_capabilities_even_if_logout_fails() {
+        let caps = ServerCapabilities::from_imap(["IMAP4rev1", "IDLE"]);
+        let (uc, imap, smtp) = use_case(Ok(caps.clone()), Err(ConnectionError::Closed));
+        assert_eq!(
+            uc.execute(params(Protocol::Imap, Security::Tls)).await,
+            TestConnectionOutcome::Success { capabilities: caps }
+        );
+        assert_eq!(imap.requests().len(), 1);
+        assert!(smtp.requests().is_empty());
+    }
+
+    #[tokio::test]
+    async fn smtp_uses_the_mail_sender() {
+        let caps = ServerCapabilities::from_smtp_ehlo(["AUTH PLAIN"]);
+        let (uc, imap, smtp) = use_case(Err(ConnectionError::Closed), Ok(caps.clone()));
+        assert_eq!(
+            uc.execute(params(Protocol::Smtp, Security::StartTls)).await,
+            TestConnectionOutcome::Success { capabilities: caps }
+        );
+        assert!(imap.requests().is_empty());
+        assert_eq!(smtp.requests().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn failures_are_classified() {
+        let cases = [
+            (
+                ConnectionError::Certificate(rejection()),
+                TestConnectionOutcome::Certificate(rejection()),
+            ),
+            (
+                AuthError::LoginDisabled.into(),
+                TestConnectionOutcome::Authentication(AuthError::LoginDisabled),
+            ),
+            (
+                ConnectionError::Timeout(TimeoutStage::Connect),
+                TestConnectionOutcome::Network(ConnectionError::Timeout(TimeoutStage::Connect)),
+            ),
+            (
+                ConnectionError::Network("refusé".into()),
+                TestConnectionOutcome::Network(ConnectionError::Network("refusé".into())),
+            ),
+            (
+                ConnectionError::StartTlsUnavailable,
+                TestConnectionOutcome::Security(ConnectionError::StartTlsUnavailable),
+            ),
+            (
+                ConnectionError::PlaintextInjection,
+                TestConnectionOutcome::Security(ConnectionError::PlaintextInjection),
+            ),
+            (
+                ConnectionError::Tls("x".into()),
+                TestConnectionOutcome::Security(ConnectionError::Tls("x".into())),
+            ),
+            (
+                ConnectionError::Protocol("x".into()),
+                TestConnectionOutcome::Protocol(ConnectionError::Protocol("x".into())),
+            ),
+        ];
+        for (error, expected) in cases {
+            let (uc, _, _) = use_case(Err(error), Err(ConnectionError::Closed));
+            assert_eq!(
+                uc.execute(params(Protocol::Imap, Security::Tls)).await,
+                expected
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn plaintext_without_consent_is_refused_before_any_connection() {
+        let (uc, imap, _) = use_case(
+            Ok(ServerCapabilities::default()),
+            Err(ConnectionError::Closed),
+        );
+        let outcome = uc.execute(params(Protocol::Imap, Security::Plain)).await;
+        assert!(
+            matches!(
+                outcome,
+                TestConnectionOutcome::Security(ConnectionError::PlaintextRefused(_))
+            ),
+            "{outcome:?}"
+        );
+        assert!(
+            imap.requests().is_empty(),
+            "connexion tentée malgré le refus"
+        );
+    }
+
+    #[tokio::test]
+    async fn plaintext_with_consent_is_attempted() {
+        let (uc, imap, _) = use_case(
+            Ok(ServerCapabilities::default()),
+            Err(ConnectionError::Closed),
+        );
+        let mut p = params(Protocol::Imap, Security::Plain);
+        p.plaintext = PlaintextPolicy::deny_all().with_consent(PlaintextConsent {
+            host: host("mail.example.com"),
+            port: 993,
+        });
+        assert!(matches!(
+            uc.execute(p).await,
+            TestConnectionOutcome::Success { .. }
+        ));
+        assert_eq!(imap.requests().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn stored_exceptions_for_the_host_are_passed_to_the_adapter()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let (uc, imap, _) = use_case(
+            Ok(ServerCapabilities::default()),
+            Err(ConnectionError::Closed),
+        );
+        let mine = CertificateException {
+            host: host("mail.example.com"),
+            fingerprint: CertificateFingerprint::from_bytes([7; 32]),
+        };
+        let other = CertificateException {
+            host: host("other.example.com"),
+            fingerprint: CertificateFingerprint::from_bytes([8; 32]),
+        };
+        uc.exceptions.add(&mine).await?;
+        uc.exceptions.add(&other).await?;
+        uc.execute(params(Protocol::Imap, Security::Tls)).await;
+        let requests = imap.requests();
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0].certificate_exceptions, vec![mine]);
+        Ok(())
+    }
+}

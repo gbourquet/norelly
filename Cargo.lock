@@ -2828,6 +2828,8 @@ name = "norelly-application"
 version = "0.1.0"
 dependencies = [
  "norelly-domain",
+ "norelly-test-support",
+ "tokio",
 ]
 
 [[package]]

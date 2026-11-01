@@ -9,6 +9,12 @@ publish.workspace = true
 
 [dependencies]
 norelly-domain.workspace = true
+keyring.workspace = true
+tokio.workspace = true
+zeroize.workspace = true
+
+[dev-dependencies]
+norelly-test-support.workspace = true
 
 [lints]
 workspace = true

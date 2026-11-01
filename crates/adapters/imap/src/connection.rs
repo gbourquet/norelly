@@ -195,20 +195,16 @@ impl Connection {
 
     /// Lit la salutation du serveur.
     pub(crate) async fn read_greeting(&mut self) -> Result<Greeting<'static>, ConnectionError> {
-        loop {
-            match self.next_event().await? {
-                Event::GreetingReceived { greeting } => {
-                    if greeting.kind == GreetingKind::Bye {
-                        return Err(ConnectionError::Protocol(format!(
-                            "le serveur refuse la connexion : {}",
-                            server_text(greeting.text.as_ref().as_bytes())
-                        )));
-                    }
-                    return Ok(greeting);
-                }
-                _ => return Err(protocol("salutation attendue")),
-            }
+        let Event::GreetingReceived { greeting } = self.next_event().await? else {
+            return Err(protocol("salutation attendue"));
+        };
+        if greeting.kind == GreetingKind::Bye {
+            return Err(ConnectionError::Protocol(format!(
+                "le serveur refuse la connexion : {}",
+                server_text(greeting.text.as_ref().as_bytes())
+            )));
         }
+        Ok(greeting)
     }
 
     fn tag(&mut self) -> Result<Tag<'static>, ConnectionError> {

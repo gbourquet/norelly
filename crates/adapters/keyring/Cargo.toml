@@ -1,0 +1,14 @@
+[package]
+name = "norelly-keyring"
+description = "Adaptateur SecretStore : trousseau du système."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+norelly-domain.workspace = true
+
+[lints]
+workspace = true

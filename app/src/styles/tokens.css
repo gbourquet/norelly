@@ -1,0 +1,41 @@
+/* Jetons de design de Norelly (ADR-005). Clair et sombre selon le système. */
+:root {
+  color-scheme: light dark;
+
+  --font-sans: system-ui, -apple-system, "Segoe UI", "Noto Sans", Ubuntu, Cantarell, sans-serif;
+  --font-mono: ui-monospace, "Cascadia Code", "DejaVu Sans Mono", monospace;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --radius: 6px;
+
+  --color-bg: #ffffff;
+  --color-surface: #f5f6f8;
+  --color-border: #e1e4e8;
+  --color-text: #1b1f24;
+  --color-text-muted: #59636e;
+  --color-accent: #2f6fde;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-bg: #16181c;
+    --color-surface: #1e2126;
+    --color-border: #2d3138;
+    --color-text: #e6e8eb;
+    --color-text-muted: #9aa3ad;
+    --color-accent: #6b9cf0;
+  }
+}
+
+html,
+body {
+  margin: 0;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  font-size: 14px;
+}

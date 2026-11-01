@@ -1,0 +1,14 @@
+[package]
+name = "norelly-application"
+description = "Cas d'usage de Norelly : orchestration des ports du domaine."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+norelly-domain.workspace = true
+
+[lints]
+workspace = true

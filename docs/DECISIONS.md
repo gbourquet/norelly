@@ -1,0 +1,234 @@
+# Décisions d'architecture (ADR)
+
+Format court : contexte, options, décision, conséquences. Toute dérogation
+à une décision « Acceptée » doit être validée par le mainteneur avant
+d'être implémentée, puis consignée ici dans une nouvelle entrée.
+
+Contexte général : client IMAP/SMTP desktop (Windows, Linux), open source,
+budget nul, faible empreinte, boîtes d'environ 50 000 messages sur 2 ou 3
+comptes. Le mainteneur maîtrise Rust (et Qt/Dart), pas TypeScript. Le code
+est majoritairement écrit par Claude et relu par le mainteneur.
+
+---
+
+## ADR-001 : framework applicatif Tauri 2
+
+- **Statut** : Acceptée (2026-11-01)
+- **Contexte** : il faut un moteur web pour le HTML des mails, une
+  faible empreinte et des licences permissives.
+- **Options** : Tauri 2 (Rust + webview système) ; Rust natif (iced/gpui)
+  + webview embarqué ; Rust + Qt/QML (cxx-qt) ; Flutter + Rust ;
+  Electron (écarté : empreinte).
+- **Décision** : **Tauri 2.x** (stable, pas la 3.0 alpha), cœur en Rust,
+  interface web légère.
+- **Conséquences** :
+  - Toute la logique métier et toutes les décisions de sécurité sont en
+    Rust. Le TypeScript ne fait que de la présentation.
+  - Risque WebKitGTK sous Linux (performances, versions selon les
+    distributions), atténué par Flatpak (ADR-006).
+  - Les listes doivent être paginées côté Rust, jamais transmises en masse
+    par l'IPC.
+
+## ADR-002 : bibliothèques IMAP, SMTP, MIME et TLS
+
+- **Statut** : Acceptée (2026-11-01)
+- **Contexte** : extensions requises (IDLE, CONDSTORE, QRESYNC, UIDPLUS,
+  MOVE, SPECIAL-USE, COMPRESS) ; données reçues hostiles par nature.
+- **Options IMAP** : `async-imap` (éprouvée, QRESYNC incomplet) ;
+  `imap-codec` + `imap-next` (codec strict, fuzzé, extensions modélisées) ;
+  parseur maison (rejeté).
+- **Décision** :
+  - IMAP : `imap-codec` + `imap-next` (feature `ext_condstore_qresync`,
+    `starttls`), avec une couche de session maison derrière un port
+    `RemoteMailbox` ;
+  - SMTP : `lettre` (et construction des messages MIME) ;
+  - MIME : `mail-parser` ;
+  - TLS : `rustls` 0.23 + `rustls-platform-verifier`, avec un vérificateur
+    qui gère les exceptions par empreinte ;
+  - autres : `keyring`, `hickory-resolver`, `reqwest` (rustls),
+    `quick-xml`.
+- **Conséquences** :
+  - Plus de code à écrire pour la session IMAP (pipelining, IDLE,
+    reconnexion).
+  - L'interopérabilité est sous notre responsabilité : on la vérifie contre
+    Dovecot et un faux serveur scripté (ADR-007).
+  - TLS 1.0 et 1.1 ne sont pas supportés : message d'erreur explicite.
+  - Couverture effective des extensions à confirmer en phase 2 (voir
+    PLAN.md). Si une extension manque, on le signale avant de la
+    contourner.
+
+## ADR-003 : stockage local et recherche plein texte
+
+- **Statut** : Acceptée (2026-11-01)
+- **Options** : SQLite + FTS5 ; SQLite + Tantivy ; base clé-valeur +
+  Tantivy.
+- **Décision** :
+  - **une base SQLite globale** (`rusqlite`, SQLite embarqué), en mode
+    WAL, avec un seul thread rédacteur et plusieurs lecteurs ;
+  - migrations avec `rusqlite_migration` ;
+  - FTS5 à contenu externe, tokenizer `unicode61 remove_diacritics 2`,
+    préfixe automatique sur les termes ;
+  - mails bruts hors base, en fichiers `.eml.zst` classés par compte et
+    par empreinte de contenu ;
+  - pas de chiffrement au repos au MVP (on s'appuie sur le chiffrement
+    disque de l'OS).
+- **Conséquences** :
+  - La recherche reste derrière le port `SearchIndex`, ce qui permet de
+    passer à Tantivy plus tard.
+  - Pas de racinisation ni de tolérance aux fautes au MVP.
+  - L'objectif des 200 ms repose sur des index composites et des
+    conversations précalculées.
+
+## ADR-004 : rendu sécurisé du HTML des mails (« A+ »)
+
+- **Statut** : Acceptée (2026-11-01)
+- **Options** : iframe `srcdoc` avec `allow-same-origin` (A) ; iframe
+  `sandbox=""` opaque sans agent (B) ; webview Tauri séparé (C, rejeté :
+  overlays masqués, clavier perdu, API `unstable`) ; conversion en texte
+  (D).
+- **Décision** :
+  - **A+** : `<iframe src="mailview://msg/<id>" sandbox="allow-scripts">`,
+    **sans** `allow-same-origin`, donc origine opaque ;
+  - le protocole Rust `mailview://` sert le HTML assaini par `ammonia`,
+    avec la CSP en en-tête HTTP : `default-src 'none'`,
+    `script-src 'sha256-<agent>'`, `img-src mailpart: remote-img: data:`,
+    `style-src 'unsafe-inline'` ;
+  - un seul script autorisé : notre agent, qui communique par
+    `postMessage` (hauteur, clic sur lien, touches de raccourci) ;
+  - images `cid:` servies par `mailpart://`, images distantes par le
+    proxy Rust `remote-img://` (sans cookies ni Referer, User-Agent
+    neutre, taille bornée), sur autorisation par expéditeur décidée en
+    Rust ;
+  - liens ouverts par une commande Rust qui valide le schéma (`http`,
+    `https`, `mailto`), dans le navigateur système ;
+  - mode texte brut (D) disponible en option utilisateur.
+- **Conséquences** :
+  - Le protocole `postMessage` est une surface critique : messages
+    validés côté interface (source, schéma, taille).
+  - Tests end-to-end obligatoires : zéro requête vers un serveur canari,
+    aucun script du mail exécuté, IPC Tauri inaccessible depuis
+    `mailview://`. Si WebKitGTK se comporte différemment : repli
+    documenté vers A, après validation du mainteneur.
+
+## ADR-005 : interface utilisateur
+
+- **Statut** : Acceptée (2026-11-01)
+- **Options** : Svelte 5 ; SolidJS ; React 19.
+- **Décision** :
+  - **Svelte 5** (runes) + TypeScript strict + Vite, gestionnaire de
+    paquets pnpm ;
+  - `bits-ui` pour les primitives accessibles ;
+  - virtualisation maison au-dessus de `@tanstack/virtual-core` ;
+  - jetons de design en variables CSS et CSS scopé, **sans Tailwind** ;
+  - police système, icônes Lucide embarquées, aucune ressource réseau ;
+  - contrat IPC généré depuis Rust par `tauri-specta` ;
+  - **registre de commandes central**, qui alimente la palette Ctrl+K,
+    les raccourcis (style Gmail), les menus contextuels et l'aide ;
+  - thème clair ou sombre selon le système.
+- **Conséquences** :
+  - Le mainteneur relit le contrat côté Rust.
+  - Pas de syntaxe Svelte 4.
+
+## ADR-006 : packaging et mises à jour
+
+- **Statut** : Acceptée (2026-11-01)
+- **Options** : artefacts directs non signés (avec AppImage) ; canaux
+  libres et gratuits ; magasins (Microsoft Store + Flathub).
+- **Décision** :
+  - **Windows** : NSIS par utilisateur, signé via SignPath Foundation
+    (dès que le projet est accepté), et winget ;
+  - **Linux** : Flathub en canal principal, .deb et .rpm en secondaire,
+    **pas d'AppImage** ;
+  - `tauri-plugin-updater` (signature minisign) pour NSIS uniquement, le
+    module étant désactivé à la compilation pour les autres canaux ;
+  - vérification des mises à jour **demandée au premier lancement**
+    (oui présélectionné), modifiable dans les paramètres, sans aucun
+    identifiant envoyé ;
+  - identifiant d'application : `io.github.gbourquet.Norelly`.
+- **Conséquences** :
+  - Binaires Windows non signés tant que SignPath n'a pas validé le
+    projet.
+  - Build Flathub hors ligne (dépendances cargo et npm vendorisées).
+
+## ADR-007 : stratégie de tests
+
+- **Statut** : Acceptée (2026-11-01)
+- **Options serveurs** : GreenMail (extensions insuffisantes) ; Dovecot +
+  Mailpit + Toxiproxy + faux serveur scripté ; Stalwart tout-en-un.
+- **Décision** :
+  - **Rust** : `cargo nextest`, `proptest`, `cargo-fuzz` (job nocturne) ;
+  - **front** : `vitest` + `@testing-library/svelte` ;
+  - **end-to-end** : `tauri-driver` + WebdriverIO, sous Linux ;
+  - **performance** : `criterion` + générateur de boîte de 50k messages ;
+  - **intégration** via `testcontainers`, dans des fichiers de test nommés
+    `tests/integration*.rs`, exclus du profil nextest par défaut et lancés
+    par `--profile integration`. Les briques sont ajoutées progressivement :
+    - Dovecot et Mailpit dès la phase 1 ;
+    - faux serveur scripté et certificats `rcgen` en phase 2 ;
+    - Toxiproxy en phase 4 ;
+    - Stalwart dans le job nocturne, après le MVP ;
+  - **tests de contrat** : chaque port est testé contre son faux en
+    mémoire et contre son implémentation réelle.
+- **Conséquences** :
+  - Tests d'intégration uniquement sous Linux (les runners Windows
+    n'exécutent pas de conteneurs Linux).
+  - Le seuil des 200 ms est vérifié en local et dans le job nocturne, pas
+    à chaque commit.
+  - Tests manuels sur Gmail, Fastmail et Outlook, sans identifiants en
+    CI.
+
+## ADR-008 : architecture hexagonale dosée
+
+- **Statut** : Acceptée (2026-11-01)
+- **Contexte** : le mainteneur relit en priorité le domaine Rust et veut
+  pouvoir remplacer une brique d'infrastructure.
+- **Décision** :
+  - **`crates/domain`** : règles pures, sans E/S, et ports (traits). Il
+    contient :
+    - le rapprochement de synchronisation ;
+    - la file d'actions hors ligne ;
+    - les fils de conversation (JWZ) ;
+    - les règles de rédaction ;
+    - les politiques de sécurité ;
+    - la stratégie d'autodécouverte ;
+    - l'analyse des requêtes de recherche.
+
+    Dépendances autorisées : `thiserror`, `serde` (vérifié en CI).
+  - **`crates/application`** : cas d'usage async qui orchestrent les
+    ports.
+  - **`crates/adapters/*`** : implémentations des ports.
+  - **`app/src-tauri`** : adaptateur entrant et point d'assemblage.
+  - **CQRS léger** : les écritures passent par le domaine ; les lectures
+    d'écran passent par des ports de requête taillés pour l'écran
+    (pagination par curseur), implémentés en SQL.
+  - Dispatch statique dans les chemins chauds, `dyn` au point
+    d'assemblage.
+- **Conséquences** :
+  - Environ 10 à 15 % de code en plus.
+  - Le code de sécurité vit aussi dans l'infra : TLS, STARTTLS,
+    assainisseur, protocoles personnalisés, écriture des pièces jointes.
+    Ces fichiers sont signalés au mainteneur à chaque fin de phase.
+
+## ADR-009 : licence et politique de dépendances
+
+- **Statut** : Acceptée (2026-11-01)
+- **Décision** :
+  - application sous **`MIT OR Apache-2.0`** ;
+  - dépendances permissives ; MPL-2.0 tolérée ; LGPL tolérée si liée
+    dynamiquement ; **GPL et AGPL refusées** ;
+  - contrôle par `cargo-deny` (licences et avis de sécurité) et
+    `pnpm audit`.
+- **Conséquences** : les serveurs de test sous AGPL (Stalwart) sont
+  admis, car ils ne sont pas liés à notre code.
+
+## ADR-010 : éditeur de rédaction
+
+- **Statut** : Acceptée (2026-11-01)
+- **Options** : Tiptap avec mise en forme minimale ; texte brut seul.
+- **Décision** :
+  - **Tiptap** (ProseMirror, MIT) : gras, italique, liens, listes,
+    citation ;
+  - le HTML produit est réassaini en Rust ;
+  - envoi en `multipart/alternative` avec une version texte.
+- **Conséquences** : dépendance front supplémentaire ; notre propre HTML
+  est traité comme non fiable.

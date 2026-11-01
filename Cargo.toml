@@ -1,0 +1,42 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/domain",
+    "crates/application",
+    "crates/adapters/*",
+    "crates/test-support",
+    "app/src-tauri",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.90"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/gbourquet/norelly"
+publish = false
+
+[workspace.dependencies]
+# Internes
+norelly-domain = { path = "crates/domain" }
+norelly-application = { path = "crates/application" }
+norelly-test-support = { path = "crates/test-support" }
+# Domaine : seules dépendances autorisées (voir scripts/check-domain-deps.sh)
+thiserror = "2.0"
+serde = { version = "1.0", features = ["derive"] }
+# Infra
+tokio = { version = "1.54", features = ["rt-multi-thread", "macros", "net", "io-util", "time"] }
+testcontainers = "0.28"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+missing_debug_implementations = "warn"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+unwrap_used = "warn"
+dbg_macro = "warn"
+todo = "warn"
+
+[profile.dev.package."*"]
+opt-level = 1

@@ -1,0 +1,14 @@
+[package]
+name = "norelly-imap"
+description = "Adaptateur IMAP : implémentation du port RemoteMailbox avec imap-next."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+norelly-domain.workspace = true
+
+[lints]
+workspace = true

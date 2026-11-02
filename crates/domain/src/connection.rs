@@ -33,7 +33,7 @@ pub fn server_text(raw: &[u8]) -> String {
 /// Caractères de mise en forme invisibles ou bidirectionnels (catégorie
 /// Unicode Cf usuelle) : ils permettent de maquiller un texte affiché
 /// (U+202E retourne la suite du texte).
-fn is_format_char(c: char) -> bool {
+pub(crate) fn is_format_char(c: char) -> bool {
     matches!(
         c,
         '\u{00AD}'

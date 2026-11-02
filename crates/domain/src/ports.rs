@@ -6,10 +6,15 @@
 use std::fmt;
 use std::future::Future;
 
+use crate::account::{Account, AccountDraft, AccountId};
+use crate::address::EmailAddress;
 use crate::auth::{AuthError, AuthMechanism};
 use crate::capabilities::ServerCapabilities;
 use crate::connection::ConnectionError;
 use crate::credentials::{Credentials, Secret, SecretBytes, Username};
+use crate::discovery::{
+    AutoconfigRequest, DiscoveredServers, ServerCandidate, SrvRecord, SrvService,
+};
 use crate::endpoint::{Host, Protocol, ServerEndpoint};
 use crate::security::{CertificateException, PlaintextPolicy};
 
@@ -215,6 +220,102 @@ pub trait MailSender: Send + Sync {
         request: &ConnectRequest,
         message: &OutgoingMessage,
     ) -> impl Future<Output = Result<(), SendError>> + Send;
+}
+
+// ---------------------------------------------------------------------------
+// Autodécouverte
+// ---------------------------------------------------------------------------
+
+/// Échec d'une source d'autodécouverte. Sans gravité : on passe à la
+/// source suivante.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum DiscoveryError {
+    #[error("erreur réseau : {0}")]
+    Network(String),
+    #[error("délai dépassé")]
+    Timeout,
+    #[error("réponse invalide : {0}")]
+    Invalid(String),
+}
+
+/// Client autoconfig (fichiers `config-v1.1.xml` du fournisseur ou de
+/// l'ISPDB).
+pub trait AutoconfigClient: Send + Sync {
+    /// Télécharge et analyse le fichier. `Ok(None)` : aucun fichier à cette
+    /// adresse (404, nom inconnu…).
+    fn fetch(
+        &self,
+        request: &AutoconfigRequest,
+    ) -> impl Future<Output = Result<Option<DiscoveredServers>, DiscoveryError>> + Send;
+}
+
+/// Résolution DNS SRV.
+pub trait SrvResolver: Send + Sync {
+    /// Enregistrements de `<service>.<domaine>` ; liste vide si aucun.
+    fn lookup(
+        &self,
+        service: SrvService,
+        domain: &Host,
+    ) -> impl Future<Output = Result<Vec<SrvRecord>, DiscoveryError>> + Send;
+}
+
+/// Sondage de serveurs (connexion TCP et salutation, délai court).
+pub trait PortProber: Send + Sync {
+    /// Candidats qui répondent, dans l'ordre d'entrée.
+    fn probe(
+        &self,
+        candidates: Vec<ServerCandidate>,
+    ) -> impl Future<Output = Vec<ServerCandidate>> + Send;
+}
+
+// ---------------------------------------------------------------------------
+// Comptes
+// ---------------------------------------------------------------------------
+
+/// Erreur du dépôt de comptes.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum AccountStoreError {
+    #[error("un compte existe déjà pour {0}")]
+    Duplicate(EmailAddress),
+    #[error("données de compte corrompues : {0}")]
+    Corrupted(String),
+    #[error(transparent)]
+    Store(#[from] StoreError),
+}
+
+/// Dépôt des comptes (sans secret).
+pub trait AccountRepository: Send + Sync {
+    /// Comptes, par ordre de création.
+    fn list(&self) -> impl Future<Output = Result<Vec<Account>, AccountStoreError>> + Send;
+
+    fn get(
+        &self,
+        id: AccountId,
+    ) -> impl Future<Output = Result<Option<Account>, AccountStoreError>> + Send;
+
+    fn find_by_address(
+        &self,
+        address: &EmailAddress,
+    ) -> impl Future<Output = Result<Option<Account>, AccountStoreError>> + Send;
+
+    /// Enregistre un compte ; une adresse déjà présente est refusée
+    /// ([`AccountStoreError::Duplicate`]).
+    fn insert(
+        &self,
+        draft: &AccountDraft,
+    ) -> impl Future<Output = Result<Account, AccountStoreError>> + Send;
+
+    /// Supprime un compte et ses données en base ; `false` s'il n'existait
+    /// pas.
+    fn delete(&self, id: AccountId)
+    -> impl Future<Output = Result<bool, AccountStoreError>> + Send;
+}
+
+/// Données locales d'un compte hors base (messages bruts, caches).
+pub trait AccountDataStore: Send + Sync {
+    /// Supprime toutes les données locales du compte ; sans effet s'il n'y
+    /// en a pas.
+    fn purge(&self, id: AccountId) -> impl Future<Output = Result<(), StoreError>> + Send;
 }
 
 #[cfg(test)]

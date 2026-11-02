@@ -17,6 +17,7 @@
   "dependencies": {
     "@internationalized/date": "3.12.4",
     "@lucide/svelte": "1.59.0",
+    "@tanstack/virtual-core": "3.19.10",
     "@tauri-apps/api": "2.12.4",
     "bits-ui": "2.19.5"
   },

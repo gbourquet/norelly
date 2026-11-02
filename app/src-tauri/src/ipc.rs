@@ -382,21 +382,18 @@ pub fn id32(raw: i64) -> Result<u32, IpcError> {
     u32::try_from(raw).map_err(|_| IpcError::new("identifiant hors limites"))
 }
 
-/// Date (secondes Unix) exposée à l'interface.
-#[allow(clippy::cast_precision_loss)]
+/// Date (secondes Unix) exposée à l'interface : entier de 32 bits non
+/// signé (jusqu'en 2106) ; une date hors de ces bornes est ramenée à la
+/// borne la plus proche.
 #[must_use]
-pub fn date_dto(seconds: i64) -> f64 {
-    seconds as f64
+pub fn date_dto(seconds: i64) -> u32 {
+    u32::try_from(seconds.max(0)).unwrap_or(u32::MAX)
 }
 
-/// Date reçue de l'interface : entier dans les bornes du stockage.
-pub fn date_from_dto(raw: f64) -> Result<i64, IpcError> {
-    const LIMIT: f64 = 9_007_199_254_740_991.0;
-    if !raw.is_finite() || raw.fract() != 0.0 || raw.abs() > LIMIT {
-        return Err(IpcError::new("date invalide"));
-    }
-    #[allow(clippy::cast_possible_truncation)]
-    Ok(raw as i64)
+/// Date reçue de l'interface (curseur).
+#[must_use]
+pub fn date_from_dto(raw: u32) -> i64 {
+    i64::from(raw)
 }
 
 /// Événement de synchronisation relayé à l'interface.
@@ -434,7 +431,7 @@ pub enum ScopeDto {
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, Type)]
 pub struct ConversationCursorDto {
-    pub date: f64,
+    pub date: u32,
     pub id: u32,
 }
 
@@ -459,7 +456,7 @@ pub struct ConversationDto {
     pub id: u32,
     pub account: u32,
     pub mailbox: u32,
-    pub date: f64,
+    pub date: u32,
     pub subject: String,
     pub senders: Vec<CorrespondentDto>,
     pub messages: u32,
@@ -480,7 +477,7 @@ pub struct ConversationMessageDto {
     pub id: u32,
     pub account: u32,
     pub mailbox: u32,
-    pub date: f64,
+    pub date: u32,
     pub from: Option<CorrespondentDto>,
     pub to: Vec<CorrespondentDto>,
     pub cc: Vec<CorrespondentDto>,
@@ -497,7 +494,8 @@ pub struct AttachmentDto {
     pub part: String,
     pub name: String,
     pub media_type: String,
-    pub size: f64,
+    /// Taille en octets (bornée à 4 Gio).
+    pub size: u32,
     /// Faux si elle reste à télécharger.
     pub available: bool,
     /// Faux pour un type exécutable : enregistrement seulement.
@@ -533,11 +531,11 @@ mod reading_tests {
     use super::*;
 
     #[test]
-    fn dates_from_the_interface_are_revalidated() {
-        assert_eq!(date_from_dto(1_700_000_000.0).ok(), Some(1_700_000_000));
-        for bad in [f64::NAN, f64::INFINITY, 1.5, 1e300] {
-            assert!(date_from_dto(bad).is_err(), "{bad}");
-        }
+    fn dates_and_ids_are_bounded() {
+        assert_eq!(date_dto(1_700_000_000), 1_700_000_000);
+        assert_eq!(date_dto(-5), 0);
+        assert_eq!(date_dto(i64::MAX), u32::MAX);
+        assert_eq!(date_from_dto(1_700_000_000), 1_700_000_000);
         assert!(id32(-1).is_err());
         assert!(id32(i64::from(u32::MAX) + 1).is_err());
     }

@@ -15,6 +15,18 @@ vi.mock("./lib/ipc/api", () => ({
       const i = accounts.findIndex((a) => a.id === id);
       if (i >= 0) accounts.splice(i, 1);
     }),
+    listFolders: vi.fn(async () => []),
+    listConversations: vi.fn(async () => ({ items: [], next: null })),
+    conversationMessages: vi.fn(async () => []),
+    openMessage: vi.fn(),
+    allowRemoteImages: vi.fn(),
+    readingPreferences: vi.fn(async () => ({ prefer_plain_text: false })),
+    setPreferPlainText: vi.fn(),
+    syncAccount: vi.fn(),
+    openExternal: vi.fn(),
+    saveAttachment: vi.fn(),
+    openAttachment: vi.fn(),
+    onSyncEvent: vi.fn(async () => () => undefined),
   },
 }));
 

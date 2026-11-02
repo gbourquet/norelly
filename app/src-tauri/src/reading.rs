@@ -99,7 +99,7 @@ pub async fn list_conversations(
     let cursor = cursor
         .map(|c| {
             Ok::<_, IpcError>(ConversationCursor {
-                date: date_from_dto(c.date)?,
+                date: date_from_dto(c.date),
                 id: ConversationId::new(i64::from(c.id))
                     .ok_or_else(|| IpcError::new("curseur invalide"))?,
             })
@@ -208,8 +208,7 @@ pub async fn open_message(
                 part: a.path.to_string(),
                 name: a.name.clone(),
                 media_type: a.media_type.clone(),
-                #[allow(clippy::cast_precision_loss)]
-                size: a.size as f64,
+                size: u32::try_from(a.size).unwrap_or(u32::MAX),
                 available: a.available,
                 can_open: !is_unsafe_to_open(&a.name),
             })

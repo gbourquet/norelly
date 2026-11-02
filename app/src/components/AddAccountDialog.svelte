@@ -7,11 +7,11 @@
   import Modal from "./Modal.svelte";
   import ServerFields from "./ServerFields.svelte";
   import { AddAccountFlow, SOURCE_LABELS } from "../lib/add-account.svelte";
-  import type { AccountDto, Api } from "../lib/ipc/api";
+  import type { AccountApi, AccountDto } from "../lib/ipc/api";
 
   interface Props {
     open: boolean;
-    api: Api;
+    api: AccountApi;
     onClose: () => void;
     onAdded: (account: AccountDto) => void;
   }

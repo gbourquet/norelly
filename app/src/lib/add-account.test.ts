@@ -4,7 +4,7 @@ import type {
   AccountDto,
   AddAccountInput,
   AddAccountResult,
-  Api,
+  AccountApi,
   Discovery,
   ServerDto,
 } from "./ipc/api";
@@ -47,7 +47,7 @@ const certificate: AddAccountResult = {
 
 function fakeApi(discovery: Discovery, results: AddAccountResult[]) {
   const calls: AddAccountInput[] = [];
-  const api: Api = {
+  const api: AccountApi = {
     listAccounts: vi.fn(async () => []),
     discoverSettings: vi.fn(async (_address, onProgress) => {
       onProgress("provider_autoconfig");
@@ -66,7 +66,7 @@ function fakeApi(discovery: Discovery, results: AddAccountResult[]) {
   return { api, calls };
 }
 
-function flow(api: Api): AddAccountFlow {
+function flow(api: AccountApi): AddAccountFlow {
   const f = new AddAccountFlow(api);
   f.address = " alice@example.com ";
   f.password = "secret";

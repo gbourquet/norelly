@@ -139,7 +139,8 @@ export type AttachmentDto = {
 	part: string,
 	name: string,
 	media_type: string,
-	size: number | null,
+	/**  Taille en octets (bornée à 4 Gio). */
+	size: number,
 	/**  Faux si elle reste à télécharger. */
 	available: boolean,
 	/**  Faux pour un type exécutable : enregistrement seulement. */
@@ -167,7 +168,7 @@ export type CertificateProblemDto = {
 };
 
 export type ConversationCursorDto = {
-	date: number | null,
+	date: number,
 	id: number,
 };
 
@@ -176,7 +177,7 @@ export type ConversationDto = {
 	id: number,
 	account: number,
 	mailbox: number,
-	date: number | null,
+	date: number,
 	subject: string,
 	senders: CorrespondentDto[],
 	messages: number,
@@ -193,7 +194,7 @@ export type ConversationMessageDto_Deserialize = {
 	id: number,
 	account: number,
 	mailbox: number,
-	date: number | null,
+	date: number,
 	from?: CorrespondentDto | null,
 	to: CorrespondentDto[],
 	cc: CorrespondentDto[],
@@ -208,7 +209,7 @@ export type ConversationMessageDto_Serialize = {
 	id: number,
 	account: number,
 	mailbox: number,
-	date: number | null,
+	date: number,
 	from: CorrespondentDto | null,
 	to: CorrespondentDto[],
 	cc: CorrespondentDto[],

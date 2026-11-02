@@ -8,7 +8,7 @@
 import type {
   AccountDto,
   AddAccountResult,
-  Api,
+  AccountApi,
   CertificateProblemDto,
   Discovery,
   DiscoverySourceDto,
@@ -60,9 +60,9 @@ export class AddAccountFlow {
   /** Hôtes confirmés explicitement par l'utilisateur. */
   confirmed = $state<string[]>([]);
   #consents: EndpointDto[] = [];
-  #api: Api;
+  #api: AccountApi;
 
-  constructor(api: Api) {
+  constructor(api: AccountApi) {
     this.#api = api;
   }
 

@@ -1,4 +1,5 @@
 <script lang="ts" generics="C">
+  import { m } from "../lib/paraglide/messages.js";
   // Aide des raccourcis (« ? »), générée depuis le registre.
   import Modal from "./Modal.svelte";
   import { formatShortcut } from "../lib/commands/shortcut";
@@ -24,7 +25,7 @@
   const groups = $derived(open ? groupCommands(registry.all().filter(hasShortcut)) : []);
 </script>
 
-<Modal {open} title="Raccourcis clavier" {onClose} width="520px">
+<Modal {open} title={m.help_title()} {onClose} width="520px">
   {#each groups as [group, commands] (group)}
     <h3>{group}</h3>
     <dl>
@@ -39,7 +40,7 @@
     </dl>
   {/each}
   <p class="hint">
-    Toutes les commandes sont aussi accessibles par la palette : <kbd>Ctrl</kbd> <kbd>K</kbd>.
+    {m.help_palette_hint()} <kbd>Ctrl</kbd> <kbd>K</kbd>
   </p>
 </Modal>
 

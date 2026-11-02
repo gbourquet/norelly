@@ -5,7 +5,16 @@ import globals from "globals";
 import svelteConfig from "./svelte.config.js";
 
 export default ts.config(
-  { ignores: ["dist/", "src-tauri/", "node_modules/", "src/lib/ipc/bindings.ts"] },
+  {
+    ignores: [
+      "dist/",
+      "src-tauri/",
+      "node_modules/",
+      "src/lib/ipc/bindings.ts",
+      "src/lib/paraglide/",
+      "project.inlang/",
+    ],
+  },
   js.configs.recommended,
   ...ts.configs.strict,
   ...svelte.configs.recommended,

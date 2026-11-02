@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { m } from "../lib/paraglide/messages.js";
   // Saisie d'un serveur (hôte, port, sécurité, utilisateur).
   import type { SecurityDto, ServerDto } from "../lib/ipc/api";
 
@@ -27,7 +28,7 @@
 <fieldset {disabled}>
   <legend>{legend}</legend>
   <div class="grid">
-    <label for="{idPrefix}-host">Serveur</label>
+    <label for="{idPrefix}-host">{m.server_host()}</label>
     <input
       id="{idPrefix}-host"
       class="input"
@@ -36,7 +37,7 @@
       spellcheck="false"
       required
     />
-    <label for="{idPrefix}-port">Port</label>
+    <label for="{idPrefix}-port">{m.server_port()}</label>
     <input
       id="{idPrefix}-port"
       class="input"
@@ -46,18 +47,18 @@
       bind:value={server.port}
       required
     />
-    <label for="{idPrefix}-security">Sécurité</label>
+    <label for="{idPrefix}-security">{m.server_security()}</label>
     <select
       id="{idPrefix}-security"
       class="input"
       bind:value={server.security}
       onchange={onSecurityChange}
     >
-      <option value="tls">TLS (recommandé)</option>
-      <option value="starttls">STARTTLS</option>
-      <option value="plain">Aucune (non chiffré)</option>
+      <option value="tls">{m.server_security_tls()}</option>
+      <option value="starttls">{m.server_security_starttls()}</option>
+      <option value="plain">{m.server_security_plain()}</option>
     </select>
-    <label for="{idPrefix}-username">Utilisateur</label>
+    <label for="{idPrefix}-username">{m.server_username()}</label>
     <input
       id="{idPrefix}-username"
       class="input"

@@ -1,6 +1,8 @@
 // Raccourcis clavier : analyse ("Ctrl+K", "Shift+I", "?"), normalisation et
 // correspondance avec un événement clavier.
 
+import { m } from "../paraglide/messages.js";
+
 export interface Shortcut {
   /** Touche normalisée : lettre en minuscule, sinon `KeyboardEvent.key`. */
   key: string;
@@ -113,9 +115,9 @@ export function formatShortcut(s: Shortcut): string[] {
   const keys: string[] = [];
   if (s.ctrl) keys.push("Ctrl");
   if (s.alt) keys.push("Alt");
-  if (s.shift) keys.push("Maj");
-  if (s.meta) keys.push("Méta");
-  const label = s.key === " " ? "Espace" : s.key === "Escape" ? "Échap" : s.key;
+  if (s.shift) keys.push(m.key_shift());
+  if (s.meta) keys.push(m.key_meta());
+  const label = s.key === " " ? m.key_space() : s.key === "Escape" ? m.key_escape() : s.key;
   keys.push(label.length === 1 ? label.toUpperCase() : label);
   return keys;
 }

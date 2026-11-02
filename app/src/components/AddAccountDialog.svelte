@@ -6,7 +6,8 @@
   import LockOpenIcon from "@lucide/svelte/icons/lock-open";
   import Modal from "./Modal.svelte";
   import ServerFields from "./ServerFields.svelte";
-  import { AddAccountFlow, SOURCE_LABELS } from "../lib/add-account.svelte";
+  import { AddAccountFlow, sourceLabel, issueText } from "../lib/add-account.svelte";
+  import { m } from "../lib/paraglide/messages.js";
   import type { AccountApi, AccountDto } from "../lib/ipc/api";
 
   interface Props {
@@ -36,21 +37,9 @@
       onAdded(account);
     }
   });
-
-  const ISSUES: Record<string, string> = {
-    unknown_issuer:
-      "Le certificat n'est pas signé par une autorité reconnue (certificat autosigné ?).",
-    expired: "Le certificat a expiré.",
-    not_yet_valid: "Le certificat n'est pas encore valide.",
-    hostname_mismatch: "Le certificat ne correspond pas au nom du serveur.",
-    revoked: "Le certificat a été révoqué.",
-    invalid_signature: "La signature du certificat est invalide.",
-    malformed: "Le certificat est illisible.",
-    other: "Le certificat a été refusé.",
-  };
 </script>
 
-<Modal {open} title="Ajouter un compte" onClose={close} locked={flow.busy} width="560px">
+<Modal {open} title={m.add_title()} onClose={close} locked={flow.busy} width="560px">
   {#if flow.message}
     <p class="message" role="alert">{flow.message}</p>
   {/if}
@@ -62,7 +51,7 @@
         void flow.submit();
       }}
     >
-      <label for="account-address">Adresse électronique</label>
+      <label for="account-address">{m.add_address()}</label>
       <input
         id="account-address"
         class="input"
@@ -72,7 +61,7 @@
         spellcheck="false"
         required
       />
-      <label for="account-password">Mot de passe</label>
+      <label for="account-password">{m.add_password()}</label>
       <input
         id="account-password"
         class="input"
@@ -81,11 +70,10 @@
         autocomplete="current-password"
         required
       />
-      <label for="account-name">Nom affiché (facultatif)</label>
+      <label for="account-name">{m.add_display_name()}</label>
       <input id="account-name" class="input" bind:value={flow.displayName} autocomplete="name" />
       <p class="hint">
-        Le mot de passe est conservé dans le trousseau du système, jamais dans les fichiers de
-        Norelly.
+        {m.add_password_hint()}
       </p>
       <div class="actions">
         <button
@@ -93,15 +81,15 @@
           type="button"
           onclick={() => {
             flow.step = "manual";
-          }}>Saisie manuelle</button
+          }}>{m.add_manual()}</button
         >
-        <button class="btn btn-primary" type="submit">Continuer</button>
+        <button class="btn btn-primary" type="submit">{m.common_continue()}</button>
       </div>
     </form>
   {:else if flow.step === "discovering" || flow.step === "testing"}
     <div class="progress" aria-live="polite">
       {#if flow.step === "discovering"}
-        <p>Recherche des paramètres de {flow.address}…</p>
+        <p>{m.add_discovering({ address: flow.address })}</p>
         <ul>
           {#each flow.progress as source, i (source)}
             <li>
@@ -110,14 +98,14 @@
               {:else}
                 <CheckIcon size={14} aria-hidden="true" />
               {/if}
-              {SOURCE_LABELS[source]}
+              {sourceLabel(source)}
             </li>
           {/each}
         </ul>
       {:else}
         <p>
-          <LoaderIcon size={14} class="spin" aria-hidden="true" /> Test de la connexion à {flow.imap
-            .host} et {flow.smtp.host}…
+          <LoaderIcon size={14} class="spin" aria-hidden="true" />
+          {m.add_testing({ imap: flow.imap.host, smtp: flow.smtp.host })}
         </p>
       {/if}
     </div>
@@ -129,9 +117,9 @@
       }}
     >
       {#if !flow.address || !flow.password}
-        <label for="manual-address">Adresse électronique</label>
+        <label for="manual-address">{m.add_address()}</label>
         <input id="manual-address" class="input" type="email" bind:value={flow.address} required />
-        <label for="manual-password">Mot de passe</label>
+        <label for="manual-password">{m.add_password()}</label>
         <input
           id="manual-password"
           class="input"
@@ -142,11 +130,14 @@
       {/if}
       {#each flow.unconfirmed as item (item.host)}
         {#if [flow.imap.host.trim(), flow.smtp.host.trim()].includes(item.host)}
-          <div class="danger confirm" role="group" aria-label="Confirmation du serveur {item.host}">
+          <div
+            class="danger confirm"
+            role="group"
+            aria-label={m.add_confirm_group({ host: item.host })}
+          >
             <p>
-              <strong>{item.host}</strong> a été trouvé par le DNS ({SOURCE_LABELS[item.source]}) en
-              dehors du domaine de votre adresse. Une réponse DNS falsifiée pourrait envoyer votre
-              mot de passe à un tiers.
+              <strong>{item.host}</strong>
+              {m.add_confirm_warning({ source: sourceLabel(item.source) })}
             </p>
             <label>
               <input
@@ -154,54 +145,54 @@
                 checked={flow.confirmed.includes(item.host)}
                 onchange={(e) => flow.setConfirmed(item.host, e.currentTarget.checked)}
               />
-              Je confirme que {item.host} est un serveur de mon fournisseur
+              {m.add_confirm_checkbox({ host: item.host })}
             </label>
           </div>
         {/if}
       {/each}
-      <ServerFields legend="Réception (IMAP)" idPrefix="imap" bind:server={flow.imap} />
-      <ServerFields legend="Envoi (SMTP)" idPrefix="smtp" bind:server={flow.smtp} />
+      <ServerFields legend={m.add_imap_legend()} idPrefix="imap" bind:server={flow.imap} />
+      <ServerFields legend={m.add_smtp_legend()} idPrefix="smtp" bind:server={flow.smtp} />
       <div class="actions">
-        <button class="btn" type="button" onclick={close}>Annuler</button>
-        <button class="btn btn-primary" type="submit">Tester et ajouter</button>
+        <button class="btn" type="button" onclick={close}>{m.common_cancel()}</button>
+        <button class="btn btn-primary" type="submit">{m.add_test_and_add()}</button>
       </div>
     </form>
   {:else if flow.step === "certificate" && flow.certificate}
     {@const problem = flow.certificate}
     <div class="warning" role="alertdialog" aria-labelledby="cert-title">
       <h3 id="cert-title">
-        <ShieldAlertIcon size={18} aria-hidden="true" /> Certificat non reconnu
+        <ShieldAlertIcon size={18} aria-hidden="true" />
+        {m.add_cert_title()}
       </h3>
       {#if problem.fingerprint_changed}
         <p class="danger">
-          <strong>Attention :</strong> ce serveur présente un certificat différent de celui que vous aviez
-          accepté. Cela peut indiquer une interception de la connexion.
+          <strong>{m.add_cert_changed_label()}</strong>
+          {m.add_cert_changed()}
         </p>
       {/if}
-      <p>{ISSUES[problem.issue] ?? problem.reason}</p>
+      <p>{issueText(problem.issue)}</p>
       <dl>
-        <dt>Serveur</dt>
+        <dt>{m.add_cert_server()}</dt>
         <dd>{problem.host} ({problem.protocol.toUpperCase()})</dd>
-        <dt>Empreinte SHA-256</dt>
+        <dt>{m.add_cert_fingerprint()}</dt>
         <dd class="fingerprint">{problem.fingerprint}</dd>
       </dl>
       {#if problem.can_trust && problem.fingerprint_changed}
         <label class="acknowledge">
           <input type="checkbox" bind:checked={acknowledgeChange} />
-          J'ai vérifié auprès de l'administrateur que ce nouveau certificat est légitime
+          {m.add_cert_acknowledge()}
         </label>
       {/if}
       {#if problem.can_trust}
         <p>
-          Ne faites confiance à ce serveur que si vous savez qu'il utilise ce certificat (serveur
-          personnel, réseau d'entreprise) et que l'empreinte correspond à celle communiquée par son
-          administrateur.
+          {m.add_cert_trust_advice()}
         </p>
       {:else}
-        <p class="danger">Ce certificat ne peut pas être accepté.</p>
+        <p class="danger">{m.add_cert_cannot_trust()}</p>
       {/if}
       <div class="actions">
-        <button class="btn" type="button" onclick={() => flow.decline()}>Annuler</button>
+        <button class="btn" type="button" onclick={() => flow.decline()}>{m.common_cancel()}</button
+        >
         {#if problem.can_trust}
           <button
             class="btn btn-danger"
@@ -212,7 +203,7 @@
               void flow.trustCertificate();
             }}
           >
-            Faire confiance à ce serveur
+            {m.add_cert_trust()}
           </button>
         {/if}
       </div>
@@ -220,35 +211,40 @@
   {:else if flow.step === "plaintext" && flow.plaintextEndpoint}
     {@const endpoint = flow.plaintextEndpoint}
     <div class="warning" role="alertdialog" aria-labelledby="plain-title">
-      <h3 id="plain-title"><LockOpenIcon size={18} aria-hidden="true" /> Connexion non chiffrée</h3>
+      <h3 id="plain-title">
+        <LockOpenIcon size={18} aria-hidden="true" />
+        {m.add_plain_title()}
+      </h3>
       <p class="danger">
-        La connexion à {endpoint.host}:{endpoint.port} ne serait pas chiffrée : votre mot de passe et
-        vos messages circuleraient en clair et pourraient être lus ou modifiés sur le réseau.
+        {m.add_plain_warning({ host: endpoint.host, port: endpoint.port })}
       </p>
-      <p>Si le serveur le propose, Norelly passera tout de même en TLS (STARTTLS).</p>
+      <p>{m.add_plain_starttls()}</p>
       <div class="actions">
         <button class="btn btn-primary" type="button" onclick={() => flow.decline()}
-          >Modifier les paramètres</button
+          >{m.add_plain_edit()}</button
         >
         <button class="btn btn-danger" type="button" onclick={() => void flow.allowPlaintext()}>
-          Autoriser la connexion non chiffrée
+          {m.add_plain_allow()}
         </button>
       </div>
     </div>
   {:else if flow.step === "secrets" && flow.secretsFile}
     <div class="warning" role="alertdialog" aria-labelledby="secrets-title">
-      <h3 id="secrets-title"><LockOpenIcon size={18} aria-hidden="true" /> Aucun trousseau</h3>
+      <h3 id="secrets-title">
+        <LockOpenIcon size={18} aria-hidden="true" />
+        {m.add_secrets_title()}
+      </h3>
       <p class="danger">
-        Aucun trousseau du système (GNOME Keyring, KWallet…) ne répond. Norelly peut enregistrer vos
-        mots de passe dans un fichier <strong>non chiffré</strong>, lisible par votre seul compte
-        utilisateur : quiconque accède à vos fichiers pourra les lire.
+        {m.add_secrets_warning_before()}
+        <strong>{m.add_secrets_warning_strong()}</strong>{m.add_secrets_warning_after()}
       </p>
       <p class="path">{flow.secretsFile}</p>
       <div class="actions">
-        <button class="btn btn-primary" type="button" onclick={() => flow.decline()}>Annuler</button
+        <button class="btn btn-primary" type="button" onclick={() => flow.decline()}
+          >{m.common_cancel()}</button
         >
         <button class="btn btn-danger" type="button" onclick={() => void flow.allowFileSecrets()}>
-          Enregistrer dans ce fichier
+          {m.add_secrets_allow()}
         </button>
       </div>
     </div>

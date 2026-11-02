@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { m } from "../lib/paraglide/messages.js";
   // Confirmation de suppression d'un compte.
   import Modal from "./Modal.svelte";
   import type { AccountDto } from "../lib/ipc/api";
@@ -31,7 +32,7 @@
 
 <Modal
   {open}
-  title="Supprimer le compte ?"
+  title={m.remove_title()}
   onClose={() => {
     error = null;
     onClose();
@@ -40,22 +41,22 @@
 >
   {#if account}
     <p>
-      Le compte <strong>{account.address}</strong> sera retiré de Norelly : son mot de passe est effacé
-      du trousseau et ses données locales sont supprimées. Les messages restent sur le serveur.
+      {m.remove_explanation_before()} <strong>{account.address}</strong>
+      {m.remove_explanation_after()}
     </p>
   {/if}
   {#if error}
     <p class="error" role="alert">{error}</p>
   {/if}
   <div class="actions">
-    <button class="btn" type="button" onclick={onClose} disabled={busy}>Annuler</button>
+    <button class="btn" type="button" onclick={onClose} disabled={busy}>{m.common_cancel()}</button>
     <button
       class="btn btn-danger"
       type="button"
       onclick={() => void confirm()}
       disabled={busy || account === null}
     >
-      Supprimer le compte
+      {m.remove_confirm()}
     </button>
   </div>
 </Modal>

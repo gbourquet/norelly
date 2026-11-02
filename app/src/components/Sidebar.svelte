@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { m } from "../lib/paraglide/messages.js";
   // Panneau de navigation : boîte de réception unifiée, puis comptes et
   // leurs dossiers.
   import InboxIcon from "@lucide/svelte/icons/inbox";
@@ -48,18 +49,18 @@
   );
 
   function folderLabel(f: FolderDto): string {
-    return f.role === "inbox" ? "Boîte de réception" : f.leaf;
+    return f.role === "inbox" ? m.mailbox_inbox() : f.leaf;
   }
 </script>
 
 <div class="sidebar">
   <header>
-    <span class="brand">Norelly</span>
+    <span class="brand">{m.app_name()}</span>
     <button
       class="btn btn-ghost icon"
       type="button"
-      title="Ajouter un compte"
-      aria-label="Ajouter un compte"
+      title={m.sidebar_add_account()}
+      aria-label={m.sidebar_add_account()}
       onclick={onAdd}
     >
       <PlusIcon size={16} aria-hidden="true" />
@@ -67,9 +68,9 @@
   </header>
 
   {#if accounts.length === 0}
-    <p class="empty">Aucun compte.</p>
+    <p class="empty">{m.sidebar_no_account()}</p>
   {:else}
-    <ul class="folders" aria-label="Boîtes unifiées">
+    <ul class="folders" aria-label={m.sidebar_unified()}>
       <li class:selected={unifiedSelected}>
         <button
           class="folder"
@@ -78,12 +79,12 @@
           onclick={() => onScope({ kind: "unified", role: "inbox" }, null)}
         >
           <InboxIcon size={16} aria-hidden="true" />
-          <span class="label">Boîte de réception unifiée</span>
+          <span class="label">{m.mailbox_unified_inbox()}</span>
           {#if totalUnread > 0}<span class="unread">{totalUnread}</span>{/if}
         </button>
       </li>
     </ul>
-    <ul class="accounts" aria-label="Comptes">
+    <ul class="accounts" aria-label={m.sidebar_accounts()}>
       {#each accounts as account (account.id)}
         <li>
           <div class="account" class:current={account.id === selectedId}>
@@ -93,21 +94,24 @@
               <span class="address">{account.address}</span>
             </span>
             {#if offline[account.id]}
-              <span class="offline" title="Hors ligne : {offline[account.id]}">
-                <WifiOffIcon size={14} aria-label="Hors ligne" />
+              <span
+                class="offline"
+                title={m.sidebar_offline_reason({ reason: offline[account.id] ?? "" })}
+              >
+                <WifiOffIcon size={14} aria-label={m.common_offline()} />
               </span>
             {/if}
             <button
               class="btn btn-ghost icon remove"
               type="button"
-              title="Supprimer le compte {account.address}"
-              aria-label="Supprimer le compte {account.address}"
+              title={m.sidebar_remove_account({ address: account.address })}
+              aria-label={m.sidebar_remove_account({ address: account.address })}
               onclick={() => onRemove(account.id)}
             >
               <TrashIcon size={14} aria-hidden="true" />
             </button>
           </div>
-          <ul class="folders" aria-label="Dossiers de {account.address}">
+          <ul class="folders" aria-label={m.sidebar_folders_of({ address: account.address })}>
             {#each folders[account.id] ?? [] as f (f.id)}
               {@const Icon = icon(f.role)}
               {@const current = scope.kind === "mailbox" && scope.id === f.id}

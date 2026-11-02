@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { m } from "../lib/paraglide/messages.js";
   // Mise en page en 3 panneaux redimensionnables : navigation, liste, lecture.
   // Les largeurs sont mémorisées localement (confort, non critique).
   import type { Snippet } from "svelte";
@@ -45,9 +46,9 @@
 </script>
 
 <div class="layout" style="--w-sidebar: {sizes.sidebar}px; --w-list: {sizes.list}px">
-  <nav class="pane sidebar" aria-label="Comptes et dossiers">{@render sidebar()}</nav>
+  <nav class="pane sidebar" aria-label={m.layout_navigation()}>{@render sidebar()}</nav>
   <Splitter
-    label="Largeur du panneau de navigation"
+    label={m.layout_sidebar_width()}
     value={sizes.sidebar}
     min={SIDEBAR.min}
     max={SIDEBAR.max}
@@ -56,9 +57,9 @@
       save();
     }}
   />
-  <section class="pane list" aria-label="Liste des messages">{@render list()}</section>
+  <section class="pane list" aria-label={m.layout_list()}>{@render list()}</section>
   <Splitter
-    label="Largeur de la liste des messages"
+    label={m.layout_list_width()}
     value={sizes.list}
     min={LIST.min}
     max={LIST.max}
@@ -67,7 +68,7 @@
       save();
     }}
   />
-  <main class="pane reader" aria-label="Lecture">{@render reader()}</main>
+  <main class="pane reader" aria-label={m.layout_reader()}>{@render reader()}</main>
 </div>
 
 <style>

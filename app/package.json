@@ -7,12 +7,13 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "check": "svelte-check --tsconfig ./tsconfig.json --fail-on-warnings",
-    "lint": "prettier --check . && eslint .",
+    "check": "pnpm i18n && svelte-check --tsconfig ./tsconfig.json --fail-on-warnings",
+    "lint": "pnpm i18n && prettier --check . && eslint .",
     "format": "prettier --write .",
     "test": "vitest run",
     "tauri": "tauri",
-    "e2e": "bash e2e/run.sh"
+    "e2e": "bash e2e/run.sh",
+    "i18n": "paraglide-js compile --project ./project.inlang --outdir ./src/lib/paraglide --strategy globalVariable baseLocale --emit-ts-declarations --silent"
   },
   "dependencies": {
     "@internationalized/date": "3.12.4",
@@ -23,6 +24,8 @@
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
+    "@inlang/paraglide-js": "2.29.0",
+    "@inlang/plugin-message-format": "4.5.4",
     "@sveltejs/vite-plugin-svelte": "7.3.1",
     "@tauri-apps/cli": "2.12.4",
     "@testing-library/jest-dom": "7.0.1",

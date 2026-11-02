@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { m } from "../lib/paraglide/messages.js";
   // Corps d'un message (ADR-004, « A+ ») : iframe mailview:// sandboxée
   // (allow-scripts sans allow-same-origin : origine opaque), dont seul
   // l'agent peut s'exécuter (CSP par empreinte). L'agent signale hauteur,
@@ -58,7 +59,7 @@
         break;
       case "link":
         api.openExternal(parsed.href).catch((e: unknown) => {
-          notice = `Lien non ouvert : ${e instanceof Error ? e.message : String(e)}`;
+          notice = m.message_link_failed({ error: e instanceof Error ? e.message : String(e) });
         });
         break;
       case "key":
@@ -84,7 +85,7 @@
         await api.openAttachment(message, part);
       } else {
         const saved = await api.saveAttachment(message, part);
-        if (saved !== null) notice = `Enregistré sous « ${saved} ».`;
+        if (saved !== null) notice = m.message_saved_as({ path: saved });
       }
       await load();
     } catch (e) {
@@ -97,21 +98,19 @@
 
 <div class="body">
   {#if error}
-    <p class="error" role="alert">Message illisible : {error}</p>
+    <p class="error" role="alert">{m.message_unreadable({ error })}</p>
   {:else if view === null}
-    <p class="loading">Chargement…</p>
+    <p class="loading">{m.common_loading()}</p>
   {:else}
     {#if view.blocked_images > 0}
       <div class="banner" role="status">
         <ImageOffIcon size={16} aria-hidden="true" />
-        <span
-          >Images distantes bloquées ({view.blocked_images}) pour protéger votre vie privée.</span
-        >
+        <span>{m.message_images_blocked({ count: view.blocked_images })}</span>
         <button
           class="btn"
           type="button"
           onclick={() => reloadAfter(() => api.allowRemoteImages(message))}
-          >Afficher les images de cet expéditeur</button
+          >{m.message_show_images()}</button
         >
       </div>
     {/if}
@@ -121,33 +120,33 @@
           class="btn btn-ghost"
           type="button"
           onclick={() => reloadAfter(() => api.setPreferPlainText(view?.mode !== "text"))}
-          >{view.mode === "text" ? "Afficher le HTML" : "Afficher en texte brut"}</button
+          >{view.mode === "text" ? m.message_show_html() : m.message_show_text()}</button
         >
       </div>
     {/if}
     <iframe
       bind:this={frame}
       class="frame"
-      title="Contenu du message"
+      title={m.message_frame_title()}
       src={mailviewUrl(message, version)}
       sandbox="allow-scripts"
       referrerpolicy="no-referrer"
       style:height="{height}px"
     ></iframe>
     {#if view.attachments.length > 0}
-      <ul class="attachments" aria-label="Pièces jointes">
+      <ul class="attachments" aria-label={m.message_attachments()}>
         {#each view.attachments as a (a.part)}
           <li>
             <PaperclipIcon size={14} aria-hidden="true" />
             <span class="name" title={a.media_type}>{a.name}</span>
-            <span class="size">{fileSize(a.size)}{a.available ? "" : " · à télécharger"}</span>
+            <span class="size">{fileSize(a.size)}{a.available ? "" : m.message_to_download()}</span>
             {#if a.can_open}
               <button class="btn btn-ghost" type="button" onclick={() => attachment(a.part, true)}
-                >Ouvrir</button
+                >{m.message_open()}</button
               >
             {/if}
             <button class="btn btn-ghost" type="button" onclick={() => attachment(a.part, false)}
-              >Enregistrer…</button
+              >{m.message_save()}</button
             >
           </li>
         {/each}

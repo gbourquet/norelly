@@ -176,7 +176,7 @@ Commandes de référence (détail dans `scripts/check.sh`) :
 
 ## Phase 6 : actions et hors ligne
 
-- [ ] Socle i18n (ADR-011) : Paraglide JS, catalogues `app/messages/{fr,en}.json`, extraction de toutes les chaînes existantes de l'interface, locale du système, `format.ts` sur la locale active, test d'égalité des clés des catalogues branché dans `check.sh`
+- [x] Socle i18n (ADR-011) : Paraglide JS, catalogues `app/messages/{fr,en}.json`, extraction de toutes les chaînes existantes de l'interface, locale du système, `format.ts` sur la locale active, test d'égalité des clés des catalogues branché dans `check.sh`
 - [ ] Contrat IPC (ADR-011) : erreurs et issues en codes énumérés avec paramètres structurés et `detail` technique optionnel ; plus aucun texte utilisateur produit en Rust ; bindings régénérés
 - [ ] Domaine : actions (déplacer, supprimer, archiver, lu/non lu, drapeau), application optimiste, `pending_ops`, rejeu, résolution de conflits (message disparu, dossier supprimé, UIDVALIDITY changée)
 - [ ] Domaine : sémantique de « supprimer » (déplacement vers la Corbeille ; suppression définitive depuis la Corbeille) et d'« archiver » (dossier `\Archive` ou repli configurable)

@@ -4,6 +4,10 @@
 import { CommandRegistry } from "./commands/registry";
 import { api, type AccountDto } from "./ipc/api";
 import { MailState } from "./mail.svelte";
+import { m } from "./paraglide/messages.js";
+
+/** Mots-clés de recherche d'un message « a b c ». */
+const words = (s: string): string[] => s.split(" ").filter(Boolean);
 
 export type DialogName = "palette" | "help" | "add-account" | "remove-account";
 
@@ -74,71 +78,71 @@ export function registerAppCommands(): () => void {
   const offs = [
     registry.register({
       id: "palette.open",
-      title: "Palette de commandes",
-      group: "Général",
+      title: m.cmd_palette(),
+      group: m.group_general(),
       shortcut: "Ctrl+K",
       inPalette: false,
       run: () => app.open("palette"),
     }),
     registry.register({
       id: "help.shortcuts",
-      title: "Aide des raccourcis clavier",
-      group: "Général",
+      title: m.cmd_help(),
+      group: m.group_general(),
       shortcut: "?",
-      keywords: ["clavier", "touches"],
+      keywords: words(m.cmd_help_keywords()),
       run: () => app.open("help"),
     }),
     registry.register({
       id: "account.add",
-      title: "Ajouter un compte…",
-      group: "Comptes",
-      keywords: ["imap", "smtp", "nouveau"],
+      title: m.cmd_account_add(),
+      group: m.group_accounts(),
+      keywords: words(m.cmd_account_add_keywords()),
       run: () => app.open("add-account"),
     }),
     registry.register({
       id: "conversation.next",
-      title: "Conversation suivante",
-      group: "Lecture",
+      title: m.cmd_next(),
+      group: m.group_reading(),
       shortcut: "j",
       when: (ctx) => ctx.conversations > 0,
       run: () => mail.next(),
     }),
     registry.register({
       id: "conversation.previous",
-      title: "Conversation précédente",
-      group: "Lecture",
+      title: m.cmd_previous(),
+      group: m.group_reading(),
       shortcut: "k",
       when: (ctx) => ctx.conversations > 0,
       run: () => mail.previous(),
     }),
     registry.register({
       id: "conversation.open",
-      title: "Ouvrir la conversation",
-      group: "Lecture",
+      title: m.cmd_open(),
+      group: m.group_reading(),
       shortcut: "Enter",
       when: (ctx) => ctx.conversations > 0 && !ctx.reading,
       run: () => mail.open(),
     }),
     registry.register({
       id: "conversation.back",
-      title: "Retour à la liste",
-      group: "Lecture",
+      title: m.cmd_back(),
+      group: m.group_reading(),
       shortcut: "Escape",
       when: (ctx) => ctx.reading,
       run: () => mail.back(),
     }),
     registry.register({
       id: "mailbox.unified",
-      title: "Boîte de réception unifiée",
-      group: "Lecture",
-      keywords: ["inbox", "tous les comptes"],
+      title: m.cmd_unified(),
+      group: m.group_reading(),
+      keywords: words(m.cmd_unified_keywords()),
       run: () => mail.show({ kind: "unified", role: "inbox" }),
     }),
     registry.register({
       id: "reading.plain-text",
-      title: "Préférer le texte brut (ou le HTML)",
-      group: "Lecture",
-      keywords: ["html", "texte", "affichage"],
+      title: m.cmd_plain_text(),
+      group: m.group_reading(),
+      keywords: words(m.cmd_plain_text_keywords()),
       run: async () => {
         const prefs = await api.readingPreferences();
         await api.setPreferPlainText(!prefs.prefer_plain_text);
@@ -147,17 +151,17 @@ export function registerAppCommands(): () => void {
     }),
     registry.register({
       id: "account.sync",
-      title: "Synchroniser le compte sélectionné",
-      group: "Comptes",
-      keywords: ["actualiser", "relever"],
+      title: m.cmd_sync(),
+      group: m.group_accounts(),
+      keywords: words(m.cmd_sync_keywords()),
       when: (ctx) => ctx.selectedAccount !== null,
       run: (ctx) => (ctx.selectedAccount ? api.syncAccount(ctx.selectedAccount.id) : undefined),
     }),
     registry.register({
       id: "account.remove",
-      title: "Supprimer le compte sélectionné…",
-      group: "Comptes",
-      keywords: ["retirer", "effacer"],
+      title: m.cmd_account_remove(),
+      group: m.group_accounts(),
+      keywords: words(m.cmd_account_remove_keywords()),
       when: (ctx) => ctx.selectedAccount !== null,
       run: () => app.open("remove-account"),
     }),

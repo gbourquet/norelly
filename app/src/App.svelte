@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { m } from "./lib/paraglide/messages.js";
   import { onMount } from "svelte";
   import InboxIcon from "@lucide/svelte/icons/inbox";
   import ThreePaneLayout from "./components/ThreePaneLayout.svelte";
@@ -38,12 +39,12 @@
 
   const listTitle = $derived.by(() => {
     const scope = mail.scope;
-    if (scope.kind === "unified") return "Boîte de réception unifiée";
+    if (scope.kind === "unified") return m.mailbox_unified_inbox();
     for (const folders of Object.values(mail.folders)) {
       const f = folders.find((x) => x.id === scope.id);
-      if (f !== undefined) return f.role === "inbox" ? "Boîte de réception" : f.leaf;
+      if (f !== undefined) return f.role === "inbox" ? m.mailbox_inbox() : f.leaf;
     }
-    return "Dossier";
+    return m.mailbox_folder();
   });
 
   function selectScope(scope: ScopeDto, account: number | null): void {
@@ -109,17 +110,18 @@
     {:else}
       <div class="placeholder welcome">
         <InboxIcon size={40} aria-hidden="true" />
-        <h1>Norelly</h1>
+        <h1>{m.app_name()}</h1>
         {#if app.loadError}
-          <p role="alert">Impossible de lire les comptes : {app.loadError}</p>
+          <p role="alert">{m.welcome_load_error({ error: app.loadError })}</p>
         {:else if app.accounts.length === 0}
-          <p>Aucun compte pour l'instant.</p>
+          <p>{m.welcome_no_account()}</p>
           <button class="btn btn-primary" type="button" onclick={() => app.open("add-account")}
-            >Ajouter un compte</button
+            >{m.welcome_add_account()}</button
           >
         {/if}
         <p class="hint">
-          Palette de commandes : <kbd>Ctrl</kbd> <kbd>K</kbd> · Raccourcis : <kbd>?</kbd>
+          {m.welcome_hint_palette()} <kbd>Ctrl</kbd> <kbd>K</kbd> · {m.welcome_hint_shortcuts()}
+          <kbd>?</kbd>
         </p>
       </div>
     {/if}

@@ -49,8 +49,11 @@ pub fn request(host: &str, port: u16) -> ConnectRequest {
 }
 
 pub fn connector(ca: &TestCa, timeouts: Timeouts) -> ImapConnector {
-    ImapConnector::new(TlsClientFactory::new(TrustRoots::Custom(vec![ca.root()])))
-        .with_timeouts(timeouts)
+    ImapConnector::new(
+        TlsClientFactory::new(TrustRoots::Custom(vec![ca.root()]))
+            .with_handshake_timeout(timeouts.response),
+    )
+    .with_timeouts(timeouts)
 }
 
 pub fn raw_message(n: u32) -> Vec<u8> {

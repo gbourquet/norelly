@@ -44,6 +44,11 @@ Un hook PostToolUse formate et lint automatiquement chaque fichier modifié.
   identifiants de code en anglais.
 - Commits atomiques. Message : `<zone>: <résumé>` (par exemple
   `imap: rejette STARTTLS absent`).
+- Branche principale : `master`, protégée. **Ne jamais pousser sur
+  `master`** : travailler sur une branche (`<zone>/<sujet>`, par exemple
+  `phase-4/sync`), la pousser, puis ouvrir une PR vers `master` avec
+  `gh pr create`. Seul le mainteneur valide et merge les PR ; ne jamais
+  merger soi-même.
 - Pas d'`unwrap`/`expect` sur des données externes. Pas d'`unsafe`
   (interdit dans tout le workspace).
 - Svelte 5 uniquement (runes) ; jamais de `{@html}` ni d'`innerHTML`.

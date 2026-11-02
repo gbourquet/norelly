@@ -57,6 +57,7 @@ vi.mock("./lib/ipc/api", () => ({
     discoverSettings: vi.fn(),
     addAccount: vi.fn(),
     trustCertificate: vi.fn(),
+    allowFileSecrets: vi.fn(),
     removeAccount: vi.fn(),
     listFolders: vi.fn(async () => [
       {

@@ -121,6 +121,15 @@ est majoritairement écrit par Claude et relu par le mainteneur.
   - COMPRESS=DEFLATE : toujours reporté (voir ci-dessus) ; la
     synchronisation fonctionne sans.
 
+- **Dérogation validée par le mainteneur (2026-11-02)** : sans trousseau
+  du système (aucun Secret Service sous Linux), les mots de passe peuvent
+  être enregistrés dans un fichier **non chiffré**
+  (`<données>/mots-de-passe.json`, droits 0600, écriture atomique), après
+  consentement explicite dans le parcours d'ajout de compte. Le trousseau
+  reste prioritaire : le fichier ne sert que s'il ne répond pas. Solution
+  provisoire : à remplacer par mieux (fichier chiffré par un mot de passe
+  principal, ou saisie à chaque lancement).
+
 ## ADR-003 : stockage local et recherche plein texte
 
 - **Statut** : Acceptée (2026-11-01)

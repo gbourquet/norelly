@@ -6,6 +6,10 @@
 //! `spawn_blocking`. Les erreurs ne recopient jamais les octets du secret
 //! (certaines variantes de `keyring_core::Error` les contiennent).
 
+mod file;
+
+pub use file::FileSecretStore;
+
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, PoisonError};
 

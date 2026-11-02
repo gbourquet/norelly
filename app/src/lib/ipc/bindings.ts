@@ -22,6 +22,11 @@ export const commands = {
 	 *  refus effectivement présenté à l'utilisateur peut être accepté.
 	 */
 	trustCertificate: (host: string, fingerprint: string) => typedError<null, IpcError>(__TAURI_INVOKE("trust_certificate", { host, fingerprint })),
+	/**
+	 *  Accepte que les mots de passe soient enregistrés dans un fichier non
+	 *  chiffré, lisible par l'utilisateur seul, faute de trousseau du système.
+	 */
+	allowFileSecrets: () => typedError<null, IpcError>(__TAURI_INVOKE("allow_file_secrets")),
 	/**  Supprime un compte, ses mots de passe et ses données locales. */
 	removeAccount: (id: number) => typedError<null, IpcError>(__TAURI_INVOKE("remove_account", { id })),
 	/**  Dossiers d'un compte. */
@@ -120,6 +125,12 @@ export type AddAccountResultDto = AddAccountResultDto_Serialize | AddAccountResu
 /**  Résultat d'un ajout de compte. */
 export type AddAccountResultDto_Deserialize = { kind: "added"; account: AccountDto } | { kind: "already_exists" } | { kind: "needs_review"; discovery: DiscoveryDto_Deserialize } | { kind: "plaintext_consent_required"; endpoint: EndpointDto } | 
 /**
+ *  Aucun trousseau du système ne répond : l'utilisateur doit accepter
+ *  que le mot de passe soit enregistré dans un fichier non chiffré
+ *  (`path`) avant toute connexion.
+ */
+{ kind: "secret_storage_consent_required"; path: string } | 
+/**
  *  Serveur trouvé par le DNS hors du domaine de l'adresse, non confirmé :
  *  aucune connexion n'a été tentée.
  */
@@ -127,6 +138,12 @@ export type AddAccountResultDto_Deserialize = { kind: "added"; account: AccountD
 
 /**  Résultat d'un ajout de compte. */
 export type AddAccountResultDto_Serialize = { kind: "added"; account: AccountDto } | { kind: "already_exists" } | { kind: "needs_review"; discovery: DiscoveryDto_Serialize } | { kind: "plaintext_consent_required"; endpoint: EndpointDto } | 
+/**
+ *  Aucun trousseau du système ne répond : l'utilisateur doit accepter
+ *  que le mot de passe soit enregistré dans un fichier non chiffré
+ *  (`path`) avant toute connexion.
+ */
+{ kind: "secret_storage_consent_required"; path: string } | 
 /**
  *  Serveur trouvé par le DNS hors du domaine de l'adresse, non confirmé :
  *  aucune connexion n'a été tentée.

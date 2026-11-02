@@ -17,7 +17,7 @@ import type {
 } from "./ipc/api";
 
 export type Step =
-  "form" | "discovering" | "testing" | "manual" | "certificate" | "plaintext" | "done";
+  "form" | "discovering" | "testing" | "manual" | "certificate" | "plaintext" | "secrets" | "done";
 
 export const SOURCE_LABELS: Record<DiscoverySourceDto, string> = {
   provider_autoconfig: "Configuration publiée par le fournisseur",
@@ -54,6 +54,8 @@ export class AddAccountFlow {
   message = $state<string | null>(null);
   certificate = $state<CertificateProblemDto | null>(null);
   plaintextEndpoint = $state<EndpointDto | null>(null);
+  /** Fichier proposé pour les mots de passe, faute de trousseau. */
+  secretsFile = $state<string | null>(null);
   added = $state<AccountDto | null>(null);
   /** Hôtes signalés par la découverte (DNS hors domaine), à confirmer. */
   unconfirmed = $state<{ host: string; source: DiscoverySourceDto }[]>([]);
@@ -175,10 +177,24 @@ export class AddAccountFlow {
     await this.connect();
   }
 
+  /** Faute de trousseau, l'utilisateur accepte le fichier non chiffré. */
+  async allowFileSecrets(): Promise<void> {
+    try {
+      await this.#api.allowFileSecrets();
+    } catch (e) {
+      this.step = "manual";
+      this.message = errorMessage(e);
+      return;
+    }
+    this.secretsFile = null;
+    await this.connect();
+  }
+
   /** Refus d'un avertissement : retour à la saisie manuelle. */
   decline(): void {
     this.certificate = null;
     this.plaintextEndpoint = null;
+    this.secretsFile = null;
     this.step = "manual";
     this.message = "Connexion annulée. Vous pouvez modifier les paramètres.";
   }
@@ -229,6 +245,10 @@ export class AddAccountFlow {
         }
         this.step = "manual";
         this.message = `Le serveur ${result.host} doit être confirmé avant toute connexion.`;
+        break;
+      case "secret_storage_consent_required":
+        this.secretsFile = result.path;
+        this.step = "secrets";
         break;
       case "plaintext_consent_required":
         this.plaintextEndpoint = result.endpoint;

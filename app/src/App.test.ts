@@ -11,6 +11,7 @@ vi.mock("./lib/ipc/api", () => ({
     discoverSettings: vi.fn(),
     addAccount: vi.fn(),
     trustCertificate: vi.fn(),
+    allowFileSecrets: vi.fn(),
     removeAccount: vi.fn(async (id: number) => {
       const i = accounts.findIndex((a) => a.id === id);
       if (i >= 0) accounts.splice(i, 1);

@@ -110,6 +110,11 @@ pub async fn add_account(
 ) -> Result<AddAccountResultDto, IpcError> {
     let confirmed = input.confirmed_hosts.clone();
     let request = add_request(input)?;
+    if !state.secrets.usable().await {
+        return Ok(AddAccountResultDto::SecretStorageConsentRequired {
+            path: state.secrets_file().display().to_string(),
+        });
+    }
     if let Some((imap, smtp)) = &request.servers {
         let hosts = [imap.endpoint.host(), smtp.endpoint.host()];
         if let Some(host) = state.check_confirmations(&hosts, &confirmed) {
@@ -160,6 +165,14 @@ pub async fn trust_certificate(
     trust(&state.exceptions, &rejection)
         .await
         .map_err(IpcError::new)
+}
+
+/// Accepte que les mots de passe soient enregistrés dans un fichier non
+/// chiffré, lisible par l'utilisateur seul, faute de trousseau du système.
+#[tauri::command]
+#[specta::specta]
+pub async fn allow_file_secrets(state: State<'_, AppState>) -> Result<(), IpcError> {
+    state.secrets.consent_to_file().map_err(IpcError::new)
 }
 
 /// Supprime un compte, ses mots de passe et ses données locales.

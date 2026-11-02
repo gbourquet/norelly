@@ -77,6 +77,8 @@ export const api = {
   removeAccount: (id: number): Promise<void> =>
     unwrap(commands.removeAccount(id)).then(() => undefined),
 
+  allowFileSecrets: (): Promise<void> => unwrap(commands.allowFileSecrets()).then(() => undefined),
+
   listFolders: (account: number): Promise<FolderDto[]> => unwrap(commands.listFolders(account)),
 
   listConversations: (
@@ -120,5 +122,10 @@ export type Api = typeof api;
 /** Commandes des comptes (ajout, suppression). */
 export type AccountApi = Pick<
   Api,
-  "listAccounts" | "discoverSettings" | "addAccount" | "trustCertificate" | "removeAccount"
+  | "listAccounts"
+  | "discoverSettings"
+  | "addAccount"
+  | "trustCertificate"
+  | "removeAccount"
+  | "allowFileSecrets"
 >;

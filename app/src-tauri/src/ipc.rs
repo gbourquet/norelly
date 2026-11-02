@@ -290,6 +290,12 @@ pub enum AddAccountResultDto {
     PlaintextConsentRequired {
         endpoint: EndpointDto,
     },
+    /// Aucun trousseau du système ne répond : l'utilisateur doit accepter
+    /// que le mot de passe soit enregistré dans un fichier non chiffré
+    /// (`path`) avant toute connexion.
+    SecretStorageConsentRequired {
+        path: String,
+    },
     /// Serveur trouvé par le DNS hors du domaine de l'adresse, non confirmé :
     /// aucune connexion n'a été tentée.
     ConfirmationRequired {

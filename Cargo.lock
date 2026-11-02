@@ -3121,6 +3121,7 @@ dependencies = [
  "keyring-core",
  "norelly-domain",
  "norelly-test-support",
+ "serde_json",
  "tokio",
  "tracing",
  "windows-native-keyring-store",

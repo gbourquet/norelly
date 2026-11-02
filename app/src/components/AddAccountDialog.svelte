@@ -235,6 +235,23 @@
         </button>
       </div>
     </div>
+  {:else if flow.step === "secrets" && flow.secretsFile}
+    <div class="warning" role="alertdialog" aria-labelledby="secrets-title">
+      <h3 id="secrets-title"><LockOpenIcon size={18} aria-hidden="true" /> Aucun trousseau</h3>
+      <p class="danger">
+        Aucun trousseau du système (GNOME Keyring, KWallet…) ne répond. Norelly peut enregistrer vos
+        mots de passe dans un fichier <strong>non chiffré</strong>, lisible par votre seul compte
+        utilisateur : quiconque accède à vos fichiers pourra les lire.
+      </p>
+      <p class="path">{flow.secretsFile}</p>
+      <div class="actions">
+        <button class="btn btn-primary" type="button" onclick={() => flow.decline()}>Annuler</button
+        >
+        <button class="btn btn-danger" type="button" onclick={() => void flow.allowFileSecrets()}>
+          Enregistrer dans ce fichier
+        </button>
+      </div>
+    </div>
   {/if}
 </Modal>
 

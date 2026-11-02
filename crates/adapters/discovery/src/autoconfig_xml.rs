@@ -183,7 +183,8 @@ pub fn parse(xml: &[u8], domain: &Host) -> Result<DiscoveredServers, DiscoveryEr
                 } else if path.len() == 4 && server.is_some() {
                     field = path.last().and_then(|n| Field::from_name(n));
                     if let (Some(f), Some(s)) = (field, server.as_mut()) {
-                        if f == Field::Authentication && s.authentication.len() >= MAX_AUTH_METHODS {
+                        if f == Field::Authentication && s.authentication.len() >= MAX_AUTH_METHODS
+                        {
                             return Err(invalid("trop de méthodes d'authentification"));
                         }
                         s.open(f);

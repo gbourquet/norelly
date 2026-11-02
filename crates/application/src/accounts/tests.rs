@@ -92,7 +92,8 @@ impl World {
     }
 
     async fn add(&self, request: AddAccountRequest) -> AddAccountOutcome {
-        let test = TestConnection::new(self.servers.clone(), self.servers.clone(), &self.exceptions);
+        let test =
+            TestConnection::new(self.servers.clone(), self.servers.clone(), &self.exceptions);
         let discover = DiscoverSettings::new(
             self.autoconfig.clone(),
             FakeSrvResolver::default(),
@@ -185,7 +186,10 @@ async fn add_uses_discovery_when_no_servers_are_given() {
         Ok(Some(found)),
     );
     let outcome = w.add(request(None)).await;
-    assert!(matches!(outcome, AddAccountOutcome::Added(_)), "{outcome:?}");
+    assert!(
+        matches!(outcome, AddAccountOutcome::Added(_)),
+        "{outcome:?}"
+    );
 }
 
 #[tokio::test]
@@ -228,7 +232,10 @@ async fn plaintext_without_consent_is_refused_before_any_connection() {
         port: draft.imap().endpoint.port(),
     });
     let outcome = w.add(req).await;
-    assert!(matches!(outcome, AddAccountOutcome::Added(_)), "{outcome:?}");
+    assert!(
+        matches!(outcome, AddAccountOutcome::Added(_)),
+        "{outcome:?}"
+    );
 }
 
 #[tokio::test]
@@ -318,7 +325,10 @@ async fn invalid_username_is_reported() {
     let mut req = request(Some((imap, smtp)));
     req.password = Secret::new(String::new());
     let outcome = w.add(req).await;
-    assert!(matches!(outcome, AddAccountOutcome::Invalid(_)), "{outcome:?}");
+    assert!(
+        matches!(outcome, AddAccountOutcome::Invalid(_)),
+        "{outcome:?}"
+    );
     assert!(w.servers.requests().is_empty());
 }
 

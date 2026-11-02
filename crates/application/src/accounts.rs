@@ -99,8 +99,7 @@ where
         let name = request
             .display_name
             .unwrap_or_else(|| DisplayName::from_address(&request.address));
-        let draft = match AccountDraft::new(name, request.address, imap, smtp, &request.plaintext)
-        {
+        let draft = match AccountDraft::new(name, request.address, imap, smtp, &request.plaintext) {
             Ok(draft) => draft,
             Err(AccountError::PlaintextWithoutConsent(endpoint)) => {
                 return AddAccountOutcome::PlaintextConsentRequired(endpoint);

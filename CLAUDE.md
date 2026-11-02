@@ -32,6 +32,8 @@ avant d'être implémentée.
 | Tests Rust | `cargo nextest run --workspace` |
 | Tests d'intégration | `cargo nextest run --workspace --profile integration` |
 | Tests front | `pnpm -C app test` |
+| Tests end-to-end (Docker) | `pnpm -C app e2e` |
+| Régénérer les bindings IPC | `./scripts/gen-bindings.sh` |
 | Lint | `cargo clippy --workspace --all-targets -- -D warnings`, `pnpm -C app lint`, `pnpm -C app check` |
 | Format | `cargo fmt --all`, `pnpm -C app format` |
 
@@ -46,6 +48,9 @@ Un hook PostToolUse formate et lint automatiquement chaque fichier modifié.
   (interdit dans tout le workspace).
 - Svelte 5 uniquement (runes) ; jamais de `{@html}` ni d'`innerHTML`.
 - Tests d'intégration dans des fichiers `tests/integration*.rs`.
+- Contrat IPC : types dans `app/src-tauri/src/ipc.rs`, bindings TS générés
+  et commités (`app/src/lib/ipc/bindings.ts`) ; toute entrée de l'interface
+  est revalidée par le domaine.
 - Chaque port a une suite de contrat exécutée contre son faux et son
   implémentation réelle.
 - Interdit de ramollir, désactiver ou contourner un test, ou d'affaiblir

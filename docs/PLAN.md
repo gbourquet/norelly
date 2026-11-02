@@ -176,6 +176,8 @@ Commandes de référence (détail dans `scripts/check.sh`) :
 
 ## Phase 6 : actions et hors ligne
 
+- [ ] Socle i18n (ADR-011) : Paraglide JS, catalogues `app/messages/{fr,en}.json`, extraction de toutes les chaînes existantes de l'interface, locale du système, `format.ts` sur la locale active, test d'égalité des clés des catalogues branché dans `check.sh`
+- [ ] Contrat IPC (ADR-011) : erreurs et issues en codes énumérés avec paramètres structurés et `detail` technique optionnel ; plus aucun texte utilisateur produit en Rust ; bindings régénérés
 - [ ] Domaine : actions (déplacer, supprimer, archiver, lu/non lu, drapeau), application optimiste, `pending_ops`, rejeu, résolution de conflits (message disparu, dossier supprimé, UIDVALIDITY changée)
 - [ ] Domaine : sémantique de « supprimer » (déplacement vers la Corbeille ; suppression définitive depuis la Corbeille) et d'« archiver » (dossier `\Archive` ou repli configurable)
 - [ ] `adapters/imap` : MOVE, ou à défaut COPY + STORE `\Deleted` + UID EXPUNGE (UIDPLUS), ou EXPUNGE avec garde-fou ; STORE des drapeaux avec UNCHANGEDSINCE
@@ -194,6 +196,7 @@ Commandes de référence (détail dans `scripts/check.sh`) :
   - sujet `Re:`/`Fwd:` sans empilement ;
   - `In-Reply-To`/`References` ;
   - citation
+- [ ] Domaine (ADR-011) : reconnaissance des préfixes de sujet étrangers (`TR`, `AW`, `WG`, `SV`, `VS`, `Antw`, `RIF`, `RE :`…) avec `proptest` ; préfixes produits toujours `Re:`/`Fwd:` ; en-tête de citation reçu en paramètre, localisé par l'interface
 - [ ] Domaine : brouillon (cycle de vie, sauvegarde périodique), file d'envoi (états, nouvelles tentatives, échec définitif)
 - [ ] `adapters/render` : réassainissement du HTML Tiptap ; construction `multipart/alternative` + pièces jointes avec `lettre` ; tests du MIME produit (relu par `mail-parser`)
 - [ ] `adapters/imap` : APPEND des brouillons (remplacement de l'ancien via UIDPLUS), copie dans Envoyés (sauf serveurs qui le font eux-mêmes : Gmail)
@@ -218,6 +221,7 @@ Commandes de référence (détail dans `scripts/check.sh`) :
 ## Phase 9 : notifications et finitions
 
 - [ ] Notifications natives (`tauri-plugin-notification`) pour les nouveaux messages (regroupées, sans contenu si l'option de confidentialité est active)
+- [ ] Traduction anglaise complète, relue ; choix de la langue dans les paramètres (système par défaut) ; textes des notifications localisés côté interface (ADR-011)
 - [ ] Paramètres : question de mise à jour au premier lancement (oui présélectionné), modifiable ; préférences d'affichage, de rapatriement et de notifications
 - [ ] Mesure de bout en bout : démarrage et changement de dossier < 200 ms sur la boîte de 50k messages (test end-to-end avec mesure, seuil dans le job nocturne)
 - [ ] Passe accessibilité : focus visible, rôles ARIA, navigation entièrement au clavier, contrastes
@@ -232,7 +236,7 @@ Commandes de référence (détail dans `scripts/check.sh`) :
 - [ ] `tauri-plugin-updater` (NSIS uniquement, feature `updater`), signature minisign, manifeste JSON sur GitHub Releases
 - [ ] Manifeste Flatpak `io.github.gbourquet.Norelly` (runtime GNOME, sources cargo et npm vendorisées, autorisations minimales), avec un build local qui passe
 - [ ] Manifeste winget
-- [ ] Métadonnées AppStream, icônes, fichier `.desktop`
+- [ ] Métadonnées AppStream, icônes, fichier `.desktop` (traduits en français et en anglais, ADR-011)
 - [ ] Dossier de candidature SignPath Foundation
 - [ ] `nightly.yml` : fuzzing court, bench, Stalwart en second serveur
 - [ ] Revue security-reviewer finale (chaîne d'approvisionnement, autorisations Flatpak, capabilities Tauri), consignée dans REVIEWS.md

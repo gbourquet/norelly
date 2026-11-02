@@ -376,3 +376,74 @@ est majoritairement écrit par Claude et relu par le mainteneur.
   - envoi en `multipart/alternative` avec une version texte.
 - **Conséquences** : dépendance front supplémentaire ; notre propre HTML
   est traité comme non fiable.
+
+## ADR-011 : internationalisation
+
+- **Statut** : Acceptée (2026-11-02)
+- **Contexte** : jusqu'à la phase 5, l'interface est écrite en dur en
+  français. `app/src/lib/format.ts` impose `"fr-FR"`, et les erreurs
+  passent à l'interface sous forme de texte français produit par le
+  `Display` des erreurs Rust (`ErrorDto.message`, `Failed.message`). Le
+  coût d'une reprise augmente à chaque écran. La phase 7 fait aussi
+  entrer la langue dans le domaine : préfixes de réponse étrangers et
+  en-tête de citation.
+- **Options** : Paraglide JS (catalogues compilés, typés) ; `svelte-i18n`
+  (ICU à l'exécution, stores Svelte 4) ; catalogues maison ; traduction
+  côté Rust (Fluent) avec du texte prêt à afficher envoyé par l'IPC.
+- **Décision** :
+  - **La traduction se fait uniquement dans l'interface.** Le front est
+    déjà la couche de présentation. Fluent côté Rust demanderait une
+    seconde chaîne d'outils et ferait transiter du texte par l'IPC.
+  - **Paraglide JS 2** (inlang) :
+    - chaque message devient une fonction TypeScript typée ;
+    - une clé absente ou un paramètre manquant fait échouer
+      `pnpm -C app check` ;
+    - aucun moteur ne s'exécute au rendu, les catalogues inutilisés sont
+      éliminés au build ;
+    - les pluriels suivent ICU. La version est figée et la licence
+      contrôlée à l'ajout (ADR-009).
+  - Catalogues dans `app/messages/{fr,en}.json`. **Le français est la
+    langue source** ; l'anglais sert de repli pour toute autre locale.
+  - **Choix de la langue** : la langue du système (`navigator.language`
+    dans la webview) par défaut, puis une préférence enregistrée en
+    phase 9. Dates, heures, tailles et nombres passent par `Intl` avec
+    la locale active, jamais une locale écrite en dur.
+  - **Contrat IPC** : Rust n'envoie **aucun texte destiné à
+    l'utilisateur**.
+    - Les erreurs et les issues deviennent des **codes énumérés avec
+      des paramètres structurés** (hôte, protocole, dossier…).
+    - Un champ `detail: Option<String>` peut transporter un texte
+      technique brut, par exemple la réponse `NO` d'un serveur IMAP. Il
+      est affiché tel quel, comme une citation, et n'est jamais traduit.
+    - Le `Display` des erreurs Rust reste en français et sert uniquement
+      aux journaux.
+  - **Domaine** : il ne connaît aucune langue, sauf deux exceptions
+    explicites.
+    - **Reconnaissance des préfixes de sujet** (`Re`, `RE`, `Fwd`, `Fw`,
+      `TR`, `AW`, `WG`, `SV`, `VS`, `Antw`, `RIF`, `R`, et `RE :` avec
+      espace avant les deux-points…) : c'est une liste de données fixe,
+      testée par `proptest`, qui sert à ne pas empiler les préfixes.
+      **Les préfixes produits restent toujours `Re:` et `Fwd:`**, quelle
+      que soit la langue (usage RFC 5322, et lisibles par tous les
+      clients).
+    - **En-tête de citation** (« Le … a écrit : ») : l'interface le
+      construit avec la langue et le format de date de l'utilisateur, et
+      le transmet au domaine comme une donnée de rédaction ; le domaine
+      ne fait que l'insérer.
+  - **Textes émis hors de la fenêtre** (notifications natives,
+    phase 9) : ils sont produits par l'interface à partir d'un événement
+    Rust, car la webview tourne encore quand la fenêtre est masquée. Si
+    ce n'est pas possible, on reviendra devant le mainteneur avant
+    d'introduire un catalogue côté Rust.
+- **Conséquences** :
+  - Le contrat IPC change : `ErrorDto`, `AddAccountResultDto::Failed`
+    et `TestConnectionOutcome` passent à des codes. C'est un changement
+    cassant, mais les bindings sont régénérés et l'application n'est pas
+    encore distribuée.
+  - Une nouvelle chaîne d'interface = une clé dans les deux catalogues.
+    Un test front vérifie que `fr.json` et `en.json` ont exactement les
+    mêmes clés, et `./scripts/check.sh` l'exécute.
+  - Les tests end-to-end tournent avec la locale `fr` imposée et ciblent
+    de préférence les rôles ARIA plutôt que les textes.
+  - Les métadonnées AppStream et le fichier `.desktop` sont traduits
+    (phase 10).

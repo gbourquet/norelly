@@ -98,8 +98,15 @@ describe("état de la lecture", () => {
     await mail.onSyncEvent({ kind: "folder_changed", account: 1, mailbox: 10 });
     expect(api.calls).toHaveLength(2);
     expect(mail.selected?.id).toBe(3);
-    await mail.onSyncEvent({ kind: "offline", account: 1, reason: "réseau" });
-    expect(mail.offline[1]).toBe("réseau");
+    await mail.onSyncEvent({ kind: "offline", account: 1, failure: "network", detail: null });
+    expect(mail.offline[1]).toBe("serveur injoignable");
+    await mail.onSyncEvent({
+      kind: "offline",
+      account: 1,
+      failure: "authentication",
+      detail: "NO [AUTHENTICATIONFAILED]",
+    });
+    expect(mail.offline[1]).toBe("identifiants refusés (« NO [AUTHENTICATIONFAILED] »)");
     await mail.onSyncEvent({ kind: "online", account: 1 });
     expect(mail.offline[1]).toBeUndefined();
   });

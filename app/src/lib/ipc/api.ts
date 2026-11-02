@@ -19,7 +19,9 @@ import {
   type AddAccountResultDto_Serialize,
   type DiscoveryDto_Serialize,
   type DiscoverySourceDto,
+  type IpcError,
 } from "./bindings";
+import { IpcFailure } from "../errors";
 
 export type {
   AccountDto,
@@ -37,6 +39,9 @@ export type {
   DiscoveredServerDto,
   DiscoverySourceDto,
   EndpointDto,
+  ErrorCodeDto,
+  FailureKindDto,
+  FieldDto,
   SecurityDto,
   ServerDto,
 } from "./bindings";
@@ -46,13 +51,16 @@ export type Discovery = DiscoveryDto_Serialize;
 export type ConversationPage = ConversationPageDto_Serialize;
 export type ConversationMessage = ConversationMessageDto_Serialize;
 
-export class IpcFailure extends Error {}
+export { IpcFailure } from "../errors";
 
-type Result<T> = { status: "ok"; data: T } | { status: "error"; error: { message: string } };
+type Result<T> = { status: "ok"; data: T } | { status: "error"; error: IpcError };
 
 async function unwrap<T>(pending: Promise<Result<T>>): Promise<T> {
   const result = await pending;
-  if (result.status === "error") throw new IpcFailure(result.error.message);
+  if (result.status === "error") {
+    const { code, field, detail } = result.error;
+    throw new IpcFailure(code, field ?? null, detail ?? null);
+  }
   return result.data;
 }
 
@@ -106,8 +114,9 @@ export const api = {
   openExternal: (url: string): Promise<void> =>
     unwrap(commands.openExternal(url)).then(() => undefined),
 
-  saveAttachment: (message: number, part: string): Promise<string | null> =>
-    unwrap(commands.saveAttachment(message, part)),
+  /** `title` : titre du sélecteur de dossier, localisé. */
+  saveAttachment: (message: number, part: string, title: string): Promise<string | null> =>
+    unwrap(commands.saveAttachment(message, part, title)),
 
   openAttachment: (message: number, part: string): Promise<void> =>
     unwrap(commands.openAttachment(message, part)).then(() => undefined),

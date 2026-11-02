@@ -28,6 +28,7 @@ function conversation(id: number): ConversationDto {
 const view: MessageViewDto = {
   id: 0,
   mode: "html",
+  notice: null,
   has_html: true,
   blocked_images: 2,
   attachments: [
@@ -166,7 +167,7 @@ describe("lecture", () => {
       within(items[0] as HTMLElement).getByRole("button", { name: "Enregistrer…" }),
     );
     expect(await screen.findByText("Enregistré sous « rapport.pdf ».")).toBeInTheDocument();
-    expect(api.saveAttachment).toHaveBeenCalledWith(10, "2");
+    expect(api.saveAttachment).toHaveBeenCalledWith(10, "2", "Enregistrer la pièce jointe dans…");
 
     // Un message qui ne vient pas de l'iframe du message est ignoré.
     window.dispatchEvent(

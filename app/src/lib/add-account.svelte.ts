@@ -13,9 +13,11 @@ import type {
   Discovery,
   DiscoverySourceDto,
   EndpointDto,
+  FailureKindDto,
   ServerDto,
 } from "./ipc/api";
 import { m } from "./paraglide/messages.js";
+import { errorText, withDetail } from "./errors";
 
 export type Step =
   "form" | "discovering" | "testing" | "manual" | "certificate" | "plaintext" | "secrets" | "done";
@@ -147,7 +149,7 @@ export class AddAccountFlow {
       });
     } catch (e) {
       this.step = "form";
-      this.message = errorMessage(e);
+      this.message = errorText(e);
       return;
     }
     const defaults = defaultServers(this.address);
@@ -191,7 +193,7 @@ export class AddAccountFlow {
       await this.#api.trustCertificate(problem.host, problem.fingerprint);
     } catch (e) {
       this.step = "manual";
-      this.message = errorMessage(e);
+      this.message = errorText(e);
       return;
     }
     this.certificate = null;
@@ -213,7 +215,7 @@ export class AddAccountFlow {
       await this.#api.allowFileSecrets();
     } catch (e) {
       this.step = "manual";
-      this.message = errorMessage(e);
+      this.message = errorText(e);
       return;
     }
     this.secretsFile = null;
@@ -244,7 +246,7 @@ export class AddAccountFlow {
       });
     } catch (e) {
       this.step = "manual";
-      this.message = errorMessage(e);
+      this.message = errorText(e);
       return;
     }
     this.apply(result);
@@ -286,29 +288,38 @@ export class AddAccountFlow {
         break;
       case "failed":
         this.step = "manual";
-        this.message = failureMessage(result.failure, result.protocol, result.message);
+        this.message = failureMessage(result.failure, result.protocol, result.detail);
         break;
     }
   }
 }
 
-function errorMessage(e: unknown): string {
-  return e instanceof Error ? e.message : String(e);
-}
-
-function failureMessage(failure: string, protocol: string | null, detail: string): string {
+function failureMessage(
+  failure: FailureKindDto,
+  protocol: string | null,
+  detail: string | null,
+): string {
   const prefix =
     protocol === "imap" ? m.add_server_imap() : protocol === "smtp" ? m.add_server_smtp() : "";
+  const text = (() => {
+    switch (failure) {
+      case "authentication":
+        return m.add_fail_authentication({ prefix });
+      case "network":
+        return m.add_fail_network({ prefix });
+      case "security":
+        return m.add_fail_security({ prefix });
+      case "invalid_input":
+        return m.add_fail_invalid_input();
+      case "secret_store":
+        return m.add_fail_secret_store();
+      case "storage":
+        return m.add_fail_storage();
+      case "protocol":
+      case "internal":
+        return m.add_fail_other({ prefix });
+    }
+  })();
   // Le détail technique (réponse du serveur) est cité tel quel, jamais traduit.
-  const suffix = detail ? ` « ${detail} »` : "";
-  switch (failure) {
-    case "authentication":
-      return m.add_fail_authentication({ prefix }) + suffix;
-    case "network":
-      return m.add_fail_network({ prefix }) + suffix;
-    case "security":
-      return m.add_fail_security({ prefix }) + suffix;
-    default:
-      return m.add_fail_other({ prefix }) + suffix;
-  }
+  return withDetail(text, detail);
 }

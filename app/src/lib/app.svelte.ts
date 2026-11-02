@@ -5,6 +5,7 @@ import { CommandRegistry } from "./commands/registry";
 import { api, type AccountDto } from "./ipc/api";
 import { MailState } from "./mail.svelte";
 import { m } from "./paraglide/messages.js";
+import { errorText } from "./errors";
 
 /** Mots-clés de recherche d'un message « a b c ». */
 const words = (s: string): string[] => s.split(" ").filter(Boolean);
@@ -62,7 +63,7 @@ class AppState {
       }
       await Promise.all(this.accounts.map((a) => mail.loadFolders(a.id)));
     } catch (e) {
-      this.loadError = e instanceof Error ? e.message : String(e);
+      this.loadError = errorText(e);
     }
   }
 }

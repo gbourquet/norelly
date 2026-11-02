@@ -12,6 +12,7 @@ import type {
   ScopeDto,
   SyncEventDto,
 } from "./ipc/api";
+import { errorText, failureText, withDetail } from "./errors";
 
 /** Taille d'une page demandée au Rust. */
 export const PAGE_SIZE = 100;
@@ -62,7 +63,7 @@ export class MailState {
     try {
       this.folders[account] = await this.#api.listFolders(account);
     } catch (e) {
-      this.error = e instanceof Error ? e.message : String(e);
+      this.error = errorText(e);
     }
   }
 
@@ -113,7 +114,7 @@ export class MailState {
         }
       }
     } catch (e) {
-      if (generation === this.#generation) this.error = e instanceof Error ? e.message : String(e);
+      if (generation === this.#generation) this.error = errorText(e);
     }
   }
 
@@ -131,7 +132,7 @@ export class MailState {
         this.#next = page.next;
         this.hasMore = page.next !== null;
       } catch (e) {
-        this.error = e instanceof Error ? e.message : String(e);
+        this.error = errorText(e);
       } finally {
         this.#loading = null;
       }
@@ -175,7 +176,7 @@ export class MailState {
       const messages = await this.#api.conversationMessages(id);
       if (this.opened?.id === id) this.messages = messages;
     } catch (e) {
-      this.error = e instanceof Error ? e.message : String(e);
+      this.error = errorText(e);
     }
   }
 
@@ -204,7 +205,7 @@ export class MailState {
         this.offline = without(this.offline, event.account);
         break;
       case "offline":
-        this.offline[event.account] = event.reason;
+        this.offline[event.account] = withDetail(failureText(event.failure), event.detail);
         break;
     }
   }

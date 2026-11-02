@@ -1,5 +1,6 @@
 <script lang="ts">
   import { m } from "../lib/paraglide/messages.js";
+  import { errorText } from "../lib/errors";
   // Confirmation de suppression d'un compte.
   import Modal from "./Modal.svelte";
   import type { AccountDto } from "../lib/ipc/api";
@@ -23,7 +24,7 @@
     try {
       await onConfirm(account);
     } catch (e) {
-      error = e instanceof Error ? e.message : String(e);
+      error = errorText(e);
     } finally {
       busy = false;
     }

@@ -1,5 +1,6 @@
 <script lang="ts">
   import { m } from "../lib/paraglide/messages.js";
+  import { errorText } from "../lib/errors";
   // Corps d'un message (ADR-004, « A+ ») : iframe mailview:// sandboxée
   // (allow-scripts sans allow-same-origin : origine opaque), dont seul
   // l'agent peut s'exécuter (CSP par empreinte). L'agent signale hauteur,
@@ -40,7 +41,7 @@
       view = await api.openMessage(message);
       error = null;
     } catch (e) {
-      error = e instanceof Error ? e.message : String(e);
+      error = errorText(e);
     }
   }
 
@@ -59,7 +60,7 @@
         break;
       case "link":
         api.openExternal(parsed.href).catch((e: unknown) => {
-          notice = m.message_link_failed({ error: e instanceof Error ? e.message : String(e) });
+          notice = m.message_link_failed({ error: errorText(e) });
         });
         break;
       case "key":
@@ -74,7 +75,7 @@
       await load();
       version += 1;
     } catch (e) {
-      notice = e instanceof Error ? e.message : String(e);
+      notice = errorText(e);
     }
   }
 
@@ -84,12 +85,12 @@
       if (open) {
         await api.openAttachment(message, part);
       } else {
-        const saved = await api.saveAttachment(message, part);
+        const saved = await api.saveAttachment(message, part, m.message_save_dialog_title());
         if (saved !== null) notice = m.message_saved_as({ path: saved });
       }
       await load();
     } catch (e) {
-      notice = e instanceof Error ? e.message : String(e);
+      notice = errorText(e);
     }
   }
 </script>
@@ -113,6 +114,15 @@
           >{m.message_show_images()}</button
         >
       </div>
+    {/if}
+    {#if view.notice}
+      <p class="notice" role="status">
+        {view.notice === "too_complex"
+          ? m.message_notice_too_complex()
+          : view.notice === "too_long"
+            ? m.message_notice_too_long()
+            : m.message_notice_not_available()}
+      </p>
     {/if}
     {#if view.has_html}
       <div class="mode">

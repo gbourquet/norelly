@@ -186,6 +186,9 @@ pub struct SanitizeOptions {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Sanitized {
     pub html: String,
+    /// HTML trop imbriqué : rien n'est affiché (`html` vide), l'interface
+    /// l'explique (texte localisé, ADR-011).
+    pub too_complex: bool,
     /// Adresses des images distantes autorisées, dans l'ordre de leur
     /// index `remote-img://<message>/<index>`.
     pub remote_images: Vec<String>,
@@ -332,7 +335,8 @@ pub fn sanitize_html(html: &str, options: &SanitizeOptions) -> Sanitized {
     let html = html.get(..cut).unwrap_or_default();
     if nesting_depth(html) > MAX_NESTING {
         return Sanitized {
-            html: "<p>Ce message est trop complexe pour être affiché en HTML.</p>".to_owned(),
+            html: String::new(),
+            too_complex: true,
             remote_images: Vec::new(),
             blocked_images: 0,
         };
@@ -388,6 +392,7 @@ pub fn sanitize_html(html: &str, options: &SanitizeOptions) -> Sanitized {
     let c = collected.lock().unwrap_or_else(PoisonError::into_inner);
     Sanitized {
         html,
+        too_complex: false,
         remote_images: c.remote.clone(),
         blocked_images: c.blocked,
     }
@@ -487,7 +492,7 @@ mod tests {
         let started = std::time::Instant::now();
         let out = sanitize_html(&deep, &options(RemoteContent::Blocked));
         assert!(started.elapsed() < std::time::Duration::from_secs(2));
-        assert!(out.html.contains("trop complexe"));
+        assert!(out.too_complex && out.html.is_empty());
         let fine = "<div>".repeat(200) + "x";
         assert!(
             sanitize_html(&fine, &options(RemoteContent::Blocked))

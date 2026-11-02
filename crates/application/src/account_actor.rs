@@ -214,7 +214,7 @@ where
         tracing::warn!(account = %self.account, error = %failure, delay_ms = delay, "connexion perdue");
         self.emit(SyncEvent::Offline {
             account: self.account,
-            reason: failure.to_string(),
+            failure: failure.clone(),
             retry_in_ms: delay,
         });
         tokio::select! {

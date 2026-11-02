@@ -175,9 +175,22 @@ pub struct RenderRequest<'a> {
     pub protocols: &'a Protocols,
 }
 
+/// Avis sur un message dont le corps n'est pas affiché ; l'interface en
+/// tire un texte localisé (ADR-011), le document servi reste vide.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RenderNotice {
+    /// HTML trop imbriqué pour être assaini.
+    TooComplex,
+    /// Rendu trop long (délai dépassé).
+    TooLong,
+    /// Corps pas encore téléchargé.
+    NotAvailable,
+}
+
 /// Message rendu.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Rendered {
+    pub notice: Option<RenderNotice>,
     /// Document HTML complet (à servir avec [`content_security_policy`]).
     pub document: String,
     pub mode: BodyMode,
@@ -220,6 +233,7 @@ pub fn render(request: &RenderRequest<'_>) -> Rendered {
         },
     );
     Rendered {
+        notice: sanitized.too_complex.then_some(RenderNotice::TooComplex),
         document: document(&sanitized.html),
         mode,
         has_html,

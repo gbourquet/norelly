@@ -5,6 +5,7 @@
 use std::collections::BTreeSet;
 use std::time::Duration;
 
+use norelly_domain::actions::{ActionFlag, FlagChange, StoreOutcome};
 use norelly_domain::fetch_policy::BodyFetch;
 use norelly_domain::mailbox::{MailboxName, MailboxRole, Uid, classify_mailboxes};
 use norelly_domain::ports::{
@@ -355,6 +356,146 @@ where
     Ok(())
 }
 
+/// Contrat des actions de la session (phase 6) : `SELECT` en écriture,
+/// `STORE` (avec `UNCHANGEDSINCE`), `COPY`, `MOVE` s'il est annoncé,
+/// `\Deleted`, `UID EXPUNGE` s'il est annoncé, sinon `EXPUNGE`.
+/// `box_name` et `box_name-Dest` sont créées puis supprimées.
+pub async fn actions_session_contract<C, K>(
+    connector: &C,
+    request: &ConnectRequest,
+    control: &K,
+    box_name: &str,
+) -> Result<(), String>
+where
+    C: RemoteMailboxConnector,
+    K: MailboxControl,
+{
+    let dest_name = format!("{box_name}-Dest");
+    control.create(box_name).await?;
+    control.create(&dest_name).await?;
+    for n in 1..=4 {
+        control
+            .append(box_name, &contract_message(n), false)
+            .await?;
+    }
+    let mut session = connector
+        .connect(request)
+        .await
+        .map_err(|e| e.to_string())?;
+    let ext = session
+        .enable_sync_extensions()
+        .await
+        .map_err(|e| e.to_string())?;
+    let has_move = session.capabilities().has("MOVE");
+    let has_uidplus = session.capabilities().has("UIDPLUS");
+    let work = name(box_name);
+    let dest = name(&dest_name);
+    let e = |e: norelly_domain::connection::ConnectionError| e.to_string();
+
+    // --- SELECT en écriture ---
+    let selected = session.select_writable(&work).await.map_err(e)?;
+    assert_eq!(selected.exists, 4);
+    let validity = selected.uid_validity;
+    assert!(validity.is_some(), "UIDVALIDITY");
+    let modseq = selected.highest_modseq;
+    assert_eq!(
+        modseq.is_some(),
+        ext.condstore,
+        "HIGHESTMODSEQ si CONDSTORE"
+    );
+
+    // --- STORE ±FLAGS ---
+    let seen = FlagChange {
+        flag: ActionFlag::Seen,
+        value: true,
+    };
+    let outcome = session.store_flag(uid(1), seen, modseq).await.map_err(e)?;
+    assert_eq!(outcome, StoreOutcome::Stored);
+    let flags = session.message_flags(uid(1)).await.map_err(e)?;
+    assert!(flags.as_ref().is_some_and(|f| f.seen), "{flags:?}");
+    let flagged = FlagChange {
+        flag: ActionFlag::Flagged,
+        value: true,
+    };
+    session.store_flag(uid(1), flagged, None).await.map_err(e)?;
+    let unflag = FlagChange {
+        flag: ActionFlag::Flagged,
+        value: false,
+    };
+    session.store_flag(uid(1), unflag, None).await.map_err(e)?;
+    let flags = session.message_flags(uid(1)).await.map_err(e)?;
+    assert!(
+        flags.as_ref().is_some_and(|f| f.seen && !f.flagged),
+        "les autres drapeaux ne sont pas touchés : {flags:?}"
+    );
+    assert_eq!(session.message_flags(uid(99)).await.map_err(e)?, None);
+
+    // --- UNCHANGEDSINCE : changement concurrent détecté ---
+    if let Some(before) = modseq {
+        control.set_seen(box_name, 2, true).await?;
+        let unseen = FlagChange {
+            flag: ActionFlag::Seen,
+            value: false,
+        };
+        let outcome = session
+            .store_flag(uid(2), unseen, Some(before))
+            .await
+            .map_err(e)?;
+        assert_eq!(outcome, StoreOutcome::Modified, "MODIFIED attendu");
+        let flags = session.message_flags(uid(2)).await.map_err(e)?;
+        assert!(flags.is_some_and(|f| f.seen), "STORE refusé : inchangé");
+    }
+
+    // --- COPY ---
+    session.copy_to(uid(2), &dest).await.map_err(e)?;
+    let all = session.search_all_uids().await.map_err(e)?;
+    assert!(all.contains(&uid(2)), "COPY garde la source");
+
+    // --- MOVE ---
+    if has_move {
+        session.move_to(uid(3), &dest).await.map_err(e)?;
+        let all = session.search_all_uids().await.map_err(e)?;
+        assert!(!all.contains(&uid(3)), "MOVE retire la source");
+    }
+
+    // --- \Deleted puis EXPUNGE ---
+    session.mark_deleted(uid(2)).await.map_err(e)?;
+    let deleted = session.deleted_uids().await.map_err(e)?;
+    assert_eq!(deleted, BTreeSet::from([uid(2)]));
+    if has_uidplus {
+        session.mark_deleted(uid(4)).await.map_err(e)?;
+        session.expunge_uid(uid(2)).await.map_err(e)?;
+        let all = session.search_all_uids().await.map_err(e)?;
+        assert!(!all.contains(&uid(2)), "UID EXPUNGE");
+        assert!(
+            all.contains(&uid(4)),
+            "UID EXPUNGE ne touche que l'UID visé"
+        );
+    }
+    session.expunge_all().await.map_err(e)?;
+    let deleted = session.deleted_uids().await.map_err(e)?;
+    assert!(deleted.is_empty(), "EXPUNGE");
+
+    // --- Destination inexistante : refus (NO) ---
+    let missing = name(&format!("{box_name}-Absente"));
+    let refused = session.copy_to(uid(1), &missing).await;
+    assert!(
+        matches!(
+            refused,
+            Err(norelly_domain::connection::ConnectionError::Rejected(_))
+        ),
+        "{refused:?}"
+    );
+    // La session reste utilisable.
+    let selected = session.select_writable(&dest).await.map_err(e)?;
+    assert_eq!(selected.exists, if has_move { 2 } else { 1 });
+
+    session.logout().await.map_err(e)?;
+    control.delete(&dest_name).await?;
+    control.delete(box_name).await?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use norelly_domain::credentials::{Credentials, Secret, Username};
@@ -392,5 +533,39 @@ mod tests {
             plaintext: PlaintextPolicy::deny_all(),
         };
         remote_session_contract(&servers, &request, &imap, "Contrat").await
+    }
+
+    fn fake_request() -> Result<ConnectRequest, String> {
+        Ok(ConnectRequest {
+            endpoint: ServerEndpoint::new(
+                Host::parse("imap.example.com").map_err(|e| e.to_string())?,
+                993,
+                Security::Tls,
+            )
+            .map_err(|e| e.to_string())?,
+            credentials: Credentials::new(
+                Username::parse("u").map_err(|e| e.to_string())?,
+                Secret::new("p".into()),
+            )
+            .map_err(|e| e.to_string())?,
+            certificate_exceptions: vec![],
+            plaintext: PlaintextPolicy::deny_all(),
+        })
+    }
+
+    #[tokio::test]
+    async fn fake_server_passes_actions_contract() -> Result<(), String> {
+        for (move_ext, uidplus, condstore) in [
+            (true, true, true),
+            (false, true, true),
+            (false, false, false),
+        ] {
+            let imap = FakeImap::new();
+            imap.set_move_extensions(move_ext, uidplus);
+            imap.set_extensions(condstore, condstore, true);
+            let servers = FakeMailServers::with_imap(imap.clone());
+            actions_session_contract(&servers, &fake_request()?, &imap, "Actions").await?;
+        }
+        Ok(())
     }
 }

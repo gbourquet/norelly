@@ -80,6 +80,20 @@ impl ServerCapabilities {
         self.tokens.contains(&token.to_ascii_uppercase())
     }
 
+    /// Mêmes capacités sans celles de `hidden` (capacités masquées :
+    /// serveur à l'implémentation défaillante, tests des replis).
+    #[must_use]
+    pub fn without(&self, hidden: &[String]) -> Self {
+        Self {
+            tokens: self
+                .tokens
+                .iter()
+                .filter(|t| !hidden.iter().any(|h| h.eq_ignore_ascii_case(t)))
+                .cloned()
+                .collect(),
+        }
+    }
+
     /// STARTTLS annoncé.
     #[must_use]
     pub fn starttls(&self) -> bool {

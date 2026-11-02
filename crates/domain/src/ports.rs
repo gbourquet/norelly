@@ -9,6 +9,7 @@ use std::future::Future;
 use std::time::Duration;
 
 use crate::account::{Account, AccountDraft, AccountId};
+use crate::actions::{FlagChange, StoreOutcome};
 use crate::address::EmailAddress;
 use crate::auth::{AuthError, AuthMechanism};
 use crate::capabilities::ServerCapabilities;
@@ -21,7 +22,7 @@ use crate::discovery::{
 use crate::endpoint::{Host, Protocol, ServerEndpoint};
 use crate::fetch_policy::{BodyFetch, MimePart, PartPath};
 use crate::mailbox::{
-    Correspondent, Flags, ListedMailbox, MailboxId, MailboxName, MailboxRole, MessageMeta,
+    Correspondent, Flags, ListedMailbox, MailboxId, MailboxName, MailboxRole, MessageMeta, ModSeq,
     RemoteMailbox, Uid,
 };
 use crate::security::{CertificateException, PlaintextPolicy};
@@ -296,6 +297,64 @@ pub trait RemoteMailboxSession: Send {
         uid: Uid,
         fetch: &BodyFetch,
     ) -> impl Future<Output = Result<Option<FetchedBody>, ConnectionError>> + Send;
+
+    /// Sélectionne une boîte en lecture-écriture (`SELECT`, avec CONDSTORE
+    /// s'il est activé), pour y appliquer des actions.
+    fn select_writable(
+        &mut self,
+        mailbox: &MailboxName,
+    ) -> impl Future<Output = Result<SelectedMailbox, ConnectionError>> + Send;
+
+    /// Drapeaux d'un message de la boîte sélectionnée ; `None` s'il a
+    /// disparu.
+    fn message_flags(
+        &mut self,
+        uid: Uid,
+    ) -> impl Future<Output = Result<Option<Flags>, ConnectionError>> + Send;
+
+    /// Ajoute ou retire un drapeau (`UID STORE … +FLAGS.SILENT` /
+    /// `-FLAGS.SILENT`), sous condition `UNCHANGEDSINCE` si `unchanged_since`
+    /// est fourni et CONDSTORE actif sur la boîte.
+    fn store_flag(
+        &mut self,
+        uid: Uid,
+        change: FlagChange,
+        unchanged_since: Option<ModSeq>,
+    ) -> impl Future<Output = Result<StoreOutcome, ConnectionError>> + Send;
+
+    /// Marque un message `\Deleted` (`UID STORE +FLAGS.SILENT (\Deleted)`).
+    fn mark_deleted(
+        &mut self,
+        uid: Uid,
+    ) -> impl Future<Output = Result<(), ConnectionError>> + Send;
+
+    /// `UID MOVE` (RFC 6851).
+    fn move_to(
+        &mut self,
+        uid: Uid,
+        to: &MailboxName,
+    ) -> impl Future<Output = Result<(), ConnectionError>> + Send;
+
+    /// `UID COPY`.
+    fn copy_to(
+        &mut self,
+        uid: Uid,
+        to: &MailboxName,
+    ) -> impl Future<Output = Result<(), ConnectionError>> + Send;
+
+    /// `UID EXPUNGE` (UIDPLUS) : supprime ce seul message s'il est marqué
+    /// `\Deleted`.
+    fn expunge_uid(&mut self, uid: Uid)
+    -> impl Future<Output = Result<(), ConnectionError>> + Send;
+
+    /// `EXPUNGE` : supprime tous les messages marqués `\Deleted` de la
+    /// boîte (voir [`crate::actions::expunge_is_safe`]).
+    fn expunge_all(&mut self) -> impl Future<Output = Result<(), ConnectionError>> + Send;
+
+    /// UID des messages marqués `\Deleted` (`UID SEARCH DELETED`).
+    fn deleted_uids(
+        &mut self,
+    ) -> impl Future<Output = Result<BTreeSet<Uid>, ConnectionError>> + Send;
 
     /// Attend un changement sur la boîte sélectionnée (`IDLE`), au plus
     /// `max`. Sans IDLE côté serveur, attend `max` puis renvoie

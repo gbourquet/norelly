@@ -12,18 +12,19 @@ use std::num::NonZeroU32;
 use std::time::Duration;
 
 use imap_next::imap_types::body::{BodyStructure, SpecificFields};
-use imap_next::imap_types::command::{CommandBody, FetchModifier, SelectParameter};
+use imap_next::imap_types::command::{CommandBody, FetchModifier, SelectParameter, StoreModifier};
 use imap_next::imap_types::core::{IString, NString, Vec1};
 use imap_next::imap_types::extensions::enable::CapabilityEnable;
 use imap_next::imap_types::fetch::{
     MacroOrMessageDataItemNames, MessageDataItem, MessageDataItemName, Part, Section,
 };
-use imap_next::imap_types::flag::FlagFetch;
+use imap_next::imap_types::flag::{Flag, FlagFetch, StoreResponse, StoreType};
 use imap_next::imap_types::mailbox::{ListMailbox, Mailbox};
 use imap_next::imap_types::response::{Code, Data, StatusKind};
 use imap_next::imap_types::search::SearchKey;
 use imap_next::imap_types::sequence::SequenceSet;
 use mail_parser::{Address, HeaderValue, MessageParser};
+use norelly_domain::actions::StoreOutcome;
 use norelly_domain::connection::{ConnectionError, server_text};
 use norelly_domain::fetch_policy::{
     BodyFetch, Disposition, MAX_MIME_DEPTH, MAX_MIME_PARTS, MimePart, PartPath, attachment_name,
@@ -723,6 +724,165 @@ impl Connection {
             });
         }
         Ok(None)
+    }
+
+    // -----------------------------------------------------------------------
+    // Actions (phase 6)
+    // -----------------------------------------------------------------------
+
+    /// `SELECT` en lecture-écriture (CONDSTORE si demandé).
+    pub(crate) async fn select_rw(
+        &mut self,
+        name: &MailboxName,
+        condstore: bool,
+    ) -> Result<SelectedMailbox, ConnectionError> {
+        let parameters = if condstore {
+            vec![SelectParameter::CondStore]
+        } else {
+            Vec::new()
+        };
+        let body = CommandBody::Select {
+            mailbox: mailbox_arg(name)?,
+            parameters,
+        };
+        let reply = self.execute(body, false).await?;
+        if reply.status.kind == StatusKind::No {
+            return Err(ConnectionError::Rejected(server_text(
+                reply.status.text.as_ref().as_bytes(),
+            )));
+        }
+        ensure_ok(&reply.status)?;
+        let mut selected = SelectedMailbox::default();
+        for code in reply
+            .untagged
+            .iter()
+            .chain(std::iter::once(&reply.status))
+            .filter_map(|s| s.code.as_ref())
+        {
+            match code {
+                Code::UidValidity(v) => selected.uid_validity = UidValidity::new(v.get()),
+                Code::UidNext(n) => selected.uid_next = Uid::new(n.get()),
+                Code::HighestModSeq(m) => selected.highest_modseq = ModSeq::new(m.get()),
+                _ => {}
+            }
+        }
+        for data in &reply.data {
+            if let Data::Exists(n) = data {
+                selected.exists = *n;
+            }
+        }
+        Ok(selected)
+    }
+
+    /// Drapeaux d'un message (`UID FETCH uid (UID FLAGS)`).
+    pub(crate) async fn flags_of(&mut self, uid: Uid) -> Result<Option<Flags>, ConnectionError> {
+        let set = uid_set([uid]).ok_or_else(|| protocol("UID invalide"))?;
+        let body = CommandBody::Fetch {
+            sequence_set: set,
+            macro_or_item_names: MacroOrMessageDataItemNames::MessageDataItemNames(vec![
+                MessageDataItemName::Uid,
+                MessageDataItemName::Flags,
+            ]),
+            uid: true,
+            modifiers: Vec::new(),
+        };
+        let reply = self.execute(body, false).await?;
+        ensure_ok(&reply.status)?;
+        Ok(reply.data.iter().find_map(|d| match d {
+            Data::Fetch { items, .. } => {
+                flag_update(items).filter(|u| u.uid == uid).map(|u| u.flags)
+            }
+            _ => None,
+        }))
+    }
+
+    /// `UID STORE uid [(UNCHANGEDSINCE m)] ±FLAGS.SILENT (flag)`.
+    pub(crate) async fn store(
+        &mut self,
+        uid: Uid,
+        flag: Flag<'static>,
+        add: bool,
+        unchanged_since: Option<ModSeq>,
+    ) -> Result<StoreOutcome, ConnectionError> {
+        let set = uid_set([uid]).ok_or_else(|| protocol("UID invalide"))?;
+        let body = CommandBody::Store {
+            sequence_set: set,
+            kind: if add {
+                StoreType::Add
+            } else {
+                StoreType::Remove
+            },
+            response: StoreResponse::Silent,
+            flags: vec![flag],
+            uid: true,
+            modifiers: unchanged_since
+                .map(|m| vec![StoreModifier::UnchangedSince(m.get())])
+                .unwrap_or_default(),
+        };
+        let reply = self.execute(body, false).await?;
+        ensure_ok(&reply.status)?;
+        let modified = reply
+            .untagged
+            .iter()
+            .chain(std::iter::once(&reply.status))
+            .any(|s| matches!(s.code, Some(Code::Modified(_))));
+        Ok(if modified {
+            StoreOutcome::Modified
+        } else {
+            StoreOutcome::Stored
+        })
+    }
+
+    /// `UID MOVE` ou `UID COPY`.
+    pub(crate) async fn transfer(
+        &mut self,
+        uid: Uid,
+        to: &MailboxName,
+        keep_source: bool,
+    ) -> Result<(), ConnectionError> {
+        let sequence_set = uid_set([uid]).ok_or_else(|| protocol("UID invalide"))?;
+        let mailbox = mailbox_arg(to)?;
+        let body = if keep_source {
+            CommandBody::Copy {
+                sequence_set,
+                mailbox,
+                uid: true,
+            }
+        } else {
+            CommandBody::Move {
+                sequence_set,
+                mailbox,
+                uid: true,
+            }
+        };
+        let reply = self.execute(body, false).await?;
+        ensure_ok(&reply.status)
+    }
+
+    /// `UID EXPUNGE uid` (UIDPLUS), ou `EXPUNGE` (`uid` absent).
+    pub(crate) async fn expunge(&mut self, uid: Option<Uid>) -> Result<(), ConnectionError> {
+        let body = match uid {
+            Some(uid) => CommandBody::ExpungeUid {
+                sequence_set: uid_set([uid]).ok_or_else(|| protocol("UID invalide"))?,
+            },
+            None => CommandBody::Expunge,
+        };
+        let reply = self.execute_bulk(body).await?;
+        ensure_ok(&reply.status)
+    }
+
+    /// `UID SEARCH DELETED`.
+    pub(crate) async fn search_deleted(&mut self) -> Result<BTreeSet<Uid>, ConnectionError> {
+        let body = CommandBody::search(None, Vec1::from(SearchKey::Deleted), true);
+        let reply = self.execute_bulk(body).await?;
+        ensure_ok(&reply.status)?;
+        let mut out = BTreeSet::new();
+        for data in &reply.data {
+            if let Data::Search(uids, ..) = data {
+                out.extend(uids.iter().map(|u| Uid::from_nonzero(*u)));
+            }
+        }
+        Ok(out)
     }
 
     pub(crate) async fn idle_or_poll(

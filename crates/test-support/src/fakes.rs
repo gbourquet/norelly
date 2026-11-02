@@ -6,6 +6,7 @@ use std::future::Future;
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
+use norelly_domain::actions::{FlagChange, StoreOutcome};
 use norelly_domain::capabilities::ServerCapabilities;
 use norelly_domain::connection::ConnectionError;
 use norelly_domain::discovery::{
@@ -13,7 +14,7 @@ use norelly_domain::discovery::{
 };
 use norelly_domain::endpoint::{Host, Protocol, ServerEndpoint};
 use norelly_domain::fetch_policy::BodyFetch;
-use norelly_domain::mailbox::{ListedMailbox, MailboxName, MessageMeta, Uid};
+use norelly_domain::mailbox::{Flags, ListedMailbox, MailboxName, MessageMeta, ModSeq, Uid};
 use norelly_domain::ports::{
     AutoconfigClient, ConnectRequest, DiscoveryError, FetchedBody, IdleOutcome, MailSender,
     OutgoingMessage, PortProber, RemoteMailboxConnector, RemoteMailboxSession, SendError,
@@ -153,6 +154,60 @@ impl RemoteMailboxSession for FakeSession {
         fetch: &BodyFetch,
     ) -> impl Future<Output = Result<Option<FetchedBody>, ConnectionError>> + Send {
         self.inner.fetch_body(uid, fetch)
+    }
+    fn select_writable(
+        &mut self,
+        mailbox: &MailboxName,
+    ) -> impl Future<Output = Result<SelectedMailbox, ConnectionError>> + Send {
+        self.inner.select_writable(mailbox)
+    }
+    fn message_flags(
+        &mut self,
+        uid: Uid,
+    ) -> impl Future<Output = Result<Option<Flags>, ConnectionError>> + Send {
+        self.inner.message_flags(uid)
+    }
+    fn store_flag(
+        &mut self,
+        uid: Uid,
+        change: FlagChange,
+        unchanged_since: Option<ModSeq>,
+    ) -> impl Future<Output = Result<StoreOutcome, ConnectionError>> + Send {
+        self.inner.store_flag(uid, change, unchanged_since)
+    }
+    fn mark_deleted(
+        &mut self,
+        uid: Uid,
+    ) -> impl Future<Output = Result<(), ConnectionError>> + Send {
+        self.inner.mark_deleted(uid)
+    }
+    fn move_to(
+        &mut self,
+        uid: Uid,
+        to: &MailboxName,
+    ) -> impl Future<Output = Result<(), ConnectionError>> + Send {
+        self.inner.move_to(uid, to)
+    }
+    fn copy_to(
+        &mut self,
+        uid: Uid,
+        to: &MailboxName,
+    ) -> impl Future<Output = Result<(), ConnectionError>> + Send {
+        self.inner.copy_to(uid, to)
+    }
+    fn expunge_uid(
+        &mut self,
+        uid: Uid,
+    ) -> impl Future<Output = Result<(), ConnectionError>> + Send {
+        self.inner.expunge_uid(uid)
+    }
+    fn expunge_all(&mut self) -> impl Future<Output = Result<(), ConnectionError>> + Send {
+        self.inner.expunge_all()
+    }
+    fn deleted_uids(
+        &mut self,
+    ) -> impl Future<Output = Result<BTreeSet<Uid>, ConnectionError>> + Send {
+        self.inner.deleted_uids()
     }
     fn idle(
         &mut self,

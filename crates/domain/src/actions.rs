@@ -332,6 +332,14 @@ pub fn coalesce(queue: &[PendingOp], new: &PendingOp) -> Coalesce {
     found.map_or(Coalesce::Push, Coalesce::Cancel)
 }
 
+/// Résultat d'un `STORE` conditionnel.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StoreOutcome {
+    Stored,
+    /// Refusé : le message a changé depuis `UNCHANGEDSINCE` (`MODIFIED`).
+    Modified,
+}
+
 /// Stratégie de déplacement selon les capacités du serveur.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MoveStrategy {

@@ -11,6 +11,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
+use norelly_domain::actions::{FlagChange, StoreOutcome};
 use norelly_domain::capabilities::ServerCapabilities;
 use norelly_domain::connection::ConnectionError;
 use norelly_domain::fetch_policy::BodyFetch;
@@ -67,6 +68,9 @@ struct State {
     condstore: bool,
     qresync: bool,
     idle: bool,
+    /// MOVE et UIDPLUS annoncés (masquables pour tester les replis).
+    move_ext: bool,
+    uidplus: bool,
     offline: bool,
     /// Opérations restantes avant coupure des sessions ouvertes.
     cut_after: Option<usize>,
@@ -116,6 +120,8 @@ impl FakeImap {
             condstore: true,
             qresync: true,
             idle: true,
+            move_ext: true,
+            uidplus: true,
             offline: false,
             cut_after: None,
             operations: 0,
@@ -133,6 +139,15 @@ impl FakeImap {
         s.condstore = condstore;
         s.qresync = qresync && condstore;
         s.idle = idle;
+    }
+
+    /// Annonce (ou masque) MOVE et UIDPLUS ; masquées, les commandes
+    /// correspondantes sont refusées comme par un serveur qui ne les
+    /// connaît pas.
+    pub fn set_move_extensions(&self, move_ext: bool, uidplus: bool) {
+        let mut s = lock(&self.state);
+        s.move_ext = move_ext;
+        s.uidplus = uidplus;
     }
 
     /// Serveur injoignable : les connexions échouent.
@@ -292,7 +307,13 @@ impl FakeImap {
     #[must_use]
     pub fn capabilities(&self) -> ServerCapabilities {
         let s = lock(&self.state);
-        let mut tokens = vec!["IMAP4rev1", "ENABLE", "UIDPLUS", "MOVE", "SPECIAL-USE"];
+        let mut tokens = vec!["IMAP4rev1", "ENABLE", "SPECIAL-USE"];
+        if s.move_ext {
+            tokens.push("MOVE");
+        }
+        if s.uidplus {
+            tokens.push("UIDPLUS");
+        }
         if s.condstore {
             tokens.push("CONDSTORE");
         }
@@ -421,6 +442,73 @@ impl FakeImapSession {
                 None
             },
         })
+    }
+}
+
+impl FakeImapSession {
+    /// Copie (ou déplace) un message vers `to` ; nouvel UID dans `to`.
+    async fn transfer(
+        &mut self,
+        target: Uid,
+        to: &MailboxName,
+        keep_source: bool,
+    ) -> Result<(), ConnectionError> {
+        let name = self.selected_name()?;
+        self.throttle().await;
+        {
+            let mut s = self.step()?;
+            if s.mailbox(to.as_str()).is_none() {
+                return Err(ConnectionError::Rejected(
+                    "[TRYCREATE] boîte inconnue".into(),
+                ));
+            }
+            let source = s.mailbox(&name).ok_or(ConnectionError::Closed)?;
+            let Some(mut msg) = source.messages.get(&target.get()).cloned() else {
+                return Ok(());
+            };
+            if !keep_source {
+                source.messages.remove(&target.get());
+                source.modseq += 1;
+                let modseq = source.modseq;
+                source.expunged.push((target.get(), modseq));
+            }
+            let dest = s.mailbox(to.as_str()).ok_or(ConnectionError::Closed)?;
+            dest.modseq += 1;
+            msg.modseq = dest.modseq;
+            msg.flags.deleted = false;
+            dest.messages.insert(dest.uid_next, msg);
+            dest.uid_next += 1;
+        }
+        self.server.touch(&name);
+        self.server.touch(to.as_str());
+        Ok(())
+    }
+
+    /// Supprime définitivement les messages qui satisfont `which`.
+    async fn expunge_where(
+        &mut self,
+        which: impl Fn(u32, &Message) -> bool,
+    ) -> Result<(), ConnectionError> {
+        let name = self.selected_name()?;
+        self.throttle().await;
+        {
+            let mut s = self.step()?;
+            let m = s.mailbox(&name).ok_or(ConnectionError::Closed)?;
+            let gone: Vec<u32> = m
+                .messages
+                .iter()
+                .filter(|(u, msg)| which(**u, msg))
+                .map(|(u, _)| *u)
+                .collect();
+            for u in gone {
+                m.messages.remove(&u);
+                m.modseq += 1;
+                let modseq = m.modseq;
+                m.expunged.push((u, modseq));
+            }
+        }
+        self.server.touch(&name);
+        Ok(())
     }
 }
 
@@ -591,6 +679,111 @@ impl RemoteMailboxSession for FakeImapSession {
                 }
             }
         }))
+    }
+
+    async fn select_writable(
+        &mut self,
+        mailbox: &MailboxName,
+    ) -> Result<SelectedMailbox, ConnectionError> {
+        let request = SelectRequest {
+            condstore: self.extensions.condstore,
+            qresync: None,
+        };
+        self.select(mailbox, &request).await
+    }
+
+    async fn message_flags(&mut self, target: Uid) -> Result<Option<Flags>, ConnectionError> {
+        let name = self.selected_name()?;
+        self.throttle().await;
+        let mut s = self.step()?;
+        let m = s.mailbox(&name).ok_or(ConnectionError::Closed)?;
+        Ok(m.messages.get(&target.get()).map(|msg| msg.flags.clone()))
+    }
+
+    async fn store_flag(
+        &mut self,
+        target: Uid,
+        change: FlagChange,
+        unchanged_since: Option<ModSeq>,
+    ) -> Result<StoreOutcome, ConnectionError> {
+        let name = self.selected_name()?;
+        let condstore = self.extensions.condstore;
+        self.throttle().await;
+        let outcome = {
+            let mut s = self.step()?;
+            let m = s.mailbox(&name).ok_or(ConnectionError::Closed)?;
+            let next = m.modseq + 1;
+            let Some(msg) = m.messages.get_mut(&target.get()) else {
+                return Ok(StoreOutcome::Stored);
+            };
+            if let Some(since) = unchanged_since.filter(|_| condstore)
+                && msg.modseq > since.get()
+            {
+                return Ok(StoreOutcome::Modified);
+            }
+            if change.flag.get(&msg.flags) != change.value {
+                change.flag.set(&mut msg.flags, change.value);
+                msg.modseq = next;
+                m.modseq = next;
+            }
+            StoreOutcome::Stored
+        };
+        self.server.touch(&name);
+        Ok(outcome)
+    }
+
+    async fn mark_deleted(&mut self, target: Uid) -> Result<(), ConnectionError> {
+        let name = self.selected_name()?;
+        self.throttle().await;
+        {
+            let mut s = self.step()?;
+            let m = s.mailbox(&name).ok_or(ConnectionError::Closed)?;
+            let next = m.modseq + 1;
+            if let Some(msg) = m.messages.get_mut(&target.get()) {
+                msg.flags.deleted = true;
+                msg.modseq = next;
+                m.modseq = next;
+            }
+        }
+        self.server.touch(&name);
+        Ok(())
+    }
+
+    async fn move_to(&mut self, target: Uid, to: &MailboxName) -> Result<(), ConnectionError> {
+        if !lock(&self.server.state).move_ext {
+            return Err(ConnectionError::Protocol("commande inconnue : MOVE".into()));
+        }
+        self.transfer(target, to, false).await
+    }
+
+    async fn copy_to(&mut self, target: Uid, to: &MailboxName) -> Result<(), ConnectionError> {
+        self.transfer(target, to, true).await
+    }
+
+    async fn expunge_uid(&mut self, target: Uid) -> Result<(), ConnectionError> {
+        if !lock(&self.server.state).uidplus {
+            return Err(ConnectionError::Protocol(
+                "commande inconnue : UID EXPUNGE".into(),
+            ));
+        }
+        self.expunge_where(|u, msg| u == target.get() && msg.flags.deleted)
+            .await
+    }
+
+    async fn expunge_all(&mut self) -> Result<(), ConnectionError> {
+        self.expunge_where(|_, msg| msg.flags.deleted).await
+    }
+
+    async fn deleted_uids(&mut self) -> Result<BTreeSet<Uid>, ConnectionError> {
+        let name = self.selected_name()?;
+        self.throttle().await;
+        let mut s = self.step()?;
+        let m = s.mailbox(&name).ok_or(ConnectionError::Closed)?;
+        Ok(m.messages
+            .iter()
+            .filter(|(_, msg)| msg.flags.deleted)
+            .filter_map(|(u, _)| uid(*u))
+            .collect())
     }
 
     async fn idle(&mut self, max: Duration) -> Result<IdleOutcome, ConnectionError> {

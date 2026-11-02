@@ -180,7 +180,7 @@ Commandes de référence (détail dans `scripts/check.sh`) :
 - [x] Contrat IPC (ADR-011) : erreurs et issues en codes énumérés avec paramètres structurés et `detail` technique optionnel ; plus aucun texte utilisateur produit en Rust ; bindings régénérés
 - [x] Domaine : actions (déplacer, supprimer, archiver, lu/non lu, drapeau), application optimiste, `pending_ops`, rejeu, résolution de conflits (message disparu, dossier supprimé, UIDVALIDITY changée)
 - [x] Domaine : sémantique de « supprimer » (déplacement vers la Corbeille ; suppression définitive depuis la Corbeille) et d'« archiver » (dossier `\Archive` ou repli configurable)
-- [ ] `adapters/imap` : MOVE, ou à défaut COPY + STORE `\Deleted` + UID EXPUNGE (UIDPLUS), ou EXPUNGE avec garde-fou ; STORE des drapeaux avec UNCHANGEDSINCE
+- [x] `adapters/imap` : MOVE, ou à défaut COPY + STORE `\Deleted` + UID EXPUNGE (UIDPLUS), ou EXPUNGE avec garde-fou ; STORE des drapeaux avec UNCHANGEDSINCE
 - [ ] `adapters/sqlite` : table `pending_ops` durable, test de contrat
 - [ ] Application : file d'actions rejouée à la reconnexion, avec un test de bout en bout hors ligne puis en ligne (Toxiproxy)
 - [ ] Interface : raccourcis `e`, `#`, `s` (drapeau), `Shift+i`/`Shift+u`, `v` (déplacer, avec sélection de dossier dans la palette), sélection multiple (`x`), annulation de la dernière action

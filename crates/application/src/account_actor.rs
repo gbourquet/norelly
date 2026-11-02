@@ -2,7 +2,8 @@
 //!
 //! - **connexion de commandes** : synchronisation complète au démarrage
 //!   puis périodiquement, synchronisation d'une boîte à la demande (IDLE,
-//!   interface) ;
+//!   interface), corps téléchargés à la demande (pièces jointes
+//!   différées) ;
 //! - **connexion IDLE** sur la boîte de réception : renouvelée avant
 //!   29 minutes ([`IDLE_RENEWAL_SECS`]) ; chaque changement signalé
 //!   déclenche la synchronisation de la boîte de réception sur la
@@ -17,14 +18,15 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use norelly_domain::account::AccountId;
-use norelly_domain::fetch_policy::FetchPolicy;
-use norelly_domain::mailbox::{MailboxId, MailboxName};
+use norelly_domain::connection::ConnectionError;
+use norelly_domain::fetch_policy::{BodyFetch, FetchPolicy};
+use norelly_domain::mailbox::{MailboxId, MailboxName, Uid};
 use norelly_domain::ports::{
-    BlobStore, ConnectRequest, IdleOutcome, MailStore, RemoteMailboxConnector,
+    BlobStore, ConnectRequest, FetchedBody, IdleOutcome, MailStore, RemoteMailboxConnector,
     RemoteMailboxSession, StoredMailbox,
 };
 use norelly_domain::sync::{Backoff, IDLE_RENEWAL_SECS, SelectRequest, SyncExtensions};
-use tokio::sync::{broadcast, mpsc, watch};
+use tokio::sync::{broadcast, mpsc, oneshot, watch};
 use tokio::task::JoinHandle;
 
 use crate::sync::{SyncAccount, SyncEvent, SyncFailure};
@@ -55,10 +57,20 @@ impl Default for ActorConfig {
 /// Délai laissé à chaque tâche pour s'arrêter proprement.
 pub const SHUTDOWN_GRACE: Duration = Duration::from_secs(5);
 
+/// Réponse à une demande de corps.
+type FetchReply = oneshot::Sender<Result<Option<FetchedBody>, ConnectionError>>;
+
 #[derive(Debug)]
 enum Command {
     SyncAll,
     SyncMailbox(MailboxName),
+    /// Corps (ou parties différées) d'un message, à la demande.
+    Fetch {
+        mailbox: MailboxName,
+        uid: Uid,
+        fetch: BodyFetch,
+        reply: FetchReply,
+    },
 }
 
 /// Poignée d'un acteur en cours d'exécution.
@@ -86,6 +98,27 @@ impl AccountHandle {
     /// Demande une synchronisation complète (sans attendre).
     pub fn sync_now(&self) {
         let _ = self.commands.try_send(Command::SyncAll);
+    }
+
+    /// Télécharge un corps par la connexion de commandes (attend la
+    /// reconnexion si elle est coupée ; à borner par l'appelant).
+    pub async fn fetch_body(
+        &self,
+        mailbox: MailboxName,
+        uid: Uid,
+        fetch: BodyFetch,
+    ) -> Result<Option<FetchedBody>, ConnectionError> {
+        let (reply, answer) = oneshot::channel();
+        self.commands
+            .send(Command::Fetch {
+                mailbox,
+                uid,
+                fetch,
+                reply,
+            })
+            .await
+            .map_err(|_| ConnectionError::Closed)?;
+        answer.await.map_err(|_| ConnectionError::Closed)?
     }
 
     /// Arrête l'acteur et attend la fin de ses tâches.
@@ -272,19 +305,43 @@ where
                 c = commands.recv() => c,
             };
             let command = command?;
-            // Regroupe les demandes en attente.
-            let mut all = matches!(command, Command::SyncAll);
+            // Regroupe les demandes en attente ; les corps demandés par
+            // l'interface passent en premier.
+            let mut all = false;
             let mut names = BTreeMap::new();
-            if let Command::SyncMailbox(name) = command {
-                names.insert(name, ());
-            }
-            while let Ok(more) = commands.try_recv() {
-                match more {
+            let mut fetches = Vec::new();
+            for command in
+                std::iter::once(command).chain(std::iter::from_fn(|| commands.try_recv().ok()))
+            {
+                match command {
                     Command::SyncAll => all = true,
                     Command::SyncMailbox(name) => {
                         names.insert(name, ());
                     }
+                    Command::Fetch {
+                        mailbox,
+                        uid,
+                        fetch,
+                        reply,
+                    } => fetches.push((mailbox, uid, fetch, reply)),
                 }
+            }
+            for (mailbox, uid, fetch, reply) in fetches {
+                let result = tokio::select! {
+                    _ = stop.changed() => return None,
+                    r = fetch_on(session, &mailbox, uid, &fetch) => r,
+                };
+                let failure = match &result {
+                    Err(e) if !matches!(e, ConnectionError::Rejected(_)) => Some(e.clone()),
+                    _ => None,
+                };
+                let _ = reply.send(result);
+                if let Some(e) = failure {
+                    return Some(e.into());
+                }
+            }
+            if !all && names.is_empty() {
+                continue;
             }
             if all {
                 next_full = tokio::time::Instant::now() + every;
@@ -405,6 +462,21 @@ where
             }
         }
     }
+}
+
+/// Sélectionne la boîte (lecture seule) puis télécharge le corps.
+async fn fetch_on<S: RemoteMailboxSession>(
+    session: &mut S,
+    mailbox: &MailboxName,
+    uid: Uid,
+    fetch: &BodyFetch,
+) -> Result<Option<FetchedBody>, ConnectionError> {
+    let request = SelectRequest {
+        condstore: false,
+        qresync: None,
+    };
+    session.select(mailbox, &request).await?;
+    session.fetch_body(uid, fetch).await
 }
 
 /// Démarre l'acteur d'un compte.

@@ -466,11 +466,14 @@ impl ConversationQuery for SqliteMailStore {
     }
 }
 
+/// Compte, boîte, nom de boîte, UID, expéditeur, structure (JSON).
+type LocateRow = (i64, i64, String, i64, String, String, Option<String>);
+
 fn locate(c: &Connection, message: MessageId) -> Result<Option<MessageLocation>, StoreError> {
-    let row: Option<(i64, i64, String, i64, String, String)> = c
+    let row: Option<LocateRow> = c
         .query_row(
-            "SELECT b.account_id, m.mailbox_id, b.name, m.uid, m.from_name, m.from_address \
-             FROM messages m JOIN mailboxes b ON b.id = m.mailbox_id WHERE m.id = ?1",
+            "SELECT b.account_id, m.mailbox_id, b.name, m.uid, m.from_name, m.from_address, \
+             m.structure FROM messages m JOIN mailboxes b ON b.id = m.mailbox_id WHERE m.id = ?1",
             [message.get()],
             |r| {
                 Ok((
@@ -480,12 +483,13 @@ fn locate(c: &Connection, message: MessageId) -> Result<Option<MessageLocation>,
                     r.get(3)?,
                     r.get(4)?,
                     r.get(5)?,
+                    r.get(6)?,
                 ))
             },
         )
         .optional()
         .map_err(store_error)?;
-    let Some((account, mailbox, name, uid, from_name, from_address)) = row else {
+    let Some((account, mailbox, name, uid, from_name, from_address, structure)) = row else {
         return Ok(None);
     };
     let body = crate::mail::read_body(c, message.get())?.unwrap_or(StoredBody::Missing);
@@ -497,6 +501,8 @@ fn locate(c: &Connection, message: MessageId) -> Result<Option<MessageLocation>,
         uid: uid_of(uid)?,
         from: (!from_name.is_empty() || !from_address.is_empty())
             .then(|| Correspondent::new(&from_name, &from_address)),
+        // Structure illisible : traitée comme inconnue.
+        structure: structure.and_then(|s: String| serde_json::from_str(&s).ok()),
         body,
     }))
 }

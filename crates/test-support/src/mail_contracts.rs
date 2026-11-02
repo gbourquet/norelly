@@ -909,6 +909,7 @@ impl MessageLocator for InMemoryMailStore {
                     mailbox_name: mailbox.mailbox.name.clone(),
                     uid: m.stored.meta.uid,
                     from: m.stored.meta.headers.from.first().cloned(),
+                    structure: m.stored.meta.structure.clone(),
                     body: m.stored.body.clone(),
                 }));
             }

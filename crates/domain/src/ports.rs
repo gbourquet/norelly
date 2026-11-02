@@ -822,6 +822,8 @@ pub struct MessageLocation {
     pub mailbox_name: MailboxName,
     pub uid: Uid,
     pub from: Option<Correspondent>,
+    /// Structure annoncée par le serveur (parties différées).
+    pub structure: Option<MimePart>,
     pub body: StoredBody,
 }
 
@@ -831,6 +833,20 @@ pub trait MessageLocator: Send + Sync {
         &self,
         message: MessageId,
     ) -> impl Future<Output = Result<Option<MessageLocation>, StoreError>> + Send;
+}
+
+/// Téléchargement à la demande d'un corps (parties différées), par la
+/// connexion IMAP du compte.
+pub trait RemoteBodyFetcher: Send + Sync {
+    /// Corps du message `uid` de la boîte `mailbox` ; `None` s'il a
+    /// disparu.
+    fn fetch(
+        &self,
+        account: AccountId,
+        mailbox: &MailboxName,
+        uid: Uid,
+        fetch: &BodyFetch,
+    ) -> impl Future<Output = Result<Option<FetchedBody>, ConnectionError>> + Send;
 }
 
 // ---------------------------------------------------------------------------

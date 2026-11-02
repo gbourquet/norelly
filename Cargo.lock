@@ -2950,8 +2950,12 @@ dependencies = [
 name = "norelly-application"
 version = "0.1.0"
 dependencies = [
+ "norelly-blobs",
  "norelly-domain",
+ "norelly-imap",
+ "norelly-sqlite",
  "norelly-test-support",
+ "norelly-tls",
  "thiserror 2.0.21",
  "tokio",
  "tracing",

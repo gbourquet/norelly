@@ -720,3 +720,146 @@ async fn huge_line_before_tls_is_rejected() -> TestResult {
     let _ = server.finish().await;
     Ok(())
 }
+
+// ---------------------------------------------------------------------------
+// Synchronisation
+// ---------------------------------------------------------------------------
+
+/// Session authentifiée (PLAIN + SASL-IR) puis `script`.
+fn authenticated(script: Script) -> Script {
+    Script::new()
+        .send(imap::greeting(
+            "IMAP4rev1 AUTH=PLAIN SASL-IR IDLE ENABLE CONDSTORE QRESYNC",
+        ))
+        .expect("AUTHENTICATE PLAIN")
+        .send(imap::ok("authentifie"))
+        .expect("CAPABILITY")
+        .send(imap::capability("IMAP4rev1 IDLE ENABLE CONDSTORE QRESYNC"))
+        .steps_from(script)
+}
+
+/// Un IDLE abandonné (futur annulé) ne laisse pas la session bloquée : la
+/// fermeture est immédiate, sans attendre le délai de l'IDLE.
+#[tokio::test]
+async fn cancelled_idle_does_not_block_logout() -> TestResult {
+    let f = fixture()?;
+    let cert = f.ca.issue(&["localhost"])?;
+    let script = authenticated(
+        Script::new()
+            .expect("IDLE")
+            .send("+ idling\r\n")
+            .wait(Duration::from_secs(8)),
+    );
+    let server = ScriptedServer::start_tls(script, cert.server_config()?).await?;
+    let mut session = f
+        .connector
+        .connect(&request(
+            server.port(),
+            Security::Tls,
+            PlaintextPolicy::deny_all(),
+        ))
+        .await?;
+    let cancelled = tokio::time::timeout(
+        Duration::from_millis(300),
+        session.idle(Duration::from_secs(600)),
+    )
+    .await;
+    assert!(cancelled.is_err(), "IDLE toujours en cours");
+    // Toute nouvelle commande échoue aussitôt.
+    let started = std::time::Instant::now();
+    assert!(session.search_all_uids().await.is_err());
+    tokio::time::timeout(Duration::from_secs(1), session.logout())
+        .await
+        .map_err(|_| "LOGOUT bloqué après un IDLE annulé")??;
+    assert!(started.elapsed() < Duration::from_secs(1));
+    Ok(())
+}
+
+/// Réponses hostiles à LIST et EXAMINE : noms invalides ignorés, VANISHED
+/// démesuré borné, FETCH sans UID ignoré, codes lus.
+#[tokio::test]
+async fn hostile_sync_responses_are_contained() -> TestResult {
+    use norelly_domain::mailbox::{MailboxName, ModSeq, Uid, UidValidity};
+    use norelly_domain::sync::{QresyncParams, SelectRequest};
+
+    let f = fixture()?;
+    let cert = f.ca.issue(&["localhost"])?;
+    let script = authenticated(
+        Script::new()
+            .expect("ENABLE")
+            .send("* ENABLED CONDSTORE QRESYNC\r\n{tag} OK active\r\n")
+            .expect("LIST")
+            .send(
+                "* LIST () \"/\" INBOX\r\n\
+                 * LIST (\\Sent) \"/\" \"Envoy&AOk-s\"\r\n\
+                 * LIST () \"/\" \"&AGE-\"\r\n\
+                 * LIST () \"/\" \"a&IC4-b\"\r\n\
+                 {tag} OK LIST termine\r\n",
+            )
+            .expect("EXAMINE INBOX (QRESYNC (7 10))")
+            .send(
+                "* OK [UIDVALIDITY 7] ok\r\n\
+                 * OK [UIDNEXT 100] ok\r\n\
+                 * OK [HIGHESTMODSEQ 20] ok\r\n\
+                 * 3 EXISTS\r\n\
+                 * VANISHED (EARLIER) 1:4294967295\r\n\
+                 * 1 FETCH (FLAGS (\\Seen) MODSEQ (15))\r\n\
+                 * 2 FETCH (UID 5 FLAGS (\\Flagged) MODSEQ (16))\r\n\
+                 {tag} OK [READ-ONLY] termine\r\n",
+            )
+            .expect("LOGOUT")
+            .send("* BYE au revoir\r\n{tag} OK termine\r\n")
+            .expect_eof(),
+    );
+    let server = ScriptedServer::start_tls(script, cert.server_config()?).await?;
+    let mut session = f
+        .connector
+        .connect(&request(
+            server.port(),
+            Security::Tls,
+            PlaintextPolicy::deny_all(),
+        ))
+        .await
+        .map_err(|e| format!("CONNECT : {e}"))?;
+    let ext = session
+        .enable_sync_extensions()
+        .await
+        .map_err(|e| format!("ENABLE : {e}"))?;
+    assert!(ext.qresync);
+    let names: Vec<String> = session
+        .list_mailboxes()
+        .await
+        .map_err(|e| format!("LIST : {e}"))?
+        .into_iter()
+        .map(|m| m.name.to_string())
+        .collect();
+    assert_eq!(names, ["INBOX", "Envoyés"], "noms invalides ignorés");
+    let request = SelectRequest {
+        condstore: false,
+        qresync: Some(QresyncParams {
+            uid_validity: UidValidity::new(7).ok_or("uidvalidity")?,
+            modseq: ModSeq::new(10).ok_or("modseq")?,
+        }),
+    };
+    let selected = session
+        .select(&MailboxName::inbox(), &request)
+        .await
+        .map_err(|e| format!("EXAMINE : {e}"))?;
+    assert_eq!(selected.uid_validity, UidValidity::new(7));
+    assert_eq!(selected.uid_next, Uid::new(100));
+    assert_eq!(selected.highest_modseq, ModSeq::new(20));
+    assert_eq!(selected.exists, 3);
+    assert!(selected.vanished.len() <= 2_000_000, "VANISHED borné");
+    assert_eq!(
+        selected
+            .changed
+            .iter()
+            .map(|c| c.uid.get())
+            .collect::<Vec<_>>(),
+        [5],
+        "FETCH sans UID ignoré"
+    );
+    session.logout().await?;
+    server.finish().await.result?;
+    Ok(())
+}

@@ -446,7 +446,7 @@ impl RemoteMailboxSession for FakeImapSession {
         let ext = self.extensions;
         let mut s = self.step()?;
         let Some(m) = s.mailbox(mailbox.as_str()).cloned() else {
-            return Err(ConnectionError::Protocol("boîte inconnue".into()));
+            return Err(ConnectionError::Rejected("boîte inconnue".into()));
         };
         drop(s);
         let condstore = ext.condstore && (request.condstore || request.qresync.is_some());

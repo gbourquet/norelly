@@ -65,10 +65,11 @@ pub enum SyncFailure {
 }
 
 impl SyncFailure {
-    /// Vrai si la connexion est à rouvrir (erreur réseau ou protocole).
+    /// Vrai si la connexion est à rouvrir (erreur réseau ou protocole) ;
+    /// faux pour une commande simplement refusée (`NO`).
     #[must_use]
     pub fn is_connection(&self) -> bool {
-        matches!(self, Self::Connection(_))
+        matches!(self, Self::Connection(e) if !matches!(e, ConnectionError::Rejected(_)))
     }
 }
 
@@ -152,6 +153,11 @@ impl<M: MailStore, B: BlobStore> SyncAccount<'_, M, B> {
                 Ok(_) => {}
                 Err(SyncFailure::Reconcile { mailbox, error }) => {
                     tracing::warn!(%mailbox, %error, "boîte ignorée");
+                }
+                // Boîte refusée par le serveur (droits, boîte disparue
+                // entre LIST et SELECT) : les autres sont synchronisées.
+                Err(SyncFailure::Connection(ConnectionError::Rejected(reason))) => {
+                    tracing::warn!(mailbox = %m.mailbox.name, %reason, "boîte refusée");
                 }
                 Err(e) => return Err(e),
             }

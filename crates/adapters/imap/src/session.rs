@@ -100,7 +100,13 @@ fn mailbox_name(mailbox: &Mailbox<'_>) -> Option<MailboxName> {
         Mailbox::Inbox => return Some(MailboxName::inbox()),
         Mailbox::Other(other) => other.inner().as_ref(),
     };
-    let decoded = utf7::decode(raw).or_else(|| std::str::from_utf8(raw).ok().map(str::to_owned))?;
+    // Repli sur l'UTF-8 brut seulement pour un nom 8 bits (serveur qui
+    // n'encode pas) ; un nom ASCII mal encodé est ignoré.
+    let decoded = match utf7::decode(raw) {
+        Some(name) => name,
+        None if !raw.is_ascii() => std::str::from_utf8(raw).ok()?.to_owned(),
+        None => return None,
+    };
     MailboxName::parse(&decoded).ok()
 }
 
@@ -422,9 +428,15 @@ impl Connection {
             parameters,
         };
         let reply = self.execute_bulk(body).await?;
+        if reply.status.kind == StatusKind::No {
+            return Err(ConnectionError::Rejected(format!(
+                "sélection de « {name} » refusée : {}",
+                server_text(reply.status.text.as_ref().as_bytes())
+            )));
+        }
         if reply.status.kind != StatusKind::Ok {
             return Err(ConnectionError::Protocol(format!(
-                "sélection de « {name} » refusée : {}",
+                "sélection de « {name} » invalide : {}",
                 server_text(reply.status.text.as_ref().as_bytes())
             )));
         }

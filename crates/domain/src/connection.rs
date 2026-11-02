@@ -82,6 +82,9 @@ pub enum ConnectionError {
     Authentication(#[from] AuthError),
     #[error("réponse du serveur invalide : {0}")]
     Protocol(String),
+    /// Commande refusée (`NO`) : la session reste utilisable.
+    #[error("commande refusée par le serveur : {0}")]
+    Rejected(String),
 }
 
 impl From<StartTlsUnavailable> for ConnectionError {
@@ -117,7 +120,7 @@ impl ConnectionError {
             | Self::StartTlsRejected(_)
             | Self::PlaintextInjection
             | Self::PlaintextRefused(_) => FailureCategory::Security,
-            Self::Protocol(_) => FailureCategory::Protocol,
+            Self::Protocol(_) | Self::Rejected(_) => FailureCategory::Protocol,
         }
     }
 }

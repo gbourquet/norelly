@@ -96,6 +96,10 @@ pub(crate) struct Connection {
     max_response_size: u32,
     timeout: Duration,
     next_tag: u32,
+    /// IDLE en cours : vrai entre l'acceptation et la réponse étiquetée.
+    /// Reste vrai si l'attente a été abandonnée (futur annulé) : la
+    /// session est alors inutilisable et n'est plus que fermée.
+    in_idle: bool,
     /// Réponses de données acceptées par commande.
     max_untagged: usize,
 }
@@ -153,6 +157,7 @@ impl Connection {
             timeout,
             next_tag: 0,
             max_untagged: MAX_UNTAGGED_PER_COMMAND,
+            in_idle: false,
         }
     }
 
@@ -172,6 +177,9 @@ impl Connection {
     /// (`EXISTS`, `EXPUNGE`, `FETCH`, `VANISHED`) ou jusqu'à `max`, puis
     /// `DONE`. Renvoie `true` si un changement a été signalé.
     pub(crate) async fn idle(&mut self, max: Duration) -> Result<bool, ConnectionError> {
+        if self.in_idle {
+            return Err(protocol("session interrompue pendant IDLE"));
+        }
         let tag = self.tag()?;
         let command = Command::new(tag.clone(), CommandBody::Idle)
             .map_err(|_| protocol("commande invalide"))?;
@@ -183,7 +191,10 @@ impl Connection {
                 Event::StatusReceived {
                     status: Status::Untagged(_),
                 } => {}
-                Event::IdleAccepted { .. } => break,
+                Event::IdleAccepted { .. } => {
+                    self.in_idle = true;
+                    break;
+                }
                 Event::IdleRejected { status, .. } => {
                     return Err(ConnectionError::Protocol(format!(
                         "IDLE refusé : {}",
@@ -201,18 +212,17 @@ impl Connection {
                 }
             }
         }
-        // Attente : le délai de lecture devient la durée restante.
+        // Attente : le délai de lecture est la durée restante (passé en
+        // paramètre, jamais stocké : l'abandon du futur ne le laisse pas en
+        // place pour les commandes suivantes).
         let deadline = tokio::time::Instant::now() + max;
-        let normal_timeout = self.timeout;
         let mut changed = false;
         while !changed {
             let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
             if remaining.is_zero() {
                 break;
             }
-            self.timeout = remaining;
-            let event = self.next_event().await;
-            self.timeout = normal_timeout;
+            let event = self.next_event_within(remaining).await;
             match event {
                 Err(ConnectionError::Timeout(TimeoutStage::Response)) => break,
                 Err(e) => return Err(e),
@@ -245,6 +255,7 @@ impl Connection {
                 Event::IdleDoneSent { .. } | Event::DataReceived { .. } => {}
                 Event::StatusReceived { status } => match status {
                     Status::Tagged(tagged) if tagged.tag == tag => {
+                        self.in_idle = false;
                         ensure_ok(&tagged.body)?;
                         return Ok(changed);
                     }
@@ -289,6 +300,11 @@ impl Connection {
 
     /// Avance la machine d'états jusqu'au prochain événement.
     async fn next_event(&mut self) -> Result<Event, ConnectionError> {
+        self.next_event_within(self.timeout).await
+    }
+
+    /// Comme [`Self::next_event`], avec un délai de lecture donné.
+    async fn next_event_within(&mut self, timeout: Duration) -> Result<Event, ConnectionError> {
         loop {
             match self.client.next() {
                 Ok(event) => return Ok(event),
@@ -302,22 +318,21 @@ impl Connection {
                 }
                 Err(Interrupt::Io(Io::Output(mut bytes))) => {
                     let result =
-                        tokio::time::timeout(self.timeout, self.transport.write_all_flush(&bytes))
-                            .await;
+                        tokio::time::timeout(timeout, self.transport.write_all_flush(&bytes)).await;
                     // Les octets peuvent contenir le mot de passe.
                     bytes.zeroize();
                     result
                         .map_err(|_| ConnectionError::Timeout(TimeoutStage::Write))?
                         .map_err(|e| io_error(&e))?;
                 }
-                Err(Interrupt::Io(Io::NeedMoreInput)) => self.feed_line().await?,
+                Err(Interrupt::Io(Io::NeedMoreInput)) => self.feed_line(timeout).await?,
             }
         }
     }
 
     /// Fournit à `client` la prochaine ligne complète (jusqu'à `\n`
     /// compris), en lisant le réseau si nécessaire.
-    async fn feed_line(&mut self) -> Result<(), ConnectionError> {
+    async fn feed_line(&mut self, timeout: Duration) -> Result<(), ConnectionError> {
         loop {
             // Reprend après la partie déjà examinée : coût linéaire même
             // pour une ligne énorme reçue par petits blocs.
@@ -334,7 +349,7 @@ impl Connection {
                 return Err(protocol("ligne trop longue"));
             }
             let mut chunk = [0u8; 16 * 1024];
-            let n = tokio::time::timeout(self.timeout, self.transport.read_some(&mut chunk))
+            let n = tokio::time::timeout(timeout, self.transport.read_some(&mut chunk))
                 .await
                 .map_err(|_| ConnectionError::Timeout(TimeoutStage::Response))?
                 .map_err(|e| io_error(&e))?;
@@ -371,6 +386,9 @@ impl Connection {
         body: CommandBody<'static>,
         allow_bye: bool,
     ) -> Result<Reply, ConnectionError> {
+        if self.in_idle {
+            return Err(protocol("session interrompue pendant IDLE"));
+        }
         let tag = self.tag()?;
         let command = Command::new(tag.clone(), body).map_err(|_| protocol("commande invalide"))?;
         self.client.enqueue_command(command);
@@ -541,6 +559,12 @@ impl Connection {
 
     /// `LOGOUT`.
     pub(crate) async fn logout(&mut self) -> Result<(), ConnectionError> {
+        if self.in_idle {
+            // IDLE abandonné : rien d'autre ne peut être envoyé proprement ;
+            // la connexion est simplement fermée.
+            self.transport = Transport::Detached;
+            return Ok(());
+        }
         match self.execute(CommandBody::Logout, true).await {
             Ok(_) | Err(ConnectionError::Closed) => {
                 self.transport = Transport::Detached;

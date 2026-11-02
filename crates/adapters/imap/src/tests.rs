@@ -720,3 +720,282 @@ async fn huge_line_before_tls_is_rejected() -> TestResult {
     let _ = server.finish().await;
     Ok(())
 }
+
+// ---------------------------------------------------------------------------
+// Synchronisation
+// ---------------------------------------------------------------------------
+
+/// Session authentifiée (PLAIN + SASL-IR) puis `script`.
+fn authenticated(script: Script) -> Script {
+    Script::new()
+        .send(imap::greeting(
+            "IMAP4rev1 AUTH=PLAIN SASL-IR IDLE ENABLE CONDSTORE QRESYNC",
+        ))
+        .expect("AUTHENTICATE PLAIN")
+        .send(imap::ok("authentifie"))
+        .expect("CAPABILITY")
+        .send(imap::capability("IMAP4rev1 IDLE ENABLE CONDSTORE QRESYNC"))
+        .steps_from(script)
+}
+
+/// Un IDLE abandonné (futur annulé) ne laisse pas la session bloquée : la
+/// fermeture est immédiate, sans attendre le délai de l'IDLE.
+#[tokio::test]
+async fn cancelled_idle_does_not_block_logout() -> TestResult {
+    let f = fixture()?;
+    let cert = f.ca.issue(&["localhost"])?;
+    let script = authenticated(
+        Script::new()
+            .expect("IDLE")
+            .send("+ idling\r\n")
+            .wait(Duration::from_secs(8)),
+    );
+    let server = ScriptedServer::start_tls(script, cert.server_config()?).await?;
+    let mut session = f
+        .connector
+        .connect(&request(
+            server.port(),
+            Security::Tls,
+            PlaintextPolicy::deny_all(),
+        ))
+        .await?;
+    let cancelled = tokio::time::timeout(
+        Duration::from_millis(300),
+        session.idle(Duration::from_secs(600)),
+    )
+    .await;
+    assert!(cancelled.is_err(), "IDLE toujours en cours");
+    // Toute nouvelle commande échoue aussitôt.
+    let started = std::time::Instant::now();
+    assert!(session.search_all_uids().await.is_err());
+    tokio::time::timeout(Duration::from_secs(1), session.logout())
+        .await
+        .map_err(|_| "LOGOUT bloqué après un IDLE annulé")??;
+    assert!(started.elapsed() < Duration::from_secs(1));
+    Ok(())
+}
+
+/// Réponses hostiles à LIST et EXAMINE : noms invalides ignorés, VANISHED
+/// démesuré borné, FETCH sans UID ignoré, codes lus.
+#[tokio::test]
+async fn hostile_sync_responses_are_contained() -> TestResult {
+    use norelly_domain::mailbox::{MailboxName, ModSeq, Uid, UidValidity};
+    use norelly_domain::sync::{QresyncParams, SelectRequest};
+
+    let f = fixture()?;
+    let cert = f.ca.issue(&["localhost"])?;
+    let script = authenticated(
+        Script::new()
+            .expect("ENABLE")
+            .send("* ENABLED CONDSTORE QRESYNC\r\n{tag} OK active\r\n")
+            .expect("LIST")
+            .send(
+                "* LIST () \"/\" INBOX\r\n\
+                 * LIST (\\Sent) \"/\" \"Envoy&AOk-s\"\r\n\
+                 * LIST () \"/\" \"&AGE-\"\r\n\
+                 * LIST () \"/\" \"a&IC4-b\"\r\n\
+                 {tag} OK LIST termine\r\n",
+            )
+            .expect("EXAMINE INBOX (QRESYNC (7 10))")
+            // Plages énormes répétées : ni dépliées ni reparcourues.
+            .send("* VANISHED (EARLIER) 1:1999999\r\n".repeat(10_000))
+            .send(
+                "* OK [UIDVALIDITY 7] ok\r\n\
+                 * OK [UIDNEXT 100] ok\r\n\
+                 * OK [HIGHESTMODSEQ 20] ok\r\n\
+                 * 3 EXISTS\r\n\
+                 * VANISHED (EARLIER) 1:4294967295\r\n\
+                 * 1 FETCH (FLAGS (\\Seen) MODSEQ (15))\r\n\
+                 * 2 FETCH (UID 5 FLAGS (\\Flagged) MODSEQ (16))\r\n\
+                 {tag} OK [READ-ONLY] termine\r\n",
+            )
+            .expect("LOGOUT")
+            .send("* BYE au revoir\r\n{tag} OK termine\r\n")
+            .expect_eof(),
+    );
+    let server = ScriptedServer::start_tls(script, cert.server_config()?).await?;
+    let mut session = f
+        .connector
+        .connect(&request(
+            server.port(),
+            Security::Tls,
+            PlaintextPolicy::deny_all(),
+        ))
+        .await
+        .map_err(|e| format!("CONNECT : {e}"))?;
+    let ext = session
+        .enable_sync_extensions()
+        .await
+        .map_err(|e| format!("ENABLE : {e}"))?;
+    assert!(ext.qresync);
+    let names: Vec<String> = session
+        .list_mailboxes()
+        .await
+        .map_err(|e| format!("LIST : {e}"))?
+        .into_iter()
+        .map(|m| m.name.to_string())
+        .collect();
+    assert_eq!(names, ["INBOX", "Envoyés"], "noms invalides ignorés");
+    let request = SelectRequest {
+        condstore: false,
+        qresync: Some(QresyncParams {
+            uid_validity: UidValidity::new(7).ok_or("uidvalidity")?,
+            modseq: ModSeq::new(10).ok_or("modseq")?,
+        }),
+    };
+    let started = std::time::Instant::now();
+    let selected = session
+        .select(&MailboxName::inbox(), &request)
+        .await
+        .map_err(|e| format!("EXAMINE : {e}"))?;
+    assert!(
+        started.elapsed() < Duration::from_secs(3),
+        "{:?}",
+        started.elapsed()
+    );
+    assert_eq!(selected.uid_validity, UidValidity::new(7));
+    assert_eq!(selected.uid_next, Uid::new(100));
+    assert_eq!(selected.highest_modseq, ModSeq::new(20));
+    assert_eq!(selected.exists, 3);
+    assert_eq!(
+        selected.vanished.ranges(),
+        [(Uid::new(1).ok_or("uid")?, Uid::new(u32::MAX).ok_or("uid")?)],
+        "VANISHED gardé en plages"
+    );
+    assert_eq!(
+        selected
+            .changed
+            .iter()
+            .map(|c| c.uid.get())
+            .collect::<Vec<_>>(),
+        [5],
+        "FETCH sans UID ignoré"
+    );
+    session.logout().await?;
+    server.finish().await.result?;
+    Ok(())
+}
+
+/// BODYSTRUCTURE `message/rfc822` imbriquée à 500 niveaux : `imap-codec`
+/// déborderait de la pile (arrêt du processus). Le préfiltre la refuse.
+fn deep_rfc822(levels: usize) -> String {
+    let mut s = String::new();
+    for _ in 0..levels {
+        s.push_str(
+            "(\"message\" \"rfc822\" NIL NIL NIL \"7bit\" 1 \
+             (NIL NIL NIL NIL NIL NIL NIL NIL NIL NIL) ",
+        );
+    }
+    s.push_str("(\"text\" \"plain\" NIL NIL NIL \"7bit\" 1 1)");
+    for _ in 0..levels {
+        s.push_str(" 1)");
+    }
+    s
+}
+
+/// Multipart imbriqué sur `levels` niveaux (au-delà de la limite de
+/// récursion d'`imap-codec` : réponse indécodable).
+fn deep_multipart(levels: usize) -> String {
+    let mut s = "(\"text\" \"plain\" NIL NIL NIL \"7bit\" 1 1)".to_owned();
+    for _ in 0..levels {
+        s = format!("({s} \"mixed\")");
+    }
+    s
+}
+
+#[tokio::test]
+async fn deeply_nested_response_before_tls_is_refused_without_crash() -> TestResult {
+    let f = fixture()?;
+    let cert = f.ca.issue(&["localhost"])?;
+    let script = Script::new()
+        .send("* OK pret\r\n")
+        .expect("CAPABILITY")
+        .send(format!(
+            "* 1 FETCH (BODYSTRUCTURE {})\r\n* CAPABILITY IMAP4rev1 STARTTLS\r\n{{tag}} OK\r\n",
+            deep_rfc822(500)
+        ));
+    let server = ScriptedServer::start(script, Some(cert.server_config()?)).await?;
+    let result = f
+        .connector
+        .connect(&request(
+            server.port(),
+            Security::StartTls,
+            PlaintextPolicy::deny_all(),
+        ))
+        .await;
+    assert!(
+        matches!(&result, Err(ConnectionError::Protocol(m)) if m.contains("imbriqu")),
+        "{result:?}"
+    );
+    assert_no_credentials_sent(&server.finish().await);
+    Ok(())
+}
+
+#[tokio::test]
+async fn hostile_bodystructures_do_not_block_metadata() -> TestResult {
+    use norelly_domain::mailbox::Uid;
+
+    let f = fixture()?;
+    let cert = f.ca.issue(&["localhost"])?;
+    let header = "Subject: poison\r\n\r\n";
+    let fetch = |uid: u32, extra: &str| {
+        format!(
+            "* {uid} FETCH (UID {uid} FLAGS () INTERNALDATE \"02-Nov-2026 10:00:00 +0000\" \
+             RFC822.SIZE 10 {extra}BODY[HEADER] {{{}}}\r\n{header})\r\n",
+            header.len()
+        )
+    };
+    let script = authenticated(
+        Script::new()
+            .expect("UID FETCH 1:2")
+            // UID 1 : rfc822 à 500 niveaux ; UID 2 : multipart à 12 niveaux.
+            .send(format!(
+                "{}{}{{tag}} OK termine\r\n",
+                fetch(1, &format!("BODYSTRUCTURE {} ", deep_rfc822(500))),
+                fetch(2, &format!("BODYSTRUCTURE {} ", deep_multipart(12)))
+            ))
+            // Seconde demande, sans structure.
+            .expect("UID FETCH")
+            .send(format!(
+                "{}{}{{tag}} OK termine\r\n",
+                fetch(1, ""),
+                fetch(2, "")
+            ))
+            .expect("LOGOUT")
+            .send("* BYE au revoir\r\n{tag} OK termine\r\n")
+            .expect_eof(),
+    );
+    let server = ScriptedServer::start_tls(script, cert.server_config()?).await?;
+    let mut session = f
+        .connector
+        .connect(&request(
+            server.port(),
+            Security::Tls,
+            PlaintextPolicy::deny_all(),
+        ))
+        .await
+        .map_err(|e| format!("connect : {e}"))?;
+    let uids: Vec<Uid> = [1, 2].into_iter().filter_map(Uid::new).collect();
+    let metas = session
+        .fetch_meta(&uids)
+        .await
+        .map_err(|e| format!("fetch_meta : {e}"))?;
+    assert_eq!(
+        metas.iter().map(|m| m.uid.get()).collect::<Vec<_>>(),
+        [1, 2]
+    );
+    assert!(metas.iter().all(|m| m.structure.is_none()));
+    assert!(metas.iter().all(|m| m.headers.subject == "poison"));
+    session
+        .logout()
+        .await
+        .map_err(|e| format!("logout : {e}"))?;
+    let outcome = server.finish().await;
+    let text = outcome.transcript.text();
+    outcome.result?;
+    assert!(
+        text.matches("BODYSTRUCTURE").count() == 1,
+        "la seconde demande omet BODYSTRUCTURE : {text}"
+    );
+    Ok(())
+}

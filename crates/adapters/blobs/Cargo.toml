@@ -10,6 +10,11 @@ publish.workspace = true
 [dependencies]
 norelly-domain.workspace = true
 tokio = { workspace = true, features = ["fs"] }
+ring.workspace = true
+zstd.workspace = true
+
+[dev-dependencies]
+norelly-test-support.workspace = true
 
 [lints]
 workspace = true

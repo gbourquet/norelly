@@ -11,6 +11,7 @@ publish.workspace = true
 norelly-domain.workspace = true
 norelly-tls.workspace = true
 imap-next.workspace = true
+mail-parser.workspace = true
 tokio.workspace = true
 tokio-rustls.workspace = true
 tracing.workspace = true

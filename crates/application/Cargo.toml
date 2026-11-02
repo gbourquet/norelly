@@ -10,10 +10,16 @@ publish.workspace = true
 [dependencies]
 norelly-domain.workspace = true
 thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
 
 [dev-dependencies]
 norelly-test-support.workspace = true
-tokio.workspace = true
+# Tests d'intégration de bout en bout (Dovecot, Toxiproxy).
+norelly-imap.workspace = true
+norelly-tls.workspace = true
+norelly-sqlite.workspace = true
+norelly-blobs.workspace = true
 
 [lints]
 workspace = true

@@ -33,6 +33,7 @@ avant d'être implémentée.
 | Tests d'intégration | `cargo nextest run --workspace --profile integration` |
 | Tests front | `pnpm -C app test` |
 | Tests end-to-end (Docker) | `pnpm -C app e2e` |
+| Bench liste 50k (seuil 50 ms) | `cargo bench -p norelly-sqlite -- --test` |
 | Régénérer les bindings IPC | `./scripts/gen-bindings.sh` |
 | Lint | `cargo clippy --workspace --all-targets -- -D warnings`, `pnpm -C app lint`, `pnpm -C app check` |
 | Format | `cargo fmt --all`, `pnpm -C app format` |
@@ -58,6 +59,9 @@ Un hook PostToolUse formate et lint automatiquement chaque fichier modifié.
   est revalidée par le domaine.
 - Chaque port a une suite de contrat exécutée contre son faux et son
   implémentation réelle.
+- SQL : uniquement des paramètres liés pour toute donnée ; une
+  interpolation de constante dans le texte d'une requête porte le
+  commentaire `sql-const` (vérifié par `scripts/check-sql.sh`).
 - Interdit de ramollir, désactiver ou contourner un test, ou d'affaiblir
   `scripts/check.sh` ou `deny.toml`. Un blocage se documente dans
   `PLAN.md`, puis on s'arrête.

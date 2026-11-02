@@ -70,6 +70,13 @@ impl Script {
         Self::default()
     }
 
+    /// Ajoute les étapes d'un autre script.
+    #[must_use]
+    pub fn steps_from(mut self, other: Self) -> Self {
+        self.steps.extend(other.steps);
+        self
+    }
+
     #[must_use]
     pub fn send(mut self, text: impl Into<String>) -> Self {
         self.steps.push(Step::Send(text.into()));

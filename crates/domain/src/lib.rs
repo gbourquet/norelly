@@ -9,6 +9,9 @@
 //! - [`auth`] : choix de la méthode et mécanismes SASL ;
 //! - [`security`] : confiance TLS, consentement au clair, STARTTLS ;
 //! - [`connection`] : erreurs de connexion structurées ;
+//! - [`mailbox`] : boîtes, UID, drapeaux, métadonnées de message ;
+//! - [`sync`] : rapprochement de synchronisation, reconnexion ;
+//! - [`fetch_policy`] : politique de rapatriement des corps ;
 //! - [`ports`] : traits implémentés par les adaptateurs.
 
 pub mod account;
@@ -19,5 +22,8 @@ pub mod connection;
 pub mod credentials;
 pub mod discovery;
 pub mod endpoint;
+pub mod fetch_policy;
+pub mod mailbox;
 pub mod ports;
 pub mod security;
+pub mod sync;

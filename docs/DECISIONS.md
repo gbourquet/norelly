@@ -106,6 +106,21 @@ est majoritairement écrit par Claude et relu par le mainteneur.
     est compilé sans backend TLS. À proposer en amont : un constructeur
     `TlsParameters` à partir d'un `ClientConfig`.
 
+- **Vérifications de la phase 4** (2026-11-02, Dovecot 2.4.5) :
+  - SPECIAL-USE : un `LIST "" "*"` ordinaire renvoie bien les attributs
+    `\Sent`, `\Drafts`, `\Trash`, `\Junk` (test
+    `dovecot_special_use_attributes_are_read_from_plain_list`) ; le rôle
+    est déduit de ces attributs, puis du nom à défaut. `RETURN
+    (SPECIAL-USE)` reste inutile.
+  - QRESYNC : le `SELECT … (QRESYNC (uidvalidity modseq))` est envoyé
+    **sans** liste d'UID connus. Avec elle, le serveur ne signale que les
+    changements parmi ces UID (RFC 7162, 3.2.5.1) et omet les nouveaux
+    messages : défaut révélé par la suite de contrat contre Dovecot. Les
+    `VANISHED` d'UID inconnus localement sont ignorés par le domaine, et
+    leur dépliage est borné.
+  - COMPRESS=DEFLATE : toujours reporté (voir ci-dessus) ; la
+    synchronisation fonctionne sans.
+
 ## ADR-003 : stockage local et recherche plein texte
 
 - **Statut** : Acceptée (2026-11-01)

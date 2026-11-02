@@ -130,6 +130,8 @@ mod tests {
         CertificateException, CertificateFingerprint, CertificateIssue, PlaintextConsent,
     };
     use norelly_test_support::contracts::InMemoryCertificateExceptionStore;
+    use norelly_test_support::fake_imap::FakeImap;
+    use norelly_test_support::fakes::FakeSession;
 
     use super::*;
 
@@ -163,23 +165,12 @@ mod tests {
         }
     }
 
-    #[derive(Debug)]
-    struct FakeSession(ServerCapabilities);
-
-    impl RemoteMailboxSession for FakeSession {
-        fn capabilities(&self) -> &ServerCapabilities {
-            &self.0
-        }
-        async fn logout(self) -> Result<(), ConnectionError> {
-            Err(ConnectionError::Closed)
-        }
-    }
-
     impl RemoteMailboxConnector for FakeConnector {
         type Session = FakeSession;
         async fn connect(&self, request: &ConnectRequest) -> Result<FakeSession, ConnectionError> {
             self.record(request);
-            self.result.clone().map(FakeSession)
+            let caps = self.result.clone()?;
+            FakeSession::new(caps, &FakeImap::new(), Some(ConnectionError::Closed))
         }
     }
 

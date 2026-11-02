@@ -94,6 +94,158 @@ pub async fn start_dovecot_tls(cert: &TestCert) -> Result<RunningServer, Contain
     Ok(RunningServer { container, host })
 }
 
+/// Démarre Dovecot comme [`start_dovecot_tls`], sur le réseau Docker
+/// `network` sous le nom `name` (joignable par Toxiproxy).
+pub async fn start_dovecot_tls_on(
+    cert: &TestCert,
+    network: &str,
+    name: &str,
+) -> Result<RunningServer, ContainerError> {
+    let (image, tag) = DOVECOT_IMAGE;
+    let container = GenericImage::new(image, tag)
+        .with_exposed_port(DOVECOT_IMAP_PORT.tcp())
+        .with_exposed_port(DOVECOT_IMAPS_PORT.tcp())
+        .with_env_var("USER_PASSWORD", TEST_PASSWORD)
+        .with_copy_to(
+            "/etc/dovecot/ssl/tls.crt",
+            cert.cert_pem.clone().into_bytes(),
+        )
+        .with_copy_to(
+            "/etc/dovecot/ssl/tls.key",
+            cert.key_pem.clone().into_bytes(),
+        )
+        .with_network(network)
+        .with_container_name(name)
+        .start()
+        .await?;
+    let host = container.get_host().await?.to_string();
+    Ok(RunningServer { container, host })
+}
+
+/// Image Toxiproxy (pannes réseau simulées).
+pub const TOXIPROXY_IMAGE: (&str, &str) = ("ghcr.io/shopify/toxiproxy", "2.12.0");
+/// Port de l'API de Toxiproxy.
+pub const TOXIPROXY_API_PORT: u16 = 8474;
+/// Port d'écoute du mandataire créé par [`Toxiproxy::proxy`].
+pub const TOXIPROXY_PROXY_PORT: u16 = 8666;
+
+/// Toxiproxy démarré, piloté par son API HTTP.
+#[derive(Debug)]
+pub struct Toxiproxy {
+    pub server: RunningServer,
+    api_port: u16,
+}
+
+/// Démarre Toxiproxy sur le réseau Docker `network`.
+pub async fn start_toxiproxy(network: &str) -> Result<Toxiproxy, ContainerError> {
+    let (image, tag) = TOXIPROXY_IMAGE;
+    let container = GenericImage::new(image, tag)
+        .with_exposed_port(TOXIPROXY_API_PORT.tcp())
+        .with_exposed_port(TOXIPROXY_PROXY_PORT.tcp())
+        .with_network(network)
+        .start()
+        .await?;
+    let host = container.get_host().await?.to_string();
+    let server = RunningServer { container, host };
+    let api_port = server.port(TOXIPROXY_API_PORT).await?;
+    wait_for_port(&server.host, api_port, Duration::from_secs(30)).await?;
+    Ok(Toxiproxy { server, api_port })
+}
+
+impl Toxiproxy {
+    async fn call(&self, method: &str, path: &str, body: &str) -> Result<String, ContainerError> {
+        // L'API peut répondre avant d'être prête : quelques essais.
+        let mut last = ContainerError::Http;
+        for _ in 0..20 {
+            match http_request(&self.server.host, self.api_port, method, path, body).await {
+                Ok(text) => return Ok(text),
+                Err(e) => last = e,
+            }
+            tokio::time::sleep(Duration::from_millis(250)).await;
+        }
+        Err(last)
+    }
+
+    /// Crée le mandataire `name` vers `upstream` (`hôte:port` sur le
+    /// réseau Docker), à l'écoute sur [`TOXIPROXY_PROXY_PORT`] ; renvoie le
+    /// port de l'hôte associé.
+    pub async fn proxy(&self, name: &str, upstream: &str) -> Result<u16, ContainerError> {
+        let body = format!(
+            "{{\"name\":\"{name}\",\"listen\":\"0.0.0.0:{TOXIPROXY_PROXY_PORT}\",\"upstream\":\"{upstream}\",\"enabled\":true}}"
+        );
+        self.call("POST", "/proxies", &body).await?;
+        self.server.port(TOXIPROXY_PROXY_PORT).await
+    }
+
+    /// Active ou coupe le mandataire (la coupure ferme les connexions
+    /// ouvertes et refuse les nouvelles).
+    pub async fn set_enabled(&self, proxy: &str, enabled: bool) -> Result<(), ContainerError> {
+        let body = format!("{{\"enabled\":{enabled}}}");
+        self.call("POST", &format!("/proxies/{proxy}"), &body)
+            .await
+            .map(|_| ())
+    }
+
+    /// Ajoute une perturbation (`latency`, `timeout`, `limit_data`…) sur le
+    /// flux `stream` (`upstream` ou `downstream`), avec ses attributs JSON.
+    pub async fn add_toxic(
+        &self,
+        proxy: &str,
+        name: &str,
+        kind: &str,
+        stream: &str,
+        attributes: &str,
+    ) -> Result<(), ContainerError> {
+        let body = format!(
+            "{{\"name\":\"{name}\",\"type\":\"{kind}\",\"stream\":\"{stream}\",\"toxicity\":1.0,\"attributes\":{attributes}}}"
+        );
+        self.call("POST", &format!("/proxies/{proxy}/toxics"), &body)
+            .await
+            .map(|_| ())
+    }
+
+    /// Retire une perturbation.
+    pub async fn remove_toxic(&self, proxy: &str, name: &str) -> Result<(), ContainerError> {
+        self.call("DELETE", &format!("/proxies/{proxy}/toxics/{name}"), "")
+            .await
+            .map(|_| ())
+    }
+}
+
+/// Requête HTTP/1.0 minimale (API locale de test) ; renvoie le corps d'une
+/// réponse 2xx.
+pub async fn http_request(
+    host: &str,
+    port: u16,
+    method: &str,
+    path: &str,
+    body: &str,
+) -> Result<String, ContainerError> {
+    let mut tcp = TcpStream::connect((host, port)).await?;
+    let request = format!(
+        "{method} {path} HTTP/1.0\r\nHost: {host}\r\nContent-Type: application/json\r\n\
+         Content-Length: {}\r\n\r\n{body}",
+        body.len()
+    );
+    tcp.write_all(request.as_bytes()).await?;
+    let mut response = Vec::new();
+    tokio::time::timeout(Duration::from_secs(10), tcp.read_to_end(&mut response))
+        .await
+        .map_err(|_| ContainerError::Http)??;
+    let response = String::from_utf8_lossy(&response).into_owned();
+    let (head, body) = response
+        .split_once("\r\n\r\n")
+        .ok_or(ContainerError::Http)?;
+    let ok = head
+        .split(' ')
+        .nth(1)
+        .is_some_and(|code| code.starts_with('2'));
+    if !head.starts_with("HTTP/1.") || !ok {
+        return Err(ContainerError::Http);
+    }
+    Ok(body.to_owned())
+}
+
 /// Mode TLS de Mailpit.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MailpitTls {

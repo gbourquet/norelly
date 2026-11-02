@@ -1,12 +1,18 @@
 //! Adaptateur SQLite (ADR-003) : base globale, migrations, dépôts.
 //!
-//! Phase 3 : comptes et exceptions de certificats. La connexion unique est
-//! protégée par un verrou et utilisée depuis `spawn_blocking` ; le pool de
-//! lecteurs et le rédacteur dédié arrivent avec la synchronisation
-//! (phase 4).
+//! - comptes et exceptions de certificats ;
+//! - boîtes, messages et état de synchronisation ([`mail`]) : `MailStore`
+//!   côté écriture, `FolderTreeQuery` et `MessageListQuery` côté lecture.
+//!
+//! Mode WAL : un seul rédacteur (connexion protégée par un verrou) et un
+//! pool de lecteurs en lecture seule, utilisés depuis `spawn_blocking`.
+//! Une base en mémoire (tests) n'a pas de lecteurs dédiés : tout passe par
+//! le rédacteur.
 //!
 //! Les lignes relues sont revalidées par les constructeurs du domaine :
 //! une base modifiée à la main ne peut pas produire un compte invalide.
+
+pub mod mail;
 
 use std::path::Path;
 use std::sync::{Arc, Mutex, PoisonError};
@@ -19,13 +25,26 @@ use norelly_domain::ports::{
     AccountRepository, AccountStoreError, CertificateExceptionStore, StoreError,
 };
 use norelly_domain::security::{CertificateException, CertificateFingerprint};
-use rusqlite::{Connection, Row, params};
+use rusqlite::{Connection, OpenFlags, Row, params};
 use rusqlite_migration::{M, Migrations};
 
 /// Migrations, dans l'ordre. Ne jamais modifier une migration publiée :
 /// en ajouter une nouvelle.
 fn migrations() -> Migrations<'static> {
-    Migrations::new(vec![M::up(include_str!("../migrations/0001_accounts.sql"))])
+    Migrations::new(vec![
+        M::up(include_str!("../migrations/0001_accounts.sql")),
+        M::up(include_str!("../migrations/0002_mail.sql")),
+    ])
+}
+
+/// Nombre de connexions de lecture d'une base sur disque.
+pub const READERS: usize = 4;
+
+/// Pool de connexions en lecture seule.
+#[derive(Debug)]
+struct Readers {
+    conns: Mutex<Vec<Connection>>,
+    permits: tokio::sync::Semaphore,
 }
 
 /// Erreur d'ouverture de la base.
@@ -41,15 +60,32 @@ pub enum OpenError {
 #[derive(Debug, Clone)]
 pub struct Database {
     conn: Arc<Mutex<Connection>>,
+    readers: Option<Arc<Readers>>,
 }
 
 impl Database {
-    /// Ouvre (ou crée) la base, en mode WAL, et applique les migrations.
+    /// Ouvre (ou crée) la base, en mode WAL, applique les migrations et
+    /// ouvre [`READERS`] connexions de lecture.
     pub fn open(path: &Path) -> Result<Self, OpenError> {
         let conn = Connection::open(path)?;
         conn.pragma_update(None, "journal_mode", "WAL")?;
         conn.pragma_update(None, "synchronous", "NORMAL")?;
-        Self::init(conn)
+        let mut db = Self::init(conn)?;
+        let mut readers = Vec::with_capacity(READERS);
+        for _ in 0..READERS {
+            let reader = Connection::open_with_flags(
+                path,
+                OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+            )?;
+            reader.pragma_update(None, "query_only", "ON")?;
+            reader.busy_timeout(std::time::Duration::from_secs(5))?;
+            readers.push(reader);
+        }
+        db.readers = Some(Arc::new(Readers {
+            conns: Mutex::new(readers),
+            permits: tokio::sync::Semaphore::new(READERS),
+        }));
+        Ok(db)
     }
 
     /// Base en mémoire (tests).
@@ -63,10 +99,11 @@ impl Database {
         migrations().to_latest(&mut conn)?;
         Ok(Self {
             conn: Arc::new(Mutex::new(conn)),
+            readers: None,
         })
     }
 
-    /// Exécute `f` sur la connexion, hors du fil asynchrone.
+    /// Exécute `f` sur la connexion du rédacteur, hors du fil asynchrone.
     async fn run<T, F>(&self, f: F) -> Result<T, StoreError>
     where
         T: Send + 'static,
@@ -80,9 +117,92 @@ impl Database {
         .await
         .map_err(|e| StoreError(format!("tâche SQLite interrompue : {e}")))?
     }
+
+    /// Contrôle d'intégrité : `PRAGMA integrity_check` et
+    /// `foreign_key_check`. Renvoie les problèmes trouvés (vide si la base
+    /// est saine).
+    pub async fn integrity_problems(&self) -> Result<Vec<String>, StoreError> {
+        self.run(|c| {
+            let mut problems = Vec::new();
+            let mut stmt = c.prepare("PRAGMA integrity_check").map_err(store_error)?;
+            let rows = stmt
+                .query_map([], |r| r.get::<_, String>(0))
+                .map_err(store_error)?;
+            for row in rows {
+                let row = row.map_err(store_error)?;
+                if row != "ok" {
+                    problems.push(format!("intégrité : {row}"));
+                }
+            }
+            let mut stmt = c.prepare("PRAGMA foreign_key_check").map_err(store_error)?;
+            let rows = stmt
+                .query_map([], |r| r.get::<_, String>(0))
+                .map_err(store_error)?;
+            for table in rows {
+                problems.push(format!(
+                    "clé étrangère orpheline dans {}",
+                    table.map_err(store_error)?
+                ));
+            }
+            Ok(problems)
+        })
+        .await
+    }
+
+    /// Schéma de la base (type, nom, SQL de création), trié : permet de
+    /// vérifier qu'aucune donnée reçue ne l'a modifié.
+    pub async fn schema(&self) -> Result<Vec<(String, String, Option<String>)>, StoreError> {
+        self.run(|c| {
+            let mut stmt = c
+                .prepare("SELECT type, name, sql FROM sqlite_schema ORDER BY type, name")
+                .map_err(store_error)?;
+            let rows = stmt
+                .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+                .map_err(store_error)?;
+            rows.collect::<Result<_, _>>().map_err(store_error)
+        })
+        .await
+    }
+
+    /// Exécute une lecture sur une connexion du pool (le rédacteur s'il
+    /// n'y en a pas). Les lecteurs voient le dernier état validé (WAL).
+    async fn read<T, F>(&self, f: F) -> Result<T, StoreError>
+    where
+        T: Send + 'static,
+        F: FnOnce(&Connection) -> Result<T, StoreError> + Send + 'static,
+    {
+        let Some(readers) = &self.readers else {
+            return self.run(move |c| f(c)).await;
+        };
+        let _permit = readers
+            .permits
+            .acquire()
+            .await
+            .map_err(|e| StoreError(format!("pool de lecture fermé : {e}")))?;
+        let taken = readers
+            .conns
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .pop();
+        // Connexion perdue (tâche interrompue) : repli sur le rédacteur.
+        let Some(conn) = taken else {
+            return self.run(move |c| f(c)).await;
+        };
+        let pool = Arc::clone(readers);
+        tokio::task::spawn_blocking(move || {
+            let result = f(&conn);
+            pool.conns
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .push(conn);
+            result
+        })
+        .await
+        .map_err(|e| StoreError(format!("tâche SQLite interrompue : {e}")))?
+    }
 }
 
-fn store_error(e: rusqlite::Error) -> StoreError {
+pub(crate) fn store_error(e: rusqlite::Error) -> StoreError {
     StoreError(e.to_string())
 }
 
@@ -178,11 +298,15 @@ impl AccountRow {
     }
 }
 
+/// `filter` est un fragment SQL littéral du code (`&'static str` : aucune
+/// donnée reçue ne peut y parvenir) ; la valeur cherchée passe par `param`,
+/// lié par SQLite.
 fn select_accounts(
     conn: &Connection,
-    filter: &str,
+    filter: &'static str,
     param: Option<&dyn rusqlite::ToSql>,
 ) -> Result<Vec<AccountRow>, StoreError> {
+    // sql-const : colonnes et filtre sont des constantes du code.
     let sql = format!("SELECT {ACCOUNT_COLUMNS} FROM accounts {filter} ORDER BY id");
     let mut stmt = conn.prepare(&sql).map_err(store_error)?;
     let rows = match param {
@@ -367,6 +491,61 @@ mod tests {
     #[test]
     fn migrations_are_valid() {
         assert!(migrations().validate().is_ok());
+    }
+
+    /// Données représentatives de chaque version du schéma, insérées juste
+    /// après la migration vers cette version (index 0 : version 1).
+    const FIXTURES: &[&str] = &[
+        // Version 1 : un compte et une exception de certificat.
+        "INSERT INTO accounts (address, display_name, imap_host, imap_port, imap_security, \
+         imap_username, smtp_host, smtp_port, smtp_security, smtp_username) \
+         VALUES ('v1@example.com', 'V1', 'imap.example.com', 993, 'tls', 'v1', \
+         'smtp.example.com', 465, 'tls', 'v1'); \
+         INSERT INTO certificate_exceptions (host, fingerprint) VALUES ('imap.example.com', 'AB');",
+        // Version 2 : une boîte et un message.
+        "INSERT INTO mailboxes (account_id, name, role, selectable, uid_validity) \
+         VALUES (1, 'INBOX', 'inbox', 1, 42); \
+         INSERT INTO messages (mailbox_id, uid, internal_date, sort_date, size, subject, \
+         from_name, from_address, has_attachments) \
+         VALUES (1, 7, 100, 100, 10, 'v2', '', 'a@example.com', 0);",
+    ];
+
+    /// Montée de version depuis chaque version précédente, données
+    /// conservées.
+    #[test]
+    fn upgrade_from_every_previous_version_keeps_data() {
+        let latest = FIXTURES.len();
+        // Une fixture par migration : il n'existe pas de version au-delà.
+        let mut fresh = Connection::open_in_memory().unwrap_or_else(|e| panic!("{e}"));
+        assert!(migrations().to_version(&mut fresh, latest).is_ok());
+        assert!(
+            migrations().to_version(&mut fresh, latest + 1).is_err(),
+            "migration sans fixture dans FIXTURES"
+        );
+        for start in 0..latest {
+            let mut conn = Connection::open_in_memory().unwrap_or_else(|e| panic!("{e}"));
+            conn.pragma_update(None, "foreign_keys", "ON")
+                .unwrap_or_else(|e| panic!("{e}"));
+            let m = migrations();
+            for (version, fixture) in FIXTURES.iter().enumerate().take(start + 1) {
+                m.to_version(&mut conn, version + 1)
+                    .unwrap_or_else(|e| panic!("vers v{} : {e}", version + 1));
+                conn.execute_batch(fixture)
+                    .unwrap_or_else(|e| panic!("fixture v{} : {e}", version + 1));
+            }
+            m.to_latest(&mut conn)
+                .unwrap_or_else(|e| panic!("depuis v{} : {e}", start + 1));
+            let accounts: i64 = conn
+                .query_row("SELECT COUNT(*) FROM accounts", [], |r| r.get(0))
+                .unwrap_or_else(|e| panic!("{e}"));
+            assert_eq!(accounts, 1, "depuis v{}", start + 1);
+            // Le schéma le plus récent est utilisable.
+            conn.execute_batch(
+                "INSERT OR IGNORE INTO mailboxes (account_id, name, role, selectable) \
+                 VALUES (1, 'Sent', 'sent', 1);",
+            )
+            .unwrap_or_else(|e| panic!("depuis v{} : {e}", start + 1));
+        }
     }
 
     #[tokio::test]

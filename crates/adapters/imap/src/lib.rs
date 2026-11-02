@@ -13,7 +13,11 @@
 //! [`PlaintextPolicy`]: norelly_domain::security::PlaintextPolicy
 
 mod connection;
+mod nesting;
+mod session;
+mod utf7;
 
+use std::collections::BTreeSet;
 use std::time::Duration;
 
 use imap_next::imap_types::response::GreetingKind;
@@ -21,8 +25,15 @@ use norelly_domain::auth::{AuthMethod, authenticator_for, select_imap_auth_metho
 use norelly_domain::capabilities::ServerCapabilities;
 use norelly_domain::connection::{ConnectionError, TimeoutStage};
 use norelly_domain::endpoint::{Security, ServerEndpoint};
-use norelly_domain::ports::{ConnectRequest, RemoteMailboxConnector, RemoteMailboxSession};
+use norelly_domain::fetch_policy::BodyFetch;
+use norelly_domain::mailbox::{ListedMailbox, MailboxName, MessageMeta, Uid};
+use norelly_domain::ports::{
+    ConnectRequest, FetchedBody, IdleOutcome, RemoteMailboxConnector, RemoteMailboxSession,
+};
 use norelly_domain::security::{StartTlsDecision, decide_starttls};
+use norelly_domain::sync::{
+    FlagUpdate, SelectRequest, SelectedMailbox, ServerQuery, SyncExtensions,
+};
 use norelly_tls::TlsClientFactory;
 use tokio::net::TcpStream;
 
@@ -143,10 +154,9 @@ impl ImapConnector {
                 Ok((conn, caps, false))
             }
             StartTlsDecision::StayPlain | StartTlsDecision::AlreadyEncrypted => {
-                // Le canal garde la limite de réponse d'avant TLS (64 Kio) :
-                // suffisant pour l'authentification ; à relever quand les
-                // sessions en clair consenti transporteront des messages
-                // (phase 4).
+                // Le canal garde la limite de réponse d'avant TLS (64 Kio)
+                // jusqu'à l'authentification ; elle est relevée ensuite
+                // (voir `connect`).
                 tracing::warn!(endpoint = %endpoint, "connexion IMAP en clair (consentie)");
                 Ok((conn, plain_caps, false))
             }
@@ -184,9 +194,20 @@ impl RemoteMailboxConnector for ImapConnector {
                 }
             }
         }
+        conn.mark_authenticated();
         let capabilities = conn.capability().await?;
+        if request.endpoint.security() == Security::Plain {
+            // Canal en clair consenti, authentifié : il transporte désormais
+            // des messages (limite d'avant TLS levée).
+            conn.raise_response_limit();
+        }
         tracing::debug!(endpoint = %request.endpoint, "session IMAP ouverte");
-        Ok(ImapSession { conn, capabilities })
+        Ok(ImapSession {
+            conn,
+            capabilities,
+            extensions: SyncExtensions::default(),
+            selected_condstore: false,
+        })
     }
 }
 
@@ -195,11 +216,83 @@ impl RemoteMailboxConnector for ImapConnector {
 pub struct ImapSession {
     conn: Connection,
     capabilities: ServerCapabilities,
+    extensions: SyncExtensions,
+    /// CONDSTORE actif sur la boîte sélectionnée (MODSEQ demandés).
+    selected_condstore: bool,
 }
 
 impl RemoteMailboxSession for ImapSession {
     fn capabilities(&self) -> &ServerCapabilities {
         &self.capabilities
+    }
+
+    async fn enable_sync_extensions(&mut self) -> Result<SyncExtensions, ConnectionError> {
+        let condstore = self.capabilities.has("CONDSTORE") || self.capabilities.has("QRESYNC");
+        let qresync = self.capabilities.has("QRESYNC");
+        if !self.capabilities.has("ENABLE") {
+            // Sans ENABLE, QRESYNC est inutilisable ; CONDSTORE reste
+            // activable par le paramètre de SELECT.
+            self.extensions = SyncExtensions {
+                condstore,
+                qresync: false,
+            };
+            return Ok(self.extensions);
+        }
+        self.extensions = self.conn.enable_sync(condstore, qresync).await?;
+        Ok(self.extensions)
+    }
+
+    async fn list_mailboxes(&mut self) -> Result<Vec<ListedMailbox>, ConnectionError> {
+        self.conn.list().await
+    }
+
+    async fn select(
+        &mut self,
+        mailbox: &MailboxName,
+        request: &SelectRequest,
+    ) -> Result<SelectedMailbox, ConnectionError> {
+        // Les paramètres non activés ne sont jamais envoyés.
+        let mut request = request.clone();
+        if !self.extensions.qresync {
+            request.qresync = None;
+        }
+        request.condstore &= self.extensions.condstore;
+        let selected = self.conn.examine(mailbox, &request).await?;
+        self.selected_condstore = request.condstore || request.qresync.is_some();
+        Ok(selected)
+    }
+
+    async fn fetch_flags(
+        &mut self,
+        query: ServerQuery,
+    ) -> Result<Vec<FlagUpdate>, ConnectionError> {
+        if matches!(query, ServerQuery::ChangedFlags(_)) && !self.selected_condstore {
+            return Err(ConnectionError::Protocol(
+                "CHANGEDSINCE sans CONDSTORE".to_owned(),
+            ));
+        }
+        self.conn.fetch_flags(query, self.selected_condstore).await
+    }
+
+    async fn search_all_uids(&mut self) -> Result<BTreeSet<Uid>, ConnectionError> {
+        self.conn.search_all().await
+    }
+
+    async fn fetch_meta(&mut self, uids: &[Uid]) -> Result<Vec<MessageMeta>, ConnectionError> {
+        self.conn.fetch_meta(uids, self.selected_condstore).await
+    }
+
+    async fn fetch_body(
+        &mut self,
+        uid: Uid,
+        fetch: &BodyFetch,
+    ) -> Result<Option<FetchedBody>, ConnectionError> {
+        self.conn.fetch_body(uid, fetch).await
+    }
+
+    async fn idle(&mut self, max: Duration) -> Result<IdleOutcome, ConnectionError> {
+        let supported = self.capabilities.has("IDLE");
+        self.conn.idle_or_poll(max, supported).await
     }
 
     async fn logout(mut self) -> Result<(), ConnectionError> {

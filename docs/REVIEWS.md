@@ -7,6 +7,178 @@ accepté (justification) ou reporté (phase).
 
 ---
 
+# Revue sécurité : phase 4, stockage et synchronisation (2026-11-02)
+
+Périmètre : `git diff master...HEAD` sur `phase-4/sync` (domaine
+`mailbox`/`sync`/`fetch_policy`/`ports`, `imap` `session`/`utf7`/
+`connection`, `sqlite` `mail`/migration 0002/pool de lecteurs, `blobs`,
+`application` `sync`/`account_actor` ; `test-support` et tests
+d'intégration en survol). Revue faite par l'agent `security-reviewer`, en
+lecture seule, avec des programmes d'essai contre `imap-codec`
+2.0.0-alpha.9.
+
+Synthèse : 0 critique, 1 haute, 4 moyennes, 6 basses, 3 infos. La haute et
+les quatre moyennes sont corrigées (commit `d4495fa`), ainsi que trois
+basses ; le reste est reporté ou accepté ci-dessous.
+
+## [HAUTE] Débordement de pile dans `imap-codec` : `message/rfc822` imbriqué sans limite, arrêt du processus, y compris avant STARTTLS
+- Problème : `imap-codec` remet son compteur de récursion à 8 à chaque
+  `message/rfc822` (`body.rs:73`). Environ 500 niveaux (43 Ko, sous la
+  limite de 64 Kio d'avant TLS) font déborder une pile de 2 Mio : arrêt du
+  processus, pas de panic. `MAX_MIME_DEPTH` n'intervenait qu'après
+  l'analyse.
+- Scénario : attaquant sur le réseau qui injecte la réponse en clair avant
+  STARTTLS, ou serveur hostile : Norelly s'arrête à chaque connexion.
+- **Statut : corrigé.** `crates/adapters/imap/src/nesting.rs` : chaque
+  réponse est assemblée en entier (ligne, littéraux, suites) et sa
+  profondeur de parenthèses mesurée hors chaînes et hors littéraux avant
+  d'être transmise au décodeur. Au-delà de 48, elle est refusée avant
+  authentification et écartée ensuite. Tests
+  `deeply_nested_response_before_tls_is_refused_without_crash` (500
+  niveaux, en clair) et `hostile_bodystructures_do_not_block_metadata`
+  (après TLS). Défaut à signaler en amont (`body_type_msg_limited(input,
+  remaining_recursions - 1)`). Aucun `[patch]` d'`imap-codec`.
+
+## [MOYENNE] Message « poison » : un seul message bloque la synchronisation du compte pour toujours
+- Problème : BODYSTRUCTURE au-delà de la limite d'`imap-codec`, message
+  de plus de 64 Mio, ou `NO` sur un FETCH : l'erreur faisait échouer tout
+  le lot, puis la reconnexion rejouait l'échec.
+- **Statut : corrigé.**
+  - Une fois authentifié, une réponse indécodable ou trop longue (déjà
+    écartée par `imap-next`) est comptée et la commande continue.
+  - `fetch_meta` redemande les UID manquants sans BODYSTRUCTURE, puis
+    sous une forme minimale (drapeaux, taille, date).
+  - `ensure_ok` : `NO` devient `ConnectionError::Rejected` (session
+    intacte) et un `NO` partiel sur FETCH garde les données reçues ; un
+    corps refusé est sauté.
+  - `FetchPolicy` ne télécharge jamais un message d'un bloc au-delà de
+    48 Mio (`MAX_FULL_FETCH`) : il est téléchargé par parties, les plus
+    grandes étant différées.
+  - Tests : `hostile_bodystructures_do_not_block_metadata`,
+    `huge_messages_are_never_fetched_whole`.
+
+## [MOYENNE] Dépliage de VANISHED : temps CPU quadratique, suppressions perdues au-delà du plafond
+- **Statut : corrigé.** `VANISHED` est conservé en plages normalisées
+  (`norelly_domain::sync::UidRanges` : tri, fusion, recherche
+  dichotomique), puis croisé avec les UID connus (`BTreeMap::range`). Il
+  n'est plus déplié et aucune suppression n'est perdue. Tests :
+  `uid_ranges_are_normalized_and_never_expanded` (100 000 plages
+  `1:4294967295`) et 10 000 lignes `VANISHED` répétées dans
+  `hostile_sync_responses_are_contained`, avec une borne de temps.
+
+## [MOYENNE] Aucun budget mémoire cumulé par commande
+- **Statut : corrigé.** Les octets reçus par commande sont plafonnés à
+  256 Mio (`MAX_COMMAND_BYTES`). Le nombre de réponses de données est
+  passé en paramètre de `execute_with` : `fetch_meta` en accepte
+  4 × le nombre d'UID demandés + 64, `fetch_body` 64.
+
+## [MOYENNE] Délai global par commande absent ; arrêt de l'acteur impossible à interrompre
+- **Statut : corrigé.**
+  - Échéance par commande : 2 min pour une commande ordinaire
+    (`COMMAND_DEADLINE`), 30 min pour une commande de synchronisation
+    (`BULK_DEADLINE`). Un octet toutes les 59 s ne la prolonge plus. Cela
+    règle aussi le constat bas de la phase 2.
+  - Une commande abandonnée (`busy`) rend la session inutilisable, qui
+    est alors fermée sans `LOGOUT`.
+  - Acteur : les synchronisations sont dans un `select!` avec l'arrêt, et
+    `shutdown` abandonne une tâche après 5 s (`SHUTDOWN_GRACE`). Test
+    `shutdown_interrupts_a_long_sync`.
+
+## [BASSE] Blobs jamais supprimés : contenu des messages effacés conservé sur disque
+- **Statut : reporté (phase 6, actions et hors ligne).** Il faut un
+  ramasse-miettes avec comptage des références, car un contenu est
+  dédupliqué entre boîtes (Gmail `\All`). Seule la suppression du compte
+  purge pour l'instant. La croissance du disque face à un serveur qui
+  change l'UIDVALIDITY en boucle est couverte par la même tâche.
+
+## [BASSE] Chaînes de `MimePart` ni bornées ni assainies
+- **Statut : corrigé.** Type et sous-type passent par `mime_token`
+  (jetons ASCII de 64 caractères au plus), le nom de fichier par
+  `attachment_name` (`header_text`, 255 caractères). Test
+  `mime_strings_are_bounded_and_sanitized`. L'assainissement pour
+  l'écriture sur disque reste prévu en phase 5.
+
+## [BASSE] Intégrité des blobs : pas de `fsync` du répertoire, blob corrompu jamais réparé
+- **Statut : corrigé en partie.** Le répertoire est synchronisé après le
+  renommage (Unix). Un fichier existant mais illisible ou corrompu est
+  réécrit par `put` (test `corrupted_blob_is_an_error`). Reporté : le
+  nettoyage des `.tmp-*` orphelins au démarrage (phase 5, avec le
+  branchement de l'acteur dans l'application).
+
+## [BASSE] Purge des exceptions de certificat orphelines
+- **Statut : reporté (phase 5).** Elle sera faite avec le branchement des
+  comptes et de l'acteur dans l'application.
+
+## [BASSE] L'acteur fige consentement au clair et exceptions de certificat
+- **Statut : reporté (phase 5).** L'acteur n'est pas encore lancé par
+  l'application. Au branchement, il sera redémarré à chaque changement de
+  ces réglages, avec un test. Le mot de passe reste en mémoire pendant la
+  session : c'est nécessaire pour se reconnecter.
+
+## [BASSE] `execute_bulk` annulé laisse `max_untagged` à 2 M
+- **Statut : corrigé.** La limite est passée en paramètre et n'est plus
+  stockée. Une commande annulée rend de toute façon la session
+  inutilisable.
+
+## [INFO] Liste `is_format_char` incomplète
+- Reporté en phase 5 (affichage des expéditeurs) : caractères
+  d'étiquette U+E0000–U+E007F, U+FFF9–U+FFFB, U+180B–U+180F, fillers
+  Hangul, U+2028/U+2029, homoglyphes.
+
+## [INFO] Images de conteneurs de test figées par étiquette, pas par empreinte
+- Accepté pour l'instant : `dovecot/dovecot:2.4.5` et
+  `ghcr.io/shopify/toxiproxy:2.12.0` servent uniquement aux tests
+  d'intégration. À figer par digest avec les images e2e.
+
+## [INFO] Nouvelles dépendances
+- `mail-parser` 0.11, `zstd` 0.13 (C, décompression bornée et testée),
+  `serde_json`, `criterion` (bench), `proptest` (tests du domaine).
+  `deny.toml` inchangé.
+
+## Vérification complémentaire : injection SQL par un message piégé (2026-11-02)
+- Demande du mainteneur : un message piégé peut-il injecter du SQL et
+  corrompre la base ?
+- Audit : non. Toutes les valeurs issues d'un message ou du serveur
+  passent par des paramètres liés. Les trois `format!` qui produisent du
+  SQL n'interpolent que des constantes (`ACCOUNT_COLUMNS`, `LIST_COLUMNS`)
+  et un filtre désormais typé `&'static str`. Il n'y a pas
+  d'`execute_batch` hors tests, et `rusqlite` n'est utilisé que par
+  `crates/adapters/sqlite`.
+- Garde permanent : `scripts/check-sql.sh`, ajouté à `scripts/check.sh`.
+  Il refuse `execute_batch` en production, tout SQL construit par
+  `format!`/`concat!` sans commentaire `sql-const`, toute interpolation
+  qui n'est ni une constante ni un `&'static str`, toute interpolation
+  positionnelle, `push_str` et la concaténation sur du SQL, ainsi que toute
+  dépendance à `rusqlite` hors du crate de stockage. Vérifié par mutation :
+  quatre requêtes vulnérables introduites volontairement sont toutes
+  refusées.
+- Test de bout en bout `crates/application/tests/hostile_message_sql.rs`,
+  exécuté sans Docker. Des messages piégés portent des charges dans le
+  sujet, l'expéditeur, les destinataires, le Message-ID, les références,
+  les mots-clés, le nom de boîte et le corps, et sont synchronisés deux
+  fois (faux serveur IMAP, `mail-parser`, SQLite sur disque, fichiers).
+  Charges : requêtes empilées, sous-requête sur `sqlite_schema`,
+  `ATTACH`, `load_extension`, `writable_schema`, rupture du JSON, octet
+  nul. Le test vérifie :
+  - schéma identique et `integrity_check` sain, sans clé étrangère
+    orpheline ;
+  - comptes intacts et aucune boîte créée ou supprimée ;
+  - valeurs relues comme données et corps identiques.
+  Vérifié par mutation : le test échoue dès qu'une requête vulnérable est
+  introduite.
+- `Database::integrity_problems` et `Database::schema` sont ajoutées
+  (diagnostic, réutilisable au démarrage).
+- Point de contrôle n° 9 ajouté à l'agent `security-reviewer`.
+
+## Résultats outils
+- `cargo deny --locked check` : ok (avertissement préexistant :
+  `Unicode-DFS-2016` autorisée mais inutilisée).
+- `pnpm -C app audit --prod` : aucune vulnérabilité connue.
+- `./scripts/check.sh full` et `cargo bench -p norelly-sqlite -- --test`
+  passent après corrections.
+
+---
+
 # Revue sécurité : phase 3, comptes, autodécouverte et interface (2026-11-02)
 
 Périmètre : `git diff afb655e..HEAD` et les fichiers e2e non commités au
@@ -59,7 +231,7 @@ reporté ci-dessous.
 - **Statut : corrigé en partie.** Accepter une empreinte changée remplace
   les anciennes (`trust_certificate`, test
   `trusting_a_changed_fingerprint_replaces_the_old_one`) et exige une case
-  à cocher supplémentaire dans l'interface. **Reporté (phase 4)** : purge
+  à cocher supplémentaire dans l'interface. **Reporté (phase 4, puis phase 5 : voir la revue de la phase 4)** : purge
   des exceptions des hôtes qu'aucun compte n'utilise plus, à faire avec la
   gestion des dossiers et la reconnexion (une exception peut servir à
   plusieurs comptes du même hôte).
@@ -156,8 +328,11 @@ repli en clair n'a été trouvé.
 - Emplacement : `imap/src/connection.rs`, `smtp/src/stream.rs`.
 - Scénario : un octet toutes les 59 s maintient un test de connexion ouvert
   indéfiniment.
-- Statut : **reporté (phase 4)**, avec la reconnexion et le backoff : délai
-  global par phase (salutation, STARTTLS, authentification) et par commande.
+- Statut : **IMAP corrigé en partie en phase 4** : échéance par commande
+  (`COMMAND_DEADLINE`/`BULK_DEADLINE`) pour toutes les commandes passant
+  par `execute`, dont CAPABILITY, STARTTLS et LOGIN. **Reporté** : la
+  salutation et `AUTHENTICATE` (délai par lecture seulement) et SMTP, avec
+  la rédaction et l'envoi (phase 7).
 
 ## [BASSE] Effacement partiel des secrets (copies dans imap-types, lettre)
 - Statut : **accepté** : effacement « au mieux », documenté dans

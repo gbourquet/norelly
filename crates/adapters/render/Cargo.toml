@@ -9,6 +9,16 @@ publish.workspace = true
 
 [dependencies]
 norelly-domain.workspace = true
+# Charsets hérités (ISO-2022-JP, windows-125x…) : full_encoding.
+mail-parser = { workspace = true, features = ["full_encoding"] }
+ammonia.workspace = true
+
+[dev-dependencies]
+sha2.workspace = true
+
+[build-dependencies]
+# Empreinte SHA-256 de l'agent, calculée à la compilation (CSP).
+sha2.workspace = true
 
 [lints]
 workspace = true

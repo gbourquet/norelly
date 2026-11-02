@@ -345,3 +345,65 @@ proptest! {
         }
     }
 }
+
+#[test]
+fn conversation_targets_follow_the_action() {
+    let member =
+        |id: i64, mailbox: i64, role: MailboxRole, seen: bool, flagged: bool, date: i64| {
+            let mut flags = Flags::default();
+            flags.seen = seen;
+            flags.flagged = flagged;
+            Member {
+                id: MessageId::new(id).unwrap_or_else(|| panic!("id")),
+                mailbox: mailbox_id(mailbox),
+                role,
+                flags,
+                date,
+            }
+        };
+    let members = vec![
+        member(1, 1, MailboxRole::Inbox, true, false, 10),
+        member(2, 5, MailboxRole::Sent, true, false, 20),
+        member(3, 1, MailboxRole::Inbox, false, false, 30),
+        // Même message dans deux dossiers : deux exemplaires.
+        member(4, 3, MailboxRole::Archive, false, true, 5),
+    ];
+    let id = |n: i64| MessageId::new(n).unwrap_or_else(|| panic!("id"));
+    let inbox = ConversationScope::Mailbox(mailbox_id(1));
+    assert_eq!(
+        conversation_targets(MessageAction::MarkSeen(true), &members, &inbox),
+        [id(3), id(4)],
+        "toute la conversation"
+    );
+    assert_eq!(
+        conversation_targets(MessageAction::Delete, &members, &inbox),
+        [id(1), id(3)],
+        "portée seulement"
+    );
+    assert_eq!(
+        conversation_targets(
+            MessageAction::Archive,
+            &members,
+            &ConversationScope::Unified(MailboxRole::Inbox)
+        ),
+        [id(1), id(3)]
+    );
+    assert_eq!(
+        conversation_targets(MessageAction::MarkFlagged(true), &members, &inbox),
+        [id(3)],
+        "le plus récent de la portée"
+    );
+    assert!(
+        conversation_targets(
+            MessageAction::MarkFlagged(true),
+            &members,
+            &ConversationScope::Mailbox(mailbox_id(3))
+        )
+        .is_empty(),
+        "déjà suivi"
+    );
+    assert_eq!(
+        conversation_targets(MessageAction::MarkFlagged(false), &members, &inbox),
+        [id(4)]
+    );
+}

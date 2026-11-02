@@ -1,6 +1,7 @@
 //! Shell Tauri de Norelly : adaptateur entrant (commandes IPC, protocoles
 //! personnalisés) et point d'assemblage des adaptateurs (ADR-008).
 
+pub mod actions;
 pub mod commands;
 pub mod ipc;
 pub mod mail;
@@ -37,6 +38,9 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             reading::open_external,
             reading::save_attachment,
             reading::open_attachment,
+            actions::perform_action,
+            actions::undo_actions,
+            actions::set_archive_folder,
         ])
         .events(tauri_specta::collect_events![ipc::SyncEventDto])
 }

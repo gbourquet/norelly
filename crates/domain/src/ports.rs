@@ -9,7 +9,7 @@ use std::future::Future;
 use std::time::Duration;
 
 use crate::account::{Account, AccountDraft, AccountId};
-use crate::actions::{FlagChange, FolderRef, LocalMessage, PendingOp, StoreOutcome};
+use crate::actions::{FlagChange, FolderRef, LocalMessage, Member, PendingOp, StoreOutcome};
 use crate::address::EmailAddress;
 use crate::auth::{AuthError, AuthMechanism};
 use crate::capabilities::ServerCapabilities;
@@ -941,6 +941,14 @@ pub trait PendingOpStore: Send + Sync {
         &self,
         message: MessageId,
     ) -> impl Future<Output = Result<Option<LocalMessage>, StoreError>> + Send;
+
+    /// Messages visibles d'une conversation, tous dossiers et exemplaires
+    /// compris (sans dédoublonnage par `Message-ID`), au plus
+    /// [`crate::actions::MAX_ACTION_TARGETS`].
+    fn conversation_members(
+        &self,
+        conversation: ConversationId,
+    ) -> impl Future<Output = Result<Vec<Member>, StoreError>> + Send;
 
     /// Dossiers d'un compte (résolution des actions).
     fn action_folders(

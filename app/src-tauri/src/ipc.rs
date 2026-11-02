@@ -44,6 +44,16 @@ pub enum ErrorCodeDto {
     WriteFailed,
     /// Ouverture par le système impossible.
     OpenFailed,
+    /// Action impossible : aucun dossier Corbeille sur le compte.
+    NoTrash,
+    /// Action impossible : aucun dossier d'archives (ni repli choisi).
+    NoArchive,
+    /// Le message est déjà dans le dossier visé.
+    SameFolder,
+    /// Dossier de destination non sélectionnable.
+    FolderNotSelectable,
+    /// Trop de messages visés par une action.
+    TooManyMessages,
     /// Erreur interne (journalisée).
     Internal,
 }
@@ -140,6 +150,24 @@ impl fmt::Display for IpcError {
             write!(f, " : {detail}")?;
         }
         Ok(())
+    }
+}
+
+impl From<norelly_application::actions::ActionFailure> for IpcError {
+    fn from(e: norelly_application::actions::ActionFailure) -> Self {
+        use norelly_application::actions::ActionFailure;
+        use norelly_domain::actions::ActionError;
+        match e {
+            ActionFailure::Store(e) => Self::storage(e),
+            ActionFailure::Invalid(e) => match e {
+                ActionError::NoTrash => Self::new(ErrorCodeDto::NoTrash),
+                ActionError::NoArchive => Self::new(ErrorCodeDto::NoArchive),
+                ActionError::SameFolder => Self::new(ErrorCodeDto::SameFolder),
+                ActionError::NotSelectable => Self::new(ErrorCodeDto::FolderNotSelectable),
+                ActionError::TooManyTargets => Self::new(ErrorCodeDto::TooManyMessages),
+                ActionError::UnknownFolder => Self::invalid(FieldDto::Mailbox),
+            },
+        }
     }
 }
 
@@ -741,6 +769,25 @@ pub struct MessageViewDto {
     pub has_html: bool,
     pub blocked_images: u32,
     pub attachments: Vec<AttachmentDto>,
+}
+
+/// Action demandée par l'interface (revalidée par le domaine).
+#[derive(Debug, Clone, Copy, Deserialize, Type)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ActionDto {
+    MarkSeen { value: bool },
+    MarkFlagged { value: bool },
+    Move { mailbox: u32 },
+    Delete,
+    Archive,
+}
+
+/// Résultat d'une action : opérations enregistrées (annulables) et
+/// nombre de messages concernés.
+#[derive(Debug, Clone, Serialize, Type)]
+pub struct ActionResultDto {
+    pub ops: Vec<u32>,
+    pub messages: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Type)]

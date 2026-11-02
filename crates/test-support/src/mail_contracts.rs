@@ -26,7 +26,8 @@ use norelly_domain::ports::{
 use norelly_domain::sync::{FlagUpdate, LocalMailbox, MailboxSyncState};
 
 use norelly_domain::actions::{
-    FolderRef, LocalEffect, LocalMessage, PendingOp, local_effect, revert_effect,
+    FolderRef, LocalEffect, LocalMessage, MAX_ACTION_TARGETS, Member, PendingOp, local_effect,
+    revert_effect,
 };
 use norelly_domain::ports::{PendingOpId, PendingOpStore};
 
@@ -984,6 +985,29 @@ impl PendingOpStore for InMemoryMailStore {
             }
         }
         Ok(None)
+    }
+
+    async fn conversation_members(
+        &self,
+        conversation: ConversationId,
+    ) -> Result<Vec<Member>, StoreError> {
+        let s = lock(&self.state);
+        let convs = s.conversations();
+        let mut out: Vec<Member> = s
+            .located()
+            .iter()
+            .filter(|l| convs.get(&l.message.id) == Some(&conversation))
+            .map(|l| Member {
+                id: l.message.id,
+                mailbox: l.mailbox,
+                role: l.role,
+                flags: l.message.stored.meta.flags.clone(),
+                date: l.message.stored.meta.sort_date(),
+            })
+            .collect();
+        out.sort_by_key(|m| (m.date, m.id));
+        out.truncate(MAX_ACTION_TARGETS);
+        Ok(out)
     }
 
     async fn action_folders(&self, account: AccountId) -> Result<Vec<FolderRef>, StoreError> {

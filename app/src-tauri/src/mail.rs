@@ -163,6 +163,13 @@ impl MailServices {
         }
     }
 
+    /// Signale de nouvelles opérations dans la file d'un compte.
+    pub async fn replay_soon(&self, account: AccountId) {
+        if let Some(handle) = self.actors.lock().await.get(&account) {
+            handle.replay_soon();
+        }
+    }
+
     fn reader(&self) -> ReadMessage<'_, SqliteMailStore, FsBlobStore, SqliteReadingPreferences> {
         ReadMessage {
             locator: &self.store,

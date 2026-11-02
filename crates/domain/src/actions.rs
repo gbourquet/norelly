@@ -31,6 +31,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::account::AccountId;
 use crate::capabilities::ServerCapabilities;
+use crate::conversation::ConversationScope;
 use crate::mailbox::{Flags, MailboxId, MailboxName, MailboxRole, ModSeq, Uid, UidValidity};
 use crate::ports::MessageId;
 
@@ -170,6 +171,62 @@ pub fn resolve(
             let archive = by_role(MailboxRole::Archive)
                 .or_else(|| archive_fallback.and_then(|id| folders.iter().find(|f| f.id == id)));
             target(archive, ActionError::NoArchive)
+        }
+    }
+}
+
+/// Message d'une conversation, tous dossiers et exemplaires compris
+/// (sélection des messages visés par une action sur une conversation).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Member {
+    pub id: MessageId,
+    pub mailbox: MailboxId,
+    pub role: MailboxRole,
+    pub flags: Flags,
+    pub date: i64,
+}
+
+/// Messages visés par une action sur une conversation affichée dans
+/// `scope` :
+/// - lu / non lu : toute la conversation, tous dossiers ;
+/// - suivi : le message le plus récent de la portée (sans effet si l'un
+///   d'eux l'est déjà) ; plus suivi : tous les messages suivis ;
+/// - déplacer, supprimer, archiver : les messages de la portée seulement
+///   (les réponses rangées dans « Envoyés » ne bougent pas).
+#[must_use]
+pub fn conversation_targets(
+    action: MessageAction,
+    members: &[Member],
+    scope: &ConversationScope,
+) -> Vec<MessageId> {
+    let in_scope = |m: &&Member| match scope {
+        ConversationScope::Mailbox(id) => m.mailbox == *id,
+        ConversationScope::Unified(role) => m.role == *role,
+    };
+    match action {
+        MessageAction::MarkSeen(value) => members
+            .iter()
+            .filter(|m| m.flags.seen != value)
+            .map(|m| m.id)
+            .collect(),
+        MessageAction::MarkFlagged(true) => {
+            if members.iter().filter(in_scope).any(|m| m.flags.flagged) {
+                return Vec::new();
+            }
+            members
+                .iter()
+                .filter(in_scope)
+                .max_by_key(|m| (m.date, m.id))
+                .map(|m| vec![m.id])
+                .unwrap_or_default()
+        }
+        MessageAction::MarkFlagged(false) => members
+            .iter()
+            .filter(|m| m.flags.flagged)
+            .map(|m| m.id)
+            .collect(),
+        MessageAction::Move(_) | MessageAction::Delete | MessageAction::Archive => {
+            members.iter().filter(in_scope).map(|m| m.id).collect()
         }
     }
 }

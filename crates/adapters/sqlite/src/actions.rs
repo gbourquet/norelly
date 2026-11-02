@@ -4,11 +4,11 @@
 
 use norelly_domain::account::AccountId;
 use norelly_domain::actions::{
-    ActionFlag, FlagChange, FolderRef, LocalEffect, LocalMessage, OpKind, PendingOp, local_effect,
-    revert_effect,
+    ActionFlag, FlagChange, FolderRef, LocalEffect, LocalMessage, MAX_ACTION_TARGETS, Member,
+    OpKind, PendingOp, local_effect, revert_effect,
 };
 use norelly_domain::mailbox::{MailboxId, MailboxName, MailboxRole, ModSeq, UidValidity};
-use norelly_domain::ports::{MessageId, PendingOpId, PendingOpStore, StoreError};
+use norelly_domain::ports::{ConversationId, MessageId, PendingOpId, PendingOpStore, StoreError};
 use rusqlite::{Connection, OptionalExtension, Row, TransactionBehavior, params};
 
 use crate::mail::{SqliteMailStore, corrupted, flags_from, mailbox_id, uid_of};
@@ -289,6 +289,50 @@ impl PendingOpStore for SqliteMailStore {
                         .and_then(|m| u64::try_from(m).ok())
                         .and_then(ModSeq::new),
                 }))
+            })
+            .await
+    }
+
+    async fn conversation_members(
+        &self,
+        conversation: ConversationId,
+    ) -> Result<Vec<Member>, StoreError> {
+        self.db()
+            .read(move |c| {
+                let mut stmt = c
+                    .prepare_cached(
+                        "SELECT m.id, m.mailbox_id, b.role, m.flags, m.keywords, m.sort_date \
+                         FROM messages m JOIN mailboxes b ON b.id = m.mailbox_id \
+                         WHERE m.conversation_id = ?1 AND m.hidden = 0 AND (m.flags & 8) = 0 \
+                         ORDER BY m.sort_date, m.id LIMIT ?2",
+                    )
+                    .map_err(store_error)?;
+                let limit = i64::try_from(MAX_ACTION_TARGETS).unwrap_or(i64::MAX);
+                let rows: Vec<(i64, i64, String, i64, String, i64)> = stmt
+                    .query_map(params![conversation.get(), limit], |r| {
+                        Ok((
+                            r.get(0)?,
+                            r.get(1)?,
+                            r.get(2)?,
+                            r.get(3)?,
+                            r.get(4)?,
+                            r.get(5)?,
+                        ))
+                    })
+                    .map_err(store_error)?
+                    .collect::<Result<_, _>>()
+                    .map_err(store_error)?;
+                rows.into_iter()
+                    .map(|(id, mailbox, role, bits, keywords, date)| {
+                        Ok(Member {
+                            id: MessageId::new(id).ok_or_else(|| corrupted("message"))?,
+                            mailbox: mailbox_id(mailbox)?,
+                            role: MailboxRole::parse(&role).ok_or_else(|| corrupted("rôle"))?,
+                            flags: flags_from(bits, &keywords),
+                            date,
+                        })
+                    })
+                    .collect()
             })
             .await
     }

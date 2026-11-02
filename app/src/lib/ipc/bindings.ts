@@ -66,6 +66,22 @@ export const commands = {
 	 *  dossier privé. Les types exécutables sont refusés (à enregistrer).
 	 */
 	openAttachment: (message: number, part: string) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("open_attachment", { message, part })),
+	/**
+	 *  Applique une action aux conversations `conversations` affichées dans
+	 *  `scope` : effet local immédiat, rejeu sur le serveur après la fenêtre
+	 *  d'annulation. Renvoie les opérations (pour « annuler »).
+	 */
+	performAction: (conversations: number[], scope: ScopeDto, action: ActionDto) => typedError<ActionResultDto, IpcError_Serialize>(__TAURI_INVOKE("perform_action", { conversations, scope, action })),
+	/**
+	 *  Annule des opérations encore en attente (dernière action) ; renvoie le
+	 *  nombre d'opérations annulées (0 si elles ont déjà été rejouées).
+	 */
+	undoActions: (ops: number[]) => typedError<number, IpcError_Serialize>(__TAURI_INVOKE("undo_actions", { ops })),
+	/**
+	 *  Dossier de repli de « archiver » pour un compte sans dossier
+	 *  `\Archive` (`None` : aucun).
+	 */
+	setArchiveFolder: (account: number, mailbox: number | null) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("set_archive_folder", { account, mailbox })),
 };
 
 /** Events */
@@ -81,6 +97,18 @@ export type AccountDto = {
 	display_name: string,
 	imap: ServerDto,
 	smtp: ServerDto,
+};
+
+/**  Action demandée par l'interface (revalidée par le domaine). */
+export type ActionDto = { kind: "mark_seen"; value: boolean } | { kind: "mark_flagged"; value: boolean } | { kind: "move"; mailbox: number } | { kind: "delete" } | { kind: "archive" };
+
+/**
+ *  Résultat d'une action : opérations enregistrées (annulables) et
+ *  nombre de messages concernés.
+ */
+export type ActionResultDto = {
+	ops: number[],
+	messages: number,
 };
 
 /**  Demande d'ajout de compte. */
@@ -321,6 +349,16 @@ export type ErrorCodeDto =
 "write_failed" | 
 /**  Ouverture par le système impossible. */
 "open_failed" | 
+/**  Action impossible : aucun dossier Corbeille sur le compte. */
+"no_trash" | 
+/**  Action impossible : aucun dossier d'archives (ni repli choisi). */
+"no_archive" | 
+/**  Le message est déjà dans le dossier visé. */
+"same_folder" | 
+/**  Dossier de destination non sélectionnable. */
+"folder_not_selectable" | 
+/**  Trop de messages visés par une action. */
+"too_many_messages" | 
 /**  Erreur interne (journalisée). */
 "internal";
 

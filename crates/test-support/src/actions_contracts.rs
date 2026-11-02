@@ -5,9 +5,11 @@ use norelly_domain::account::AccountId;
 use norelly_domain::actions::{
     ActionFlag, Effect, FlagChange, LocalMessage, MessageAction, OpKind, PendingOp, resolve,
 };
+use norelly_domain::conversation::ConversationScope;
 use norelly_domain::mailbox::{Flags, MailboxRole};
 use norelly_domain::ports::{
-    FolderTreeQuery, MailStore, MessageId, MessageListQuery, PendingOpStore, StoreError, SyncBatch,
+    ConversationQuery, FolderTreeQuery, MailStore, MessageId, MessageListQuery, PendingOpStore,
+    StoreError, SyncBatch,
 };
 use norelly_domain::sync::FlagUpdate;
 
@@ -60,7 +62,7 @@ pub async fn pending_op_store_contract<S>(
     other: AccountId,
 ) -> Result<(), StoreError>
 where
-    S: PendingOpStore + MailStore + MessageListQuery + FolderTreeQuery,
+    S: PendingOpStore + MailStore + MessageListQuery + FolderTreeQuery + ConversationQuery,
 {
     let boxes = store
         .replace_mailboxes(
@@ -199,6 +201,54 @@ where
     assert!(!store.complete(id1).await?);
     assert!(store.pending(account).await?.is_empty());
     assert!(flags_of(store, inbox, m1).await?.seen);
+
+    // --- Membres d'une conversation : exemplaires compris, masqués exclus ---
+    // Copie du message 1 dans « Projets » (même Message-ID).
+    store
+        .apply_sync(
+            projets,
+            &SyncBatch {
+                new: vec![sample_message(1, 1_000, true)],
+                state: state(9, 5, 2),
+                ..SyncBatch::default()
+            },
+        )
+        .await?;
+    let conversation = store
+        .conversations(ConversationScope::Mailbox(inbox), None, 10)
+        .await?
+        .items
+        .into_iter()
+        .find(|c| c.subject == "Sujet 1")
+        .map(|c| c.id)
+        .ok_or_else(|| fail("conversation du message 1"))?;
+    let members = store.conversation_members(conversation).await?;
+    assert_eq!(
+        members.iter().map(|m| m.mailbox).collect::<Vec<_>>().len(),
+        2,
+        "les deux exemplaires : {members:?}"
+    );
+    assert!(
+        members
+            .iter()
+            .any(|m| m.mailbox == projets && m.role == MailboxRole::Normal)
+    );
+    assert!(members.iter().any(|m| m.id == m1 && m.flags.seen));
+    let t1 = target(store, m1).await?;
+    let hide = Effect::MoveTo(norelly_domain::actions::FolderRef {
+        id: trash,
+        name: norelly_domain::mailbox::MailboxName::parse("Corbeille").map_err(|_| fail("nom"))?,
+        role: MailboxRole::Trash,
+        selectable: true,
+    });
+    let op = PendingOp::new(&hide, &t1, 100).ok_or_else(|| fail("opération"))?;
+    let hidden = store.record(&op).await?;
+    assert_eq!(
+        store.conversation_members(conversation).await?.len(),
+        1,
+        "masqué exclu"
+    );
+    store.revert(hidden).await?;
 
     // --- Dossier de repli d'« archiver » ---
     assert_eq!(store.archive_fallback(account).await?, None);

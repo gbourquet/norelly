@@ -170,7 +170,7 @@ Commandes de référence (détail dans `scripts/check.sh`) :
   - `javascript:` jamais ouvert ;
   - touches renvoyées correctement
   - `app/e2e/specs/reading-security.e2e.mjs`, sous WebKitGTK (serveur canari `app/e2e/canary.mjs`) : A+ tient tel que décrit dans ADR-004, sans repli vers A.
-- [x] Revue security-reviewer, consignée dans REVIEWS.md (0 critique, 0 haute ; moyennes corrigées)
+- [x] Revue security-reviewer, consignée dans REVIEWS.md (0 critique ; 1 haute et 3 moyennes corrigées ; basses corrigées sauf compléments e2e reportés en phase 9)
 
 **Condition de fin** : `./scripts/check.sh full && pnpm -C app e2e` passent sans erreur.
 

@@ -208,7 +208,9 @@ pub const MAX_FETCH_BATCH: usize = 500;
 pub enum FetchedBody {
     /// Message brut complet.
     Full(Vec<u8>),
-    /// En-têtes bruts et parties demandées (contenu encodé tel que reçu).
+    /// En-têtes bruts et parties demandées, chacune sous forme d'entité
+    /// MIME autonome : ses en-têtes MIME (`BODY[n.MIME]`), une ligne vide,
+    /// puis son contenu encodé tel que reçu.
     Partial {
         header: Vec<u8>,
         parts: Vec<(PartPath, Vec<u8>)>,

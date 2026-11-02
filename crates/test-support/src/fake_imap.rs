@@ -14,6 +14,7 @@ use std::time::Duration;
 use norelly_domain::capabilities::ServerCapabilities;
 use norelly_domain::connection::ConnectionError;
 use norelly_domain::fetch_policy::BodyFetch;
+use norelly_domain::fetch_policy::PartPath;
 use norelly_domain::mailbox::{
     Flags, ListedMailbox, MailboxName, MessageHeaders, MessageMeta, ModSeq, RawHeaders, Uid,
     UidValidity,
@@ -575,7 +576,7 @@ impl RemoteMailboxSession for FakeImapSession {
         };
         Ok(Some(match fetch {
             BodyFetch::Full => FetchedBody::Full(msg.raw.clone()),
-            BodyFetch::Partial { .. } => {
+            BodyFetch::Partial { parts, .. } => {
                 let end = msg
                     .raw
                     .windows(4)
@@ -583,7 +584,10 @@ impl RemoteMailboxSession for FakeImapSession {
                     .map_or(msg.raw.len(), |p| p + 4);
                 FetchedBody::Partial {
                     header: msg.raw.get(..end).unwrap_or_default().to_vec(),
-                    parts: vec![],
+                    parts: parts
+                        .iter()
+                        .filter_map(|p| Some((p.clone(), part_entity(&msg.raw, p)?)))
+                        .collect(),
                 }
             }
         }))
@@ -623,4 +627,24 @@ impl RemoteMailboxSession for FakeImapSession {
     async fn logout(self) -> Result<(), ConnectionError> {
         Ok(())
     }
+}
+
+/// Entité MIME (en-têtes de partie et contenu brut) d'une partie, comme
+/// la renvoie l'adaptateur IMAP réel (`BODY[n.MIME]` + `BODY[n]`).
+fn part_entity(raw: &[u8], path: &PartPath) -> Option<Vec<u8>> {
+    let message = mail_parser::MessageParser::default().parse(raw)?;
+    let mut id = 0u32;
+    for (depth, n) in path.components().iter().enumerate() {
+        let part = message.part(id)?;
+        match part.sub_parts() {
+            Some(children) => id = *children.get(usize::try_from(*n).ok()?.checked_sub(1)?)?,
+            // Message non multipart : sa partie 1 est le corps.
+            None if depth == 0 && *n == 1 && path.components().len() == 1 => {}
+            None => return None,
+        }
+    }
+    let part = message.part(id)?;
+    let start = usize::try_from(part.raw_header_offset()).ok()?;
+    let end = usize::try_from(part.raw_end_offset()).ok()?;
+    raw.get(start..end).map(<[u8]>::to_vec)
 }

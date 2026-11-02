@@ -316,13 +316,41 @@ fn meta_of(items: &Vec1<MessageDataItem<'_>>) -> Option<MessageMeta> {
     })
 }
 
-fn part_section(path: &PartPath) -> Option<Section<'static>> {
+fn part_numbers(path: &PartPath) -> Option<Part> {
     let numbers: Vec<NonZeroU32> = path
         .components()
         .iter()
         .filter_map(|n| NonZeroU32::new(*n))
         .collect();
-    Vec1::try_from(numbers).ok().map(|v| Section::Part(Part(v)))
+    Vec1::try_from(numbers).ok().map(Part)
+}
+
+fn part_section(path: &PartPath) -> Option<Section<'static>> {
+    part_numbers(path).map(Section::Part)
+}
+
+/// En-têtes MIME d'une partie (`BODY[1.2.MIME]`).
+fn mime_section(path: &PartPath) -> Option<Section<'static>> {
+    part_numbers(path).map(Section::Mime)
+}
+
+fn path_of(part: &Part) -> Option<PartPath> {
+    PartPath::new(part.0.as_ref().iter().map(|n| n.get()).collect())
+}
+
+/// Entité MIME autonome d'une partie : ses en-têtes MIME puis son contenu
+/// (encodé tel que reçu). En-têtes absents : ligne vide seule (le rendu
+/// reprend alors ceux du message).
+fn entity(mime: Option<Vec<u8>>, body: Vec<u8>) -> Vec<u8> {
+    let mut out = mime.unwrap_or_default();
+    if !(out.ends_with(b"\r\n\r\n") || out.ends_with(b"\n\n")) {
+        if !out.is_empty() && !out.ends_with(b"\n") {
+            out.extend_from_slice(b"\r\n");
+        }
+        out.extend_from_slice(b"\r\n");
+    }
+    out.extend_from_slice(&body);
+    out
 }
 
 fn body_item(section: Option<Section<'static>>) -> MessageDataItemName<'static> {
@@ -627,6 +655,7 @@ impl Connection {
             BodyFetch::Partial { parts, .. } => {
                 names.push(body_item(Some(Section::Header(None))));
                 for path in parts {
+                    names.push(body_item(mime_section(path)));
                     names.push(body_item(part_section(path)));
                 }
             }
@@ -655,6 +684,7 @@ impl Connection {
             let mut full = None;
             let mut header = None;
             let mut parts = Vec::new();
+            let mut mimes = Vec::new();
             for item in items {
                 let MessageDataItem::BodyExt { section, data, .. } = item else {
                     continue;
@@ -662,11 +692,14 @@ impl Connection {
                 match section {
                     None => full = Some(nstring_bytes(data)),
                     Some(Section::Header(None)) => header = Some(nstring_bytes(data)),
-                    Some(Section::Part(Part(numbers))) => {
-                        let path =
-                            PartPath::new(numbers.as_ref().iter().map(|n| n.get()).collect());
-                        if let Some(path) = path {
+                    Some(Section::Part(part)) => {
+                        if let Some(path) = path_of(part) {
                             parts.push((path, nstring_bytes(data)));
+                        }
+                    }
+                    Some(Section::Mime(part)) => {
+                        if let Some(path) = path_of(part) {
+                            mimes.push((path, nstring_bytes(data)));
                         }
                     }
                     _ => {}
@@ -674,9 +707,19 @@ impl Connection {
             }
             return Ok(match fetch {
                 BodyFetch::Full => full.map(FetchedBody::Full),
-                BodyFetch::Partial { .. } => {
-                    header.map(|header| FetchedBody::Partial { header, parts })
-                }
+                BodyFetch::Partial { .. } => header.map(|header| FetchedBody::Partial {
+                    header,
+                    parts: parts
+                        .into_iter()
+                        .map(|(path, body)| {
+                            let mime = mimes
+                                .iter()
+                                .position(|(p, _)| *p == path)
+                                .map(|i| mimes.swap_remove(i).1);
+                            (path, entity(mime, body))
+                        })
+                        .collect(),
+                }),
             });
         }
         Ok(None)

@@ -138,7 +138,7 @@ Commandes de référence (détail dans `scripts/check.sh`) :
 - [x] Toxiproxy : coupure en pleine synchro, latence, connexion à moitié fermée ; l'état converge après la reprise
 - [x] Générateur de boîte synthétique de 50k messages + bench `criterion` : première page < 50 ms et changement de dossier < 50 ms (requête seule)
   - Mesuré le 2026-11-02 (poste du mainteneur, profil bench) : première page ≈ 0,17 ms, changement de dossier ≈ 0,16 ms ; le bench échoue au-delà de 50 ms.
-- [ ] Revue security-reviewer, consignée dans REVIEWS.md (0 critique, 0 haute ; moyennes corrigées)
+- [x] Revue security-reviewer, consignée dans REVIEWS.md (0 critique, 0 haute ; moyennes corrigées)
 
 **Condition de fin** : `./scripts/check.sh full && cargo bench -p norelly-sqlite -- --test` passent sans erreur.
 

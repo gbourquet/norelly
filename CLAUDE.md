@@ -33,6 +33,7 @@ avant d'être implémentée.
 | Tests d'intégration | `cargo nextest run --workspace --profile integration` |
 | Tests front | `pnpm -C app test` |
 | Tests end-to-end (Docker) | `pnpm -C app e2e` |
+| Bench liste 50k (seuil 50 ms) | `cargo bench -p norelly-sqlite -- --test` |
 | Régénérer les bindings IPC | `./scripts/gen-bindings.sh` |
 | Lint | `cargo clippy --workspace --all-targets -- -D warnings`, `pnpm -C app lint`, `pnpm -C app check` |
 | Format | `cargo fmt --all`, `pnpm -C app format` |

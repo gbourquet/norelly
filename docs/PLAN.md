@@ -88,11 +88,11 @@ Commandes de référence (détail dans `scripts/check.sh`) :
 
 ## Phase 3 : comptes, autodécouverte, squelette de l'interface
 
-- [ ] Domaine : `Account`, `EmailAddress` (validation), stratégie d'autodécouverte (ordre ISPDB fournisseur, puis ISPDB Mozilla, puis SRV RFC 6186, puis sondage, puis saisie manuelle ; préférence TLS implicite > STARTTLS > clair)
-- [ ] `adapters/discovery` : client autoconfig (fournisseur + ISPDB) avec `reqwest`/rustls et parsing `quick-xml` (fixtures dans `fixtures/ispdb/`) ; SRV via `hickory-resolver` derrière un trait ; sondage des ports avec délai court et en parallèle
-- [ ] Tests : `wiremock` pour l'autoconfig, résolveur simulé, sondage contre le faux serveur ; XML hostile ou malformé sans panique
-- [ ] Application : `DiscoverSettings`, `AddAccount` (découverte, test de connexion, stockage du secret dans le trousseau, persistance du compte), `RemoveAccount` (supprime aussi le secret et les données locales)
-- [ ] Persistance minimale des comptes (premier schéma SQLite et migration), avec un test de contrat `AccountRepository` (mémoire et SQLite)
+- [x] Domaine : `Account`, `EmailAddress` (validation), stratégie d'autodécouverte (ordre ISPDB fournisseur, puis ISPDB Mozilla, puis SRV RFC 6186, puis sondage, puis saisie manuelle ; préférence TLS implicite > STARTTLS > clair)
+- [x] `adapters/discovery` : client autoconfig (fournisseur + ISPDB) avec `reqwest`/rustls et parsing `quick-xml` (fixtures dans `fixtures/ispdb/`) ; SRV via `hickory-resolver` derrière un trait ; sondage des ports avec délai court et en parallèle
+- [x] Tests : `wiremock` pour l'autoconfig, résolveur simulé, sondage contre le faux serveur ; XML hostile ou malformé sans panique
+- [x] Application : `DiscoverSettings`, `AddAccount` (découverte, test de connexion, stockage du secret dans le trousseau, persistance du compte), `RemoveAccount` (supprime aussi le secret et les données locales)
+- [x] Persistance minimale des comptes (premier schéma SQLite et migration), avec un test de contrat `AccountRepository` (mémoire et SQLite)
 - [ ] `tauri-specta` : génération des types TS ; test CI qui échoue si les bindings générés sont périmés
 - [ ] Interface :
   - jetons de design (`tokens.css`, clair et sombre) ;

@@ -1,41 +1,204 @@
-/* Jetons de design de Norelly (ADR-005). Clair et sombre selon le système. */
+/* Jetons de design de Norelly (ADR-005) : variables CSS, clair et sombre
+   selon le système. Police système, aucune ressource réseau. */
 :root {
   color-scheme: light dark;
 
+  /* Typographie */
   --font-sans: system-ui, -apple-system, "Segoe UI", "Noto Sans", Ubuntu, Cantarell, sans-serif;
   --font-mono: ui-monospace, "Cascadia Code", "DejaVu Sans Mono", monospace;
+  --font-size-xs: 11px;
+  --font-size-sm: 12px;
+  --font-size-md: 14px;
+  --font-size-lg: 16px;
+  --font-size-xl: 20px;
+  --font-weight-normal: 400;
+  --font-weight-medium: 500;
+  --font-weight-bold: 600;
+  --line-height: 1.45;
 
+  /* Espacements */
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;
   --space-4: 16px;
+  --space-5: 20px;
   --space-6: 24px;
-  --radius: 6px;
+  --space-8: 32px;
 
+  /* Formes */
+  --radius-sm: 4px;
+  --radius: 6px;
+  --radius-lg: 10px;
+  --border-width: 1px;
+
+  /* Panneaux (largeurs par défaut et bornes, en px) */
+  --pane-sidebar: 240px;
+  --pane-list: 380px;
+  --splitter-size: 5px;
+
+  /* Animations (réduites si demandé par le système) */
+  --duration-fast: 100ms;
+  --duration: 160ms;
+
+  /* Couleurs, thème clair */
   --color-bg: #ffffff;
   --color-surface: #f5f6f8;
+  --color-surface-raised: #ffffff;
+  --color-hover: #eceef2;
+  --color-selected: #dce7fb;
   --color-border: #e1e4e8;
+  --color-border-strong: #c6ccd4;
   --color-text: #1b1f24;
   --color-text-muted: #59636e;
+  --color-text-on-accent: #ffffff;
   --color-accent: #2f6fde;
+  --color-accent-hover: #255bbb;
+  --color-focus: #2f6fde;
+  --color-danger: #c4302b;
+  --color-danger-bg: #fdecea;
+  --color-warning: #8a5a00;
+  --color-warning-bg: #fff4d6;
+  --color-success: #1d7a3e;
+  --color-overlay: rgb(15 18 22 / 45%);
+  --shadow-dialog: 0 12px 40px rgb(15 18 22 / 25%);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
     --color-bg: #16181c;
     --color-surface: #1e2126;
+    --color-surface-raised: #24282e;
+    --color-hover: #2a2f36;
+    --color-selected: #22385e;
     --color-border: #2d3138;
+    --color-border-strong: #424852;
     --color-text: #e6e8eb;
     --color-text-muted: #9aa3ad;
+    --color-text-on-accent: #0d1117;
     --color-accent: #6b9cf0;
+    --color-accent-hover: #8db3f4;
+    --color-focus: #8db3f4;
+    --color-danger: #f0736b;
+    --color-danger-bg: #3a1f1e;
+    --color-warning: #f0c060;
+    --color-warning-bg: #3a2f14;
+    --color-success: #5fc785;
+    --color-overlay: rgb(0 0 0 / 60%);
+    --shadow-dialog: 0 12px 40px rgb(0 0 0 / 55%);
   }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --duration-fast: 0ms;
+    --duration: 0ms;
+  }
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
 }
 
 html,
 body {
   margin: 0;
+  height: 100%;
+  overflow: hidden;
   background: var(--color-bg);
   color: var(--color-text);
   font-family: var(--font-sans);
-  font-size: 14px;
+  font-size: var(--font-size-md);
+  line-height: var(--line-height);
+}
+
+#app {
+  height: 100%;
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+button,
+input,
+select {
+  font: inherit;
+  color: inherit;
+}
+
+/* Boutons de base, réutilisés par les composants. */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-3);
+  min-height: 30px;
+  border: var(--border-width) solid var(--color-border-strong);
+  border-radius: var(--radius);
+  background: var(--color-surface-raised);
+  cursor: pointer;
+}
+
+.btn:hover:not(:disabled) {
+  background: var(--color-hover);
+}
+
+.btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.btn-primary {
+  border-color: var(--color-accent);
+  background: var(--color-accent);
+  color: var(--color-text-on-accent);
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: var(--color-accent-hover);
+}
+
+.btn-danger {
+  border-color: var(--color-danger);
+  background: var(--color-danger);
+  color: #ffffff;
+}
+
+.btn-ghost {
+  border-color: transparent;
+  background: transparent;
+}
+
+.input {
+  width: 100%;
+  padding: var(--space-1) var(--space-2);
+  min-height: 30px;
+  border: var(--border-width) solid var(--color-border-strong);
+  border-radius: var(--radius);
+  background: var(--color-bg);
+}
+
+kbd {
+  display: inline-block;
+  min-width: 1.6em;
+  padding: 0 var(--space-1);
+  border: var(--border-width) solid var(--color-border-strong);
+  border-bottom-width: 2px;
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  font-family: var(--font-sans);
+  font-size: var(--font-size-xs);
+  text-align: center;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }

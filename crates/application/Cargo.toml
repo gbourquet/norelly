@@ -9,6 +9,7 @@ publish.workspace = true
 
 [dependencies]
 norelly-domain.workspace = true
+thiserror.workspace = true
 
 [dev-dependencies]
 norelly-test-support.workspace = true

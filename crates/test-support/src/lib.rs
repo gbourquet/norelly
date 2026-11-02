@@ -12,3 +12,4 @@ pub mod certs;
 pub mod containers;
 pub mod contracts;
 pub mod fake_server;
+pub mod fakes;

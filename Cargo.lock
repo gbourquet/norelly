@@ -2767,6 +2767,7 @@ version = "0.1.0"
 dependencies = [
  "norelly-domain",
  "norelly-test-support",
+ "thiserror 2.0.21",
  "tokio",
 ]
 

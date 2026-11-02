@@ -138,6 +138,30 @@ pub trait CertificateExceptionStore: Send + Sync {
     ) -> impl Future<Output = Result<(), StoreError>> + Send;
 }
 
+/// Un dépôt emprunté est aussi un dépôt (partage entre cas d'usage).
+impl<T: CertificateExceptionStore> CertificateExceptionStore for &T {
+    fn exceptions_for(
+        &self,
+        host: &Host,
+    ) -> impl Future<Output = Result<Vec<CertificateException>, StoreError>> + Send {
+        (**self).exceptions_for(host)
+    }
+
+    fn add(
+        &self,
+        exception: &CertificateException,
+    ) -> impl Future<Output = Result<(), StoreError>> + Send {
+        (**self).add(exception)
+    }
+
+    fn remove(
+        &self,
+        exception: &CertificateException,
+    ) -> impl Future<Output = Result<(), StoreError>> + Send {
+        (**self).remove(exception)
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Connexion aux serveurs
 // ---------------------------------------------------------------------------

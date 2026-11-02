@@ -9,7 +9,7 @@ use std::future::Future;
 use std::time::Duration;
 
 use crate::account::{Account, AccountDraft, AccountId};
-use crate::actions::{FlagChange, StoreOutcome};
+use crate::actions::{FlagChange, FolderRef, LocalMessage, PendingOp, StoreOutcome};
 use crate::address::EmailAddress;
 use crate::auth::{AuthError, AuthMechanism};
 use crate::capabilities::ServerCapabilities;
@@ -908,6 +908,83 @@ pub trait RemoteBodyFetcher: Send + Sync {
         uid: Uid,
         fetch: &BodyFetch,
     ) -> impl Future<Output = Result<Option<FetchedBody>, ConnectionError>> + Send;
+}
+
+// ---------------------------------------------------------------------------
+// Actions et file d'opérations (phase 6)
+// ---------------------------------------------------------------------------
+
+/// Identifiant d'une opération en attente.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct PendingOpId(i64);
+
+impl PendingOpId {
+    #[must_use]
+    pub fn new(raw: i64) -> Option<Self> {
+        (raw > 0).then_some(Self(raw))
+    }
+
+    #[must_use]
+    pub const fn get(self) -> i64 {
+        self.0
+    }
+}
+
+/// File durable des opérations (`pending_ops`) et application locale de
+/// leurs effets. Chaque méthode qui touche la file applique l'effet local
+/// correspondant dans la même transaction : la base ne montre jamais une
+/// action sans l'opération qui la porte, ni l'inverse.
+pub trait PendingOpStore: Send + Sync {
+    /// Message visé par une action, avec l'état de sa boîte ; `None` s'il
+    /// n'existe pas ou est déjà masqué (action en attente).
+    fn action_target(
+        &self,
+        message: MessageId,
+    ) -> impl Future<Output = Result<Option<LocalMessage>, StoreError>> + Send;
+
+    /// Dossiers d'un compte (résolution des actions).
+    fn action_folders(
+        &self,
+        account: AccountId,
+    ) -> impl Future<Output = Result<Vec<FolderRef>, StoreError>> + Send;
+
+    /// Enfile une opération et applique son effet local
+    /// ([`crate::actions::local_effect`]).
+    fn record(
+        &self,
+        op: &PendingOp,
+    ) -> impl Future<Output = Result<PendingOpId, StoreError>> + Send;
+
+    /// Opérations en attente d'un compte, dans l'ordre d'enregistrement.
+    fn pending(
+        &self,
+        account: AccountId,
+    ) -> impl Future<Output = Result<Vec<(PendingOpId, PendingOp)>, StoreError>> + Send;
+
+    /// Opération rejouée avec succès : retirée de la file (l'état local
+    /// reflète déjà l'action). `false` si elle n'existait plus.
+    fn complete(&self, id: PendingOpId) -> impl Future<Output = Result<bool, StoreError>> + Send;
+
+    /// Opération annulée ou abandonnée : retirée de la file et effet local
+    /// inversé ([`crate::actions::revert_effect`]). `false` si elle
+    /// n'existait plus.
+    fn revert(&self, id: PendingOpId) -> impl Future<Output = Result<bool, StoreError>> + Send;
+
+    /// Réapplique les effets locaux des opérations en attente d'un compte
+    /// (après une synchronisation qui a rapporté l'état du serveur).
+    fn reapply(&self, account: AccountId) -> impl Future<Output = Result<(), StoreError>> + Send;
+
+    /// Dossier de repli de « archiver » (compte sans `\Archive`).
+    fn archive_fallback(
+        &self,
+        account: AccountId,
+    ) -> impl Future<Output = Result<Option<MailboxId>, StoreError>> + Send;
+
+    fn set_archive_fallback(
+        &self,
+        account: AccountId,
+        mailbox: Option<MailboxId>,
+    ) -> impl Future<Output = Result<(), StoreError>> + Send;
 }
 
 // ---------------------------------------------------------------------------

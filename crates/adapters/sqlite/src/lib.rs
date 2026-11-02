@@ -12,6 +12,7 @@
 //! Les lignes relues sont revalidées par les constructeurs du domaine :
 //! une base modifiée à la main ne peut pas produire un compte invalide.
 
+pub mod actions;
 pub mod conversations;
 pub mod mail;
 pub mod preferences;
@@ -37,6 +38,7 @@ fn migrations() -> Migrations<'static> {
         M::up(include_str!("../migrations/0001_accounts.sql")),
         M::up(include_str!("../migrations/0002_mail.sql")),
         M::up(include_str!("../migrations/0003_conversations.sql")),
+        M::up(include_str!("../migrations/0004_actions.sql")),
     ])
 }
 
@@ -523,6 +525,12 @@ mod tests {
          UPDATE messages SET conversation_id = 1; \
          INSERT INTO remote_image_senders (address) VALUES ('a@example.com'); \
          INSERT INTO settings (key, value) VALUES ('reading.prefer_plain_text', '1');",
+        // Version 4 : un message masqué, une opération en attente, un
+        // dossier de repli d'archivage.
+        "UPDATE messages SET hidden = 1; \
+         INSERT INTO pending_ops (account_id, message_id, mailbox, uid_validity, uid, kind, \
+         target, not_before) VALUES (1, 1, 'INBOX', 42, 7, 'move', 'Archives', 0); \
+         INSERT INTO action_settings (account_id, archive_mailbox) VALUES (1, 1);",
     ];
 
     /// Montée de version depuis chaque version précédente, données

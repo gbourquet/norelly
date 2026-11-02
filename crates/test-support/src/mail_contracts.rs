@@ -25,6 +25,11 @@ use norelly_domain::ports::{
 };
 use norelly_domain::sync::{FlagUpdate, LocalMailbox, MailboxSyncState};
 
+use norelly_domain::actions::{
+    FolderRef, LocalEffect, LocalMessage, PendingOp, local_effect, revert_effect,
+};
+use norelly_domain::ports::{PendingOpId, PendingOpStore};
+
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
     m.lock().unwrap_or_else(PoisonError::into_inner)
 }
@@ -452,6 +457,15 @@ where
 struct MemMessage {
     id: MessageId,
     stored: StoredMessage,
+    /// Masqué par une action en attente (application optimiste).
+    hidden: bool,
+}
+
+impl MemMessage {
+    /// Visible dans les listes : ni masqué, ni marqué `\Deleted`.
+    fn visible(&self) -> bool {
+        !self.hidden && !self.stored.meta.flags.deleted
+    }
 }
 
 #[derive(Debug, Default)]
@@ -460,6 +474,9 @@ struct MemState {
     next_message: i64,
     mailboxes: Vec<(AccountId, StoredMailbox, MailboxSyncState)>,
     messages: BTreeMap<MailboxId, BTreeMap<Uid, MemMessage>>,
+    next_op: i64,
+    ops: BTreeMap<PendingOpId, PendingOp>,
+    archive: BTreeMap<AccountId, MailboxId>,
 }
 
 /// Faux [`MailStore`] et ports de requête en mémoire.
@@ -560,6 +577,7 @@ impl MailStore for InMemoryMailStore {
                 MemMessage {
                     id,
                     stored: new.clone(),
+                    hidden: false,
                 },
             );
         }
@@ -640,8 +658,8 @@ impl FolderTreeQuery for InMemoryMailStore {
                     delimiter: m.mailbox.delimiter,
                     role: m.mailbox.role,
                     selectable: m.mailbox.selectable,
-                    total: count(&|_| true),
-                    unread: count(&|m| !m.stored.meta.flags.seen),
+                    total: count(&MemMessage::visible),
+                    unread: count(&|m| m.visible() && !m.stored.meta.flags.seen),
                 }
             })
             .collect();
@@ -664,6 +682,7 @@ impl MessageListQuery for InMemoryMailStore {
             .get(&mailbox)
             .map(|msgs| {
                 msgs.values()
+                    .filter(|m| m.visible())
                     .map(|m| MessageListItem {
                         id: m.id,
                         uid: m.stored.meta.uid,
@@ -708,7 +727,16 @@ struct Located<'a> {
 }
 
 impl MemState {
+    /// Messages visibles (listes).
     fn located(&self) -> Vec<Located<'_>> {
+        let mut all = self.located_all();
+        all.retain(|l| l.message.visible());
+        all
+    }
+
+    /// Tous les messages, masqués compris (rattachement aux conversations,
+    /// stable quand un message est masqué).
+    fn located_all(&self) -> Vec<Located<'_>> {
         let mut out = Vec::new();
         for (account, mailbox, _) in &self.mailboxes {
             if let Some(msgs) = self.messages.get(&mailbox.id) {
@@ -730,7 +758,7 @@ impl MemState {
     /// appliqué compte par compte ; les copies d'un même `Message-ID`
     /// suivent la première.
     fn conversations(&self) -> BTreeMap<MessageId, ConversationId> {
-        let located = self.located();
+        let located = self.located_all();
         let mut out = BTreeMap::new();
         let accounts: BTreeSet<AccountId> = located.iter().map(|l| l.account).collect();
         for account in accounts {
@@ -890,6 +918,157 @@ impl ConversationQuery for InMemoryMailStore {
         }
         out.reverse();
         Ok(out)
+    }
+}
+
+impl MemState {
+    fn message_mut(&mut self, id: MessageId) -> Option<&mut MemMessage> {
+        self.messages
+            .values_mut()
+            .flat_map(BTreeMap::values_mut)
+            .find(|m| m.id == id)
+    }
+
+    fn apply(&mut self, effect: LocalEffect) {
+        match effect {
+            LocalEffect::SetFlag {
+                message,
+                flag,
+                value,
+            } => {
+                if let Some(m) = self.message_mut(message) {
+                    flag.set(&mut m.stored.meta.flags, value);
+                }
+            }
+            LocalEffect::Hide { message } => {
+                if let Some(m) = self.message_mut(message) {
+                    m.hidden = true;
+                }
+            }
+            LocalEffect::Show { message } => {
+                if let Some(m) = self.message_mut(message) {
+                    m.hidden = false;
+                }
+            }
+        }
+    }
+}
+
+fn folder_ref(m: &StoredMailbox) -> FolderRef {
+    FolderRef {
+        id: m.id,
+        name: m.mailbox.name.clone(),
+        role: m.mailbox.role,
+        selectable: m.mailbox.selectable,
+    }
+}
+
+impl PendingOpStore for InMemoryMailStore {
+    async fn action_target(&self, message: MessageId) -> Result<Option<LocalMessage>, StoreError> {
+        let s = lock(&self.state);
+        for (account, mailbox, state) in &s.mailboxes {
+            if let Some(m) = s
+                .messages
+                .get(&mailbox.id)
+                .and_then(|msgs| msgs.values().find(|m| m.id == message && !m.hidden))
+            {
+                return Ok(Some(LocalMessage {
+                    id: message,
+                    account: *account,
+                    mailbox: folder_ref(mailbox),
+                    uid: m.stored.meta.uid,
+                    flags: m.stored.meta.flags.clone(),
+                    uid_validity: state.uid_validity,
+                    highest_modseq: state.highest_modseq,
+                }));
+            }
+        }
+        Ok(None)
+    }
+
+    async fn action_folders(&self, account: AccountId) -> Result<Vec<FolderRef>, StoreError> {
+        Ok(lock(&self.state)
+            .mailboxes
+            .iter()
+            .filter(|(a, _, _)| *a == account)
+            .map(|(_, m, _)| folder_ref(m))
+            .collect())
+    }
+
+    async fn record(&self, op: &PendingOp) -> Result<PendingOpId, StoreError> {
+        let mut s = lock(&self.state);
+        s.next_op += 1;
+        let id = PendingOpId::new(s.next_op).ok_or_else(|| StoreError("identifiant".into()))?;
+        s.ops.insert(id, op.clone());
+        s.apply(local_effect(op));
+        Ok(id)
+    }
+
+    async fn pending(
+        &self,
+        account: AccountId,
+    ) -> Result<Vec<(PendingOpId, PendingOp)>, StoreError> {
+        Ok(lock(&self.state)
+            .ops
+            .iter()
+            .filter(|(_, op)| op.account == account)
+            .map(|(id, op)| (*id, op.clone()))
+            .collect())
+    }
+
+    async fn complete(&self, id: PendingOpId) -> Result<bool, StoreError> {
+        Ok(lock(&self.state).ops.remove(&id).is_some())
+    }
+
+    async fn revert(&self, id: PendingOpId) -> Result<bool, StoreError> {
+        let mut s = lock(&self.state);
+        let Some(op) = s.ops.remove(&id) else {
+            return Ok(false);
+        };
+        s.apply(revert_effect(&op));
+        Ok(true)
+    }
+
+    async fn reapply(&self, account: AccountId) -> Result<(), StoreError> {
+        let mut s = lock(&self.state);
+        let effects: Vec<LocalEffect> = s
+            .ops
+            .values()
+            .filter(|op| op.account == account)
+            .map(local_effect)
+            .collect();
+        for effect in effects {
+            s.apply(effect);
+        }
+        Ok(())
+    }
+
+    async fn archive_fallback(&self, account: AccountId) -> Result<Option<MailboxId>, StoreError> {
+        Ok(lock(&self.state).archive.get(&account).copied())
+    }
+
+    async fn set_archive_fallback(
+        &self,
+        account: AccountId,
+        mailbox: Option<MailboxId>,
+    ) -> Result<(), StoreError> {
+        let mut s = lock(&self.state);
+        match mailbox {
+            Some(m) => {
+                if !s
+                    .mailboxes
+                    .iter()
+                    .any(|(a, b, _)| *a == account && b.id == m)
+                {
+                    return Err(StoreError("dossier d'un autre compte".to_owned()));
+                }
+                s.archive.insert(account, m);
+            }
+            None => {
+                s.archive.remove(&account);
+            }
+        }
+        Ok(())
     }
 }
 

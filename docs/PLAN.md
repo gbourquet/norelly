@@ -184,7 +184,8 @@ Commandes de référence (détail dans `scripts/check.sh`) :
 - [x] `adapters/sqlite` : table `pending_ops` durable, test de contrat
 - [x] Application : file d'actions rejouée à la reconnexion, avec un test de bout en bout hors ligne puis en ligne (Toxiproxy)
 - [x] Interface : raccourcis `e`, `#`, `s` (drapeau), `Shift+i`/`Shift+u`, `v` (déplacer, avec sélection de dossier dans la palette), sélection multiple (`x`), annulation de la dernière action
-- [ ] Intégration Dovecot : chaque action vérifiée côté serveur, avec et sans MOVE (capacité masquée par le faux serveur)
+- [x] Intégration Dovecot : chaque action vérifiée côté serveur, avec et sans MOVE (capacité masquée par le faux serveur)
+  - `crates/application/tests/integration_dovecot_actions.rs` : avec MOVE et UIDPLUS, sans MOVE, sans MOVE ni UIDPLUS. Contre Dovecot, les capacités sont masquées par le connecteur (`ImapConnector::hiding_capabilities`) ; le faux serveur sait aussi les masquer (`FakeImap::set_move_extensions`).
 - [ ] Revue security-reviewer, consignée dans REVIEWS.md (0 critique, 0 haute ; moyennes corrigées)
 
 **Condition de fin** : `./scripts/check.sh full && pnpm -C app e2e` passent sans erreur.

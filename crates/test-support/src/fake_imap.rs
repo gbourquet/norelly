@@ -322,26 +322,46 @@ pub struct FakeImapSession {
     broken: bool,
 }
 
-/// En-têtes minimaux d'un message brut (`Subject`, `From`, `Message-ID`).
+/// En-têtes d'un message brut, décodés par `mail-parser` comme dans
+/// l'adaptateur réel.
 fn headers_of(raw: &[u8]) -> MessageHeaders {
-    let text = String::from_utf8_lossy(raw);
-    let header = text.split("\r\n\r\n").next().unwrap_or_default();
-    let field = |name: &str| {
-        header.lines().find_map(|l| {
-            let (k, v) = l.split_once(':')?;
-            k.trim()
-                .eq_ignore_ascii_case(name)
-                .then(|| v.trim().to_owned())
-        })
+    use mail_parser::{Address, HeaderValue, MessageParser};
+    let Some(m) = MessageParser::new().parse_headers(raw) else {
+        return MessageHeaders::default();
     };
-    let subject = field("Subject").unwrap_or_default();
-    let from = field("From").unwrap_or_default();
-    let message_id = field("Message-ID");
+    let people = |a: Option<&Address<'_>>| -> Vec<(String, String)> {
+        a.map(|a| {
+            a.iter()
+                .map(|x| {
+                    (
+                        x.name().unwrap_or_default().to_owned(),
+                        x.address().unwrap_or_default().to_owned(),
+                    )
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+    };
+    let ids = |v: &HeaderValue<'_>| -> Vec<String> {
+        match v {
+            HeaderValue::Text(t) => vec![t.to_string()],
+            HeaderValue::TextList(l) => l.iter().map(ToString::to_string).collect(),
+            _ => vec![],
+        }
+    };
+    let (from, to, cc) = (people(m.from()), people(m.to()), people(m.cc()));
+    let (irt, refs) = (ids(m.in_reply_to()), ids(m.references()));
+    let pairs = |v: &[(String, String)]| -> Vec<(String, String)> { v.to_vec() };
+    let (from, to, cc) = (pairs(&from), pairs(&to), pairs(&cc));
     MessageHeaders::sanitize(&RawHeaders {
-        subject: &subject,
-        from: vec![("", from.as_str())],
-        message_id: message_id.as_deref(),
-        ..RawHeaders::default()
+        subject: m.subject().unwrap_or_default(),
+        from: from.iter().map(|(n, a)| (n.as_str(), a.as_str())).collect(),
+        to: to.iter().map(|(n, a)| (n.as_str(), a.as_str())).collect(),
+        cc: cc.iter().map(|(n, a)| (n.as_str(), a.as_str())).collect(),
+        date: m.date().map(mail_parser::DateTime::to_timestamp),
+        message_id: m.message_id(),
+        in_reply_to: irt.iter().map(String::as_str).collect(),
+        references: refs.iter().map(String::as_str).collect(),
     })
 }
 
@@ -453,11 +473,12 @@ impl RemoteMailboxSession for FakeImapSession {
                 .filter(|(_, msg)| msg.modseq > since)
                 .filter_map(|(u, msg)| self.update(*u, msg))
                 .collect();
-            let known: BTreeSet<u32> = q.known_uids.iter().map(|u| u.get()).collect();
+            // Sans liste d'UID connus (comme Norelly l'envoie) : toutes
+            // les suppressions depuis `since`.
             selected.vanished = m
                 .expunged
                 .iter()
-                .filter(|(u, ms)| *ms > since && known.contains(u))
+                .filter(|(_, ms)| *ms > since)
                 .filter_map(|(u, _)| uid(*u))
                 .collect();
         }
@@ -496,6 +517,7 @@ impl RemoteMailboxSession for FakeImapSession {
         let condstore = self.extensions.condstore;
         let mut s = self.step()?;
         let m = s.mailbox(&name).ok_or(ConnectionError::Closed)?;
+        let uids: BTreeSet<Uid> = uids.iter().copied().collect();
         Ok(uids
             .iter()
             .filter_map(|u| {

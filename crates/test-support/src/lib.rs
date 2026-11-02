@@ -5,7 +5,9 @@
 //! - [`fake_imap`] : faux serveur IMAP en mémoire (synchronisation) ;
 //! - [`contracts`] : suites de contrat des ports et faux en mémoire ;
 //! - [`mail_contracts`] : idem pour le stockage des messages ;
-//! - [`synthetic`] : générateur de boîtes synthétiques (bench).
+//! - [`synthetic`] : générateur de boîtes synthétiques (bench) ;
+//! - [`imap_control`] et [`session_contract`] : contrat de la session IMAP
+//!   (faux serveur et Dovecot).
 //!
 //! Les tests qui utilisent les conteneurs vivent dans des fichiers
 //! `tests/integration*.rs` : ils sont exclus du profil nextest par défaut et
@@ -17,5 +19,7 @@ pub mod contracts;
 pub mod fake_imap;
 pub mod fake_server;
 pub mod fakes;
+pub mod imap_control;
 pub mod mail_contracts;
+pub mod session_contract;
 pub mod synthetic;

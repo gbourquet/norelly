@@ -410,7 +410,8 @@ impl Connection {
             parameters.push(SelectParameter::QResync {
                 uid_validity,
                 mod_sequence_value: modseq,
-                known_uids: uid_set(q.known_uids.iter().copied()),
+                // Volontairement absent : voir `QresyncParams`.
+                known_uids: None,
                 seq_match_data: None,
             });
         } else if request.condstore {

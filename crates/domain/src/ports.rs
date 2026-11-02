@@ -279,8 +279,8 @@ pub trait RemoteMailboxSession: Send {
     ) -> impl Future<Output = Result<BTreeSet<Uid>, ConnectionError>> + Send;
 
     /// Métadonnées (drapeaux, taille, dates, en-têtes, structure) ; au plus
-    /// [`MAX_FETCH_BATCH`] UID. Les messages disparus entre-temps sont
-    /// absents du résultat.
+    /// [`MAX_FETCH_BATCH`] UID. Résultat par UID croissant, sans doublon ;
+    /// les messages disparus entre-temps en sont absents.
     fn fetch_meta(
         &mut self,
         uids: &[Uid],

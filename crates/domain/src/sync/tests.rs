@@ -155,11 +155,12 @@ impl Server {
                 .filter(|(_, (_, m))| *m > since)
                 .filter_map(|(u, _)| self.update(*u))
                 .collect();
-            let known: BTreeSet<Uid> = q.known_uids.iter().copied().collect();
+            // Sans liste d'UID connus : toutes les suppressions depuis
+            // `since`, y compris d'UID jamais vus par le client.
             selected.vanished = self
                 .expunged
                 .iter()
-                .filter(|(u, m)| *m > since && known.contains(u))
+                .filter(|(_, m)| *m > since)
                 .map(|(u, _)| *u)
                 .collect();
         }
@@ -294,7 +295,6 @@ fn qresync_select_uses_local_state() {
         Some(QresyncParams {
             uid_validity: validity(100),
             modseq: modseq(4),
-            known_uids: vec![uid(1), uid(2), uid(3)],
         })
     );
     assert!(!request.condstore, "QRESYNC implique CONDSTORE");

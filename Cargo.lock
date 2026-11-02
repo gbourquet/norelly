@@ -3062,6 +3062,7 @@ dependencies = [
 name = "norelly-test-support"
 version = "0.1.0"
 dependencies = [
+ "mail-parser",
  "norelly-domain",
  "rcgen",
  "ring",

@@ -60,13 +60,16 @@ pub struct SyncExtensions {
 }
 
 /// Paramètres QRESYNC du `SELECT` (RFC 7162, 3.2.5).
+///
+/// Volontairement sans liste d'UID connus : avec elle, le serveur ne
+/// signale que les changements parmi ces UID (RFC 7162, 3.2.5.1), donc pas
+/// les nouveaux messages. Sans elle, il signale tout ce qui a changé
+/// depuis `modseq`, nouveaux messages compris ; les `VANISHED` d'UID
+/// inconnus localement sont ignorés par [`reconcile`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct QresyncParams {
     pub uid_validity: UidValidity,
     pub modseq: ModSeq,
-    /// UID connus localement (le serveur ne signale que les suppressions
-    /// parmi eux).
-    pub known_uids: Vec<Uid>,
 }
 
 /// Paramètres du `SELECT` (ou `EXAMINE`).
@@ -88,7 +91,6 @@ pub fn select_request(local: &LocalMailbox, ext: SyncExtensions) -> SelectReques
         (true, Some(uid_validity), Some(modseq)) => Some(QresyncParams {
             uid_validity,
             modseq,
-            known_uids: local.messages.keys().copied().collect(),
         }),
         _ => None,
     };

@@ -15,7 +15,7 @@ use norelly_domain::endpoint::{Host, Security, ServerEndpoint};
 use norelly_domain::fetch_policy::FetchPolicy;
 use norelly_domain::mailbox::{Flags, MailboxId, MailboxName, Uid};
 use norelly_domain::ports::{
-    AccountRepository, BlobStore, ConnectRequest, FolderTreeQuery, MailStore,
+    AccountRepository, BlobStore, ConnectRequest, FolderTreeQuery, MailStore, PendingOpStore,
     RemoteMailboxConnector, RemoteMailboxSession, StoredBody,
 };
 use norelly_domain::security::PlaintextPolicy;
@@ -123,6 +123,10 @@ impl Local {
         }
         .sync_all(&mut session, ext, |_| {})
         .await?;
+        // Comme l'acteur : effets des actions en attente conservés, copies
+        // provisoires des déplacements rejoués remplacées.
+        self.store.reapply(self.account).await?;
+        self.store.purge_placeholders(self.account, None).await?;
         let _ = session.logout().await;
         Ok(())
     }

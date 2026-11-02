@@ -78,6 +78,10 @@ impl World {
             .reapply(account())
             .await
             .unwrap_or_else(|e| panic!("{e}"));
+        self.store
+            .purge_placeholders(account(), None)
+            .await
+            .unwrap_or_else(|e| panic!("{e}"));
     }
 
     fn box_id(&self, name: &str) -> MailboxId {
@@ -160,6 +164,49 @@ async fn mark_read_is_optimistic_then_replayed_after_the_undo_window() {
     // Une synchronisation confirme l'état.
     w.sync().await;
     assert!(w.visible("INBOX").await[0].2.seen);
+}
+
+#[tokio::test]
+async fn moved_message_shows_in_the_destination_right_away() {
+    let mut w = world(true, true).await;
+    let m1 = w.id_of("INBOX", 1).await;
+    let report = w.act(&[m1], MessageAction::Archive).await;
+    // Tout de suite : parti de la boîte de réception, arrivé dans les
+    // archives (copie provisoire), sans rien envoyer au serveur.
+    assert_eq!(w.visible("INBOX").await.len(), 2);
+    assert_eq!(
+        w.visible("Archives").await.len(),
+        1,
+        "visible dans la destination"
+    );
+    assert!(w.server_uids("Archives").is_empty());
+    // Une synchronisation avant le rejeu ne la fait pas disparaître.
+    w.sync().await;
+    assert_eq!(w.visible("Archives").await.len(), 1);
+    // Annulation : de retour à l'origine, retirée de la destination.
+    UndoActions { store: &w.store }
+        .execute(&report.recorded)
+        .await
+        .unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(w.visible("INBOX").await.len(), 3);
+    assert!(w.visible("Archives").await.is_empty());
+    // De nouveau, puis rejeu et synchronisation : le vrai message remplace
+    // la copie, sans doublon.
+    w.act(&[m1], MessageAction::Archive).await;
+    w.replay(LATER).await;
+    assert_eq!(
+        w.visible("Archives").await.len(),
+        1,
+        "pas de trou après le rejeu"
+    );
+    w.sync().await;
+    let archived = w.visible("Archives").await;
+    assert_eq!(archived.len(), 1, "le vrai message seul : {archived:?}");
+    assert_eq!(
+        archived[0].1,
+        w.server_uids("Archives")[0],
+        "UID du serveur"
+    );
 }
 
 #[tokio::test]

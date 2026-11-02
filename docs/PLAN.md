@@ -184,6 +184,7 @@ Commandes de référence (détail dans `scripts/check.sh`) :
 - [x] `adapters/sqlite` : table `pending_ops` durable, test de contrat
 - [x] Application : file d'actions rejouée à la reconnexion, avec un test de bout en bout hors ligne puis en ligne (Toxiproxy)
 - [x] Interface : raccourcis `e`, `#`, `s` (drapeau), `Shift+i`/`Shift+u`, `v` (déplacer, avec sélection de dossier dans la palette), sélection multiple (`x`), annulation de la dernière action
+- [x] Déplacement visible tout de suite dans le dossier de destination : copie locale provisoire créée avec l'opération (dossier de destination, compteurs), retirée à l'annulation ou à l'abandon, remplacée par le vrai message à la synchronisation qui suit le rejeu (sans trou ni doublon visible), ignorée par la synchronisation et par les actions
 - [x] Intégration Dovecot : chaque action vérifiée côté serveur, avec et sans MOVE (capacité masquée par le faux serveur)
   - `crates/application/tests/integration_dovecot_actions.rs` : avec MOVE et UIDPLUS, sans MOVE, sans MOVE ni UIDPLUS. Contre Dovecot, les capacités sont masquées par le connecteur (`ImapConnector::hiding_capabilities`) ; le faux serveur sait aussi les masquer (`FakeImap::set_move_extensions`).
 - [x] Revue security-reviewer, consignée dans REVIEWS.md (0 critique, 0 haute ; 2 moyennes corrigées ; basses reportées en phase 7 et 10)

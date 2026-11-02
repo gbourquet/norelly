@@ -323,8 +323,10 @@ where
             .sync_all(session, ext, |id| changed.push(id))
             .await?;
         // L'état du serveur vient d'être rapporté : les actions encore en
-        // attente gardent leur effet local.
+        // attente gardent leur effet local, et les copies provisoires des
+        // déplacements déjà rejoués laissent la place aux vrais messages.
         self.store.reapply(self.account).await?;
+        self.store.purge_placeholders(self.account, None).await?;
         if *known != mailboxes {
             *known = mailboxes;
             self.emit(SyncEvent::FoldersChanged {
@@ -532,7 +534,12 @@ where
                 .sync_mailbox(session, ext, id, &name)
                 .await?;
             self.store.reapply(self.account).await?;
-            if report.changed() {
+            // Avant l'événement : l'interface ne voit ni trou ni doublon.
+            let purged = self
+                .store
+                .purge_placeholders(self.account, Some(id))
+                .await?;
+            if report.changed() || purged > 0 {
                 self.emit(SyncEvent::FolderChanged {
                     account: self.account,
                     mailbox: id,

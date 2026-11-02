@@ -94,6 +94,13 @@ async fn scenario(tag: &str, hidden: &[&str]) -> TestResult {
     act(vec![get(4)?], MessageAction::Archive).await?;
     act(vec![get(5)?], MessageAction::Delete).await?;
     assert_eq!(ids("INBOX").await?.len(), 3, "{tag} : masqués localement");
+    for name in ["Projets", "Archives", "Trash"] {
+        assert_eq!(
+            ids(name).await?.len(),
+            1,
+            "{tag} : visible tout de suite dans {name}"
+        );
+    }
     let report = replay().await?;
     assert_eq!(report.applied, 5, "{tag} : {report:?}");
     assert!(report.dropped.is_empty(), "{tag} : {report:?}");

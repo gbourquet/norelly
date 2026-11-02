@@ -9,6 +9,13 @@ publish.workspace = true
 
 [dependencies]
 norelly-domain.workspace = true
+rusqlite.workspace = true
+rusqlite_migration.workspace = true
+tokio.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+norelly-test-support.workspace = true
 
 [lints]
 workspace = true

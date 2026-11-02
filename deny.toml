@@ -11,6 +11,11 @@ ignore = [
     # bindings GTK3 de Tauri 2 sous Linux. Aucune alternative tant que Tauri
     # n'a pas migré vers GTK4. À réévaluer à chaque montée de Tauri.
     { id = "RUSTSEC-2024-0370", reason = "transitif via Tauri/GTK3, non maintenu, pas de vulnérabilité" },
+    # Non maintenu (pas une vulnérabilité). `paste` (proc-macro, compilation
+    # seulement) est une dépendance de specta, donc de tauri-specta, imposé
+    # par ADR-005 pour générer le contrat IPC. Exception validée par le
+    # mainteneur le 2026-11-02. À réévaluer à chaque montée de specta.
+    { id = "RUSTSEC-2024-0436", reason = "transitif via specta/tauri-specta (ADR-005), proc-macro non maintenue, pas de vulnérabilité ; validé par le mainteneur" },
 ]
 
 [licenses]

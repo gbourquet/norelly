@@ -177,6 +177,16 @@ est majoritairement écrit par Claude et relu par le mainteneur.
 - **Conséquences** :
   - Le mainteneur relit le contrat côté Rust.
   - Pas de syntaxe Svelte 4.
+- **Mise en œuvre (phase 3, 2026-11-02)** :
+  - `tauri-specta` 2.0.0-rc.26, `specta` 2.0.0-rc.26 et
+    `specta-typescript` 0.0.13, versions figées (RC). Le contrat est dans
+    `app/src-tauri/src/ipc.rs` (vues, sans dépendance de `specta` dans le
+    domaine) ; les bindings sont commités dans
+    `app/src/lib/ipc/bindings.ts` et le test `bindings_are_up_to_date`
+    échoue s'ils sont périmés (`./scripts/gen-bindings.sh` les régénère).
+  - `specta` dépend de `paste`, signalé non maintenu (RUSTSEC-2024-0436,
+    sans vulnérabilité) : exception ajoutée dans `deny.toml`, validée par
+    le mainteneur le 2026-11-02, à réévaluer à chaque montée de specta.
 
 ## ADR-006 : packaging et mises à jour
 

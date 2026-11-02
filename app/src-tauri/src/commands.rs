@@ -1,0 +1,218 @@
+//! Commandes IPC. Chaque entrée de l'interface est revalidée ici par les
+//! constructeurs du domaine ; aucune décision de sécurité n'est déléguée
+//! au TypeScript.
+
+use norelly_application::accounts::{
+    AddAccount, AddAccountOutcome, AddAccountRequest, RemoveAccount, trust_certificate as trust,
+};
+use norelly_application::test_connection::TestConnectionOutcome;
+use norelly_domain::account::{AccountId, DisplayName, ServerSettings};
+use norelly_domain::address::EmailAddress;
+use norelly_domain::credentials::{Secret, Username};
+use norelly_domain::endpoint::{Host, Protocol, ServerEndpoint};
+use norelly_domain::ports::AccountRepository;
+use norelly_domain::security::{PlaintextConsent, PlaintextPolicy};
+use tauri::State;
+use tauri::ipc::Channel;
+
+use crate::ipc::{
+    AccountDto, AddAccountInput, AddAccountResultDto, DiscoveryDto, DiscoverySourceDto, IpcError,
+    ServerDto,
+};
+use crate::state::AppState;
+
+/// Comptes enregistrés.
+#[tauri::command]
+#[specta::specta]
+pub async fn list_accounts(state: State<'_, AppState>) -> Result<Vec<AccountDto>, IpcError> {
+    let accounts = state.accounts.list().await.map_err(IpcError::new)?;
+    accounts.iter().map(AccountDto::try_from).collect()
+}
+
+/// Découvre les serveurs d'une adresse ; `on_progress` reçoit chaque
+/// source essayée.
+#[tauri::command]
+#[specta::specta]
+pub async fn discover_settings(
+    state: State<'_, AppState>,
+    address: String,
+    on_progress: Channel<DiscoverySourceDto>,
+) -> Result<DiscoveryDto, IpcError> {
+    let address = EmailAddress::parse(&address).map_err(IpcError::new)?;
+    let discovery = state
+        .discover
+        .execute(&address, |source| {
+            // Interface fermée : la progression n'est plus affichée.
+            let _ = on_progress.send(source.into());
+        })
+        .await;
+    Ok(DiscoveryDto::from(&discovery))
+}
+
+fn server_settings(protocol: Protocol, dto: &ServerDto) -> Result<ServerSettings, IpcError> {
+    let host = Host::parse(dto.host.trim()).map_err(IpcError::new)?;
+    let endpoint =
+        ServerEndpoint::new(host, dto.port, dto.security.into()).map_err(IpcError::new)?;
+    let username = Username::parse(dto.username.trim()).map_err(IpcError::new)?;
+    Ok(ServerSettings {
+        protocol,
+        endpoint,
+        username,
+    })
+}
+
+fn add_request(input: AddAccountInput) -> Result<AddAccountRequest, IpcError> {
+    let address = EmailAddress::parse(&input.address).map_err(IpcError::new)?;
+    let display_name = match input.display_name.as_deref().map(str::trim) {
+        None | Some("") => None,
+        Some(name) => Some(DisplayName::parse(name).map_err(IpcError::new)?),
+    };
+    let servers = match (&input.imap, &input.smtp) {
+        (Some(imap), Some(smtp)) => Some((
+            server_settings(Protocol::Imap, imap)?,
+            server_settings(Protocol::Smtp, smtp)?,
+        )),
+        (None, None) => None,
+        _ => {
+            return Err(IpcError::new(
+                "les serveurs IMAP et SMTP doivent être fournis ensemble",
+            ));
+        }
+    };
+    let mut plaintext = PlaintextPolicy::deny_all();
+    for consent in &input.plaintext_consents {
+        plaintext = plaintext.with_consent(PlaintextConsent {
+            host: Host::parse(&consent.host).map_err(IpcError::new)?,
+            port: consent.port,
+        });
+    }
+    Ok(AddAccountRequest {
+        address,
+        display_name,
+        password: Secret::new(input.password),
+        servers,
+        plaintext,
+    })
+}
+
+/// Ajoute un compte : test des connexions, trousseau, persistance.
+#[tauri::command]
+#[specta::specta]
+pub async fn add_account(
+    state: State<'_, AppState>,
+    input: AddAccountInput,
+) -> Result<AddAccountResultDto, IpcError> {
+    let request = add_request(input)?;
+    let outcome = AddAccount {
+        test: &state.test,
+        discover: &state.discover,
+        secrets: &state.secrets,
+        accounts: &state.accounts,
+    }
+    .execute(request)
+    .await;
+    if let AddAccountOutcome::ConnectionFailed {
+        outcome: TestConnectionOutcome::Certificate(rejection),
+        ..
+    } = &outcome
+        && rejection.can_be_excepted()
+    {
+        state.remember_rejection(rejection.clone());
+    }
+    Ok(AddAccountResultDto::from_outcome(&outcome))
+}
+
+/// Fait confiance au certificat refusé `fingerprint` pour `host`. Seul un
+/// refus effectivement présenté à l'utilisateur peut être accepté.
+#[tauri::command]
+#[specta::specta]
+pub async fn trust_certificate(
+    state: State<'_, AppState>,
+    host: String,
+    fingerprint: String,
+) -> Result<(), IpcError> {
+    let rejection = state
+        .take_rejection(&host, &fingerprint)
+        .ok_or_else(|| IpcError::new("aucun certificat refusé ne correspond à cette empreinte"))?;
+    trust(&state.exceptions, &rejection)
+        .await
+        .map_err(IpcError::new)
+}
+
+/// Supprime un compte, ses mots de passe et ses données locales.
+#[tauri::command]
+#[specta::specta]
+pub async fn remove_account(state: State<'_, AppState>, id: u32) -> Result<(), IpcError> {
+    let id = AccountId::new(i64::from(id)).map_err(IpcError::new)?;
+    RemoveAccount {
+        secrets: &state.secrets,
+        accounts: &state.accounts,
+        local_data: &state.local_data,
+    }
+    .execute(id)
+    .await
+    .map_err(IpcError::new)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ipc::{EndpointDto, SecurityDto};
+
+    fn input() -> AddAccountInput {
+        AddAccountInput {
+            address: "alice@example.com".into(),
+            display_name: Some("  ".into()),
+            password: "secret".into(),
+            imap: None,
+            smtp: None,
+            plaintext_consents: vec![],
+        }
+    }
+
+    fn server(host: &str) -> ServerDto {
+        ServerDto {
+            host: host.into(),
+            port: 993,
+            security: SecurityDto::Tls,
+            username: "alice".into(),
+        }
+    }
+
+    #[test]
+    fn input_is_revalidated() {
+        assert!(
+            add_request(input()).is_ok_and(|r| r.display_name.is_none() && r.servers.is_none())
+        );
+        let bad_address = AddAccountInput {
+            address: "pas une adresse".into(),
+            ..input()
+        };
+        assert!(add_request(bad_address).is_err());
+        let half = AddAccountInput {
+            imap: Some(server("imap.example.com")),
+            ..input()
+        };
+        assert!(add_request(half).is_err());
+        let injected = AddAccountInput {
+            imap: Some(server("imap.example.com\r\nA1 LOGIN")),
+            smtp: Some(server("smtp.example.com")),
+            ..input()
+        };
+        assert!(add_request(injected).is_err());
+        let bad_consent = AddAccountInput {
+            plaintext_consents: vec![EndpointDto {
+                host: "a b".into(),
+                port: 143,
+            }],
+            ..input()
+        };
+        assert!(add_request(bad_consent).is_err());
+    }
+
+    #[test]
+    fn debug_hides_the_password() {
+        let rendered = format!("{:?}", input());
+        assert!(!rendered.contains("secret"), "{rendered}");
+    }
+}

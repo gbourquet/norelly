@@ -732,6 +732,17 @@ pub struct ConversationCursor {
 /// Nombre maximal d'expéditeurs affichés par conversation.
 pub const MAX_LISTED_SENDERS: usize = 3;
 
+/// Vrai si deux correspondants désignent le même expéditeur : même adresse
+/// (casse ignorée), ou même nom si l'un n'a pas d'adresse.
+#[must_use]
+pub fn same_sender(a: &Correspondent, b: &Correspondent) -> bool {
+    if a.address.is_empty() || b.address.is_empty() {
+        a.address.is_empty() && b.address.is_empty() && a.name == b.name
+    } else {
+        a.address.eq_ignore_ascii_case(&b.address)
+    }
+}
+
 /// Ligne de la liste des conversations. Les compteurs et la date portent
 /// sur les messages de la conversation présents dans le dossier de la
 /// ligne.

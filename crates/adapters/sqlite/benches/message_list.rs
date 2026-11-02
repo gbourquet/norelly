@@ -1,6 +1,6 @@
-//! Bench de la liste des messages (ADR-007) sur une boîte synthétique de
-//! 50 000 messages : première page et changement de dossier, requête
-//! seule. Seuil exigé : 50 ms (médiane), vérifié avant les mesures
+//! Bench de la liste des messages et des conversations (ADR-007) sur une
+//! boîte synthétique de 50 000 messages : première page, changement de
+//! dossier et boîte unifiée, requête seule. Seuil exigé : 50 ms (médiane), vérifié avant les mesures
 //! `criterion` ; `cargo bench -p norelly-sqlite -- --test` échoue s'il
 //! est dépassé.
 
@@ -9,9 +9,10 @@ use std::time::{Duration, Instant};
 
 use criterion::{Criterion, criterion_group, criterion_main};
 use norelly_domain::account::AccountId;
+use norelly_domain::conversation::ConversationScope;
 use norelly_domain::mailbox::{MailboxId, MailboxName, MailboxRole, RemoteMailbox};
 use norelly_domain::ports::{
-    AccountRepository, MailStore, MessageListQuery, StoredMessage, SyncBatch,
+    AccountRepository, ConversationQuery, MailStore, MessageListQuery, StoredMessage, SyncBatch,
 };
 use norelly_sqlite::mail::SqliteMailStore;
 use norelly_sqlite::{Database, SqliteAccountRepository};
@@ -128,6 +129,13 @@ fn page(f: &Fixture, mailbox: MailboxId) -> usize {
         .len()
 }
 
+fn conversations(f: &Fixture, scope: ConversationScope) -> usize {
+    f.rt.block_on(f.store.conversations(scope, None, PAGE))
+        .unwrap_or_else(|e| panic!("{e}"))
+        .items
+        .len()
+}
+
 /// Médiane de `runs` exécutions.
 fn median(runs: usize, mut f: impl FnMut()) -> Duration {
     let mut times: Vec<Duration> = (0..runs)
@@ -162,6 +170,34 @@ fn check_thresholds(f: &Fixture) {
         switch < THRESHOLD,
         "changement de dossier en {switch:?} (> {THRESHOLD:?})"
     );
+    let (inbox, other, unified) = (
+        ConversationScope::Mailbox(f.inbox),
+        ConversationScope::Mailbox(f.other),
+        ConversationScope::unified_inbox(),
+    );
+    assert_eq!(conversations(f, inbox), PAGE as usize);
+    let first = median(31, || {
+        conversations(f, inbox);
+    });
+    let mut flip = false;
+    let switch = median(31, || {
+        flip = !flip;
+        conversations(f, if flip { other } else { inbox });
+    });
+    let unified = median(31, || {
+        conversations(f, unified);
+    });
+    eprintln!(
+        "conversations : première page {first:?} ; changement de dossier {switch:?} ; \
+         boîte unifiée {unified:?} (seuil {THRESHOLD:?})"
+    );
+    for (what, t) in [
+        ("première page de conversations", first),
+        ("changement de dossier (conversations)", switch),
+        ("boîte unifiée", unified),
+    ] {
+        assert!(t < THRESHOLD, "{what} en {t:?} (> {THRESHOLD:?})");
+    }
 }
 
 fn bench(c: &mut Criterion) {
@@ -176,6 +212,12 @@ fn bench(c: &mut Criterion) {
             flip = !flip;
             page(&f, if flip { f.other } else { f.inbox })
         });
+    });
+    c.bench_function("conversations : première page", |b| {
+        b.iter(|| conversations(&f, ConversationScope::Mailbox(f.inbox)));
+    });
+    c.bench_function("conversations : boîte unifiée", |b| {
+        b.iter(|| conversations(&f, ConversationScope::unified_inbox()));
     });
     c.bench_function("page suivante (curseur)", |b| {
         let first =

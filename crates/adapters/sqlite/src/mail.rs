@@ -9,6 +9,7 @@
 use std::collections::BTreeSet;
 
 use norelly_domain::account::AccountId;
+use norelly_domain::conversation::ThreadKeys;
 use norelly_domain::fetch_policy::{MimePart, PartPath};
 use norelly_domain::mailbox::{
     Correspondent, Flags, Keyword, MAX_SUBJECT_CHARS, MailboxId, MailboxName, MailboxRole, ModSeq,
@@ -22,6 +23,7 @@ use norelly_domain::ports::{
 use norelly_domain::sync::{LocalMailbox, MailboxSyncState};
 use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, params};
 
+use crate::conversations::assign_conversation;
 use crate::{Database, store_error};
 
 /// Stockage des boîtes et messages.
@@ -35,9 +37,13 @@ impl SqliteMailStore {
     pub fn new(db: Database) -> Self {
         Self { db }
     }
+
+    pub(crate) fn db(&self) -> &Database {
+        &self.db
+    }
 }
 
-fn corrupted(what: &str) -> StoreError {
+pub(crate) fn corrupted(what: &str) -> StoreError {
     StoreError(format!("donnée corrompue : {what}"))
 }
 
@@ -54,7 +60,7 @@ fn keywords_text(flags: &Flags) -> String {
         .join(" ")
 }
 
-fn flags_from(bits: i64, keywords: &str) -> Flags {
+pub(crate) fn flags_from(bits: i64, keywords: &str) -> Flags {
     Flags::from_parts(u8::try_from(bits & 0x1f).unwrap_or(0), keywords.split(' '))
 }
 
@@ -66,7 +72,7 @@ fn modseq_sql(m: Option<ModSeq>) -> Option<i64> {
     m.and_then(|m| i64::try_from(m.get()).ok())
 }
 
-fn uid_of(raw: i64) -> Result<Uid, StoreError> {
+pub(crate) fn uid_of(raw: i64) -> Result<Uid, StoreError> {
     u32::try_from(raw)
         .ok()
         .and_then(Uid::new)
@@ -85,7 +91,7 @@ fn state_of(validity: Option<i64>, modseq: Option<i64>, next: Option<i64>) -> Ma
     }
 }
 
-fn mailbox_id(raw: i64) -> Result<MailboxId, StoreError> {
+pub(crate) fn mailbox_id(raw: i64) -> Result<MailboxId, StoreError> {
     MailboxId::new(raw).ok_or_else(|| corrupted("identifiant de boîte"))
 }
 
@@ -98,18 +104,17 @@ fn delimiter_of(raw: Option<String>) -> Option<char> {
 
 /// Vérifie que la boîte existe (sinon erreur, plutôt qu'une écriture
 /// silencieusement perdue).
-fn ensure_mailbox(tx: &Transaction<'_>, mailbox: MailboxId) -> Result<(), StoreError> {
+fn ensure_mailbox(tx: &Transaction<'_>, mailbox: MailboxId) -> Result<AccountId, StoreError> {
     let found: Option<i64> = tx
         .query_row(
-            "SELECT id FROM mailboxes WHERE id = ?1",
+            "SELECT account_id FROM mailboxes WHERE id = ?1",
             [mailbox.get()],
             |r| r.get(0),
         )
         .optional()
         .map_err(store_error)?;
-    found
-        .map(|_| ())
-        .ok_or_else(|| StoreError(format!("boîte {mailbox} inconnue")))
+    let account = found.ok_or_else(|| StoreError(format!("boîte {mailbox} inconnue")))?;
+    AccountId::new(account).map_err(|_| corrupted("compte"))
 }
 
 fn write_body(tx: &Transaction<'_>, message: i64, body: &StoredBody) -> Result<(), StoreError> {
@@ -149,6 +154,7 @@ fn write_body(tx: &Transaction<'_>, message: i64, body: &StoredBody) -> Result<(
 
 fn insert_message(
     tx: &Transaction<'_>,
+    account: AccountId,
     mailbox: MailboxId,
     message: &StoredMessage,
 ) -> Result<(), StoreError> {
@@ -161,13 +167,14 @@ fn insert_message(
     .map_err(store_error)?;
     let from = h.from.first().cloned().unwrap_or_default();
     let structure = meta.structure.as_ref().map(json).transpose()?;
+    let conversation = assign_conversation(tx, account, &ThreadKeys::of(h), meta.sort_date())?;
     let mut stmt = tx
         .prepare_cached(
             "INSERT INTO messages (mailbox_id, uid, modseq, flags, keywords, internal_date, \
              sort_date, size, subject, from_name, from_address, to_json, cc_json, message_id, \
-             in_reply_to, refs, header_date, has_attachments, structure) \
+             in_reply_to, refs, header_date, has_attachments, structure, conversation_id) \
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, \
-             ?17, ?18, ?19)",
+             ?17, ?18, ?19, ?20)",
         )
         .map_err(store_error)?;
     stmt.execute(params![
@@ -190,6 +197,7 @@ fn insert_message(
         h.date,
         meta.has_attachments(),
         structure,
+        conversation,
     ])
     .map_err(store_error)?;
     let id = tx.last_insert_rowid();
@@ -207,7 +215,7 @@ fn apply_batch(
     let tx = conn
         .transaction_with_behavior(TransactionBehavior::Immediate)
         .map_err(store_error)?;
-    ensure_mailbox(&tx, mailbox)?;
+    let account = ensure_mailbox(&tx, mailbox)?;
     if batch.reset {
         tx.execute(
             "DELETE FROM messages WHERE mailbox_id = ?1",
@@ -243,7 +251,7 @@ fn apply_batch(
         }
     }
     for message in &batch.new {
-        insert_message(&tx, mailbox, message)?;
+        insert_message(&tx, account, mailbox, message)?;
     }
     let s = batch.state;
     tx.execute(
@@ -443,8 +451,58 @@ impl MailStore for SqliteMailStore {
     }
 }
 
+/// Corps enregistré d'un message (identifiant local) ; `None` si le
+/// message n'existe pas.
+pub(crate) fn read_body(c: &Connection, id: i64) -> Result<Option<StoredBody>, StoreError> {
+    let row: Option<(String, Option<String>)> = c
+        .query_row(
+            "SELECT body_state, body_blob FROM messages WHERE id = ?1",
+            [id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .optional()
+        .map_err(store_error)?;
+    let Some((state, blob)) = row else {
+        return Ok(None);
+    };
+    let blob = blob.as_deref().and_then(BlobId::parse);
+    Ok(Some(match (state.as_str(), blob) {
+        ("full", Some(b)) => StoredBody::Full(b),
+        ("partial", Some(header)) => {
+            let mut stmt = c
+                .prepare_cached(
+                    "SELECT section, blob FROM message_parts \
+                     WHERE message_id = ?1 ORDER BY section",
+                )
+                .map_err(store_error)?;
+            let rows = stmt
+                .query_map([id], |r| {
+                    Ok((r.get::<_, String>(0)?, r.get::<_, Option<String>>(1)?))
+                })
+                .map_err(store_error)?;
+            let (mut parts, mut deferred) = (Vec::new(), Vec::new());
+            for row in rows {
+                let (section, blob) = row.map_err(store_error)?;
+                let Some(path) = PartPath::parse(&section) else {
+                    continue;
+                };
+                match blob.as_deref().and_then(BlobId::parse) {
+                    Some(b) => parts.push((path, b)),
+                    None => deferred.push(path),
+                }
+            }
+            StoredBody::Partial {
+                header,
+                parts,
+                deferred,
+            }
+        }
+        _ => StoredBody::Missing,
+    }))
+}
+
 impl SqliteMailStore {
-    /// Corps enregistré d'un message (tests et lecture en phase 5).
+    /// Corps enregistré d'un message.
     pub async fn body_of(
         &self,
         mailbox: MailboxId,
@@ -452,52 +510,18 @@ impl SqliteMailStore {
     ) -> Result<Option<StoredBody>, StoreError> {
         self.db
             .read(move |c| {
-                let row: Option<(i64, String, Option<String>)> = c
+                let id: Option<i64> = c
                     .query_row(
-                        "SELECT id, body_state, body_blob FROM messages \
-                         WHERE mailbox_id = ?1 AND uid = ?2",
+                        "SELECT id FROM messages WHERE mailbox_id = ?1 AND uid = ?2",
                         params![mailbox.get(), i64_of(uid.get())],
-                        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+                        |r| r.get(0),
                     )
                     .optional()
                     .map_err(store_error)?;
-                let Some((id, state, blob)) = row else {
-                    return Ok(None);
-                };
-                let blob = blob.as_deref().and_then(BlobId::parse);
-                Ok(Some(match (state.as_str(), blob) {
-                    ("full", Some(b)) => StoredBody::Full(b),
-                    ("partial", Some(header)) => {
-                        let mut stmt = c
-                            .prepare_cached(
-                                "SELECT section, blob FROM message_parts \
-                                 WHERE message_id = ?1 ORDER BY section",
-                            )
-                            .map_err(store_error)?;
-                        let rows = stmt
-                            .query_map([id], |r| {
-                                Ok((r.get::<_, String>(0)?, r.get::<_, Option<String>>(1)?))
-                            })
-                            .map_err(store_error)?;
-                        let (mut parts, mut deferred) = (Vec::new(), Vec::new());
-                        for row in rows {
-                            let (section, blob) = row.map_err(store_error)?;
-                            let Some(path) = PartPath::parse(&section) else {
-                                continue;
-                            };
-                            match blob.as_deref().and_then(BlobId::parse) {
-                                Some(b) => parts.push((path, b)),
-                                None => deferred.push(path),
-                            }
-                        }
-                        StoredBody::Partial {
-                            header,
-                            parts,
-                            deferred,
-                        }
-                    }
-                    _ => StoredBody::Missing,
-                }))
+                match id {
+                    Some(id) => read_body(c, id),
+                    None => Ok(None),
+                }
             })
             .await
     }

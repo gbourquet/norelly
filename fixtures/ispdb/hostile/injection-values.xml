@@ -1,0 +1,52 @@
+<?xml version="1.0"?>
+<!-- Valeurs hostiles : aucune ne doit produire de candidat. -->
+<clientConfig version="1.1">
+  <emailProvider id="x">
+    <incomingServer type="imap">
+      <hostname>imap.example.com&#13;&#10;A1 LOGIN x y</hostname>
+      <port>993</port>
+      <socketType>SSL</socketType>
+      <username>%EMAILADDRESS%</username>
+    </incomingServer>
+    <incomingServer type="imap">
+      <hostname>imap.example.com</hostname>
+      <port>99999</port>
+      <socketType>SSL</socketType>
+      <username>%EMAILADDRESS%</username>
+    </incomingServer>
+    <incomingServer type="imap">
+      <hostname>imap.example.com</hostname>
+      <port>0</port>
+      <socketType>SSL</socketType>
+      <username>%EMAILADDRESS%</username>
+    </incomingServer>
+    <incomingServer type="imap">
+      <hostname>imap.example.com</hostname>
+      <port>-1</port>
+      <socketType>SSL</socketType>
+      <username>%EMAILADDRESS%</username>
+    </incomingServer>
+    <incomingServer type="imap">
+      <hostname>imap.example.com</hostname>
+      <port>993</port>
+      <socketType>TLS-1.0-only</socketType>
+      <username>%EMAILADDRESS%</username>
+    </incomingServer>
+    <incomingServer type="imap">
+      <hostname>imap.example.com</hostname>
+      <port>993</port>
+      <socketType>SSL</socketType>
+      <username>user&#10;name</username>
+    </incomingServer>
+    <incomingServer type="imap">
+      <hostname>javascript:alert(1)</hostname>
+      <port>993</port>
+      <socketType>SSL</socketType>
+      <username>%EMAILADDRESS%</username>
+    </incomingServer>
+    <incomingServer type="imap">
+      <port>993</port>
+      <socketType>SSL</socketType>
+    </incomingServer>
+  </emailProvider>
+</clientConfig>

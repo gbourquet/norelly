@@ -230,6 +230,22 @@ impl TlsClientFactory {
         }
     }
 
+    /// Configuration cliente standard (TLS 1.2 et 1.3, vérification de la
+    /// plateforme, **aucune exception**), pour les clients HTTPS
+    /// (autodécouverte).
+    pub fn standard_client_config(&self) -> Result<ClientConfig, TlsSetupError> {
+        Ok(
+            ClientConfig::builder_with_provider(Arc::clone(&self.provider))
+                .with_safe_default_protocol_versions()
+                .map_err(|e| TlsSetupError(e.to_string()))?
+                // API rustls imposée pour fournir le vérificateur de la
+                // plateforme ; aucune exception n'est ajoutée.
+                .dangerous()
+                .with_custom_certificate_verifier(self.standard_verifier()?)
+                .with_no_client_auth(),
+        )
+    }
+
     /// Configuration cliente (TLS 1.2 et 1.3) pour `host`, avec ses
     /// exceptions. Renvoie aussi l'emplacement où le vérificateur dépose un
     /// éventuel rejet.

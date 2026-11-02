@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<!-- Vieux serveur : uniquement en clair. Le clair exigera un consentement. -->
+<clientConfig version="1.1">
+  <emailProvider id="legacy.example">
+    <incomingServer type="imap">
+      <hostname>mail.legacy.example</hostname>
+      <port>143</port>
+      <socketType>plain</socketType>
+      <authentication>password-cleartext</authentication>
+      <username>%EMAILLOCALPART%</username>
+    </incomingServer>
+    <outgoingServer type="smtp">
+      <hostname>mail.legacy.example</hostname>
+      <port>25</port>
+      <socketType>plain</socketType>
+      <authentication>password-cleartext</authentication>
+      <username>%EMAILLOCALPART%</username>
+    </outgoingServer>
+  </emailProvider>
+</clientConfig>

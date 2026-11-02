@@ -29,6 +29,9 @@ norelly-tls = { path = "crates/adapters/tls" }
 norelly-imap = { path = "crates/adapters/imap" }
 norelly-smtp = { path = "crates/adapters/smtp" }
 norelly-keyring = { path = "crates/adapters/keyring" }
+norelly-discovery = { path = "crates/adapters/discovery" }
+norelly-sqlite = { path = "crates/adapters/sqlite" }
+norelly-blobs = { path = "crates/adapters/blobs" }
 # Infra
 tokio = { version = "1.54", features = ["rt-multi-thread", "macros", "net", "io-util", "time", "sync"] }
 testcontainers = "0.28"
@@ -53,6 +56,12 @@ lettre = { version = "0.11.23", default-features = false, features = ["smtp-tran
 # Trousseau : keyring-core et magasins natifs choisis explicitement (le
 # crate `keyring` 4 impose zbus 5, dont des dépendances sont signalées non
 # maintenues : RUSTSEC-2026-0370 à 0372). Sous Linux, libdbus du système.
+# Autodécouverte : HTTPS seulement, TLS par norelly-tls (fournisseur ring,
+# vérificateur de la plateforme) ; pas de cookies, pas de HTTP/2.
+reqwest = { version = "0.13.5", default-features = false, features = ["rustls-no-provider"] }
+quick-xml = "0.42"
+hickory-resolver = { version = "0.26.3", default-features = false, features = ["tokio", "system-config"] }
+wiremock = "0.6.5"
 keyring-core = "1"
 dbus-secret-service-keyring-store = { version = "1", features = ["crypto-rust"] }
 windows-native-keyring-store = "1"

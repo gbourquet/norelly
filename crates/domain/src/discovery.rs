@@ -128,6 +128,9 @@ impl UsernameTemplate {
         if raw.len() > MAX_TEMPLATE_LEN {
             return Err(UsernameTemplateError::TooLong);
         }
+        if raw.chars().any(char::is_control) {
+            return Err(CredentialsError::UsernameControlCharacter.into());
+        }
         Ok(Self(raw.to_owned()))
     }
 
@@ -233,6 +236,9 @@ fn percent_encode(raw: &str) -> String {
 pub struct AutoconfigRequest {
     pub source: DiscoverySource,
     pub url: String,
+    /// Domaine de l'adresse : remplace `%EMAILDOMAIN%` dans les noms
+    /// d'hôte du fichier.
+    pub domain: Host,
 }
 
 /// Base de l'ISPDB de Mozilla.
@@ -260,7 +266,11 @@ pub fn autoconfig_requests(
         DiscoverySource::DnsSrv | DiscoverySource::Probe | DiscoverySource::Manual => vec![],
     };
     urls.into_iter()
-        .map(|url| AutoconfigRequest { source, url })
+        .map(|url| AutoconfigRequest {
+            source,
+            url,
+            domain: address.domain().clone(),
+        })
         .collect()
 }
 
@@ -559,6 +569,12 @@ mod tests {
         assert_eq!(resolve("%EMAILADDRESS"), None);
         assert_eq!(resolve(""), None);
         assert_eq!(resolve("a\r\nb"), None);
+        assert_eq!(
+            UsernameTemplate::parse("a\nb"),
+            Err(UsernameTemplateError::Invalid(
+                CredentialsError::UsernameControlCharacter
+            ))
+        );
         assert_eq!(
             UsernameTemplate::parse(&"x".repeat(257)),
             Err(UsernameTemplateError::TooLong)

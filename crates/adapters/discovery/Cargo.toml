@@ -1,6 +1,6 @@
 [package]
 name = "norelly-discovery"
-description = "Adaptateur d'autodécouverte : ISPDB, SRV, sondage des ports."
+description = "Adaptateur d'autodécouverte : autoconfig (fournisseur, ISPDB), SRV, sondage des ports."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -9,6 +9,17 @@ publish.workspace = true
 
 [dependencies]
 norelly-domain.workspace = true
+norelly-tls.workspace = true
+reqwest.workspace = true
+quick-xml.workspace = true
+hickory-resolver.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+norelly-test-support.workspace = true
+wiremock.workspace = true
 
 [lints]
 workspace = true

@@ -113,8 +113,8 @@ Commandes de référence (détail dans `scripts/check.sh`) :
 
 ## Phase 4 : stockage et synchronisation
 
-- [ ] Domaine : `Mailbox` (rôle SPECIAL-USE ou heuristique de nom), `MessageMeta`, `Flags`, `Uid`, `UidValidity`, `ModSeq`
-- [ ] Domaine : machine d'états pure de rapprochement :
+- [x] Domaine : `Mailbox` (rôle SPECIAL-USE ou heuristique de nom), `MessageMeta`, `Flags`, `Uid`, `UidValidity`, `ModSeq`
+- [x] Domaine : machine d'états pure de rapprochement :
   - synchronisation initiale ;
   - incrémentale CONDSTORE ;
   - QRESYNC (VANISHED) ;
@@ -122,21 +122,23 @@ Commandes de référence (détail dans `scripts/check.sh`) :
   - changement d'UIDVALIDITY (resynchronisation complète)
 
   Tests exhaustifs et `proptest` (idempotence, convergence)
-- [ ] Domaine : politique de rapatriement (en-têtes + texte pour tous ; pièces jointes sous un seuil configurable)
-- [ ] `adapters/imap` : LIST (SPECIAL-USE), SELECT/EXAMINE (CONDSTORE/QRESYNC), FETCH (en-têtes, BODYSTRUCTURE, corps par parties), ENABLE, COMPRESS si disponible
-- [ ] `adapters/imap` : IDLE avec renouvellement (< 29 min), reconnexion avec backoff exponentiel
-- [ ] `adapters/sqlite` :
+- [x] Domaine : politique de rapatriement (en-têtes + texte pour tous ; pièces jointes sous un seuil configurable)
+- [x] `adapters/imap` : LIST (SPECIAL-USE), SELECT/EXAMINE (CONDSTORE/QRESYNC), FETCH (en-têtes, BODYSTRUCTURE, corps par parties), ENABLE, COMPRESS si disponible
+  - COMPRESS=DEFLATE non activé : reporté par ADR-002 (aucune décompression dans la couche d'E/S d'`imap-next`) ; la synchronisation fonctionne sans. SPECIAL-USE et QRESYNC vérifiés contre Dovecot (ADR-002, vérifications de la phase 4).
+- [x] `adapters/imap` : IDLE avec renouvellement (< 29 min), reconnexion avec backoff exponentiel
+- [x] `adapters/sqlite` :
   - schéma messages, dossiers et état de synchro ;
   - index composites `(dossier, date DESC)` ;
   - mode WAL, un rédacteur et un pool de lecteurs ;
   - migrations testées (montée de version depuis chaque version précédente)
-- [ ] `adapters/blobs` : stockage `.eml.zst` par compte et empreinte, écriture atomique (fichier temporaire + renommage), test de contrat `BlobStore`
-- [ ] Application : acteur de compte (une connexion IDLE sur la boîte de réception, une connexion de commandes), `SyncAccount`, événements « dossier modifié »
-- [ ] Ports de requête : `FolderTreeQuery`, `MessageListQuery::page(dossier, curseur, n)`
-- [ ] Intégration Dovecot : synchronisation initiale, incrémentale, IDLE (message ajouté par APPEND côté serveur et reçu en moins de 5 s), UIDVALIDITY changée
-- [ ] Toxiproxy : coupure en pleine synchro, latence, connexion à moitié fermée ; l'état converge après la reprise
-- [ ] Générateur de boîte synthétique de 50k messages + bench `criterion` : première page < 50 ms et changement de dossier < 50 ms (requête seule)
-- [x] Revue security-reviewer, consignée dans REVIEWS.md (0 critique, 0 haute ; moyennes corrigées)
+- [x] `adapters/blobs` : stockage `.eml.zst` par compte et empreinte, écriture atomique (fichier temporaire + renommage), test de contrat `BlobStore`
+- [x] Application : acteur de compte (une connexion IDLE sur la boîte de réception, une connexion de commandes), `SyncAccount`, événements « dossier modifié »
+- [x] Ports de requête : `FolderTreeQuery`, `MessageListQuery::page(dossier, curseur, n)`
+- [x] Intégration Dovecot : synchronisation initiale, incrémentale, IDLE (message ajouté par APPEND côté serveur et reçu en moins de 5 s), UIDVALIDITY changée
+- [x] Toxiproxy : coupure en pleine synchro, latence, connexion à moitié fermée ; l'état converge après la reprise
+- [x] Générateur de boîte synthétique de 50k messages + bench `criterion` : première page < 50 ms et changement de dossier < 50 ms (requête seule)
+  - Mesuré le 2026-11-02 (poste du mainteneur, profil bench) : première page ≈ 0,17 ms, changement de dossier ≈ 0,16 ms ; le bench échoue au-delà de 50 ms.
+- [ ] Revue security-reviewer, consignée dans REVIEWS.md (0 critique, 0 haute ; moyennes corrigées)
 
 **Condition de fin** : `./scripts/check.sh full && cargo bench -p norelly-sqlite -- --test` passent sans erreur.
 

@@ -39,7 +39,6 @@ const certificate: AddAccountResult = {
     host: "imap.example.com",
     fingerprint: "AA:BB",
     issue: "unknown_issuer",
-    reason: "autorité inconnue",
     fingerprint_changed: false,
     can_trust: true,
   },
@@ -205,13 +204,15 @@ describe("parcours d'ajout de compte", () => {
 
   it("échec d'authentification : message et saisie manuelle", async () => {
     const { api } = fakeApi(found, [
-      { kind: "failed", protocol: "smtp", failure: "authentication", message: "535 refusé" },
+      { kind: "failed", protocol: "smtp", failure: "authentication", detail: "535 refusé" },
     ]);
     const f = flow(api);
     await f.submit();
     expect(f.step).toBe("manual");
     expect(f.message).toMatch(/SMTP/);
     expect(f.message).toMatch(/identifiants refusés/);
+    // Détail du serveur cité tel quel.
+    expect(f.message).toContain("« 535 refusé »");
   });
 
   it("compte existant", async () => {

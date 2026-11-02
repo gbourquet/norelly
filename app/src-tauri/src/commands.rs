@@ -16,8 +16,8 @@ use tauri::State;
 use tauri::ipc::Channel;
 
 use crate::ipc::{
-    AccountDto, AddAccountInput, AddAccountResultDto, DiscoveryDto, DiscoverySourceDto, IpcError,
-    ServerDto,
+    AccountDto, AddAccountInput, AddAccountResultDto, DiscoveryDto, DiscoverySourceDto,
+    ErrorCodeDto, FieldDto, IpcError, ServerDto,
 };
 use crate::state::AppState;
 
@@ -25,7 +25,7 @@ use crate::state::AppState;
 #[tauri::command]
 #[specta::specta]
 pub async fn list_accounts(state: State<'_, AppState>) -> Result<Vec<AccountDto>, IpcError> {
-    let accounts = state.accounts.list().await.map_err(IpcError::new)?;
+    let accounts = state.accounts.list().await.map_err(IpcError::storage)?;
     accounts.iter().map(AccountDto::try_from).collect()
 }
 
@@ -38,7 +38,8 @@ pub async fn discover_settings(
     address: String,
     on_progress: Channel<DiscoverySourceDto>,
 ) -> Result<DiscoveryDto, IpcError> {
-    let address = EmailAddress::parse(&address).map_err(IpcError::new)?;
+    let address =
+        EmailAddress::parse(&address).map_err(|_| IpcError::invalid(FieldDto::Address))?;
     let discovery = state
         .discover
         .execute(&address, |source| {
@@ -55,10 +56,11 @@ pub async fn discover_settings(
 }
 
 fn server_settings(protocol: Protocol, dto: &ServerDto) -> Result<ServerSettings, IpcError> {
-    let host = Host::parse(dto.host.trim()).map_err(IpcError::new)?;
-    let endpoint =
-        ServerEndpoint::new(host, dto.port, dto.security.into()).map_err(IpcError::new)?;
-    let username = Username::parse(dto.username.trim()).map_err(IpcError::new)?;
+    let host = Host::parse(dto.host.trim()).map_err(|_| IpcError::invalid(FieldDto::Host))?;
+    let endpoint = ServerEndpoint::new(host, dto.port, dto.security.into())
+        .map_err(|_| IpcError::invalid(FieldDto::Port))?;
+    let username =
+        Username::parse(dto.username.trim()).map_err(|_| IpcError::invalid(FieldDto::Username))?;
     Ok(ServerSettings {
         protocol,
         endpoint,
@@ -67,10 +69,13 @@ fn server_settings(protocol: Protocol, dto: &ServerDto) -> Result<ServerSettings
 }
 
 fn add_request(input: AddAccountInput) -> Result<AddAccountRequest, IpcError> {
-    let address = EmailAddress::parse(&input.address).map_err(IpcError::new)?;
+    let address =
+        EmailAddress::parse(&input.address).map_err(|_| IpcError::invalid(FieldDto::Address))?;
     let display_name = match input.display_name.as_deref().map(str::trim) {
         None | Some("") => None,
-        Some(name) => Some(DisplayName::parse(name).map_err(IpcError::new)?),
+        Some(name) => {
+            Some(DisplayName::parse(name).map_err(|_| IpcError::invalid(FieldDto::DisplayName))?)
+        }
     };
     let servers = match (&input.imap, &input.smtp) {
         (Some(imap), Some(smtp)) => Some((
@@ -79,15 +84,13 @@ fn add_request(input: AddAccountInput) -> Result<AddAccountRequest, IpcError> {
         )),
         (None, None) => None,
         _ => {
-            return Err(IpcError::new(
-                "les serveurs IMAP et SMTP doivent être fournis ensemble",
-            ));
+            return Err(IpcError::invalid(FieldDto::Servers));
         }
     };
     let mut plaintext = PlaintextPolicy::deny_all();
     for consent in &input.plaintext_consents {
         plaintext = plaintext.with_consent(PlaintextConsent {
-            host: Host::parse(&consent.host).map_err(IpcError::new)?,
+            host: Host::parse(&consent.host).map_err(|_| IpcError::invalid(FieldDto::Host))?,
             port: consent.port,
         });
     }
@@ -161,10 +164,10 @@ pub async fn trust_certificate(
 ) -> Result<(), IpcError> {
     let rejection = state
         .take_rejection(&host, &fingerprint)
-        .ok_or_else(|| IpcError::new("aucun certificat refusé ne correspond à cette empreinte"))?;
+        .ok_or_else(|| IpcError::not_found(FieldDto::Certificate))?;
     trust(&state.exceptions, &rejection)
         .await
-        .map_err(IpcError::new)
+        .map_err(IpcError::storage)
 }
 
 /// Accepte que les mots de passe soient enregistrés dans un fichier non
@@ -172,14 +175,17 @@ pub async fn trust_certificate(
 #[tauri::command]
 #[specta::specta]
 pub async fn allow_file_secrets(state: State<'_, AppState>) -> Result<(), IpcError> {
-    state.secrets.consent_to_file().map_err(IpcError::new)
+    state
+        .secrets
+        .consent_to_file()
+        .map_err(|e| IpcError::new(ErrorCodeDto::SecretStore).with_detail(e))
 }
 
 /// Supprime un compte, ses mots de passe et ses données locales.
 #[tauri::command]
 #[specta::specta]
 pub async fn remove_account(state: State<'_, AppState>, id: u32) -> Result<(), IpcError> {
-    let id = AccountId::new(i64::from(id)).map_err(IpcError::new)?;
+    let id = AccountId::new(i64::from(id)).map_err(|_| IpcError::invalid(FieldDto::Account))?;
     // Synchronisation arrêtée avant l'effacement des données locales.
     state.mail.stop(id).await;
     RemoveAccount {
@@ -189,7 +195,7 @@ pub async fn remove_account(state: State<'_, AppState>, id: u32) -> Result<(), I
     }
     .execute(id)
     .await
-    .map_err(IpcError::new)
+    .map_err(IpcError::storage)
 }
 
 #[cfg(test)]

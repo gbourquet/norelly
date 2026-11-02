@@ -14,6 +14,7 @@
 //! `tests/integration*.rs` : ils sont exclus du profil nextest par défaut et
 //! lancés par `cargo nextest run --workspace --profile integration`.
 
+pub mod actions_contracts;
 pub mod certs;
 pub mod containers;
 pub mod contracts;

@@ -11,6 +11,7 @@ use std::path::{Path, PathBuf};
 
 use norelly_application::reading::allow_remote_images as allow_images;
 use norelly_domain::account::AccountId;
+use norelly_domain::connection::server_text;
 use norelly_domain::conversation::ConversationScope;
 use norelly_domain::fetch_policy::PartPath;
 use norelly_domain::mailbox::{MailboxId, MailboxRole};
@@ -27,17 +28,17 @@ use tauri_plugin_dialog::DialogExt;
 
 use crate::ipc::{
     AttachmentDto, BodyModeDto, ConversationCursorDto, ConversationDto, ConversationMessageDto,
-    ConversationPageDto, CorrespondentDto, FolderDto, IpcError, MessageViewDto,
-    ReadingPreferencesDto, ScopeDto, date_dto, date_from_dto, id32,
+    ConversationPageDto, CorrespondentDto, ErrorCodeDto, FieldDto, FolderDto, IpcError,
+    MessageViewDto, ReadingPreferencesDto, ScopeDto, date_dto, date_from_dto, id32,
 };
 use crate::state::AppState;
 
 fn message_id(raw: u32) -> Result<MessageId, IpcError> {
-    MessageId::new(i64::from(raw)).ok_or_else(|| IpcError::new("message invalide"))
+    MessageId::new(i64::from(raw)).ok_or_else(|| IpcError::invalid(FieldDto::Message))
 }
 
 fn part_path(raw: &str) -> Result<PartPath, IpcError> {
-    PartPath::parse(raw).ok_or_else(|| IpcError::new("partie invalide"))
+    PartPath::parse(raw).ok_or_else(|| IpcError::invalid(FieldDto::Part))
 }
 
 /// Portée revalidée par le domaine.
@@ -45,10 +46,10 @@ pub fn scope_of(dto: &ScopeDto) -> Result<ConversationScope, IpcError> {
     match dto {
         ScopeDto::Mailbox { id } => MailboxId::new(i64::from(*id))
             .map(ConversationScope::Mailbox)
-            .ok_or_else(|| IpcError::new("dossier invalide")),
+            .ok_or_else(|| IpcError::invalid(FieldDto::Mailbox)),
         ScopeDto::Unified { role } => {
-            let role = MailboxRole::parse(role).ok_or_else(|| IpcError::new("rôle inconnu"))?;
-            ConversationScope::unified(role).map_err(IpcError::new)
+            let role = MailboxRole::parse(role).ok_or_else(|| IpcError::invalid(FieldDto::Role))?;
+            ConversationScope::unified(role).map_err(|_| IpcError::invalid(FieldDto::Role))
         }
     }
 }
@@ -60,13 +61,14 @@ pub async fn list_folders(
     state: State<'_, AppState>,
     account: u32,
 ) -> Result<Vec<FolderDto>, IpcError> {
-    let account = AccountId::new(i64::from(account)).map_err(IpcError::new)?;
+    let account =
+        AccountId::new(i64::from(account)).map_err(|_| IpcError::invalid(FieldDto::Account))?;
     let tree = state
         .mail
         .store
         .tree(account)
         .await
-        .map_err(IpcError::new)?;
+        .map_err(IpcError::storage)?;
     tree.iter()
         .map(|f| {
             let depth = f
@@ -101,7 +103,7 @@ pub async fn list_conversations(
             Ok::<_, IpcError>(ConversationCursor {
                 date: date_from_dto(c.date),
                 id: ConversationId::new(i64::from(c.id))
-                    .ok_or_else(|| IpcError::new("curseur invalide"))?,
+                    .ok_or_else(|| IpcError::invalid(FieldDto::Cursor))?,
             })
         })
         .transpose()?;
@@ -110,7 +112,7 @@ pub async fn list_conversations(
         .store
         .conversations(scope, cursor, limit)
         .await
-        .map_err(IpcError::new)?;
+        .map_err(IpcError::storage)?;
     let items = page
         .items
         .iter()
@@ -149,13 +151,13 @@ pub async fn conversation_messages(
     conversation: u32,
 ) -> Result<Vec<ConversationMessageDto>, IpcError> {
     let id = ConversationId::new(i64::from(conversation))
-        .ok_or_else(|| IpcError::new("conversation invalide"))?;
+        .ok_or_else(|| IpcError::invalid(FieldDto::Conversation))?;
     let messages = state
         .mail
         .store
         .conversation_messages(id)
         .await
-        .map_err(IpcError::new)?;
+        .map_err(IpcError::storage)?;
     messages
         .iter()
         .map(|m| {
@@ -188,9 +190,8 @@ pub async fn open_message(
     let rendered = state
         .mail
         .render(id)
-        .await
-        .map_err(IpcError::new)?
-        .ok_or_else(|| IpcError::new("message introuvable"))?;
+        .await?
+        .ok_or_else(|| IpcError::not_found(FieldDto::Message))?;
     Ok(MessageViewDto {
         id: message,
         mode: match rendered.mode {
@@ -198,6 +199,7 @@ pub async fn open_message(
             BodyMode::Text => BodyModeDto::Text,
             BodyMode::Empty => BodyModeDto::Empty,
         },
+        notice: rendered.notice.map(Into::into),
         has_html: rendered.has_html,
         blocked_images: u32::try_from(rendered.blocked_images).unwrap_or(u32::MAX),
         attachments: rendered
@@ -224,7 +226,7 @@ pub async fn allow_remote_images(state: State<'_, AppState>, message: u32) -> Re
     let id = message_id(message)?;
     allow_images(&*state.mail.store, &state.mail.prefs, id)
         .await
-        .map_err(IpcError::new)
+        .map_err(IpcError::from)
 }
 
 #[tauri::command]
@@ -238,7 +240,7 @@ pub async fn reading_preferences(
             .prefs
             .prefer_plain_text()
             .await
-            .map_err(IpcError::new)?,
+            .map_err(IpcError::storage)?,
     })
 }
 
@@ -253,14 +255,15 @@ pub async fn set_prefer_plain_text(
         .prefs
         .set_prefer_plain_text(prefer)
         .await
-        .map_err(IpcError::new)
+        .map_err(IpcError::storage)
 }
 
 /// Demande une synchronisation complète d'un compte.
 #[tauri::command]
 #[specta::specta]
 pub async fn sync_account(state: State<'_, AppState>, account: u32) -> Result<(), IpcError> {
-    let account = AccountId::new(i64::from(account)).map_err(IpcError::new)?;
+    let account =
+        AccountId::new(i64::from(account)).map_err(|_| IpcError::invalid(FieldDto::Account))?;
     state.mail.sync_now(account).await;
     Ok(())
 }
@@ -270,9 +273,9 @@ pub async fn sync_account(state: State<'_, AppState>, account: u32) -> Result<()
 #[tauri::command]
 #[specta::specta]
 pub async fn open_external(url: String) -> Result<(), IpcError> {
-    let link = ExternalLink::parse(&url).map_err(IpcError::new)?;
+    let link = ExternalLink::parse(&url).map_err(|_| IpcError::new(ErrorCodeDto::LinkRefused))?;
     open::that_detached(link.as_str())
-        .map_err(|e| IpcError::new(format!("ouverture impossible : {e}")))
+        .map_err(|e| IpcError::new(ErrorCodeDto::OpenFailed).with_detail(e))
 }
 
 /// Écrit `bytes` dans `dir` sous un nom assaini, sans jamais écraser ni
@@ -330,14 +333,14 @@ async fn attachment(
     state
         .mail
         .part(id, &path)
-        .await
-        .map_err(IpcError::new)?
-        .ok_or_else(|| IpcError::new("pièce jointe introuvable"))
+        .await?
+        .ok_or_else(|| IpcError::not_found(FieldDto::Part))
 }
 
 /// Enregistre une pièce jointe dans un dossier choisi par l'utilisateur
 /// (sélecteur du système) ; renvoie le nom du fichier écrit, `None` si
-/// l'utilisateur a annulé.
+/// l'utilisateur a annulé. `title` : titre du sélecteur, localisé par
+/// l'interface (ADR-011), nettoyé et borné ici.
 #[tauri::command]
 #[specta::specta]
 pub async fn save_attachment(
@@ -345,12 +348,13 @@ pub async fn save_attachment(
     state: State<'_, AppState>,
     message: u32,
     part: String,
+    title: String,
 ) -> Result<Option<String>, IpcError> {
     let content = attachment(&state, message, &part).await?;
     let (tx, rx) = tokio::sync::oneshot::channel();
     app.dialog()
         .file()
-        .set_title("Enregistrer la pièce jointe dans…")
+        .set_title(server_text(title.as_bytes()))
         .pick_folder(move |folder| {
             let _ = tx.send(folder);
         });
@@ -359,13 +363,13 @@ pub async fn save_attachment(
     };
     let dir = folder
         .into_path()
-        .map_err(|_| IpcError::new("dossier invalide"))?;
+        .map_err(|_| IpcError::invalid(FieldDto::Folder))?;
     let written = tauri::async_runtime::spawn_blocking(move || {
         write_new_file(&dir, &content.name, &content.bytes)
     })
     .await
-    .map_err(IpcError::new)?
-    .map_err(|e| IpcError::new(format!("écriture impossible : {e}")))?;
+    .map_err(IpcError::internal)?
+    .map_err(|e| IpcError::new(ErrorCodeDto::WriteFailed).with_detail(e))?;
     Ok(written
         .file_name()
         .map(|n| n.to_string_lossy().into_owned()))
@@ -382,9 +386,7 @@ pub async fn open_attachment(
 ) -> Result<(), IpcError> {
     let content = attachment(&state, message, &part).await?;
     if is_unsafe_to_open(&content.name) {
-        return Err(IpcError::new(
-            "type de fichier exécutable : enregistrez-le plutôt que de l'ouvrir",
-        ));
+        return Err(IpcError::new(ErrorCodeDto::ExecutableAttachment));
     }
     let nanos = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -395,9 +397,10 @@ pub async fn open_attachment(
         write_new_file(&dir, &content.name, &content.bytes)
     })
     .await
-    .map_err(IpcError::new)?
-    .map_err(|e| IpcError::new(format!("écriture impossible : {e}")))?;
-    open::that_detached(&written).map_err(|e| IpcError::new(format!("ouverture impossible : {e}")))
+    .map_err(IpcError::internal)?
+    .map_err(|e| IpcError::new(ErrorCodeDto::WriteFailed).with_detail(e))?;
+    open::that_detached(&written)
+        .map_err(|e| IpcError::new(ErrorCodeDto::OpenFailed).with_detail(e))
 }
 
 #[cfg(test)]

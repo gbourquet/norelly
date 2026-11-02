@@ -28,6 +28,7 @@ function conversation(id: number): ConversationDto {
 const view: MessageViewDto = {
   id: 0,
   mode: "html",
+  notice: null,
   has_html: true,
   blocked_images: 2,
   attachments: [
@@ -99,6 +100,12 @@ vi.mock("./lib/ipc/api", () => ({
     saveAttachment: vi.fn(async () => "rapport.pdf"),
     openAttachment: vi.fn(async () => undefined),
     onSyncEvent: vi.fn(async () => () => undefined),
+    performAction: vi.fn(async (ids: number[]) => ({
+      ops: ids.map((id) => id + 100),
+      messages: ids.length,
+    })),
+    undoActions: vi.fn(async (ops: number[]) => ops.length),
+    setArchiveFolder: vi.fn(async () => undefined),
   },
 }));
 
@@ -109,6 +116,11 @@ const { mail } = await import("./lib/app.svelte");
 beforeEach(() => {
   vi.clearAllMocks();
   mail.back();
+  // État partagé entre les tests (module unique) : sélection remise au début.
+  mail.selectedIndex = 0;
+  mail.marked = [];
+  mail.lastAction = null;
+  mail.notice = null;
 });
 
 describe("lecture", () => {
@@ -166,7 +178,7 @@ describe("lecture", () => {
       within(items[0] as HTMLElement).getByRole("button", { name: "Enregistrer…" }),
     );
     expect(await screen.findByText("Enregistré sous « rapport.pdf ».")).toBeInTheDocument();
-    expect(api.saveAttachment).toHaveBeenCalledWith(10, "2");
+    expect(api.saveAttachment).toHaveBeenCalledWith(10, "2", "Enregistrer la pièce jointe dans…");
 
     // Un message qui ne vient pas de l'iframe du message est ignoré.
     window.dispatchEvent(
@@ -178,5 +190,97 @@ describe("lecture", () => {
     );
     await new Promise((r) => setTimeout(r, 0));
     expect(api.openExternal).not.toHaveBeenCalled();
+  });
+
+  it("actions au clavier : e, s, x, puis annulation par z", async () => {
+    render(App);
+    const list = await screen.findByRole("listbox", { name: "Conversations" });
+    await within(list).findByText("Sujet 1");
+    await fireEvent.keyDown(window, { key: "e" });
+    await waitFor(() =>
+      expect(api.performAction).toHaveBeenCalledWith(
+        [1],
+        { kind: "unified", role: "inbox" },
+        { kind: "archive" },
+      ),
+    );
+    const status = await screen.findByText("Archivé.");
+    expect(status.closest("[role=status]")).not.toBeNull();
+    await fireEvent.keyDown(window, { key: "z" });
+    await waitFor(() => expect(api.undoActions).toHaveBeenCalledWith([101]));
+    expect(await screen.findByText("Action annulée.")).toBeInTheDocument();
+
+    // s : suivre ; Maj+I : marquer comme lu.
+    await fireEvent.keyDown(window, { key: "s" });
+    await waitFor(() =>
+      expect(api.performAction).toHaveBeenLastCalledWith([1], expect.anything(), {
+        kind: "mark_flagged",
+        value: true,
+      }),
+    );
+    await fireEvent.keyDown(window, { key: "I", shiftKey: true });
+    await waitFor(() =>
+      expect(api.performAction).toHaveBeenLastCalledWith([1], expect.anything(), {
+        kind: "mark_seen",
+        value: true,
+      }),
+    );
+
+    // x : sélection multiple, puis # sur les conversations cochées.
+    await fireEvent.keyDown(window, { key: "x" });
+    await fireEvent.keyDown(window, { key: "j" });
+    await fireEvent.keyDown(window, { key: "x" });
+    expect(await screen.findByText("2 sélectionnée(s)")).toBeInTheDocument();
+    await fireEvent.keyDown(window, { key: "#", shiftKey: true });
+    await waitFor(() =>
+      expect(api.performAction).toHaveBeenLastCalledWith([1, 2], expect.anything(), {
+        kind: "delete",
+      }),
+    );
+  });
+
+  it("v ouvre le choix du dossier et déplace", async () => {
+    vi.mocked(api.listFolders).mockResolvedValue([
+      {
+        id: 5,
+        name: "INBOX",
+        leaf: "INBOX",
+        depth: 0,
+        role: "inbox",
+        selectable: true,
+        total: 3,
+        unread: 1,
+      },
+      {
+        id: 7,
+        name: "Projets",
+        leaf: "Projets",
+        depth: 0,
+        role: "normal",
+        selectable: true,
+        total: 0,
+        unread: 0,
+      },
+    ]);
+    render(App);
+    const list = await screen.findByRole("listbox", { name: "Conversations" });
+    await within(list).findByText("Sujet 1");
+    await fireEvent.keyDown(window, { key: "v" });
+    const picker = await screen.findByRole("dialog", { name: "Déplacer vers…" });
+    // Saisie au clavier, flèche puis Entrée (le dossier où se trouve déjà
+    // la conversation est exclu).
+    expect(within(picker).queryByText("INBOX")).toBeNull();
+    const input = within(picker).getByPlaceholderText("Rechercher un dossier…");
+    await fireEvent.input(input, { target: { value: "proj" } });
+    await within(picker).findByText("Projets");
+    await fireEvent.keyDown(input, { key: "ArrowDown" });
+    await fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() =>
+      expect(api.performAction).toHaveBeenLastCalledWith([1], expect.anything(), {
+        kind: "move",
+        mailbox: 7,
+      }),
+    );
+    expect(await screen.findByText("Déplacé vers « Projets ».")).toBeInTheDocument();
   });
 });

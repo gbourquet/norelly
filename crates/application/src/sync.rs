@@ -45,10 +45,11 @@ pub enum SyncEvent {
     FoldersChanged { account: AccountId },
     /// Connexion établie (après une coupure éventuelle).
     Online { account: AccountId },
-    /// Connexion perdue ; nouvelle tentative prévue.
+    /// Connexion perdue ; nouvelle tentative prévue. L'échec est transmis
+    /// structuré : l'interface en tire un message localisé (ADR-011).
     Offline {
         account: AccountId,
-        reason: String,
+        failure: SyncFailure,
         retry_in_ms: u64,
     },
 }

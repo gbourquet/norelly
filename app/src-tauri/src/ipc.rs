@@ -11,22 +11,177 @@ use std::fmt;
 use norelly_application::accounts::AddAccountOutcome;
 use norelly_application::test_connection::TestConnectionOutcome;
 use norelly_domain::account::{Account, ServerSettings};
+use norelly_domain::auth::AuthError;
+use norelly_domain::connection::{ConnectionError, FailureCategory};
 use norelly_domain::discovery::{DiscoveredServer, Discovery, DiscoverySource};
 use norelly_domain::endpoint::{Protocol, Security};
 use norelly_domain::security::CertificateIssue;
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
-/// Erreur renvoyée à l'interface (message affichable, sans secret).
+/// Code stable d'une erreur IPC (ADR-011) : l'interface le traduit ; Rust
+/// n'envoie aucun texte destiné à l'utilisateur.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum ErrorCodeDto {
+    /// Donnée reçue de l'interface refusée par le domaine (`field`).
+    InvalidInput,
+    /// Élément introuvable (`field` : message, partie, certificat…).
+    NotFound,
+    /// Expéditeur sans adresse valide : autorisation impossible.
+    NoValidSender,
+    /// Téléchargement depuis le serveur impossible (hors ligne…).
+    DownloadFailed,
+    /// Stockage local (base, fichiers).
+    Storage,
+    /// Trousseau du système.
+    SecretStore,
+    /// Lien refusé (schéma autre que http, https, mailto).
+    LinkRefused,
+    /// Pièce jointe exécutable : à enregistrer plutôt qu'ouvrir.
+    ExecutableAttachment,
+    /// Écriture d'un fichier impossible.
+    WriteFailed,
+    /// Ouverture par le système impossible.
+    OpenFailed,
+    /// Action impossible : aucun dossier Corbeille sur le compte.
+    NoTrash,
+    /// Action impossible : aucun dossier d'archives (ni repli choisi).
+    NoArchive,
+    /// Le message est déjà dans le dossier visé.
+    SameFolder,
+    /// Dossier de destination non sélectionnable.
+    FolderNotSelectable,
+    /// Trop de messages visés par une action.
+    TooManyMessages,
+    /// Erreur interne (journalisée).
+    Internal,
+}
+
+/// Champ ou objet concerné par une erreur.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum FieldDto {
+    Address,
+    DisplayName,
+    Host,
+    Port,
+    Username,
+    /// Serveurs IMAP et SMTP fournis ensemble ou pas du tout.
+    Servers,
+    Account,
+    Message,
+    Part,
+    Mailbox,
+    Role,
+    Cursor,
+    Conversation,
+    Folder,
+    Certificate,
+}
+
+/// Erreur renvoyée à l'interface : un code, le champ concerné, et un détail
+/// technique brut facultatif (réponse d'un serveur, erreur du système),
+/// affiché tel quel et jamais traduit. Sans secret.
 #[derive(Debug, Clone, Serialize, Type)]
 pub struct IpcError {
-    pub message: String,
+    pub code: ErrorCodeDto,
+    pub field: Option<FieldDto>,
+    pub detail: Option<String>,
 }
 
 impl IpcError {
-    pub fn new(message: impl fmt::Display) -> Self {
+    #[must_use]
+    pub fn new(code: ErrorCodeDto) -> Self {
         Self {
-            message: message.to_string(),
+            code,
+            field: None,
+            detail: None,
+        }
+    }
+
+    /// Donnée refusée par le domaine.
+    #[must_use]
+    pub fn invalid(field: FieldDto) -> Self {
+        Self {
+            field: Some(field),
+            ..Self::new(ErrorCodeDto::InvalidInput)
+        }
+    }
+
+    #[must_use]
+    pub fn not_found(field: FieldDto) -> Self {
+        Self {
+            field: Some(field),
+            ..Self::new(ErrorCodeDto::NotFound)
+        }
+    }
+
+    /// Ajoute un détail technique brut (borné, nettoyé comme un texte de
+    /// serveur).
+    #[must_use]
+    pub fn with_detail(mut self, detail: impl fmt::Display) -> Self {
+        self.detail = Some(norelly_domain::connection::server_text(
+            detail.to_string().as_bytes(),
+        ));
+        self
+    }
+
+    /// Erreur de stockage local : journalisée, sans détail transmis.
+    pub fn storage(error: impl fmt::Display) -> Self {
+        tracing::warn!(%error, "stockage local");
+        Self::new(ErrorCodeDto::Storage)
+    }
+
+    /// Erreur interne : journalisée, sans détail transmis.
+    pub fn internal(error: impl fmt::Display) -> Self {
+        tracing::warn!(%error, "erreur interne");
+        Self::new(ErrorCodeDto::Internal)
+    }
+}
+
+impl fmt::Display for IpcError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:?}", self.code)?;
+        if let Some(field) = self.field {
+            write!(f, " ({field:?})")?;
+        }
+        if let Some(detail) = &self.detail {
+            write!(f, " : {detail}")?;
+        }
+        Ok(())
+    }
+}
+
+impl From<norelly_application::actions::ActionFailure> for IpcError {
+    fn from(e: norelly_application::actions::ActionFailure) -> Self {
+        use norelly_application::actions::ActionFailure;
+        use norelly_domain::actions::ActionError;
+        match e {
+            ActionFailure::Store(e) => Self::storage(e),
+            ActionFailure::Invalid(e) => match e {
+                ActionError::NoTrash => Self::new(ErrorCodeDto::NoTrash),
+                ActionError::NoArchive => Self::new(ErrorCodeDto::NoArchive),
+                ActionError::SameFolder => Self::new(ErrorCodeDto::SameFolder),
+                ActionError::NotSelectable => Self::new(ErrorCodeDto::FolderNotSelectable),
+                ActionError::TooManyTargets => Self::new(ErrorCodeDto::TooManyMessages),
+                ActionError::UnknownFolder => Self::invalid(FieldDto::Mailbox),
+            },
+        }
+    }
+}
+
+impl From<norelly_application::reading::ReadError> for IpcError {
+    fn from(e: norelly_application::reading::ReadError) -> Self {
+        use norelly_application::reading::ReadError;
+        match e {
+            ReadError::Store(e) => Self::storage(e),
+            ReadError::NotFound => Self::not_found(FieldDto::Message),
+            ReadError::PartNotFound => Self::not_found(FieldDto::Part),
+            ReadError::NoValidSender => Self::new(ErrorCodeDto::NoValidSender),
+            ReadError::Download(detail) => {
+                Self::new(ErrorCodeDto::DownloadFailed).with_detail(detail)
+            }
         }
     }
 }
@@ -109,7 +264,7 @@ impl TryFrom<&Account> for AccountDto {
     type Error = IpcError;
     fn try_from(a: &Account) -> Result<Self, IpcError> {
         Ok(Self {
-            id: u32::try_from(a.id().get()).map_err(IpcError::new)?,
+            id: u32::try_from(a.id().get()).map_err(IpcError::internal)?,
             address: a.address().to_string(),
             display_name: a.display_name().to_string(),
             imap: a.imap().into(),
@@ -258,8 +413,6 @@ pub struct CertificateProblemDto {
     /// Empreinte SHA-256 (`AB:CD:…`).
     pub fingerprint: String,
     pub issue: CertificateIssueDto,
-    /// Raison lisible.
-    pub reason: String,
     /// L'empreinte diffère d'une exception enregistrée (attaque possible).
     pub fingerprint_changed: bool,
     /// Une exception est possible (pas pour un certificat révoqué).
@@ -273,7 +426,53 @@ pub enum FailureKindDto {
     Authentication,
     Security,
     Protocol,
+    /// Paramètres refusés par le domaine.
+    InvalidInput,
+    /// Trousseau du système.
+    SecretStore,
+    /// Stockage local.
+    Storage,
     Internal,
+}
+
+/// Catégorie et détail technique brut (texte du serveur ou du système)
+/// d'un échec de connexion.
+#[must_use]
+pub fn connection_failure_of(e: &ConnectionError) -> (FailureKindDto, Option<String>) {
+    let kind = match e.category() {
+        FailureCategory::Network => FailureKindDto::Network,
+        FailureCategory::Authentication => FailureKindDto::Authentication,
+        FailureCategory::Certificate | FailureCategory::Security => FailureKindDto::Security,
+        FailureCategory::Protocol => FailureKindDto::Protocol,
+    };
+    (kind, connection_detail(e))
+}
+
+fn connection_detail(e: &ConnectionError) -> Option<String> {
+    match e {
+        ConnectionError::Network(s)
+        | ConnectionError::Tls(s)
+        | ConnectionError::StartTlsRejected(s)
+        | ConnectionError::Protocol(s)
+        | ConnectionError::Rejected(s) => Some(s.clone()),
+        ConnectionError::Authentication(a) => auth_detail(a),
+        ConnectionError::Timeout(_)
+        | ConnectionError::Closed
+        | ConnectionError::Certificate(_)
+        | ConnectionError::StartTlsUnavailable
+        | ConnectionError::PlaintextInjection
+        | ConnectionError::PlaintextRefused(_) => None,
+    }
+}
+
+fn auth_detail(a: &AuthError) -> Option<String> {
+    match a {
+        AuthError::Rejected { message } => Some(message.clone()),
+        AuthError::NoSupportedMechanism { offered } => Some(offered.join(", ")),
+        AuthError::Unsupported(_)
+        | AuthError::LoginDisabled
+        | AuthError::UnexpectedChallenge { .. } => None,
+    }
 }
 
 /// Résultat d'un ajout de compte.
@@ -304,23 +503,31 @@ pub enum AddAccountResultDto {
     Certificate {
         problem: CertificateProblemDto,
     },
+    /// Échec : catégorie, et détail technique brut éventuel (réponse du
+    /// serveur), jamais traduit.
     Failed {
         protocol: Option<ProtocolDto>,
         failure: FailureKindDto,
-        message: String,
+        detail: Option<String>,
     },
 }
 
 fn failed(
     protocol: Option<Protocol>,
     failure: FailureKindDto,
-    message: impl fmt::Display,
+    detail: Option<String>,
 ) -> AddAccountResultDto {
     AddAccountResultDto::Failed {
         protocol: protocol.map(Into::into),
         failure,
-        message: message.to_string(),
+        detail: detail.map(|d| norelly_domain::connection::server_text(d.as_bytes())),
     }
+}
+
+/// Échec interne : journalisé, sans détail transmis.
+fn failed_internal(failure: FailureKindDto, error: impl fmt::Display) -> AddAccountResultDto {
+    tracing::warn!(%error, ?failure, "ajout de compte");
+    failed(None, failure, None)
 }
 
 impl AddAccountResultDto {
@@ -328,7 +535,7 @@ impl AddAccountResultDto {
         match outcome {
             AddAccountOutcome::Added(account) => match AccountDto::try_from(account) {
                 Ok(account) => Self::Added { account },
-                Err(e) => failed(None, FailureKindDto::Internal, e.message),
+                Err(e) => failed_internal(FailureKindDto::Internal, e),
             },
             AddAccountOutcome::AlreadyExists => Self::AlreadyExists,
             AddAccountOutcome::NeedsReview(d) => Self::NeedsReview {
@@ -343,13 +550,11 @@ impl AddAccountResultDto {
             AddAccountOutcome::ConnectionFailed { protocol, outcome } => {
                 connection_failure(*protocol, outcome)
             }
-            AddAccountOutcome::Invalid(m) => failed(None, FailureKindDto::Internal, m),
-            AddAccountOutcome::SecretStoreFailed(m) => failed(
-                None,
-                FailureKindDto::Internal,
-                format!("trousseau du système : {m}"),
-            ),
-            AddAccountOutcome::StorageFailed(m) => failed(None, FailureKindDto::Internal, m),
+            AddAccountOutcome::Invalid(m) => failed_internal(FailureKindDto::InvalidInput, m),
+            AddAccountOutcome::SecretStoreFailed(m) => {
+                failed_internal(FailureKindDto::SecretStore, m)
+            }
+            AddAccountOutcome::StorageFailed(m) => failed_internal(FailureKindDto::Storage, m),
         }
     }
 }
@@ -363,18 +568,25 @@ fn connection_failure(protocol: Protocol, outcome: &TestConnectionOutcome) -> Ad
                 host: r.host.to_string(),
                 fingerprint: r.fingerprint.to_string(),
                 issue: (&r.issue).into(),
-                reason: r.issue.to_string(),
                 fingerprint_changed: r.fingerprint_changed,
                 can_trust: r.can_be_excepted(),
             },
         },
-        TestConnectionOutcome::Authentication(e) => failed(p, FailureKindDto::Authentication, e),
-        TestConnectionOutcome::Network(e) => failed(p, FailureKindDto::Network, e),
-        TestConnectionOutcome::Security(e) => failed(p, FailureKindDto::Security, e),
-        TestConnectionOutcome::Protocol(e) => failed(p, FailureKindDto::Protocol, e),
-        TestConnectionOutcome::Internal(m) => failed(p, FailureKindDto::Internal, m),
+        TestConnectionOutcome::Authentication(e) => {
+            failed(p, FailureKindDto::Authentication, auth_detail(e))
+        }
+        TestConnectionOutcome::Network(e) => {
+            failed(p, FailureKindDto::Network, connection_detail(e))
+        }
+        TestConnectionOutcome::Security(e) => {
+            failed(p, FailureKindDto::Security, connection_detail(e))
+        }
+        TestConnectionOutcome::Protocol(e) => {
+            failed(p, FailureKindDto::Protocol, connection_detail(e))
+        }
+        TestConnectionOutcome::Internal(m) => failed_internal(FailureKindDto::Internal, m),
         TestConnectionOutcome::Success { .. } => {
-            failed(p, FailureKindDto::Internal, "succès inattendu")
+            failed_internal(FailureKindDto::Internal, "succès inattendu")
         }
     }
 }
@@ -385,7 +597,7 @@ fn connection_failure(protocol: Protocol, outcome: &TestConnectionOutcome) -> Ad
 
 /// Identifiant local exposé à l'interface (entier positif de 32 bits).
 pub fn id32(raw: i64) -> Result<u32, IpcError> {
-    u32::try_from(raw).map_err(|_| IpcError::new("identifiant hors limites"))
+    u32::try_from(raw).map_err(|_| IpcError::internal("identifiant hors limites"))
 }
 
 /// Date (secondes Unix) exposée à l'interface : entier de 32 bits non
@@ -406,10 +618,22 @@ pub fn date_from_dto(raw: u32) -> i64 {
 #[derive(Debug, Clone, Serialize, Type, tauri_specta::Event)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum SyncEventDto {
-    FolderChanged { account: u32, mailbox: u32 },
-    FoldersChanged { account: u32 },
-    Online { account: u32 },
-    Offline { account: u32, reason: String },
+    FolderChanged {
+        account: u32,
+        mailbox: u32,
+    },
+    FoldersChanged {
+        account: u32,
+    },
+    Online {
+        account: u32,
+    },
+    /// Connexion perdue : catégorie et détail technique brut éventuel.
+    Offline {
+        account: u32,
+        failure: FailureKindDto,
+        detail: Option<String>,
+    },
 }
 
 /// Dossier d'un compte.
@@ -508,6 +732,25 @@ pub struct AttachmentDto {
     pub can_open: bool,
 }
 
+/// Avis sur un corps non affiché (texte localisé par l'interface).
+#[derive(Debug, Clone, Copy, Serialize, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum BodyNoticeDto {
+    TooComplex,
+    TooLong,
+    NotAvailable,
+}
+
+impl From<norelly_render::RenderNotice> for BodyNoticeDto {
+    fn from(n: norelly_render::RenderNotice) -> Self {
+        match n {
+            norelly_render::RenderNotice::TooComplex => Self::TooComplex,
+            norelly_render::RenderNotice::TooLong => Self::TooLong,
+            norelly_render::RenderNotice::NotAvailable => Self::NotAvailable,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Type)]
 #[serde(rename_all = "snake_case")]
 pub enum BodyModeDto {
@@ -522,14 +765,70 @@ pub enum BodyModeDto {
 pub struct MessageViewDto {
     pub id: u32,
     pub mode: BodyModeDto,
+    pub notice: Option<BodyNoticeDto>,
     pub has_html: bool,
     pub blocked_images: u32,
     pub attachments: Vec<AttachmentDto>,
 }
 
+/// Action demandée par l'interface (revalidée par le domaine).
+#[derive(Debug, Clone, Copy, Deserialize, Type)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ActionDto {
+    MarkSeen { value: bool },
+    MarkFlagged { value: bool },
+    Move { mailbox: u32 },
+    Delete,
+    Archive,
+}
+
+/// Résultat d'une action : opérations enregistrées (annulables) et
+/// nombre de messages concernés.
+#[derive(Debug, Clone, Serialize, Type)]
+pub struct ActionResultDto {
+    pub ops: Vec<u32>,
+    pub messages: u32,
+}
+
 #[derive(Debug, Clone, Serialize, Type)]
 pub struct ReadingPreferencesDto {
     pub prefer_plain_text: bool,
+}
+
+#[cfg(test)]
+mod error_tests {
+    use super::*;
+
+    #[test]
+    fn errors_are_codes_without_user_text() {
+        let json = |e: &IpcError| serde_json::to_value(e).unwrap_or_default();
+        assert_eq!(
+            json(&IpcError::invalid(FieldDto::Address)),
+            serde_json::json!({ "code": "invalid_input", "field": "address", "detail": null })
+        );
+        // Détail brut nettoyé et borné comme un texte de serveur.
+        let e = IpcError::new(ErrorCodeDto::OpenFailed).with_detail("a\u{202E}b\r\nc");
+        assert_eq!(e.detail.as_deref(), Some("a b  c"));
+        assert_eq!(
+            json(&IpcError::storage("disque plein")),
+            serde_json::json!({ "code": "storage", "field": null, "detail": null })
+        );
+    }
+
+    #[test]
+    fn connection_failures_keep_only_raw_server_text() {
+        let (kind, detail) =
+            connection_failure_of(&ConnectionError::Authentication(AuthError::Rejected {
+                message: "NO [AUTHENTICATIONFAILED]".into(),
+            }));
+        assert_eq!(kind, FailureKindDto::Authentication);
+        assert_eq!(detail.as_deref(), Some("NO [AUTHENTICATIONFAILED]"));
+        let (kind, detail) = connection_failure_of(&ConnectionError::StartTlsUnavailable);
+        assert_eq!(kind, FailureKindDto::Security);
+        assert_eq!(detail, None);
+        let (kind, _) = connection_failure_of(&ConnectionError::Tls("handshake".into()));
+        assert_eq!(kind, FailureKindDto::Security);
+    }
 }
 
 #[cfg(test)]

@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { m } from "./lib/paraglide/messages.js";
+  import { errorText } from "./lib/errors";
   import { onMount } from "svelte";
   import InboxIcon from "@lucide/svelte/icons/inbox";
   import ThreePaneLayout from "./components/ThreePaneLayout.svelte";
@@ -9,7 +11,9 @@
   import RemoveAccountDialog from "./components/RemoveAccountDialog.svelte";
   import ConversationList from "./components/ConversationList.svelte";
   import ConversationView from "./components/ConversationView.svelte";
-  import { app, mail, registerAppCommands, registry } from "./lib/app.svelte";
+  import FolderPicker from "./components/FolderPicker.svelte";
+  import ActionNotice from "./components/ActionNotice.svelte";
+  import { app, mail, moveAccount, registerAppCommands, registry } from "./lib/app.svelte";
   import { shortcutFromEvent, type Shortcut } from "./lib/commands/shortcut";
   import { api, type ScopeDto } from "./lib/ipc/api";
   import { UNIFIED_INBOX } from "./lib/mail.svelte";
@@ -38,13 +42,28 @@
 
   const listTitle = $derived.by(() => {
     const scope = mail.scope;
-    if (scope.kind === "unified") return "Boîte de réception unifiée";
+    if (scope.kind === "unified") return m.mailbox_unified_inbox();
     for (const folders of Object.values(mail.folders)) {
       const f = folders.find((x) => x.id === scope.id);
-      if (f !== undefined) return f.role === "inbox" ? "Boîte de réception" : f.leaf;
+      if (f !== undefined) return f.role === "inbox" ? m.mailbox_inbox() : f.leaf;
     }
-    return "Dossier";
+    return m.mailbox_folder();
   });
+
+  /** Dossiers proposés pour « déplacer » : ceux du compte visé, sauf ceux
+   * où se trouvent déjà les conversations visées. */
+  const moveFolders = $derived.by(() => {
+    if (app.dialog !== "move") return [];
+    const account = moveAccount();
+    const current = mail.targets().map((c) => c.mailbox);
+    return account === null
+      ? []
+      : (mail.folders[account] ?? []).filter((f) => !current.includes(f.id));
+  });
+
+  const archiveFolders = $derived(
+    app.selectedAccountId === null ? [] : (mail.folders[app.selectedAccountId] ?? []),
+  );
 
   function selectScope(scope: ScopeDto, account: number | null): void {
     if (account !== null) app.selectedAccountId = account;
@@ -109,17 +128,18 @@
     {:else}
       <div class="placeholder welcome">
         <InboxIcon size={40} aria-hidden="true" />
-        <h1>Norelly</h1>
+        <h1>{m.app_name()}</h1>
         {#if app.loadError}
-          <p role="alert">Impossible de lire les comptes : {app.loadError}</p>
+          <p role="alert">{m.welcome_load_error({ error: app.loadError })}</p>
         {:else if app.accounts.length === 0}
-          <p>Aucun compte pour l'instant.</p>
+          <p>{m.welcome_no_account()}</p>
           <button class="btn btn-primary" type="button" onclick={() => app.open("add-account")}
-            >Ajouter un compte</button
+            >{m.welcome_add_account()}</button
           >
         {/if}
         <p class="hint">
-          Palette de commandes : <kbd>Ctrl</kbd> <kbd>K</kbd> · Raccourcis : <kbd>?</kbd>
+          {m.welcome_hint_palette()} <kbd>Ctrl</kbd> <kbd>K</kbd> · {m.welcome_hint_shortcuts()}
+          <kbd>?</kbd>
         </p>
       </div>
     {/if}
@@ -142,6 +162,41 @@
     app.selectedAccountId = account.id;
     void app.refreshAccounts().then(() => mail.reload());
   }}
+/>
+<FolderPicker
+  open={app.dialog === "move"}
+  title={m.picker_move_title()}
+  folders={moveFolders}
+  onClose={() => app.close()}
+  onChoose={(folder) => {
+    app.close();
+    void mail.act({ kind: "move", mailbox: folder.id }, m.action_moved({ folder: folder.name }));
+  }}
+/>
+<FolderPicker
+  open={app.dialog === "archive-folder"}
+  title={m.picker_archive_title()}
+  folders={archiveFolders}
+  onClose={() => app.close()}
+  onChoose={(folder) => {
+    app.close();
+    const account = app.selectedAccountId;
+    if (account === null) return;
+    api.setArchiveFolder(account, folder.id).then(
+      () =>
+        (mail.notice = {
+          text: m.action_archive_folder_set({ folder: folder.name }),
+          undoable: false,
+        }),
+      (e: unknown) => (mail.notice = { text: errorText(e), undoable: false }),
+    );
+  }}
+/>
+<ActionNotice
+  notice={mail.notice}
+  canUndo={mail.lastAction !== null}
+  onUndo={() => void mail.undo()}
+  onDismiss={() => (mail.notice = null)}
 />
 <RemoveAccountDialog
   open={app.dialog === "remove-account"}

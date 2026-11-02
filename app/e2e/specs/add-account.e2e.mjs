@@ -9,6 +9,10 @@ const address = "norelly@norelly.test";
 const FINGERPRINT = /^([0-9A-F]{2}:){31}[0-9A-F]{2}$/;
 
 describe("compte de messagerie", () => {
+  it("démarre en français (locale imposée par run.sh, ADR-011)", async () => {
+    expect(await browser.execute(() => document.documentElement.lang)).toBe("fr");
+  });
+
   it("démarre sans compte", async () => {
     await expect($("h1=Norelly")).toBeDisplayed();
     await expect($("p=Aucun compte pour l'instant.")).toBeDisplayed();

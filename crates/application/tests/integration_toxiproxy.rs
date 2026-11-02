@@ -2,6 +2,8 @@
 //! coupure en pleine synchronisation, latence, connexion à moitié fermée
 //! (plus aucune donnée, sans fermeture) et reprise de l'acteur. Dans tous
 //! les cas, l'état local converge vers celui du serveur après la reprise.
+//! Les actions faites hors ligne sont appliquées localement tout de suite,
+//! puis rejouées sur le serveur au retour du réseau.
 
 mod common;
 
@@ -302,6 +304,117 @@ async fn actor_reconnects_after_outage_and_converges() -> TestResult {
     }
     l.assert_converged(&conn, &lab.direct_request(), "INBOX")
         .await;
+    handle.shutdown().await;
+    Ok(())
+}
+
+#[tokio::test]
+async fn offline_actions_are_replayed_when_the_network_comes_back() -> TestResult {
+    use norelly_application::account_actor::unix_now;
+    use norelly_application::actions::PerformAction;
+    use norelly_domain::actions::MessageAction;
+    use norelly_domain::mailbox::Uid;
+    use norelly_domain::ports::{MessageListQuery, PendingOpStore};
+
+    let lab = lab("actions").await?;
+    lab.fill(4).await?;
+    lab.control.create("Trash").await?;
+    lab.control.create("Archives").await?;
+    let l = local("toxi-actions").await;
+    let conn = Arc::new(lab.connector());
+    let handle = spawn(
+        l.account,
+        lab.proxied_request(),
+        Arc::clone(&conn),
+        Arc::clone(&l.store),
+        Arc::clone(&l.blobs),
+        ActorConfig {
+            backoff: Backoff::new(200, 2_000),
+            ..ActorConfig::default()
+        },
+    );
+    let mut events = handle.subscribe();
+    wait_event(&mut events, Duration::from_secs(30), |e| {
+        matches!(e, SyncEvent::Online { .. })
+    })
+    .await;
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(15);
+    while l.messages("INBOX").await.len() < 4 || l.id("Archives").await.is_none() {
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "synchronisation initiale"
+        );
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+
+    // Panne réseau, puis actions locales.
+    lab.toxiproxy.set_enabled(PROXY, false).await?;
+    wait_event(&mut events, Duration::from_secs(30), |e| {
+        matches!(e, SyncEvent::Offline { .. })
+    })
+    .await;
+    let inbox = l.id("INBOX").await.ok_or("INBOX")?;
+    let page = l.store.page(inbox, None, 10).await?;
+    let by_uid = |n: u32| {
+        page.items
+            .iter()
+            .find(|i| i.uid.get() == n)
+            .map(|i| i.id)
+            .ok_or(format!("UID {n}"))
+    };
+    let act = |ids: Vec<norelly_domain::ports::MessageId>, action| {
+        let store = Arc::clone(&l.store);
+        async move {
+            // Fenêtre d'annulation écoulée : opérations dues.
+            PerformAction { store: &*store }
+                .execute(&ids, action, unix_now() - 60)
+                .await
+        }
+    };
+    act(vec![by_uid(1)?], MessageAction::Delete).await?;
+    act(vec![by_uid(2)?], MessageAction::Archive).await?;
+    act(vec![by_uid(3)?], MessageAction::MarkFlagged(true)).await?;
+    act(vec![by_uid(4)?], MessageAction::MarkSeen(false)).await?;
+    handle.replay_soon();
+    // Effets locaux immédiats ; rien n'est parti.
+    let visible = l.store.page(inbox, None, 10).await?;
+    assert_eq!(visible.items.len(), 2, "supprimé et archivé masqués");
+    let server = common::server_flags(&conn, &lab.direct_request(), "INBOX").await;
+    assert_eq!(server.len(), 4, "serveur inchangé pendant la panne");
+
+    // Retour du réseau : rejeu, puis convergence.
+    lab.toxiproxy.set_enabled(PROXY, true).await?;
+    let uid = |n: u32| Uid::new(n).ok_or("uid");
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
+    loop {
+        let inbox_server = common::server_flags(&conn, &lab.direct_request(), "INBOX").await;
+        let trash = common::server_flags(&conn, &lab.direct_request(), "Trash").await;
+        let archives = common::server_flags(&conn, &lab.direct_request(), "Archives").await;
+        let pending = l.store.pending(l.account).await?;
+        let done = inbox_server.keys().map(|u| u.get()).collect::<Vec<_>>() == [3, 4]
+            && trash.len() == 1
+            && archives.len() == 1
+            && inbox_server.get(&uid(3)?).is_some_and(|f| f.flagged)
+            && inbox_server.get(&uid(4)?).is_some_and(|f| !f.seen)
+            && pending.is_empty();
+        if done {
+            break;
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "rejeu incomplet : INBOX {inbox_server:?}, Trash {trash:?}, \
+             Archives {archives:?}, file {pending:?}"
+        );
+        tokio::time::sleep(Duration::from_millis(300)).await;
+    }
+    // L'état local rejoint celui du serveur.
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(15);
+    while l.messages("INBOX").await
+        != common::server_flags(&conn, &lab.direct_request(), "INBOX").await
+    {
+        assert!(tokio::time::Instant::now() < deadline, "convergence locale");
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
     handle.shutdown().await;
     Ok(())
 }

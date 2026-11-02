@@ -9,6 +9,7 @@ use std::future::Future;
 use std::time::Duration;
 
 use crate::account::{Account, AccountDraft, AccountId};
+use crate::actions::{FlagChange, FolderRef, LocalMessage, Member, PendingOp, StoreOutcome};
 use crate::address::EmailAddress;
 use crate::auth::{AuthError, AuthMechanism};
 use crate::capabilities::ServerCapabilities;
@@ -21,7 +22,7 @@ use crate::discovery::{
 use crate::endpoint::{Host, Protocol, ServerEndpoint};
 use crate::fetch_policy::{BodyFetch, MimePart, PartPath};
 use crate::mailbox::{
-    Correspondent, Flags, ListedMailbox, MailboxId, MailboxName, MailboxRole, MessageMeta,
+    Correspondent, Flags, ListedMailbox, MailboxId, MailboxName, MailboxRole, MessageMeta, ModSeq,
     RemoteMailbox, Uid,
 };
 use crate::security::{CertificateException, PlaintextPolicy};
@@ -296,6 +297,64 @@ pub trait RemoteMailboxSession: Send {
         uid: Uid,
         fetch: &BodyFetch,
     ) -> impl Future<Output = Result<Option<FetchedBody>, ConnectionError>> + Send;
+
+    /// Sélectionne une boîte en lecture-écriture (`SELECT`, avec CONDSTORE
+    /// s'il est activé), pour y appliquer des actions.
+    fn select_writable(
+        &mut self,
+        mailbox: &MailboxName,
+    ) -> impl Future<Output = Result<SelectedMailbox, ConnectionError>> + Send;
+
+    /// Drapeaux d'un message de la boîte sélectionnée ; `None` s'il a
+    /// disparu.
+    fn message_flags(
+        &mut self,
+        uid: Uid,
+    ) -> impl Future<Output = Result<Option<Flags>, ConnectionError>> + Send;
+
+    /// Ajoute ou retire un drapeau (`UID STORE … +FLAGS.SILENT` /
+    /// `-FLAGS.SILENT`), sous condition `UNCHANGEDSINCE` si `unchanged_since`
+    /// est fourni et CONDSTORE actif sur la boîte.
+    fn store_flag(
+        &mut self,
+        uid: Uid,
+        change: FlagChange,
+        unchanged_since: Option<ModSeq>,
+    ) -> impl Future<Output = Result<StoreOutcome, ConnectionError>> + Send;
+
+    /// Marque un message `\Deleted` (`UID STORE +FLAGS.SILENT (\Deleted)`).
+    fn mark_deleted(
+        &mut self,
+        uid: Uid,
+    ) -> impl Future<Output = Result<(), ConnectionError>> + Send;
+
+    /// `UID MOVE` (RFC 6851).
+    fn move_to(
+        &mut self,
+        uid: Uid,
+        to: &MailboxName,
+    ) -> impl Future<Output = Result<(), ConnectionError>> + Send;
+
+    /// `UID COPY`.
+    fn copy_to(
+        &mut self,
+        uid: Uid,
+        to: &MailboxName,
+    ) -> impl Future<Output = Result<(), ConnectionError>> + Send;
+
+    /// `UID EXPUNGE` (UIDPLUS) : supprime ce seul message s'il est marqué
+    /// `\Deleted`.
+    fn expunge_uid(&mut self, uid: Uid)
+    -> impl Future<Output = Result<(), ConnectionError>> + Send;
+
+    /// `EXPUNGE` : supprime tous les messages marqués `\Deleted` de la
+    /// boîte (voir [`crate::actions::expunge_is_safe`]).
+    fn expunge_all(&mut self) -> impl Future<Output = Result<(), ConnectionError>> + Send;
+
+    /// UID des messages marqués `\Deleted` (`UID SEARCH DELETED`).
+    fn deleted_uids(
+        &mut self,
+    ) -> impl Future<Output = Result<BTreeSet<Uid>, ConnectionError>> + Send;
 
     /// Attend un changement sur la boîte sélectionnée (`IDLE`), au plus
     /// `max`. Sans IDLE côté serveur, attend `max` puis renvoie
@@ -849,6 +908,105 @@ pub trait RemoteBodyFetcher: Send + Sync {
         uid: Uid,
         fetch: &BodyFetch,
     ) -> impl Future<Output = Result<Option<FetchedBody>, ConnectionError>> + Send;
+}
+
+// ---------------------------------------------------------------------------
+// Actions et file d'opérations (phase 6)
+// ---------------------------------------------------------------------------
+
+/// Identifiant d'une opération en attente.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct PendingOpId(i64);
+
+impl PendingOpId {
+    #[must_use]
+    pub fn new(raw: i64) -> Option<Self> {
+        (raw > 0).then_some(Self(raw))
+    }
+
+    #[must_use]
+    pub const fn get(self) -> i64 {
+        self.0
+    }
+}
+
+/// File durable des opérations (`pending_ops`) et application locale de
+/// leurs effets. Chaque méthode qui touche la file applique l'effet local
+/// correspondant dans la même transaction : la base ne montre jamais une
+/// action sans l'opération qui la porte, ni l'inverse.
+pub trait PendingOpStore: Send + Sync {
+    /// Message visé par une action, avec l'état de sa boîte ; `None` s'il
+    /// n'existe pas ou est déjà masqué (action en attente).
+    fn action_target(
+        &self,
+        message: MessageId,
+    ) -> impl Future<Output = Result<Option<LocalMessage>, StoreError>> + Send;
+
+    /// Messages visibles d'une conversation, tous dossiers et exemplaires
+    /// compris (sans dédoublonnage par `Message-ID`), au plus
+    /// [`crate::actions::MAX_ACTION_TARGETS`].
+    fn conversation_members(
+        &self,
+        conversation: ConversationId,
+    ) -> impl Future<Output = Result<Vec<Member>, StoreError>> + Send;
+
+    /// Dossiers d'un compte (résolution des actions).
+    fn action_folders(
+        &self,
+        account: AccountId,
+    ) -> impl Future<Output = Result<Vec<FolderRef>, StoreError>> + Send;
+
+    /// Enfile une opération et applique son effet local
+    /// ([`crate::actions::local_effect`]).
+    fn record(
+        &self,
+        op: &PendingOp,
+    ) -> impl Future<Output = Result<PendingOpId, StoreError>> + Send;
+
+    /// Opérations en attente d'un compte, dans l'ordre d'enregistrement.
+    fn pending(
+        &self,
+        account: AccountId,
+    ) -> impl Future<Output = Result<Vec<(PendingOpId, PendingOp)>, StoreError>> + Send;
+
+    /// Opération rejouée avec succès : retirée de la file (l'état local
+    /// reflète déjà l'action). `false` si elle n'existait plus.
+    fn complete(&self, id: PendingOpId) -> impl Future<Output = Result<bool, StoreError>> + Send;
+
+    /// Opération abandonnée par le rejeu (conflit, refus, trop d'essais) :
+    /// retirée de la file et effet local inversé
+    /// ([`crate::actions::revert_effect`]), qu'elle soit réservée ou non.
+    /// `false` si elle n'existait plus.
+    fn revert(&self, id: PendingOpId) -> impl Future<Output = Result<bool, StoreError>> + Send;
+
+    /// Annulation par l'utilisateur (ou fusion) : comme
+    /// [`PendingOpStore::revert`], mais seulement si l'opération n'est pas
+    /// réservée par le rejeu (`false` sinon : trop tard).
+    fn cancel(&self, id: PendingOpId) -> impl Future<Output = Result<bool, StoreError>> + Send;
+
+    /// Réserve l'opération pour le rejeu, avant tout envoi au serveur, et
+    /// compte un essai : renvoie le nombre d'essais (celui-ci compris),
+    /// `None` si l'opération n'existe plus.
+    fn claim(
+        &self,
+        id: PendingOpId,
+    ) -> impl Future<Output = Result<Option<u32>, StoreError>> + Send;
+
+    /// Réapplique les effets locaux des opérations en attente d'un compte
+    /// (après une synchronisation qui a rapporté l'état du serveur).
+    fn reapply(&self, account: AccountId) -> impl Future<Output = Result<(), StoreError>> + Send;
+
+    /// Dossier de repli de « archiver » (compte sans `\Archive`).
+    fn archive_fallback(
+        &self,
+        account: AccountId,
+    ) -> impl Future<Output = Result<Option<MailboxId>, StoreError>> + Send;
+
+    fn set_archive_fallback(
+        &self,
+        account: AccountId,
+        mailbox: Option<MailboxId>,
+    ) -> impl Future<Output = Result<(), StoreError>> + Send;
 }
 
 // ---------------------------------------------------------------------------

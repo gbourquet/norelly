@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
+import { setLocale } from "./paraglide/runtime.js";
 import { fileSize, personName, shortDate } from "./format";
 
 describe("mise en forme", () => {
@@ -16,5 +17,18 @@ describe("mise en forme", () => {
     expect(fileSize(3.5 * 1024 * 1024)).toBe("3,5 Mo");
     expect(personName({ name: "", address: "a@b.c" })).toBe("a@b.c");
     expect(personName(null)).toBe("(expéditeur inconnu)");
+  });
+});
+
+describe("mise en forme dans la locale active", () => {
+  afterEach(() => setLocale("fr", { reload: false }));
+
+  it("suit la langue de l'interface", () => {
+    setLocale("en", { reload: false });
+    const now = new Date(2026, 10, 2, 15, 0);
+    expect(shortDate(new Date(2026, 2, 12).getTime() / 1000, now)).toMatch(/Mar 12/);
+    expect(fileSize(512)).toBe("512 B");
+    expect(fileSize(3.5 * 1024 * 1024)).toBe("3.5 MB");
+    expect(personName(null)).toBe("(unknown sender)");
   });
 });

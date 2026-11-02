@@ -9,67 +9,84 @@ import * as __TAURI_EVENT from "@tauri-apps/api/event";
 /** Commands */
 export const commands = {
 	/**  Comptes enregistrés. */
-	listAccounts: () => typedError<AccountDto[], IpcError>(__TAURI_INVOKE("list_accounts")),
+	listAccounts: () => typedError<AccountDto[], IpcError_Serialize>(__TAURI_INVOKE("list_accounts")),
 	/**
 	 *  Découvre les serveurs d'une adresse ; `on_progress` reçoit chaque
 	 *  source essayée.
 	 */
-	discoverSettings: (address: string, onProgress: Channel<DiscoverySourceDto>) => typedError<DiscoveryDto_Serialize, IpcError>(__TAURI_INVOKE("discover_settings", { address, onProgress })),
+	discoverSettings: (address: string, onProgress: Channel<DiscoverySourceDto>) => typedError<DiscoveryDto_Serialize, IpcError_Serialize>(__TAURI_INVOKE("discover_settings", { address, onProgress })),
 	/**  Ajoute un compte : test des connexions, trousseau, persistance. */
-	addAccount: (input: AddAccountInput_Deserialize) => typedError<AddAccountResultDto_Serialize, IpcError>(__TAURI_INVOKE("add_account", { input })),
+	addAccount: (input: AddAccountInput_Deserialize) => typedError<AddAccountResultDto_Serialize, IpcError_Serialize>(__TAURI_INVOKE("add_account", { input })),
 	/**
 	 *  Fait confiance au certificat refusé `fingerprint` pour `host`. Seul un
 	 *  refus effectivement présenté à l'utilisateur peut être accepté.
 	 */
-	trustCertificate: (host: string, fingerprint: string) => typedError<null, IpcError>(__TAURI_INVOKE("trust_certificate", { host, fingerprint })),
+	trustCertificate: (host: string, fingerprint: string) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("trust_certificate", { host, fingerprint })),
 	/**
 	 *  Accepte que les mots de passe soient enregistrés dans un fichier non
 	 *  chiffré, lisible par l'utilisateur seul, faute de trousseau du système.
 	 */
-	allowFileSecrets: () => typedError<null, IpcError>(__TAURI_INVOKE("allow_file_secrets")),
+	allowFileSecrets: () => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("allow_file_secrets")),
 	/**  Supprime un compte, ses mots de passe et ses données locales. */
-	removeAccount: (id: number) => typedError<null, IpcError>(__TAURI_INVOKE("remove_account", { id })),
+	removeAccount: (id: number) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("remove_account", { id })),
 	/**  Dossiers d'un compte. */
-	listFolders: (account: number) => typedError<FolderDto[], IpcError>(__TAURI_INVOKE("list_folders", { account })),
+	listFolders: (account: number) => typedError<FolderDto[], IpcError_Serialize>(__TAURI_INVOKE("list_folders", { account })),
 	/**  Une page de conversations. */
-	listConversations: (scope: ScopeDto, cursor: ConversationCursorDto | null, limit: number) => typedError<ConversationPageDto_Serialize, IpcError>(__TAURI_INVOKE("list_conversations", { scope, cursor, limit })),
+	listConversations: (scope: ScopeDto, cursor: ConversationCursorDto | null, limit: number) => typedError<ConversationPageDto_Serialize, IpcError_Serialize>(__TAURI_INVOKE("list_conversations", { scope, cursor, limit })),
 	/**  Messages d'une conversation, du plus ancien au plus récent. */
-	conversationMessages: (conversation: number) => typedError<ConversationMessageDto_Serialize[], IpcError>(__TAURI_INVOKE("conversation_messages", { conversation })),
+	conversationMessages: (conversation: number) => typedError<ConversationMessageDto_Serialize[], IpcError_Serialize>(__TAURI_INVOKE("conversation_messages", { conversation })),
 	/**
 	 *  Ouvre un message : rendu (corps téléchargé au besoin) et pièces
 	 *  jointes. Le document est ensuite servi par `mailview://`.
 	 */
-	openMessage: (message: number) => typedError<MessageViewDto, IpcError>(__TAURI_INVOKE("open_message", { message })),
+	openMessage: (message: number) => typedError<MessageViewDto_Serialize, IpcError_Serialize>(__TAURI_INVOKE("open_message", { message })),
 	/**
 	 *  Autorise les images distantes de l'expéditeur du message (décision
 	 *  enregistrée en Rust, vérifiée à chaque image servie).
 	 */
-	allowRemoteImages: (message: number) => typedError<null, IpcError>(__TAURI_INVOKE("allow_remote_images", { message })),
-	readingPreferences: () => typedError<ReadingPreferencesDto, IpcError>(__TAURI_INVOKE("reading_preferences")),
-	setPreferPlainText: (prefer: boolean) => typedError<null, IpcError>(__TAURI_INVOKE("set_prefer_plain_text", { prefer })),
+	allowRemoteImages: (message: number) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("allow_remote_images", { message })),
+	readingPreferences: () => typedError<ReadingPreferencesDto, IpcError_Serialize>(__TAURI_INVOKE("reading_preferences")),
+	setPreferPlainText: (prefer: boolean) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("set_prefer_plain_text", { prefer })),
 	/**  Demande une synchronisation complète d'un compte. */
-	syncAccount: (account: number) => typedError<null, IpcError>(__TAURI_INVOKE("sync_account", { account })),
+	syncAccount: (account: number) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("sync_account", { account })),
 	/**
 	 *  Ouvre un lien dans le navigateur (ou le client de messagerie) du
 	 *  système : `http`, `https` et `mailto` seulement.
 	 */
-	openExternal: (url: string) => typedError<null, IpcError>(__TAURI_INVOKE("open_external", { url })),
+	openExternal: (url: string) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("open_external", { url })),
 	/**
 	 *  Enregistre une pièce jointe dans un dossier choisi par l'utilisateur
 	 *  (sélecteur du système) ; renvoie le nom du fichier écrit, `None` si
-	 *  l'utilisateur a annulé.
+	 *  l'utilisateur a annulé. `title` : titre du sélecteur, localisé par
+	 *  l'interface (ADR-011), nettoyé et borné ici.
 	 */
-	saveAttachment: (message: number, part: string) => typedError<string | null, IpcError>(__TAURI_INVOKE("save_attachment", { message, part })),
+	saveAttachment: (message: number, part: string, title: string) => typedError<string | null, IpcError_Serialize>(__TAURI_INVOKE("save_attachment", { message, part, title })),
 	/**
 	 *  Ouvre une pièce jointe avec l'application du système, depuis un
 	 *  dossier privé. Les types exécutables sont refusés (à enregistrer).
 	 */
-	openAttachment: (message: number, part: string) => typedError<null, IpcError>(__TAURI_INVOKE("open_attachment", { message, part })),
+	openAttachment: (message: number, part: string) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("open_attachment", { message, part })),
+	/**
+	 *  Applique une action aux conversations `conversations` affichées dans
+	 *  `scope` : effet local immédiat, rejeu sur le serveur après la fenêtre
+	 *  d'annulation. Renvoie les opérations (pour « annuler »).
+	 */
+	performAction: (conversations: number[], scope: ScopeDto, action: ActionDto) => typedError<ActionResultDto, IpcError_Serialize>(__TAURI_INVOKE("perform_action", { conversations, scope, action })),
+	/**
+	 *  Annule des opérations encore en attente (dernière action) ; renvoie le
+	 *  nombre d'opérations annulées (0 si elles ont déjà été rejouées).
+	 */
+	undoActions: (ops: number[]) => typedError<number, IpcError_Serialize>(__TAURI_INVOKE("undo_actions", { ops })),
+	/**
+	 *  Dossier de repli de « archiver » pour un compte sans dossier
+	 *  `\Archive` (`None` : aucun).
+	 */
+	setArchiveFolder: (account: number, mailbox: number | null) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("set_archive_folder", { account, mailbox })),
 };
 
 /** Events */
 export const events = {
-	syncEventDto: makeEvent<SyncEventDto, SyncEventDto>("sync-event-dto"),
+	syncEventDto: makeEvent<SyncEventDto_Serialize, SyncEventDto_Deserialize>("sync-event-dto"),
 };
 
 /* Types */
@@ -80,6 +97,18 @@ export type AccountDto = {
 	display_name: string,
 	imap: ServerDto,
 	smtp: ServerDto,
+};
+
+/**  Action demandée par l'interface (revalidée par le domaine). */
+export type ActionDto = { kind: "mark_seen"; value: boolean } | { kind: "mark_flagged"; value: boolean } | { kind: "move"; mailbox: number } | { kind: "delete" } | { kind: "archive" };
+
+/**
+ *  Résultat d'une action : opérations enregistrées (annulables) et
+ *  nombre de messages concernés.
+ */
+export type ActionResultDto = {
+	ops: number[],
+	messages: number,
 };
 
 /**  Demande d'ajout de compte. */
@@ -134,7 +163,12 @@ export type AddAccountResultDto_Deserialize = { kind: "added"; account: AccountD
  *  Serveur trouvé par le DNS hors du domaine de l'adresse, non confirmé :
  *  aucune connexion n'a été tentée.
  */
-{ kind: "confirmation_required"; host: string } | { kind: "certificate"; problem: CertificateProblemDto } | { kind: "failed"; protocol?: ProtocolDto | null; failure: FailureKindDto; message: string };
+{ kind: "confirmation_required"; host: string } | { kind: "certificate"; problem: CertificateProblemDto } | 
+/**
+ *  Échec : catégorie, et détail technique brut éventuel (réponse du
+ *  serveur), jamais traduit.
+ */
+{ kind: "failed"; protocol?: ProtocolDto | null; failure: FailureKindDto; detail?: string | null };
 
 /**  Résultat d'un ajout de compte. */
 export type AddAccountResultDto_Serialize = { kind: "added"; account: AccountDto } | { kind: "already_exists" } | { kind: "needs_review"; discovery: DiscoveryDto_Serialize } | { kind: "plaintext_consent_required"; endpoint: EndpointDto } | 
@@ -148,7 +182,12 @@ export type AddAccountResultDto_Serialize = { kind: "added"; account: AccountDto
  *  Serveur trouvé par le DNS hors du domaine de l'adresse, non confirmé :
  *  aucune connexion n'a été tentée.
  */
-{ kind: "confirmation_required"; host: string } | { kind: "certificate"; problem: CertificateProblemDto } | { kind: "failed"; protocol: ProtocolDto | null; failure: FailureKindDto; message: string };
+{ kind: "confirmation_required"; host: string } | { kind: "certificate"; problem: CertificateProblemDto } | 
+/**
+ *  Échec : catégorie, et détail technique brut éventuel (réponse du
+ *  serveur), jamais traduit.
+ */
+{ kind: "failed"; protocol: ProtocolDto | null; failure: FailureKindDto; detail: string | null };
 
 /**  Pièce jointe d'un message ouvert. */
 export type AttachmentDto = {
@@ -166,6 +205,9 @@ export type AttachmentDto = {
 
 export type BodyModeDto = "html" | "text" | "empty";
 
+/**  Avis sur un corps non affiché (texte localisé par l'interface). */
+export type BodyNoticeDto = "too_complex" | "too_long" | "not_available";
+
 /**  Code stable du problème de certificat (pour l'interface). */
 export type CertificateIssueDto = "unknown_issuer" | "expired" | "not_yet_valid" | "hostname_mismatch" | "revoked" | "invalid_signature" | "malformed" | "other";
 
@@ -176,8 +218,6 @@ export type CertificateProblemDto = {
 	/**  Empreinte SHA-256 (`AB:CD:…`). */
 	fingerprint: string,
 	issue: CertificateIssueDto,
-	/**  Raison lisible. */
-	reason: string,
 	/**  L'empreinte diffère d'une exception enregistrée (attaque possible). */
 	fingerprint_changed: boolean,
 	/**  Une exception est possible (pas pour un certificat révoqué). */
@@ -284,7 +324,56 @@ export type EndpointDto = {
 	port: number,
 };
 
-export type FailureKindDto = "network" | "authentication" | "security" | "protocol" | "internal";
+/**
+ *  Code stable d'une erreur IPC (ADR-011) : l'interface le traduit ; Rust
+ *  n'envoie aucun texte destiné à l'utilisateur.
+ */
+export type ErrorCodeDto = 
+/**  Donnée reçue de l'interface refusée par le domaine (`field`). */
+"invalid_input" | 
+/**  Élément introuvable (`field` : message, partie, certificat…). */
+"not_found" | 
+/**  Expéditeur sans adresse valide : autorisation impossible. */
+"no_valid_sender" | 
+/**  Téléchargement depuis le serveur impossible (hors ligne…). */
+"download_failed" | 
+/**  Stockage local (base, fichiers). */
+"storage" | 
+/**  Trousseau du système. */
+"secret_store" | 
+/**  Lien refusé (schéma autre que http, https, mailto). */
+"link_refused" | 
+/**  Pièce jointe exécutable : à enregistrer plutôt qu'ouvrir. */
+"executable_attachment" | 
+/**  Écriture d'un fichier impossible. */
+"write_failed" | 
+/**  Ouverture par le système impossible. */
+"open_failed" | 
+/**  Action impossible : aucun dossier Corbeille sur le compte. */
+"no_trash" | 
+/**  Action impossible : aucun dossier d'archives (ni repli choisi). */
+"no_archive" | 
+/**  Le message est déjà dans le dossier visé. */
+"same_folder" | 
+/**  Dossier de destination non sélectionnable. */
+"folder_not_selectable" | 
+/**  Trop de messages visés par une action. */
+"too_many_messages" | 
+/**  Erreur interne (journalisée). */
+"internal";
+
+export type FailureKindDto = "network" | "authentication" | "security" | "protocol" | 
+/**  Paramètres refusés par le domaine. */
+"invalid_input" | 
+/**  Trousseau du système. */
+"secret_store" | 
+/**  Stockage local. */
+"storage" | "internal";
+
+/**  Champ ou objet concerné par une erreur. */
+export type FieldDto = "address" | "display_name" | "host" | "port" | "username" | 
+/**  Serveurs IMAP et SMTP fournis ensemble ou pas du tout. */
+"servers" | "account" | "message" | "part" | "mailbox" | "role" | "cursor" | "conversation" | "folder" | "certificate";
 
 /**  Dossier d'un compte. */
 export type FolderDto = {
@@ -300,18 +389,62 @@ export type FolderDto = {
 	unread: number,
 };
 
-/**  Erreur renvoyée à l'interface (message affichable, sans secret). */
-export type IpcError = {
-	message: string,
+/**
+ *  Erreur renvoyée à l'interface : un code, le champ concerné, et un détail
+ *  technique brut facultatif (réponse d'un serveur, erreur du système),
+ *  affiché tel quel et jamais traduit. Sans secret.
+ */
+export type IpcError = IpcError_Serialize | IpcError_Deserialize;
+
+/**
+ *  Erreur renvoyée à l'interface : un code, le champ concerné, et un détail
+ *  technique brut facultatif (réponse d'un serveur, erreur du système),
+ *  affiché tel quel et jamais traduit. Sans secret.
+ */
+export type IpcError_Deserialize = {
+	code: ErrorCodeDto,
+	field?: FieldDto | null,
+	detail?: string | null,
+};
+
+/**
+ *  Erreur renvoyée à l'interface : un code, le champ concerné, et un détail
+ *  technique brut facultatif (réponse d'un serveur, erreur du système),
+ *  affiché tel quel et jamais traduit. Sans secret.
+ */
+export type IpcError_Serialize = {
+	code: ErrorCodeDto,
+	field: FieldDto | null,
+	detail: string | null,
 };
 
 /**
  *  Message ouvert : métadonnées du rendu (le document lui-même est servi
  *  par `mailview://`).
  */
-export type MessageViewDto = {
+export type MessageViewDto = MessageViewDto_Serialize | MessageViewDto_Deserialize;
+
+/**
+ *  Message ouvert : métadonnées du rendu (le document lui-même est servi
+ *  par `mailview://`).
+ */
+export type MessageViewDto_Deserialize = {
 	id: number,
 	mode: BodyModeDto,
+	notice?: BodyNoticeDto | null,
+	has_html: boolean,
+	blocked_images: number,
+	attachments: AttachmentDto[],
+};
+
+/**
+ *  Message ouvert : métadonnées du rendu (le document lui-même est servi
+ *  par `mailview://`).
+ */
+export type MessageViewDto_Serialize = {
+	id: number,
+	mode: BodyModeDto,
+	notice: BodyNoticeDto | null,
 	has_html: boolean,
 	blocked_images: number,
 	attachments: AttachmentDto[],
@@ -337,7 +470,17 @@ export type ServerDto = {
 };
 
 /**  Événement de synchronisation relayé à l'interface. */
-export type SyncEventDto = { kind: "folder_changed"; account: number; mailbox: number } | { kind: "folders_changed"; account: number } | { kind: "online"; account: number } | { kind: "offline"; account: number; reason: string };
+export type SyncEventDto = SyncEventDto_Serialize | SyncEventDto_Deserialize;
+
+/**  Événement de synchronisation relayé à l'interface. */
+export type SyncEventDto_Deserialize = { kind: "folder_changed"; account: number; mailbox: number } | { kind: "folders_changed"; account: number } | { kind: "online"; account: number } | 
+/**  Connexion perdue : catégorie et détail technique brut éventuel. */
+{ kind: "offline"; account: number; failure: FailureKindDto; detail?: string | null };
+
+/**  Événement de synchronisation relayé à l'interface. */
+export type SyncEventDto_Serialize = { kind: "folder_changed"; account: number; mailbox: number } | { kind: "folders_changed"; account: number } | { kind: "online"; account: number } | 
+/**  Connexion perdue : catégorie et détail technique brut éventuel. */
+{ kind: "offline"; account: number; failure: FailureKindDto; detail: string | null };
 
 /* Tauri Specta runtime */
 async function typedError<T, E>(result: Promise<T>): Promise<{ status: "ok"; data: T } | { status: "error"; error: E }> {

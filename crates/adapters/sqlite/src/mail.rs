@@ -534,9 +534,10 @@ impl FolderTreeQuery for SqliteMailStore {
                 let mut stmt = c
                     .prepare_cached(
                         "SELECT m.id, m.name, m.delimiter, m.role, m.selectable, \
-                         (SELECT COUNT(*) FROM messages WHERE mailbox_id = m.id), \
                          (SELECT COUNT(*) FROM messages WHERE mailbox_id = m.id \
-                          AND (flags & 1) = 0) \
+                          AND hidden = 0 AND (flags & 8) = 0), \
+                         (SELECT COUNT(*) FROM messages WHERE mailbox_id = m.id \
+                          AND hidden = 0 AND (flags & 9) = 0) \
                          FROM mailboxes m WHERE m.account_id = ?1",
                     )
                     .map_err(store_error)?;
@@ -641,6 +642,7 @@ pub(crate) fn page_query(
             let mut stmt = c
                 .prepare_cached(&format!(
                     "SELECT {LIST_COLUMNS} FROM messages WHERE mailbox_id = ?1 \
+                     AND hidden = 0 AND (flags & 8) = 0 \
                      ORDER BY sort_date DESC, id DESC LIMIT ?2"
                 ))
                 .map_err(store_error)?;
@@ -654,6 +656,7 @@ pub(crate) fn page_query(
             let mut stmt = c
                 .prepare_cached(&format!(
                     "SELECT {LIST_COLUMNS} FROM messages WHERE mailbox_id = ?1 \
+                     AND hidden = 0 AND (flags & 8) = 0 \
                      AND (sort_date, id) < (?2, ?3) \
                      ORDER BY sort_date DESC, id DESC LIMIT ?4"
                 ))

@@ -14,9 +14,11 @@
 //! - [`conversation`] : fils de conversation (JWZ), boîte unifiée ;
 //! - [`fetch_policy`] : politique de rapatriement des corps ;
 //! - [`reading`] : liens externes, images distantes, pièces jointes ;
+//! - [`actions`] : actions sur les messages, file d'opérations, rejeu ;
 //! - [`ports`] : traits implémentés par les adaptateurs.
 
 pub mod account;
+pub mod actions;
 pub mod address;
 pub mod auth;
 pub mod capabilities;

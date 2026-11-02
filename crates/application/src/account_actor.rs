@@ -9,6 +9,12 @@
 //!   déclenche la synchronisation de la boîte de réception sur la
 //!   connexion de commandes.
 //!
+//! La connexion de commandes rejoue aussi la file des actions
+//! ([`ReplayActions`]) : à chaque ouverture de session (reconnexion), sur
+//! demande ([`AccountHandle::replay_soon`]) et à l'échéance de la fenêtre
+//! d'annulation de la prochaine opération ; les boîtes touchées sont
+//! ensuite resynchronisées.
+//!
 //! Chaque connexion perdue est rouverte avec une attente exponentielle
 //! bornée ([`Backoff`]), remise à zéro après un succès. Les événements
 //! ([`SyncEvent`]) sont diffusés à tous les abonnés.
@@ -22,13 +28,14 @@ use norelly_domain::connection::ConnectionError;
 use norelly_domain::fetch_policy::{BodyFetch, FetchPolicy};
 use norelly_domain::mailbox::{MailboxId, MailboxName, Uid};
 use norelly_domain::ports::{
-    BlobStore, ConnectRequest, FetchedBody, IdleOutcome, MailStore, RemoteMailboxConnector,
-    RemoteMailboxSession, StoredMailbox,
+    BlobStore, ConnectRequest, FetchedBody, IdleOutcome, MailStore, PendingOpStore,
+    RemoteMailboxConnector, RemoteMailboxSession, StoredMailbox,
 };
 use norelly_domain::sync::{Backoff, IDLE_RENEWAL_SECS, SelectRequest, SyncExtensions};
 use tokio::sync::{broadcast, mpsc, oneshot, watch};
 use tokio::task::JoinHandle;
 
+use crate::actions::{ReplayActions, ReplayFailure};
 use crate::sync::{SyncAccount, SyncEvent, SyncFailure};
 
 /// Réglages de l'acteur.
@@ -54,6 +61,9 @@ impl Default for ActorConfig {
     }
 }
 
+/// Nouvel essai du rejeu après une erreur de stockage.
+const REPLAY_RETRY: Duration = Duration::from_secs(30);
+
 /// Délai laissé à chaque tâche pour s'arrêter proprement.
 pub const SHUTDOWN_GRACE: Duration = Duration::from_secs(5);
 
@@ -63,6 +73,8 @@ type FetchReply = oneshot::Sender<Result<Option<FetchedBody>, ConnectionError>>;
 #[derive(Debug)]
 enum Command {
     SyncAll,
+    /// Rejouer les opérations dues de la file (et planifier les autres).
+    Replay,
     SyncMailbox(MailboxName),
     /// Corps (ou parties différées) d'un message, à la demande.
     Fetch {
@@ -98,6 +110,12 @@ impl AccountHandle {
     /// Demande une synchronisation complète (sans attendre).
     pub fn sync_now(&self) {
         let _ = self.commands.try_send(Command::SyncAll);
+    }
+
+    /// Signale de nouvelles opérations dans la file : elles seront
+    /// rejouées à leur échéance (sans attendre).
+    pub fn replay_soon(&self) {
+        let _ = self.commands.try_send(Command::Replay);
     }
 
     /// Client de l'acteur (clonable), pour lui adresser des demandes sans
@@ -168,11 +186,31 @@ impl ActorClient {
 
 /// Gigue dans `[0, 1]`, tirée de l'horloge (pas besoin d'aléa
 /// cryptographique : il s'agit d'étaler les reconnexions).
-fn jitter() -> f64 {
-    let nanos = std::time::SystemTime::now()
+fn jitter_seed() -> u32 {
+    std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.subsec_nanos());
-    f64::from(nanos % 1000) / 1000.0
+        .map_or(0, |d| d.subsec_nanos())
+}
+
+/// Instant présent, en secondes Unix.
+#[must_use]
+pub fn unix_now() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| i64::try_from(d.as_secs()).unwrap_or(i64::MAX))
+}
+
+impl From<ReplayFailure> for SyncFailure {
+    fn from(e: ReplayFailure) -> Self {
+        match e {
+            ReplayFailure::Connection(e) => Self::Connection(e),
+            ReplayFailure::Store(e) => Self::Store(e),
+        }
+    }
+}
+
+fn jitter() -> f64 {
+    f64::from(jitter_seed() % 1000) / 1000.0
 }
 
 /// Dépendances partagées par les deux tâches.
@@ -189,7 +227,7 @@ struct Shared<C, M, B> {
 impl<C, M, B> Shared<C, M, B>
 where
     C: RemoteMailboxConnector,
-    M: MailStore,
+    M: MailStore + PendingOpStore,
     B: BlobStore,
 {
     fn emit(&self, event: SyncEvent) {
@@ -214,7 +252,7 @@ where
         tracing::warn!(account = %self.account, error = %failure, delay_ms = delay, "connexion perdue");
         self.emit(SyncEvent::Offline {
             account: self.account,
-            reason: failure.to_string(),
+            failure: failure.clone(),
             retry_in_ms: delay,
         });
         tokio::select! {
@@ -284,6 +322,9 @@ where
             .use_case()
             .sync_all(session, ext, |id| changed.push(id))
             .await?;
+        // L'état du serveur vient d'être rapporté : les actions encore en
+        // attente gardent leur effet local.
+        self.store.reapply(self.account).await?;
         if *known != mailboxes {
             *known = mailboxes;
             self.emit(SyncEvent::FoldersChanged {
@@ -299,6 +340,49 @@ where
         Ok(())
     }
 
+    /// Rejoue les opérations dues, resynchronise les boîtes touchées et
+    /// renvoie l'échéance de la prochaine opération en attente.
+    async fn replay(
+        &self,
+        session: &mut C::Session,
+        ext: SyncExtensions,
+        known: &mut Vec<StoredMailbox>,
+    ) -> Result<Option<tokio::time::Instant>, SyncFailure> {
+        let now = unix_now();
+        let report = ReplayActions {
+            account: self.account,
+            store: &*self.store,
+        }
+        .execute(session, now)
+        .await?;
+        if !report.touched.is_empty() {
+            self.sync_named(session, ext, known, report.touched.iter().cloned())
+                .await?;
+            // Effets locaux rétablis (opération abandonnée) : l'interface
+            // doit relire ces boîtes même si le serveur n'a pas changé.
+            for name in &report.touched {
+                if let Some(m) = known.iter().find(|m| m.mailbox.name == *name) {
+                    self.emit(SyncEvent::FolderChanged {
+                        account: self.account,
+                        mailbox: m.id,
+                    });
+                }
+            }
+        }
+        let next = self
+            .store
+            .pending(self.account)
+            .await?
+            .iter()
+            .map(|(_, op)| op.not_before)
+            .min();
+        Ok(next.map(|at| {
+            let wait = u64::try_from(at.saturating_sub(now)).unwrap_or(0);
+            // Une demi-seconde de marge : l'opération sera due à coup sûr.
+            tokio::time::Instant::now() + Duration::from_millis(wait * 1000 + 500)
+        }))
+    }
+
     /// Sert les commandes sur une session ouverte. `None` : arrêt demandé ;
     /// `Some(échec)` : session à rouvrir.
     async fn serve(
@@ -312,6 +396,19 @@ where
     ) -> Option<SyncFailure> {
         // Interruptible : l'arrêt abandonne la synchronisation (la session
         // est alors inutilisable et seulement fermée).
+        // Actions faites hors ligne : rejouées avant la synchronisation,
+        // qui verra donc leur résultat.
+        let mut next_replay = tokio::select! {
+            _ = stop.changed() => return None,
+            r = self.replay(session, ext, known) => match r {
+                Ok(next) => next,
+                Err(e) if e.is_connection() => return Some(e),
+                Err(e) => {
+                    tracing::error!(account = %self.account, error = %e, "rejeu des actions");
+                    Some(tokio::time::Instant::now() + REPLAY_RETRY)
+                }
+            },
+        };
         let first = tokio::select! {
             _ = stop.changed() => return None,
             r = self.full_sync(session, ext, known) => r,
@@ -326,15 +423,20 @@ where
         let every = self.config.full_sync_every;
         let mut next_full = tokio::time::Instant::now() + every;
         loop {
+            let replay_at = next_replay.unwrap_or(next_full);
             let command = tokio::select! {
                 _ = stop.changed() => return None,
                 () = tokio::time::sleep_until(next_full) => Some(Command::SyncAll),
+                () = tokio::time::sleep_until(replay_at), if next_replay.is_some() => {
+                    Some(Command::Replay)
+                }
                 c = commands.recv() => c,
             };
             let command = command?;
             // Regroupe les demandes en attente ; les corps demandés par
             // l'interface passent en premier.
             let mut all = false;
+            let mut replay = false;
             let mut names = BTreeMap::new();
             let mut fetches = Vec::new();
             for command in
@@ -342,6 +444,7 @@ where
             {
                 match command {
                     Command::SyncAll => all = true,
+                    Command::Replay => replay = true,
                     Command::SyncMailbox(name) => {
                         names.insert(name, ());
                     }
@@ -365,6 +468,22 @@ where
                 let _ = reply.send(result);
                 if let Some(e) = failure {
                     return Some(e.into());
+                }
+            }
+            if replay || all {
+                let result = tokio::select! {
+                    _ = stop.changed() => return None,
+                    r = self.replay(session, ext, known) => r,
+                };
+                match result {
+                    Ok(next) => next_replay = next,
+                    Err(e) if e.is_connection() => return Some(e),
+                    Err(e) => {
+                        // Erreur de stockage : nouvel essai plus tard, sans
+                        // boucler.
+                        tracing::error!(account = %self.account, error = %e, "rejeu des actions");
+                        next_replay = Some(tokio::time::Instant::now() + REPLAY_RETRY);
+                    }
                 }
             }
             if !all && names.is_empty() {
@@ -412,6 +531,7 @@ where
                 .use_case()
                 .sync_mailbox(session, ext, id, &name)
                 .await?;
+            self.store.reapply(self.account).await?;
             if report.changed() {
                 self.emit(SyncEvent::FolderChanged {
                     account: self.account,
@@ -518,7 +638,7 @@ pub fn spawn<C, M, B>(
 where
     C: RemoteMailboxConnector + 'static,
     C::Session: 'static,
-    M: MailStore + 'static,
+    M: MailStore + PendingOpStore + 'static,
     B: BlobStore + 'static,
 {
     let (events, _) = broadcast::channel(256);

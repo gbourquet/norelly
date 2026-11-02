@@ -1,4 +1,5 @@
 use norelly_domain::ports::AccountRepository;
+use norelly_test_support::actions_contracts::pending_op_store_contract;
 use norelly_test_support::contracts::sample_account;
 use norelly_test_support::mail_contracts::{mail_store_contract, sample_message};
 use norelly_test_support::reading_contracts::conversation_query_contract;
@@ -32,6 +33,25 @@ async fn in_memory_store_passes_contract() -> Result<(), StoreError> {
     let db = Database::open_in_memory().map_err(|e| StoreError(e.to_string()))?;
     let (a, b) = two_accounts(&db).await?;
     mail_store_contract(&SqliteMailStore::new(db), a, b).await
+}
+
+#[tokio::test]
+async fn pending_ops_pass_contract() -> Result<(), StoreError> {
+    let db = Database::open_in_memory().map_err(|e| StoreError(e.to_string()))?;
+    let (a, b) = two_accounts(&db).await?;
+    pending_op_store_contract(&SqliteMailStore::new(db), a, b).await
+}
+
+#[tokio::test]
+async fn file_pending_ops_with_reader_pool_pass_contract() -> Result<(), StoreError> {
+    let path = temp_path("pending-ops");
+    let db = Database::open(&path).map_err(|e| StoreError(e.to_string()))?;
+    let (a, b) = two_accounts(&db).await?;
+    pending_op_store_contract(&SqliteMailStore::new(db.clone()), a, b).await?;
+    // Base saine après les écritures (clés étrangères, déclencheurs).
+    assert_eq!(db.integrity_problems().await?, Vec::<String>::new());
+    let _ = std::fs::remove_dir_all(path.parent().unwrap_or(&path));
+    Ok(())
 }
 
 #[tokio::test]

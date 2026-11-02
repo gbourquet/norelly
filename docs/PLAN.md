@@ -176,14 +176,17 @@ Commandes de référence (détail dans `scripts/check.sh`) :
 
 ## Phase 6 : actions et hors ligne
 
-- [ ] Domaine : actions (déplacer, supprimer, archiver, lu/non lu, drapeau), application optimiste, `pending_ops`, rejeu, résolution de conflits (message disparu, dossier supprimé, UIDVALIDITY changée)
-- [ ] Domaine : sémantique de « supprimer » (déplacement vers la Corbeille ; suppression définitive depuis la Corbeille) et d'« archiver » (dossier `\Archive` ou repli configurable)
-- [ ] `adapters/imap` : MOVE, ou à défaut COPY + STORE `\Deleted` + UID EXPUNGE (UIDPLUS), ou EXPUNGE avec garde-fou ; STORE des drapeaux avec UNCHANGEDSINCE
-- [ ] `adapters/sqlite` : table `pending_ops` durable, test de contrat
-- [ ] Application : file d'actions rejouée à la reconnexion, avec un test de bout en bout hors ligne puis en ligne (Toxiproxy)
-- [ ] Interface : raccourcis `e`, `#`, `s` (drapeau), `Shift+i`/`Shift+u`, `v` (déplacer, avec sélection de dossier dans la palette), sélection multiple (`x`), annulation de la dernière action
-- [ ] Intégration Dovecot : chaque action vérifiée côté serveur, avec et sans MOVE (capacité masquée par le faux serveur)
-- [x] Revue security-reviewer, consignée dans REVIEWS.md (0 critique, 0 haute ; moyennes corrigées)
+- [x] Socle i18n (ADR-011) : Paraglide JS, catalogues `app/messages/{fr,en}.json`, extraction de toutes les chaînes existantes de l'interface, locale du système, `format.ts` sur la locale active, test d'égalité des clés des catalogues branché dans `check.sh`
+- [x] Contrat IPC (ADR-011) : erreurs et issues en codes énumérés avec paramètres structurés et `detail` technique optionnel ; plus aucun texte utilisateur produit en Rust ; bindings régénérés
+- [x] Domaine : actions (déplacer, supprimer, archiver, lu/non lu, drapeau), application optimiste, `pending_ops`, rejeu, résolution de conflits (message disparu, dossier supprimé, UIDVALIDITY changée)
+- [x] Domaine : sémantique de « supprimer » (déplacement vers la Corbeille ; suppression définitive depuis la Corbeille) et d'« archiver » (dossier `\Archive` ou repli configurable)
+- [x] `adapters/imap` : MOVE, ou à défaut COPY + STORE `\Deleted` + UID EXPUNGE (UIDPLUS), ou EXPUNGE avec garde-fou ; STORE des drapeaux avec UNCHANGEDSINCE
+- [x] `adapters/sqlite` : table `pending_ops` durable, test de contrat
+- [x] Application : file d'actions rejouée à la reconnexion, avec un test de bout en bout hors ligne puis en ligne (Toxiproxy)
+- [x] Interface : raccourcis `e`, `#`, `s` (drapeau), `Shift+i`/`Shift+u`, `v` (déplacer, avec sélection de dossier dans la palette), sélection multiple (`x`), annulation de la dernière action
+- [x] Intégration Dovecot : chaque action vérifiée côté serveur, avec et sans MOVE (capacité masquée par le faux serveur)
+  - `crates/application/tests/integration_dovecot_actions.rs` : avec MOVE et UIDPLUS, sans MOVE, sans MOVE ni UIDPLUS. Contre Dovecot, les capacités sont masquées par le connecteur (`ImapConnector::hiding_capabilities`) ; le faux serveur sait aussi les masquer (`FakeImap::set_move_extensions`).
+- [x] Revue security-reviewer, consignée dans REVIEWS.md (0 critique, 0 haute ; 2 moyennes corrigées ; basses reportées en phase 7 et 10)
 
 **Condition de fin** : `./scripts/check.sh full && pnpm -C app e2e` passent sans erreur.
 
@@ -194,13 +197,15 @@ Commandes de référence (détail dans `scripts/check.sh`) :
   - sujet `Re:`/`Fwd:` sans empilement ;
   - `In-Reply-To`/`References` ;
   - citation
+- [ ] Domaine (ADR-011) : reconnaissance des préfixes de sujet étrangers (`TR`, `AW`, `WG`, `SV`, `VS`, `Antw`, `RIF`, `RE :`…) avec `proptest` ; préfixes produits toujours `Re:`/`Fwd:` ; en-tête de citation reçu en paramètre, localisé par l'interface
 - [ ] Domaine : brouillon (cycle de vie, sauvegarde périodique), file d'envoi (états, nouvelles tentatives, échec définitif)
 - [ ] `adapters/render` : réassainissement du HTML Tiptap ; construction `multipart/alternative` + pièces jointes avec `lettre` ; tests du MIME produit (relu par `mail-parser`)
 - [ ] `adapters/imap` : APPEND des brouillons (remplacement de l'ancien via UIDPLUS), copie dans Envoyés (sauf serveurs qui le font eux-mêmes : Gmail)
 - [ ] Application : `SendMessage` (file d'envoi persistante, envoi différé hors ligne), `SaveDraft`
 - [ ] Interface : éditeur Tiptap (gras, italique, liens, listes, citation), destinataires avec autocomplétion depuis les adresses connues, pièces jointes par glisser-déposer et par sélecteur, `c`/`r`/`a`/`f`, Ctrl+Entrée pour envoyer
 - [ ] Intégration : envoi via Mailpit vérifié par son API, brouillon présent sur Dovecot, copie dans Envoyés présente
-- [x] Revue security-reviewer, consignée dans REVIEWS.md (0 critique, 0 haute ; moyennes corrigées)
+- [ ] Reports de la revue de la phase 6 (REVIEWS.md) : `hostile_message_sql.rs` étendu aux actions ; garde-fou `EXPUNGE` sans UIDPLUS (compte des `* n EXPUNGE`) ; file `pending_ops` lue une fois, `record_all` transactionnel, plafond par compte
+- [ ] Revue security-reviewer, consignée dans REVIEWS.md (0 critique, 0 haute ; moyennes corrigées)
 
 **Condition de fin** : `./scripts/check.sh full && pnpm -C app e2e` passent sans erreur.
 
@@ -211,18 +216,19 @@ Commandes de référence (détail dans `scripts/check.sh`) :
 - [ ] Test de contrat `SearchIndex` ; protection contre l'injection de syntaxe FTS5 (les termes de l'utilisateur sont échappés)
 - [ ] Bench : recherche dans 50k messages < 100 ms
 - [ ] Interface : barre de recherche (`/`), résultats en liste, surlignage, fonctionnement hors ligne
-- [x] Revue security-reviewer, consignée dans REVIEWS.md (0 critique, 0 haute ; moyennes corrigées)
+- [ ] Revue security-reviewer, consignée dans REVIEWS.md (0 critique, 0 haute ; moyennes corrigées)
 
 **Condition de fin** : `./scripts/check.sh full && cargo bench -p norelly-sqlite -- --test && pnpm -C app e2e` passent sans erreur.
 
 ## Phase 9 : notifications et finitions
 
 - [ ] Notifications natives (`tauri-plugin-notification`) pour les nouveaux messages (regroupées, sans contenu si l'option de confidentialité est active)
+- [ ] Traduction anglaise complète, relue ; choix de la langue dans les paramètres (système par défaut) ; textes des notifications localisés côté interface (ADR-011)
 - [ ] Paramètres : question de mise à jour au premier lancement (oui présélectionné), modifiable ; préférences d'affichage, de rapatriement et de notifications
 - [ ] Mesure de bout en bout : démarrage et changement de dossier < 200 ms sur la boîte de 50k messages (test end-to-end avec mesure, seuil dans le job nocturne)
 - [ ] Passe accessibilité : focus visible, rôles ARIA, navigation entièrement au clavier, contrastes
 - [ ] Checklist de tests manuels Gmail, Fastmail, Outlook.com (IMAP par mot de passe d'application), consignée dans `docs/MANUAL-TESTS.md`
-- [x] Revue security-reviewer, consignée dans REVIEWS.md (0 critique, 0 haute ; moyennes corrigées)
+- [ ] Revue security-reviewer, consignée dans REVIEWS.md (0 critique, 0 haute ; moyennes corrigées)
 
 **Condition de fin** : `./scripts/check.sh full && pnpm -C app e2e` passent sans erreur.
 
@@ -232,7 +238,7 @@ Commandes de référence (détail dans `scripts/check.sh`) :
 - [ ] `tauri-plugin-updater` (NSIS uniquement, feature `updater`), signature minisign, manifeste JSON sur GitHub Releases
 - [ ] Manifeste Flatpak `io.github.gbourquet.Norelly` (runtime GNOME, sources cargo et npm vendorisées, autorisations minimales), avec un build local qui passe
 - [ ] Manifeste winget
-- [ ] Métadonnées AppStream, icônes, fichier `.desktop`
+- [ ] Métadonnées AppStream, icônes, fichier `.desktop` (traduits en français et en anglais, ADR-011)
 - [ ] Dossier de candidature SignPath Foundation
 - [ ] `nightly.yml` : fuzzing court, bench, Stalwart en second serveur
 - [ ] Revue security-reviewer finale (chaîne d'approvisionnement, autorisations Flatpak, capabilities Tauri), consignée dans REVIEWS.md

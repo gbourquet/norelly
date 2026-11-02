@@ -139,7 +139,7 @@ async fn idle_receives_appended_message_within_five_seconds() -> TestResult {
     loop {
         match tokio::time::timeout_at(deadline, events.recv()).await?? {
             SyncEvent::Online { .. } => break,
-            SyncEvent::Offline { reason, .. } => panic!("hors ligne : {reason}"),
+            SyncEvent::Offline { failure, .. } => panic!("hors ligne : {failure}"),
             _ => {}
         }
     }

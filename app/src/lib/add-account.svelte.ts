@@ -13,19 +13,52 @@ import type {
   Discovery,
   DiscoverySourceDto,
   EndpointDto,
+  FailureKindDto,
   ServerDto,
 } from "./ipc/api";
+import { m } from "./paraglide/messages.js";
+import { errorText, withDetail } from "./errors";
 
 export type Step =
   "form" | "discovering" | "testing" | "manual" | "certificate" | "plaintext" | "secrets" | "done";
 
-export const SOURCE_LABELS: Record<DiscoverySourceDto, string> = {
-  provider_autoconfig: "Configuration publiée par le fournisseur",
-  mozilla_ispdb: "Base de fournisseurs de Mozilla",
-  dns_srv: "Enregistrements DNS",
-  probe: "Sondage des ports usuels",
-  manual: "Saisie manuelle",
-};
+/** Libellé d'une source de découverte. */
+export function sourceLabel(source: DiscoverySourceDto): string {
+  switch (source) {
+    case "provider_autoconfig":
+      return m.add_source_provider_autoconfig();
+    case "mozilla_ispdb":
+      return m.add_source_mozilla_ispdb();
+    case "dns_srv":
+      return m.add_source_dns_srv();
+    case "probe":
+      return m.add_source_probe();
+    case "manual":
+      return m.add_source_manual();
+  }
+}
+
+/** Explication d'un défaut de certificat. */
+export function issueText(issue: string): string {
+  switch (issue) {
+    case "unknown_issuer":
+      return m.add_issue_unknown_issuer();
+    case "expired":
+      return m.add_issue_expired();
+    case "not_yet_valid":
+      return m.add_issue_not_yet_valid();
+    case "hostname_mismatch":
+      return m.add_issue_hostname_mismatch();
+    case "revoked":
+      return m.add_issue_revoked();
+    case "invalid_signature":
+      return m.add_issue_invalid_signature();
+    case "malformed":
+      return m.add_issue_malformed();
+    default:
+      return m.add_issue_other();
+  }
+}
 
 function domainOf(address: string): string {
   const at = address.lastIndexOf("@");
@@ -104,7 +137,7 @@ export class AddAccountFlow {
   async submit(): Promise<void> {
     this.message = null;
     if (!this.address.trim() || !this.password) {
-      this.message = "Saisissez l'adresse et le mot de passe.";
+      this.message = m.add_msg_missing_fields();
       return;
     }
     this.step = "discovering";
@@ -116,7 +149,7 @@ export class AddAccountFlow {
       });
     } catch (e) {
       this.step = "form";
-      this.message = errorMessage(e);
+      this.message = errorText(e);
       return;
     }
     const defaults = defaultServers(this.address);
@@ -130,13 +163,12 @@ export class AddAccountFlow {
     if (this.unconfirmed.length > 0) {
       const hosts = this.unconfirmed.map((u) => u.host).join(", ");
       this.step = "manual";
-      this.message = `Serveur trouvé par le DNS en dehors du domaine de votre adresse : ${hosts}. Vérifiez qu'il appartient bien à votre fournisseur avant de continuer.`;
+      this.message = m.add_msg_dns_outside({ hosts });
       return;
     }
     if (!discovery.imap || !discovery.smtp) {
       this.step = "manual";
-      this.message =
-        "Les serveurs n'ont pas tous été trouvés automatiquement : vérifiez ou complétez les paramètres.";
+      this.message = m.add_msg_incomplete();
       return;
     }
     await this.connect();
@@ -147,7 +179,7 @@ export class AddAccountFlow {
     this.message = null;
     const pending = this.pendingConfirmations;
     if (pending.length > 0) {
-      this.message = `Confirmez d'abord le serveur ${pending.join(", ")}, ou remplacez-le.`;
+      this.message = m.add_msg_confirm_first({ hosts: pending.join(", ") });
       return;
     }
     await this.connect();
@@ -161,7 +193,7 @@ export class AddAccountFlow {
       await this.#api.trustCertificate(problem.host, problem.fingerprint);
     } catch (e) {
       this.step = "manual";
-      this.message = errorMessage(e);
+      this.message = errorText(e);
       return;
     }
     this.certificate = null;
@@ -183,7 +215,7 @@ export class AddAccountFlow {
       await this.#api.allowFileSecrets();
     } catch (e) {
       this.step = "manual";
-      this.message = errorMessage(e);
+      this.message = errorText(e);
       return;
     }
     this.secretsFile = null;
@@ -196,7 +228,7 @@ export class AddAccountFlow {
     this.plaintextEndpoint = null;
     this.secretsFile = null;
     this.step = "manual";
-    this.message = "Connexion annulée. Vous pouvez modifier les paramètres.";
+    this.message = m.add_msg_cancelled();
   }
 
   async connect(): Promise<void> {
@@ -214,7 +246,7 @@ export class AddAccountFlow {
       });
     } catch (e) {
       this.step = "manual";
-      this.message = errorMessage(e);
+      this.message = errorText(e);
       return;
     }
     this.apply(result);
@@ -229,11 +261,11 @@ export class AddAccountFlow {
         break;
       case "already_exists":
         this.step = "form";
-        this.message = "Un compte existe déjà pour cette adresse.";
+        this.message = m.add_msg_already_exists();
         break;
       case "needs_review":
         this.step = "manual";
-        this.message = "Vérifiez les paramètres des serveurs.";
+        this.message = m.add_msg_needs_review();
         break;
       case "certificate":
         this.certificate = result.problem;
@@ -244,7 +276,7 @@ export class AddAccountFlow {
           this.unconfirmed = [...this.unconfirmed, { host: result.host, source: "dns_srv" }];
         }
         this.step = "manual";
-        this.message = `Le serveur ${result.host} doit être confirmé avant toute connexion.`;
+        this.message = m.add_msg_must_confirm({ host: result.host });
         break;
       case "secret_storage_consent_required":
         this.secretsFile = result.path;
@@ -256,32 +288,38 @@ export class AddAccountFlow {
         break;
       case "failed":
         this.step = "manual";
-        this.message = failureMessage(result.failure, result.protocol, result.message);
+        this.message = failureMessage(result.failure, result.protocol, result.detail);
         break;
     }
   }
 }
 
-function errorMessage(e: unknown): string {
-  return e instanceof Error ? e.message : String(e);
-}
-
-function failureMessage(failure: string, protocol: string | null, detail: string): string {
-  const server =
-    protocol === "imap"
-      ? "Serveur de réception (IMAP)"
-      : protocol === "smtp"
-        ? "Serveur d'envoi (SMTP)"
-        : "";
-  const prefix = server ? `${server} : ` : "";
-  switch (failure) {
-    case "authentication":
-      return `${prefix}identifiants refusés. Vérifiez le nom d'utilisateur et le mot de passe (un mot de passe d'application est parfois nécessaire). Détail : ${detail}`;
-    case "network":
-      return `${prefix}serveur injoignable. Vérifiez le nom et le port. Détail : ${detail}`;
-    case "security":
-      return `${prefix}connexion refusée par sécurité. Détail : ${detail}`;
-    default:
-      return `${prefix}${detail}`;
-  }
+function failureMessage(
+  failure: FailureKindDto,
+  protocol: string | null,
+  detail: string | null,
+): string {
+  const prefix =
+    protocol === "imap" ? m.add_server_imap() : protocol === "smtp" ? m.add_server_smtp() : "";
+  const text = (() => {
+    switch (failure) {
+      case "authentication":
+        return m.add_fail_authentication({ prefix });
+      case "network":
+        return m.add_fail_network({ prefix });
+      case "security":
+        return m.add_fail_security({ prefix });
+      case "invalid_input":
+        return m.add_fail_invalid_input();
+      case "secret_store":
+        return m.add_fail_secret_store();
+      case "storage":
+        return m.add_fail_storage();
+      case "protocol":
+      case "internal":
+        return m.add_fail_other({ prefix });
+    }
+  })();
+  // Le détail technique (réponse du serveur) est cité tel quel, jamais traduit.
+  return withDetail(text, detail);
 }

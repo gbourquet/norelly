@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { m } from "../lib/paraglide/messages.js";
   // Vue d'une conversation : messages empilés du plus ancien au plus
   // récent ; le dernier et les non lus sont dépliés, les autres se
   // déplient d'un clic.
@@ -22,46 +23,47 @@
 
   $effect(() => {
     const last = messages.at(-1);
-    expanded = messages.filter((m) => m.unread || m.id === last?.id).map((m) => m.id);
+    expanded = messages.filter((x) => x.unread || x.id === last?.id).map((x) => x.id);
   });
 
   function toggle(id: number): void {
     expanded = expanded.includes(id) ? expanded.filter((e) => e !== id) : [...expanded, id];
   }
 
-  function recipients(m: ConversationMessage): string {
-    return [...m.to, ...m.cc].map((p) => personName(p)).join(", ");
+  function recipients(msg: ConversationMessage): string {
+    return [...msg.to, ...msg.cc].map((p) => personName(p)).join(", ");
   }
 </script>
 
-<article class="conversation" aria-label="Conversation">
+<article class="conversation" aria-label={m.conversation_label()}>
   <header>
     <button
       class="btn btn-ghost icon"
       type="button"
-      title="Retour à la liste (Échap)"
-      aria-label="Retour à la liste"
+      title={m.conversation_back_title()}
+      aria-label={m.conversation_back()}
       onclick={onBack}
     >
       <ArrowLeftIcon size={16} aria-hidden="true" />
     </button>
-    <h1>{conversation.subject !== "" ? conversation.subject : "(sans objet)"}</h1>
+    <h1>{conversation.subject !== "" ? conversation.subject : m.common_no_subject()}</h1>
   </header>
   <ol class="messages">
-    {#each messages as m (m.id)}
-      {@const open = expanded.includes(m.id)}
+    {#each messages as msg (msg.id)}
+      {@const open = expanded.includes(msg.id)}
       <li class="message" class:open>
-        <button class="summary" type="button" aria-expanded={open} onclick={() => toggle(m.id)}>
-          <span class="from" class:unread={m.unread}>{personName(m.from)}</span>
-          {#if m.from && m.from.name !== ""}<span class="address">&lt;{m.from.address}&gt;</span
+        <button class="summary" type="button" aria-expanded={open} onclick={() => toggle(msg.id)}>
+          <span class="from" class:unread={msg.unread}>{personName(msg.from)}</span>
+          {#if msg.from && msg.from.name !== ""}<span class="address"
+              >&lt;{msg.from.address}&gt;</span
             >{/if}
-          <span class="date">{longDate(m.date)}</span>
+          <span class="date">{longDate(msg.date)}</span>
         </button>
         {#if open}
-          {#if recipients(m) !== ""}
-            <p class="to">À : {recipients(m)}</p>
+          {#if recipients(msg) !== ""}
+            <p class="to">{m.conversation_to({ recipients: recipients(msg) })}</p>
           {/if}
-          <MessageBody message={m.id} {api} {onKey} />
+          <MessageBody message={msg.id} {api} {onKey} />
         {/if}
       </li>
     {/each}

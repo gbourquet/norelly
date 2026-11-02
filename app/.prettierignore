@@ -4,3 +4,5 @@ src-tauri
 pnpm-lock.yaml
 src/lib/ipc/bindings.ts
 .vitest
+src/lib/paraglide
+project.inlang

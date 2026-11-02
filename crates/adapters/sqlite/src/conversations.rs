@@ -370,7 +370,7 @@ fn messages_query(
              m.from_address, m.to_json, m.cc_json, m.subject, m.flags, m.keywords, \
              m.has_attachments, m.message_id \
              FROM messages m JOIN mailboxes b ON b.id = m.mailbox_id \
-             WHERE m.conversation_id = ?1 \
+             WHERE m.conversation_id = ?1 AND m.hidden = 0 AND (m.flags & 8) = 0 \
              ORDER BY m.sort_date DESC, m.id DESC LIMIT ?2",
         )
         .map_err(store_error)?;

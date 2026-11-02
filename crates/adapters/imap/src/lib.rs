@@ -20,13 +20,15 @@ mod utf7;
 use std::collections::BTreeSet;
 use std::time::Duration;
 
+use imap_next::imap_types::flag::Flag;
 use imap_next::imap_types::response::GreetingKind;
+use norelly_domain::actions::{ActionFlag, FlagChange, StoreOutcome};
 use norelly_domain::auth::{AuthMethod, authenticator_for, select_imap_auth_method};
 use norelly_domain::capabilities::ServerCapabilities;
 use norelly_domain::connection::{ConnectionError, TimeoutStage};
 use norelly_domain::endpoint::{Security, ServerEndpoint};
 use norelly_domain::fetch_policy::BodyFetch;
-use norelly_domain::mailbox::{ListedMailbox, MailboxName, MessageMeta, Uid};
+use norelly_domain::mailbox::{Flags, ListedMailbox, MailboxName, MessageMeta, ModSeq, Uid};
 use norelly_domain::ports::{
     ConnectRequest, FetchedBody, IdleOutcome, RemoteMailboxConnector, RemoteMailboxSession,
 };
@@ -64,6 +66,9 @@ impl Default for Timeouts {
 pub struct ImapConnector {
     tls: TlsClientFactory,
     timeouts: Timeouts,
+    /// Capacités ignorées après authentification (voir
+    /// [`ImapConnector::hiding_capabilities`]).
+    hidden: Vec<String>,
 }
 
 impl ImapConnector {
@@ -72,7 +77,17 @@ impl ImapConnector {
         Self {
             tls,
             timeouts: Timeouts::default(),
+            hidden: Vec::new(),
         }
+    }
+
+    /// Ignore des capacités annoncées par le serveur après
+    /// l'authentification (par exemple `MOVE`, `UIDPLUS`) : contournement
+    /// d'un serveur défaillant, et tests des stratégies de repli.
+    #[must_use]
+    pub fn hiding_capabilities(mut self, tokens: &[&str]) -> Self {
+        self.hidden = tokens.iter().map(|t| (*t).to_owned()).collect();
+        self
     }
 
     #[must_use]
@@ -195,7 +210,7 @@ impl RemoteMailboxConnector for ImapConnector {
             }
         }
         conn.mark_authenticated();
-        let capabilities = conn.capability().await?;
+        let capabilities = conn.capability().await?.without(&self.hidden);
         if request.endpoint.security() == Security::Plain {
             // Canal en clair consenti, authentifié : il transporte désormais
             // des messages (limite d'avant TLS levée).
@@ -288,6 +303,70 @@ impl RemoteMailboxSession for ImapSession {
         fetch: &BodyFetch,
     ) -> Result<Option<FetchedBody>, ConnectionError> {
         self.conn.fetch_body(uid, fetch).await
+    }
+
+    async fn select_writable(
+        &mut self,
+        mailbox: &MailboxName,
+    ) -> Result<SelectedMailbox, ConnectionError> {
+        let condstore = self.extensions.condstore;
+        let selected = self.conn.select_rw(mailbox, condstore).await?;
+        self.selected_condstore = condstore;
+        Ok(selected)
+    }
+
+    async fn message_flags(&mut self, uid: Uid) -> Result<Option<Flags>, ConnectionError> {
+        self.conn.flags_of(uid).await
+    }
+
+    async fn store_flag(
+        &mut self,
+        uid: Uid,
+        change: FlagChange,
+        unchanged_since: Option<ModSeq>,
+    ) -> Result<StoreOutcome, ConnectionError> {
+        let flag = match change.flag {
+            ActionFlag::Seen => Flag::Seen,
+            ActionFlag::Flagged => Flag::Flagged,
+        };
+        // UNCHANGEDSINCE n'a de sens qu'avec CONDSTORE actif sur la boîte.
+        let unchanged_since = unchanged_since.filter(|_| self.selected_condstore);
+        self.conn
+            .store(uid, flag, change.value, unchanged_since)
+            .await
+    }
+
+    async fn mark_deleted(&mut self, uid: Uid) -> Result<(), ConnectionError> {
+        self.conn
+            .store(uid, Flag::Deleted, true, None)
+            .await
+            .map(|_| ())
+    }
+
+    async fn move_to(&mut self, uid: Uid, to: &MailboxName) -> Result<(), ConnectionError> {
+        if !self.capabilities.has("MOVE") {
+            return Err(ConnectionError::Protocol("MOVE non annoncé".to_owned()));
+        }
+        self.conn.transfer(uid, to, false).await
+    }
+
+    async fn copy_to(&mut self, uid: Uid, to: &MailboxName) -> Result<(), ConnectionError> {
+        self.conn.transfer(uid, to, true).await
+    }
+
+    async fn expunge_uid(&mut self, uid: Uid) -> Result<(), ConnectionError> {
+        if !self.capabilities.has("UIDPLUS") {
+            return Err(ConnectionError::Protocol("UIDPLUS non annoncé".to_owned()));
+        }
+        self.conn.expunge(Some(uid)).await
+    }
+
+    async fn expunge_all(&mut self) -> Result<(), ConnectionError> {
+        self.conn.expunge(None).await
+    }
+
+    async fn deleted_uids(&mut self) -> Result<BTreeSet<Uid>, ConnectionError> {
+        self.conn.search_deleted().await
     }
 
     async fn idle(&mut self, max: Duration) -> Result<IdleOutcome, ConnectionError> {

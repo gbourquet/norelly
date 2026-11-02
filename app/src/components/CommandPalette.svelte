@@ -1,4 +1,5 @@
 <script lang="ts" generics="C">
+  import { m } from "../lib/paraglide/messages.js";
   // Palette Ctrl+K (bits-ui Command), alimentée par le registre central.
   import { Command, Dialog } from "bits-ui";
   import SearchIcon from "@lucide/svelte/icons/search";
@@ -36,19 +37,19 @@
 >
   <Dialog.Portal>
     <Dialog.Overlay class="modal-overlay" />
-    <Dialog.Content class="palette" aria-label="Palette de commandes">
-      <Dialog.Title class="visually-hidden">Palette de commandes</Dialog.Title>
-      <Command.Root shouldFilter={false} label="Commandes">
+    <Dialog.Content class="palette" aria-label={m.palette_label()}>
+      <Dialog.Title class="visually-hidden">{m.palette_label()}</Dialog.Title>
+      <Command.Root shouldFilter={false} label={m.palette_commands()}>
         <div class="palette-search">
           <SearchIcon size={16} aria-hidden="true" />
           <Command.Input
             class="palette-input"
-            placeholder="Rechercher une commande…"
+            placeholder={m.palette_placeholder()}
             bind:value={query}
           />
         </div>
         <Command.List class="palette-list">
-          <Command.Empty class="palette-empty">Aucune commande</Command.Empty>
+          <Command.Empty class="palette-empty">{m.palette_empty()}</Command.Empty>
           {#each groups as [group, commands] (group)}
             <Command.Group>
               <Command.GroupHeading class="palette-group">{group}</Command.GroupHeading>

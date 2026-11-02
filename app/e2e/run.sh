@@ -101,11 +101,13 @@ chmod 644 "$workdir/passwd" "$workdir/group"
 echo "==> Scénarios (conteneur, réseau interne, dépôt en lecture seule)"
 # HOME éphémère : base SQLite et trousseau neufs à chaque exécution (les
 # certificats de test sont régénérés, une ancienne exception serait vue,
-# à juste titre, comme un changement d'empreinte).
+# à juste titre, comme un changement d'empreinte). Locale fr imposée : les
+# scénarios ciblent des textes français (ADR-011).
 docker run "${common[@]}" --network "$network" \
   --tmpfs /tmp/home:exec,mode=1777 -e HOME=/tmp/home \
   -v "$workdir/passwd:/etc/passwd:ro" -v "$workdir/group:/etc/group:ro" \
   -e NORELLY_E2E_PASSWORD="$password" \
   -e NORELLY_E2E_CANARY="http://canary.norelly.test:8080" \
+  -e LANG=fr_FR.UTF-8 -e LANGUAGE=fr \
   -v "$root:/work:ro" \
   "$image" dbus-run-session -- bash app/e2e/in-container.sh scenarios

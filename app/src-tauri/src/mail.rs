@@ -12,24 +12,24 @@ use norelly_application::accounts::connect_request;
 use norelly_application::reading::{
     DownloadBody, DownloadPart, LoadedBody, LoadedMessage, ReadError, ReadMessage,
 };
-use norelly_application::sync::SyncEvent;
+use norelly_application::sync::{SyncEvent, SyncFailure};
 use norelly_blobs::FsBlobStore;
 use norelly_domain::account::{Account, AccountId};
-use norelly_domain::connection::{ConnectionError, TimeoutStage};
+use norelly_domain::connection::{ConnectionError, TimeoutStage, server_text};
 use norelly_domain::endpoint::Protocol;
 use norelly_domain::fetch_policy::{BodyFetch, FetchPolicy, PartPath};
 use norelly_domain::mailbox::{MailboxName, Uid};
 use norelly_domain::ports::{FetchedBody, MessageId, RemoteBodyFetcher};
 use norelly_domain::reading::RemoteContent;
 use norelly_imap::ImapConnector;
-use norelly_render::{PartContent, Protocols, RenderRequest, Rendered, Source};
+use norelly_render::{PartContent, Protocols, RenderNotice, RenderRequest, Rendered, Source};
 use norelly_sqlite::mail::SqliteMailStore;
 use norelly_sqlite::preferences::SqliteReadingPreferences;
 use norelly_sqlite::{Database, SqliteCertificateExceptionStore};
 use tauri::{AppHandle, Runtime};
 use tauri_specta::Event;
 
-use crate::ipc::SyncEventDto;
+use crate::ipc::{FailureKindDto, SyncEventDto, connection_failure_of};
 use crate::remote_images::RemoteImageProxy;
 use crate::state::AppSecretStore;
 
@@ -43,9 +43,10 @@ const RENDER_TIMEOUT: Duration = Duration::from_secs(10);
 /// Clé d'un rendu : message, décision sur les images, texte brut.
 type RenderKey = (MessageId, RemoteContent, bool);
 
-fn placeholder(body: &str) -> Rendered {
+fn placeholder(notice: RenderNotice) -> Rendered {
     Rendered {
-        document: norelly_render::document(body),
+        notice: Some(notice),
+        document: norelly_render::document(""),
         mode: norelly_render::BodyMode::Empty,
         has_html: false,
         remote_images: Vec::new(),
@@ -162,6 +163,13 @@ impl MailServices {
         }
     }
 
+    /// Signale de nouvelles opérations dans la file d'un compte.
+    pub async fn replay_soon(&self, account: AccountId) {
+        if let Some(handle) = self.actors.lock().await.get(&account) {
+            handle.replay_soon();
+        }
+    }
+
     fn reader(&self) -> ReadMessage<'_, SqliteMailStore, FsBlobStore, SqliteReadingPreferences> {
         ReadMessage {
             locator: &self.store,
@@ -229,11 +237,10 @@ impl MailServices {
         let rendered = match tokio::time::timeout(RENDER_TIMEOUT, task).await {
             Ok(Ok(r)) => r,
             Ok(Err(e)) => return Err(ReadError::Download(format!("rendu interrompu : {e}"))),
-            Err(_) => Some(placeholder("<p>Ce message est trop long à afficher.</p>")),
+            Err(_) => Some(placeholder(RenderNotice::TooLong)),
         };
-        let rendered = Arc::new(rendered.unwrap_or_else(|| {
-            placeholder("<p>Le contenu de ce message n'est pas encore disponible.</p>")
-        }));
+        let rendered =
+            Arc::new(rendered.unwrap_or_else(|| placeholder(RenderNotice::NotAvailable)));
         if body_ready {
             let mut cache = self.rendered.lock().unwrap_or_else(PoisonError::into_inner);
             cache.retain(|(k, _)| k.0 != id);
@@ -381,11 +388,24 @@ impl SyncEventDto {
                 account: id(*account)?,
             },
             SyncEvent::Offline {
-                account, reason, ..
-            } => Self::Offline {
-                account: id(*account)?,
-                reason: reason.clone(),
-            },
+                account, failure, ..
+            } => {
+                let (failure, detail) = sync_failure_of(failure);
+                Self::Offline {
+                    account: id(*account)?,
+                    failure,
+                    detail: detail.map(|d| server_text(d.as_bytes())),
+                }
+            }
         })
+    }
+}
+
+/// Catégorie et détail technique brut d'un échec de synchronisation.
+fn sync_failure_of(failure: &SyncFailure) -> (FailureKindDto, Option<String>) {
+    match failure {
+        SyncFailure::Connection(e) => connection_failure_of(e),
+        SyncFailure::Store(_) => (FailureKindDto::Storage, None),
+        SyncFailure::Reconcile { mailbox, .. } => (FailureKindDto::Protocol, Some(mailbox.clone())),
     }
 }

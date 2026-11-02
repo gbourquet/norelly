@@ -13,7 +13,10 @@
 //!   bannière après STARTTLS, le flux remis à `lettre` commence par une
 //!   bannière `220` locale (jamais envoyée sur le réseau).
 //!
-//! `lettre` gère ensuite `EHLO`, `AUTH`, `MAIL`/`RCPT`/`DATA` et `QUIT`. Il
+//! `lettre` envoie l'unique `EHLO` du canal final (un second serait refusé
+//! par certains serveurs, dont GMX) ; les capacités du domaine en sont
+//! reprises (mécanismes `AUTH`, `8BITMIME`, `SMTPUTF8`, `STARTTLS`).
+//! Il gère ensuite `AUTH`, `MAIL`/`RCPT`/`DATA` et `QUIT`. Il
 //! est compilé sans backend TLS ni journalisation.
 
 mod stream;
@@ -24,8 +27,7 @@ use std::time::Duration;
 use lettre::address::{Address, Envelope};
 use lettre::transport::smtp::authentication::{Credentials as LettreCredentials, Mechanism};
 use lettre::transport::smtp::client::AsyncSmtpConnection;
-use lettre::transport::smtp::commands::Ehlo;
-use lettre::transport::smtp::extension::ClientId;
+use lettre::transport::smtp::extension::{ClientId, Extension, ServerInfo};
 use norelly_domain::auth::{AuthError, AuthMechanism, select_smtp_auth_mechanism};
 use norelly_domain::capabilities::ServerCapabilities;
 use norelly_domain::connection::{ConnectionError, TimeoutStage, server_text};
@@ -41,6 +43,34 @@ use crate::stream::{LettreStream, PlainSession};
 /// divulguer le nom de la machine.
 fn hello() -> ClientId {
     ClientId::Ipv4(Ipv4Addr::LOCALHOST)
+}
+
+/// Capacités du domaine d'après la réponse `EHLO` analysée par `lettre`
+/// (mécanismes d'authentification et extensions qu'il connaît).
+fn capabilities_of(info: &ServerInfo) -> ServerCapabilities {
+    let mut lines = Vec::new();
+    let mechanisms: Vec<&str> = [
+        (Mechanism::Plain, "PLAIN"),
+        (Mechanism::Login, "LOGIN"),
+        (Mechanism::Xoauth2, "XOAUTH2"),
+    ]
+    .into_iter()
+    .filter(|(m, _)| info.supports_auth_mechanism(*m))
+    .map(|(_, name)| name)
+    .collect();
+    if !mechanisms.is_empty() {
+        lines.push(format!("AUTH {}", mechanisms.join(" ")));
+    }
+    for (extension, name) in [
+        (Extension::EightBitMime, "8BITMIME"),
+        (Extension::SmtpUtfEight, "SMTPUTF8"),
+        (Extension::StartTls, "STARTTLS"),
+    ] {
+        if info.supports_feature(extension) {
+            lines.push(name.to_owned());
+        }
+    }
+    ServerCapabilities::from_smtp_ehlo(lines)
 }
 
 /// Bannière locale insérée devant le flux après STARTTLS (voir la
@@ -157,17 +187,17 @@ impl SmtpSender {
             }
         };
 
-        let hello = hello();
-        let mut conn = self
+        // `connect_with_transport` lit la bannière et envoie lui-même
+        // `EHLO` : un second `EHLO` est refusé par certains serveurs (GMX :
+        // « 503 Bad sequence of commands »). Les capacités sont reprises de
+        // ce que `lettre` a lu.
+        let conn = self
             .timed(
-                AsyncSmtpConnection::connect_with_transport(Box::new(stream), &hello),
+                AsyncSmtpConnection::connect_with_transport(Box::new(stream), &hello()),
                 |e| lettre_error(&e),
             )
             .await?;
-        let response = self
-            .timed(conn.command(Ehlo::new(hello)), |e| lettre_error(&e))
-            .await?;
-        let capabilities = ServerCapabilities::from_smtp_ehlo(response.message().skip(1));
+        let capabilities = capabilities_of(conn.server_info());
         Ok(Session { conn, capabilities })
     }
 

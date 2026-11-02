@@ -54,12 +54,12 @@ fn assert_no_auth_sent(outcome: &Outcome) {
     }
 }
 
-/// EHLO de lettre puis EHLO de relecture des capacités.
-fn ehlo_twice(script: Script, extensions: &[&str]) -> Script {
+/// Un seul EHLO sur le canal final (celui de lettre) : un second est
+/// refusé par certains serveurs (GMX : 503), et le script échoue s'il
+/// arrive.
+fn ehlo_once(script: Script, extensions: &[&str]) -> Script {
     script
         .expect("EHLO [127.0.0.1]")
-        .send(smtp::ehlo(extensions))
-        .expect("EHLO")
         .send(smtp::ehlo(extensions))
 }
 
@@ -76,7 +76,7 @@ fn auth_and_quit(script: Script) -> Script {
 async fn implicit_tls_verify() -> TestResult {
     let ca = TestCa::new()?;
     let cert = ca.issue(&["localhost"])?;
-    let script = ehlo_twice(
+    let script = ehlo_once(
         Script::new().send(smtp::greeting()),
         &["AUTH PLAIN LOGIN", "SIZE 1000"],
     );
@@ -88,7 +88,9 @@ async fn implicit_tls_verify() -> TestResult {
             PlaintextPolicy::deny_all(),
         ))
         .await?;
-    assert!(caps.has("SIZE"));
+    // Capacités reprises de l'EHLO de lettre : mécanismes AUTH et
+    // extensions qu'il connaît (SIZE n'en fait pas partie).
+    assert!(caps.has("AUTH=PLAIN") && caps.has("AUTH=LOGIN"));
     server.finish().await.result?;
     Ok(())
 }
@@ -105,7 +107,7 @@ async fn starttls_verify_rereads_capabilities() -> TestResult {
         .expect("STARTTLS")
         .send("220 2.0.0 Pret pour TLS\r\n")
         .starttls();
-    let script = ehlo_twice(script, &["AUTH PLAIN", "8BITMIME"]);
+    let script = ehlo_once(script, &["AUTH PLAIN", "8BITMIME"]);
     let server = ScriptedServer::start(auth_and_quit(script), Some(cert.server_config()?)).await?;
     let caps = sender(&ca)
         .verify(&request(
@@ -232,7 +234,7 @@ async fn plaintext_with_consent() -> TestResult {
         .send(smtp::greeting())
         .expect("EHLO")
         .send(smtp::ehlo(&["AUTH PLAIN"]));
-    let script = ehlo_twice(script, &["AUTH PLAIN"]);
+    let script = ehlo_once(script, &["AUTH PLAIN"]);
     let server = ScriptedServer::start(auth_and_quit(script), None).await?;
     let port = server.port();
     let consent = PlaintextPolicy::deny_all().with_consent(PlaintextConsent {
@@ -250,7 +252,7 @@ async fn plaintext_with_consent() -> TestResult {
 async fn rejected_credentials() -> TestResult {
     let ca = TestCa::new()?;
     let cert = ca.issue(&["localhost"])?;
-    let script = ehlo_twice(Script::new().send(smtp::greeting()), &["AUTH PLAIN"])
+    let script = ehlo_once(Script::new().send(smtp::greeting()), &["AUTH PLAIN"])
         .expect("AUTH PLAIN")
         .send("535 5.7.8 Identifiants invalides\r\n")
         .expect_any();
@@ -277,7 +279,7 @@ async fn rejected_credentials() -> TestResult {
 async fn send_message() -> TestResult {
     let ca = TestCa::new()?;
     let cert = ca.issue(&["localhost"])?;
-    let script = ehlo_twice(Script::new().send(smtp::greeting()), &["AUTH PLAIN"])
+    let script = ehlo_once(Script::new().send(smtp::greeting()), &["AUTH PLAIN"])
         .expect("AUTH PLAIN")
         .send("235 ok\r\n")
         .expect("MAIL FROM:<alice@example.com>")

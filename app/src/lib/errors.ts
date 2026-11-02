@@ -85,6 +85,16 @@ function codeText(code: ErrorCodeDto, field: FieldDto | null): string {
       return m.err_write_failed();
     case "open_failed":
       return m.err_open_failed();
+    case "no_trash":
+      return m.err_no_trash();
+    case "no_archive":
+      return m.err_no_archive();
+    case "same_folder":
+      return m.err_same_folder();
+    case "folder_not_selectable":
+      return m.err_folder_not_selectable();
+    case "too_many_messages":
+      return m.err_too_many_messages();
     case "internal":
       return m.err_internal();
   }

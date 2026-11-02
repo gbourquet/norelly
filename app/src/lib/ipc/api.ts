@@ -20,11 +20,15 @@ import {
   type DiscoveryDto_Serialize,
   type DiscoverySourceDto,
   type IpcError,
+  type ActionDto,
+  type ActionResultDto,
 } from "./bindings";
 import { IpcFailure } from "../errors";
 
 export type {
   AccountDto,
+  ActionDto,
+  ActionResultDto,
   AttachmentDto,
   BodyModeDto,
   ConversationCursorDto,
@@ -120,6 +124,19 @@ export const api = {
 
   openAttachment: (message: number, part: string): Promise<void> =>
     unwrap(commands.openAttachment(message, part)).then(() => undefined),
+
+  /** Action sur des conversations de la portée affichée. */
+  performAction: (
+    conversations: number[],
+    scope: ScopeDto,
+    action: ActionDto,
+  ): Promise<ActionResultDto> => unwrap(commands.performAction(conversations, scope, action)),
+
+  /** Annule des opérations en attente ; renvoie le nombre annulé. */
+  undoActions: (ops: number[]): Promise<number> => unwrap(commands.undoActions(ops)),
+
+  setArchiveFolder: (account: number, mailbox: number | null): Promise<void> =>
+    unwrap(commands.setArchiveFolder(account, mailbox)).then(() => undefined),
 
   /** Abonnement aux événements de synchronisation ; renvoie le retrait. */
   onSyncEvent: async (listener: (event: SyncEventDto) => void): Promise<() => void> =>

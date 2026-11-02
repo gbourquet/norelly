@@ -1,5 +1,6 @@
 <script lang="ts">
   import { m } from "./lib/paraglide/messages.js";
+  import { errorText } from "./lib/errors";
   import { onMount } from "svelte";
   import InboxIcon from "@lucide/svelte/icons/inbox";
   import ThreePaneLayout from "./components/ThreePaneLayout.svelte";
@@ -10,7 +11,9 @@
   import RemoveAccountDialog from "./components/RemoveAccountDialog.svelte";
   import ConversationList from "./components/ConversationList.svelte";
   import ConversationView from "./components/ConversationView.svelte";
-  import { app, mail, registerAppCommands, registry } from "./lib/app.svelte";
+  import FolderPicker from "./components/FolderPicker.svelte";
+  import ActionNotice from "./components/ActionNotice.svelte";
+  import { app, mail, moveAccount, registerAppCommands, registry } from "./lib/app.svelte";
   import { shortcutFromEvent, type Shortcut } from "./lib/commands/shortcut";
   import { api, type ScopeDto } from "./lib/ipc/api";
   import { UNIFIED_INBOX } from "./lib/mail.svelte";
@@ -46,6 +49,21 @@
     }
     return m.mailbox_folder();
   });
+
+  /** Dossiers proposés pour « déplacer » : ceux du compte visé, sauf ceux
+   * où se trouvent déjà les conversations visées. */
+  const moveFolders = $derived.by(() => {
+    if (app.dialog !== "move") return [];
+    const account = moveAccount();
+    const current = mail.targets().map((c) => c.mailbox);
+    return account === null
+      ? []
+      : (mail.folders[account] ?? []).filter((f) => !current.includes(f.id));
+  });
+
+  const archiveFolders = $derived(
+    app.selectedAccountId === null ? [] : (mail.folders[app.selectedAccountId] ?? []),
+  );
 
   function selectScope(scope: ScopeDto, account: number | null): void {
     if (account !== null) app.selectedAccountId = account;
@@ -144,6 +162,41 @@
     app.selectedAccountId = account.id;
     void app.refreshAccounts().then(() => mail.reload());
   }}
+/>
+<FolderPicker
+  open={app.dialog === "move"}
+  title={m.picker_move_title()}
+  folders={moveFolders}
+  onClose={() => app.close()}
+  onChoose={(folder) => {
+    app.close();
+    void mail.act({ kind: "move", mailbox: folder.id }, m.action_moved({ folder: folder.name }));
+  }}
+/>
+<FolderPicker
+  open={app.dialog === "archive-folder"}
+  title={m.picker_archive_title()}
+  folders={archiveFolders}
+  onClose={() => app.close()}
+  onChoose={(folder) => {
+    app.close();
+    const account = app.selectedAccountId;
+    if (account === null) return;
+    api.setArchiveFolder(account, folder.id).then(
+      () =>
+        (mail.notice = {
+          text: m.action_archive_folder_set({ folder: folder.name }),
+          undoable: false,
+        }),
+      (e: unknown) => (mail.notice = { text: errorText(e), undoable: false }),
+    );
+  }}
+/>
+<ActionNotice
+  notice={mail.notice}
+  canUndo={mail.lastAction !== null}
+  onUndo={() => void mail.undo()}
+  onDismiss={() => (mail.notice = null)}
 />
 <RemoveAccountDialog
   open={app.dialog === "remove-account"}

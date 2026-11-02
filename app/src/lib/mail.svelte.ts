@@ -4,6 +4,7 @@
 // ici.
 
 import type {
+  ActionDto,
   Api,
   ConversationCursorDto,
   ConversationDto,
@@ -13,6 +14,7 @@ import type {
   SyncEventDto,
 } from "./ipc/api";
 import { errorText, failureText, withDetail } from "./errors";
+import { m } from "./paraglide/messages.js";
 
 /** Taille d'une page demandée au Rust. */
 export const PAGE_SIZE = 100;
@@ -21,8 +23,24 @@ export const UNIFIED_INBOX: ScopeDto = { kind: "unified", role: "inbox" };
 
 export type MailApi = Pick<
   Api,
-  "listFolders" | "listConversations" | "conversationMessages" | "syncAccount"
+  | "listFolders"
+  | "listConversations"
+  | "conversationMessages"
+  | "syncAccount"
+  | "performAction"
+  | "undoActions"
 >;
+
+/** Information affichée après une action (annulable ou non). */
+export interface Notice {
+  text: string;
+  undoable: boolean;
+}
+
+/** Actions qui retirent la conversation de la portée affichée. */
+function removesFromScope(action: ActionDto): boolean {
+  return action.kind === "move" || action.kind === "delete" || action.kind === "archive";
+}
 
 /** Copie d'un dictionnaire sans une clé. */
 function without<T>(record: Record<number, T>, key: number): Record<number, T> {
@@ -52,6 +70,12 @@ export class MailState {
   /** Conversation ouverte (vue de lecture), `null` : liste seule. */
   opened = $state<ConversationDto | null>(null);
   messages = $state<ConversationMessage[]>([]);
+  /** Conversations cochées (sélection multiple, « x »). */
+  marked = $state<number[]>([]);
+  /** Opérations de la dernière action, annulables tant qu'elles n'ont
+   * pas été rejouées sur le serveur. */
+  lastAction = $state<number[] | null>(null);
+  notice = $state<Notice | null>(null);
 
   readonly selected = $derived(this.conversations[this.selectedIndex] ?? null);
 
@@ -77,6 +101,7 @@ export class MailState {
   /** Affiche une portée : première page, sélection remise à zéro. */
   async show(scope: ScopeDto): Promise<void> {
     this.scope = scope;
+    this.marked = [];
     this.opened = null;
     this.messages = [];
     this.selectedIndex = -1;
@@ -90,6 +115,7 @@ export class MailState {
   async reload(): Promise<void> {
     const generation = ++this.#generation;
     const keep = this.selected?.id ?? null;
+    const keepIndex = this.selectedIndex;
     const wanted = Math.max(this.conversations.length, PAGE_SIZE);
     const items: ConversationDto[] = [];
     let cursor: ConversationCursorDto | null = null;
@@ -105,7 +131,13 @@ export class MailState {
       this.hasMore = cursor !== null;
       this.error = null;
       const index = keep === null ? -1 : items.findIndex((c) => c.id === keep);
-      this.selectedIndex = index >= 0 ? index : items.length > 0 ? 0 : -1;
+      // Conversation partie (archivée, supprimée…) : la suivante prend sa
+      // place.
+      const fallback = Math.min(Math.max(keepIndex, 0), items.length - 1);
+      this.selectedIndex = index >= 0 ? index : fallback;
+      const present: Record<number, true> = {};
+      for (const c of items) present[c.id] = true;
+      this.marked = this.marked.filter((id) => present[id]);
       if (this.opened !== null) {
         const fresh = items.find((c) => c.id === this.opened?.id);
         if (fresh !== undefined) {
@@ -178,6 +210,78 @@ export class MailState {
     } catch (e) {
       this.error = errorText(e);
     }
+  }
+
+  /** Coche ou décoche la conversation sélectionnée. */
+  toggleMark(): void {
+    const id = this.selected?.id;
+    if (id === undefined) return;
+    this.marked = this.marked.includes(id)
+      ? this.marked.filter((x) => x !== id)
+      : [...this.marked, id];
+  }
+
+  /** Conversations visées : cochées, sinon ouverte, sinon sélectionnée. */
+  targets(): ConversationDto[] {
+    if (this.marked.length > 0) {
+      return this.conversations.filter((c) => this.marked.includes(c.id));
+    }
+    const one = this.opened ?? this.selected;
+    return one === null ? [] : [one];
+  }
+
+  /**
+   * Applique une action aux conversations visées. `done` : texte affiché
+   * en cas de succès. L'effet local est immédiat ; l'envoi au serveur
+   * attend la fenêtre d'annulation.
+   */
+  async act(action: ActionDto, done: string): Promise<void> {
+    const targets = this.targets();
+    if (targets.length === 0) return;
+    try {
+      const result = await this.#api.performAction(
+        targets.map((c) => c.id),
+        this.scope,
+        action,
+      );
+      this.marked = [];
+      if (result.ops.length === 0) {
+        this.notice = { text: m.action_nothing(), undoable: false };
+      } else {
+        this.lastAction = result.ops;
+        this.notice = { text: done, undoable: true };
+      }
+      const opened = this.opened;
+      if (removesFromScope(action) && opened !== null && targets.some((t) => t.id === opened.id)) {
+        this.back();
+      }
+      await this.refreshAfterAction(targets.map((t) => t.account));
+    } catch (e) {
+      this.notice = { text: errorText(e), undoable: false };
+    }
+  }
+
+  /** Annule la dernière action, si elle n'a pas encore été rejouée. */
+  async undo(): Promise<void> {
+    const ops = this.lastAction;
+    if (ops === null) return;
+    this.lastAction = null;
+    try {
+      const undone = await this.#api.undoActions(ops);
+      this.notice = {
+        text: undone > 0 ? m.action_undone() : m.action_too_late(),
+        undoable: false,
+      };
+      await this.refreshAfterAction(Object.keys(this.folders).map(Number));
+    } catch (e) {
+      this.notice = { text: errorText(e), undoable: false };
+    }
+  }
+
+  async refreshAfterAction(accounts: number[]): Promise<void> {
+    const unique = accounts.filter((a, i) => accounts.indexOf(a) === i);
+    await Promise.all(unique.map((a) => this.loadFolders(a)));
+    await this.reload();
   }
 
   /** Retour à la liste. */

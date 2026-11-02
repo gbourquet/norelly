@@ -79,12 +79,25 @@ echo "==> Build de l'application (conteneur, réseau extérieur pour crates.io)"
 docker run "${common[@]}" ${CI:+-e CI=true} -v "$root:/work" \
   "$image" bash app/e2e/in-container.sh build
 
+# Entrées passwd/group pour l'utilisateur courant : dbus-daemon refuse de
+# démarrer si l'UID est inconnu (UID 1001 des runners GitHub, par exemple).
+docker run --rm "$image" cat /etc/passwd > "$workdir/passwd"
+docker run --rm "$image" cat /etc/group > "$workdir/group"
+if ! cut -d: -f3 "$workdir/passwd" | grep -qx "$(id -u)"; then
+  echo "e2e:x:$(id -u):$(id -g)::/tmp/home:/bin/bash" >> "$workdir/passwd"
+fi
+if ! cut -d: -f3 "$workdir/group" | grep -qx "$(id -g)"; then
+  echo "e2e:x:$(id -g):" >> "$workdir/group"
+fi
+chmod 644 "$workdir/passwd" "$workdir/group"
+
 echo "==> Scénarios (conteneur, réseau interne, dépôt en lecture seule)"
 # HOME éphémère : base SQLite et trousseau neufs à chaque exécution (les
 # certificats de test sont régénérés, une ancienne exception serait vue,
 # à juste titre, comme un changement d'empreinte).
 docker run "${common[@]}" --network "$network" \
   --tmpfs /tmp/home:exec,mode=1777 -e HOME=/tmp/home \
+  -v "$workdir/passwd:/etc/passwd:ro" -v "$workdir/group:/etc/group:ro" \
   -e NORELLY_E2E_PASSWORD="$password" \
   -v "$root:/work:ro" \
   "$image" dbus-run-session -- bash app/e2e/in-container.sh scenarios

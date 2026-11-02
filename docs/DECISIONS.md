@@ -143,6 +143,19 @@ est majoritairement écrit par Claude et relu par le mainteneur.
   - L'objectif des 200 ms repose sur des index composites et des
     conversations précalculées.
 
+- **Mise en œuvre (phase 5, 2026-11-02)** : conversations précalculées
+  (migration 3). Le rattachement d'un message est décidé à l'insertion
+  par le domaine (`conversation::assign`, version incrémentale de JWZ :
+  identifiants connus par conversation, fusion, sujet en dernier recours
+  pour une réponse seulement, dans une fenêtre de 31 jours) ; les agrégats
+  par dossier (`conversation_mailboxes`, index par dossier et par rôle
+  pour la boîte unifiée) sont tenus par des déclencheurs SQLite, quel que
+  soit le chemin d'écriture. Une propriété vérifie que la version
+  incrémentale converge vers JWZ quel que soit l'ordre d'arrivée. Une
+  conversation n'est jamais scindée quand un message qui la reliait
+  disparaît. Mesure (bench, 50k messages) : première page de
+  conversations ≈ 0,3 ms, boîte unifiée ≈ 0,3 ms.
+
 ## ADR-004 : rendu sécurisé du HTML des mails (« A+ »)
 
 - **Statut** : Acceptée (2026-11-01)
@@ -173,6 +186,46 @@ est majoritairement écrit par Claude et relu par le mainteneur.
     aucun script du mail exécuté, IPC Tauri inaccessible depuis
     `mailview://`. Si WebKitGTK se comporte différemment : repli
     documenté vers A, après validation du mainteneur.
+
+- **Mise en œuvre (phase 5, 2026-11-02)** :
+  - Adresses des protocoles selon la plateforme : `scheme://localhost/`
+    sous Linux (WebKitGTK), `http://scheme.localhost/` sous Windows
+    (WebView2) ; la CSP du document et celle de la fenêtre principale
+    (`frame-src`) couvrent les deux formes.
+  - L'agent (`crates/adapters/render/src/agent.js`) est embarqué tel quel ;
+    son empreinte SHA-256 est calculée par `build.rs` et vérifiée par un
+    test indépendant. CSP du document : `default-src 'none'`, agent par
+    empreinte, `style-src 'unsafe-inline'`, images `mailpart:`,
+    `remote-img:` et `data:` seulement, `form-action`, `base-uri`,
+    `connect-src`, `frame-src`… à `'none'`.
+  - Le CSS des mails est assaini en plus de la CSP (défense en
+    profondeur) : échappements résolus, `@import` supprimé, `url()`
+    externes retirées.
+  - `remote-img://<message>/<index>` : l'index renvoie à la liste
+    d'adresses établie par le dernier rendu (le mail ne peut pas désigner
+    une adresse arbitraire) ; l'autorisation de l'expéditeur est revérifiée
+    à chaque image. Le proxy n'accepte que des adresses publiques
+    (résolution DNS filtrée, adresses IP littérales et redirections
+    vérifiées) : un mail ne peut pas faire sonder le réseau local.
+  - L'autorisation porte sur l'adresse `From`, falsifiable : elle ne
+    protège que contre le pistage, les images passant toujours par le
+    proxy sans cookies ni `Referer`.
+  - Ouverture des liens et des pièces jointes : crate `open` (xdg-open,
+    ShellExecute) appelé depuis Rust. `tauri-plugin-opener` est écarté car
+    il tire zbus 5 (RUSTSEC-2026-0370 à 0372, voir `deny.toml`). Sélecteur
+    de dossier : `tauri-plugin-dialog`, appelé depuis Rust seulement
+    (aucune permission accordée à l'interface).
+  - Pièces jointes : écriture par création exclusive dans le dossier
+    choisi (jamais d'écrasement ni de lien suivi), nom assaini par le
+    domaine ; les types exécutables ou à macros ne s'ouvrent pas, ils
+    s'enregistrent seulement. Les pièces ouvertes sont écrites dans un
+    dossier privé du cache de l'application.
+  - Messages partiels (phase 4) : chaque partie est téléchargée avec ses
+    en-têtes MIME (`BODY.PEEK[n.MIME]`), ce qui permet de rendre le corps
+    et d'extraire une pièce jointe sans le message complet ; les parties
+    différées sont téléchargées à la demande par la connexion de
+    commandes de l'acteur du compte.
+  - Résultats des tests end-to-end sous WebKitGTK : voir PLAN.md, phase 5.
 
 ## ADR-005 : interface utilisateur
 

@@ -9,6 +9,8 @@
 #   certificats autosignés générés pour l'occasion.
 # - Lance les scénarios sur ce réseau interne (dépôt monté en lecture
 #   seule), avec Xvfb, D-Bus et GNOME Keyring.
+# - Démarre aussi un serveur canari (canary.norelly.test, e2e/canary.mjs) :
+#   les scénarios de lecture vérifient qu'il ne reçoit aucune requête.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 root=$(pwd)
@@ -24,7 +26,7 @@ mailpit_image="axllent/mailpit:v1.33.0@sha256:9b3a463be15354c0f0eba91697d80e3e0d
 workdir=$(mktemp -d)
 
 cleanup() {
-  docker rm -f "$run_id-imap" "$run_id-smtp" >/dev/null 2>&1 || true
+  docker rm -f "$run_id-imap" "$run_id-smtp" "$run_id-canary" >/dev/null 2>&1 || true
   docker network rm "$network" >/dev/null 2>&1 || true
   rm -rf "$workdir"
 }
@@ -65,6 +67,11 @@ docker run -d --name "$run_id-smtp" --network "$network" --network-alias smtp.no
   -v "$workdir/smtp-auth:/certs/auth:ro" \
   "$mailpit_image" >/dev/null
 
+# Serveur canari : toute connexion reçue est comptée (lue par les scénarios).
+docker run -d --name "$run_id-canary" --network "$network" --network-alias canary.norelly.test \
+  -v "$root/app/e2e/canary.mjs:/canary.mjs:ro" \
+  "$image" node /canary.mjs >/dev/null
+
 mkdir -p "$cache/target" "$cache/cargo" "$cache/home"
 # Le cache n'est jamais placé dans le PATH : un binaire déposé là par un
 # build ne peut pas remplacer pnpm ou cargo lors d'une exécution suivante.
@@ -99,5 +106,6 @@ docker run "${common[@]}" --network "$network" \
   --tmpfs /tmp/home:exec,mode=1777 -e HOME=/tmp/home \
   -v "$workdir/passwd:/etc/passwd:ro" -v "$workdir/group:/etc/group:ro" \
   -e NORELLY_E2E_PASSWORD="$password" \
+  -e NORELLY_E2E_CANARY="http://canary.norelly.test:8080" \
   -v "$root:/work:ro" \
   "$image" dbus-run-session -- bash app/e2e/in-container.sh scenarios

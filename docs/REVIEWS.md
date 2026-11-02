@@ -7,6 +7,101 @@ accepté (justification) ou reporté (phase).
 
 ---
 
+# Revue sécurité : phase 6, actions et hors ligne (2026-11-02)
+
+Périmètre : `git diff origin/master...HEAD` sur `phase-6/actions` :
+- i18n Paraglide (ADR-011) ;
+- contrat IPC en codes (`ipc.rs`, `errors.ts`) ;
+- domaine `actions`, ports `RemoteMailboxSession` et `PendingOpStore` ;
+- `imap` (`session.rs`, `lib.rs`), `sqlite` (`actions.rs`, migration 0004,
+  filtres de visibilité) ;
+- application (`actions.rs`, `account_actor.rs`), commandes Tauri
+  (`actions.rs`) et interface (actions, annulation, `FolderPicker`,
+  `ActionNotice`).
+
+Bilan : 0 critique, 0 haute, 2 moyennes, 4 basses, 6 points INFO. Les deux
+moyennes sont corrigées ; les basses sont reportées. Aucune injection IMAP
+ni SQL ; aucun secret dans `detail` ; `cargo deny`, `pnpm audit --prod` et
+`check-sql.sh` sans constat.
+
+## [MOYENNE] Opération empoisonnée : une réponse `BAD` au rejeu bloque la synchronisation du compte
+- Seul un refus `NO` abandonnait une opération. Une commande toujours
+  refusée par `BAD`, ou toujours hors délai, faisait échouer le rejeu à
+  chaque reconnexion, avant la synchronisation, qui n'avait donc plus
+  jamais lieu.
+- Statut : **corrigé** :
+  - colonne `pending_ops.attempts`, incrémentée avant tout envoi au
+    serveur (`PendingOpStore::claim`) ;
+  - au-delà de `MAX_REPLAY_ATTEMPTS` (5), l'opération est abandonnée
+    (`Conflict::TooManyAttempts`), l'état local est rétabli et la
+    boîte est relue ;
+  - test `an_op_refused_forever_is_dropped_after_too_many_attempts`.
+
+## [MOYENNE] Annulation concurrente du rejeu : suppression définitive annoncée « annulée »
+- `undo_actions` (et la fusion des bascules) pouvait retirer une opération
+  pendant que l'acteur l'envoyait au serveur : le message réapparaissait,
+  « Action annulée » s'affichait, mais l'`EXPUNGE` avait lieu.
+- Statut : **corrigé** :
+  - le rejeu réserve l'opération avant tout envoi
+    (`pending_ops.claimed`, `claim`) ;
+  - l'annulation par l'utilisateur et la fusion passent par `cancel`, qui
+    ne touche qu'une opération non réservée (sinon « trop tard ») ; une
+    bascule inverse sur une opération réservée est enregistrée à la suite ;
+  - l'interface oublie la dernière action à la fin de la fenêtre
+    d'annulation ;
+  - tests `undo_during_replay_is_refused`, contrat `PendingOpStore`
+    (réservation, `cancel`) et test front de la fenêtre.
+
+## [BASSE] `hostile_message_sql.rs` non étendu à la phase 6
+- Noms de boîte copiés dans `pending_ops.mailbox`/`target`, mots-clés relus
+  par `action_target` et `action_settings` ne sont pas couverts de bout en
+  bout par le test du message piégé (seulement par `check-sql.sh` et le
+  contrat).
+- Statut : **reporté** (phase 7, avec les nouvelles écritures des
+  brouillons).
+
+## [BASSE] Fenêtre de concurrence du garde-fou `EXPUNGE` sans UIDPLUS
+- Entre `UID SEARCH DELETED` et `EXPUNGE`, un autre client peut poser
+  `\Deleted` sur un message, qui part aussi. Aucune opération atomique
+  n'existe sans UIDPLUS ; les deux commandes s'enchaînent déjà sans autre
+  commande entre elles.
+- Statut : **reporté** (phase 7) : compter les réponses `* n EXPUNGE`,
+  journaliser et resynchroniser si elles dépassent l'attendu ; documenter
+  la limite dans `expunge_is_safe`.
+
+## [BASSE] Commandes IPC accordées sans manifeste applicatif
+- `perform_action`, `undo_actions` et `set_archive_folder` sont
+  destructrices et ne sont pas restreintes à la fenêtre `main`.
+  Aujourd'hui, la sandbox opaque de `mailview://` et la CSP empêchent tout
+  accès à l'IPC (test e2e de la phase 5).
+- Statut : **reporté** (constat de la phase 3, phase 10 : revue des
+  capabilities Tauri).
+
+## [BASSE] File `pending_ops` non bornée, fusion quadratique, application partielle
+- La file est relue pour chaque opération planifiée ; chaque `record` est
+  une transaction séparée (une erreur de stockage en cours de boucle laisse
+  une action à moitié appliquée).
+- Statut : **reporté** (phase 7) : lecture unique de la file, `record_all`
+  en une transaction, plafond par compte.
+
+## [INFO] Points relevés sans action immédiate
+- `undo_actions` accepte tout identifiant d'opération en attente : pas de
+  frontière de privilège entre comptes locaux, effet limité à une
+  annulation.
+- Texte rédigé en Rust dans certains `detail` (`commande refusée : …`,
+  `MOVE non annoncé`, `rendu interrompu`) : nettoyé, sans secret ; à
+  ramener au seul texte brut du serveur.
+- Coupure entre `COPY` et `EXPUNGE` : le rejeu suivant recopie (doublon
+  dans la destination, sans perte) ; piste `COPYUID`.
+- Actions sur une conversation bornées à 1000 messages, sans signalement.
+- `ImapConnector::hiding_capabilities` s'applique après authentification :
+  ne peut masquer ni `STARTTLS` ni `LOGINDISABLED`.
+- Dépendances npm i18n : versions figées, licences permissives, aucun
+  script d'installation, greffon chargé localement (pas de téléchargement
+  au build).
+
+---
+
 # Revue sécurité : phase 5, liste, conversations et lecture (2026-11-02)
 
 Périmètre : `git diff master...HEAD` sur `phase-5/lecture` (domaine

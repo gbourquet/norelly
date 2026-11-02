@@ -973,10 +973,24 @@ pub trait PendingOpStore: Send + Sync {
     /// reflète déjà l'action). `false` si elle n'existait plus.
     fn complete(&self, id: PendingOpId) -> impl Future<Output = Result<bool, StoreError>> + Send;
 
-    /// Opération annulée ou abandonnée : retirée de la file et effet local
-    /// inversé ([`crate::actions::revert_effect`]). `false` si elle
-    /// n'existait plus.
+    /// Opération abandonnée par le rejeu (conflit, refus, trop d'essais) :
+    /// retirée de la file et effet local inversé
+    /// ([`crate::actions::revert_effect`]), qu'elle soit réservée ou non.
+    /// `false` si elle n'existait plus.
     fn revert(&self, id: PendingOpId) -> impl Future<Output = Result<bool, StoreError>> + Send;
+
+    /// Annulation par l'utilisateur (ou fusion) : comme
+    /// [`PendingOpStore::revert`], mais seulement si l'opération n'est pas
+    /// réservée par le rejeu (`false` sinon : trop tard).
+    fn cancel(&self, id: PendingOpId) -> impl Future<Output = Result<bool, StoreError>> + Send;
+
+    /// Réserve l'opération pour le rejeu, avant tout envoi au serveur, et
+    /// compte un essai : renvoie le nombre d'essais (celui-ci compris),
+    /// `None` si l'opération n'existe plus.
+    fn claim(
+        &self,
+        id: PendingOpId,
+    ) -> impl Future<Output = Result<Option<u32>, StoreError>> + Send;
 
     /// Réapplique les effets locaux des opérations en attente d'un compte
     /// (après une synchronisation qui a rapporté l'état du serveur).

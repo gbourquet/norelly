@@ -39,6 +39,11 @@ use crate::ports::MessageId;
 /// pendant ce temps sans qu'elle ait touché le serveur.
 pub const UNDO_WINDOW_SECS: i64 = 5;
 
+/// Essais de rejeu d'une opération avant abandon (serveur qui la refuse
+/// toujours par `BAD`, ou délai toujours dépassé) : la file ne bloque
+/// jamais la synchronisation du compte indéfiniment.
+pub const MAX_REPLAY_ATTEMPTS: u32 = 5;
+
 /// Nombre maximal de messages visés par une action (sélection multiple).
 pub const MAX_ACTION_TARGETS: usize = 1000;
 
@@ -457,6 +462,8 @@ pub enum Conflict {
     MessageGone,
     /// Dossier de destination supprimé entre-temps.
     TargetMissing,
+    /// Trop d'essais sans succès ([`MAX_REPLAY_ATTEMPTS`]).
+    TooManyAttempts,
 }
 
 /// Décision de rejeu.

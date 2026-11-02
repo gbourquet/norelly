@@ -1,7 +1,7 @@
 <script lang="ts">
   // Information après une action (« Archivé. Annuler »), annoncée aux
   // lecteurs d'écran ; disparaît d'elle-même.
-  import type { Notice } from "../lib/mail.svelte";
+  import { UNDO_WINDOW_MS, type Notice } from "../lib/mail.svelte";
   import { m } from "../lib/paraglide/messages.js";
 
   interface Props {
@@ -13,12 +13,9 @@
 
   let { notice, canUndo, onUndo, onDismiss }: Props = $props();
 
-  /** Durée d'affichage (la fenêtre d'annulation côté Rust est de 5 s). */
-  const VISIBLE_MS = 5000;
-
   $effect(() => {
     if (notice === null) return;
-    const timer = setTimeout(onDismiss, VISIBLE_MS);
+    const timer = setTimeout(onDismiss, UNDO_WINDOW_MS);
     return () => clearTimeout(timer);
   });
 </script>

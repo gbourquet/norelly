@@ -187,7 +187,22 @@ where
     assert!(flags_of(store, inbox, m1).await?.seen, "effet réappliqué");
     assert_eq!(visible_ids(store, inbox).await?, [m1], "toujours masqué");
 
-    // --- Annulation : effet inversé ---
+    // --- Réservation par le rejeu : plus annulable par l'utilisateur ---
+    assert_eq!(store.claim(id2).await?, Some(1));
+    assert_eq!(store.claim(id2).await?, Some(2), "chaque essai compté");
+    assert!(
+        !store.cancel(id2).await?,
+        "réservée : trop tard pour annuler"
+    );
+    assert_eq!(visible_ids(store, inbox).await?, [m1], "toujours masqué");
+    assert_eq!(
+        store
+            .claim(norelly_domain::ports::PendingOpId::new(999_999).ok_or_else(|| fail("id"))?)
+            .await?,
+        None
+    );
+
+    // --- Abandon par le rejeu : effet inversé, même réservée ---
     assert!(store.revert(id2).await?);
     assert!(!store.revert(id2).await?, "déjà retirée");
     assert_eq!(
@@ -248,7 +263,13 @@ where
         1,
         "masqué exclu"
     );
-    store.revert(hidden).await?;
+    assert!(store.cancel(hidden).await?, "non réservée : annulable");
+    assert!(!store.cancel(hidden).await?, "déjà annulée");
+    assert_eq!(
+        store.conversation_members(conversation).await?.len(),
+        2,
+        "de nouveau visible"
+    );
 
     // --- Dossier de repli d'« archiver » ---
     assert_eq!(store.archive_fallback(account).await?, None);

@@ -9,9 +9,9 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use norelly_domain::account::AccountId;
 use norelly_domain::actions::{
-    ActionError, Coalesce, Conflict, FolderRef, MAX_ACTION_TARGETS, MessageAction, MoveStrategy,
-    OpKind, PendingOp, ReplayDecision, ServerView, StoreOutcome, after_modified, coalesce, decide,
-    expunge_is_safe, expunge_strategy, move_strategy, resolve,
+    ActionError, Coalesce, Conflict, FolderRef, MAX_ACTION_TARGETS, MAX_REPLAY_ATTEMPTS,
+    MessageAction, MoveStrategy, OpKind, PendingOp, ReplayDecision, ServerView, StoreOutcome,
+    after_modified, coalesce, decide, expunge_is_safe, expunge_strategy, move_strategy, resolve,
 };
 use norelly_domain::connection::ConnectionError;
 use norelly_domain::mailbox::{MailboxId, MailboxName, Uid};
@@ -89,8 +89,14 @@ impl<S: PendingOpStore> PerformAction<'_, S> {
             match coalesce(&ops, &op) {
                 Coalesce::Push => report.recorded.push(self.store.record(&op).await?),
                 Coalesce::Cancel(i) => {
-                    if let Some((existing, _)) = queue.get(i) {
-                        self.store.revert(*existing).await?;
+                    // Déjà réservée par le rejeu : trop tard pour fusionner,
+                    // la nouvelle opération est enregistrée à la suite.
+                    let cancelled = match queue.get(i) {
+                        Some((existing, _)) => self.store.cancel(*existing).await?,
+                        None => false,
+                    };
+                    if !cancelled {
+                        report.recorded.push(self.store.record(&op).await?);
                     }
                 }
             }
@@ -102,7 +108,7 @@ impl<S: PendingOpStore> PerformAction<'_, S> {
 
 /// Cas d'usage : annuler des opérations encore en attente (dernière
 /// action). Renvoie le nombre d'opérations annulées ; une opération déjà
-/// rejouée n'est plus annulable.
+/// rejouée, ou en cours de rejeu (réservée), n'est plus annulable.
 #[derive(Debug)]
 pub struct UndoActions<'a, S> {
     pub store: &'a S,
@@ -112,7 +118,7 @@ impl<S: PendingOpStore> UndoActions<'_, S> {
     pub async fn execute(&self, ops: &[PendingOpId]) -> Result<usize, StoreError> {
         let mut undone = 0;
         for id in ops {
-            if self.store.revert(*id).await? {
+            if self.store.cancel(*id).await? {
                 undone += 1;
             }
         }
@@ -157,6 +163,19 @@ impl<S: PendingOpStore> ReplayActions<'_, S> {
         let mut existing: Option<BTreeSet<MailboxName>> = None;
         for (id, op) in self.store.pending(self.account).await? {
             if !op.is_due(now) {
+                continue;
+            }
+            // Réservée avant tout envoi : l'utilisateur ne peut plus
+            // l'annuler, et chaque essai est compté (même si la session
+            // tombe pendant l'envoi).
+            let Some(attempts) = self.store.claim(id).await? else {
+                continue;
+            };
+            if attempts > MAX_REPLAY_ATTEMPTS {
+                tracing::warn!(account = %self.account, attempts, "opération abandonnée après trop d'essais");
+                self.store.revert(id).await?;
+                report.touched.insert(op.mailbox.clone());
+                report.dropped.push((id, Some(Conflict::TooManyAttempts)));
                 continue;
             }
             if matches!(op.kind, OpKind::Move { .. }) && existing.is_none() {

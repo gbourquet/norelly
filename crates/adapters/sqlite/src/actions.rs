@@ -411,6 +411,48 @@ impl PendingOpStore for SqliteMailStore {
             .await
     }
 
+    async fn cancel(&self, id: PendingOpId) -> Result<bool, StoreError> {
+        self.db()
+            .run(move |c| {
+                let tx = c
+                    .transaction_with_behavior(TransactionBehavior::Immediate)
+                    .map_err(store_error)?;
+                let Some(op) = read_op(&tx, id)? else {
+                    return Ok(false);
+                };
+                let n = tx
+                    .execute(
+                        "DELETE FROM pending_ops WHERE id = ?1 AND claimed = 0",
+                        [id.get()],
+                    )
+                    .map_err(store_error)?;
+                if n == 0 {
+                    return Ok(false);
+                }
+                apply_effect(&tx, revert_effect(&op))?;
+                tx.commit().map_err(store_error)?;
+                Ok(true)
+            })
+            .await
+    }
+
+    async fn claim(&self, id: PendingOpId) -> Result<Option<u32>, StoreError> {
+        self.db()
+            .run(move |c| {
+                let attempts: Option<i64> = c
+                    .query_row(
+                        "UPDATE pending_ops SET claimed = 1, attempts = attempts + 1 \
+                         WHERE id = ?1 RETURNING attempts",
+                        [id.get()],
+                        |r| r.get(0),
+                    )
+                    .optional()
+                    .map_err(store_error)?;
+                Ok(attempts.map(|a| u32::try_from(a).unwrap_or(u32::MAX)))
+            })
+            .await
+    }
+
     async fn reapply(&self, account: AccountId) -> Result<(), StoreError> {
         self.db()
             .run(move |c| {

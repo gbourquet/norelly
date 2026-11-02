@@ -370,6 +370,67 @@ async fn concurrent_flag_change_is_detected_and_reapplied() {
 }
 
 #[tokio::test]
+async fn an_op_refused_forever_is_dropped_after_too_many_attempts() {
+    let mut w = world(true, true).await;
+    let m1 = w.id_of("INBOX", 1).await;
+    w.act(&[m1], MessageAction::Archive).await;
+    // Le serveur retire MOVE alors que la session l'annonce encore : la
+    // commande échoue à chaque essai (comme une réponse BAD).
+    w.imap.set_move_extensions(false, true);
+    for attempt in 1..=MAX_REPLAY_ATTEMPTS {
+        let failure = ReplayActions {
+            account: account(),
+            store: &w.store,
+        }
+        .execute(&mut w.session, LATER)
+        .await;
+        assert!(failure.is_err(), "essai {attempt} : {failure:?}");
+        // Nouvelle session qui annonce encore MOVE (capacités lues à
+        // l'ouverture), puis refus de la commande.
+        w.imap.set_move_extensions(true, true);
+        w.session = w.imap.session().unwrap_or_else(|e| panic!("{e}"));
+        w.imap.set_move_extensions(false, true);
+    }
+    let report = w.replay(LATER).await;
+    assert_eq!(report.dropped.len(), 1);
+    assert_eq!(report.dropped[0].1, Some(Conflict::TooManyAttempts));
+    assert_eq!(w.pending().await, 0, "la file ne bloque plus le compte");
+    assert_eq!(w.visible("INBOX").await.len(), 3, "état local rétabli");
+}
+
+#[tokio::test]
+async fn undo_during_replay_is_refused() {
+    let w = world(true, true).await;
+    let m1 = w.id_of("INBOX", 1).await;
+    let report = w.act(&[m1], MessageAction::Delete).await;
+    // Le rejeu a réservé l'opération (commandes en cours d'envoi).
+    w.store
+        .claim(report.recorded[0])
+        .await
+        .unwrap_or_else(|e| panic!("{e}"));
+    let undone = UndoActions { store: &w.store }
+        .execute(&report.recorded)
+        .await
+        .unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(
+        undone, 0,
+        "trop tard : ne pas annoncer une annulation fictive"
+    );
+    assert_eq!(w.visible("INBOX").await.len(), 2, "toujours masqué");
+    // Une bascule inverse ne fusionne pas avec une opération réservée :
+    // elle est enregistrée à la suite.
+    let m2 = w.id_of("INBOX", 2).await;
+    let flag = w.act(&[m2], MessageAction::MarkFlagged(true)).await;
+    w.store
+        .claim(flag.recorded[0])
+        .await
+        .unwrap_or_else(|e| panic!("{e}"));
+    let back = w.act(&[m2], MessageAction::MarkFlagged(false)).await;
+    assert_eq!(back.recorded.len(), 1);
+    assert_eq!(w.pending().await, 3);
+}
+
+#[tokio::test]
 async fn connection_loss_keeps_the_queue_for_the_next_session() {
     let mut w = world(true, true).await;
     let m1 = w.id_of("INBOX", 1).await;

@@ -97,6 +97,12 @@ CREATE TABLE pending_ops (
     -- Déplacement : boîte de destination.
     target          TEXT,
     not_before      INTEGER NOT NULL,
+    -- Essais de rejeu (incrémenté avant tout envoi au serveur) ; au-delà
+    -- d'un seuil, l'opération est abandonnée.
+    attempts        INTEGER NOT NULL DEFAULT 0 CHECK (attempts >= 0),
+    -- Réservée par le rejeu : l'état du serveur est incertain, l'utilisateur
+    -- ne peut plus l'annuler.
+    claimed         INTEGER NOT NULL DEFAULT 0 CHECK (claimed IN (0, 1)),
     CHECK ((kind = 'flag') = (flag IS NOT NULL AND value IS NOT NULL AND previous IS NOT NULL)),
     CHECK ((kind = 'move') = (target IS NOT NULL))
 ) STRICT;

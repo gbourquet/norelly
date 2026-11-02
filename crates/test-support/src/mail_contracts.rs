@@ -477,6 +477,8 @@ struct MemState {
     messages: BTreeMap<MailboxId, BTreeMap<Uid, MemMessage>>,
     next_op: i64,
     ops: BTreeMap<PendingOpId, PendingOp>,
+    /// Essais de rejeu des opérations réservées.
+    claimed: BTreeMap<PendingOpId, u32>,
     archive: BTreeMap<AccountId, MailboxId>,
 }
 
@@ -1041,16 +1043,41 @@ impl PendingOpStore for InMemoryMailStore {
     }
 
     async fn complete(&self, id: PendingOpId) -> Result<bool, StoreError> {
-        Ok(lock(&self.state).ops.remove(&id).is_some())
+        let mut s = lock(&self.state);
+        s.claimed.remove(&id);
+        Ok(s.ops.remove(&id).is_some())
     }
 
     async fn revert(&self, id: PendingOpId) -> Result<bool, StoreError> {
         let mut s = lock(&self.state);
+        s.claimed.remove(&id);
         let Some(op) = s.ops.remove(&id) else {
             return Ok(false);
         };
         s.apply(revert_effect(&op));
         Ok(true)
+    }
+
+    async fn cancel(&self, id: PendingOpId) -> Result<bool, StoreError> {
+        let mut s = lock(&self.state);
+        if s.claimed.contains_key(&id) {
+            return Ok(false);
+        }
+        let Some(op) = s.ops.remove(&id) else {
+            return Ok(false);
+        };
+        s.apply(revert_effect(&op));
+        Ok(true)
+    }
+
+    async fn claim(&self, id: PendingOpId) -> Result<Option<u32>, StoreError> {
+        let mut s = lock(&self.state);
+        if !s.ops.contains_key(&id) {
+            return Ok(None);
+        }
+        let attempts = s.claimed.entry(id).or_insert(0);
+        *attempts += 1;
+        Ok(Some(*attempts))
     }
 
     async fn reapply(&self, account: AccountId) -> Result<(), StoreError> {

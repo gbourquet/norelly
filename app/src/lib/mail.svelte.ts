@@ -16,6 +16,9 @@ import type {
 import { errorText, failureText, withDetail } from "./errors";
 import { m } from "./paraglide/messages.js";
 
+/** Fenêtre d'annulation d'une action (UNDO_WINDOW_SECS côté Rust). */
+export const UNDO_WINDOW_MS = 5000;
+
 /** Taille d'une page demandée au Rust. */
 export const PAGE_SIZE = 100;
 
@@ -75,6 +78,7 @@ export class MailState {
   /** Opérations de la dernière action, annulables tant qu'elles n'ont
    * pas été rejouées sur le serveur. */
   lastAction = $state<number[] | null>(null);
+  #actionGeneration = 0;
   notice = $state<Notice | null>(null);
 
   readonly selected = $derived(this.conversations[this.selectedIndex] ?? null);
@@ -250,6 +254,12 @@ export class MailState {
       } else {
         this.lastAction = result.ops;
         this.notice = { text: done, undoable: true };
+        // Fin de la fenêtre d'annulation : « annuler » n'est plus proposé
+        // (le Rust refuserait de toute façon une opération déjà réservée).
+        const generation = ++this.#actionGeneration;
+        setTimeout(() => {
+          if (this.#actionGeneration === generation) this.lastAction = null;
+        }, UNDO_WINDOW_MS);
       }
       const opened = this.opened;
       if (removesFromScope(action) && opened !== null && targets.some((t) => t.id === opened.id)) {

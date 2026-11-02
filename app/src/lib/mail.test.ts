@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { ActionDto, ConversationDto, ScopeDto } from "./ipc/api";
-import { MailState, PAGE_SIZE, UNIFIED_INBOX, type MailApi } from "./mail.svelte";
+import { MailState, PAGE_SIZE, UNDO_WINDOW_MS, UNIFIED_INBOX, type MailApi } from "./mail.svelte";
 import { IpcFailure } from "./errors";
 
 function conversation(id: number, account = 1): ConversationDto {
@@ -178,5 +178,20 @@ describe("état de la lecture", () => {
       text: "Aucun dossier Corbeille sur ce compte.",
       undoable: false,
     });
+  });
+
+  it("« annuler » n'est plus proposé après la fenêtre d'annulation", async () => {
+    vi.useFakeTimers();
+    try {
+      const mail = new MailState(fakeApi(3));
+      await mail.show(UNIFIED_INBOX);
+      mail.select(0);
+      await mail.act({ kind: "archive" }, "Archivé.");
+      expect(mail.lastAction).not.toBeNull();
+      vi.advanceTimersByTime(UNDO_WINDOW_MS);
+      expect(mail.lastAction).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

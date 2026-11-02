@@ -228,6 +228,13 @@ est majoritairement écrit par Claude et relu par le mainteneur.
     - Stalwart dans le job nocturne, après le MVP ;
   - **tests de contrat** : chaque port est testé contre son faux en
     mémoire et contre son implémentation réelle.
+- **Mise en œuvre de l'end-to-end (phase 3, 2026-11-02)** : WebKitWebDriver
+  n'est pas fourni par toutes les distributions (absent d'Arch, par
+  exemple). `pnpm -C app e2e` (`app/e2e/run.sh`) exécute donc tauri-driver
+  et WebdriverIO dans une image Ubuntu 24.04 (`app/e2e/Dockerfile`), avec
+  Xvfb, D-Bus et GNOME Keyring (vrai Secret Service), contre Dovecot et
+  Mailpit sur un réseau Docker isolé, avec des certificats autosignés
+  générés à chaque exécution.
 - **Conséquences** :
   - Tests d'intégration uniquement sous Linux (les runners Windows
     n'exécutent pas de conteneurs Linux).

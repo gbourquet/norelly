@@ -93,20 +93,20 @@ Commandes de référence (détail dans `scripts/check.sh`) :
 - [x] Tests : `wiremock` pour l'autoconfig, résolveur simulé, sondage contre le faux serveur ; XML hostile ou malformé sans panique
 - [x] Application : `DiscoverSettings`, `AddAccount` (découverte, test de connexion, stockage du secret dans le trousseau, persistance du compte), `RemoveAccount` (supprime aussi le secret et les données locales)
 - [x] Persistance minimale des comptes (premier schéma SQLite et migration), avec un test de contrat `AccountRepository` (mémoire et SQLite)
-- [ ] `tauri-specta` : génération des types TS ; test CI qui échoue si les bindings générés sont périmés
-- [ ] Interface :
+- [x] `tauri-specta` : génération des types TS ; test CI qui échoue si les bindings générés sont périmés
+- [x] Interface :
   - jetons de design (`tokens.css`, clair et sombre) ;
   - mise en page en 3 panneaux redimensionnables ;
   - police système, icônes Lucide
-- [ ] Interface : registre de commandes central, avec des tests vitest (enregistrement, conflits de raccourcis, conditions d'activation)
-- [ ] Interface : palette Ctrl+K (bits-ui Command) et aide des raccourcis (`?`)
-- [ ] Interface, parcours d'ajout de compte (adresse + mot de passe) :
+- [x] Interface : registre de commandes central, avec des tests vitest (enregistrement, conflits de raccourcis, conditions d'activation)
+- [x] Interface : palette Ctrl+K (bits-ui Command) et aide des raccourcis (`?`)
+- [x] Interface, parcours d'ajout de compte (adresse + mot de passe) :
   - progression de la découverte ;
   - écran d'avertissement de certificat (empreinte, raison, « faire confiance à ce serveur ») ;
   - avertissement en cas de clair ;
   - saisie manuelle en dernier recours
-- [ ] Interface : suppression de compte avec confirmation
-- [ ] Test end-to-end (tauri-driver) : ajout d'un compte Dovecot de test de bout en bout
+- [x] Interface : suppression de compte avec confirmation
+- [x] Test end-to-end (tauri-driver) : ajout d'un compte Dovecot de test de bout en bout
 - [x] Revue security-reviewer, consignée dans REVIEWS.md (0 critique, 0 haute ; moyennes corrigées)
 
 **Condition de fin** : `./scripts/check.sh full && pnpm -C app e2e` passent sans erreur.

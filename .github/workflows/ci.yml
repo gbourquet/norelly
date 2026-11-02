@@ -43,6 +43,8 @@ jobs:
           cache-dependency-path: app/pnpm-lock.yaml
       - run: pnpm -C app install --frozen-lockfile
       - run: ./scripts/check.sh full
+      - name: Tests end-to-end (tauri-driver, conteneur Ubuntu)
+        run: pnpm -C app e2e
 
   windows:
     name: Windows (check rapide + build)

@@ -13,6 +13,11 @@ export default ts.config(
     languageOptions: { globals: { ...globals.browser } },
   },
   {
+    // Tests end-to-end : Node.js et Mocha (WebdriverIO).
+    files: ["e2e/**/*.mjs"],
+    languageOptions: { globals: { ...globals.node, ...globals.mocha } },
+  },
+  {
     files: ["**/*.svelte", "**/*.svelte.ts"],
     languageOptions: {
       parserOptions: {

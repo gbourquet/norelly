@@ -11,7 +11,8 @@
     "lint": "prettier --check . && eslint .",
     "format": "prettier --write .",
     "test": "vitest run",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "e2e": "bash e2e/run.sh"
   },
   "dependencies": {
     "@internationalized/date": "3.12.4",

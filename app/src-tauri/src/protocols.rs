@@ -81,7 +81,7 @@ async fn mailview<R: Runtime>(app: &AppHandle<R>, request: Request<Vec<u8>>) -> 
         Ok(Some(rendered)) => ok(
             "text/html; charset=utf-8",
             &norelly_render::content_security_policy(&state.mail.protocols),
-            rendered.document.into_bytes(),
+            rendered.document.clone().into_bytes(),
         ),
         Ok(None) => status(StatusCode::NOT_FOUND),
         Err(e) => {
@@ -100,7 +100,7 @@ async fn mailpart<R: Runtime>(app: &AppHandle<R>, request: Request<Vec<u8>>) -> 
     let (Some(id), Some(path)) = (message_of(id), PartPath::parse(path)) else {
         return status(StatusCode::NOT_FOUND);
     };
-    match state.mail.part(id, &path).await {
+    match state.mail.inline_part(id, &path).await {
         Ok(Some(content)) => match accepted_type(Some(&content.media_type)) {
             Some(media_type) => ok(media_type, NO_CONTENT_CSP, content.bytes),
             // Seules les images sont servies dans le rendu.
@@ -183,6 +183,35 @@ fn serve<R: Runtime>(
     });
 }
 
+/// Vrai si la webview peut naviguer vers `url` : l'interface elle-même et
+/// le rendu des messages seulement. Toute autre navigation (lien déposé
+/// sur la fenêtre, redirection) est refusée ; les liens passent par
+/// `open_external`.
+#[must_use]
+pub fn navigation_allowed(url: &url::Url) -> bool {
+    match (url.scheme(), url.host_str()) {
+        ("tauri", Some("localhost")) | ("mailview", Some("localhost")) => true,
+        ("http" | "https", Some("tauri.localhost" | "mailview.localhost")) => true,
+        // Serveur de développement Vite (pnpm tauri dev).
+        ("http", Some("localhost")) => cfg!(debug_assertions) && url.port() == Some(1420),
+        ("about", _) => url.as_str() == "about:blank",
+        _ => false,
+    }
+}
+
+/// Garde de navigation de la webview (greffon interne).
+pub fn navigation_guard<R: Runtime>() -> tauri::plugin::TauriPlugin<R> {
+    tauri::plugin::Builder::new("navigation-guard")
+        .on_navigation(|_webview, url| {
+            let allowed = navigation_allowed(url);
+            if !allowed {
+                tracing::warn!(scheme = url.scheme(), "navigation refusée");
+            }
+            allowed
+        })
+        .build()
+}
+
 /// Enregistre les trois protocoles.
 pub fn register<R: Runtime>(builder: tauri::Builder<R>) -> tauri::Builder<R> {
     builder
@@ -206,6 +235,25 @@ pub fn register<R: Runtime>(builder: tauri::Builder<R>) -> tauri::Builder<R> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_the_interface_and_mail_views_can_be_navigated_to() {
+        let ok =
+            |u: &str| navigation_allowed(&url::Url::parse(u).unwrap_or_else(|e| panic!("{e}")));
+        assert!(ok("tauri://localhost/index.html"));
+        assert!(ok("http://tauri.localhost/"));
+        assert!(ok("mailview://localhost/12"));
+        for bad in [
+            "https://hameconnage.example/",
+            "http://localhost:8080/",
+            "file:///etc/passwd",
+            "javascript:alert(1)",
+            "data:text/html,x",
+            "mailpart://localhost/1/2",
+        ] {
+            assert!(!ok(bad), "{bad}");
+        }
+    }
 
     #[test]
     fn message_ids_in_paths_are_strict() {

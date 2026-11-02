@@ -7,6 +7,97 @@ accepté (justification) ou reporté (phase).
 
 ---
 
+# Revue sécurité : phase 5, liste, conversations et lecture (2026-11-02)
+
+Périmètre : `git diff master...HEAD` sur `phase-5/lecture` (domaine
+`conversation`/`reading`, `sqlite` migration 0003/`conversations`/
+`preferences`, `render` (ammonia, CSS, MIME, agent, CSP), `imap` sections
+`n.MIME`, `application` lecture et acteur, `app/src-tauri` protocoles,
+proxy d'images, commandes, front `agent.ts`/`MessageBody.svelte`, e2e).
+Bilan : 0 critique, 1 haute, 3 moyennes, 5 basses, plus des points INFO.
+Haute et moyennes corrigées ; basses corrigées sauf une (e2e, en partie).
+
+## [HAUTE] Pièces jointes écrites sans Mark-of-the-Web (Windows)
+- Fichiers enregistrés ou ouverts sans flux `Zone.Identifier` : SmartScreen,
+  Mode protégé d'Office et blocage des macros venues d'Internet contournés.
+- Statut : **corrigé** : `reading.rs::mark_from_internet` écrit
+  `[ZoneTransfer] ZoneId=3` après chaque écriture (enregistrement et
+  ouverture) ; test `#[cfg(windows)]` qui relit le flux.
+
+## [MOYENNE] `<style>` avec attribut non assaini ; protocoles adressables pour tout message
+- `<style class=x>` sortait d'ammonia avec son attribut et échappait à
+  `sanitize_css` ; `mailpart://<autre message>/<partie>` déclenchait des
+  téléchargements IMAP (déni de service réseau ; la CSP empêchait toute
+  exfiltration).
+- Statut : **corrigé** : aucun attribut sur `<style>` (attribute_filter) et
+  repérage de toute balise `<style …>` ; `mailpart://` ne sert plus que
+  les parties à `Content-ID` du dernier rendu du message, sans jamais
+  télécharger (`MailServices::inline_part`) ; `remote-img://` lit la liste
+  du rendu en cache. Vecteur `56-style-attribut.html` et test unitaire.
+
+## [MOYENNE] Déni de service par HTML ou CSS pathologique
+- Analyse quadratique selon la profondeur d'imbrication (80 000 `<div>` :
+  34 s), `remove_at_rules` quadratique, rendu sur les workers async, fait
+  deux fois par ouverture.
+- Statut : **corrigé** : HTML borné à 2 Mio, profondeur estimée par un
+  pré-scan linéaire (au-delà de 512 : message « trop complexe ») ;
+  `remove_at_rules` en un passage ; rendu dans `spawn_blocking` avec délai
+  de 10 s et cache par (message, images, texte brut). Tests de durée
+  (80 000 `<div>`, 60 000 `@import;`).
+
+## [MOYENNE] Liste noire « exécutables » incomplète
+- `.html`, `.svg`, `.doc`, `.xls`, `.website`, `.search-ms`… s'ouvraient
+  directement.
+- Statut : **corrigé** : liste blanche des types ouvrables
+  (`OPENABLE_EXTENSIONS` : PDF, images matricielles, texte, OOXML/ODF sans
+  macros, audio, vidéo) ; tout le reste s'enregistre seulement. Tests
+  ajoutés.
+
+## [BASSE] Proxy d'images : variables `HTTP(S)_PROXY` honorées
+- Statut : **corrigé** : `.no_proxy()`.
+
+## [BASSE] Paramètres `mailto:` non filtrés (`attach=`)
+- Statut : **corrigé** : seuls `to`, `cc`, `bcc`, `subject`, `body`,
+  `in-reply-to` ; `LinkError::MailtoParameter`, tests.
+
+## [BASSE] Aucun garde de navigation de premier niveau
+- Statut : **corrigé** : greffon interne `navigation-guard`
+  (`protocols::navigation_allowed`) : interface, `mailview://` et serveur
+  Vite en debug seulement ; test unitaire.
+
+## [BASSE] `hostile_message_sql.rs` non étendu à la phase 5
+- Statut : **corrigé** : conversations (dossier et boîte unifiée),
+  messages d'une conversation et préférences relus avec les charges ;
+  schéma et intégrité revérifiés.
+
+## [BASSE] Lacunes des tests end-to-end de sécurité
+- Statut : **reporté en partie (phase 9, finitions)** : la CSP du document
+  est vérifiée par test unitaire, et l'e2e vérifie l'effet (zéro requête,
+  un seul script) ; restent à ajouter un scénario « expéditeur autorisé »
+  (proxy observé par le canari) et un vecteur qui contourne volontairement
+  l'assainisseur. Pas de WebView2 en CI (ADR-007).
+
+## [INFO]
+- `is_public_address` complété (`fec0::/10`, `2001::/32`, `192.88.99.0/24`).
+- Noms réservés Windows en exposant (`COM¹`…) : à ajouter si besoin.
+- `thread()` (JWZ complet) est récursif dans `prune` : utilisé en test
+  seulement ; à rendre itératif avant tout usage en production.
+- Intrusion dans un fil (JWZ) : comportement attendu ; indication visuelle
+  d'un nouvel expéditeur envisageable.
+- Sections IMAP non demandées acceptées dans la réponse : à filtrer.
+- Extension masquée par l'ellipse CSS d'un nom long ; dossier
+  `cache/pieces-jointes` jamais purgé (à traiter en phase 9).
+- Dépendances : `ammonia` 4.2.4, `sha2`, `open` 5.4.5, `url`,
+  `tauri-plugin-dialog` 2.6 (sans zbus, aucune permission côté interface),
+  `@tanstack/virtual-core` 3.19.10.
+
+## Résultats outils
+- cargo deny : **ok** (advisories, bans, licenses, sources).
+- pnpm audit --prod : aucune vulnérabilité connue.
+- scripts/check-sql.sh : requêtes paramétrées uniquement.
+
+---
+
 # Revue sécurité : phase 4, stockage et synchronisation (2026-11-02)
 
 Périmètre : `git diff master...HEAD` sur `phase-4/sync` (domaine

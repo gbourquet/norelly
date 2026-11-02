@@ -90,17 +90,35 @@ fn normalize(css: &str) -> String {
     out.replace('\\', " ")
 }
 
-fn remove_at_rules(mut css: String) -> String {
+/// Retire les règles `@import`, `@charset`, `@namespace` (jusqu'au `;`),
+/// en un seul passage ; recommence tant qu'il en reste (une règle peut en
+/// former une autre une fois retirée), chaque tour raccourcissant le texte.
+fn remove_at_rules(css: String) -> String {
+    let mut current = css;
     loop {
-        let lower = css.to_ascii_lowercase();
-        let Some(start) = BLOCKED_AT_RULES.iter().filter_map(|r| lower.find(r)).min() else {
-            return css;
-        };
-        let end = lower
-            .get(start..)
-            .and_then(|rest| rest.find(';'))
-            .map_or(css.len(), |i| start + i + 1);
-        css.replace_range(start..end, " ");
+        let lower = current.to_ascii_lowercase();
+        let mut out = String::with_capacity(current.len());
+        let mut i = 0;
+        let mut removed = false;
+        while i < current.len() {
+            let rest = lower.get(i..).unwrap_or_default();
+            if rest.starts_with('@') && BLOCKED_AT_RULES.iter().any(|r| rest.starts_with(r)) {
+                let end = rest.find(';').map_or(current.len(), |j| i + j + 1);
+                out.push(' ');
+                i = end;
+                removed = true;
+                continue;
+            }
+            let Some(c) = current.get(i..).and_then(|r| r.chars().next()) else {
+                break;
+            };
+            out.push(c);
+            i += c.len_utf8();
+        }
+        if !removed {
+            return out;
+        }
+        current = out;
     }
 }
 
@@ -327,6 +345,14 @@ mod tests {
         let css = "@media (max-width: 600px) { .col { width: 100% !important; } } \
                    td { font-family: 'Segoe UI', sans-serif; color: #333; }";
         assert_eq!(clean(css), css);
+    }
+
+    #[test]
+    fn many_at_rules_are_removed_in_linear_time() {
+        let css = "@import;".repeat(60_000);
+        let started = std::time::Instant::now();
+        assert!(!clean(&css).contains("@import"));
+        assert!(started.elapsed() < std::time::Duration::from_secs(2));
     }
 
     #[test]

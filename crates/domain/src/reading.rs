@@ -31,6 +31,8 @@ pub enum LinkError {
     MissingHost,
     #[error("lien avec des identifiants (user@hôte), refusé")]
     Credentials,
+    #[error("paramètre de lien mailto non autorisé")]
+    MailtoParameter,
 }
 
 /// Schéma d'un lien autorisé.
@@ -91,6 +93,19 @@ impl ExternalLink {
             LinkScheme::Mailto => {
                 if rest.is_empty() {
                     return Err(LinkError::MissingHost);
+                }
+                // Seuls les champs usuels : pas de pièce jointe (`attach=`)
+                // ni d'en-tête arbitraire confiés au client du système.
+                if let Some((_, query)) = rest.split_once('?') {
+                    let allowed = query.split('&').all(|pair| {
+                        let name = pair.split('=').next().unwrap_or_default();
+                        ["to", "cc", "bcc", "subject", "body", "in-reply-to"]
+                            .iter()
+                            .any(|a| name.eq_ignore_ascii_case(a))
+                    });
+                    if !allowed {
+                        return Err(LinkError::MailtoParameter);
+                    }
                 }
             }
         }
@@ -177,6 +192,7 @@ pub fn is_public_address(ip: std::net::IpAddr) -> bool {
                 || a == 0
                 || (a == 100 && (64..128).contains(&b))
                 || (a == 192 && b == 0 && c == 0)
+                || (a == 192 && b == 88 && c == 99)
                 || (a == 198 && (b == 18 || b == 19))
                 || a >= 240)
         }
@@ -190,6 +206,8 @@ pub fn is_public_address(ip: std::net::IpAddr) -> bool {
                 || v6.is_multicast()
                 || (s[0] & 0xfe00) == 0xfc00
                 || (s[0] & 0xffc0) == 0xfe80
+                || (s[0] & 0xffc0) == 0xfec0
+                || (s[0] == 0x2001 && s[1] == 0)
                 || (s[0] == 0x2001 && s[1] == 0x0db8)
                 || (s[0] == 0x0064 && s[1] == 0xff9b)
                 || (s[0] == 0x2002)
@@ -293,96 +311,24 @@ pub fn numbered_file_name(name: &str, n: u32) -> String {
     }
 }
 
-/// Extensions que le système exécuterait (ou interpréterait) à
-/// l'ouverture : une telle pièce jointe ne s'ouvre pas directement, elle
-/// peut seulement être enregistrée.
-const EXECUTABLE_EXTENSIONS: &[&str] = &[
-    "exe",
-    "com",
-    "bat",
-    "cmd",
-    "scr",
-    "pif",
-    "msi",
-    "msp",
-    "mst",
-    "cpl",
-    "dll",
-    "sys",
-    "hta",
-    "js",
-    "jse",
-    "vbs",
-    "vbe",
-    "wsf",
-    "wsh",
-    "ws",
-    "ps1",
-    "psm1",
-    "psd1",
-    "ps1xml",
-    "psc1",
-    "lnk",
-    "url",
-    "inf",
-    "reg",
-    "scf",
-    "jar",
-    "appref-ms",
-    "application",
-    "gadget",
-    "msc",
-    "chm",
-    "iso",
-    "img",
-    "vhd",
-    "vhdx",
-    "library-ms",
-    "settingcontent-ms",
-    "sh",
-    "bash",
-    "zsh",
-    "csh",
-    "ksh",
-    "run",
-    "bin",
-    "desktop",
-    "appimage",
-    "deb",
-    "rpm",
-    "flatpakref",
-    "py",
-    "pyw",
-    "pl",
-    "rb",
-    "php",
-    "elf",
-    "out",
-    "command",
-    "app",
-    "pkg",
-    "dmg",
-    "xll",
-    "xlam",
-    "docm",
-    "dotm",
-    "xlsm",
-    "xltm",
-    "pptm",
-    "potm",
-    "ppam",
-    "ppsm",
-    "sldm",
+/// Extensions qu'on accepte d'ouvrir directement avec l'application du
+/// système (liste blanche) : documents sans macros, images matricielles,
+/// texte, sons et vidéos. Tout le reste (exécutables, scripts, HTML, SVG,
+/// formats Office hérités ou à macros, raccourcis…) s'enregistre
+/// seulement.
+const OPENABLE_EXTENSIONS: &[&str] = &[
+    "pdf", "png", "jpg", "jpeg", "gif", "webp", "bmp", "tif", "tiff", "heic", "avif", "txt", "csv",
+    "log", "md", "docx", "xlsx", "pptx", "odt", "ods", "odp", "odg", "epub", "mp3", "m4a", "ogg",
+    "oga", "opus", "flac", "wav", "mp4", "m4v", "mov", "webm", "mkv", "avi", "ics", "vcf",
 ];
 
-/// Vrai si la pièce jointe ne doit pas être ouverte directement (type
-/// exécutable ou macro), d'après l'extension de son nom assaini.
+/// Vrai si la pièce jointe ne doit pas être ouverte directement : seule
+/// une extension de [`OPENABLE_EXTENSIONS`] (nom assaini) l'autorise.
 #[must_use]
 pub fn is_unsafe_to_open(file_name: &str) -> bool {
     let safe = safe_file_name(file_name);
     match safe.rsplit_once('.') {
-        Some((_, ext)) => EXECUTABLE_EXTENSIONS.contains(&ext.to_lowercase().as_str()),
-        // Sans extension : le système pourrait le traiter comme exécutable.
+        Some((_, ext)) => !OPENABLE_EXTENSIONS.contains(&ext.to_lowercase().as_str()),
         None => true,
     }
 }
@@ -430,6 +376,15 @@ mod tests {
             ("https://user:pw@example.com", LinkError::Credentials),
             ("https://banque.fr@attaquant.net/", LinkError::Credentials),
             ("mailto:", LinkError::MissingHost),
+            (
+                "mailto:a@b.c?attach=/home/u/.ssh/id_rsa",
+                LinkError::MailtoParameter,
+            ),
+            (
+                "mailto:a@b.c?subject=x&Attachment=f",
+                LinkError::MailtoParameter,
+            ),
+            ("mailto:a@b.c?X-Header=1", LinkError::MailtoParameter),
         ] {
             assert_eq!(ExternalLink::parse(bad), Err(err), "{bad:?}");
         }
@@ -544,6 +499,14 @@ mod tests {
         for name in [
             "setup.exe",
             "FACTURE.PDF.EXE",
+            "releve.html",
+            "page.HTM",
+            "dessin.svg",
+            "facture.doc",
+            "tableau.xls",
+            "archive.mhtml",
+            "lien.website",
+            "recherche.search-ms",
             "script.ps1",
             "x.sh",
             "app.desktop",

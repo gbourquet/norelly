@@ -20,6 +20,7 @@ use norelly_domain::endpoint::Protocol;
 use norelly_domain::fetch_policy::{BodyFetch, FetchPolicy, PartPath};
 use norelly_domain::mailbox::{MailboxName, Uid};
 use norelly_domain::ports::{FetchedBody, MessageId, RemoteBodyFetcher};
+use norelly_domain::reading::RemoteContent;
 use norelly_imap::ImapConnector;
 use norelly_render::{PartContent, Protocols, RenderRequest, Rendered, Source};
 use norelly_sqlite::mail::SqliteMailStore;
@@ -34,8 +35,24 @@ use crate::state::AppSecretStore;
 
 /// Délai maximal d'un téléchargement à la demande.
 pub const FETCH_TIMEOUT: Duration = Duration::from_secs(120);
-/// Nombre de messages dont la liste d'images distantes est gardée.
+/// Nombre de rendus gardés en cache.
 const RENDER_CACHE: usize = 32;
+/// Durée maximale d'un rendu.
+const RENDER_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Clé d'un rendu : message, décision sur les images, texte brut.
+type RenderKey = (MessageId, RemoteContent, bool);
+
+fn placeholder(body: &str) -> Rendered {
+    Rendered {
+        document: norelly_render::document(body),
+        mode: norelly_render::BodyMode::Empty,
+        has_html: false,
+        remote_images: Vec::new(),
+        blocked_images: 0,
+        attachments: Vec::new(),
+    }
+}
 
 /// Services de messagerie partagés par les commandes et les protocoles.
 #[derive(Debug)]
@@ -52,9 +69,8 @@ pub struct MailServices {
     imap: Arc<ImapConnector>,
     actors: tokio::sync::Mutex<BTreeMap<AccountId, AccountHandle>>,
     clients: Mutex<BTreeMap<AccountId, ActorClient>>,
-    /// Images distantes autorisées des derniers messages rendus :
-    /// (message, adresses dans l'ordre des index `remote-img://`).
-    remote: Mutex<VecDeque<(MessageId, Vec<String>)>>,
+    /// Derniers rendus : (message, décision images, texte brut) → rendu.
+    rendered: Mutex<VecDeque<(RenderKey, Arc<Rendered>)>>,
 }
 
 impl MailServices {
@@ -76,7 +92,7 @@ impl MailServices {
             imap: Arc::new(imap),
             actors: tokio::sync::Mutex::new(BTreeMap::new()),
             clients: Mutex::new(BTreeMap::new()),
-            remote: Mutex::new(VecDeque::new()),
+            rendered: Mutex::new(VecDeque::new()),
         }
     }
 
@@ -178,52 +194,99 @@ impl MailServices {
         }
     }
 
-    /// Rend un message ; mémorise ses images distantes autorisées.
-    pub async fn render(&self, id: MessageId) -> Result<Option<Rendered>, ReadError> {
+    /// Rend un message (hors des workers async, durée bornée) ; le rendu
+    /// est mis en cache par message et par décision (images, texte brut),
+    /// avec la liste de ses images distantes autorisées et de ses parties
+    /// `cid:`.
+    pub async fn render(&self, id: MessageId) -> Result<Option<Arc<Rendered>>, ReadError> {
         let Some(loaded) = self.load(id).await? else {
             return Ok(None);
         };
-        let rendered = with_source(&loaded.body, |source| {
-            norelly_render::render(&RenderRequest {
-                message: id.get(),
-                source,
-                structure: loaded.location.structure.as_ref(),
-                remote: loaded.remote,
-                prefer_plain_text: loaded.prefer_plain_text,
-                protocols: &self.protocols,
+        let key = (id, loaded.remote, loaded.prefer_plain_text);
+        let body_ready = loaded.body != LoadedBody::Missing;
+        if let Some(hit) = self
+            .rendered
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .iter()
+            .find(|(k, _)| *k == key)
+        {
+            return Ok(Some(Arc::clone(&hit.1)));
+        }
+        let protocols = self.protocols.clone();
+        let task = tokio::task::spawn_blocking(move || {
+            with_source(&loaded.body, |source| {
+                norelly_render::render(&RenderRequest {
+                    message: id.get(),
+                    source,
+                    structure: loaded.location.structure.as_ref(),
+                    remote: loaded.remote,
+                    prefer_plain_text: loaded.prefer_plain_text,
+                    protocols: &protocols,
+                })
             })
         });
-        let Some(rendered) = rendered else {
-            return Ok(Some(Rendered {
-                document: norelly_render::document(
-                    "<p>Le contenu de ce message n'est pas encore disponible.</p>",
-                ),
-                mode: norelly_render::BodyMode::Empty,
-                has_html: false,
-                remote_images: Vec::new(),
-                blocked_images: 0,
-                attachments: Vec::new(),
-            }));
+        let rendered = match tokio::time::timeout(RENDER_TIMEOUT, task).await {
+            Ok(Ok(r)) => r,
+            Ok(Err(e)) => return Err(ReadError::Download(format!("rendu interrompu : {e}"))),
+            Err(_) => Some(placeholder("<p>Ce message est trop long à afficher.</p>")),
         };
-        let mut remote = self.remote.lock().unwrap_or_else(PoisonError::into_inner);
-        remote.retain(|(m, _)| *m != id);
-        remote.push_back((id, rendered.remote_images.clone()));
-        while remote.len() > RENDER_CACHE {
-            remote.pop_front();
+        let rendered = Arc::new(rendered.unwrap_or_else(|| {
+            placeholder("<p>Le contenu de ce message n'est pas encore disponible.</p>")
+        }));
+        if body_ready {
+            let mut cache = self.rendered.lock().unwrap_or_else(PoisonError::into_inner);
+            cache.retain(|(k, _)| k.0 != id);
+            cache.push_back((key, Arc::clone(&rendered)));
+            while cache.len() > RENDER_CACHE {
+                cache.pop_front();
+            }
         }
         Ok(Some(rendered))
+    }
+
+    fn cached(&self, id: MessageId) -> Option<Arc<Rendered>> {
+        self.rendered
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .iter()
+            .find(|(k, _)| k.0 == id)
+            .map(|(_, r)| Arc::clone(r))
     }
 
     /// Adresse de l'image distante n° `index` du message, si elle a été
     /// autorisée lors du dernier rendu.
     #[must_use]
     pub fn remote_image(&self, id: MessageId, index: usize) -> Option<String> {
-        self.remote
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .iter()
-            .find(|(m, _)| *m == id)
-            .and_then(|(_, urls)| urls.get(index).cloned())
+        self.cached(id)
+            .and_then(|r| r.remote_images.get(index).cloned())
+    }
+
+    /// Partie `cid:` d'un message rendu (protocole `mailpart://`) : seules
+    /// les parties à `Content-ID` du dernier rendu de ce message sont
+    /// servies, et jamais téléchargées à cette occasion.
+    pub async fn inline_part(
+        &self,
+        id: MessageId,
+        path: &PartPath,
+    ) -> Result<Option<PartContent>, ReadError> {
+        let listed = self.cached(id).is_some_and(|r| {
+            r.attachments
+                .iter()
+                .any(|a| a.content_id.is_some() && a.available && &a.path == path)
+        });
+        if !listed {
+            return Ok(None);
+        }
+        let Some(loaded) = self.reader().load(id).await? else {
+            return Ok(None);
+        };
+        let path = path.clone();
+        tokio::task::spawn_blocking(move || {
+            with_source(&loaded.body, |s| norelly_render::part_content(&s, &path)).flatten()
+        })
+        .await
+        .map_err(|e| ReadError::Download(e.to_string()))
     }
 
     /// Contenu décodé d'une partie ; une partie différée est d'abord

@@ -100,6 +100,9 @@ impl RemoteImageProxy {
         let config = tls.standard_client_config().map_err(|e| e.to_string())?;
         let client = reqwest::Client::builder()
             .use_preconfigured_tls(config)
+            // Variables HTTP(S)_PROXY ignorées : la résolution se ferait
+            // chez le mandataire, hors du filtre des adresses publiques.
+            .no_proxy()
             .dns_resolver(PublicOnly)
             .redirect(Policy::custom(|attempt| {
                 let ok = attempt.previous().len() < MAX_REDIRECTS

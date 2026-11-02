@@ -144,30 +144,32 @@ Commandes de référence (détail dans `scripts/check.sh`) :
 
 ## Phase 5 : liste, conversations, lecture
 
-- [ ] Domaine : fils de conversation JWZ (`References`/`In-Reply-To`, regroupement par sujet en dernier recours), avec des tests à partir de cas réels anonymisés ; boîte unifiée
-- [ ] `adapters/sqlite` : table des conversations précalculée, mise à jour incrémentale ; `ConversationQuery`, liste unifiée paginée
-- [ ] `adapters/render` : MIME vers vue (`mail-parser`), choix de la meilleure alternative, charsets, pièces jointes listées
-- [ ] `adapters/render` :
+- [x] Domaine : fils de conversation JWZ (`References`/`In-Reply-To`, regroupement par sujet en dernier recours), avec des tests à partir de cas réels anonymisés ; boîte unifiée
+- [x] `adapters/sqlite` : table des conversations précalculée, mise à jour incrémentale ; `ConversationQuery`, liste unifiée paginée
+- [x] `adapters/render` : MIME vers vue (`mail-parser`), choix de la meilleure alternative, charsets, pièces jointes listées
+- [x] `adapters/render` :
   - liste blanche `ammonia` ;
   - réécriture `cid:` vers `mailpart://` et des images distantes vers un espace réservé ou `remote-img://` ;
   - suppression de `@import` ;
   - suite de tests sur `fixtures/hostile-html/` (au moins 40 vecteurs)
-- [ ] Agent `postMessage` (hauteur, liens, touches) ; hash SHA-256 calculé au build ; CSP générée
-- [ ] Protocoles Tauri `mailview://`, `mailpart://`, `remote-img://` (proxy : sans cookies ni Referer, User-Agent neutre, taille et types bornés, autorisation par expéditeur vérifiée en Rust)
-- [ ] Commande `open_external` : schémas `http`, `https`, `mailto` uniquement, ouverture dans le navigateur système
-- [ ] Domaine et persistance : autorisation des images distantes par expéditeur, préférence « texte brut »
-- [ ] Pièces jointes :
+  - 56 vecteurs, audit balise par balise (`crates/adapters/render/tests/hostile_html.rs`).
+- [x] Agent `postMessage` (hauteur, liens, touches) ; hash SHA-256 calculé au build ; CSP générée
+- [x] Protocoles Tauri `mailview://`, `mailpart://`, `remote-img://` (proxy : sans cookies ni Referer, User-Agent neutre, taille et types bornés, autorisation par expéditeur vérifiée en Rust)
+- [x] Commande `open_external` : schémas `http`, `https`, `mailto` uniquement, ouverture dans le navigateur système
+- [x] Domaine et persistance : autorisation des images distantes par expéditeur, préférence « texte brut »
+- [x] Pièces jointes :
   - ouverture et enregistrement ;
   - nom de fichier assaini (séparateurs, `..`, noms réservés Windows, caractères de contrôle, longueur) ;
   - écriture uniquement dans le dossier choisi via le sélecteur de fichiers
-- [ ] Interface : liste virtualisée (au-dessus de `@tanstack/virtual-core`), boîte unifiée, vue conversation (messages empilés, hauteur via l'agent), bannière « images bloquées »
-- [ ] Interface : navigation j/k, ouverture, retour, via le registre de commandes
-- [ ] Tests end-to-end de sécurité A+ :
+- [x] Interface : liste virtualisée (au-dessus de `@tanstack/virtual-core`), boîte unifiée, vue conversation (messages empilés, hauteur via l'agent), bannière « images bloquées »
+- [x] Interface : navigation j/k, ouverture, retour, via le registre de commandes
+- [x] Tests end-to-end de sécurité A+ :
   - zéro requête vers un serveur canari ;
   - aucun script du mail exécuté ;
   - IPC inaccessible depuis `mailview://` ;
   - `javascript:` jamais ouvert ;
   - touches renvoyées correctement
+  - `app/e2e/specs/reading-security.e2e.mjs`, sous WebKitGTK (serveur canari `app/e2e/canary.mjs`) : A+ tient tel que décrit dans ADR-004, sans repli vers A.
 - [x] Revue security-reviewer, consignée dans REVIEWS.md (0 critique, 0 haute ; moyennes corrigées)
 
 **Condition de fin** : `./scripts/check.sh full && pnpm -C app e2e` passent sans erreur.

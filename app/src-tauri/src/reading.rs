@@ -294,6 +294,7 @@ pub fn write_new_file(dir: &Path, name: &str, bytes: &[u8]) -> std::io::Result<P
             Ok(mut file) => {
                 file.write_all(bytes)?;
                 file.sync_all()?;
+                mark_from_internet(&path)?;
                 return Ok(path);
             }
             Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
@@ -301,6 +302,22 @@ pub fn write_new_file(dir: &Path, name: &str, bytes: &[u8]) -> std::io::Result<P
         }
     }
     Err(std::io::Error::other("trop de fichiers homonymes"))
+}
+
+/// Marque « provenant d'Internet » (Mark-of-the-Web, flux NTFS
+/// `Zone.Identifier`, zone 3) : SmartScreen, le Mode protégé d'Office et le
+/// blocage des macros s'appliquent au fichier. Sans objet hors de Windows.
+#[cfg(windows)]
+fn mark_from_internet(path: &Path) -> std::io::Result<()> {
+    let mut stream = path.as_os_str().to_owned();
+    stream.push(":Zone.Identifier");
+    std::fs::write(PathBuf::from(stream), b"[ZoneTransfer]\r\nZoneId=3\r\n")
+}
+
+#[cfg(not(windows))]
+#[allow(clippy::unnecessary_wraps)]
+fn mark_from_internet(_path: &Path) -> std::io::Result<()> {
+    Ok(())
 }
 
 async fn attachment(
@@ -441,6 +458,20 @@ mod tests {
             assert_ne!(written, link);
             assert_eq!(std::fs::read(&target).unwrap_or_default(), b"original");
         }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn written_files_carry_the_mark_of_the_web() {
+        let dir = std::env::temp_dir().join(format!("norelly-motw-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap_or_else(|e| panic!("{e}"));
+        let path = write_new_file(&dir, "facture.doc", b"x").unwrap_or_else(|e| panic!("{e}"));
+        let mut stream = path.as_os_str().to_owned();
+        stream.push(":Zone.Identifier");
+        let mark = std::fs::read_to_string(PathBuf::from(stream)).unwrap_or_default();
+        assert!(mark.contains("ZoneId=3"), "{mark}");
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

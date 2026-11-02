@@ -248,12 +248,23 @@ fn rewrite_image(
 /// Remplace le contenu de chaque `<style>` de la sortie d'`ammonia` (sans
 /// attribut, texte brut non échappé) par sa version assainie.
 fn sanitize_style_blocks(html: &str, resolve_cid: &dyn Fn(&str) -> Option<String>) -> String {
-    const OPEN: &str = "<style>";
     const CLOSE: &str = "</style>";
     let mut out = String::with_capacity(html.len());
     let mut rest = html;
-    while let Some(start) = rest.find(OPEN) {
-        let (before, after) = rest.split_at(start + OPEN.len());
+    // Toute balise ouvrante `<style` (avec ou sans attribut, par défense en
+    // profondeur : l'attribute_filter les retire déjà).
+    while let Some(start) = rest.find("<style") {
+        let after_name = rest.get(start + 6..).unwrap_or_default();
+        if !after_name.starts_with(['>', ' ', '\t', '\n', '/']) {
+            let (before, after) = rest.split_at(start + 6);
+            out.push_str(before);
+            rest = after;
+            continue;
+        }
+        let Some(gt) = after_name.find('>') else {
+            break;
+        };
+        let (before, after) = rest.split_at(start + 6 + gt + 1);
         out.push_str(before);
         let end = after.find(CLOSE).unwrap_or(after.len());
         out.push_str(&sanitize_css(
@@ -266,9 +277,66 @@ fn sanitize_style_blocks(html: &str, resolve_cid: &dyn Fn(&str) -> Option<String
     out
 }
 
+/// Taille maximale du HTML assaini, en octets (au-delà : tronqué).
+pub const MAX_HTML_LEN: usize = 2 * 1024 * 1024;
+/// Profondeur d'imbrication maximale acceptée (au-delà : le HTML n'est pas
+/// rendu, l'analyse deviendrait quadratique).
+pub const MAX_NESTING: usize = 512;
+
+/// Estimation bon marché de la profondeur d'imbrication des balises
+/// (balises ouvrantes moins fermantes, éléments vides ignorés).
+#[must_use]
+pub fn nesting_depth(html: &str) -> usize {
+    const VOID: &[&str] = &[
+        "area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source",
+        "track", "wbr", "p", "li", "td", "tr", "th", "option",
+    ];
+    let bytes = html.as_bytes();
+    let (mut depth, mut max) = (0usize, 0usize);
+    let mut i = 0;
+    while i + 1 < bytes.len() {
+        if bytes[i] == b'<' {
+            let closing = bytes[i + 1] == b'/';
+            let start = i + 1 + usize::from(closing);
+            let mut end = start;
+            while end < bytes.len() && bytes[end].is_ascii_alphanumeric() {
+                end += 1;
+            }
+            if end > start {
+                let name = html
+                    .get(start..end)
+                    .unwrap_or_default()
+                    .to_ascii_lowercase();
+                if closing {
+                    depth = depth.saturating_sub(1);
+                } else if !VOID.contains(&name.as_str()) {
+                    depth += 1;
+                    max = max.max(depth);
+                }
+            }
+            i = end.max(i + 1);
+        } else {
+            i += 1;
+        }
+    }
+    max
+}
+
 /// Assainit le HTML d'un mail.
 #[must_use]
 pub fn sanitize_html(html: &str, options: &SanitizeOptions) -> Sanitized {
+    let mut cut = html.len().min(MAX_HTML_LEN);
+    while !html.is_char_boundary(cut) {
+        cut -= 1;
+    }
+    let html = html.get(..cut).unwrap_or_default();
+    if nesting_depth(html) > MAX_NESTING {
+        return Sanitized {
+            html: "<p>Ce message est trop complexe pour être affiché en HTML.</p>".to_owned(),
+            remote_images: Vec::new(),
+            blocked_images: 0,
+        };
+    }
     let collected = Arc::new(Mutex::new(Collected::default()));
     let resolve = Arc::new(cid_resolver(options));
     let tag_attributes: HashMap<&str, HashSet<&str>> = TAG_ATTRIBUTES
@@ -302,6 +370,9 @@ pub fn sanitize_html(html: &str, options: &SanitizeOptions) -> Sanitized {
         let resolve = Arc::clone(&resolve);
         builder.attribute_filter(move |element, attribute, value| {
             let rewritten = match (element, attribute) {
+                // `<style>` toujours sans attribut : son contenu est repéré
+                // et assaini par sanitize_style_blocks.
+                ("style", _) => None,
                 ("img", "src") => rewrite_image(value, &options, &collected, &*resolve),
                 (_, "href") => ExternalLink::parse(value).ok().map(|l| l.to_string()),
                 // Citation : adresse non suivie, simple texte.
@@ -396,6 +467,32 @@ mod tests {
         assert!(
             out.html
                 .contains("p{color:red;background:url(\"mailpart://localhost/42/2\")}")
+        );
+    }
+
+    #[test]
+    fn style_with_attributes_is_sanitized_too() {
+        let out = sanitize_html(
+            "<style class=\"x\" media=all>@import url(http://canari.test/i.css); \
+             p{background:url(mailpart://localhost/1/2)}</style>",
+            &options(RemoteContent::Blocked),
+        );
+        assert!(out.html.starts_with("<style>"), "{}", out.html);
+        assert!(!out.html.contains("canari") && !out.html.contains("localhost/1/2"));
+    }
+
+    #[test]
+    fn pathological_nesting_is_not_parsed() {
+        let deep = "<div>".repeat(80_000);
+        let started = std::time::Instant::now();
+        let out = sanitize_html(&deep, &options(RemoteContent::Blocked));
+        assert!(started.elapsed() < std::time::Duration::from_secs(2));
+        assert!(out.html.contains("trop complexe"));
+        let fine = "<div>".repeat(200) + "x";
+        assert!(
+            sanitize_html(&fine, &options(RemoteContent::Blocked))
+                .html
+                .contains('x')
         );
     }
 

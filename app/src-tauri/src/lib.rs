@@ -56,6 +56,7 @@ pub fn typescript() -> specta_typescript::Typescript {
 pub fn run() {
     let builder = specta_builder();
     protocols::register(tauri::Builder::default())
+        .plugin(protocols::navigation_guard())
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(builder.invoke_handler())
         .setup(move |app| {

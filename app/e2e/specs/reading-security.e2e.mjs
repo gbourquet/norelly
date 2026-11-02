@@ -61,7 +61,9 @@ Bonjour, ceci est un message ordinaire.
 async function intoMessageFrame() {
   const frame = $('iframe[title="Contenu du message"]');
   await frame.waitForDisplayed({ timeout: 30000 });
-  await browser.switchToFrame(frame);
+  // Référence d'élément W3C (WebKitWebDriver refuse l'objet WebdriverIO).
+  const element = await frame;
+  await browser.switchToFrame({ "element-6066-11e4-a52e-4f735466cecf": element.elementId });
 }
 
 describe("lecture sécurisée", () => {
@@ -104,17 +106,17 @@ describe("lecture sécurisée", () => {
   });
 
   it("n'offre aucun accès à l'IPC ni au réseau depuis mailview://", async () => {
-    const attempts = await browser.executeAsync((canary, done) => {
+    const attempts = await browser.execute(async (canary) => {
       const attempt = (url, init) =>
         fetch(url, init).then(
           () => "réussi",
           () => "refusé",
         );
-      Promise.all([
+      return Promise.all([
         attempt("ipc://localhost/list_accounts", { method: "POST", body: "{}" }),
         attempt("http://ipc.localhost/list_accounts", { method: "POST", body: "{}" }),
         attempt(`http://${canary}/fetch`),
-      ]).then(done);
+      ]);
     }, CANARY);
     expect(attempts).toEqual(["refusé", "refusé", "refusé"]);
   });

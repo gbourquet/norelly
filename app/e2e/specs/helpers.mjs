@@ -10,7 +10,8 @@ const canary = process.env.NORELLY_E2E_CANARY ?? "http://canary.norelly.test:808
 
 /** Ajoute le compte de test (saisie manuelle, confiance dans les certificats si demandée). */
 export async function addTestAccount() {
-  await $("aria/Ajouter un compte").click();
+  // Sans compte, le bouton de l'accueil (l'icône du panneau porte le même nom).
+  await $("button=Ajouter un compte").click();
   await $("#account-address").setValue(address);
   await $("#account-password").setValue(password);
   await $("button=Continuer").click();

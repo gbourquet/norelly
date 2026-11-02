@@ -546,7 +546,6 @@ impl RemoteMailboxSession for FakeImapSession {
 
     async fn idle(&mut self, max: Duration) -> Result<IdleOutcome, ConnectionError> {
         let name = self.selected_name()?;
-        let seen = self.selected.as_ref().map_or(0, |(_, v)| *v);
         let deadline = tokio::time::Instant::now() + max;
         let changed = Arc::clone(&self.server.changed);
         loop {
@@ -558,11 +557,15 @@ impl RemoteMailboxSession for FakeImapSession {
                 let version = s.mailbox(&name).map_or(u64::MAX, |m| m.version);
                 (s.idle, version)
             };
+            let seen = self.selected.as_ref().map_or(0, |(_, v)| *v);
             if !supports_idle {
                 tokio::time::sleep_until(deadline).await;
                 return Ok(IdleOutcome::Changed);
             }
             if version != seen {
+                if let Some((_, v)) = self.selected.as_mut() {
+                    *v = version;
+                }
                 return Ok(IdleOutcome::Changed);
             }
             if tokio::time::timeout_at(deadline, notified).await.is_err() {

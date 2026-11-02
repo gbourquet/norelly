@@ -20,6 +20,7 @@ step "Tests Rust (unitaires)"; cargo nextest run --workspace --locked --no-tests
 step "Doctests";               cargo test --workspace --doc --locked
 step "cargo deny";             cargo deny --locked check
 step "Règle de dépendance du domaine"; ./scripts/check-domain-deps.sh
+step "SQL : requêtes paramétrées"; ./scripts/check-sql.sh
 step "Front : svelte-check";   pnpm -C app check
 step "Front : lint";           pnpm -C app lint
 step "Front : tests";          pnpm -C app test

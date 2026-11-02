@@ -70,6 +70,7 @@ pub fn raw_message(n: u32) -> Vec<u8> {
 /// temporaire.
 pub struct Local {
     pub dir: PathBuf,
+    pub db: Database,
     pub store: Arc<SqliteMailStore>,
     pub blobs: Arc<FsBlobStore>,
     pub account: AccountId,
@@ -97,7 +98,8 @@ pub async fn local(name: &str) -> Local {
         .unwrap_or_else(|e| panic!("{e}"))
         .id();
     Local {
-        store: Arc::new(SqliteMailStore::new(db)),
+        store: Arc::new(SqliteMailStore::new(db.clone())),
+        db,
         blobs: Arc::new(FsBlobStore::new(dir.join("accounts"))),
         dir,
         account,

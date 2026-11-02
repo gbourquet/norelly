@@ -59,6 +59,9 @@ Un hook PostToolUse formate et lint automatiquement chaque fichier modifié.
   est revalidée par le domaine.
 - Chaque port a une suite de contrat exécutée contre son faux et son
   implémentation réelle.
+- SQL : uniquement des paramètres liés pour toute donnée ; une
+  interpolation de constante dans le texte d'une requête porte le
+  commentaire `sql-const` (vérifié par `scripts/check-sql.sh`).
 - Interdit de ramollir, désactiver ou contourner un test, ou d'affaiblir
   `scripts/check.sh` ou `deny.toml`. Un blocage se documente dans
   `PLAN.md`, puis on s'arrête.

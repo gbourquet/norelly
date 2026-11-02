@@ -118,6 +118,52 @@ impl Database {
         .map_err(|e| StoreError(format!("tâche SQLite interrompue : {e}")))?
     }
 
+    /// Contrôle d'intégrité : `PRAGMA integrity_check` et
+    /// `foreign_key_check`. Renvoie les problèmes trouvés (vide si la base
+    /// est saine).
+    pub async fn integrity_problems(&self) -> Result<Vec<String>, StoreError> {
+        self.run(|c| {
+            let mut problems = Vec::new();
+            let mut stmt = c.prepare("PRAGMA integrity_check").map_err(store_error)?;
+            let rows = stmt
+                .query_map([], |r| r.get::<_, String>(0))
+                .map_err(store_error)?;
+            for row in rows {
+                let row = row.map_err(store_error)?;
+                if row != "ok" {
+                    problems.push(format!("intégrité : {row}"));
+                }
+            }
+            let mut stmt = c.prepare("PRAGMA foreign_key_check").map_err(store_error)?;
+            let rows = stmt
+                .query_map([], |r| r.get::<_, String>(0))
+                .map_err(store_error)?;
+            for table in rows {
+                problems.push(format!(
+                    "clé étrangère orpheline dans {}",
+                    table.map_err(store_error)?
+                ));
+            }
+            Ok(problems)
+        })
+        .await
+    }
+
+    /// Schéma de la base (type, nom, SQL de création), trié : permet de
+    /// vérifier qu'aucune donnée reçue ne l'a modifié.
+    pub async fn schema(&self) -> Result<Vec<(String, String, Option<String>)>, StoreError> {
+        self.run(|c| {
+            let mut stmt = c
+                .prepare("SELECT type, name, sql FROM sqlite_schema ORDER BY type, name")
+                .map_err(store_error)?;
+            let rows = stmt
+                .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+                .map_err(store_error)?;
+            rows.collect::<Result<_, _>>().map_err(store_error)
+        })
+        .await
+    }
+
     /// Exécute une lecture sur une connexion du pool (le rédacteur s'il
     /// n'y en a pas). Les lecteurs voient le dernier état validé (WAL).
     async fn read<T, F>(&self, f: F) -> Result<T, StoreError>
@@ -252,11 +298,15 @@ impl AccountRow {
     }
 }
 
+/// `filter` est un fragment SQL littéral du code (`&'static str` : aucune
+/// donnée reçue ne peut y parvenir) ; la valeur cherchée passe par `param`,
+/// lié par SQLite.
 fn select_accounts(
     conn: &Connection,
-    filter: &str,
+    filter: &'static str,
     param: Option<&dyn rusqlite::ToSql>,
 ) -> Result<Vec<AccountRow>, StoreError> {
+    // sql-const : colonnes et filtre sont des constantes du code.
     let sql = format!("SELECT {ACCOUNT_COLUMNS} FROM accounts {filter} ORDER BY id");
     let mut stmt = conn.prepare(&sql).map_err(store_error)?;
     let rows = match param {

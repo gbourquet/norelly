@@ -99,7 +99,29 @@ qui modifie le dépôt ou le système (pas de `git commit`, de `cargo add`, de
    - Signaler les nouvelles dépendances (licence ADR-009, maintenance,
      nécessité), les `unsafe` et toute exception ajoutée dans `deny.toml`.
 
-9. **Vie privée**
+9. **Injection SQL et intégrité de la base**
+   - Toute donnée reçue (champs d'un message, noms de boîte, mots-clés,
+     réponses du serveur, entrées IPC) passe par des paramètres liés
+     (`?1`, `params![]`), jamais par `format!`, `push_str`, concaténation
+     ou `execute_batch`. Seules des constantes du code (marquées
+     `sql-const`) ou des `&'static str` peuvent être interpolées dans le
+     texte d'une requête.
+   - Exécuter `./scripts/check-sql.sh` et consigner le résultat. Relire
+     chaque `sql-const` : l'interpolation est-elle vraiment constante ?
+   - Rien d'autre que `crates/adapters/sqlite` ne dépend de `rusqlite`.
+   - Pas de `ATTACH`, de `load_extension`, de `PRAGMA writable_schema`,
+     ni de SQL dynamique construit depuis la base elle-même (valeur relue
+     puis réinjectée dans une requête : injection de second ordre).
+   - Les colonnes JSON sont produites par `serde_json` et relues avec des
+     bornes ; les valeurs relues sont revalidées par le domaine (une base
+     modifiée à la main ne produit pas de valeur hors des invariants).
+   - Vérifier que le test `crates/application/tests/hostile_message_sql.rs`
+     couvre bien les nouveaux champs stockés (message piégé de bout en
+     bout : schéma inchangé, `integrity_check` sain, aucune autre ligne
+     touchée), et qu'il échoue réellement si une requête devient
+     vulnérable.
+
+10. **Vie privée**
    - Aucune télémétrie, aucune requête réseau non nécessaire (polices,
      CDN, préchargement de liens, DNS prefetch). La vérification des mises
      à jour ne part qu'avec le consentement de l'utilisateur.
@@ -130,6 +152,7 @@ Synthèse : <n> critiques, <n> hautes, <n> moyennes, <n> basses.
 ## Résultats outils
 - cargo deny : …
 - pnpm audit : …
+- check-sql : …
 ```
 
 Sévérité :

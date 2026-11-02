@@ -135,6 +135,41 @@ basses ; le reste est reporté ou accepté ci-dessous.
   `serde_json`, `criterion` (bench), `proptest` (tests du domaine).
   `deny.toml` inchangé.
 
+## Vérification complémentaire : injection SQL par un message piégé (2026-11-02)
+- Demande du mainteneur : un message piégé peut-il injecter du SQL et
+  corrompre la base ?
+- Audit : non. Toutes les valeurs issues d'un message ou du serveur
+  passent par des paramètres liés. Les trois `format!` qui produisent du
+  SQL n'interpolent que des constantes (`ACCOUNT_COLUMNS`, `LIST_COLUMNS`)
+  et un filtre désormais typé `&'static str`. Il n'y a pas
+  d'`execute_batch` hors tests, et `rusqlite` n'est utilisé que par
+  `crates/adapters/sqlite`.
+- Garde permanent : `scripts/check-sql.sh`, ajouté à `scripts/check.sh`.
+  Il refuse `execute_batch` en production, tout SQL construit par
+  `format!`/`concat!` sans commentaire `sql-const`, toute interpolation
+  qui n'est ni une constante ni un `&'static str`, toute interpolation
+  positionnelle, `push_str` et la concaténation sur du SQL, ainsi que toute
+  dépendance à `rusqlite` hors du crate de stockage. Vérifié par mutation :
+  quatre requêtes vulnérables introduites volontairement sont toutes
+  refusées.
+- Test de bout en bout `crates/application/tests/hostile_message_sql.rs`,
+  exécuté sans Docker. Des messages piégés portent des charges dans le
+  sujet, l'expéditeur, les destinataires, le Message-ID, les références,
+  les mots-clés, le nom de boîte et le corps, et sont synchronisés deux
+  fois (faux serveur IMAP, `mail-parser`, SQLite sur disque, fichiers).
+  Charges : requêtes empilées, sous-requête sur `sqlite_schema`,
+  `ATTACH`, `load_extension`, `writable_schema`, rupture du JSON, octet
+  nul. Le test vérifie :
+  - schéma identique et `integrity_check` sain, sans clé étrangère
+    orpheline ;
+  - comptes intacts et aucune boîte créée ou supprimée ;
+  - valeurs relues comme données et corps identiques.
+  Vérifié par mutation : le test échoue dès qu'une requête vulnérable est
+  introduite.
+- `Database::integrity_problems` et `Database::schema` sont ajoutées
+  (diagnostic, réutilisable au démarrage).
+- Point de contrôle n° 9 ajouté à l'agent `security-reviewer`.
+
 ## Résultats outils
 - `cargo deny --locked check` : ok (avertissement préexistant :
   `Unicode-DFS-2016` autorisée mais inutilisée).

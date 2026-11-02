@@ -613,6 +613,7 @@ pub(crate) fn page_query(
     };
     let rows: Vec<ListRow> = match cursor {
         None => {
+            // sql-const : seule la constante LIST_COLUMNS est interpolée.
             let mut stmt = c
                 .prepare_cached(&format!(
                     "SELECT {LIST_COLUMNS} FROM messages WHERE mailbox_id = ?1 \
@@ -625,6 +626,7 @@ pub(crate) fn page_query(
                 .map_err(store_error)?
         }
         Some(cursor) => {
+            // sql-const : seule la constante LIST_COLUMNS est interpolée.
             let mut stmt = c
                 .prepare_cached(&format!(
                     "SELECT {LIST_COLUMNS} FROM messages WHERE mailbox_id = ?1 \

@@ -277,3 +277,126 @@ Content-Type: text/plain\r\n\r\ntexte\r\n--b\r\nContent-Type: application/pdf\r\
     assert_eq!(gone, Ok(None));
     r.handle.shutdown().await;
 }
+
+/// Attend que `cond` soit vrai, au plus `within`.
+async fn eventually(within: Duration, what: &str, cond: impl Fn() -> bool) {
+    let deadline = tokio::time::Instant::now() + within;
+    while !cond() {
+        assert!(tokio::time::Instant::now() < deadline, "{what}");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+}
+
+#[tokio::test]
+async fn offline_actions_are_replayed_on_reconnection() {
+    use crate::actions::PerformAction;
+    use norelly_domain::actions::MessageAction;
+    use norelly_domain::ports::{MessageListQuery, PendingOpStore};
+
+    let imap = FakeImap::new();
+    imap.create_mailbox("Corbeille", &["\\Trash"]);
+    imap.append("INBOX", b"Subject: a\r\n\r\nx", Flags::default(), 1);
+    imap.append("INBOX", b"Subject: b\r\n\r\ny", Flags::default(), 2);
+    let mut r = start(&imap);
+    wait_for(&mut r.events, WAIT, online).await;
+    wait_inbox(&r, 2, WAIT).await;
+
+    // Hors ligne : action appliquée localement, enfilée.
+    r.imap.set_offline(true);
+    wait_for(&mut r.events, WAIT, offline).await;
+    let tree = r
+        .store
+        .tree(account())
+        .await
+        .unwrap_or_else(|e| panic!("{e}"));
+    let inbox = tree
+        .iter()
+        .find(|n| n.name.is_inbox())
+        .map(|n| n.id)
+        .unwrap_or_else(|| panic!("INBOX"));
+    let page = r
+        .store
+        .page(inbox, None, 10)
+        .await
+        .unwrap_or_else(|e| panic!("{e}"));
+    let ids: Vec<_> = page.items.iter().map(|i| i.id).collect();
+    // Fenêtre d'annulation déjà écoulée : l'opération est due.
+    let report = PerformAction { store: &*r.store }
+        .execute(&ids, MessageAction::Delete, super::unix_now() - 60)
+        .await
+        .unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(report.recorded.len(), 2);
+    r.handle.replay_soon();
+    assert_eq!(r.imap.flags_of("INBOX").len(), 2, "rien n'est parti");
+
+    // Retour du serveur : rejoué à la reconnexion.
+    r.imap.set_offline(false);
+    let imap = r.imap.clone();
+    eventually(WAIT, "messages déplacés vers la Corbeille", || {
+        imap.flags_of("INBOX").is_empty() && imap.flags_of("Corbeille").len() == 2
+    })
+    .await;
+    let deadline = tokio::time::Instant::now() + WAIT;
+    while !r
+        .store
+        .pending(account())
+        .await
+        .unwrap_or_else(|e| panic!("{e}"))
+        .is_empty()
+    {
+        assert!(tokio::time::Instant::now() < deadline, "file vidée");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    r.handle.shutdown().await;
+}
+
+#[tokio::test]
+async fn actions_wait_for_the_undo_window_then_replay_without_request() {
+    use crate::actions::PerformAction;
+    use norelly_domain::actions::MessageAction;
+    use norelly_domain::ports::MessageListQuery;
+
+    let imap = FakeImap::new();
+    imap.append("INBOX", b"Subject: a\r\n\r\nx", Flags::default(), 1);
+    let mut r = start(&imap);
+    wait_for(&mut r.events, WAIT, online).await;
+    wait_inbox(&r, 1, WAIT).await;
+    let tree = r
+        .store
+        .tree(account())
+        .await
+        .unwrap_or_else(|e| panic!("{e}"));
+    let inbox = tree
+        .iter()
+        .find(|n| n.name.is_inbox())
+        .map(|n| n.id)
+        .unwrap_or_else(|| panic!("INBOX"));
+    let id = r
+        .store
+        .page(inbox, None, 10)
+        .await
+        .unwrap_or_else(|e| panic!("{e}"))
+        .items
+        .first()
+        .map(|i| i.id)
+        .unwrap_or_else(|| panic!("message"));
+    // Due dans deux secondes (fenêtre d'annulation presque écoulée).
+    let now = super::unix_now() - norelly_domain::actions::UNDO_WINDOW_SECS + 2;
+    PerformAction { store: &*r.store }
+        .execute(&[id], MessageAction::MarkSeen(true), now)
+        .await
+        .unwrap_or_else(|e| panic!("{e}"));
+    r.handle.replay_soon();
+    let uid1 = Uid::new(1).unwrap_or_else(|| panic!("uid"));
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert!(
+        !r.imap.flags_of("INBOX")[&uid1].seen,
+        "pas avant l'échéance"
+    );
+    let imap = r.imap.clone();
+    eventually(Duration::from_secs(5), "rejoué à l'échéance", || {
+        imap.flags_of("INBOX")[&uid1].seen
+    })
+    .await;
+    r.handle.shutdown().await;
+}

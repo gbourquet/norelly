@@ -13,6 +13,7 @@ use crate::address::EmailAddress;
 use crate::auth::{AuthError, AuthMechanism};
 use crate::capabilities::ServerCapabilities;
 use crate::connection::ConnectionError;
+use crate::conversation::ConversationScope;
 use crate::credentials::{Credentials, Secret, SecretBytes, Username};
 use crate::discovery::{
     AutoconfigRequest, DiscoveredServers, ServerCandidate, SrvRecord, SrvService,
@@ -698,6 +699,158 @@ pub trait MessageListQuery: Send + Sync {
         cursor: Option<PageCursor>,
         limit: u32,
     ) -> impl Future<Output = Result<MessagePage, StoreError>> + Send;
+}
+
+// ---------------------------------------------------------------------------
+// Conversations (CQRS léger)
+// ---------------------------------------------------------------------------
+
+/// Identifiant local d'une conversation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct ConversationId(i64);
+
+impl ConversationId {
+    #[must_use]
+    pub fn new(raw: i64) -> Option<Self> {
+        (raw > 0).then_some(Self(raw))
+    }
+
+    #[must_use]
+    pub const fn get(self) -> i64 {
+        self.0
+    }
+}
+
+/// Position dans une liste de conversations (date du message le plus
+/// récent décroissante, puis identifiant décroissant).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ConversationCursor {
+    pub date: i64,
+    pub id: ConversationId,
+}
+
+/// Nombre maximal d'expéditeurs affichés par conversation.
+pub const MAX_LISTED_SENDERS: usize = 3;
+
+/// Ligne de la liste des conversations. Les compteurs et la date portent
+/// sur les messages de la conversation présents dans le dossier de la
+/// ligne.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConversationListItem {
+    pub id: ConversationId,
+    pub account: AccountId,
+    pub mailbox: MailboxId,
+    /// Date du message le plus récent.
+    pub date: i64,
+    /// Sujet du message le plus récent.
+    pub subject: String,
+    /// Expéditeurs distincts, du plus récent au plus ancien, au plus
+    /// [`MAX_LISTED_SENDERS`].
+    pub senders: Vec<Correspondent>,
+    pub messages: u32,
+    pub unread: u32,
+    pub flagged: bool,
+    pub has_attachments: bool,
+}
+
+/// Une page de conversations.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ConversationPage {
+    pub items: Vec<ConversationListItem>,
+    pub next: Option<ConversationCursor>,
+}
+
+/// Message d'une conversation (vue empilée).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConversationMessage {
+    pub id: MessageId,
+    pub account: AccountId,
+    pub mailbox: MailboxId,
+    pub uid: Uid,
+    pub date: i64,
+    pub from: Option<Correspondent>,
+    pub to: Vec<Correspondent>,
+    pub cc: Vec<Correspondent>,
+    pub subject: String,
+    pub flags: Flags,
+    pub has_attachments: bool,
+}
+
+/// Nombre maximal de messages renvoyés pour une conversation.
+pub const MAX_CONVERSATION_MESSAGES: usize = 500;
+
+/// Listes de conversations, précalculées (ADR-003).
+pub trait ConversationQuery: Send + Sync {
+    /// Au plus `limit` conversations (borné à [`MAX_PAGE_SIZE`]) après
+    /// `cursor`, de la plus récente à la plus ancienne.
+    fn conversations(
+        &self,
+        scope: ConversationScope,
+        cursor: Option<ConversationCursor>,
+        limit: u32,
+    ) -> impl Future<Output = Result<ConversationPage, StoreError>> + Send;
+
+    /// Messages d'une conversation, tous dossiers confondus, du plus
+    /// ancien au plus récent ; un même message présent dans plusieurs
+    /// dossiers (même `Message-ID`) n'apparaît qu'une fois. Au plus
+    /// [`MAX_CONVERSATION_MESSAGES`] (les plus récents).
+    fn conversation_messages(
+        &self,
+        conversation: ConversationId,
+    ) -> impl Future<Output = Result<Vec<ConversationMessage>, StoreError>> + Send;
+}
+
+/// Emplacement local d'un message et de son corps.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MessageLocation {
+    pub id: MessageId,
+    pub account: AccountId,
+    pub mailbox: MailboxId,
+    pub mailbox_name: MailboxName,
+    pub uid: Uid,
+    pub from: Option<Correspondent>,
+    pub body: StoredBody,
+}
+
+/// Accès à l'emplacement d'un message (lecture du corps).
+pub trait MessageLocator: Send + Sync {
+    fn locate(
+        &self,
+        message: MessageId,
+    ) -> impl Future<Output = Result<Option<MessageLocation>, StoreError>> + Send;
+}
+
+// ---------------------------------------------------------------------------
+// Préférences de lecture
+// ---------------------------------------------------------------------------
+
+/// Préférences de lecture : expéditeurs dont les images distantes sont
+/// autorisées, préférence pour le texte brut.
+pub trait ReadingPreferences: Send + Sync {
+    fn remote_images_allowed(
+        &self,
+        sender: &EmailAddress,
+    ) -> impl Future<Output = Result<bool, StoreError>> + Send;
+
+    /// Autorise les images distantes d'un expéditeur (idempotent).
+    fn allow_remote_images(
+        &self,
+        sender: &EmailAddress,
+    ) -> impl Future<Output = Result<(), StoreError>> + Send;
+
+    /// Retire l'autorisation (sans effet si absente).
+    fn revoke_remote_images(
+        &self,
+        sender: &EmailAddress,
+    ) -> impl Future<Output = Result<(), StoreError>> + Send;
+
+    /// Vrai si l'utilisateur préfère lire le texte brut (faux par défaut).
+    fn prefer_plain_text(&self) -> impl Future<Output = Result<bool, StoreError>> + Send;
+
+    fn set_prefer_plain_text(
+        &self,
+        prefer: bool,
+    ) -> impl Future<Output = Result<(), StoreError>> + Send;
 }
 
 #[cfg(test)]

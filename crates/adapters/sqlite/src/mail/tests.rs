@@ -1,0 +1,243 @@
+use norelly_domain::ports::AccountRepository;
+use norelly_test_support::contracts::sample_account;
+use norelly_test_support::mail_contracts::{mail_store_contract, sample_message};
+
+use super::*;
+use crate::SqliteAccountRepository;
+
+fn temp_path(name: &str) -> std::path::PathBuf {
+    let dir =
+        std::env::temp_dir().join(format!("norelly-sqlite-mail-{name}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let _ = std::fs::create_dir_all(&dir);
+    dir.join("test.sqlite3")
+}
+
+async fn two_accounts(db: &Database) -> Result<(AccountId, AccountId), StoreError> {
+    let repo = SqliteAccountRepository::new(db.clone());
+    let a = repo
+        .insert(&sample_account("alice@example.com", false))
+        .await
+        .map_err(|e| StoreError(e.to_string()))?;
+    let b = repo
+        .insert(&sample_account("bob@example.com", false))
+        .await
+        .map_err(|e| StoreError(e.to_string()))?;
+    Ok((a.id(), b.id()))
+}
+
+#[tokio::test]
+async fn in_memory_store_passes_contract() -> Result<(), StoreError> {
+    let db = Database::open_in_memory().map_err(|e| StoreError(e.to_string()))?;
+    let (a, b) = two_accounts(&db).await?;
+    mail_store_contract(&SqliteMailStore::new(db), a, b).await
+}
+
+#[tokio::test]
+async fn file_store_with_reader_pool_passes_contract() -> Result<(), StoreError> {
+    let path = temp_path("contract");
+    let db = Database::open(&path).map_err(|e| StoreError(e.to_string()))?;
+    let (a, b) = two_accounts(&db).await?;
+    mail_store_contract(&SqliteMailStore::new(db), a, b).await?;
+    let _ = std::fs::remove_dir_all(path.parent().unwrap_or(&path));
+    Ok(())
+}
+
+#[tokio::test]
+async fn deleting_an_account_removes_its_mailboxes_and_messages() -> Result<(), StoreError> {
+    let db = Database::open_in_memory().map_err(|e| StoreError(e.to_string()))?;
+    let (a, _) = two_accounts(&db).await?;
+    let store = SqliteMailStore::new(db.clone());
+    let boxes = store
+        .replace_mailboxes(
+            a,
+            &[RemoteMailbox {
+                name: MailboxName::inbox(),
+                delimiter: Some('/'),
+                role: MailboxRole::Inbox,
+                selectable: true,
+            }],
+        )
+        .await?;
+    let inbox = boxes
+        .first()
+        .map(|m| m.id)
+        .ok_or_else(|| corrupted("boîte"))?;
+    store
+        .apply_sync(
+            inbox,
+            &SyncBatch {
+                new: vec![sample_message(1, 10, false)],
+                ..SyncBatch::default()
+            },
+        )
+        .await?;
+    SqliteAccountRepository::new(db.clone())
+        .delete(a)
+        .await
+        .map_err(|e| StoreError(e.to_string()))?;
+    let count: i64 = db
+        .run(|c| {
+            c.query_row("SELECT COUNT(*) FROM messages", [], |r| r.get(0))
+                .map_err(store_error)
+        })
+        .await?;
+    assert_eq!(count, 0);
+    assert!(store.tree(a).await?.is_empty());
+    Ok(())
+}
+
+#[tokio::test]
+async fn bodies_roundtrip() -> Result<(), StoreError> {
+    let db = Database::open_in_memory().map_err(|e| StoreError(e.to_string()))?;
+    let (a, _) = two_accounts(&db).await?;
+    let store = SqliteMailStore::new(db);
+    let inbox = store
+        .replace_mailboxes(
+            a,
+            &[RemoteMailbox {
+                name: MailboxName::inbox(),
+                delimiter: None,
+                role: MailboxRole::Inbox,
+                selectable: true,
+            }],
+        )
+        .await?
+        .first()
+        .map(|m| m.id)
+        .ok_or_else(|| corrupted("boîte"))?;
+    let blob = |c: char| BlobId::parse(&c.to_string().repeat(64)).ok_or_else(|| corrupted("blob"));
+    let path = |p: &str| PartPath::parse(p).ok_or_else(|| corrupted("chemin"));
+    let mut full = sample_message(1, 1, false);
+    full.body = StoredBody::Full(blob('a')?);
+    let mut partial = sample_message(2, 2, false);
+    partial.body = StoredBody::Partial {
+        header: blob('b')?,
+        parts: vec![(path("1")?, blob('c')?)],
+        deferred: vec![path("2")?],
+    };
+    store
+        .apply_sync(
+            inbox,
+            &SyncBatch {
+                new: vec![full.clone(), partial.clone(), sample_message(3, 3, false)],
+                ..SyncBatch::default()
+            },
+        )
+        .await?;
+    assert_eq!(store.body_of(inbox, uid_of(1)?).await?, Some(full.body));
+    assert_eq!(store.body_of(inbox, uid_of(2)?).await?, Some(partial.body));
+    assert_eq!(
+        store.body_of(inbox, uid_of(3)?).await?,
+        Some(StoredBody::Missing)
+    );
+    assert_eq!(store.body_of(inbox, uid_of(4)?).await?, None);
+    Ok(())
+}
+
+#[tokio::test]
+async fn hand_edited_rows_are_revalidated() -> Result<(), StoreError> {
+    let db = Database::open_in_memory().map_err(|e| StoreError(e.to_string()))?;
+    let (a, _) = two_accounts(&db).await?;
+    let store = SqliteMailStore::new(db.clone());
+    let inbox = store
+        .replace_mailboxes(
+            a,
+            &[RemoteMailbox {
+                name: MailboxName::inbox(),
+                delimiter: None,
+                role: MailboxRole::Inbox,
+                selectable: true,
+            }],
+        )
+        .await?
+        .first()
+        .map(|m| m.id)
+        .ok_or_else(|| corrupted("boîte"))?;
+    store
+        .apply_sync(
+            inbox,
+            &SyncBatch {
+                new: vec![sample_message(1, 1, false)],
+                ..SyncBatch::default()
+            },
+        )
+        .await?;
+    db.run(|c| {
+        c.execute(
+            "UPDATE messages SET subject = 'a' || char(13, 10) || 'b' || char(8238), \
+             keywords = '\\Seen bad(kw ok'",
+            [],
+        )
+        .map(|_| ())
+        .map_err(store_error)
+    })
+    .await?;
+    let page = store.page(inbox, None, 10).await?;
+    let item = page.items.first().ok_or_else(|| corrupted("ligne"))?;
+    assert_eq!(item.subject, "a b");
+    assert_eq!(
+        item.flags
+            .keywords()
+            .iter()
+            .map(Keyword::as_str)
+            .collect::<Vec<_>>(),
+        ["ok"]
+    );
+    // Rôle inconnu : signalé.
+    db.run(|c| {
+        c.execute("PRAGMA ignore_check_constraints = ON", [])
+            .and_then(|_| c.execute("UPDATE mailboxes SET role = 'pirate'", []))
+            .map(|_| ())
+            .map_err(store_error)
+    })
+    .await?;
+    assert!(store.tree(a).await.is_err());
+    Ok(())
+}
+
+#[tokio::test]
+async fn readers_see_committed_writes() -> Result<(), StoreError> {
+    let path = temp_path("readers");
+    let db = Database::open(&path).map_err(|e| StoreError(e.to_string()))?;
+    let (a, _) = two_accounts(&db).await?;
+    let store = SqliteMailStore::new(db);
+    let inbox = store
+        .replace_mailboxes(
+            a,
+            &[RemoteMailbox {
+                name: MailboxName::inbox(),
+                delimiter: None,
+                role: MailboxRole::Inbox,
+                selectable: true,
+            }],
+        )
+        .await?
+        .first()
+        .map(|m| m.id)
+        .ok_or_else(|| corrupted("boîte"))?;
+    // Lectures concurrentes (plus que de lecteurs) pendant les écritures.
+    let mut tasks = Vec::new();
+    for n in 1..=20u32 {
+        let store = store.clone();
+        tasks.push(tokio::spawn(async move {
+            store
+                .apply_sync(
+                    inbox,
+                    &SyncBatch {
+                        new: vec![sample_message(n, i64::from(n), false)],
+                        ..SyncBatch::default()
+                    },
+                )
+                .await?;
+            store.page(inbox, None, 50).await
+        }));
+    }
+    for t in tasks {
+        let page = t.await.map_err(|e| StoreError(e.to_string()))??;
+        assert!(!page.items.is_empty());
+    }
+    assert_eq!(store.page(inbox, None, 50).await?.items.len(), 20);
+    let _ = std::fs::remove_dir_all(path.parent().unwrap_or(&path));
+    Ok(())
+}

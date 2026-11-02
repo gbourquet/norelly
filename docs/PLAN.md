@@ -185,7 +185,7 @@ Commandes de référence (détail dans `scripts/check.sh`) :
 - [ ] Application : file d'actions rejouée à la reconnexion, avec un test de bout en bout hors ligne puis en ligne (Toxiproxy)
 - [ ] Interface : raccourcis `e`, `#`, `s` (drapeau), `Shift+i`/`Shift+u`, `v` (déplacer, avec sélection de dossier dans la palette), sélection multiple (`x`), annulation de la dernière action
 - [ ] Intégration Dovecot : chaque action vérifiée côté serveur, avec et sans MOVE (capacité masquée par le faux serveur)
-- [x] Revue security-reviewer, consignée dans REVIEWS.md (0 critique, 0 haute ; moyennes corrigées)
+- [ ] Revue security-reviewer, consignée dans REVIEWS.md (0 critique, 0 haute ; moyennes corrigées)
 
 **Condition de fin** : `./scripts/check.sh full && pnpm -C app e2e` passent sans erreur.
 
@@ -203,7 +203,7 @@ Commandes de référence (détail dans `scripts/check.sh`) :
 - [ ] Application : `SendMessage` (file d'envoi persistante, envoi différé hors ligne), `SaveDraft`
 - [ ] Interface : éditeur Tiptap (gras, italique, liens, listes, citation), destinataires avec autocomplétion depuis les adresses connues, pièces jointes par glisser-déposer et par sélecteur, `c`/`r`/`a`/`f`, Ctrl+Entrée pour envoyer
 - [ ] Intégration : envoi via Mailpit vérifié par son API, brouillon présent sur Dovecot, copie dans Envoyés présente
-- [x] Revue security-reviewer, consignée dans REVIEWS.md (0 critique, 0 haute ; moyennes corrigées)
+- [ ] Revue security-reviewer, consignée dans REVIEWS.md (0 critique, 0 haute ; moyennes corrigées)
 
 **Condition de fin** : `./scripts/check.sh full && pnpm -C app e2e` passent sans erreur.
 
@@ -214,7 +214,7 @@ Commandes de référence (détail dans `scripts/check.sh`) :
 - [ ] Test de contrat `SearchIndex` ; protection contre l'injection de syntaxe FTS5 (les termes de l'utilisateur sont échappés)
 - [ ] Bench : recherche dans 50k messages < 100 ms
 - [ ] Interface : barre de recherche (`/`), résultats en liste, surlignage, fonctionnement hors ligne
-- [x] Revue security-reviewer, consignée dans REVIEWS.md (0 critique, 0 haute ; moyennes corrigées)
+- [ ] Revue security-reviewer, consignée dans REVIEWS.md (0 critique, 0 haute ; moyennes corrigées)
 
 **Condition de fin** : `./scripts/check.sh full && cargo bench -p norelly-sqlite -- --test && pnpm -C app e2e` passent sans erreur.
 
@@ -226,7 +226,7 @@ Commandes de référence (détail dans `scripts/check.sh`) :
 - [ ] Mesure de bout en bout : démarrage et changement de dossier < 200 ms sur la boîte de 50k messages (test end-to-end avec mesure, seuil dans le job nocturne)
 - [ ] Passe accessibilité : focus visible, rôles ARIA, navigation entièrement au clavier, contrastes
 - [ ] Checklist de tests manuels Gmail, Fastmail, Outlook.com (IMAP par mot de passe d'application), consignée dans `docs/MANUAL-TESTS.md`
-- [x] Revue security-reviewer, consignée dans REVIEWS.md (0 critique, 0 haute ; moyennes corrigées)
+- [ ] Revue security-reviewer, consignée dans REVIEWS.md (0 critique, 0 haute ; moyennes corrigées)
 
 **Condition de fin** : `./scripts/check.sh full && pnpm -C app e2e` passent sans erreur.
 

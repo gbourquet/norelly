@@ -3122,6 +3122,7 @@ dependencies = [
  "norelly-domain",
  "norelly-test-support",
  "tokio",
+ "tracing",
  "windows-native-keyring-store",
  "zeroize",
 ]

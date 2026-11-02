@@ -10,7 +10,7 @@ use norelly_domain::mailbox::{MailboxName, MailboxRole, Uid, classify_mailboxes}
 use norelly_domain::ports::{
     ConnectRequest, FetchedBody, IdleOutcome, RemoteMailboxConnector, RemoteMailboxSession,
 };
-use norelly_domain::sync::{QresyncParams, SelectRequest, ServerQuery};
+use norelly_domain::sync::{QresyncParams, SelectRequest, ServerQuery, UidRanges};
 
 use crate::imap_control::MailboxControl;
 
@@ -240,7 +240,7 @@ where
         .map_err(|e| e.to_string())?;
     assert_eq!(
         selected.vanished,
-        BTreeSet::from([uid(3)]),
+        UidRanges::from_uids([uid(3)]),
         "VANISHED (EARLIER)"
     );
     assert_eq!(

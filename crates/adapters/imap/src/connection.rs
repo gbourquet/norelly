@@ -29,11 +29,22 @@ use tokio::net::TcpStream;
 use tokio_rustls::client::TlsStream;
 use zeroize::Zeroize;
 
+use crate::nesting::{MAX_NESTING, Nesting};
+
 /// Taille maximale d'une réponse (littéraux compris).
 pub(crate) const MAX_RESPONSE_SIZE: u32 = 64 * 1024 * 1024;
 /// Taille maximale d'une réponse avant TLS (salutation, CAPABILITY,
 /// STARTTLS) : rien de légitime n'y dépasse quelques Kio.
 pub(crate) const PRE_TLS_MAX_RESPONSE_SIZE: u32 = 64 * 1024;
+/// Octets reçus au plus pour une seule commande (toutes réponses
+/// comprises) : borne la mémoire retenue jusqu'à la réponse étiquetée.
+pub(crate) const MAX_COMMAND_BYTES: usize = 256 * 1024 * 1024;
+/// Durée maximale d'une commande ordinaire (en plus du délai par lecture :
+/// un serveur qui envoie un octet de temps en temps ne la prolonge pas).
+pub(crate) const COMMAND_DEADLINE: Duration = Duration::from_secs(120);
+/// Durée maximale d'une commande de synchronisation (liste complète,
+/// message volumineux).
+pub(crate) const BULK_DEADLINE: Duration = Duration::from_secs(30 * 60);
 /// Nombre maximal de réponses non étiquetées conservées pour une commande
 /// ordinaire.
 const MAX_UNTAGGED_PER_COMMAND: usize = 10_000;
@@ -82,6 +93,9 @@ pub(crate) struct Reply {
     /// Réponses d'état non étiquetées (`* OK [UIDVALIDITY …]`…).
     pub untagged: Vec<StatusBody<'static>>,
     pub status: StatusBody<'static>,
+    /// Réponses écartées pendant la commande (indécodables, trop
+    /// imbriquées).
+    pub skipped: usize,
 }
 
 /// Connexion IMAP pilotée.
@@ -100,8 +114,17 @@ pub(crate) struct Connection {
     /// Reste vrai si l'attente a été abandonnée (futur annulé) : la
     /// session est alors inutilisable et n'est plus que fermée.
     in_idle: bool,
-    /// Réponses de données acceptées par commande.
-    max_untagged: usize,
+    /// Commande en cours : reste vrai si son futur a été abandonné ; la
+    /// session est alors désynchronisée et n'est plus que fermée.
+    busy: bool,
+    /// Session authentifiée : une réponse indécodable est alors écartée
+    /// (et comptée) au lieu d'interrompre la commande.
+    authenticated: bool,
+    /// Réponses écartées (indécodables ou trop imbriquées) pendant la
+    /// commande en cours.
+    skipped: usize,
+    /// Octets reçus pendant la commande en cours.
+    command_bytes: usize,
 }
 
 impl fmt::Debug for Connection {
@@ -156,9 +179,17 @@ impl Connection {
             max_response_size,
             timeout,
             next_tag: 0,
-            max_untagged: MAX_UNTAGGED_PER_COMMAND,
             in_idle: false,
+            busy: false,
+            authenticated: false,
+            skipped: 0,
+            command_bytes: 0,
         }
+    }
+
+    /// Session authentifiée : les réponses indécodables seront écartées.
+    pub(crate) fn mark_authenticated(&mut self) {
+        self.authenticated = true;
     }
 
     /// Exécute une commande dont la réponse peut compter beaucoup de
@@ -167,19 +198,23 @@ impl Connection {
         &mut self,
         body: CommandBody<'static>,
     ) -> Result<Reply, ConnectionError> {
-        self.max_untagged = MAX_SYNC_DATA;
-        let result = self.execute(body, false).await;
-        self.max_untagged = MAX_UNTAGGED_PER_COMMAND;
-        result
+        self.execute_with(body, false, MAX_SYNC_DATA, BULK_DEADLINE)
+            .await
+    }
+
+    fn ensure_usable(&self) -> Result<(), ConnectionError> {
+        if self.in_idle || self.busy {
+            return Err(protocol("session interrompue pendant une commande"));
+        }
+        Ok(())
     }
 
     /// `IDLE` jusqu'à une donnée non sollicitée signalant un changement
     /// (`EXISTS`, `EXPUNGE`, `FETCH`, `VANISHED`) ou jusqu'à `max`, puis
     /// `DONE`. Renvoie `true` si un changement a été signalé.
     pub(crate) async fn idle(&mut self, max: Duration) -> Result<bool, ConnectionError> {
-        if self.in_idle {
-            return Err(protocol("session interrompue pendant IDLE"));
-        }
+        self.ensure_usable()?;
+        self.command_bytes = 0;
         let tag = self.tag()?;
         let command = Command::new(tag.clone(), CommandBody::Idle)
             .map_err(|_| protocol("commande invalide"))?;
@@ -310,11 +345,20 @@ impl Connection {
                 Ok(event) => return Ok(event),
                 Err(Interrupt::Error(e)) => {
                     use imap_next::client::Error as E;
-                    return Err(protocol(match e {
+                    let what = match e {
                         E::MalformedMessage { .. } => "réponse malformée",
                         E::ExpectedCrlfGotLf { .. } => "fin de ligne invalide (LF sans CR)",
                         E::ResponseTooLong { .. } => "réponse trop longue",
-                    }));
+                    };
+                    // `imap-next` a écarté la réponse fautive ; une fois
+                    // authentifié, on continue (un message indécodable ne
+                    // doit pas bloquer la synchronisation de tous les
+                    // autres).
+                    if !self.authenticated {
+                        return Err(protocol(what));
+                    }
+                    tracing::warn!(raison = what, "réponse IMAP écartée");
+                    self.skipped += 1;
                 }
                 Err(Interrupt::Io(Io::Output(mut bytes))) => {
                     let result =
@@ -325,14 +369,18 @@ impl Connection {
                         .map_err(|_| ConnectionError::Timeout(TimeoutStage::Write))?
                         .map_err(|e| io_error(&e))?;
                 }
-                Err(Interrupt::Io(Io::NeedMoreInput)) => self.feed_line(timeout).await?,
+                Err(Interrupt::Io(Io::NeedMoreInput)) => self.feed_response(timeout).await?,
             }
         }
     }
 
-    /// Fournit à `client` la prochaine ligne complète (jusqu'à `\n`
-    /// compris), en lisant le réseau si nécessaire.
-    async fn feed_line(&mut self, timeout: Duration) -> Result<(), ConnectionError> {
+    /// Lit la prochaine ligne (jusqu'à `\n` compris) dans le tampon, en
+    /// lisant le réseau si nécessaire ; au plus `max` octets.
+    async fn read_line(
+        &mut self,
+        timeout: Duration,
+        max: usize,
+    ) -> Result<Vec<u8>, ConnectionError> {
         loop {
             // Reprend après la partie déjà examinée : coût linéaire même
             // pour une ligne énorme reçue par petits blocs.
@@ -340,24 +388,93 @@ impl Connection {
             if let Some(offset) = unseen.iter().position(|&b| b == b'\n') {
                 let pos = self.scanned + offset;
                 self.scanned = 0;
-                let line: Vec<u8> = self.inbuf.drain(..=pos).collect();
-                self.client.enqueue_input(&line);
-                return Ok(());
+                if pos >= max {
+                    return Err(protocol("réponse trop longue"));
+                }
+                return Ok(self.inbuf.drain(..=pos).collect());
             }
             self.scanned = self.inbuf.len();
-            if self.inbuf.len() > self.max_response_size as usize {
+            if self.inbuf.len() > max {
                 return Err(protocol("ligne trop longue"));
             }
-            let mut chunk = [0u8; 16 * 1024];
-            let n = tokio::time::timeout(timeout, self.transport.read_some(&mut chunk))
-                .await
-                .map_err(|_| ConnectionError::Timeout(TimeoutStage::Response))?
-                .map_err(|e| io_error(&e))?;
-            if n == 0 {
-                return Err(ConnectionError::Closed);
-            }
-            self.inbuf.extend_from_slice(&chunk[..n]);
+            self.read_more(timeout).await?;
         }
+    }
+
+    /// Lit exactement `n` octets (contenu d'un littéral).
+    async fn read_exact(
+        &mut self,
+        timeout: Duration,
+        n: usize,
+    ) -> Result<Vec<u8>, ConnectionError> {
+        while self.inbuf.len() < n {
+            self.read_more(timeout).await?;
+        }
+        self.scanned = 0;
+        Ok(self.inbuf.drain(..n).collect())
+    }
+
+    async fn read_more(&mut self, timeout: Duration) -> Result<(), ConnectionError> {
+        let mut chunk = [0u8; 16 * 1024];
+        let n = tokio::time::timeout(timeout, self.transport.read_some(&mut chunk))
+            .await
+            .map_err(|_| ConnectionError::Timeout(TimeoutStage::Response))?
+            .map_err(|e| io_error(&e))?;
+        if n == 0 {
+            return Err(ConnectionError::Closed);
+        }
+        self.inbuf.extend_from_slice(&chunk[..n]);
+        Ok(())
+    }
+
+    /// Fournit à `client` la prochaine réponse complète (ligne, littéraux
+    /// et suites de ligne), après contrôle de sa taille, du budget de la
+    /// commande et de sa profondeur d'imbrication ([`nesting`]). Une
+    /// réponse trop imbriquée n'est jamais décodée : elle est écartée une
+    /// fois authentifié, refusée avant.
+    ///
+    /// Les octets reçus au-delà de la réponse restent dans notre tampon,
+    /// ce qui permet de détecter des données envoyées après la réponse à
+    /// `STARTTLS`.
+    ///
+    /// [`nesting`]: crate::nesting
+    async fn feed_response(&mut self, timeout: Duration) -> Result<(), ConnectionError> {
+        let max = self.max_response_size as usize;
+        let mut response = Vec::new();
+        let mut nesting = Nesting::default();
+        loop {
+            let line = self.read_line(timeout, max - response.len()).await?;
+            let literal = nesting.scan_line(&line);
+            response.extend_from_slice(&line);
+            let Some(size) = literal else {
+                break;
+            };
+            let size = usize::try_from(size).unwrap_or(usize::MAX);
+            if size > max - response.len() {
+                return Err(protocol("réponse trop longue"));
+            }
+            let bytes = self.read_exact(timeout, size).await?;
+            response.extend_from_slice(&bytes);
+        }
+        self.command_bytes = self.command_bytes.saturating_add(response.len());
+        if self.command_bytes > MAX_COMMAND_BYTES {
+            return Err(protocol("réponse trop volumineuse pour une seule commande"));
+        }
+        if nesting.max_depth() > MAX_NESTING {
+            if !self.authenticated {
+                return Err(protocol("réponse trop imbriquée"));
+            }
+            tracing::warn!(
+                profondeur = nesting.max_depth(),
+                "réponse IMAP trop imbriquée écartée"
+            );
+            self.skipped += 1;
+            response.zeroize();
+            return Ok(());
+        }
+        self.client.enqueue_input(&response);
+        response.zeroize();
+        Ok(())
     }
 
     /// Lit la salutation du serveur.
@@ -386,19 +503,51 @@ impl Connection {
         body: CommandBody<'static>,
         allow_bye: bool,
     ) -> Result<Reply, ConnectionError> {
-        if self.in_idle {
-            return Err(protocol("session interrompue pendant IDLE"));
-        }
+        self.execute_with(body, allow_bye, MAX_UNTAGGED_PER_COMMAND, COMMAND_DEADLINE)
+            .await
+    }
+
+    /// Exécute une commande : au plus `max_data` réponses de données, et
+    /// réponse étiquetée attendue avant `budget`. Une commande abandonnée
+    /// (futur annulé) rend la session inutilisable.
+    pub(crate) async fn execute_with(
+        &mut self,
+        body: CommandBody<'static>,
+        allow_bye: bool,
+        max_data: usize,
+        budget: Duration,
+    ) -> Result<Reply, ConnectionError> {
+        self.ensure_usable()?;
+        self.busy = true;
+        self.command_bytes = 0;
+        self.skipped = 0;
+        let result = self.run_command(body, allow_bye, max_data, budget).await;
+        self.busy = false;
+        result
+    }
+
+    async fn run_command(
+        &mut self,
+        body: CommandBody<'static>,
+        allow_bye: bool,
+        max_data: usize,
+        budget: Duration,
+    ) -> Result<Reply, ConnectionError> {
+        let deadline = tokio::time::Instant::now() + budget;
         let tag = self.tag()?;
         let command = Command::new(tag.clone(), body).map_err(|_| protocol("commande invalide"))?;
         self.client.enqueue_command(command);
         let mut data = Vec::new();
         let mut untagged = Vec::new();
         loop {
-            match self.next_event().await? {
+            let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+            if remaining.is_zero() {
+                return Err(ConnectionError::Timeout(TimeoutStage::Response));
+            }
+            match self.next_event_within(self.timeout.min(remaining)).await? {
                 Event::CommandSent { .. } => {}
                 Event::DataReceived { data: d } => {
-                    if data.len() >= self.max_untagged {
+                    if data.len() >= max_data {
                         return Err(protocol("trop de réponses non étiquetées"));
                     }
                     data.push(d);
@@ -409,6 +558,7 @@ impl Connection {
                             data,
                             untagged,
                             status: tagged.body,
+                            skipped: self.skipped,
                         });
                     }
                     Status::Tagged(_) => return Err(protocol("réponse étiquetée inattendue")),
@@ -559,7 +709,7 @@ impl Connection {
 
     /// `LOGOUT`.
     pub(crate) async fn logout(&mut self) -> Result<(), ConnectionError> {
-        if self.in_idle {
+        if self.in_idle || self.busy {
             // IDLE abandonné : rien d'autre ne peut être envoyé proprement ;
             // la connexion est simplement fermée.
             self.transport = Transport::Detached;
@@ -592,14 +742,17 @@ fn status_text(status: &Status<'_>) -> String {
     server_text(text.as_bytes())
 }
 
+/// `OK` attendu ; `NO` : commande refusée, session intacte
+/// ([`ConnectionError::Rejected`]) ; `BAD` : erreur de protocole.
 pub(crate) fn ensure_ok(status: &StatusBody<'_>) -> Result<(), ConnectionError> {
-    if status.kind == StatusKind::Ok {
-        Ok(())
-    } else {
-        Err(ConnectionError::Protocol(format!(
+    let text = || server_text(status.text.as_ref().as_bytes());
+    match status.kind {
+        StatusKind::Ok => Ok(()),
+        StatusKind::No => Err(ConnectionError::Rejected(text())),
+        StatusKind::Bad => Err(ConnectionError::Protocol(format!(
             "commande refusée : {}",
-            server_text(status.text.as_ref().as_bytes())
-        )))
+            text()
+        ))),
     }
 }
 

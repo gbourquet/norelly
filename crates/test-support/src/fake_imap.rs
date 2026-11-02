@@ -20,7 +20,7 @@ use norelly_domain::mailbox::{
 };
 use norelly_domain::ports::{FetchedBody, IdleOutcome, RemoteMailboxSession};
 use norelly_domain::sync::{
-    FlagUpdate, SelectRequest, SelectedMailbox, ServerQuery, SyncExtensions,
+    FlagUpdate, SelectRequest, SelectedMailbox, ServerQuery, SyncExtensions, UidRanges,
 };
 use tokio::sync::Notify;
 
@@ -71,6 +71,8 @@ struct State {
     cut_after: Option<usize>,
     /// Nombre d'opérations exécutées (toutes sessions).
     operations: usize,
+    /// Durée de chaque opération (serveur lent).
+    delay: Duration,
 }
 
 impl State {
@@ -116,6 +118,7 @@ impl FakeImap {
             offline: false,
             cut_after: None,
             operations: 0,
+            delay: Duration::ZERO,
         };
         Self {
             state: Arc::new(Mutex::new(state)),
@@ -140,6 +143,11 @@ impl FakeImap {
     /// (`None` : jamais).
     pub fn cut_after(&self, n: Option<usize>) {
         lock(&self.state).cut_after = n;
+    }
+
+    /// Chaque opération de session dure `delay` (serveur lent).
+    pub fn set_delay(&self, delay: Duration) {
+        lock(&self.state).delay = delay;
     }
 
     /// Nombre total d'opérations de session exécutées.
@@ -366,6 +374,14 @@ fn headers_of(raw: &[u8]) -> MessageHeaders {
 }
 
 impl FakeImapSession {
+    /// Attend la durée d'une opération (serveur lent).
+    async fn throttle(&self) {
+        let delay = lock(&self.server.state).delay;
+        if !delay.is_zero() {
+            tokio::time::sleep(delay).await;
+        }
+    }
+
     /// Compte une opération ; échoue si la session est coupée.
     fn step(&mut self) -> Result<MutexGuard<'_, State>, ConnectionError> {
         if self.broken {
@@ -413,6 +429,7 @@ impl RemoteMailboxSession for FakeImapSession {
     }
 
     async fn enable_sync_extensions(&mut self) -> Result<SyncExtensions, ConnectionError> {
+        self.throttle().await;
         let s = self.step()?;
         let ext = SyncExtensions {
             condstore: s.condstore,
@@ -424,6 +441,7 @@ impl RemoteMailboxSession for FakeImapSession {
     }
 
     async fn list_mailboxes(&mut self) -> Result<Vec<ListedMailbox>, ConnectionError> {
+        self.throttle().await;
         let s = self.step()?;
         s.mailboxes
             .iter()
@@ -444,6 +462,7 @@ impl RemoteMailboxSession for FakeImapSession {
         request: &SelectRequest,
     ) -> Result<SelectedMailbox, ConnectionError> {
         let ext = self.extensions;
+        self.throttle().await;
         let mut s = self.step()?;
         let Some(m) = s.mailbox(mailbox.as_str()).cloned() else {
             return Err(ConnectionError::Rejected("boîte inconnue".into()));
@@ -460,7 +479,7 @@ impl RemoteMailboxSession for FakeImapSession {
             },
             exists: u32::try_from(m.messages.len()).unwrap_or(u32::MAX),
             changed: vec![],
-            vanished: BTreeSet::new(),
+            vanished: UidRanges::default(),
         };
         if let Some(q) = &request.qresync
             && ext.qresync
@@ -475,12 +494,12 @@ impl RemoteMailboxSession for FakeImapSession {
                 .collect();
             // Sans liste d'UID connus (comme Norelly l'envoie) : toutes
             // les suppressions depuis `since`.
-            selected.vanished = m
-                .expunged
-                .iter()
-                .filter(|(_, ms)| *ms > since)
-                .filter_map(|(u, _)| uid(*u))
-                .collect();
+            selected.vanished = UidRanges::from_uids(
+                m.expunged
+                    .iter()
+                    .filter(|(_, ms)| *ms > since)
+                    .filter_map(|(u, _)| uid(*u)),
+            );
         }
         self.selected = Some((mailbox.as_str().to_owned(), m.version));
         Ok(selected)
@@ -491,6 +510,7 @@ impl RemoteMailboxSession for FakeImapSession {
         query: ServerQuery,
     ) -> Result<Vec<FlagUpdate>, ConnectionError> {
         let name = self.selected_name()?;
+        self.throttle().await;
         let mut s = self.step()?;
         let m = s.mailbox(&name).cloned().ok_or(ConnectionError::Closed)?;
         drop(s);
@@ -507,6 +527,7 @@ impl RemoteMailboxSession for FakeImapSession {
 
     async fn search_all_uids(&mut self) -> Result<BTreeSet<Uid>, ConnectionError> {
         let name = self.selected_name()?;
+        self.throttle().await;
         let mut s = self.step()?;
         let m = s.mailbox(&name).ok_or(ConnectionError::Closed)?;
         Ok(m.messages.keys().filter_map(|u| uid(*u)).collect())
@@ -515,6 +536,7 @@ impl RemoteMailboxSession for FakeImapSession {
     async fn fetch_meta(&mut self, uids: &[Uid]) -> Result<Vec<MessageMeta>, ConnectionError> {
         let name = self.selected_name()?;
         let condstore = self.extensions.condstore;
+        self.throttle().await;
         let mut s = self.step()?;
         let m = s.mailbox(&name).ok_or(ConnectionError::Closed)?;
         let uids: BTreeSet<Uid> = uids.iter().copied().collect();
@@ -545,6 +567,7 @@ impl RemoteMailboxSession for FakeImapSession {
         fetch: &BodyFetch,
     ) -> Result<Option<FetchedBody>, ConnectionError> {
         let name = self.selected_name()?;
+        self.throttle().await;
         let mut s = self.step()?;
         let m = s.mailbox(&name).ok_or(ConnectionError::Closed)?;
         let Some(msg) = m.messages.get(&target.get()) else {
@@ -575,6 +598,7 @@ impl RemoteMailboxSession for FakeImapSession {
             // changement ne peut être manqué entre les deux.
             let notified = changed.notified();
             let (supports_idle, version) = {
+                self.throttle().await;
                 let mut s = self.step()?;
                 let version = s.mailbox(&name).map_or(u64::MAX, |m| m.version);
                 (s.idle, version)

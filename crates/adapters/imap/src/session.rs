@@ -26,7 +26,8 @@ use imap_next::imap_types::sequence::SequenceSet;
 use mail_parser::{Address, HeaderValue, MessageParser};
 use norelly_domain::connection::{ConnectionError, server_text};
 use norelly_domain::fetch_policy::{
-    BodyFetch, Disposition, MAX_MIME_DEPTH, MAX_MIME_PARTS, MimePart, PartPath,
+    BodyFetch, Disposition, MAX_MIME_DEPTH, MAX_MIME_PARTS, MimePart, PartPath, attachment_name,
+    mime_token,
 };
 use norelly_domain::mailbox::{
     Flags, ListedMailbox, MailboxName, MessageHeaders, MessageMeta, ModSeq, RawHeaders, Uid,
@@ -34,10 +35,10 @@ use norelly_domain::mailbox::{
 };
 use norelly_domain::ports::{FetchedBody, IdleOutcome, MAX_FETCH_BATCH};
 use norelly_domain::sync::{
-    FlagUpdate, SelectRequest, SelectedMailbox, ServerQuery, SyncExtensions,
+    FlagUpdate, SelectRequest, SelectedMailbox, ServerQuery, SyncExtensions, UidRanges,
 };
 
-use crate::connection::{Connection, ensure_ok};
+use crate::connection::{BULK_DEADLINE, Connection, ensure_ok};
 use crate::utf7;
 
 fn protocol(what: impl Into<String>) -> ConnectionError {
@@ -50,7 +51,7 @@ fn text(raw: &[u8]) -> String {
 }
 
 fn istring(s: &IString<'_>) -> String {
-    text(s.as_ref()).to_ascii_lowercase()
+    mime_token(&text(s.as_ref()))
 }
 
 /// Ensemble d'UID compact (`1:5,7,9:12`), trié.
@@ -137,28 +138,19 @@ fn flag_update(items: &Vec1<MessageDataItem<'_>>) -> Option<FlagUpdate> {
     })
 }
 
-/// Données de type `VANISHED` : UID explicites (pas de `*`).
-fn vanished_uids(set: &SequenceSet, out: &mut BTreeSet<Uid>) {
+/// Plages d'une réponse `VANISHED`, sans dépliage (une plage peut couvrir
+/// tout l'espace des UID) ; `*` est ignoré.
+fn vanished_ranges(set: &SequenceSet, out: &mut Vec<(Uid, Uid)>) {
     use imap_next::imap_types::sequence::{SeqOrUid, Sequence};
-    // Borne : un VANISHED démesuré (1:4294967295) ne doit pas épuiser la
-    // mémoire ; seuls les UID connus nous intéressent de toute façon, le
-    // domaine filtre. On plafonne le nombre d'UID dépliés.
-    const MAX_EXPANDED: usize = 2_000_000;
     for seq in set.0.as_ref() {
-        let (a, b) = match seq {
-            Sequence::Single(SeqOrUid::Value(v)) => (v.get(), v.get()),
+        match seq {
+            Sequence::Single(SeqOrUid::Value(v)) => {
+                out.push((Uid::from_nonzero(*v), Uid::from_nonzero(*v)));
+            }
             Sequence::Range(SeqOrUid::Value(a), SeqOrUid::Value(b)) => {
-                (a.get().min(b.get()), a.get().max(b.get()))
+                out.push((Uid::from_nonzero(*a), Uid::from_nonzero(*b)));
             }
-            _ => continue,
-        };
-        for n in a..=b {
-            if out.len() >= MAX_EXPANDED {
-                return;
-            }
-            if let Some(u) = Uid::new(n) {
-                out.insert(u);
-            }
+            _ => {}
         }
     }
 }
@@ -196,7 +188,7 @@ fn mime_part(structure: &BodyStructure<'_>, depth: usize, count: &mut usize) -> 
                 .and_then(|d| d.disposition.as_ref());
             let (kind, filename) = match disposition {
                 Some((kind, params)) => {
-                    let kind = match istring(kind).as_str() {
+                    let kind = match text(kind.as_ref()).to_ascii_lowercase().as_str() {
                         "attachment" => Disposition::Attachment,
                         "inline" => Disposition::Inline,
                         _ => Disposition::Unspecified,
@@ -205,7 +197,10 @@ fn mime_part(structure: &BodyStructure<'_>, depth: usize, count: &mut usize) -> 
                 }
                 None => (Disposition::Unspecified, None),
             };
-            let filename = filename.or_else(|| param(&body.basic.parameter_list, "name"));
+            let filename = filename
+                .or_else(|| param(&body.basic.parameter_list, "name"))
+                .map(|n| attachment_name(&n))
+                .filter(|n| !n.is_empty());
             Some(MimePart::Leaf {
                 media_type,
                 subtype,
@@ -342,6 +337,14 @@ fn body_item(section: Option<Section<'static>>) -> MessageDataItemName<'static> 
 // Opérations
 // ---------------------------------------------------------------------------
 
+/// Forme de la demande de métadonnées, de la plus riche à la plus sûre.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MetaTier {
+    Complete,
+    NoStructure,
+    Minimal,
+}
+
 impl Connection {
     pub(crate) async fn enable_sync(
         &mut self,
@@ -441,6 +444,7 @@ impl Connection {
             )));
         }
         let mut selected = SelectedMailbox::default();
+        let mut vanished = Vec::new();
         let codes = reply
             .untagged
             .iter()
@@ -466,11 +470,12 @@ impl Connection {
                     }
                 }
                 Data::Vanished { known_uids, .. } => {
-                    vanished_uids(known_uids, &mut selected.vanished);
+                    vanished_ranges(known_uids, &mut vanished);
                 }
                 _ => {}
             }
         }
+        selected.vanished = UidRanges::new(vanished);
         Ok(selected)
     }
 
@@ -520,6 +525,10 @@ impl Connection {
         Ok(out)
     }
 
+    /// Métadonnées d'un lot. Un message dont la réponse est écartée
+    /// (BODYSTRUCTURE trop imbriquée, réponse indécodable) est redemandé
+    /// sans structure, puis réduit à ses drapeaux, sa taille et sa date :
+    /// un seul message hostile ne bloque pas la synchronisation.
     pub(crate) async fn fetch_meta(
         &mut self,
         uids: &[Uid],
@@ -528,18 +537,51 @@ impl Connection {
         if uids.len() > MAX_FETCH_BATCH {
             return Err(protocol("lot de FETCH trop grand"));
         }
-        let Some(set) = uid_set(uids.iter().copied()) else {
-            return Ok(Vec::new());
-        };
-        let wanted: BTreeSet<Uid> = uids.iter().copied().collect();
+        let mut missing: BTreeSet<Uid> = uids.iter().copied().collect();
+        let mut out: Vec<MessageMeta> = Vec::new();
+        for tier in [MetaTier::Complete, MetaTier::NoStructure, MetaTier::Minimal] {
+            let Some(set) = uid_set(missing.iter().copied()) else {
+                break;
+            };
+            let (metas, skipped) = self.fetch_meta_tier(set, &missing, condstore, tier).await?;
+            for meta in metas {
+                if missing.remove(&meta.uid) {
+                    out.push(meta);
+                }
+            }
+            // Sans réponse écartée, les UID restants ont disparu.
+            if skipped == 0 {
+                break;
+            }
+            tracing::warn!(
+                ?tier,
+                skipped,
+                "métadonnées redemandées sous une forme réduite"
+            );
+        }
+        out.sort_by_key(|m| m.uid);
+        Ok(out)
+    }
+
+    async fn fetch_meta_tier(
+        &mut self,
+        set: SequenceSet,
+        wanted: &BTreeSet<Uid>,
+        condstore: bool,
+        tier: MetaTier,
+    ) -> Result<(Vec<MessageMeta>, usize), ConnectionError> {
         let mut names = vec![
             MessageDataItemName::Uid,
             MessageDataItemName::Flags,
             MessageDataItemName::InternalDate,
             MessageDataItemName::Rfc822Size,
-            MessageDataItemName::BodyStructure,
-            body_item(Some(Section::Header(None))),
         ];
+        if tier == MetaTier::Complete {
+            names.push(MessageDataItemName::BodyStructure);
+        }
+        if tier != MetaTier::Minimal {
+            names.push(body_item(Some(Section::Header(None))));
+        }
         if condstore {
             names.push(MessageDataItemName::ModSeq);
         }
@@ -549,9 +591,18 @@ impl Connection {
             uid: true,
             modifiers: Vec::new(),
         };
-        let reply = self.execute_bulk(body).await?;
-        ensure_ok(&reply.status)?;
-        let mut out: Vec<MessageMeta> = reply
+        // Quelques réponses par UID demandé (FETCH non sollicités tolérés),
+        // pas davantage.
+        let max_data = wanted.len().saturating_mul(4).saturating_add(64);
+        let reply = self
+            .execute_with(body, false, max_data, BULK_DEADLINE)
+            .await?;
+        // NO avec des données (« certains messages n'ont pu être lus ») :
+        // on garde ce qui est arrivé.
+        if reply.status.kind == StatusKind::Bad {
+            ensure_ok(&reply.status)?;
+        }
+        let metas = reply
             .data
             .iter()
             .filter_map(|d| match d {
@@ -561,9 +612,7 @@ impl Connection {
             // Réponses non sollicitées ou hors demande ignorées.
             .filter(|m| wanted.contains(&m.uid))
             .collect();
-        out.sort_by_key(|m| m.uid);
-        out.dedup_by_key(|m| m.uid);
-        Ok(out)
+        Ok((metas, reply.skipped))
     }
 
     pub(crate) async fn fetch_body(
@@ -588,7 +637,9 @@ impl Connection {
             uid: true,
             modifiers: Vec::new(),
         };
-        let reply = self.execute(body, false).await?;
+        // Corps volumineux : échéance longue ; réponse trop longue écartée
+        // (le message est alors traité comme absent).
+        let reply = self.execute_with(body, false, 64, BULK_DEADLINE).await?;
         ensure_ok(&reply.status)?;
         for data in &reply.data {
             let Data::Fetch { items, .. } = data else {

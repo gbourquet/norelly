@@ -283,14 +283,23 @@ impl<M: MailStore, B: BlobStore> SyncAccount<'_, M, B> {
             } in pending
             {
                 let fetch = self.policy.decide(size, structure.as_ref());
-                let body = match session.fetch_body(uid, &fetch).await? {
-                    // Disparu entre-temps : la prochaine synchronisation le
-                    // retirera.
-                    None => continue,
-                    Some(FetchedBody::Full(raw)) => {
+                let body = match session.fetch_body(uid, &fetch).await {
+                    // Disparu entre-temps (ou réponse écartée) : la
+                    // prochaine synchronisation le retirera ou réessaiera.
+                    Ok(None) => continue,
+                    // Refusé par le serveur pour ce seul message.
+                    Err(ConnectionError::Rejected(reason)) => {
+                        tracing::warn!(%uid, %reason, "corps refusé par le serveur");
+                        continue;
+                    }
+                    Err(e) => return Err(e.into()),
+                    Ok(Some(body)) => body,
+                };
+                let body = match body {
+                    FetchedBody::Full(raw) => {
                         StoredBody::Full(self.blobs.put(self.account, raw).await?)
                     }
-                    Some(FetchedBody::Partial { header, parts }) => {
+                    FetchedBody::Partial { header, parts } => {
                         let header = self.blobs.put(self.account, header).await?;
                         let mut stored = Vec::with_capacity(parts.len());
                         for (path, bytes) in parts {

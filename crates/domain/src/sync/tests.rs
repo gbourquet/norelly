@@ -142,7 +142,7 @@ impl Server {
             },
             exists: u32::try_from(self.messages.len()).unwrap_or(u32::MAX),
             changed: vec![],
-            vanished: BTreeSet::new(),
+            vanished: UidRanges::default(),
         };
         if let Some(q) = &request.qresync
             && self.condstore
@@ -157,12 +157,12 @@ impl Server {
                 .collect();
             // Sans liste d'UID connus : toutes les suppressions depuis
             // `since`, y compris d'UID jamais vus par le client.
-            selected.vanished = self
-                .expunged
-                .iter()
-                .filter(|(_, m)| *m > since)
-                .map(|(u, _)| *u)
-                .collect();
+            selected.vanished = UidRanges::from_uids(
+                self.expunged
+                    .iter()
+                    .filter(|(_, m)| *m > since)
+                    .map(|(u, _)| *u),
+            );
         }
         selected
     }
@@ -534,6 +534,31 @@ fn interrupted_initial_sync_resumes_by_uid_compare() {
     assert_eq!(plan(&local, &request, &selected), Ok(SyncPlan::UidCompare));
     sync(&mut local, &server, QRESYNC);
     assert_eq!(local.messages, server.flags_view());
+}
+
+#[test]
+fn uid_ranges_are_normalized_and_never_expanded() {
+    let r = UidRanges::new([
+        (uid(5), uid(3)),
+        (uid(10), uid(12)),
+        (uid(6), uid(6)),
+        (uid(11), uid(20)),
+    ]);
+    assert_eq!(r.ranges(), [(uid(3), uid(6)), (uid(10), uid(20))]);
+    assert!(
+        r.contains(uid(4)) && r.contains(uid(20)) && !r.contains(uid(7)) && !r.contains(uid(21))
+    );
+    // Plage démesurée répétée : croisement avec les UID connus seulement.
+    let huge = UidRanges::new(std::iter::repeat_n((uid(1), uid(u32::MAX)), 100_000));
+    assert_eq!(huge.ranges().len(), 1);
+    let known: BTreeMap<Uid, ()> = [(uid(2), ()), (uid(4_000_000_000), ())]
+        .into_iter()
+        .collect();
+    assert_eq!(
+        huge.select(&known).collect::<Vec<_>>(),
+        [uid(2), uid(4_000_000_000)]
+    );
+    assert!(UidRanges::default().is_empty());
 }
 
 #[test]

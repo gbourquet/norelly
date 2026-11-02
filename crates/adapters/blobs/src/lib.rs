@@ -122,7 +122,15 @@ fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), StoreError> {
         encoder.finish().map_err(|e| io("compression", &e))?;
         file.sync_all().map_err(|e| io("synchronisation", &e))?;
         drop(file);
-        std::fs::rename(&temp, path).map_err(|e| io("renommage", &e))
+        std::fs::rename(&temp, path).map_err(|e| io("renommage", &e))?;
+        // Le renommage lui-même doit atteindre le disque avant que la base
+        // ne référence le contenu (coupure de courant). Sans effet sous
+        // Windows, où un répertoire ne s'ouvre pas ainsi.
+        #[cfg(unix)]
+        std::fs::File::open(dir)
+            .and_then(|d| d.sync_all())
+            .map_err(|e| io("synchronisation du répertoire", &e))?;
+        Ok(())
     })();
     if result.is_err() {
         let _ = std::fs::remove_file(&temp);
@@ -157,8 +165,11 @@ impl BlobStore for FsBlobStore {
         tokio::task::spawn_blocking(move || {
             let id = digest(&bytes)?;
             let path = store.path_of(account, &id);
-            // Contenu adressé par empreinte : déjà présent, rien à faire.
-            if !path.exists() {
+            // Contenu adressé par empreinte : déjà présent et intact, rien
+            // à faire ; présent mais illisible ou corrompu, réécrit.
+            let intact = path.exists()
+                && matches!(read_bounded(&path), Ok(Some(existing)) if digest(&existing)? == id);
+            if !intact {
                 write_atomic(&path, &bytes)?;
             }
             Ok(id)
@@ -276,6 +287,9 @@ mod tests {
         // Fichier illisible.
         std::fs::write(&path, b"pas du zstd").map_err(|e| StoreError(e.to_string()))?;
         assert!(store.get(id(1), &blob).await.is_err());
+        // Un nouvel enregistrement du même contenu répare le fichier.
+        assert_eq!(store.put(id(1), b"original".to_vec()).await?, blob);
+        assert_eq!(store.get(id(1), &blob).await?, Some(b"original".to_vec()));
         let _ = std::fs::remove_dir_all(&root);
         Ok(())
     }

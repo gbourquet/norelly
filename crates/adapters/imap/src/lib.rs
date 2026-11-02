@@ -13,6 +13,7 @@
 //! [`PlaintextPolicy`]: norelly_domain::security::PlaintextPolicy
 
 mod connection;
+mod nesting;
 mod session;
 mod utf7;
 
@@ -193,6 +194,7 @@ impl RemoteMailboxConnector for ImapConnector {
                 }
             }
         }
+        conn.mark_authenticated();
         let capabilities = conn.capability().await?;
         if request.endpoint.security() == Security::Plain {
             // Canal en clair consenti, authentifié : il transporte désormais

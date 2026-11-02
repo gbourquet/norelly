@@ -100,6 +100,66 @@ pub fn select_request(local: &LocalMailbox, ext: SyncExtensions) -> SelectReques
     }
 }
 
+/// Ensemble d'UID sous forme de plages triées, disjointes et non
+/// contiguës (`VANISHED`). Jamais déplié : un serveur peut annoncer
+/// `1:4294967295`.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct UidRanges(Vec<(Uid, Uid)>);
+
+impl UidRanges {
+    /// Normalise des plages quelconques (bornes dans le désordre,
+    /// recouvrements, doublons).
+    pub fn new(ranges: impl IntoIterator<Item = (Uid, Uid)>) -> Self {
+        let mut list: Vec<(Uid, Uid)> = ranges
+            .into_iter()
+            .map(|(a, b)| if a <= b { (a, b) } else { (b, a) })
+            .collect();
+        list.sort_unstable();
+        let mut out: Vec<(Uid, Uid)> = Vec::with_capacity(list.len());
+        for (a, b) in list {
+            match out.last_mut() {
+                Some((_, end)) if a.get() <= end.get().saturating_add(1) => {
+                    if b > *end {
+                        *end = b;
+                    }
+                }
+                _ => out.push((a, b)),
+            }
+        }
+        Self(out)
+    }
+
+    /// Plages réduites à des UID isolés.
+    pub fn from_uids(uids: impl IntoIterator<Item = Uid>) -> Self {
+        Self::new(uids.into_iter().map(|u| (u, u)))
+    }
+
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    /// Plages normalisées.
+    #[must_use]
+    pub fn ranges(&self) -> &[(Uid, Uid)] {
+        &self.0
+    }
+
+    #[must_use]
+    pub fn contains(&self, uid: Uid) -> bool {
+        let i = self.0.partition_point(|(_, end)| *end < uid);
+        self.0.get(i).is_some_and(|(start, _)| *start <= uid)
+    }
+
+    /// UID de `known` compris dans les plages ; coût proportionnel au
+    /// nombre de plages et d'UID trouvés, pas à la taille des plages.
+    pub fn select<'a, V>(&'a self, known: &'a BTreeMap<Uid, V>) -> impl Iterator<Item = Uid> + 'a {
+        self.0
+            .iter()
+            .flat_map(move |(a, b)| known.range(*a..=*b).map(|(u, _)| *u))
+    }
+}
+
 /// Réponse au `SELECT`.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SelectedMailbox {
@@ -112,7 +172,7 @@ pub struct SelectedMailbox {
     /// Avec QRESYNC : changements depuis le MODSEQ fourni (`FETCH`).
     pub changed: Vec<FlagUpdate>,
     /// Avec QRESYNC : `VANISHED (EARLIER)`.
-    pub vanished: BTreeSet<Uid>,
+    pub vanished: UidRanges,
 }
 
 /// Drapeaux d'un message reçus du serveur.
@@ -353,12 +413,7 @@ pub fn reconcile(
                     .collect();
             }
             None if plan == SyncPlan::Qresync => {
-                outcome.removed = selected
-                    .vanished
-                    .iter()
-                    .filter(|uid| local.messages.contains_key(uid))
-                    .copied()
-                    .collect();
+                outcome.removed = selected.vanished.select(&local.messages).collect();
             }
             None => {}
         }
@@ -369,7 +424,7 @@ pub fn reconcile(
         if outcome.removed.contains(&uid) {
             continue;
         }
-        if plan == SyncPlan::Qresync && selected.vanished.contains(&uid) {
+        if plan == SyncPlan::Qresync && selected.vanished.contains(uid) {
             continue;
         }
         if let Some(present) = &present

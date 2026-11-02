@@ -52,6 +52,9 @@ impl Default for ActorConfig {
     }
 }
 
+/// Délai laissé à chaque tâche pour s'arrêter proprement.
+pub const SHUTDOWN_GRACE: Duration = Duration::from_secs(5);
+
 #[derive(Debug)]
 enum Command {
     SyncAll,
@@ -86,10 +89,19 @@ impl AccountHandle {
     }
 
     /// Arrête l'acteur et attend la fin de ses tâches.
+    /// Arrête l'acteur : les synchronisations en cours sont interrompues ;
+    /// une tâche qui ne s'arrête pas d'elle-même dans [`SHUTDOWN_GRACE`]
+    /// est abandonnée.
     pub async fn shutdown(self) {
         let _ = self.stop.send(true);
-        for task in self.tasks {
-            let _ = task.await;
+        for mut task in self.tasks {
+            if tokio::time::timeout(SHUTDOWN_GRACE, &mut task)
+                .await
+                .is_err()
+            {
+                task.abort();
+                let _ = task.await;
+            }
         }
     }
 }
@@ -238,7 +250,13 @@ where
         backoff: &mut Backoff,
         known: &mut Vec<StoredMailbox>,
     ) -> Option<SyncFailure> {
-        if let Err(e) = self.full_sync(session, ext, known).await {
+        // Interruptible : l'arrêt abandonne la synchronisation (la session
+        // est alors inutilisable et seulement fermée).
+        let first = tokio::select! {
+            _ = stop.changed() => return None,
+            r = self.full_sync(session, ext, known) => r,
+        };
+        if let Err(e) = first {
             return Some(e);
         }
         backoff.reset();
@@ -268,12 +286,18 @@ where
                     }
                 }
             }
-            let result = if all {
+            if all {
                 next_full = tokio::time::Instant::now() + every;
-                self.full_sync(session, ext, known).await
-            } else {
-                self.sync_named(session, ext, known, names.into_keys())
-                    .await
+            }
+            let result = tokio::select! {
+                _ = stop.changed() => return None,
+                r = async {
+                    if all {
+                        self.full_sync(session, ext, known).await
+                    } else {
+                        self.sync_named(session, ext, known, names.into_keys()).await
+                    }
+                } => r,
             };
             match result {
                 Ok(()) => {}

@@ -7,10 +7,46 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::mailbox::header_text;
+
 /// Profondeur maximale d'imbrication acceptée dans une structure MIME.
 pub const MAX_MIME_DEPTH: usize = 16;
 /// Nombre maximal de parties feuilles prises en compte.
 pub const MAX_MIME_PARTS: usize = 256;
+
+/// Longueur maximale d'un type ou sous-type MIME.
+pub const MAX_MIME_TOKEN: usize = 64;
+/// Longueur maximale d'un nom de pièce jointe, en caractères.
+pub const MAX_FILENAME_CHARS: usize = 255;
+/// Au-delà de cette taille, un message n'est jamais téléchargé d'un bloc
+/// (marge sous la limite de réponse IMAP de 64 Mio) : ses parties le sont
+/// une à une, les plus grandes à la demande.
+pub const MAX_FULL_FETCH: u32 = 48 * 1024 * 1024;
+
+/// Type ou sous-type MIME reçu : minuscules, caractères de jeton
+/// (RFC 2045) seulement, borné ; `application`/`octet-stream` à défaut.
+#[must_use]
+pub fn mime_token(raw: &str) -> String {
+    let token: String = raw
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || "!#$&^_.+-".contains(*c))
+        .take(MAX_MIME_TOKEN)
+        .collect::<String>()
+        .to_ascii_lowercase();
+    if token.is_empty() {
+        "x-inconnu".to_owned()
+    } else {
+        token
+    }
+}
+
+/// Nom de fichier annoncé, assaini pour l'affichage (contrôles et
+/// caractères de mise en forme retirés, borné). Il reste à assainir pour
+/// l'écriture sur disque (séparateurs, noms réservés : phase 5).
+#[must_use]
+pub fn attachment_name(raw: &str) -> String {
+    header_text(raw, MAX_FILENAME_CHARS)
+}
 
 /// Chemin d'une partie (`1.2.3`), au sens des sections IMAP.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
@@ -219,7 +255,8 @@ pub enum BodyFetch {
 impl FetchPolicy {
     /// Décide du téléchargement d'un message de taille totale `size`.
     ///
-    /// - aucune partie non textuelle au-dessus du seuil : message complet ;
+    /// - aucune partie non textuelle au-dessus du seuil, et message sous
+    ///   [`MAX_FULL_FETCH`] : message complet ;
     /// - sinon : en-têtes, textes, et parties sous le seuil ;
     /// - structure inconnue : complet si la taille totale est sous le
     ///   seuil, sinon en-têtes seulement (rien d'autre n'est identifiable
@@ -227,7 +264,7 @@ impl FetchPolicy {
     #[must_use]
     pub fn decide(&self, size: u32, structure: Option<&MimePart>) -> BodyFetch {
         let Some(structure) = structure else {
-            return if size <= self.attachment_threshold {
+            return if size <= self.attachment_threshold.min(MAX_FULL_FETCH) {
                 BodyFetch::Full
             } else {
                 BodyFetch::Partial {
@@ -237,9 +274,11 @@ impl FetchPolicy {
             };
         };
         let leaves = structure.leaves();
-        let too_big =
-            |l: &Leaf<'_>| !l.part.is_body_text() && l.part.size() > self.attachment_threshold;
-        if !leaves.iter().any(too_big) {
+        let too_big = |l: &Leaf<'_>| {
+            l.part.size() > MAX_FULL_FETCH
+                || (!l.part.is_body_text() && l.part.size() > self.attachment_threshold)
+        };
+        if size <= MAX_FULL_FETCH && !leaves.iter().any(too_big) {
             return BodyFetch::Full;
         }
         let (deferred, parts): (Vec<_>, Vec<_>) = leaves.iter().partition(|l| too_big(l));
@@ -333,6 +372,57 @@ mod tests {
         };
         let s = leaf("text", "plain", 1_000_000, Disposition::Unspecified, None);
         assert_eq!(policy.decide(1_000_000, Some(&s)), BodyFetch::Full);
+    }
+
+    #[test]
+    fn huge_messages_are_never_fetched_whole() {
+        let policy = FetchPolicy {
+            attachment_threshold: u32::MAX,
+        };
+        // Nombreuses petites pièces jointes : message total au-delà du
+        // plafond, téléchargé par parties.
+        let many = MimePart::Multipart {
+            subtype: "mixed".into(),
+            parts: vec![leaf("image", "png", 1024 * 1024, Disposition::Attachment, None); 60],
+        };
+        let BodyFetch::Partial { parts, deferred } = policy.decide(60 * 1024 * 1024, Some(&many))
+        else {
+            panic!("téléchargement par parties attendu");
+        };
+        assert_eq!(parts.len(), 60);
+        assert!(deferred.is_empty());
+        // Texte géant : différé lui aussi.
+        let text = leaf(
+            "text",
+            "plain",
+            MAX_FULL_FETCH + 1,
+            Disposition::Unspecified,
+            None,
+        );
+        assert_eq!(
+            policy.decide(MAX_FULL_FETCH + 10, Some(&text)),
+            BodyFetch::Partial {
+                parts: vec![],
+                deferred: vec![path("1")]
+            }
+        );
+        assert!(matches!(
+            policy.decide(u32::MAX, None),
+            BodyFetch::Partial { .. }
+        ));
+    }
+
+    #[test]
+    fn mime_strings_are_bounded_and_sanitized() {
+        assert_eq!(mime_token("Text"), "text");
+        assert_eq!(mime_token("x\r\nevil(); \u{202E}"), "xevil");
+        assert_eq!(mime_token(&"a".repeat(1000)).len(), MAX_MIME_TOKEN);
+        assert_eq!(mime_token(""), "x-inconnu");
+        assert_eq!(attachment_name("facture\u{202E}fdp.exe"), "facture fdp.exe");
+        assert_eq!(
+            attachment_name(&"é".repeat(10_000)).chars().count(),
+            MAX_FILENAME_CHARS
+        );
     }
 
     #[test]

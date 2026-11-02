@@ -210,3 +210,22 @@ async fn sync_now_and_shutdown() {
         .await
         .unwrap_or_else(|_| panic!("arrêt trop long"));
 }
+
+#[tokio::test]
+async fn shutdown_interrupts_a_long_sync() {
+    let imap = FakeImap::new();
+    for n in 0..300 {
+        imap.append("INBOX", b"Subject: x\r\n\r\n", Flags::default(), n);
+    }
+    // 300 corps à 20 ms l'un : la première synchronisation dure ~6 s.
+    imap.set_delay(Duration::from_millis(20));
+    let r = start(&imap);
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    let started = tokio::time::Instant::now();
+    r.handle.shutdown().await;
+    assert!(
+        started.elapsed() < Duration::from_secs(1),
+        "arrêt en {:?}",
+        started.elapsed()
+    );
+}

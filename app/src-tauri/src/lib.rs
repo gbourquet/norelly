@@ -3,8 +3,13 @@
 
 pub mod commands;
 pub mod ipc;
+pub mod mail;
+pub mod protocols;
+pub mod reading;
+pub mod remote_images;
 pub mod state;
 
+use norelly_domain::ports::AccountRepository;
 use tauri::Manager;
 
 /// Chemin des bindings TypeScript générés, relatif à `app/src-tauri`.
@@ -13,13 +18,26 @@ pub const BINDINGS_PATH: &str = "../src/lib/ipc/bindings.ts";
 /// Constructeur du contrat IPC : liste des commandes exposées.
 #[must_use]
 pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
-    tauri_specta::Builder::<tauri::Wry>::new().commands(tauri_specta::collect_commands![
-        commands::list_accounts,
-        commands::discover_settings,
-        commands::add_account,
-        commands::trust_certificate,
-        commands::remove_account,
-    ])
+    tauri_specta::Builder::<tauri::Wry>::new()
+        .commands(tauri_specta::collect_commands![
+            commands::list_accounts,
+            commands::discover_settings,
+            commands::add_account,
+            commands::trust_certificate,
+            commands::remove_account,
+            reading::list_folders,
+            reading::list_conversations,
+            reading::conversation_messages,
+            reading::open_message,
+            reading::allow_remote_images,
+            reading::reading_preferences,
+            reading::set_prefer_plain_text,
+            reading::sync_account,
+            reading::open_external,
+            reading::save_attachment,
+            reading::open_attachment,
+        ])
+        .events(tauri_specta::collect_events![ipc::SyncEventDto])
 }
 
 /// Configuration de l'export TypeScript (en-tête stable).
@@ -37,13 +55,34 @@ pub fn typescript() -> specta_typescript::Typescript {
 #[allow(clippy::expect_used)]
 pub fn run() {
     let builder = specta_builder();
-    tauri::Builder::default()
+    protocols::register(tauri::Builder::default())
+        .plugin(tauri_plugin_dialog::init())
         .invoke_handler(builder.invoke_handler())
         .setup(move |app| {
             builder.mount_events(app);
             let data_dir = app.path().app_data_dir()?;
-            let state = state::AppState::open(&data_dir)?;
+            let cache_dir = app.path().app_cache_dir()?;
+            let state = state::AppState::open(&data_dir, &cache_dir)?;
             app.manage(state);
+            // Synchronisation de chaque compte enregistré.
+            let handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                let state = handle.state::<state::AppState>();
+                match state.accounts.list().await {
+                    Ok(accounts) => {
+                        for account in &accounts {
+                            if let Err(e) = state
+                                .mail
+                                .start(&handle, account, &state.secrets, &state.exceptions)
+                                .await
+                            {
+                                tracing::warn!(error = %e, "synchronisation non démarrée");
+                            }
+                        }
+                    }
+                    Err(e) => tracing::error!(error = %e, "lecture des comptes"),
+                }
+            });
             Ok(())
         })
         .run(tauri::generate_context!())

@@ -6,7 +6,7 @@ use std::sync::{Mutex, PoisonError};
 
 use norelly_application::discover_settings::DiscoverSettings;
 use norelly_application::test_connection::TestConnection;
-use norelly_blobs::FsAccountDataStore;
+use norelly_blobs::{FsAccountDataStore, FsBlobStore};
 use norelly_discovery::{HickorySrvResolver, HttpAutoconfigClient, TcpPortProber};
 use norelly_domain::credentials::Secret;
 use norelly_domain::discovery::{SrvRecord, SrvService};
@@ -20,6 +20,9 @@ use norelly_keyring::SystemSecretStore;
 use norelly_smtp::SmtpSender;
 use norelly_sqlite::{Database, SqliteAccountRepository, SqliteCertificateExceptionStore};
 use norelly_tls::TlsClientFactory;
+
+use crate::mail::MailServices;
+use crate::remote_images::RemoteImageProxy;
 
 /// Trousseau du système, ou indisponible (l'application démarre quand
 /// même ; l'ajout de compte signalera l'erreur).
@@ -97,6 +100,7 @@ pub type AppDiscoverSettings = DiscoverSettings<AppAutoconfig, AppSrvResolver, T
 #[derive(Debug)]
 pub struct AppState {
     pub accounts: SqliteAccountRepository,
+    pub mail: MailServices,
     pub exceptions: SqliteCertificateExceptionStore,
     pub secrets: AppSecretStore,
     pub local_data: FsAccountDataStore,
@@ -114,7 +118,7 @@ pub struct AppState {
 
 /// Crée le répertoire de données, accessible au seul utilisateur sous Unix
 /// (la base contient adresses, serveurs et exceptions de certificats).
-fn create_private_dir(dir: &Path) -> std::io::Result<()> {
+pub(crate) fn create_private_dir(dir: &Path) -> std::io::Result<()> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
@@ -135,9 +139,12 @@ fn create_private_dir(dir: &Path) -> std::io::Result<()> {
 const MAX_PENDING_REJECTIONS: usize = 16;
 
 impl AppState {
-    /// Assemble l'application à partir du répertoire de données.
-    pub fn open(data_dir: &Path) -> Result<Self, String> {
+    /// Assemble l'application à partir du répertoire de données
+    /// (`cache_dir` : pièces jointes ouvertes, effaçable).
+    pub fn open(data_dir: &Path, cache_dir: &Path) -> Result<Self, String> {
         create_private_dir(data_dir).map_err(|e| format!("{}: {e}", data_dir.display()))?;
+        let open_dir = cache_dir.join("pieces-jointes");
+        create_private_dir(&open_dir).map_err(|e| format!("{}: {e}", open_dir.display()))?;
         let db = Database::open(&data_dir.join("norelly.sqlite3")).map_err(|e| e.to_string())?;
         let tls = TlsClientFactory::platform();
         let exceptions = SqliteCertificateExceptionStore::new(db.clone());
@@ -153,7 +160,22 @@ impl AppState {
             Ok(s) => AppSecretStore::System(s),
             Err(e) => AppSecretStore::Unavailable(e),
         };
+        let proxy = match RemoteImageProxy::new(&tls) {
+            Ok(p) => Some(p),
+            Err(e) => {
+                tracing::warn!(error = %e, "proxy des images distantes indisponible");
+                None
+            }
+        };
+        let mail = MailServices::new(
+            &db,
+            FsBlobStore::new(data_dir.join("accounts")),
+            ImapConnector::new(tls.clone()),
+            proxy,
+            open_dir,
+        );
         Ok(Self {
+            mail,
             accounts: SqliteAccountRepository::new(db),
             test: TestConnection::new(
                 ImapConnector::new(tls.clone()),
@@ -244,7 +266,7 @@ mod tests {
             std::process::id(),
             std::thread::current().id()
         ));
-        AppState::open(&dir).unwrap_or_else(|e| panic!("{e}"))
+        AppState::open(&dir, &dir.join("cache")).unwrap_or_else(|e| panic!("{e}"))
     }
 
     fn host(raw: &str) -> Host {

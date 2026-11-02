@@ -157,6 +157,47 @@ pub fn sender_address(from: Option<&Correspondent>) -> Option<EmailAddress> {
     from.and_then(|c| EmailAddress::parse(&c.address).ok())
 }
 
+/// Vrai pour une adresse IP joignable sur Internet. Le proxy des images
+/// distantes refuse toutes les autres (boucle locale, réseaux privés,
+/// lien local, multidiffusion, plages réservées) : un mail ne peut pas
+/// faire sonder le réseau local de l'utilisateur.
+#[must_use]
+pub fn is_public_address(ip: std::net::IpAddr) -> bool {
+    use std::net::IpAddr;
+    match ip {
+        IpAddr::V4(v4) => {
+            let [a, b, c, _] = v4.octets();
+            !(v4.is_unspecified()
+                || v4.is_loopback()
+                || v4.is_private()
+                || v4.is_link_local()
+                || v4.is_broadcast()
+                || v4.is_documentation()
+                || v4.is_multicast()
+                || a == 0
+                || (a == 100 && (64..128).contains(&b))
+                || (a == 192 && b == 0 && c == 0)
+                || (a == 198 && (b == 18 || b == 19))
+                || a >= 240)
+        }
+        IpAddr::V6(v6) => {
+            if let Some(v4) = v6.to_ipv4_mapped() {
+                return is_public_address(IpAddr::V4(v4));
+            }
+            let s = v6.segments();
+            !(v6.is_unspecified()
+                || v6.is_loopback()
+                || v6.is_multicast()
+                || (s[0] & 0xfe00) == 0xfc00
+                || (s[0] & 0xffc0) == 0xfe80
+                || (s[0] == 0x2001 && s[1] == 0x0db8)
+                || (s[0] == 0x0064 && s[1] == 0xff9b)
+                || (s[0] == 0x2002)
+                || s[..6] == [0, 0, 0, 0, 0, 0])
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Pièces jointes
 // ---------------------------------------------------------------------------
@@ -405,6 +446,48 @@ mod tests {
         assert!(sender_address(Some(&bad)).is_none());
         let good = Correspondent::new("Alice", "Alice@Example.com");
         assert!(sender_address(Some(&good)).is_some());
+    }
+
+    #[test]
+    fn only_public_addresses_are_reachable() {
+        for private in [
+            "127.0.0.1",
+            "10.1.2.3",
+            "172.16.0.1",
+            "192.168.1.1",
+            "169.254.169.254",
+            "0.0.0.0",
+            "100.64.0.1",
+            "192.0.0.8",
+            "198.18.0.1",
+            "224.0.0.1",
+            "255.255.255.255",
+            "240.0.0.1",
+            "::1",
+            "::",
+            "fe80::1",
+            "fd00::1",
+            "fc00::1",
+            "ff02::1",
+            "::ffff:127.0.0.1",
+            "::ffff:10.0.0.1",
+            "2001:db8::1",
+            "64:ff9b::a00:1",
+            "2002:a00:1::",
+            "::127.0.0.1",
+        ] {
+            let ip: std::net::IpAddr = private.parse().unwrap_or_else(|_| panic!("{private}"));
+            assert!(!is_public_address(ip), "{private}");
+        }
+        for public in [
+            "93.184.216.34",
+            "8.8.8.8",
+            "2606:4700::1111",
+            "::ffff:8.8.8.8",
+        ] {
+            let ip: std::net::IpAddr = public.parse().unwrap_or_else(|_| panic!("{public}"));
+            assert!(is_public_address(ip), "{public}");
+        }
     }
 
     #[test]

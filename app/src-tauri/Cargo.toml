@@ -21,7 +21,20 @@ tauri-specta = { version = "=2.0.0-rc.26", features = ["derive", "typescript"] }
 specta = { version = "=2.0.0-rc.26" }
 specta-typescript = "=0.0.13"
 serde.workspace = true
+serde_json.workspace = true
 tokio.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+reqwest.workspace = true
+url = "2.5"
+# Ouverture dans le navigateur ou l'application du système (xdg-open,
+# ShellExecute), appelée depuis Rust seulement. tauri-plugin-opener est
+# écarté : il tire zbus 5, dont des dépendances sont signalées non
+# maintenues (voir deny.toml).
+open = "5.3"
+# Sélecteur de dossier, appelé depuis Rust seulement (aucune permission
+# accordée à l'interface).
+tauri-plugin-dialog = "2.6"
 norelly-domain.workspace = true
 norelly-application.workspace = true
 norelly-tls.workspace = true
@@ -31,6 +44,7 @@ norelly-keyring.workspace = true
 norelly-discovery.workspace = true
 norelly-sqlite.workspace = true
 norelly-blobs.workspace = true
+norelly-render.workspace = true
 
 [dev-dependencies]
 norelly-test-support.workspace = true

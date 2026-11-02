@@ -372,3 +372,173 @@ fn connection_failure(protocol: Protocol, outcome: &TestConnectionOutcome) -> Ad
         }
     }
 }
+
+// ---------------------------------------------------------------------------
+// Lecture (phase 5)
+// ---------------------------------------------------------------------------
+
+/// Identifiant local exposé à l'interface (entier positif de 32 bits).
+pub fn id32(raw: i64) -> Result<u32, IpcError> {
+    u32::try_from(raw).map_err(|_| IpcError::new("identifiant hors limites"))
+}
+
+/// Date (secondes Unix) exposée à l'interface.
+#[allow(clippy::cast_precision_loss)]
+#[must_use]
+pub fn date_dto(seconds: i64) -> f64 {
+    seconds as f64
+}
+
+/// Date reçue de l'interface : entier dans les bornes du stockage.
+pub fn date_from_dto(raw: f64) -> Result<i64, IpcError> {
+    const LIMIT: f64 = 9_007_199_254_740_991.0;
+    if !raw.is_finite() || raw.fract() != 0.0 || raw.abs() > LIMIT {
+        return Err(IpcError::new("date invalide"));
+    }
+    #[allow(clippy::cast_possible_truncation)]
+    Ok(raw as i64)
+}
+
+/// Événement de synchronisation relayé à l'interface.
+#[derive(Debug, Clone, Serialize, Type, tauri_specta::Event)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum SyncEventDto {
+    FolderChanged { account: u32, mailbox: u32 },
+    FoldersChanged { account: u32 },
+    Online { account: u32 },
+    Offline { account: u32, reason: String },
+}
+
+/// Dossier d'un compte.
+#[derive(Debug, Clone, Serialize, Type)]
+pub struct FolderDto {
+    pub id: u32,
+    pub name: String,
+    /// Dernier segment du nom (affichage).
+    pub leaf: String,
+    /// Profondeur dans la hiérarchie (0 : premier niveau).
+    pub depth: u32,
+    pub role: String,
+    pub selectable: bool,
+    pub total: u32,
+    pub unread: u32,
+}
+
+/// Portée d'une liste de conversations.
+#[derive(Debug, Clone, Deserialize, Type)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ScopeDto {
+    Mailbox { id: u32 },
+    Unified { role: String },
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Type)]
+pub struct ConversationCursorDto {
+    pub date: f64,
+    pub id: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Type)]
+pub struct CorrespondentDto {
+    pub name: String,
+    pub address: String,
+}
+
+impl From<&norelly_domain::mailbox::Correspondent> for CorrespondentDto {
+    fn from(c: &norelly_domain::mailbox::Correspondent) -> Self {
+        Self {
+            name: c.name.clone(),
+            address: c.address.clone(),
+        }
+    }
+}
+
+/// Ligne de la liste des conversations.
+#[derive(Debug, Clone, Serialize, Type)]
+pub struct ConversationDto {
+    pub id: u32,
+    pub account: u32,
+    pub mailbox: u32,
+    pub date: f64,
+    pub subject: String,
+    pub senders: Vec<CorrespondentDto>,
+    pub messages: u32,
+    pub unread: u32,
+    pub flagged: bool,
+    pub has_attachments: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Type)]
+pub struct ConversationPageDto {
+    pub items: Vec<ConversationDto>,
+    pub next: Option<ConversationCursorDto>,
+}
+
+/// Message d'une conversation.
+#[derive(Debug, Clone, Serialize, Type)]
+pub struct ConversationMessageDto {
+    pub id: u32,
+    pub account: u32,
+    pub mailbox: u32,
+    pub date: f64,
+    pub from: Option<CorrespondentDto>,
+    pub to: Vec<CorrespondentDto>,
+    pub cc: Vec<CorrespondentDto>,
+    pub subject: String,
+    pub unread: bool,
+    pub flagged: bool,
+    pub has_attachments: bool,
+}
+
+/// Pièce jointe d'un message ouvert.
+#[derive(Debug, Clone, Serialize, Type)]
+pub struct AttachmentDto {
+    /// Chemin de partie (`1.2`), identifiant pour l'ouverture.
+    pub part: String,
+    pub name: String,
+    pub media_type: String,
+    pub size: f64,
+    /// Faux si elle reste à télécharger.
+    pub available: bool,
+    /// Faux pour un type exécutable : enregistrement seulement.
+    pub can_open: bool,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum BodyModeDto {
+    Html,
+    Text,
+    Empty,
+}
+
+/// Message ouvert : métadonnées du rendu (le document lui-même est servi
+/// par `mailview://`).
+#[derive(Debug, Clone, Serialize, Type)]
+pub struct MessageViewDto {
+    pub id: u32,
+    pub mode: BodyModeDto,
+    pub has_html: bool,
+    pub blocked_images: u32,
+    pub attachments: Vec<AttachmentDto>,
+}
+
+#[derive(Debug, Clone, Serialize, Type)]
+pub struct ReadingPreferencesDto {
+    pub prefer_plain_text: bool,
+}
+
+#[cfg(test)]
+mod reading_tests {
+    use super::*;
+
+    #[test]
+    fn dates_from_the_interface_are_revalidated() {
+        assert_eq!(date_from_dto(1_700_000_000.0).ok(), Some(1_700_000_000));
+        for bad in [f64::NAN, f64::INFINITY, 1.5, 1e300] {
+            assert!(date_from_dto(bad).is_err(), "{bad}");
+        }
+        assert!(id32(-1).is_err());
+        assert!(id32(i64::from(u32::MAX) + 1).is_err());
+    }
+}

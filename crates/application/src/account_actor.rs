@@ -100,6 +100,50 @@ impl AccountHandle {
         let _ = self.commands.try_send(Command::SyncAll);
     }
 
+    /// Client de l'acteur (clonable), pour lui adresser des demandes sans
+    /// garder la poignée.
+    #[must_use]
+    pub fn client(&self) -> ActorClient {
+        ActorClient {
+            commands: self.commands.clone(),
+        }
+    }
+
+    /// Voir [`ActorClient::fetch_body`].
+    pub async fn fetch_body(
+        &self,
+        mailbox: MailboxName,
+        uid: Uid,
+        fetch: BodyFetch,
+    ) -> Result<Option<FetchedBody>, ConnectionError> {
+        self.client().fetch_body(mailbox, uid, fetch).await
+    }
+
+    /// Arrête l'acteur et attend la fin de ses tâches.
+    /// Arrête l'acteur : les synchronisations en cours sont interrompues ;
+    /// une tâche qui ne s'arrête pas d'elle-même dans [`SHUTDOWN_GRACE`]
+    /// est abandonnée.
+    pub async fn shutdown(self) {
+        let _ = self.stop.send(true);
+        for mut task in self.tasks {
+            if tokio::time::timeout(SHUTDOWN_GRACE, &mut task)
+                .await
+                .is_err()
+            {
+                task.abort();
+                let _ = task.await;
+            }
+        }
+    }
+}
+
+/// Client d'un acteur en cours d'exécution.
+#[derive(Debug, Clone)]
+pub struct ActorClient {
+    commands: mpsc::Sender<Command>,
+}
+
+impl ActorClient {
     /// Télécharge un corps par la connexion de commandes (attend la
     /// reconnexion si elle est coupée ; à borner par l'appelant).
     pub async fn fetch_body(
@@ -119,23 +163,6 @@ impl AccountHandle {
             .await
             .map_err(|_| ConnectionError::Closed)?;
         answer.await.map_err(|_| ConnectionError::Closed)?
-    }
-
-    /// Arrête l'acteur et attend la fin de ses tâches.
-    /// Arrête l'acteur : les synchronisations en cours sont interrompues ;
-    /// une tâche qui ne s'arrête pas d'elle-même dans [`SHUTDOWN_GRACE`]
-    /// est abandonnée.
-    pub async fn shutdown(self) {
-        let _ = self.stop.send(true);
-        for mut task in self.tasks {
-            if tokio::time::timeout(SHUTDOWN_GRACE, &mut task)
-                .await
-                .is_err()
-            {
-                task.abort();
-                let _ = task.await;
-            }
-        }
     }
 }
 

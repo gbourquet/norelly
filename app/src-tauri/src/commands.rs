@@ -104,6 +104,7 @@ fn add_request(input: AddAccountInput) -> Result<AddAccountRequest, IpcError> {
 #[tauri::command]
 #[specta::specta]
 pub async fn add_account(
+    app: tauri::AppHandle,
     state: State<'_, AppState>,
     input: AddAccountInput,
 ) -> Result<AddAccountResultDto, IpcError> {
@@ -133,6 +134,14 @@ pub async fn add_account(
     {
         state.remember_rejection(rejection.clone());
     }
+    if let AddAccountOutcome::Added(account) = &outcome
+        && let Err(e) = state
+            .mail
+            .start(&app, account, &state.secrets, &state.exceptions)
+            .await
+    {
+        tracing::warn!(error = %e, "synchronisation non démarrée");
+    }
     Ok(AddAccountResultDto::from_outcome(&outcome))
 }
 
@@ -158,6 +167,8 @@ pub async fn trust_certificate(
 #[specta::specta]
 pub async fn remove_account(state: State<'_, AppState>, id: u32) -> Result<(), IpcError> {
     let id = AccountId::new(i64::from(id)).map_err(IpcError::new)?;
+    // Synchronisation arrêtée avant l'effacement des données locales.
+    state.mail.stop(id).await;
     RemoveAccount {
         secrets: &state.secrets,
         accounts: &state.accounts,

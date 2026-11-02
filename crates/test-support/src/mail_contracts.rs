@@ -7,6 +7,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use norelly_domain::account::AccountId;
+use norelly_domain::conversation::{ConversationScope, ThreadKeys, ThreadMessage, thread};
 use norelly_domain::fetch_policy::PartPath;
 use norelly_domain::mailbox::{
     Correspondent, Flags, MailboxId, MailboxName, MailboxRole, MessageHeaders, MessageMeta, ModSeq,
@@ -16,6 +17,11 @@ use norelly_domain::ports::{
     BlobId, BlobStore, FolderNode, FolderTreeQuery, MAX_PAGE_SIZE, MailStore, MessageId,
     MessageListItem, MessageListQuery, MessagePage, PageCursor, PendingBody, StoreError,
     StoredBody, StoredMailbox, StoredMessage, SyncBatch,
+};
+use norelly_domain::ports::{
+    ConversationCursor, ConversationId, ConversationListItem, ConversationMessage,
+    ConversationPage, ConversationQuery, MAX_CONVERSATION_MESSAGES, MAX_LISTED_SENDERS,
+    MessageLocation, MessageLocator, same_sender,
 };
 use norelly_domain::sync::{FlagUpdate, LocalMailbox, MailboxSyncState};
 
@@ -119,11 +125,11 @@ impl BlobStore for InMemoryBlobStore {
 // MailStore et requêtes
 // ---------------------------------------------------------------------------
 
-fn uid(n: u32) -> Uid {
+pub(crate) fn uid(n: u32) -> Uid {
     Uid::new(n).unwrap_or_else(|| panic!("uid {n}"))
 }
 
-fn mailbox(name: &str, role: MailboxRole, selectable: bool) -> RemoteMailbox {
+pub(crate) fn mailbox(name: &str, role: MailboxRole, selectable: bool) -> RemoteMailbox {
     RemoteMailbox {
         name: MailboxName::parse(name).unwrap_or_else(|e| panic!("{name} : {e}")),
         delimiter: Some('/'),
@@ -159,7 +165,7 @@ pub fn sample_message(n: u32, date: i64, seen: bool) -> StoredMessage {
     }
 }
 
-fn state(validity: u32, modseq: u64, next: u32) -> MailboxSyncState {
+pub(crate) fn state(validity: u32, modseq: u64, next: u32) -> MailboxSyncState {
     MailboxSyncState {
         uid_validity: UidValidity::new(validity),
         highest_modseq: ModSeq::new(modseq),
@@ -686,6 +692,230 @@ impl MessageListQuery for InMemoryMailStore {
             None
         };
         Ok(MessagePage { items, next })
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Conversations (faux : JWZ recalculé à chaque requête)
+// ---------------------------------------------------------------------------
+
+/// Message du faux, avec son compte et sa boîte.
+struct Located<'a> {
+    account: AccountId,
+    mailbox: MailboxId,
+    role: MailboxRole,
+    message: &'a MemMessage,
+}
+
+impl MemState {
+    fn located(&self) -> Vec<Located<'_>> {
+        let mut out = Vec::new();
+        for (account, mailbox, _) in &self.mailboxes {
+            if let Some(msgs) = self.messages.get(&mailbox.id) {
+                for message in msgs.values() {
+                    out.push(Located {
+                        account: *account,
+                        mailbox: mailbox.id,
+                        role: mailbox.mailbox.role,
+                        message,
+                    });
+                }
+            }
+        }
+        out
+    }
+
+    /// Conversation de chaque message (identifiant : plus petit
+    /// identifiant de message de la conversation), par l'algorithme JWZ
+    /// appliqué compte par compte ; les copies d'un même `Message-ID`
+    /// suivent la première.
+    fn conversations(&self) -> BTreeMap<MessageId, ConversationId> {
+        let located = self.located();
+        let mut out = BTreeMap::new();
+        let accounts: BTreeSet<AccountId> = located.iter().map(|l| l.account).collect();
+        for account in accounts {
+            let mut first_by_id: BTreeMap<String, MessageId> = BTreeMap::new();
+            let mut unique = Vec::new();
+            let mut copies = Vec::new();
+            let mut mine: Vec<&Located<'_>> =
+                located.iter().filter(|l| l.account == account).collect();
+            mine.sort_by_key(|l| l.message.id);
+            for l in mine {
+                let h = &l.message.stored.meta.headers;
+                if let Some(mid) = &h.message_id {
+                    if let Some(first) = first_by_id.get(mid) {
+                        copies.push((l.message.id, *first));
+                        continue;
+                    }
+                    first_by_id.insert(mid.clone(), l.message.id);
+                }
+                unique.push(ThreadMessage {
+                    key: l.message.id,
+                    keys: ThreadKeys::of(h),
+                    date: l.message.stored.meta.sort_date(),
+                });
+            }
+            for t in thread(&unique) {
+                let Some(id) = t.entries.iter().map(|e| e.key).min() else {
+                    continue;
+                };
+                let Some(conv) = ConversationId::new(id.get()) else {
+                    continue;
+                };
+                for e in &t.entries {
+                    out.insert(e.key, conv);
+                }
+            }
+            for (copy, first) in copies {
+                if let Some(conv) = out.get(&first).copied() {
+                    out.insert(copy, conv);
+                }
+            }
+        }
+        out
+    }
+}
+
+impl ConversationQuery for InMemoryMailStore {
+    async fn conversations(
+        &self,
+        scope: ConversationScope,
+        cursor: Option<ConversationCursor>,
+        limit: u32,
+    ) -> Result<ConversationPage, StoreError> {
+        let limit = limit.min(MAX_PAGE_SIZE) as usize;
+        let s = lock(&self.state);
+        let convs = s.conversations();
+        let mut groups: BTreeMap<(ConversationId, MailboxId), Vec<&Located<'_>>> = BTreeMap::new();
+        let located = s.located();
+        for l in &located {
+            let in_scope = match scope {
+                ConversationScope::Mailbox(m) => l.mailbox == m,
+                ConversationScope::Unified(role) => l.role == role,
+            };
+            if let (true, Some(c)) = (in_scope, convs.get(&l.message.id)) {
+                groups.entry((*c, l.mailbox)).or_default().push(l);
+            }
+        }
+        let mut items: Vec<ConversationListItem> = groups
+            .into_iter()
+            .filter_map(|((id, mailbox), mut members)| {
+                members.sort_by_key(|l| {
+                    std::cmp::Reverse((l.message.stored.meta.sort_date(), l.message.id))
+                });
+                let latest = members.first()?;
+                let mut senders: Vec<Correspondent> = Vec::new();
+                for l in &members {
+                    if let Some(p) = l.message.stored.meta.headers.from.first()
+                        && senders.len() < MAX_LISTED_SENDERS
+                        && !senders.iter().any(|q| same_sender(q, p))
+                    {
+                        senders.push(p.clone());
+                    }
+                }
+                let count = |f: &dyn Fn(&Located<'_>) -> bool| {
+                    u32::try_from(members.iter().filter(|l| f(l)).count()).unwrap_or(u32::MAX)
+                };
+                Some(ConversationListItem {
+                    id,
+                    account: latest.account,
+                    mailbox,
+                    date: latest.message.stored.meta.sort_date(),
+                    subject: latest.message.stored.meta.headers.subject.clone(),
+                    senders,
+                    messages: count(&|_| true),
+                    unread: count(&|l| !l.message.stored.meta.flags.seen),
+                    flagged: members.iter().any(|l| l.message.stored.meta.flags.flagged),
+                    has_attachments: members
+                        .iter()
+                        .any(|l| l.message.stored.meta.has_attachments()),
+                })
+            })
+            .collect();
+        items.sort_by_key(|i| std::cmp::Reverse((i.date, i.id)));
+        if let Some(c) = cursor {
+            items.retain(|i| (i.date, i.id) < (c.date, c.id));
+        }
+        let more = items.len() > limit;
+        items.truncate(limit);
+        let next = if more {
+            items.last().map(|i| ConversationCursor {
+                date: i.date,
+                id: i.id,
+            })
+        } else {
+            None
+        };
+        Ok(ConversationPage { items, next })
+    }
+
+    async fn conversation_messages(
+        &self,
+        conversation: ConversationId,
+    ) -> Result<Vec<ConversationMessage>, StoreError> {
+        let s = lock(&self.state);
+        let convs = s.conversations();
+        let located = s.located();
+        let mut members: Vec<&Located<'_>> = located
+            .iter()
+            .filter(|l| convs.get(&l.message.id) == Some(&conversation))
+            .collect();
+        members
+            .sort_by_key(|l| std::cmp::Reverse((l.message.stored.meta.sort_date(), l.message.id)));
+        let mut seen = BTreeSet::new();
+        let mut out = Vec::new();
+        for l in members {
+            let meta = &l.message.stored.meta;
+            if let Some(mid) = &meta.headers.message_id
+                && !seen.insert(mid.clone())
+            {
+                continue;
+            }
+            out.push(ConversationMessage {
+                id: l.message.id,
+                account: l.account,
+                mailbox: l.mailbox,
+                uid: meta.uid,
+                date: meta.sort_date(),
+                from: meta.headers.from.first().cloned(),
+                to: meta.headers.to.clone(),
+                cc: meta.headers.cc.clone(),
+                subject: meta.headers.subject.clone(),
+                flags: meta.flags.clone(),
+                has_attachments: meta.has_attachments(),
+            });
+            if out.len() >= MAX_CONVERSATION_MESSAGES {
+                break;
+            }
+        }
+        out.reverse();
+        Ok(out)
+    }
+}
+
+impl MessageLocator for InMemoryMailStore {
+    async fn locate(&self, message: MessageId) -> Result<Option<MessageLocation>, StoreError> {
+        let s = lock(&self.state);
+        for (account, mailbox, _) in &s.mailboxes {
+            if let Some(m) = s
+                .messages
+                .get(&mailbox.id)
+                .and_then(|msgs| msgs.values().find(|m| m.id == message))
+            {
+                return Ok(Some(MessageLocation {
+                    id: message,
+                    account: *account,
+                    mailbox: mailbox.id,
+                    mailbox_name: mailbox.mailbox.name.clone(),
+                    uid: m.stored.meta.uid,
+                    from: m.stored.meta.headers.from.first().cloned(),
+                    size: m.stored.meta.size,
+                    structure: m.stored.meta.structure.clone(),
+                    body: m.stored.body.clone(),
+                }));
+            }
+        }
+        Ok(None)
     }
 }
 

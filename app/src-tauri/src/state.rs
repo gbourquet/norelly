@@ -6,7 +6,7 @@ use std::sync::{Mutex, PoisonError};
 
 use norelly_application::discover_settings::DiscoverSettings;
 use norelly_application::test_connection::TestConnection;
-use norelly_blobs::FsAccountDataStore;
+use norelly_blobs::{FsAccountDataStore, FsBlobStore};
 use norelly_discovery::{HickorySrvResolver, HttpAutoconfigClient, TcpPortProber};
 use norelly_domain::credentials::Secret;
 use norelly_domain::discovery::{SrvRecord, SrvService};
@@ -16,36 +16,99 @@ use norelly_domain::ports::{
 };
 use norelly_domain::security::CertificateRejection;
 use norelly_imap::ImapConnector;
-use norelly_keyring::SystemSecretStore;
+use norelly_keyring::{FileSecretStore, SystemSecretStore};
 use norelly_smtp::SmtpSender;
 use norelly_sqlite::{Database, SqliteAccountRepository, SqliteCertificateExceptionStore};
 use norelly_tls::TlsClientFactory;
 
-/// Trousseau du système, ou indisponible (l'application démarre quand
-/// même ; l'ajout de compte signalera l'erreur).
+use crate::mail::MailServices;
+use crate::remote_images::RemoteImageProxy;
+
+/// Secrets des comptes : trousseau du système d'abord ; s'il ne répond
+/// pas, fichier non chiffré lisible par l'utilisateur seul, **seulement**
+/// après consentement explicite (choix du mainteneur, en attendant mieux :
+/// voir DECISIONS.md, ADR-002). Lecture et suppression consultent les
+/// deux (un trousseau installé après coup ne fait pas perdre les secrets
+/// du fichier).
 #[derive(Debug)]
-pub enum AppSecretStore {
-    System(SystemSecretStore),
-    Unavailable(SecretStoreError),
+pub struct AppSecretStore {
+    system: Result<SystemSecretStore, SecretStoreError>,
+    file: FileSecretStore,
+}
+
+impl AppSecretStore {
+    #[must_use]
+    pub fn new(system: Result<SystemSecretStore, SecretStoreError>, file: FileSecretStore) -> Self {
+        Self { system, file }
+    }
+
+    /// Vrai si un secret peut être enregistré sans demander de
+    /// consentement : trousseau joignable, ou fichier déjà consenti.
+    pub async fn usable(&self) -> bool {
+        if self.file.consented() {
+            return true;
+        }
+        let Ok(system) = &self.system else {
+            return false;
+        };
+        let Ok(probe) = SecretKey::parse("norelly:sonde") else {
+            return false;
+        };
+        !matches!(
+            system.get(&probe).await,
+            Err(SecretStoreError::Unavailable(_))
+        )
+    }
+
+    /// Consentement au fichier en clair.
+    pub fn consent_to_file(&self) -> Result<(), SecretStoreError> {
+        self.file.consent()
+    }
+
+    /// Chemin du fichier de repli.
+    #[must_use]
+    pub fn file_path(&self) -> &Path {
+        self.file.path()
+    }
 }
 
 impl SecretStore for AppSecretStore {
     async fn get(&self, key: &SecretKey) -> Result<Option<Secret>, SecretStoreError> {
-        match self {
-            Self::System(s) => s.get(key).await,
-            Self::Unavailable(e) => Err(e.clone()),
+        let system = match &self.system {
+            Ok(s) => s.get(key).await,
+            Err(e) => Err(e.clone()),
+        };
+        match system {
+            Ok(Some(secret)) => Ok(Some(secret)),
+            Ok(None) | Err(SecretStoreError::Unavailable(_)) if self.file.consented() => {
+                self.file.get(key).await
+            }
+            other => other,
         }
     }
+
     async fn set(&self, key: &SecretKey, secret: &Secret) -> Result<(), SecretStoreError> {
-        match self {
-            Self::System(s) => s.set(key, secret).await,
-            Self::Unavailable(e) => Err(e.clone()),
+        let system = match &self.system {
+            Ok(s) => s.set(key, secret).await,
+            Err(e) => Err(e.clone()),
+        };
+        match system {
+            Err(SecretStoreError::Unavailable(_)) if self.file.consented() => {
+                self.file.set(key, secret).await
+            }
+            other => other,
         }
     }
+
     async fn delete(&self, key: &SecretKey) -> Result<(), SecretStoreError> {
-        match self {
-            Self::System(s) => s.delete(key).await,
-            Self::Unavailable(e) => Err(e.clone()),
+        let system = match &self.system {
+            Ok(s) => s.delete(key).await,
+            Err(e) => Err(e.clone()),
+        };
+        self.file.delete(key).await?;
+        match system {
+            Err(SecretStoreError::Unavailable(_)) => Ok(()),
+            other => other,
         }
     }
 }
@@ -97,6 +160,7 @@ pub type AppDiscoverSettings = DiscoverSettings<AppAutoconfig, AppSrvResolver, T
 #[derive(Debug)]
 pub struct AppState {
     pub accounts: SqliteAccountRepository,
+    pub mail: MailServices,
     pub exceptions: SqliteCertificateExceptionStore,
     pub secrets: AppSecretStore,
     pub local_data: FsAccountDataStore,
@@ -114,7 +178,7 @@ pub struct AppState {
 
 /// Crée le répertoire de données, accessible au seul utilisateur sous Unix
 /// (la base contient adresses, serveurs et exceptions de certificats).
-fn create_private_dir(dir: &Path) -> std::io::Result<()> {
+pub(crate) fn create_private_dir(dir: &Path) -> std::io::Result<()> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
@@ -135,9 +199,12 @@ fn create_private_dir(dir: &Path) -> std::io::Result<()> {
 const MAX_PENDING_REJECTIONS: usize = 16;
 
 impl AppState {
-    /// Assemble l'application à partir du répertoire de données.
-    pub fn open(data_dir: &Path) -> Result<Self, String> {
+    /// Assemble l'application à partir du répertoire de données
+    /// (`cache_dir` : pièces jointes ouvertes, effaçable).
+    pub fn open(data_dir: &Path, cache_dir: &Path) -> Result<Self, String> {
         create_private_dir(data_dir).map_err(|e| format!("{}: {e}", data_dir.display()))?;
+        let open_dir = cache_dir.join("pieces-jointes");
+        create_private_dir(&open_dir).map_err(|e| format!("{}: {e}", open_dir.display()))?;
         let db = Database::open(&data_dir.join("norelly.sqlite3")).map_err(|e| e.to_string())?;
         let tls = TlsClientFactory::platform();
         let exceptions = SqliteCertificateExceptionStore::new(db.clone());
@@ -149,11 +216,26 @@ impl AppState {
             Ok(r) => AppSrvResolver::System(Box::new(r)),
             Err(e) => AppSrvResolver::Unavailable(e),
         };
-        let secrets = match SystemSecretStore::open() {
-            Ok(s) => AppSecretStore::System(s),
-            Err(e) => AppSecretStore::Unavailable(e),
+        let secrets = AppSecretStore::new(
+            SystemSecretStore::open(),
+            FileSecretStore::new(data_dir.join("mots-de-passe.json")),
+        );
+        let proxy = match RemoteImageProxy::new(&tls) {
+            Ok(p) => Some(p),
+            Err(e) => {
+                tracing::warn!(error = %e, "proxy des images distantes indisponible");
+                None
+            }
         };
+        let mail = MailServices::new(
+            &db,
+            FsBlobStore::new(data_dir.join("accounts")),
+            ImapConnector::new(tls.clone()),
+            proxy,
+            open_dir,
+        );
         Ok(Self {
+            mail,
             accounts: SqliteAccountRepository::new(db),
             test: TestConnection::new(
                 ImapConnector::new(tls.clone()),
@@ -167,6 +249,12 @@ impl AppState {
             pending_rejections: Mutex::new(Vec::new()),
             unconfirmed_hosts: Mutex::new(Vec::new()),
         })
+    }
+
+    /// Fichier des mots de passe (repli sans trousseau).
+    #[must_use]
+    pub fn secrets_file(&self) -> &Path {
+        self.secrets.file_path()
     }
 
     /// Mémorise un certificat refusé présenté à l'utilisateur.
@@ -244,7 +332,7 @@ mod tests {
             std::process::id(),
             std::thread::current().id()
         ));
-        AppState::open(&dir).unwrap_or_else(|e| panic!("{e}"))
+        AppState::open(&dir, &dir.join("cache")).unwrap_or_else(|e| panic!("{e}"))
     }
 
     fn host(raw: &str) -> Host {
@@ -272,6 +360,40 @@ mod tests {
             .map(|m| m.permissions().mode() & 0o777)
             .unwrap_or(0);
         assert_eq!(mode, 0o700);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn without_keyring_the_file_needs_explicit_consent() {
+        let dir = std::env::temp_dir().join(format!("norelly-secrets-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::create_dir_all(&dir);
+        let store = AppSecretStore::new(
+            Err(SecretStoreError::Unavailable("pas de trousseau".into())),
+            FileSecretStore::new(dir.join("mots-de-passe.json")),
+        );
+        let key = SecretKey::parse("account:1:imap").unwrap_or_else(|_| panic!("clé"));
+        let secret = Secret::new("mdp".into());
+        assert!(!store.usable().await);
+        assert!(
+            store.set(&key, &secret).await.is_err(),
+            "rien sans consentement"
+        );
+        assert!(!dir.join("mots-de-passe.json").exists());
+        assert!(store.consent_to_file().is_ok());
+        assert!(store.usable().await);
+        assert!(store.set(&key, &secret).await.is_ok());
+        assert_eq!(
+            store
+                .get(&key)
+                .await
+                .ok()
+                .flatten()
+                .map(|s| s.expose().to_owned()),
+            Some("mdp".into())
+        );
+        assert!(store.delete(&key).await.is_ok());
+        assert!(store.get(&key).await.ok().flatten().is_none());
         let _ = std::fs::remove_dir_all(&dir);
     }
 

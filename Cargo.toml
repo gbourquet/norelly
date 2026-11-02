@@ -33,6 +33,7 @@ norelly-keyring = { path = "crates/adapters/keyring" }
 norelly-discovery = { path = "crates/adapters/discovery" }
 norelly-sqlite = { path = "crates/adapters/sqlite" }
 norelly-blobs = { path = "crates/adapters/blobs" }
+norelly-render = { path = "crates/adapters/render" }
 # Infra
 tokio = { version = "1.54", features = ["rt-multi-thread", "macros", "net", "io-util", "time", "sync"] }
 testcontainers = "0.28"
@@ -54,6 +55,9 @@ imap-next = { version = "0.3.4", default-features = false, features = ["starttls
 # Sans backend TLS : la négociation TLS est faite par norelly-tls, le flux
 # chiffré est confié à lettre (voir ADR-002 et crates/adapters/smtp).
 mail-parser = "0.11"
+# Assainissement du HTML des mails (ADR-004).
+ammonia = "4.2"
+sha2 = "0.10"
 lettre = { version = "0.11.23", default-features = false, features = ["smtp-transport", "tokio1"] }
 # Trousseau : keyring-core et magasins natifs choisis explicitement (le
 # crate `keyring` 4 impose zbus 5, dont des dépendances sont signalées non

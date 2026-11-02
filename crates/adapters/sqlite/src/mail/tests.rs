@@ -1,6 +1,7 @@
 use norelly_domain::ports::AccountRepository;
 use norelly_test_support::contracts::sample_account;
 use norelly_test_support::mail_contracts::{mail_store_contract, sample_message};
+use norelly_test_support::reading_contracts::conversation_query_contract;
 
 use super::*;
 use crate::SqliteAccountRepository;
@@ -31,6 +32,23 @@ async fn in_memory_store_passes_contract() -> Result<(), StoreError> {
     let db = Database::open_in_memory().map_err(|e| StoreError(e.to_string()))?;
     let (a, b) = two_accounts(&db).await?;
     mail_store_contract(&SqliteMailStore::new(db), a, b).await
+}
+
+#[tokio::test]
+async fn conversations_pass_contract() -> Result<(), StoreError> {
+    let db = Database::open_in_memory().map_err(|e| StoreError(e.to_string()))?;
+    let (a, b) = two_accounts(&db).await?;
+    conversation_query_contract(&SqliteMailStore::new(db), a, b).await
+}
+
+#[tokio::test]
+async fn file_conversations_with_reader_pool_pass_contract() -> Result<(), StoreError> {
+    let path = temp_path("conversations");
+    let db = Database::open(&path).map_err(|e| StoreError(e.to_string()))?;
+    let (a, b) = two_accounts(&db).await?;
+    conversation_query_contract(&SqliteMailStore::new(db), a, b).await?;
+    let _ = std::fs::remove_dir_all(path.parent().unwrap_or(&path));
+    Ok(())
 }
 
 #[tokio::test]

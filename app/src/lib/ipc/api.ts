@@ -5,7 +5,16 @@
 import { Channel } from "@tauri-apps/api/core";
 import {
   commands,
+  events,
   type AccountDto,
+  type ConversationCursorDto,
+  type ConversationMessageDto_Serialize,
+  type ConversationPageDto_Serialize,
+  type FolderDto,
+  type MessageViewDto,
+  type ReadingPreferencesDto,
+  type ScopeDto,
+  type SyncEventDto,
   type AddAccountInput_Deserialize,
   type AddAccountResultDto_Serialize,
   type DiscoveryDto_Serialize,
@@ -14,6 +23,16 @@ import {
 
 export type {
   AccountDto,
+  AttachmentDto,
+  BodyModeDto,
+  ConversationCursorDto,
+  ConversationDto,
+  CorrespondentDto,
+  FolderDto,
+  MessageViewDto,
+  ReadingPreferencesDto,
+  ScopeDto,
+  SyncEventDto,
   CertificateProblemDto,
   DiscoveredServerDto,
   DiscoverySourceDto,
@@ -24,6 +43,8 @@ export type {
 export type AddAccountInput = AddAccountInput_Deserialize;
 export type AddAccountResult = AddAccountResultDto_Serialize;
 export type Discovery = DiscoveryDto_Serialize;
+export type ConversationPage = ConversationPageDto_Serialize;
+export type ConversationMessage = ConversationMessageDto_Serialize;
 
 export class IpcFailure extends Error {}
 
@@ -55,6 +76,56 @@ export const api = {
 
   removeAccount: (id: number): Promise<void> =>
     unwrap(commands.removeAccount(id)).then(() => undefined),
+
+  allowFileSecrets: (): Promise<void> => unwrap(commands.allowFileSecrets()).then(() => undefined),
+
+  listFolders: (account: number): Promise<FolderDto[]> => unwrap(commands.listFolders(account)),
+
+  listConversations: (
+    scope: ScopeDto,
+    cursor: ConversationCursorDto | null,
+    limit: number,
+  ): Promise<ConversationPage> => unwrap(commands.listConversations(scope, cursor, limit)),
+
+  conversationMessages: (conversation: number): Promise<ConversationMessage[]> =>
+    unwrap(commands.conversationMessages(conversation)),
+
+  openMessage: (message: number): Promise<MessageViewDto> => unwrap(commands.openMessage(message)),
+
+  allowRemoteImages: (message: number): Promise<void> =>
+    unwrap(commands.allowRemoteImages(message)).then(() => undefined),
+
+  readingPreferences: (): Promise<ReadingPreferencesDto> => unwrap(commands.readingPreferences()),
+
+  setPreferPlainText: (prefer: boolean): Promise<void> =>
+    unwrap(commands.setPreferPlainText(prefer)).then(() => undefined),
+
+  syncAccount: (account: number): Promise<void> =>
+    unwrap(commands.syncAccount(account)).then(() => undefined),
+
+  openExternal: (url: string): Promise<void> =>
+    unwrap(commands.openExternal(url)).then(() => undefined),
+
+  saveAttachment: (message: number, part: string): Promise<string | null> =>
+    unwrap(commands.saveAttachment(message, part)),
+
+  openAttachment: (message: number, part: string): Promise<void> =>
+    unwrap(commands.openAttachment(message, part)).then(() => undefined),
+
+  /** Abonnement aux événements de synchronisation ; renvoie le retrait. */
+  onSyncEvent: async (listener: (event: SyncEventDto) => void): Promise<() => void> =>
+    events.syncEventDto.listen((e) => listener(e.payload)),
 };
 
 export type Api = typeof api;
+
+/** Commandes des comptes (ajout, suppression). */
+export type AccountApi = Pick<
+  Api,
+  | "listAccounts"
+  | "discoverSettings"
+  | "addAccount"
+  | "trustCertificate"
+  | "removeAccount"
+  | "allowFileSecrets"
+>;

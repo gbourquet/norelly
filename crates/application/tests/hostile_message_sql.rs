@@ -13,13 +13,16 @@ mod common;
 
 use common::local;
 use norelly_application::sync::SyncAccount;
+use norelly_domain::address::EmailAddress;
+use norelly_domain::conversation::ConversationScope;
 use norelly_domain::fetch_policy::FetchPolicy;
 use norelly_domain::mailbox::{Flags, Keyword, header_text};
 use norelly_domain::ports::{
-    AccountRepository, BlobStore, FolderTreeQuery, MailStore, MessageListQuery,
-    RemoteMailboxSession, StoredBody,
+    AccountRepository, BlobStore, ConversationQuery, FolderTreeQuery, MailStore, MessageListQuery,
+    ReadingPreferences, RemoteMailboxSession, StoredBody,
 };
 use norelly_sqlite::SqliteAccountRepository;
+use norelly_sqlite::preferences::SqliteReadingPreferences;
 use norelly_test_support::fake_imap::FakeImap;
 
 /// Charges classiques : sortie de chaîne, commentaires, requêtes
@@ -174,5 +177,48 @@ async fn trapped_messages_cannot_alter_the_database() -> Result<(), Box<dyn std:
             "corps altéré"
         );
     }
+
+    // Conversations (phase 5) : identifiants et clés de sujet piégés
+    // stockés comme données, relus par les requêtes d'écran.
+    let conversations = l
+        .store
+        .conversations(ConversationScope::Mailbox(inbox.id), None, 100)
+        .await?;
+    let listed: u32 = conversations.items.iter().map(|c| c.messages).sum();
+    assert_eq!(
+        listed as usize,
+        PAYLOADS.len(),
+        "messages perdus par le regroupement"
+    );
+    for c in &conversations.items {
+        assert!(expected.contains(&c.subject), "sujet {:?}", c.subject);
+        let messages = l.store.conversation_messages(c.id).await?;
+        assert!(!messages.is_empty());
+    }
+    let unified = l
+        .store
+        .conversations(ConversationScope::unified_inbox(), None, 100)
+        .await?;
+    assert_eq!(unified.items.len(), conversations.items.len());
+
+    // Préférences de lecture : adresse et réglage stockés comme données.
+    let prefs = SqliteReadingPreferences::new(l.db.clone());
+    for raw in ["'--@example.com", "x'||'@example.com", "a\"b@example.com"] {
+        let Ok(sender) = EmailAddress::parse(raw) else {
+            continue;
+        };
+        prefs.allow_remote_images(&sender).await?;
+        assert!(prefs.remote_images_allowed(&sender).await?);
+    }
+    let other = EmailAddress::parse("autre@example.com")?;
+    assert!(
+        !prefs.remote_images_allowed(&other).await?,
+        "autorisation étendue par injection"
+    );
+    prefs.set_prefer_plain_text(true).await?;
+    assert!(prefs.prefer_plain_text().await?);
+
+    assert_eq!(l.db.integrity_problems().await?, Vec::<String>::new());
+    assert_eq!(l.db.schema().await?, schema_before, "schéma modifié");
     Ok(())
 }

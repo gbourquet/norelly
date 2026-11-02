@@ -104,11 +104,17 @@ fn add_request(input: AddAccountInput) -> Result<AddAccountRequest, IpcError> {
 #[tauri::command]
 #[specta::specta]
 pub async fn add_account(
+    app: tauri::AppHandle,
     state: State<'_, AppState>,
     input: AddAccountInput,
 ) -> Result<AddAccountResultDto, IpcError> {
     let confirmed = input.confirmed_hosts.clone();
     let request = add_request(input)?;
+    if !state.secrets.usable().await {
+        return Ok(AddAccountResultDto::SecretStorageConsentRequired {
+            path: state.secrets_file().display().to_string(),
+        });
+    }
     if let Some((imap, smtp)) = &request.servers {
         let hosts = [imap.endpoint.host(), smtp.endpoint.host()];
         if let Some(host) = state.check_confirmations(&hosts, &confirmed) {
@@ -133,6 +139,14 @@ pub async fn add_account(
     {
         state.remember_rejection(rejection.clone());
     }
+    if let AddAccountOutcome::Added(account) = &outcome
+        && let Err(e) = state
+            .mail
+            .start(&app, account, &state.secrets, &state.exceptions)
+            .await
+    {
+        tracing::warn!(error = %e, "synchronisation non démarrée");
+    }
     Ok(AddAccountResultDto::from_outcome(&outcome))
 }
 
@@ -153,11 +167,21 @@ pub async fn trust_certificate(
         .map_err(IpcError::new)
 }
 
+/// Accepte que les mots de passe soient enregistrés dans un fichier non
+/// chiffré, lisible par l'utilisateur seul, faute de trousseau du système.
+#[tauri::command]
+#[specta::specta]
+pub async fn allow_file_secrets(state: State<'_, AppState>) -> Result<(), IpcError> {
+    state.secrets.consent_to_file().map_err(IpcError::new)
+}
+
 /// Supprime un compte, ses mots de passe et ses données locales.
 #[tauri::command]
 #[specta::specta]
 pub async fn remove_account(state: State<'_, AppState>, id: u32) -> Result<(), IpcError> {
     let id = AccountId::new(i64::from(id)).map_err(IpcError::new)?;
+    // Synchronisation arrêtée avant l'effacement des données locales.
+    state.mail.stop(id).await;
     RemoveAccount {
         secrets: &state.secrets,
         accounts: &state.accounts,

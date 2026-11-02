@@ -6,6 +6,10 @@
 //! `spawn_blocking`. Les erreurs ne recopient jamais les octets du secret
 //! (certaines variantes de `keyring_core::Error` les contiennent).
 
+mod file;
+
+pub use file::FileSecretStore;
+
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, PoisonError};
 
@@ -19,13 +23,25 @@ use zeroize::Zeroize;
 /// d'application, ADR-006).
 pub const SERVICE: &str = "io.github.gbourquet.Norelly";
 
+/// Explication donnée quand aucun trousseau ne répond.
+#[cfg(not(windows))]
+const NO_SERVICE: &str = "aucun service de trousseau (Secret Service) ne répond ; \
+     installez et démarrez GNOME Keyring ou KWallet, puis réessayez";
+#[cfg(windows)]
+const NO_SERVICE: &str = "le Gestionnaire d'identification de Windows ne répond pas";
+
 /// Traduit une erreur `keyring` sans en recopier le contenu sensible.
 fn map_error(error: keyring_core::Error) -> SecretStoreError {
     use keyring_core::Error as E;
     match error {
         E::NoStorageAccess(e) => SecretStoreError::AccessDenied(e.to_string()),
-        E::PlatformFailure(e) => SecretStoreError::Unavailable(e.to_string()),
-        E::NoDefaultStore => SecretStoreError::Unavailable("aucun trousseau par défaut".into()),
+        E::PlatformFailure(e) => {
+            // Détail technique (en anglais, D-Bus ou Win32) gardé pour le
+            // journal ; l'utilisateur reçoit une explication.
+            tracing::warn!(error = %e, "trousseau du système injoignable");
+            SecretStoreError::Unavailable(NO_SERVICE.into())
+        }
+        E::NoDefaultStore => SecretStoreError::Unavailable(NO_SERVICE.into()),
         E::BadEncoding(mut bytes) | E::BadDataFormat(mut bytes, _) => {
             bytes.zeroize();
             SecretStoreError::Backend("secret illisible (encodage)".into())

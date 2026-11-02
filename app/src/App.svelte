@@ -7,15 +7,56 @@
   import ShortcutHelp from "./components/ShortcutHelp.svelte";
   import AddAccountDialog from "./components/AddAccountDialog.svelte";
   import RemoveAccountDialog from "./components/RemoveAccountDialog.svelte";
-  import { app, registerAppCommands, registry } from "./lib/app.svelte";
-  import { shortcutFromEvent } from "./lib/commands/shortcut";
-  import { api } from "./lib/ipc/api";
+  import ConversationList from "./components/ConversationList.svelte";
+  import ConversationView from "./components/ConversationView.svelte";
+  import { app, mail, registerAppCommands, registry } from "./lib/app.svelte";
+  import { shortcutFromEvent, type Shortcut } from "./lib/commands/shortcut";
+  import { api, type ScopeDto } from "./lib/ipc/api";
+  import { UNIFIED_INBOX } from "./lib/mail.svelte";
 
   onMount(() => {
     const unregister = registerAppCommands();
-    void app.refreshAccounts();
-    return unregister;
+    let unlisten: (() => void) | null = null;
+    let disposed = false;
+    void (async () => {
+      await app.refreshAccounts();
+      await mail.show(UNIFIED_INBOX);
+      try {
+        const off = await api.onSyncEvent((event) => void mail.onSyncEvent(event));
+        if (disposed) off();
+        else unlisten = off;
+      } catch {
+        // Hors de Tauri (tests) : pas d'événements.
+      }
+    })();
+    return () => {
+      disposed = true;
+      unlisten?.();
+      unregister();
+    };
   });
+
+  const listTitle = $derived.by(() => {
+    const scope = mail.scope;
+    if (scope.kind === "unified") return "Boîte de réception unifiée";
+    for (const folders of Object.values(mail.folders)) {
+      const f = folders.find((x) => x.id === scope.id);
+      if (f !== undefined) return f.role === "inbox" ? "Boîte de réception" : f.leaf;
+    }
+    return "Dossier";
+  });
+
+  function selectScope(scope: ScopeDto, account: number | null): void {
+    if (account !== null) app.selectedAccountId = account;
+    void mail.show(scope);
+  }
+
+  /** Touche reçue de l'agent d'un message (focus dans le corps). */
+  function onFrameKey(shortcut: Shortcut): void {
+    if (app.dialog !== null) return;
+    const command = registry.resolve(shortcut, app.context(), false);
+    if (command !== undefined) void registry.execute(command.id, app.context());
+  }
 
   function isEditable(target: EventTarget | null): boolean {
     if (!(target instanceof HTMLElement)) return false;
@@ -39,8 +80,11 @@
   {#snippet sidebar()}
     <Sidebar
       accounts={app.accounts}
+      folders={mail.folders}
+      offline={mail.offline}
+      scope={mail.scope}
       selectedId={app.selectedAccountId}
-      onSelect={(id) => (app.selectedAccountId = id)}
+      onScope={selectScope}
       onAdd={() => app.open("add-account")}
       onRemove={(id) => {
         app.selectedAccountId = id;
@@ -49,28 +93,36 @@
     />
   {/snippet}
   {#snippet list()}
-    <div class="placeholder">
-      {#if app.selectedAccount}
-        <p>Les messages de {app.selectedAccount.address} apparaîtront ici.</p>
-      {/if}
-    </div>
+    {#if app.accounts.length > 0}
+      <ConversationList {mail} title={listTitle} />
+    {/if}
   {/snippet}
   {#snippet reader()}
-    <div class="placeholder welcome">
-      <InboxIcon size={40} aria-hidden="true" />
-      <h1>Norelly</h1>
-      {#if app.loadError}
-        <p role="alert">Impossible de lire les comptes : {app.loadError}</p>
-      {:else if app.accounts.length === 0}
-        <p>Aucun compte pour l'instant.</p>
-        <button class="btn btn-primary" type="button" onclick={() => app.open("add-account")}
-          >Ajouter un compte</button
-        >
-      {/if}
-      <p class="hint">
-        Palette de commandes : <kbd>Ctrl</kbd> <kbd>K</kbd> · Raccourcis : <kbd>?</kbd>
-      </p>
-    </div>
+    {#if mail.opened !== null}
+      <ConversationView
+        conversation={mail.opened}
+        messages={mail.messages}
+        {api}
+        onBack={() => mail.back()}
+        onKey={onFrameKey}
+      />
+    {:else}
+      <div class="placeholder welcome">
+        <InboxIcon size={40} aria-hidden="true" />
+        <h1>Norelly</h1>
+        {#if app.loadError}
+          <p role="alert">Impossible de lire les comptes : {app.loadError}</p>
+        {:else if app.accounts.length === 0}
+          <p>Aucun compte pour l'instant.</p>
+          <button class="btn btn-primary" type="button" onclick={() => app.open("add-account")}
+            >Ajouter un compte</button
+          >
+        {/if}
+        <p class="hint">
+          Palette de commandes : <kbd>Ctrl</kbd> <kbd>K</kbd> · Raccourcis : <kbd>?</kbd>
+        </p>
+      </div>
+    {/if}
   {/snippet}
 </ThreePaneLayout>
 
@@ -88,7 +140,7 @@
   onAdded={(account) => {
     app.close();
     app.selectedAccountId = account.id;
-    void app.refreshAccounts();
+    void app.refreshAccounts().then(() => mail.reload());
   }}
 />
 <RemoveAccountDialog
@@ -98,8 +150,10 @@
   onConfirm={async (account) => {
     await api.removeAccount(account.id);
     app.close();
+    mail.forgetAccount(account.id);
     app.selectedAccountId = null;
     await app.refreshAccounts();
+    await mail.reload();
   }}
 />
 

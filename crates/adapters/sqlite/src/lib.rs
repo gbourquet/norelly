@@ -12,7 +12,9 @@
 //! Les lignes relues sont revalidées par les constructeurs du domaine :
 //! une base modifiée à la main ne peut pas produire un compte invalide.
 
+pub mod conversations;
 pub mod mail;
+pub mod preferences;
 
 use std::path::Path;
 use std::sync::{Arc, Mutex, PoisonError};
@@ -34,6 +36,7 @@ fn migrations() -> Migrations<'static> {
     Migrations::new(vec![
         M::up(include_str!("../migrations/0001_accounts.sql")),
         M::up(include_str!("../migrations/0002_mail.sql")),
+        M::up(include_str!("../migrations/0003_conversations.sql")),
     ])
 }
 
@@ -54,6 +57,8 @@ pub enum OpenError {
     Sqlite(#[from] rusqlite::Error),
     #[error("migration de la base impossible : {0}")]
     Migration(#[from] rusqlite_migration::Error),
+    #[error("rattachement des conversations impossible : {0}")]
+    Backfill(String),
 }
 
 /// Base SQLite partagée par les dépôts.
@@ -97,6 +102,9 @@ impl Database {
         conn.pragma_update(None, "foreign_keys", "ON")?;
         conn.busy_timeout(std::time::Duration::from_secs(5))?;
         migrations().to_latest(&mut conn)?;
+        // Messages d'une base antérieure à la version 3 : rattachés à leur
+        // conversation une fois pour toutes.
+        conversations::backfill(&mut conn).map_err(|e| OpenError::Backfill(e.0))?;
         Ok(Self {
             conn: Arc::new(Mutex::new(conn)),
             readers: None,
@@ -508,6 +516,13 @@ mod tests {
          INSERT INTO messages (mailbox_id, uid, internal_date, sort_date, size, subject, \
          from_name, from_address, has_attachments) \
          VALUES (1, 7, 100, 100, 10, 'v2', '', 'a@example.com', 0);",
+        // Version 3 : une conversation, un lien, des préférences.
+        "INSERT INTO conversations (account_id, subject_key, latest_date) VALUES (1, 'v3', 100); \
+         INSERT INTO conversation_links (account_id, message_id, conversation_id) \
+         VALUES (1, 'v3@example.com', 1); \
+         UPDATE messages SET conversation_id = 1; \
+         INSERT INTO remote_image_senders (address) VALUES ('a@example.com'); \
+         INSERT INTO settings (key, value) VALUES ('reading.prefer_plain_text', '1');",
     ];
 
     /// Montée de version depuis chaque version précédente, données
@@ -546,6 +561,47 @@ mod tests {
             )
             .unwrap_or_else(|e| panic!("depuis v{} : {e}", start + 1));
         }
+    }
+
+    /// Base de version 2 (messages sans conversation) : à l'ouverture, les
+    /// messages sont rattachés (réponse avant l'original comprise).
+    #[tokio::test]
+    async fn opening_a_v2_database_threads_existing_messages() -> Result<(), StoreError> {
+        let dir = std::env::temp_dir().join(format!("norelly-backfill-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).map_err(|e| StoreError(e.to_string()))?;
+        let path = dir.join("v2.sqlite3");
+        {
+            let mut conn = Connection::open(&path).map_err(store_error)?;
+            migrations()
+                .to_version(&mut conn, 2)
+                .map_err(|e| StoreError(e.to_string()))?;
+            for fixture in FIXTURES.iter().take(2) {
+                conn.execute_batch(fixture).map_err(store_error)?;
+            }
+            conn.execute_batch(
+                "INSERT INTO messages (mailbox_id, uid, internal_date, sort_date, size, subject, \
+                 from_name, from_address, has_attachments, message_id, refs) VALUES \
+                 (1, 8, 300, 300, 10, 'Re: v2', '', 'b@example.com', 0, 'r@x', '[\"o@x\"]'), \
+                 (1, 9, 200, 200, 10, 'v2', '', 'c@example.com', 0, 'o@x', '[]');",
+            )
+            .map_err(store_error)?;
+        }
+        let db = Database::open(&path).map_err(|e| StoreError(e.to_string()))?;
+        let store = mail::SqliteMailStore::new(db);
+        let inbox =
+            norelly_domain::mailbox::MailboxId::new(1).ok_or_else(|| StoreError("id".into()))?;
+        let page = norelly_domain::ports::ConversationQuery::conversations(
+            &store,
+            norelly_domain::conversation::ConversationScope::Mailbox(inbox),
+            None,
+            10,
+        )
+        .await?;
+        let counts: Vec<(i64, u32)> = page.items.iter().map(|i| (i.date, i.messages)).collect();
+        assert_eq!(counts, [(300, 2), (100, 1)]);
+        let _ = std::fs::remove_dir_all(&dir);
+        Ok(())
     }
 
     #[tokio::test]

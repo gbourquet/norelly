@@ -63,7 +63,8 @@ const NAMES: &[&str] = &[
 ];
 
 /// `count` messages, UID 1 à `count`, dates croissantes à partir de
-/// `start` (secondes Unix), espacées de 1 à 30 minutes.
+/// `start` (secondes Unix), espacées de 1 à 30 minutes ; environ un sur
+/// trois répond à un message précédent.
 #[must_use]
 pub fn synthetic_messages(count: u32, start: i64, seed: u64) -> Vec<StoredMessage> {
     let mut rng = Rng::new(seed);
@@ -97,6 +98,17 @@ pub fn synthetic_messages(count: u32, start: i64, seed: u64) -> Vec<StoredMessag
                 ],
             });
             let login = name.split(' ').next().unwrap_or("x").to_lowercase();
+            // Un message sur trois répond à un message précédent
+            // (conversations).
+            let parent = (n > 1 && rng.below(3) == 0)
+                .then(|| u32::try_from(1 + rng.below(u64::from(n - 1))).unwrap_or(1));
+            let (subject, references) = match parent {
+                Some(p) => (
+                    format!("Re: {word} n° {p}"),
+                    vec![format!("{p}.{seed}@synthetic.example")],
+                ),
+                None => (format!("{word} n° {n}"), Vec::new()),
+            };
             Some(StoredMessage {
                 meta: MessageMeta {
                     uid: Uid::new(n)?,
@@ -105,7 +117,8 @@ pub fn synthetic_messages(count: u32, start: i64, seed: u64) -> Vec<StoredMessag
                     internal_date: date,
                     size: u32::try_from(2_000 + rng.below(50_000)).unwrap_or(2_000),
                     headers: MessageHeaders {
-                        subject: format!("{word} n° {n}"),
+                        subject,
+                        references,
                         from: vec![Correspondent::new(name, &format!("{login}@example.com"))],
                         to: vec![Correspondent::new("Moi", "moi@example.com")],
                         date: Some(date),

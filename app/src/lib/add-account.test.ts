@@ -4,7 +4,7 @@ import type {
   AccountDto,
   AddAccountInput,
   AddAccountResult,
-  Api,
+  AccountApi,
   Discovery,
   ServerDto,
 } from "./ipc/api";
@@ -47,7 +47,7 @@ const certificate: AddAccountResult = {
 
 function fakeApi(discovery: Discovery, results: AddAccountResult[]) {
   const calls: AddAccountInput[] = [];
-  const api: Api = {
+  const api: AccountApi = {
     listAccounts: vi.fn(async () => []),
     discoverSettings: vi.fn(async (_address, onProgress) => {
       onProgress("provider_autoconfig");
@@ -62,11 +62,12 @@ function fakeApi(discovery: Discovery, results: AddAccountResult[]) {
     }),
     trustCertificate: vi.fn(async () => undefined),
     removeAccount: vi.fn(async () => undefined),
+    allowFileSecrets: vi.fn(async () => undefined),
   };
   return { api, calls };
 }
 
-function flow(api: Api): AddAccountFlow {
+function flow(api: AccountApi): AddAccountFlow {
   const f = new AddAccountFlow(api);
   f.address = " alice@example.com ";
   f.password = "secret";
@@ -170,6 +171,36 @@ describe("parcours d'ajout de compte", () => {
     await f.allowPlaintext();
     expect(calls[1]?.plaintext_consents).toEqual([endpoint]);
     expect(f.step).toBe("done");
+  });
+
+  it("sans trousseau : consentement au fichier, puis ajout", async () => {
+    const { api, calls } = fakeApi(found, [
+      {
+        kind: "secret_storage_consent_required",
+        path: "/home/a/.local/share/x/mots-de-passe.json",
+      },
+      { kind: "added", account },
+    ]);
+    const f = flow(api);
+    await f.submit();
+    expect(f.step).toBe("secrets");
+    expect(f.secretsFile).toContain("mots-de-passe.json");
+    expect(api.allowFileSecrets).not.toHaveBeenCalled();
+    await f.allowFileSecrets();
+    expect(api.allowFileSecrets).toHaveBeenCalledOnce();
+    expect(calls).toHaveLength(2);
+    expect(f.step).toBe("done");
+  });
+
+  it("sans trousseau : refus, rien n'est enregistré", async () => {
+    const { api } = fakeApi(found, [
+      { kind: "secret_storage_consent_required", path: "/x/mots-de-passe.json" },
+    ]);
+    const f = flow(api);
+    await f.submit();
+    f.decline();
+    expect(f.step).toBe("manual");
+    expect(api.allowFileSecrets).not.toHaveBeenCalled();
   });
 
   it("échec d'authentification : message et saisie manuelle", async () => {

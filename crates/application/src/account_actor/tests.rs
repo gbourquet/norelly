@@ -229,3 +229,51 @@ async fn shutdown_interrupts_a_long_sync() {
         started.elapsed()
     );
 }
+
+#[tokio::test]
+async fn bodies_are_fetched_on_demand() {
+    let imap = FakeImap::new();
+    let raw = b"Subject: pj\r\nContent-Type: multipart/mixed; boundary=b\r\n\r\n--b\r\n\
+Content-Type: text/plain\r\n\r\ntexte\r\n--b\r\nContent-Type: application/pdf\r\n\r\nPDF\r\n--b--\r\n";
+    let uid = imap
+        .append("INBOX", raw, Flags::default(), 1)
+        .unwrap_or_else(|| panic!("uid"));
+    let mut r = start(&imap);
+    wait_for(&mut r.events, WAIT, online).await;
+    let two =
+        norelly_domain::fetch_policy::PartPath::parse("2").unwrap_or_else(|| panic!("chemin"));
+    let fetched = tokio::time::timeout(
+        WAIT,
+        r.handle.fetch_body(
+            MailboxName::inbox(),
+            uid,
+            BodyFetch::Partial {
+                parts: vec![two.clone()],
+                deferred: vec![],
+            },
+        ),
+    )
+    .await
+    .unwrap_or_else(|_| panic!("délai"));
+    let Ok(Some(FetchedBody::Partial { parts, .. })) = fetched else {
+        panic!("partie attendue : {fetched:?}");
+    };
+    let entity = parts
+        .into_iter()
+        .find(|(p, _)| *p == two)
+        .map(|(_, b)| b)
+        .unwrap_or_default();
+    assert!(entity.starts_with(b"Content-Type: application/pdf"));
+    assert!(entity.ends_with(b"PDF"));
+    // Message disparu : None.
+    let gone = r
+        .handle
+        .fetch_body(
+            MailboxName::inbox(),
+            Uid::new(999).unwrap_or_else(|| panic!("uid")),
+            BodyFetch::Full,
+        )
+        .await;
+    assert_eq!(gone, Ok(None));
+    r.handle.shutdown().await;
+}

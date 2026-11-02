@@ -189,6 +189,36 @@ where
     };
     assert!(header.starts_with(b"From: "));
     assert!(!header.windows(5).any(|w| w == b"Corps"));
+    // Partie seule : entité MIME autonome (en-têtes de partie, contenu).
+    let one =
+        norelly_domain::fetch_policy::PartPath::parse("1").ok_or_else(|| "chemin".to_owned())?;
+    let entity = session
+        .fetch_body(
+            uid(2),
+            &BodyFetch::Partial {
+                parts: vec![one.clone()],
+                deferred: vec![],
+            },
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+    let Some(FetchedBody::Partial { parts, .. }) = entity else {
+        panic!("partie attendue : {entity:?}");
+    };
+    let part = parts
+        .iter()
+        .find(|(p, _)| *p == one)
+        .map(|(_, b)| b.clone())
+        .unwrap_or_default();
+    assert!(
+        part.ends_with(b"Corps du message 2.\r\n"),
+        "{:?}",
+        String::from_utf8_lossy(&part)
+    );
+    assert!(
+        part.windows(4).any(|w| w == b"\r\n\r\n"),
+        "en-têtes de partie séparés du contenu"
+    );
     // Le corps est lu sans marquer le message comme lu (BODY.PEEK).
     let after = session
         .fetch_flags(ServerQuery::AllFlags)

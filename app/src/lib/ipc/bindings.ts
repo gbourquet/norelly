@@ -48,6 +48,11 @@ export type AddAccountInput_Deserialize = {
 	smtp?: ServerDto | null,
 	/**  Serveurs en clair acceptés explicitement par l'utilisateur. */
 	plaintext_consents: EndpointDto[],
+	/**
+	 *  Hôtes signalés par la découverte (DNS hors domaine) que
+	 *  l'utilisateur a confirmés explicitement.
+	 */
+	confirmed_hosts: string[],
 };
 
 /**  Demande d'ajout de compte. */
@@ -60,16 +65,31 @@ export type AddAccountInput_Serialize = {
 	smtp: ServerDto | null,
 	/**  Serveurs en clair acceptés explicitement par l'utilisateur. */
 	plaintext_consents: EndpointDto[],
+	/**
+	 *  Hôtes signalés par la découverte (DNS hors domaine) que
+	 *  l'utilisateur a confirmés explicitement.
+	 */
+	confirmed_hosts: string[],
 };
 
 /**  Résultat d'un ajout de compte. */
 export type AddAccountResultDto = AddAccountResultDto_Serialize | AddAccountResultDto_Deserialize;
 
 /**  Résultat d'un ajout de compte. */
-export type AddAccountResultDto_Deserialize = { kind: "added"; account: AccountDto } | { kind: "already_exists" } | { kind: "needs_review"; discovery: DiscoveryDto_Deserialize } | { kind: "plaintext_consent_required"; endpoint: EndpointDto } | { kind: "certificate"; problem: CertificateProblemDto } | { kind: "failed"; protocol?: ProtocolDto | null; failure: FailureKindDto; message: string };
+export type AddAccountResultDto_Deserialize = { kind: "added"; account: AccountDto } | { kind: "already_exists" } | { kind: "needs_review"; discovery: DiscoveryDto_Deserialize } | { kind: "plaintext_consent_required"; endpoint: EndpointDto } | 
+/**
+ *  Serveur trouvé par le DNS hors du domaine de l'adresse, non confirmé :
+ *  aucune connexion n'a été tentée.
+ */
+{ kind: "confirmation_required"; host: string } | { kind: "certificate"; problem: CertificateProblemDto } | { kind: "failed"; protocol?: ProtocolDto | null; failure: FailureKindDto; message: string };
 
 /**  Résultat d'un ajout de compte. */
-export type AddAccountResultDto_Serialize = { kind: "added"; account: AccountDto } | { kind: "already_exists" } | { kind: "needs_review"; discovery: DiscoveryDto_Serialize } | { kind: "plaintext_consent_required"; endpoint: EndpointDto } | { kind: "certificate"; problem: CertificateProblemDto } | { kind: "failed"; protocol: ProtocolDto | null; failure: FailureKindDto; message: string };
+export type AddAccountResultDto_Serialize = { kind: "added"; account: AccountDto } | { kind: "already_exists" } | { kind: "needs_review"; discovery: DiscoveryDto_Serialize } | { kind: "plaintext_consent_required"; endpoint: EndpointDto } | 
+/**
+ *  Serveur trouvé par le DNS hors du domaine de l'adresse, non confirmé :
+ *  aucune connexion n'a été tentée.
+ */
+{ kind: "confirmation_required"; host: string } | { kind: "certificate"; problem: CertificateProblemDto } | { kind: "failed"; protocol: ProtocolDto | null; failure: FailureKindDto; message: string };
 
 /**  Code stable du problème de certificat (pour l'interface). */
 export type CertificateIssueDto = "unknown_issuer" | "expired" | "not_yet_valid" | "hostname_mismatch" | "revoked" | "invalid_signature" | "malformed" | "other";

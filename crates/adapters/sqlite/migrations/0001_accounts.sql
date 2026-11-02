@@ -2,7 +2,9 @@
 -- Aucun secret en base : les mots de passe sont dans le trousseau du système.
 
 CREATE TABLE accounts (
-    id            INTEGER PRIMARY KEY,
+    -- AUTOINCREMENT : un identifiant n'est jamais réattribué (les clés du
+    -- trousseau en dépendent).
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
     address       TEXT    NOT NULL UNIQUE,
     display_name  TEXT    NOT NULL,
     imap_host     TEXT    NOT NULL,

@@ -1,7 +1,8 @@
 //! Compte de messagerie : adresse, nom affiché, serveurs IMAP et SMTP.
 //!
 //! Le mot de passe n'appartient pas au compte : il vit uniquement dans le
-//! trousseau du système, sous les clés données par [`Account::secret_key`].
+//! trousseau du système, sous les clés données par [`Account::secret_key`]
+//! (propres au compte enregistré).
 
 use std::fmt;
 
@@ -194,13 +195,6 @@ impl AccountDraft {
         }
     }
 
-    /// Clé du secret de ce compte pour `protocol` dans le trousseau.
-    #[must_use]
-    pub fn secret_key(&self, protocol: Protocol) -> SecretKey {
-        let server = self.server(protocol);
-        SecretKey::for_server(protocol, &server.username, server.endpoint.host())
-    }
-
     /// Consentements au clair déduits du compte (serveurs en clair
     /// enregistrés).
     #[must_use]
@@ -245,6 +239,13 @@ impl Account {
     #[must_use]
     pub fn draft(&self) -> &AccountDraft {
         &self.draft
+    }
+
+    /// Clé du secret de ce compte pour `protocol` dans le trousseau (propre
+    /// au compte, voir [`SecretKey::for_account`]).
+    #[must_use]
+    pub fn secret_key(&self, protocol: Protocol) -> SecretKey {
+        SecretKey::for_account(self.id, protocol)
     }
 }
 
@@ -380,11 +381,11 @@ mod tests {
         assert_eq!(account.id().get(), 7);
         assert_eq!(
             account.secret_key(Protocol::Imap).as_str(),
-            "imap:alice@example.com@mail.example.com"
+            "account:7:imap"
         );
         assert_eq!(
             account.secret_key(Protocol::Smtp).as_str(),
-            "smtp:alice@example.com@mail.example.com"
+            "account:7:smtp"
         );
     }
 }

@@ -21,6 +21,8 @@
   // L'API ne change pas pendant la vie du composant.
   // svelte-ignore state_referenced_locally
   const flow = new AddAccountFlow(api);
+  /** Confirmation renforcée exigée quand l'empreinte a changé. */
+  let acknowledgeChange = $state(false);
 
   function close(): void {
     flow.reset();
@@ -138,6 +140,25 @@
           required
         />
       {/if}
+      {#each flow.unconfirmed as item (item.host)}
+        {#if [flow.imap.host.trim(), flow.smtp.host.trim()].includes(item.host)}
+          <div class="danger confirm" role="group" aria-label="Confirmation du serveur {item.host}">
+            <p>
+              <strong>{item.host}</strong> a été trouvé par le DNS ({SOURCE_LABELS[item.source]}) en
+              dehors du domaine de votre adresse. Une réponse DNS falsifiée pourrait envoyer votre
+              mot de passe à un tiers.
+            </p>
+            <label>
+              <input
+                type="checkbox"
+                checked={flow.confirmed.includes(item.host)}
+                onchange={(e) => flow.setConfirmed(item.host, e.currentTarget.checked)}
+              />
+              Je confirme que {item.host} est un serveur de mon fournisseur
+            </label>
+          </div>
+        {/if}
+      {/each}
       <ServerFields legend="Réception (IMAP)" idPrefix="imap" bind:server={flow.imap} />
       <ServerFields legend="Envoi (SMTP)" idPrefix="smtp" bind:server={flow.smtp} />
       <div class="actions">
@@ -164,6 +185,12 @@
         <dt>Empreinte SHA-256</dt>
         <dd class="fingerprint">{problem.fingerprint}</dd>
       </dl>
+      {#if problem.can_trust && problem.fingerprint_changed}
+        <label class="acknowledge">
+          <input type="checkbox" bind:checked={acknowledgeChange} />
+          J'ai vérifié auprès de l'administrateur que ce nouveau certificat est légitime
+        </label>
+      {/if}
       {#if problem.can_trust}
         <p>
           Ne faites confiance à ce serveur que si vous savez qu'il utilise ce certificat (serveur
@@ -176,7 +203,15 @@
       <div class="actions">
         <button class="btn" type="button" onclick={() => flow.decline()}>Annuler</button>
         {#if problem.can_trust}
-          <button class="btn btn-danger" type="button" onclick={() => void flow.trustCertificate()}>
+          <button
+            class="btn btn-danger"
+            type="button"
+            disabled={problem.fingerprint_changed && !acknowledgeChange}
+            onclick={() => {
+              acknowledgeChange = false;
+              void flow.trustCertificate();
+            }}
+          >
             Faire confiance à ce serveur
           </button>
         {/if}
@@ -286,6 +321,13 @@
 
   dd {
     margin: 0;
+  }
+
+  .acknowledge,
+  .confirm label {
+    display: flex;
+    gap: var(--space-2);
+    align-items: center;
   }
 
   .fingerprint {

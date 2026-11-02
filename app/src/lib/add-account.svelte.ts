@@ -55,6 +55,10 @@ export class AddAccountFlow {
   certificate = $state<CertificateProblemDto | null>(null);
   plaintextEndpoint = $state<EndpointDto | null>(null);
   added = $state<AccountDto | null>(null);
+  /** Hôtes signalés par la découverte (DNS hors domaine), à confirmer. */
+  unconfirmed = $state<{ host: string; source: DiscoverySourceDto }[]>([]);
+  /** Hôtes confirmés explicitement par l'utilisateur. */
+  confirmed = $state<string[]>([]);
   #consents: EndpointDto[] = [];
   #api: Api;
 
@@ -75,7 +79,23 @@ export class AddAccountFlow {
     this.certificate = null;
     this.plaintextEndpoint = null;
     this.added = null;
+    this.unconfirmed = [];
+    this.confirmed = [];
     this.#consents = [];
+  }
+
+  /** Hôtes à confirmer encore présents dans les champs et non confirmés. */
+  get pendingConfirmations(): string[] {
+    const inUse = [this.imap.host.trim(), this.smtp.host.trim()];
+    return this.unconfirmed
+      .map((u) => u.host)
+      .filter((h) => inUse.includes(h) && !this.confirmed.includes(h));
+  }
+
+  /** Coche ou décoche la confirmation d'un hôte. */
+  setConfirmed(host: string, value: boolean): void {
+    const others = this.confirmed.filter((h) => h !== host);
+    this.confirmed = value ? [...others, host] : others;
   }
 
   /** Étape 1 : découverte, puis test et ajout si tout est trouvé. */
@@ -100,16 +120,21 @@ export class AddAccountFlow {
     const defaults = defaultServers(this.address);
     this.imap = discovery.imap?.server ?? defaults.imap;
     this.smtp = discovery.smtp?.server ?? defaults.smtp;
+    // Avertissement de sécurité d'abord, que la découverte soit complète ou
+    // non : un hôte hors domaine trouvé par le DNS peut être falsifié.
+    this.unconfirmed = [discovery.imap, discovery.smtp].flatMap((d) =>
+      d?.requires_confirmation === true ? [{ host: d.server.host, source: d.source }] : [],
+    );
+    if (this.unconfirmed.length > 0) {
+      const hosts = this.unconfirmed.map((u) => u.host).join(", ");
+      this.step = "manual";
+      this.message = `Serveur trouvé par le DNS en dehors du domaine de votre adresse : ${hosts}. Vérifiez qu'il appartient bien à votre fournisseur avant de continuer.`;
+      return;
+    }
     if (!discovery.imap || !discovery.smtp) {
       this.step = "manual";
       this.message =
         "Les serveurs n'ont pas tous été trouvés automatiquement : vérifiez ou complétez les paramètres.";
-      return;
-    }
-    if (discovery.imap.requires_confirmation || discovery.smtp.requires_confirmation) {
-      this.step = "manual";
-      this.message =
-        "Un serveur a été trouvé par le DNS en dehors du domaine de votre adresse. Vérifiez qu'il appartient bien à votre fournisseur.";
       return;
     }
     await this.connect();
@@ -118,6 +143,11 @@ export class AddAccountFlow {
   /** Saisie manuelle validée. */
   async submitManual(): Promise<void> {
     this.message = null;
+    const pending = this.pendingConfirmations;
+    if (pending.length > 0) {
+      this.message = `Confirmez d'abord le serveur ${pending.join(", ")}, ou remplacez-le.`;
+      return;
+    }
     await this.connect();
   }
 
@@ -164,6 +194,7 @@ export class AddAccountFlow {
         imap: { ...this.imap, port: Number(this.imap.port) },
         smtp: { ...this.smtp, port: Number(this.smtp.port) },
         plaintext_consents: this.#consents,
+        confirmed_hosts: [...this.confirmed],
       });
     } catch (e) {
       this.step = "manual";
@@ -191,6 +222,13 @@ export class AddAccountFlow {
       case "certificate":
         this.certificate = result.problem;
         this.step = "certificate";
+        break;
+      case "confirmation_required":
+        if (!this.unconfirmed.some((u) => u.host === result.host)) {
+          this.unconfirmed = [...this.unconfirmed, { host: result.host, source: "dns_srv" }];
+        }
+        this.step = "manual";
+        this.message = `Le serveur ${result.host} doit être confirmé avant toute connexion.`;
         break;
       case "plaintext_consent_required":
         this.plaintextEndpoint = result.endpoint;

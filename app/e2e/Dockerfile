@@ -1,7 +1,7 @@
 # Environnement des tests end-to-end (ADR-007) : tauri-driver + WebKitWebDriver
 # (webkit2gtk-driver), Xvfb, D-Bus et GNOME Keyring (vrai Secret Service).
 # Construit et utilisé par e2e/run.sh ; aucune donnée réelle.
-FROM ubuntu:24.04
+FROM ubuntu:24.04@sha256:fe81560990fae86dc4743202b2cb4d3df98d0bcf949173cecef15ce1127ef852
 
 ARG DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \

@@ -63,6 +63,14 @@ impl SecretKey {
         Self(format!("{}:{}@{}", protocol.as_str(), username, host))
     }
 
+    /// Clé du secret d'un compte pour un protocole : `account:7:imap`.
+    /// Propre au compte, elle ne peut pas être partagée par deux comptes
+    /// (alias utilisant le même identifiant sur le même serveur).
+    #[must_use]
+    pub fn for_account(id: AccountId, protocol: Protocol) -> Self {
+        Self(format!("account:{}:{}", id.get(), protocol.as_str()))
+    }
+
     /// Clé libre : non vide, sans caractère de contrôle, 1024 octets au plus.
     pub fn parse(raw: &str) -> Result<Self, SecretKeyError> {
         if raw.is_empty() || raw.len() > 1024 || raw.chars().any(char::is_control) {
@@ -355,6 +363,17 @@ mod tests {
         assert_eq!(
             SecretKey::for_server(Protocol::Imap, &user, &host).as_str(),
             "imap:alice@imap.example.com"
+        );
+    }
+
+    #[test]
+    fn secret_key_for_account() {
+        let Ok(id) = AccountId::new(7) else {
+            panic!("id");
+        };
+        assert_eq!(
+            SecretKey::for_account(id, Protocol::Smtp).as_str(),
+            "account:7:smtp"
         );
     }
 

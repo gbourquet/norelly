@@ -2,9 +2,9 @@
 //! `TrustCertificate`.
 //!
 //! `AddAccount` : découverte (si les serveurs ne sont pas fournis), test
-//! des connexions IMAP et SMTP, enregistrement du mot de passe dans le
-//! trousseau, puis persistance du compte. En cas d'échec après l'écriture
-//! dans le trousseau, les secrets écrits sont retirés.
+//! des connexions IMAP et SMTP, persistance du compte, puis enregistrement
+//! du mot de passe dans le trousseau sous des clés propres au compte. Si le
+//! trousseau échoue, les secrets écrits et le compte sont retirés.
 
 use norelly_domain::account::{
     Account, AccountDraft, AccountError, AccountId, DisplayName, ServerSettings,
@@ -128,31 +128,29 @@ where
             }
         }
 
+        // Insertion d'abord : un doublon (y compris deux ajouts simultanés)
+        // échoue ici, sans toucher au trousseau. Les clés dépendent de
+        // l'identifiant attribué, donc n'appartiennent qu'à ce compte.
+        let account = match self.accounts.insert(&draft).await {
+            Ok(account) => account,
+            Err(AccountStoreError::Duplicate(_)) => return AddAccountOutcome::AlreadyExists,
+            Err(e) => return AddAccountOutcome::StorageFailed(e.to_string()),
+        };
         let keys = [
-            draft.secret_key(Protocol::Imap),
-            draft.secret_key(Protocol::Smtp),
+            account.secret_key(Protocol::Imap),
+            account.secret_key(Protocol::Smtp),
         ];
         for (i, key) in keys.iter().enumerate() {
             if let Err(e) = self.secrets.set(key, &request.password).await {
+                // Retour arrière limité à ce que ce cas d'usage a créé.
                 for written in keys.iter().take(i) {
                     let _ = self.secrets.delete(written).await;
                 }
+                let _ = self.accounts.delete(account.id()).await;
                 return AddAccountOutcome::SecretStoreFailed(e.to_string());
             }
         }
-
-        match self.accounts.insert(&draft).await {
-            Ok(account) => AddAccountOutcome::Added(account),
-            Err(e) => {
-                for key in &keys {
-                    let _ = self.secrets.delete(key).await;
-                }
-                match e {
-                    AccountStoreError::Duplicate(_) => AddAccountOutcome::AlreadyExists,
-                    other => AddAccountOutcome::StorageFailed(other.to_string()),
-                }
-            }
-        }
+        AddAccountOutcome::Added(account)
     }
 
     /// Serveurs découverts, s'ils sont complets et ne demandent pas de
@@ -250,6 +248,21 @@ pub async fn trust_certificate<E: CertificateExceptionStore>(
 ) -> Result<(), TrustCertificateError> {
     if !rejection.can_be_excepted() {
         return Err(TrustCertificateError::NotExceptable);
+    }
+    // Empreinte changée : la nouvelle remplace les anciennes (sinon un
+    // certificat d'interception accepté une fois resterait valide en plus
+    // de l'ancien, ou l'inverse).
+    if rejection.fingerprint_changed {
+        let previous = exceptions
+            .exceptions_for(&rejection.host)
+            .await
+            .map_err(|e| TrustCertificateError::Storage(e.to_string()))?;
+        for old in previous {
+            exceptions
+                .remove(&old)
+                .await
+                .map_err(|e| TrustCertificateError::Storage(e.to_string()))?;
+        }
     }
     exceptions
         .add(&CertificateException {

@@ -192,11 +192,10 @@ async fn production_client_refuses_plain_http() {
     );
 }
 
-/// Une redirection HTTPS → HTTP serait refusée par le client réel ;
-/// vérifié ici sur la politique : un client HTTPS ne suit pas de lien
-/// `http://` (même chemin de code que la requête initiale).
+/// Une URL `http://` est refusée sans connexion, même vers un port fermé
+/// (la politique de redirection est testée dans `http::tests`).
 #[tokio::test]
-async fn production_client_does_not_follow_http_redirects() {
+async fn production_client_refuses_http_url_without_connecting() {
     let Ok(c) = HttpAutoconfigClient::new(&TlsClientFactory::platform()) else {
         panic!("client HTTPS");
     };

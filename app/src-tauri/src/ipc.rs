@@ -202,6 +202,9 @@ pub struct AddAccountInput {
     pub smtp: Option<ServerDto>,
     /// Serveurs en clair acceptés explicitement par l'utilisateur.
     pub plaintext_consents: Vec<EndpointDto>,
+    /// Hôtes signalés par la découverte (DNS hors domaine) que
+    /// l'utilisateur a confirmés explicitement.
+    pub confirmed_hosts: Vec<String>,
 }
 
 impl fmt::Debug for AddAccountInput {
@@ -213,6 +216,7 @@ impl fmt::Debug for AddAccountInput {
             .field("imap", &self.imap)
             .field("smtp", &self.smtp)
             .field("plaintext_consents", &self.plaintext_consents)
+            .field("confirmed_hosts", &self.confirmed_hosts)
             .finish()
     }
 }
@@ -285,6 +289,11 @@ pub enum AddAccountResultDto {
     },
     PlaintextConsentRequired {
         endpoint: EndpointDto,
+    },
+    /// Serveur trouvé par le DNS hors du domaine de l'adresse, non confirmé :
+    /// aucune connexion n'a été tentée.
+    ConfirmationRequired {
+        host: String,
     },
     Certificate {
         problem: CertificateProblemDto,

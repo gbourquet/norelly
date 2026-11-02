@@ -91,7 +91,7 @@ pub enum CredentialsError {
     EmptyUsername,
     #[error("le nom d'utilisateur est trop long")]
     UsernameTooLong,
-    #[error("le nom d'utilisateur contient un caractère de contrôle")]
+    #[error("le nom d'utilisateur contient un caractère de contrôle ou invisible")]
     UsernameControlCharacter,
     #[error("le mot de passe est vide")]
     EmptySecret,
@@ -112,7 +112,10 @@ impl Username {
         if raw.len() > MAX_USERNAME_LEN {
             return Err(CredentialsError::UsernameTooLong);
         }
-        if raw.chars().any(char::is_control) {
+        if raw
+            .chars()
+            .any(|c| c.is_control() || crate::connection::is_format_char(c))
+        {
             return Err(CredentialsError::UsernameControlCharacter);
         }
         Ok(Self(raw.to_owned()))
@@ -218,7 +221,14 @@ mod tests {
     #[test]
     fn username_rejects_control_characters() {
         assert_eq!(Username::parse(""), Err(CredentialsError::EmptyUsername));
-        for raw in ["a\r\nb", "a\0b", "a\tb", "\u{7f}"] {
+        for raw in [
+            "a\r\nb",
+            "a\0b",
+            "a\tb",
+            "\u{7f}",
+            "a\u{202E}b",
+            "a\u{200B}b",
+        ] {
             assert_eq!(
                 Username::parse(raw),
                 Err(CredentialsError::UsernameControlCharacter)

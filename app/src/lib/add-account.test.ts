@@ -199,3 +199,49 @@ describe("parcours d'ajout de compte", () => {
     expect(f.step).toBe("form");
   });
 });
+
+describe("serveurs DNS hors domaine", () => {
+  const hostile: ServerDto = { ...imap, host: "imap.attaquant.net" };
+
+  it("avertit même si la découverte est partielle, et bloque sans confirmation", async () => {
+    const { api, calls } = fakeApi(
+      { imap: { server: hostile, source: "dns_srv", requires_confirmation: true }, smtp: null },
+      [{ kind: "added", account }],
+    );
+    const f = flow(api);
+    await f.submit();
+    expect(f.step).toBe("manual");
+    expect(f.message).toContain("imap.attaquant.net");
+    expect(f.pendingConfirmations).toEqual(["imap.attaquant.net"]);
+    await f.submitManual();
+    expect(api.addAccount).not.toHaveBeenCalled();
+
+    f.setConfirmed("imap.attaquant.net", true);
+    await f.submitManual();
+    expect(calls[0]?.confirmed_hosts).toEqual(["imap.attaquant.net"]);
+    expect(f.step).toBe("done");
+  });
+
+  it("remplacer l'hôte lève l'exigence de confirmation", async () => {
+    const { api, calls } = fakeApi(
+      {
+        imap: { server: hostile, source: "dns_srv", requires_confirmation: true },
+        smtp: found.smtp,
+      },
+      [{ kind: "added", account }],
+    );
+    const f = flow(api);
+    await f.submit();
+    f.imap.host = "imap.example.com";
+    await f.submitManual();
+    expect(calls[0]?.confirmed_hosts).toEqual([]);
+  });
+
+  it("refus côté Rust : retour à la saisie avec l'hôte à confirmer", async () => {
+    const { api } = fakeApi(found, [{ kind: "confirmation_required", host: "imap.example.com" }]);
+    const f = flow(api);
+    await f.submit();
+    expect(f.step).toBe("manual");
+    expect(f.pendingConfirmations).toEqual(["imap.example.com"]);
+  });
+});

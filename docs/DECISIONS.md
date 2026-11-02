@@ -233,7 +233,8 @@ est majoritairement écrit par Claude et relu par le mainteneur.
   exemple). `pnpm -C app e2e` (`app/e2e/run.sh`) exécute donc tauri-driver
   et WebdriverIO dans une image Ubuntu 24.04 (`app/e2e/Dockerfile`), avec
   Xvfb, D-Bus et GNOME Keyring (vrai Secret Service), contre Dovecot et
-  Mailpit sur un réseau Docker isolé, avec des certificats autosignés
+  Mailpit sur un réseau Docker interne (`--internal`, sans accès extérieur ; la
+  compilation se fait avant, dans une étape séparée), avec des certificats autosignés
   générés à chaque exécution.
 - **Conséquences** :
   - Tests d'intégration uniquement sous Linux (les runners Windows

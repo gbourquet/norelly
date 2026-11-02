@@ -61,12 +61,13 @@ impl HttpAutoconfigClient {
         let client = builder
             .https_only(https_only)
             .redirect(Policy::custom(move |attempt| {
-                if attempt.previous().len() >= MAX_REDIRECTS {
-                    attempt.error("trop de redirections")
-                } else if https_only && attempt.url().scheme() != "https" {
-                    attempt.error("redirection hors HTTPS refusée")
-                } else {
-                    attempt.follow()
+                match redirect_decision(
+                    attempt.previous().len(),
+                    attempt.url().scheme(),
+                    https_only,
+                ) {
+                    Ok(()) => attempt.follow(),
+                    Err(reason) => attempt.error(reason),
                 }
             }))
             .referer(false)
@@ -105,6 +106,20 @@ impl HttpAutoconfigClient {
     }
 }
 
+/// Décision sur une redirection : `previous` redirections déjà suivies,
+/// `scheme` de la cible. Refuse au-delà de [`MAX_REDIRECTS`] et, en HTTPS
+/// seul, toute cible non HTTPS (un autoconfig servi en clair est
+/// falsifiable, donc capable de détourner le mot de passe).
+fn redirect_decision(previous: usize, scheme: &str, https_only: bool) -> Result<(), &'static str> {
+    if previous >= MAX_REDIRECTS {
+        Err("trop de redirections")
+    } else if https_only && scheme != "https" {
+        Err("redirection hors HTTPS refusée")
+    } else {
+        Ok(())
+    }
+}
+
 fn request_error(error: reqwest::Error) -> DiscoveryError {
     if error.is_timeout() {
         DiscoveryError::Timeout
@@ -124,5 +139,27 @@ impl AutoconfigClient for HttpAutoconfigClient {
             return Ok(None);
         };
         autoconfig_xml::parse(&body, &request.domain).map(Some)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn redirects_to_plain_http_are_refused() {
+        assert_eq!(redirect_decision(0, "https", true), Ok(()));
+        assert!(redirect_decision(0, "http", true).is_err());
+        assert!(redirect_decision(1, "HTTP", true).is_err());
+        assert!(redirect_decision(0, "ftp", true).is_err());
+        // Client de test (wiremock, HTTP) seulement.
+        assert_eq!(redirect_decision(0, "http", false), Ok(()));
+    }
+
+    #[test]
+    fn redirect_chain_is_bounded() {
+        assert_eq!(redirect_decision(MAX_REDIRECTS - 1, "https", true), Ok(()));
+        assert!(redirect_decision(MAX_REDIRECTS, "https", true).is_err());
+        assert!(redirect_decision(MAX_REDIRECTS, "http", false).is_err());
     }
 }

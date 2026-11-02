@@ -46,6 +46,11 @@ pub async fn discover_settings(
             let _ = on_progress.send(source.into());
         })
         .await;
+    for found in [discovery.imap(), discovery.smtp()].into_iter().flatten() {
+        if found.requires_confirmation {
+            state.remember_unconfirmed(found.candidate.endpoint.host());
+        }
+    }
     Ok(DiscoveryDto::from(&discovery))
 }
 
@@ -102,7 +107,16 @@ pub async fn add_account(
     state: State<'_, AppState>,
     input: AddAccountInput,
 ) -> Result<AddAccountResultDto, IpcError> {
+    let confirmed = input.confirmed_hosts.clone();
     let request = add_request(input)?;
+    if let Some((imap, smtp)) = &request.servers {
+        let hosts = [imap.endpoint.host(), smtp.endpoint.host()];
+        if let Some(host) = state.check_confirmations(&hosts, &confirmed) {
+            return Ok(AddAccountResultDto::ConfirmationRequired {
+                host: host.to_string(),
+            });
+        }
+    }
     let outcome = AddAccount {
         test: &state.test,
         discover: &state.discover,
@@ -167,6 +181,7 @@ mod tests {
             imap: None,
             smtp: None,
             plaintext_consents: vec![],
+            confirmed_hosts: vec![],
         }
     }
 

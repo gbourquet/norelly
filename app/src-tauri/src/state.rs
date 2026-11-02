@@ -106,6 +106,29 @@ pub struct AppState {
     /// ceux-là peuvent faire l'objet d'une exception (l'interface ne peut
     /// pas faire accepter une empreinte arbitraire).
     pending_rejections: Mutex<Vec<CertificateRejection>>,
+    /// Hôtes proposés par la découverte qui exigent une confirmation (SRV
+    /// hors du domaine de l'adresse) : aucune connexion tant que
+    /// l'utilisateur ne les a pas confirmés explicitement.
+    unconfirmed_hosts: Mutex<Vec<String>>,
+}
+
+/// Crée le répertoire de données, accessible au seul utilisateur sous Unix
+/// (la base contient adresses, serveurs et exceptions de certificats).
+fn create_private_dir(dir: &Path) -> std::io::Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
+        std::fs::DirBuilder::new()
+            .recursive(true)
+            .mode(0o700)
+            .create(dir)?;
+        // Répertoire existant créé avec d'autres droits : on les restreint.
+        std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))
+    }
+    #[cfg(not(unix))]
+    {
+        std::fs::create_dir_all(dir)
+    }
 }
 
 /// Nombre maximal de refus mémorisés.
@@ -114,7 +137,7 @@ const MAX_PENDING_REJECTIONS: usize = 16;
 impl AppState {
     /// Assemble l'application à partir du répertoire de données.
     pub fn open(data_dir: &Path) -> Result<Self, String> {
-        std::fs::create_dir_all(data_dir).map_err(|e| format!("{}: {e}", data_dir.display()))?;
+        create_private_dir(data_dir).map_err(|e| format!("{}: {e}", data_dir.display()))?;
         let db = Database::open(&data_dir.join("norelly.sqlite3")).map_err(|e| e.to_string())?;
         let tls = TlsClientFactory::platform();
         let exceptions = SqliteCertificateExceptionStore::new(db.clone());
@@ -142,6 +165,7 @@ impl AppState {
             local_data: FsAccountDataStore::new(data_dir.join("accounts")),
             discover: DiscoverSettings::new(autoconfig, srv, TcpPortProber::default()),
             pending_rejections: Mutex::new(Vec::new()),
+            unconfirmed_hosts: Mutex::new(Vec::new()),
         })
     }
 
@@ -157,6 +181,44 @@ impl AppState {
         pending.drain(..excess);
     }
 
+    /// Mémorise un hôte découvert qui exige une confirmation.
+    pub fn remember_unconfirmed(&self, host: &Host) {
+        let mut hosts = self
+            .unconfirmed_hosts
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let host = host.to_string();
+        if !hosts.contains(&host) {
+            hosts.push(host);
+        }
+        let excess = hosts.len().saturating_sub(MAX_PENDING_REJECTIONS);
+        hosts.drain(..excess);
+    }
+
+    /// Premier hôte de `hosts` qui exige une confirmation absente de
+    /// `confirmed`. Les hôtes confirmés cessent d'exiger une confirmation.
+    pub fn check_confirmations<'h>(
+        &self,
+        hosts: &[&'h Host],
+        confirmed: &[String],
+    ) -> Option<&'h Host> {
+        let mut pending = self
+            .unconfirmed_hosts
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let missing = hosts
+            .iter()
+            .find(|h| {
+                let name = h.to_string();
+                pending.contains(&name) && !confirmed.contains(&name)
+            })
+            .copied();
+        if missing.is_none() {
+            pending.retain(|p| !hosts.iter().any(|h| &h.to_string() == p));
+        }
+        missing
+    }
+
     /// Retire et renvoie le refus correspondant, s'il a bien été présenté.
     pub fn take_rejection(&self, host: &str, fingerprint: &str) -> Option<CertificateRejection> {
         let mut pending = self
@@ -167,5 +229,93 @@ impl AppState {
             .iter()
             .position(|r| r.host.to_string() == host && r.fingerprint.to_string() == fingerprint)?;
         Some(pending.remove(index))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use norelly_domain::security::{CertificateFingerprint, CertificateIssue};
+
+    use super::*;
+
+    fn state() -> AppState {
+        let dir = std::env::temp_dir().join(format!(
+            "norelly-state-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        AppState::open(&dir).unwrap_or_else(|e| panic!("{e}"))
+    }
+
+    fn host(raw: &str) -> Host {
+        Host::parse(raw).unwrap_or_else(|_| panic!("hôte"))
+    }
+
+    fn rejection(h: &str, byte: u8) -> CertificateRejection {
+        CertificateRejection {
+            host: host(h),
+            fingerprint: CertificateFingerprint::from_bytes([byte; 32]),
+            issue: CertificateIssue::UnknownIssuer,
+            fingerprint_changed: false,
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn data_dir_is_private() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("norelly-private-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let _ = std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755));
+        assert!(create_private_dir(&dir).is_ok());
+        let mode = std::fs::metadata(&dir)
+            .map(|m| m.permissions().mode() & 0o777)
+            .unwrap_or(0);
+        assert_eq!(mode, 0o700);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn only_a_presented_rejection_can_be_taken_once() {
+        let s = state();
+        let r = rejection("imap.example.com", 1);
+        let fp = r.fingerprint.to_string();
+        // Empreinte jamais présentée : refusée.
+        assert!(s.take_rejection("imap.example.com", &fp).is_none());
+        s.remember_rejection(r.clone());
+        // Autre hôte ou autre empreinte : refusés.
+        assert!(s.take_rejection("smtp.example.com", &fp).is_none());
+        let other = CertificateFingerprint::from_bytes([2; 32]).to_string();
+        assert!(s.take_rejection("imap.example.com", &other).is_none());
+        // Consommée une seule fois.
+        assert_eq!(s.take_rejection("imap.example.com", &fp), Some(r));
+        assert!(s.take_rejection("imap.example.com", &fp).is_none());
+    }
+
+    #[test]
+    fn pending_rejections_are_bounded() {
+        let s = state();
+        for i in 0..40u8 {
+            s.remember_rejection(rejection("imap.example.com", i));
+        }
+        let oldest = CertificateFingerprint::from_bytes([0; 32]).to_string();
+        let newest = CertificateFingerprint::from_bytes([39; 32]).to_string();
+        assert!(s.take_rejection("imap.example.com", &oldest).is_none());
+        assert!(s.take_rejection("imap.example.com", &newest).is_some());
+    }
+
+    #[test]
+    fn unconfirmed_hosts_block_until_confirmed() {
+        let s = state();
+        let (bad, good) = (host("imap.attaquant.net"), host("smtp.example.com"));
+        assert_eq!(s.check_confirmations(&[&bad, &good], &[]), None);
+        s.remember_unconfirmed(&bad);
+        assert_eq!(s.check_confirmations(&[&good, &bad], &[]), Some(&bad));
+        let wrong = vec!["autre.net".to_owned()];
+        assert_eq!(s.check_confirmations(&[&bad], &wrong), Some(&bad));
+        let confirmed = vec!["imap.attaquant.net".to_owned()];
+        assert_eq!(s.check_confirmations(&[&bad, &good], &confirmed), None);
+        // Confirmé une fois : n'exige plus de confirmation.
+        assert_eq!(s.check_confirmations(&[&bad], &[]), None);
     }
 }

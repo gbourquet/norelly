@@ -283,4 +283,55 @@ describe("lecture", () => {
     );
     expect(await screen.findByText("Déplacé vers « Projets ».")).toBeInTheDocument();
   });
+
+  it("actions à la souris : barre d'outils, boutons de ligne, menu contextuel", async () => {
+    render(App);
+    const list = await screen.findByRole("listbox", { name: "Conversations" });
+    await within(list).findByText("Sujet 1");
+
+    // Bouton de ligne : vise cette ligne, sans ouvrir la conversation.
+    const row3 = within(list).getByText("Sujet 3").closest("[role=option]") as HTMLElement;
+    // Visibles au survol seulement (souris) : hors de l'arbre accessible.
+    await fireEvent.click(
+      await within(row3).findByRole("button", { name: "Archiver", hidden: true }),
+    );
+    await waitFor(() =>
+      expect(api.performAction).toHaveBeenLastCalledWith([3], expect.anything(), {
+        kind: "archive",
+      }),
+    );
+    expect(screen.queryByRole("article", { name: "Conversation" })).toBeNull();
+    // Bascule selon l'état : la conversation 1 est non lue.
+    const row1 = within(list).getByText("Sujet 1").closest("[role=option]") as HTMLElement;
+    expect(
+      within(row1).getByRole("button", { name: "Marquer comme lu", hidden: true }),
+    ).toBeInTheDocument();
+
+    // Menu contextuel : clic droit sur une ligne.
+    const row2 = within(list).getByText("Sujet 2").closest("[role=option]") as HTMLElement;
+    await fireEvent.contextMenu(row2);
+    const menu = await screen.findByRole("menu", { name: "Actions sur la conversation" });
+    expect(within(menu).getByText("Ouvrir la conversation")).toBeInTheDocument();
+    expect(within(menu).getByText("Déplacer vers…")).toBeInTheDocument();
+    await fireEvent.click(within(menu).getByText("Supprimer"));
+    await waitFor(() =>
+      expect(api.performAction).toHaveBeenLastCalledWith([2], expect.anything(), {
+        kind: "delete",
+      }),
+    );
+
+    // Barre d'outils de la vue de lecture.
+    await fireEvent.click(within(row1).getByText("Sujet 1"));
+    const reader = await screen.findByRole("article", { name: "Conversation" });
+    const toolbar = within(reader).getByRole("toolbar", { name: "Actions sur la conversation" });
+    const flag = within(toolbar).getByRole("button", { name: "Suivre (ou ne plus suivre)" });
+    expect(flag).toHaveAttribute("title", "Suivre (ou ne plus suivre) (S)");
+    await fireEvent.click(flag);
+    await waitFor(() =>
+      expect(api.performAction).toHaveBeenLastCalledWith([1], expect.anything(), {
+        kind: "mark_flagged",
+        value: true,
+      }),
+    );
+  });
 });

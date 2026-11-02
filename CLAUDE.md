@@ -70,6 +70,24 @@ Un hook PostToolUse formate et lint automatiquement chaque fichier modifié.
   `scripts/check.sh` ou `deny.toml`. Un blocage se documente dans
   `PLAN.md`, puis on s'arrête.
 
+## Méthode de développement : TDD obligatoire
+Tout développement, quel qu'il soit, suit le cycle rouge → vert → refactor :
+1. ROUGE : écris d'abord le ou les tests décrivant le comportement attendu.
+   Lance-les et montre-moi qu'ils échouent, pour la bonne raison (une
+   assertion qui échoue, pas une erreur de compilation ou d'import).
+2. VERT : écris le code minimal pour les faire passer. Relance les tests.
+3. REFACTOR : nettoie le code, les tests doivent rester verts.
+Règles :
+- Interdit d'écrire du code de production sans test rouge préalable
+- Un test qui passe dès sa première exécution est suspect : vérifie qu'il
+  teste vraiment quelque chose avant de continuer
+- Correction de bug = d'abord un test qui reproduit le bug
+- Périmètre : TDD strict pour toute la logique (protocoles IMAP/SMTP, parsing
+  MIME, synchronisation, stockage, recherche, état de l'UI). Le rendu visuel
+  pur est couvert par des tests e2e écrits après coup
+- Tests d'intégration réseau contre le serveur IMAP/SMTP de test en conteneur,
+  jamais contre un vrai serveur
+
 ## Fin de phase
 Lancer le sous-agent `security-reviewer`, consigner son rapport dans
 `docs/REVIEWS.md` et corriger les constats critiques et hauts. Ensuite :

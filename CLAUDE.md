@@ -35,6 +35,7 @@ avant d'être implémentée.
 | Tests end-to-end (Docker) | `pnpm -C app e2e` |
 | Bench liste 50k (seuil 50 ms) | `cargo bench -p norelly-sqlite -- --test` |
 | Régénérer les bindings IPC | `./scripts/gen-bindings.sh` |
+| Recompiler les catalogues i18n | `pnpm -C app i18n` (fait aussi par `check`, `lint` et Vite) |
 | Lint | `cargo clippy --workspace --all-targets -- -D warnings`, `pnpm -C app lint`, `pnpm -C app check` |
 | Format | `cargo fmt --all`, `pnpm -C app format` |
 
@@ -53,6 +54,9 @@ Un hook PostToolUse formate et lint automatiquement chaque fichier modifié.
 - Pas d'`unwrap`/`expect` sur des données externes. Pas d'`unsafe`
   (interdit dans tout le workspace).
 - Svelte 5 uniquement (runes) ; jamais de `{@html}` ni d'`innerHTML`.
+- i18n (ADR-011) : toute chaîne d'interface est une clé de
+  `app/messages/{fr,en}.json` (mêmes clés, testé) ; Rust n'envoie aucun
+  texte destiné à l'utilisateur, seulement des codes et un `detail` brut.
 - Tests d'intégration dans des fichiers `tests/integration*.rs`.
 - Contrat IPC : types dans `app/src-tauri/src/ipc.rs`, bindings TS générés
   et commités (`app/src/lib/ipc/bindings.ts`) ; toute entrée de l'interface

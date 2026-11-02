@@ -93,8 +93,18 @@ fn fixture() -> Fixture {
             panic!("boîtes absentes");
         };
         let started = Instant::now();
-        fill(&store, inbox.id, synthetic_messages(INBOX_SIZE, 1_600_000_000, 1)).await;
-        fill(&store, other.id, synthetic_messages(OTHER_SIZE, 1_500_000_000, 2)).await;
+        fill(
+            &store,
+            inbox.id,
+            synthetic_messages(INBOX_SIZE, 1_600_000_000, 1),
+        )
+        .await;
+        fill(
+            &store,
+            other.id,
+            synthetic_messages(OTHER_SIZE, 1_500_000_000, 2),
+        )
+        .await;
         eprintln!(
             "boîte synthétique : {} messages insérés en {:?}",
             INBOX_SIZE + OTHER_SIZE,
@@ -141,9 +151,17 @@ fn check_thresholds(f: &Fixture) {
         flip = !flip;
         page(f, if flip { f.other } else { f.inbox });
     });
-    eprintln!("première page : {first:?} ; changement de dossier : {switch:?} (seuil {THRESHOLD:?})");
-    assert!(first < THRESHOLD, "première page en {first:?} (> {THRESHOLD:?})");
-    assert!(switch < THRESHOLD, "changement de dossier en {switch:?} (> {THRESHOLD:?})");
+    eprintln!(
+        "première page : {first:?} ; changement de dossier : {switch:?} (seuil {THRESHOLD:?})"
+    );
+    assert!(
+        first < THRESHOLD,
+        "première page en {first:?} (> {THRESHOLD:?})"
+    );
+    assert!(
+        switch < THRESHOLD,
+        "changement de dossier en {switch:?} (> {THRESHOLD:?})"
+    );
 }
 
 fn bench(c: &mut Criterion) {
@@ -160,10 +178,9 @@ fn bench(c: &mut Criterion) {
         });
     });
     c.bench_function("page suivante (curseur)", |b| {
-        let first = f
-            .rt
-            .block_on(f.store.page(f.inbox, None, PAGE))
-            .unwrap_or_else(|e| panic!("{e}"));
+        let first =
+            f.rt.block_on(f.store.page(f.inbox, None, PAGE))
+                .unwrap_or_else(|e| panic!("{e}"));
         b.iter(|| {
             f.rt.block_on(f.store.page(f.inbox, first.next, PAGE))
                 .unwrap_or_else(|e| panic!("{e}"))

@@ -52,6 +52,7 @@ rcgen = { version = "0.14", default-features = false, features = ["crypto", "rin
 imap-next = { version = "0.3.4", default-features = false, features = ["starttls", "ext_condstore_qresync"] }
 # Sans backend TLS : la négociation TLS est faite par norelly-tls, le flux
 # chiffré est confié à lettre (voir ADR-002 et crates/adapters/smtp).
+mail-parser = "0.11"
 lettre = { version = "0.11.23", default-features = false, features = ["smtp-transport", "tokio1"] }
 # Trousseau : keyring-core et magasins natifs choisis explicitement (le
 # crate `keyring` 4 impose zbus 5, dont des dépendances sont signalées non
@@ -62,9 +63,13 @@ reqwest = { version = "0.13.5", default-features = false, features = ["rustls-no
 quick-xml = "0.42"
 hickory-resolver = { version = "0.26.3", default-features = false, features = ["tokio", "system-config"] }
 wiremock = "0.6.5"
+proptest = { version = "1.7", default-features = false, features = ["std"] }
 # Stockage (ADR-003) : SQLite embarqué ; rusqlite aligné sur rusqlite_migration.
 rusqlite = { version = "0.40", features = ["bundled"] }
 rusqlite_migration = "2.6"
+# Messages bruts compressés (.eml.zst, ADR-003).
+zstd = "0.13"
+criterion = { version = "0.7", default-features = false, features = ["cargo_bench_support"] }
 keyring-core = "1"
 dbus-secret-service-keyring-store = { version = "1", features = ["crypto-rust"] }
 windows-native-keyring-store = "1"

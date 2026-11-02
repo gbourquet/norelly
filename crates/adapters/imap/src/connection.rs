@@ -34,8 +34,13 @@ pub(crate) const MAX_RESPONSE_SIZE: u32 = 64 * 1024 * 1024;
 /// Taille maximale d'une réponse avant TLS (salutation, CAPABILITY,
 /// STARTTLS) : rien de légitime n'y dépasse quelques Kio.
 pub(crate) const PRE_TLS_MAX_RESPONSE_SIZE: u32 = 64 * 1024;
-/// Nombre maximal de réponses non étiquetées conservées pour une commande.
+/// Nombre maximal de réponses non étiquetées conservées pour une commande
+/// ordinaire.
 const MAX_UNTAGGED_PER_COMMAND: usize = 10_000;
+/// Nombre maximal de réponses de données pour une commande de
+/// synchronisation (`FETCH 1:*`, `SEARCH`, `LIST`) : une boîte de
+/// plusieurs centaines de milliers de messages reste possible.
+pub(crate) const MAX_SYNC_DATA: usize = 2_000_000;
 
 /// Flux sous-jacent.
 #[derive(Debug)]
@@ -74,6 +79,8 @@ impl Transport {
 /// Réponse complète à une commande.
 pub(crate) struct Reply {
     pub data: Vec<Data<'static>>,
+    /// Réponses d'état non étiquetées (`* OK [UIDVALIDITY …]`…).
+    pub untagged: Vec<StatusBody<'static>>,
     pub status: StatusBody<'static>,
 }
 
@@ -89,6 +96,8 @@ pub(crate) struct Connection {
     max_response_size: u32,
     timeout: Duration,
     next_tag: u32,
+    /// Réponses de données acceptées par commande.
+    max_untagged: usize,
 }
 
 impl fmt::Debug for Connection {
@@ -143,7 +152,126 @@ impl Connection {
             max_response_size,
             timeout,
             next_tag: 0,
+            max_untagged: MAX_UNTAGGED_PER_COMMAND,
         }
+    }
+
+    /// Exécute une commande dont la réponse peut compter beaucoup de
+    /// données (jusqu'à [`MAX_SYNC_DATA`]).
+    pub(crate) async fn execute_bulk(
+        &mut self,
+        body: CommandBody<'static>,
+    ) -> Result<Reply, ConnectionError> {
+        self.max_untagged = MAX_SYNC_DATA;
+        let result = self.execute(body, false).await;
+        self.max_untagged = MAX_UNTAGGED_PER_COMMAND;
+        result
+    }
+
+    /// `IDLE` jusqu'à une donnée non sollicitée signalant un changement
+    /// (`EXISTS`, `EXPUNGE`, `FETCH`, `VANISHED`) ou jusqu'à `max`, puis
+    /// `DONE`. Renvoie `true` si un changement a été signalé.
+    pub(crate) async fn idle(&mut self, max: Duration) -> Result<bool, ConnectionError> {
+        let tag = self.tag()?;
+        let command = Command::new(tag.clone(), CommandBody::Idle)
+            .map_err(|_| protocol("commande invalide"))?;
+        self.client.enqueue_command(command);
+        // Acceptation (continuation `+`).
+        loop {
+            match self.next_event().await? {
+                Event::IdleCommandSent { .. } | Event::DataReceived { .. } => {}
+                Event::StatusReceived {
+                    status: Status::Untagged(_),
+                } => {}
+                Event::IdleAccepted { .. } => break,
+                Event::IdleRejected { status, .. } => {
+                    return Err(ConnectionError::Protocol(format!(
+                        "IDLE refusé : {}",
+                        status_text(&status)
+                    )));
+                }
+                Event::StatusReceived {
+                    status: Status::Bye(_),
+                } => return Err(ConnectionError::Closed),
+                other => {
+                    return Err(ConnectionError::Protocol(format!(
+                        "événement inattendu avant IDLE : {}",
+                        event_name(&other)
+                    )));
+                }
+            }
+        }
+        // Attente : le délai de lecture devient la durée restante.
+        let deadline = tokio::time::Instant::now() + max;
+        let normal_timeout = self.timeout;
+        let mut changed = false;
+        while !changed {
+            let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+            if remaining.is_zero() {
+                break;
+            }
+            self.timeout = remaining;
+            let event = self.next_event().await;
+            self.timeout = normal_timeout;
+            match event {
+                Err(ConnectionError::Timeout(TimeoutStage::Response)) => break,
+                Err(e) => return Err(e),
+                Ok(Event::DataReceived { data }) => {
+                    changed = matches!(
+                        data,
+                        Data::Exists(_)
+                            | Data::Expunge(_)
+                            | Data::Fetch { .. }
+                            | Data::Vanished { .. }
+                    );
+                }
+                Ok(Event::StatusReceived {
+                    status: Status::Bye(_),
+                }) => return Err(ConnectionError::Closed),
+                Ok(Event::StatusReceived { .. }) => {}
+                Ok(other) => {
+                    return Err(ConnectionError::Protocol(format!(
+                        "événement inattendu pendant IDLE : {}",
+                        event_name(&other)
+                    )));
+                }
+            }
+        }
+        if self.client.set_idle_done().is_none() {
+            return Err(protocol("sortie d'IDLE impossible"));
+        }
+        loop {
+            match self.next_event().await? {
+                Event::IdleDoneSent { .. } | Event::DataReceived { .. } => {}
+                Event::StatusReceived { status } => match status {
+                    Status::Tagged(tagged) if tagged.tag == tag => {
+                        ensure_ok(&tagged.body)?;
+                        return Ok(changed);
+                    }
+                    Status::Tagged(_) => return Err(protocol("réponse étiquetée inattendue")),
+                    Status::Untagged(_) => {}
+                    Status::Bye(_) => return Err(ConnectionError::Closed),
+                },
+                other => {
+                    return Err(ConnectionError::Protocol(format!(
+                        "événement inattendu après IDLE : {}",
+                        event_name(&other)
+                    )));
+                }
+            }
+        }
+    }
+
+    /// Relève la taille maximale des réponses (canal en clair consenti,
+    /// une fois authentifié : il transporte alors des messages).
+    pub(crate) fn raise_response_limit(&mut self) {
+        self.max_response_size = MAX_RESPONSE_SIZE;
+        let mut options = Options::default();
+        options.max_response_size = MAX_RESPONSE_SIZE;
+        options.discard_greeting = true;
+        // La machine d'états n'a pas d'accesseur pour ses options : elle
+        // est recréée entre deux commandes (aucun état en cours).
+        self.client = Client::new(options);
     }
 
     /// Extrait le flux TCP en clair (avant STARTTLS). Refuse s'il reste des
@@ -247,11 +375,12 @@ impl Connection {
         let command = Command::new(tag.clone(), body).map_err(|_| protocol("commande invalide"))?;
         self.client.enqueue_command(command);
         let mut data = Vec::new();
+        let mut untagged = Vec::new();
         loop {
             match self.next_event().await? {
                 Event::CommandSent { .. } => {}
                 Event::DataReceived { data: d } => {
-                    if data.len() >= MAX_UNTAGGED_PER_COMMAND {
+                    if data.len() >= self.max_untagged {
                         return Err(protocol("trop de réponses non étiquetées"));
                     }
                     data.push(d);
@@ -260,11 +389,17 @@ impl Connection {
                     Status::Tagged(tagged) if tagged.tag == tag => {
                         return Ok(Reply {
                             data,
+                            untagged,
                             status: tagged.body,
                         });
                     }
                     Status::Tagged(_) => return Err(protocol("réponse étiquetée inattendue")),
-                    Status::Untagged(_) => {}
+                    Status::Untagged(body) => {
+                        if untagged.len() >= MAX_UNTAGGED_PER_COMMAND {
+                            return Err(protocol("trop de réponses non étiquetées"));
+                        }
+                        untagged.push(body);
+                    }
                     Status::Bye(_) if allow_bye => {}
                     Status::Bye(_) => return Err(ConnectionError::Closed),
                 },
@@ -433,7 +568,7 @@ fn status_text(status: &Status<'_>) -> String {
     server_text(text.as_bytes())
 }
 
-fn ensure_ok(status: &StatusBody<'_>) -> Result<(), ConnectionError> {
+pub(crate) fn ensure_ok(status: &StatusBody<'_>) -> Result<(), ConnectionError> {
     if status.kind == StatusKind::Ok {
         Ok(())
     } else {

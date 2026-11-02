@@ -1,8 +1,10 @@
 //! Faux adaptateurs pour les tests des cas d'usage : connexions IMAP/SMTP,
 //! autoconfig, résolveur SRV simulé, sondeur de ports.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
+use std::future::Future;
 use std::sync::{Arc, Mutex, PoisonError};
+use std::time::Duration;
 
 use norelly_domain::capabilities::ServerCapabilities;
 use norelly_domain::connection::ConnectionError;
@@ -10,10 +12,18 @@ use norelly_domain::discovery::{
     AutoconfigRequest, DiscoveredServers, ServerCandidate, SrvRecord, SrvService,
 };
 use norelly_domain::endpoint::{Host, Protocol, ServerEndpoint};
+use norelly_domain::fetch_policy::BodyFetch;
+use norelly_domain::mailbox::{ListedMailbox, MailboxName, MessageMeta, Uid};
 use norelly_domain::ports::{
-    AutoconfigClient, ConnectRequest, DiscoveryError, MailSender, OutgoingMessage, PortProber,
-    RemoteMailboxConnector, RemoteMailboxSession, SendError, SrvResolver,
+    AutoconfigClient, ConnectRequest, DiscoveryError, FetchedBody, IdleOutcome, MailSender,
+    OutgoingMessage, PortProber, RemoteMailboxConnector, RemoteMailboxSession, SendError,
+    SrvResolver,
 };
+use norelly_domain::sync::{
+    FlagUpdate, SelectRequest, SelectedMailbox, ServerQuery, SyncExtensions,
+};
+
+use crate::fake_imap::{FakeImap, FakeImapSession};
 
 fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     m.lock().unwrap_or_else(PoisonError::into_inner)
@@ -25,9 +35,25 @@ fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 pub struct FakeMailServers {
     results: Arc<Mutex<BTreeMap<String, Result<ServerCapabilities, ConnectionError>>>>,
     seen: Arc<Mutex<Vec<(Protocol, ConnectRequest)>>>,
+    imap: FakeImap,
 }
 
 impl FakeMailServers {
+    /// Faux serveur IMAP derrière les sessions ouvertes.
+    #[must_use]
+    pub fn imap(&self) -> &FakeImap {
+        &self.imap
+    }
+
+    /// Faux serveurs dont les sessions IMAP s'appuient sur `imap`.
+    #[must_use]
+    pub fn with_imap(imap: FakeImap) -> Self {
+        Self {
+            imap,
+            ..Self::default()
+        }
+    }
+
     /// Fixe le résultat des connexions vers `endpoint`.
     pub fn set(
         &self,
@@ -58,23 +84,106 @@ impl FakeMailServers {
     }
 }
 
-/// Session IMAP factice.
+/// Session IMAP factice : capacités fixées par [`FakeMailServers::set`]
+/// (celles du faux serveur par défaut), opérations sur [`FakeImap`].
 #[derive(Debug)]
-pub struct FakeSession(ServerCapabilities);
+pub struct FakeSession {
+    capabilities: ServerCapabilities,
+    inner: FakeImapSession,
+    logout_error: Option<ConnectionError>,
+}
+
+impl FakeSession {
+    /// Session sur `imap` avec des capacités imposées ; `logout_error` :
+    /// erreur renvoyée par `logout`.
+    pub fn new(
+        capabilities: ServerCapabilities,
+        imap: &FakeImap,
+        logout_error: Option<ConnectionError>,
+    ) -> Result<Self, ConnectionError> {
+        Ok(Self {
+            capabilities,
+            inner: imap.session()?,
+            logout_error,
+        })
+    }
+}
 
 impl RemoteMailboxSession for FakeSession {
     fn capabilities(&self) -> &ServerCapabilities {
-        &self.0
+        &self.capabilities
+    }
+    fn enable_sync_extensions(
+        &mut self,
+    ) -> impl Future<Output = Result<SyncExtensions, ConnectionError>> + Send {
+        self.inner.enable_sync_extensions()
+    }
+    fn list_mailboxes(
+        &mut self,
+    ) -> impl Future<Output = Result<Vec<ListedMailbox>, ConnectionError>> + Send {
+        self.inner.list_mailboxes()
+    }
+    fn select(
+        &mut self,
+        mailbox: &MailboxName,
+        request: &SelectRequest,
+    ) -> impl Future<Output = Result<SelectedMailbox, ConnectionError>> + Send {
+        self.inner.select(mailbox, request)
+    }
+    fn fetch_flags(
+        &mut self,
+        query: ServerQuery,
+    ) -> impl Future<Output = Result<Vec<FlagUpdate>, ConnectionError>> + Send {
+        self.inner.fetch_flags(query)
+    }
+    fn search_all_uids(
+        &mut self,
+    ) -> impl Future<Output = Result<BTreeSet<Uid>, ConnectionError>> + Send {
+        self.inner.search_all_uids()
+    }
+    fn fetch_meta(
+        &mut self,
+        uids: &[Uid],
+    ) -> impl Future<Output = Result<Vec<MessageMeta>, ConnectionError>> + Send {
+        self.inner.fetch_meta(uids)
+    }
+    fn fetch_body(
+        &mut self,
+        uid: Uid,
+        fetch: &BodyFetch,
+    ) -> impl Future<Output = Result<Option<FetchedBody>, ConnectionError>> + Send {
+        self.inner.fetch_body(uid, fetch)
+    }
+    fn idle(
+        &mut self,
+        max: Duration,
+    ) -> impl Future<Output = Result<IdleOutcome, ConnectionError>> + Send {
+        self.inner.idle(max)
     }
     async fn logout(self) -> Result<(), ConnectionError> {
-        Ok(())
+        if let Some(e) = self.logout_error {
+            return Err(e);
+        }
+        self.inner.logout().await
     }
 }
 
 impl RemoteMailboxConnector for FakeMailServers {
     type Session = FakeSession;
     async fn connect(&self, request: &ConnectRequest) -> Result<FakeSession, ConnectionError> {
-        self.answer(Protocol::Imap, request).map(FakeSession)
+        let fixed = lock(&self.results).contains_key(&request.endpoint.to_string());
+        let capabilities = self.answer(Protocol::Imap, request)?;
+        let inner = self.imap.session()?;
+        let capabilities = if fixed {
+            capabilities
+        } else {
+            self.imap.capabilities()
+        };
+        Ok(FakeSession {
+            capabilities,
+            inner,
+            logout_error: None,
+        })
     }
 }
 

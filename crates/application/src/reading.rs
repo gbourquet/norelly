@@ -7,12 +7,14 @@
 //! - [`DownloadPart`] : télécharge une partie différée (pièce jointe
 //!   volumineuse) par la connexion IMAP du compte, puis l'enregistre.
 
-use norelly_domain::fetch_policy::{BodyFetch, PartPath};
+use norelly_domain::fetch_policy::{BodyFetch, FetchPolicy, PartPath};
 use norelly_domain::ports::{
     BlobStore, FetchedBody, MailStore, MessageId, MessageLocation, MessageLocator,
     ReadingPreferences, RemoteBodyFetcher, StoreError, StoredBody,
 };
 use norelly_domain::reading::{RemoteContent, remote_content, sender_address};
+
+use crate::sync::store_fetched;
 
 /// Échec d'un cas d'usage de lecture.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -194,6 +196,54 @@ where
             .set_body(location.mailbox, location.uid, &body)
             .await?;
         Ok(())
+    }
+}
+
+/// Cas d'usage : télécharger le corps d'un message qui n'en a pas encore
+/// (ouverture avant que la synchronisation ne l'ait rapatrié), selon la
+/// politique de rapatriement.
+#[derive(Debug)]
+pub struct DownloadBody<'a, L, B, M, F> {
+    pub locator: &'a L,
+    pub blobs: &'a B,
+    pub store: &'a M,
+    pub fetcher: &'a F,
+    pub policy: FetchPolicy,
+}
+
+impl<L, B, M, F> DownloadBody<'_, L, B, M, F>
+where
+    L: MessageLocator,
+    B: BlobStore,
+    M: MailStore,
+    F: RemoteBodyFetcher,
+{
+    /// Télécharge le corps s'il manque ; renvoie vrai si un corps a été
+    /// enregistré.
+    pub async fn execute(&self, id: MessageId) -> Result<bool, ReadError> {
+        let location = self.locator.locate(id).await?.ok_or(ReadError::NotFound)?;
+        if location.body != StoredBody::Missing {
+            return Ok(false);
+        }
+        let fetch = self
+            .policy
+            .decide(location.size, location.structure.as_ref());
+        let fetched = self
+            .fetcher
+            .fetch(
+                location.account,
+                &location.mailbox_name,
+                location.uid,
+                &fetch,
+            )
+            .await
+            .map_err(|e| ReadError::Download(e.to_string()))?
+            .ok_or_else(|| ReadError::Download("message disparu du serveur".into()))?;
+        let body = store_fetched(self.blobs, location.account, fetched, fetch).await?;
+        self.store
+            .set_body(location.mailbox, location.uid, &body)
+            .await?;
+        Ok(true)
     }
 }
 

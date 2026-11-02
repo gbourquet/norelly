@@ -295,27 +295,7 @@ impl<M: MailStore, B: BlobStore> SyncAccount<'_, M, B> {
                     Err(e) => return Err(e.into()),
                     Ok(Some(body)) => body,
                 };
-                let body = match body {
-                    FetchedBody::Full(raw) => {
-                        StoredBody::Full(self.blobs.put(self.account, raw).await?)
-                    }
-                    FetchedBody::Partial { header, parts } => {
-                        let header = self.blobs.put(self.account, header).await?;
-                        let mut stored = Vec::with_capacity(parts.len());
-                        for (path, bytes) in parts {
-                            stored.push((path, self.blobs.put(self.account, bytes).await?));
-                        }
-                        let deferred = match fetch {
-                            BodyFetch::Partial { deferred, .. } => deferred,
-                            BodyFetch::Full => Vec::new(),
-                        };
-                        StoredBody::Partial {
-                            header,
-                            parts: stored,
-                            deferred,
-                        }
-                    }
-                };
+                let body = store_fetched(self.blobs, self.account, body, fetch).await?;
                 self.store.set_body(mailbox, uid, &body).await?;
                 done += 1;
                 progressed = true;
@@ -327,6 +307,35 @@ impl<M: MailStore, B: BlobStore> SyncAccount<'_, M, B> {
             }
         }
     }
+}
+
+/// Enregistre un corps téléchargé dans les blobs ; renvoie sa forme
+/// stockée (parties différées reprises de la demande).
+pub async fn store_fetched<B: BlobStore>(
+    blobs: &B,
+    account: AccountId,
+    body: FetchedBody,
+    fetch: BodyFetch,
+) -> Result<StoredBody, StoreError> {
+    Ok(match body {
+        FetchedBody::Full(raw) => StoredBody::Full(blobs.put(account, raw).await?),
+        FetchedBody::Partial { header, parts } => {
+            let header = blobs.put(account, header).await?;
+            let mut stored = Vec::with_capacity(parts.len());
+            for (path, bytes) in parts {
+                stored.push((path, blobs.put(account, bytes).await?));
+            }
+            let deferred = match fetch {
+                BodyFetch::Partial { deferred, .. } => deferred,
+                BodyFetch::Full => Vec::new(),
+            };
+            StoredBody::Partial {
+                header,
+                parts: stored,
+                deferred,
+            }
+        }
+    })
 }
 
 #[cfg(test)]

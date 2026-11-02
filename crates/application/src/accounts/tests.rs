@@ -548,3 +548,39 @@ async fn trusting_a_changed_fingerprint_replaces_the_old_one() {
         }])
     );
 }
+
+#[tokio::test]
+async fn connect_request_uses_keyring_exceptions_and_plaintext_consent() {
+    let account = sample_account("alice@example.com", true)
+        .with_id(AccountId::new(3).unwrap_or_else(|_| panic!("id")));
+    let keyring = Keyring::default();
+    let exceptions = InMemoryCertificateExceptionStore::default();
+    assert_eq!(
+        connect_request(&account, Protocol::Imap, &keyring, &exceptions)
+            .await
+            .map(|_| ()),
+        Err(ConnectRequestError::MissingSecret)
+    );
+    keyring
+        .set(
+            &account.secret_key(Protocol::Imap),
+            &Secret::new("mdp".into()),
+        )
+        .await
+        .unwrap_or_else(|e| panic!("{e}"));
+    let exception = CertificateException {
+        host: account.imap().endpoint.host().clone(),
+        fingerprint: CertificateFingerprint::from_bytes([7; 32]),
+    };
+    exceptions
+        .add(&exception)
+        .await
+        .unwrap_or_else(|e| panic!("{e}"));
+    let request = connect_request(&account, Protocol::Imap, &keyring, &exceptions)
+        .await
+        .unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(request.endpoint, account.imap().endpoint);
+    assert_eq!(request.credentials.secret().expose(), "mdp");
+    assert_eq!(request.certificate_exceptions, [exception]);
+    assert_eq!(request.plaintext, account.plaintext_policy());
+}

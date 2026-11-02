@@ -31,7 +31,7 @@ impl RemoteBodyFetcher for FakeFetcher {
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .push((mailbox.clone(), uid, fetch.clone()));
         let BodyFetch::Partial { parts, .. } = fetch else {
-            return Ok(None);
+            return Ok(Some(FetchedBody::Full(self.entity.clone())));
         };
         Ok(Some(FetchedBody::Partial {
             header: b"Subject: x\r\n\r\n".to_vec(),
@@ -213,5 +213,29 @@ async fn deferred_part_is_downloaded_once_and_stored() -> Result<(), ReadError> 
         download.execute(id, &path("9")).await,
         Err(ReadError::PartNotFound)
     );
+    Ok(())
+}
+
+#[tokio::test]
+async fn missing_body_is_downloaded_on_open() -> Result<(), ReadError> {
+    let (store, blobs) = (InMemoryMailStore::default(), InMemoryBlobStore::default());
+    let id = setup(&store, &blobs, |_| StoredBody::Missing).await?;
+    let fetcher = FakeFetcher {
+        entity: b"Subject: x\r\n\r\ncorps".to_vec(),
+        ..FakeFetcher::default()
+    };
+    let download = DownloadBody {
+        locator: &store,
+        blobs: &blobs,
+        store: &store,
+        fetcher: &fetcher,
+        policy: FetchPolicy::default(),
+    };
+    assert!(download.execute(id).await?);
+    let location = store.locate(id).await?.ok_or(ReadError::NotFound)?;
+    assert!(matches!(location.body, StoredBody::Full(_)));
+    // Déjà présent : rien à faire.
+    assert!(!download.execute(id).await?);
+    assert_eq!(fetcher.calls.lock().map(|c| c.len()).unwrap_or(0), 1);
     Ok(())
 }

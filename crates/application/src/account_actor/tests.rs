@@ -240,7 +240,8 @@ Content-Type: text/plain\r\n\r\ntexte\r\n--b\r\nContent-Type: application/pdf\r\
         .unwrap_or_else(|| panic!("uid"));
     let mut r = start(&imap);
     wait_for(&mut r.events, WAIT, online).await;
-    let two = norelly_domain::fetch_policy::PartPath::parse("2").unwrap_or_else(|| panic!("chemin"));
+    let two =
+        norelly_domain::fetch_policy::PartPath::parse("2").unwrap_or_else(|| panic!("chemin"));
     let fetched = tokio::time::timeout(
         WAIT,
         r.handle.fetch_body(

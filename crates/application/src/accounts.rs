@@ -1,5 +1,6 @@
 //! Cas d'usage des comptes : `AddAccount`, `RemoveAccount` et
-//! `TrustCertificate`.
+//! `TrustCertificate`, et paramètres de connexion d'un compte enregistré
+//! ([`connect_request`]).
 //!
 //! `AddAccount` : découverte (si les serveurs ne sont pas fournis), test
 //! des connexions IMAP et SMTP, persistance du compte, puis enregistrement
@@ -15,8 +16,8 @@ use norelly_domain::discovery::Discovery;
 use norelly_domain::endpoint::{Protocol, ServerEndpoint};
 use norelly_domain::ports::{
     AccountDataStore, AccountRepository, AccountStoreError, AutoconfigClient,
-    CertificateExceptionStore, MailSender, PortProber, RemoteMailboxConnector, SecretStore,
-    SrvResolver,
+    CertificateExceptionStore, ConnectRequest, MailSender, PortProber, RemoteMailboxConnector,
+    SecretStore, SrvResolver,
 };
 use norelly_domain::security::{CertificateException, CertificateRejection, PlaintextPolicy};
 
@@ -271,6 +272,48 @@ pub async fn trust_certificate<E: CertificateExceptionStore>(
         })
         .await
         .map_err(|e| TrustCertificateError::Storage(e.to_string()))
+}
+
+/// Accès impossible aux paramètres de connexion d'un compte.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum ConnectRequestError {
+    #[error("mot de passe absent du trousseau")]
+    MissingSecret,
+    #[error("trousseau : {0}")]
+    Secrets(String),
+    #[error("identifiants invalides : {0}")]
+    Credentials(String),
+    #[error("stockage : {0}")]
+    Storage(String),
+}
+
+/// Requête de connexion d'un compte enregistré pour `protocol` : serveur,
+/// identifiant et secret du trousseau, exceptions de certificats de
+/// l'hôte, consentement au clair du compte.
+pub async fn connect_request<K: SecretStore, E: CertificateExceptionStore>(
+    account: &Account,
+    protocol: Protocol,
+    secrets: &K,
+    exceptions: &E,
+) -> Result<ConnectRequest, ConnectRequestError> {
+    let server = account.server(protocol);
+    let secret = secrets
+        .get(&account.secret_key(protocol))
+        .await
+        .map_err(|e| ConnectRequestError::Secrets(e.to_string()))?
+        .ok_or(ConnectRequestError::MissingSecret)?;
+    let credentials = Credentials::new(server.username.clone(), secret)
+        .map_err(|e| ConnectRequestError::Credentials(e.to_string()))?;
+    let certificate_exceptions = exceptions
+        .exceptions_for(server.endpoint.host())
+        .await
+        .map_err(|e| ConnectRequestError::Storage(e.to_string()))?;
+    Ok(ConnectRequest {
+        endpoint: server.endpoint.clone(),
+        credentials,
+        certificate_exceptions,
+        plaintext: account.plaintext_policy(),
+    })
 }
 
 #[cfg(test)]

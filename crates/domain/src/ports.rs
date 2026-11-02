@@ -822,6 +822,8 @@ pub struct MessageLocation {
     pub mailbox_name: MailboxName,
     pub uid: Uid,
     pub from: Option<Correspondent>,
+    /// `RFC822.SIZE`, en octets.
+    pub size: u32,
     /// Structure annoncée par le serveur (parties différées).
     pub structure: Option<MimePart>,
     pub body: StoredBody,

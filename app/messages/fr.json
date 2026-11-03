@@ -241,5 +241,14 @@
   "cmd_archive_folder_keywords": "archive repli réglage",
   "list_row_actions": "Actions sur la conversation",
   "list_context_menu": "Actions sur la conversation",
-  "conversation_toolbar": "Actions sur la conversation"
+  "conversation_toolbar": "Actions sur la conversation",
+  "err_no_recipient": "Ajoutez au moins un destinataire.",
+  "err_too_many_recipients": "Trop de destinataires.",
+  "err_invalid_subject": "Le sujet contient un caractère interdit ou est trop long.",
+  "err_body_too_large": "Le message est trop long.",
+  "err_attachments_too_large": "Les pièces jointes dépassent 25 Mio.",
+  "err_outbox_busy": "Ce message est en cours d'envoi : réessayez dans un instant.",
+  "field_draft": "brouillon",
+  "field_attachment": "pièce jointe",
+  "field_outbox": "message en attente d'envoi"
 }

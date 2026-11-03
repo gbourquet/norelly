@@ -57,6 +57,18 @@ pub enum ErrorCodeDto {
     /// Trop d'opérations en attente sur le compte (serveur injoignable
     /// depuis longtemps) : action refusée.
     PendingQueueFull,
+    /// Message sans destinataire.
+    NoRecipient,
+    /// Trop de destinataires.
+    TooManyRecipients,
+    /// Sujet invalide (caractère de contrôle, trop long).
+    InvalidSubject,
+    /// Corps trop volumineux.
+    BodyTooLarge,
+    /// Pièces jointes trop volumineuses.
+    AttachmentsTooLarge,
+    /// Envoi non annulable ou non relançable dans son état.
+    OutboxBusy,
     /// Erreur interne (journalisée).
     Internal,
 }
@@ -81,6 +93,9 @@ pub enum FieldDto {
     Conversation,
     Folder,
     Certificate,
+    Draft,
+    Attachment,
+    Outbox,
 }
 
 /// Erreur renvoyée à l'interface : un code, le champ concerné, et un détail
@@ -638,6 +653,102 @@ pub enum SyncEventDto {
         failure: FailureKindDto,
         detail: Option<String>,
     },
+}
+
+/// Événement de la rédaction relayé à l'interface.
+#[derive(Debug, Clone, Serialize, Type, tauri_specta::Event)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ComposeEventDto {
+    /// File d'envoi ou brouillons d'un compte modifiés.
+    OutboxChanged { account: u32 },
+    /// Fichiers déposés sur la fenêtre : à joindre par
+    /// `attach_dropped(token)` (les chemins restent côté Rust).
+    FilesDropped { token: u32, count: u32 },
+}
+
+/// Destinataire (adresse revalidée par le domaine en entrée).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+pub struct RecipientDto {
+    pub name: String,
+    pub address: String,
+}
+
+/// Pièce jointe d'un brouillon (contenu déjà stocké).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+pub struct DraftAttachmentDto {
+    /// Identifiant du contenu stocké (empreinte).
+    pub blob: String,
+    pub file_name: String,
+    pub content_type: String,
+    pub size: u32,
+}
+
+/// Brouillon échangé avec l'éditeur.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+pub struct DraftDto {
+    /// Absent : pas encore enregistré.
+    pub id: Option<u32>,
+    pub account: u32,
+    pub to: Vec<RecipientDto>,
+    pub cc: Vec<RecipientDto>,
+    pub bcc: Vec<RecipientDto>,
+    pub subject: String,
+    /// HTML de l'éditeur (réassaini en Rust avant tout envoi).
+    pub html: String,
+    pub in_reply_to: Option<String>,
+    pub references: Vec<String>,
+    pub attachments: Vec<DraftAttachmentDto>,
+}
+
+/// Brouillon enregistré.
+#[derive(Debug, Clone, Serialize, Type)]
+pub struct SavedDraftDto {
+    pub id: u32,
+    pub revision: u32,
+}
+
+/// Nature d'une rédaction.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum ComposeKindDto {
+    New,
+    Reply,
+    ReplyAll,
+    Forward,
+}
+
+/// Cause d'échec d'un envoi.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum SendFailureDto {
+    Unreachable,
+    Temporary,
+    Rejected,
+    Authentication,
+    Security,
+    Uncertain,
+    TooManyAttempts,
+}
+
+/// État d'un message de la file d'envoi.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Type)]
+#[serde(tag = "state", rename_all = "snake_case")]
+pub enum OutboxStateDto {
+    Queued { not_before: u32 },
+    Sending,
+    Sent,
+    Failed { failure: SendFailureDto },
+}
+
+/// Message de la file d'envoi.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
+pub struct OutboxItemDto {
+    pub id: u32,
+    pub subject: String,
+    pub recipients: Vec<String>,
+    pub state: OutboxStateDto,
+    pub attempts: u32,
+    pub queued_at: u32,
 }
 
 /// Dossier d'un compte.

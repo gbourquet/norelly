@@ -231,6 +231,7 @@ impl AppState {
             &db,
             FsBlobStore::new(data_dir.join("accounts")),
             ImapConnector::new(tls.clone()),
+            SmtpSender::new(tls.clone()),
             proxy,
             open_dir,
         );

@@ -241,5 +241,14 @@
   "cmd_archive_folder_keywords": "archive fallback setting",
   "list_row_actions": "Conversation actions",
   "list_context_menu": "Conversation actions",
-  "conversation_toolbar": "Conversation actions"
+  "conversation_toolbar": "Conversation actions",
+  "err_no_recipient": "Add at least one recipient.",
+  "err_too_many_recipients": "Too many recipients.",
+  "err_invalid_subject": "The subject contains a forbidden character or is too long.",
+  "err_body_too_large": "The message is too long.",
+  "err_attachments_too_large": "Attachments exceed 25 MiB.",
+  "err_outbox_busy": "This message is being sent: try again in a moment.",
+  "field_draft": "draft",
+  "field_attachment": "attachment",
+  "field_outbox": "message waiting to be sent"
 }

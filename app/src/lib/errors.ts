@@ -58,6 +58,12 @@ export function fieldLabel(field: FieldDto | null): string {
       return m.field_folder();
     case "certificate":
       return m.field_certificate();
+    case "draft":
+      return m.field_draft();
+    case "attachment":
+      return m.field_attachment();
+    case "outbox":
+      return m.field_outbox();
     case null:
       return "?";
   }
@@ -97,6 +103,18 @@ function codeText(code: ErrorCodeDto, field: FieldDto | null): string {
       return m.err_too_many_messages();
     case "pending_queue_full":
       return m.err_pending_queue_full();
+    case "no_recipient":
+      return m.err_no_recipient();
+    case "too_many_recipients":
+      return m.err_too_many_recipients();
+    case "invalid_subject":
+      return m.err_invalid_subject();
+    case "body_too_large":
+      return m.err_body_too_large();
+    case "attachments_too_large":
+      return m.err_attachments_too_large();
+    case "outbox_busy":
+      return m.err_outbox_busy();
     case "internal":
       return m.err_internal();
   }

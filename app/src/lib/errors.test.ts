@@ -19,6 +19,28 @@ describe("traduction des erreurs IPC", () => {
     );
   });
 
+  it("explique les refus de la rédaction", () => {
+    expect(errorText(new IpcFailure("no_recipient"))).toBe("Ajoutez au moins un destinataire.");
+    expect(errorText(new IpcFailure("too_many_recipients"))).toBe("Trop de destinataires.");
+    expect(errorText(new IpcFailure("invalid_subject"))).toBe(
+      "Le sujet contient un caractère interdit ou est trop long.",
+    );
+    expect(errorText(new IpcFailure("body_too_large"))).toBe("Le message est trop long.");
+    expect(errorText(new IpcFailure("attachments_too_large"))).toBe(
+      "Les pièces jointes dépassent 25 Mio.",
+    );
+    expect(errorText(new IpcFailure("outbox_busy"))).toBe(
+      "Ce message est en cours d'envoi : réessayez dans un instant.",
+    );
+    expect(errorText(new IpcFailure("not_found", "draft"))).toBe("Introuvable : brouillon.");
+    expect(errorText(new IpcFailure("invalid_input", "attachment"))).toBe(
+      "Valeur refusée : pièce jointe.",
+    );
+    expect(errorText(new IpcFailure("not_found", "outbox"))).toBe(
+      "Introuvable : message en attente d'envoi.",
+    );
+  });
+
   it("cite le détail technique tel quel, sans le traduire", () => {
     expect(errorText(new IpcFailure("open_failed", null, "No such file"))).toBe(
       "Ouverture impossible. (« No such file »)",

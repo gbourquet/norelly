@@ -82,10 +82,50 @@ export const commands = {
 	 *  `\Archive` (`None` : aucun).
 	 */
 	setArchiveFolder: (account: number, mailbox: number | null) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("set_archive_folder", { account, mailbox })),
+	/**
+	 *  Brouillon de départ : nouveau message, réponse, réponse à tous ou
+	 *  transfert de `message`. `attribution` : en-tête de citation construit
+	 *  par l'interface dans la langue de l'utilisateur (ADR-011), nettoyé ici.
+	 */
+	prepareCompose: (account: number, kind: ComposeKindDto, message: number | null, attribution: string) => typedError<DraftDto_Serialize, IpcError_Serialize>(__TAURI_INVOKE("prepare_compose", { account, kind, message, attribution })),
+	/**  Enregistre un brouillon (même incomplet). */
+	saveDraft: (draft: DraftDto_Deserialize) => typedError<SavedDraftDto, IpcError_Serialize>(__TAURI_INVOKE("save_draft", { draft })),
+	/**
+	 *  Met le message en file d'envoi (le brouillon enregistré est retiré) ;
+	 *  renvoie son identifiant dans la file.
+	 */
+	sendDraft: (draft: DraftDto_Deserialize) => typedError<number, IpcError_Serialize>(__TAURI_INVOKE("send_draft", { draft })),
+	/**  Abandonne un brouillon (sa copie sur le serveur sera supprimée). */
+	discardDraft: (id: number) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("discard_draft", { id })),
+	/**  File d'envoi d'un compte. */
+	outbox: (account: number) => typedError<OutboxItemDto[], IpcError_Serialize>(__TAURI_INVOKE("outbox", { account })),
+	/**
+	 *  Relance un envoi en échec (décision de l'utilisateur, y compris pour un
+	 *  envoi incertain).
+	 */
+	retrySend: (account: number, id: number) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("retry_send", { account, id })),
+	/**
+	 *  Retire un message de la file, seulement s'il n'est pas en cours
+	 *  d'envoi : en attente, ou en échec.
+	 */
+	cancelSend: (account: number, id: number) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("cancel_send", { account, id })),
+	/**  Adresses connues correspondant à la saisie. */
+	suggestContacts: (account: number, text: string) => typedError<RecipientDto[], IpcError_Serialize>(__TAURI_INVOKE("suggest_contacts", { account, text })),
+	/**
+	 *  Joint des fichiers choisis dans le sélecteur du système (titre
+	 *  localisé par l'interface) ; liste vide si l'utilisateur annule.
+	 */
+	pickAttachments: (account: number, title: string) => typedError<DraftAttachmentDto[], IpcError_Serialize>(__TAURI_INVOKE("pick_attachments", { account, title })),
+	/**
+	 *  Joint les fichiers déposés sur la fenêtre, désignés par leur jeton
+	 *  (événement `files_dropped`).
+	 */
+	attachDropped: (account: number, token: number) => typedError<DraftAttachmentDto[], IpcError_Serialize>(__TAURI_INVOKE("attach_dropped", { account, token })),
 };
 
 /** Events */
 export const events = {
+	composeEventDto: makeEvent<ComposeEventDto, ComposeEventDto>("compose-event-dto"),
 	syncEventDto: makeEvent<SyncEventDto_Serialize, SyncEventDto_Deserialize>("sync-event-dto"),
 };
 
@@ -224,6 +264,19 @@ export type CertificateProblemDto = {
 	can_trust: boolean,
 };
 
+/**  Événement de la rédaction relayé à l'interface. */
+export type ComposeEventDto = 
+/**  File d'envoi ou brouillons d'un compte modifiés. */
+{ kind: "outbox_changed"; account: number } | 
+/**
+ *  Fichiers déposés sur la fenêtre : à joindre par
+ *  `attach_dropped(token)` (les chemins restent côté Rust).
+ */
+{ kind: "files_dropped"; token: number; count: number };
+
+/**  Nature d'une rédaction. */
+export type ComposeKindDto = "new" | "reply" | "reply_all" | "forward";
+
 export type ConversationCursorDto = {
 	date: number,
 	id: number,
@@ -318,6 +371,50 @@ export type DiscoveryDto_Serialize = {
 
 export type DiscoverySourceDto = "provider_autoconfig" | "mozilla_ispdb" | "dns_srv" | "probe" | "manual";
 
+/**  Pièce jointe d'un brouillon (contenu déjà stocké). */
+export type DraftAttachmentDto = {
+	/**  Identifiant du contenu stocké (empreinte). */
+	blob: string,
+	file_name: string,
+	content_type: string,
+	size: number,
+};
+
+/**  Brouillon échangé avec l'éditeur. */
+export type DraftDto = DraftDto_Serialize | DraftDto_Deserialize;
+
+/**  Brouillon échangé avec l'éditeur. */
+export type DraftDto_Deserialize = {
+	/**  Absent : pas encore enregistré. */
+	id?: number | null,
+	account: number,
+	to: RecipientDto[],
+	cc: RecipientDto[],
+	bcc: RecipientDto[],
+	subject: string,
+	/**  HTML de l'éditeur (réassaini en Rust avant tout envoi). */
+	html: string,
+	in_reply_to?: string | null,
+	references: string[],
+	attachments: DraftAttachmentDto[],
+};
+
+/**  Brouillon échangé avec l'éditeur. */
+export type DraftDto_Serialize = {
+	/**  Absent : pas encore enregistré. */
+	id: number | null,
+	account: number,
+	to: RecipientDto[],
+	cc: RecipientDto[],
+	bcc: RecipientDto[],
+	subject: string,
+	/**  HTML de l'éditeur (réassaini en Rust avant tout envoi). */
+	html: string,
+	in_reply_to: string | null,
+	references: string[],
+	attachments: DraftAttachmentDto[],
+};
+
 /**  Point de connexion (consentement au clair, exception de certificat). */
 export type EndpointDto = {
 	host: string,
@@ -364,6 +461,18 @@ export type ErrorCodeDto =
  *  depuis longtemps) : action refusée.
  */
 "pending_queue_full" | 
+/**  Message sans destinataire. */
+"no_recipient" | 
+/**  Trop de destinataires. */
+"too_many_recipients" | 
+/**  Sujet invalide (caractère de contrôle, trop long). */
+"invalid_subject" | 
+/**  Corps trop volumineux. */
+"body_too_large" | 
+/**  Pièces jointes trop volumineuses. */
+"attachments_too_large" | 
+/**  Envoi non annulable ou non relançable dans son état. */
+"outbox_busy" | 
 /**  Erreur interne (journalisée). */
 "internal";
 
@@ -378,7 +487,7 @@ export type FailureKindDto = "network" | "authentication" | "security" | "protoc
 /**  Champ ou objet concerné par une erreur. */
 export type FieldDto = "address" | "display_name" | "host" | "port" | "username" | 
 /**  Serveurs IMAP et SMTP fournis ensemble ou pas du tout. */
-"servers" | "account" | "message" | "part" | "mailbox" | "role" | "cursor" | "conversation" | "folder" | "certificate";
+"servers" | "account" | "message" | "part" | "mailbox" | "role" | "cursor" | "conversation" | "folder" | "certificate" | "draft" | "attachment" | "outbox";
 
 /**  Dossier d'un compte. */
 export type FolderDto = {
@@ -455,16 +564,44 @@ export type MessageViewDto_Serialize = {
 	attachments: AttachmentDto[],
 };
 
+/**  Message de la file d'envoi. */
+export type OutboxItemDto = {
+	id: number,
+	subject: string,
+	recipients: string[],
+	state: OutboxStateDto,
+	attempts: number,
+	queued_at: number,
+};
+
+/**  État d'un message de la file d'envoi. */
+export type OutboxStateDto = { state: "queued"; not_before: number } | { state: "sending" } | { state: "sent" } | { state: "failed"; failure: SendFailureDto };
+
 export type ProtocolDto = "imap" | "smtp";
 
 export type ReadingPreferencesDto = {
 	prefer_plain_text: boolean,
 };
 
+/**  Destinataire (adresse revalidée par le domaine en entrée). */
+export type RecipientDto = {
+	name: string,
+	address: string,
+};
+
+/**  Brouillon enregistré. */
+export type SavedDraftDto = {
+	id: number,
+	revision: number,
+};
+
 /**  Portée d'une liste de conversations. */
 export type ScopeDto = { kind: "mailbox"; id: number } | { kind: "unified"; role: string };
 
 export type SecurityDto = "tls" | "starttls" | "plain";
+
+/**  Cause d'échec d'un envoi. */
+export type SendFailureDto = "unreachable" | "temporary" | "rejected" | "authentication" | "security" | "uncertain" | "too_many_attempts";
 
 /**  Serveur (affichage et saisie). */
 export type ServerDto = {

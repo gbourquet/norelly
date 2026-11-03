@@ -9,27 +9,33 @@ use std::time::Duration;
 
 use norelly_application::account_actor::{self, AccountHandle, ActorClient, ActorConfig};
 use norelly_application::accounts::connect_request;
+use norelly_application::compose_worker::{self, ComposeEvent, ComposeHandle, ComposeWorker};
 use norelly_application::reading::{
     DownloadBody, DownloadPart, LoadedBody, LoadedMessage, ReadError, ReadMessage,
 };
 use norelly_application::sync::{SyncEvent, SyncFailure};
 use norelly_blobs::FsBlobStore;
 use norelly_domain::account::{Account, AccountId};
+use norelly_domain::compose::draft::Recipient;
 use norelly_domain::connection::{ConnectionError, TimeoutStage, server_text};
 use norelly_domain::endpoint::Protocol;
 use norelly_domain::fetch_policy::{BodyFetch, FetchPolicy, PartPath};
 use norelly_domain::mailbox::{MailboxName, Uid};
+use norelly_domain::ports::ConnectRequest;
 use norelly_domain::ports::{FetchedBody, MessageId, RemoteBodyFetcher};
 use norelly_domain::reading::RemoteContent;
 use norelly_imap::ImapConnector;
+use norelly_render::compose::MimeComposer;
 use norelly_render::{PartContent, Protocols, RenderNotice, RenderRequest, Rendered, Source};
+use norelly_smtp::SmtpSender;
+use norelly_sqlite::compose::SqliteComposeStore;
 use norelly_sqlite::mail::SqliteMailStore;
 use norelly_sqlite::preferences::SqliteReadingPreferences;
 use norelly_sqlite::{Database, SqliteCertificateExceptionStore};
 use tauri::{AppHandle, Runtime};
 use tauri_specta::Event;
 
-use crate::ipc::{FailureKindDto, SyncEventDto, connection_failure_of};
+use crate::ipc::{ComposeEventDto, FailureKindDto, SyncEventDto, connection_failure_of};
 use crate::remote_images::RemoteImageProxy;
 use crate::state::AppSecretStore;
 
@@ -68,6 +74,14 @@ pub struct MailServices {
     /// Dossier privé des pièces jointes ouvertes.
     pub open_dir: PathBuf,
     imap: Arc<ImapConnector>,
+    smtp: Arc<SmtpSender>,
+    /// Brouillons et file d'envoi.
+    pub compose: Arc<SqliteComposeStore>,
+    composer: Arc<MimeComposer>,
+    workers: tokio::sync::Mutex<BTreeMap<AccountId, ComposeHandle>>,
+    /// Derniers fichiers déposés sur la fenêtre (jeton, chemins venus de
+    /// l'événement natif, jamais de l'interface).
+    dropped: Mutex<Option<(u32, Vec<PathBuf>)>>,
     actors: tokio::sync::Mutex<BTreeMap<AccountId, AccountHandle>>,
     clients: Mutex<BTreeMap<AccountId, ActorClient>>,
     /// Derniers rendus : (message, décision images, texte brut) → rendu.
@@ -80,6 +94,7 @@ impl MailServices {
         db: &Database,
         blobs: FsBlobStore,
         imap: ImapConnector,
+        smtp: SmtpSender,
         proxy: Option<RemoteImageProxy>,
         open_dir: PathBuf,
     ) -> Self {
@@ -91,6 +106,11 @@ impl MailServices {
             proxy,
             open_dir,
             imap: Arc::new(imap),
+            smtp: Arc::new(smtp),
+            compose: Arc::new(SqliteComposeStore::new(db.clone())),
+            composer: Arc::new(MimeComposer),
+            workers: tokio::sync::Mutex::new(BTreeMap::new()),
+            dropped: Mutex::new(None),
             actors: tokio::sync::Mutex::new(BTreeMap::new()),
             clients: Mutex::new(BTreeMap::new()),
             rendered: Mutex::new(VecDeque::new()),
@@ -115,20 +135,20 @@ impl MailServices {
             .map_err(|e| e.to_string())?;
         let handle = account_actor::spawn(
             account.id(),
-            request,
+            request.clone(),
             Arc::clone(&self.imap),
             Arc::clone(&self.store),
             Arc::clone(&self.blobs),
             ActorConfig::default(),
         );
         let mut events = handle.subscribe();
-        let app = app.clone();
+        let relay = app.clone();
         tauri::async_runtime::spawn(async move {
             loop {
                 match events.recv().await {
                     Ok(event) => {
                         if let Some(dto) = SyncEventDto::from_event(&event) {
-                            let _ = dto.emit(&app);
+                            let _ = dto.emit(&relay);
                         }
                     }
                     Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
@@ -141,7 +161,85 @@ impl MailServices {
             .unwrap_or_else(PoisonError::into_inner)
             .insert(account.id(), handle.client());
         actors.insert(account.id(), handle);
+        drop(actors);
+        self.start_compose(app, account, request, secrets, exceptions)
+            .await
+    }
+
+    /// Démarre le travailleur de rédaction d'un compte (envoi, copies).
+    async fn start_compose<R: Runtime>(
+        &self,
+        app: &AppHandle<R>,
+        account: &Account,
+        imap: ConnectRequest,
+        secrets: &AppSecretStore,
+        exceptions: &SqliteCertificateExceptionStore,
+    ) -> Result<(), String> {
+        let mut workers = self.workers.lock().await;
+        if workers.contains_key(&account.id()) {
+            return Ok(());
+        }
+        let smtp = connect_request(account, Protocol::Smtp, secrets, exceptions)
+            .await
+            .map_err(|e| e.to_string())?;
+        let handle = compose_worker::spawn(ComposeWorker {
+            account: account.id(),
+            from: Recipient::new(account.display_name().as_str(), account.address().clone()),
+            imap,
+            smtp,
+            connector: Arc::clone(&self.imap),
+            sender: Arc::clone(&self.smtp),
+            store: Arc::clone(&self.compose),
+            folders: Arc::clone(&self.store),
+            blobs: Arc::clone(&self.blobs),
+            composer: Arc::clone(&self.composer),
+        });
+        let mut events = handle.subscribe();
+        let app = app.clone();
+        tauri::async_runtime::spawn(async move {
+            loop {
+                match events.recv().await {
+                    Ok(ComposeEvent::OutboxChanged { account }) => {
+                        if let Ok(account) = u32::try_from(account.get()) {
+                            let _ = ComposeEventDto::OutboxChanged { account }.emit(&app);
+                        }
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => return,
+                }
+            }
+        });
+        workers.insert(account.id(), handle);
         Ok(())
+    }
+
+    /// Demande un passage du travailleur de rédaction d'un compte.
+    pub async fn compose_soon(&self, account: AccountId) {
+        if let Some(handle) = self.workers.lock().await.get(&account) {
+            handle.trigger();
+        }
+    }
+
+    /// Mémorise des fichiers déposés sur la fenêtre ; renvoie leur jeton.
+    pub fn remember_dropped(&self, paths: Vec<PathBuf>) -> u32 {
+        let mut dropped = self.dropped.lock().unwrap_or_else(PoisonError::into_inner);
+        let token = dropped
+            .as_ref()
+            .map_or(1, |(t, _)| t.wrapping_add(1).max(1));
+        *dropped = Some((token, paths));
+        token
+    }
+
+    /// Fichiers déposés désignés par `token` (une seule fois).
+    pub fn take_dropped(&self, token: u32) -> Option<Vec<PathBuf>> {
+        let mut dropped = self.dropped.lock().unwrap_or_else(PoisonError::into_inner);
+        match dropped.take() {
+            Some((t, paths)) if t == token => Some(paths),
+            other => {
+                *dropped = other;
+                None
+            }
+        }
     }
 
     /// Arrête la synchronisation d'un compte.
@@ -153,6 +251,10 @@ impl MailServices {
         let handle = self.actors.lock().await.remove(&account);
         if let Some(handle) = handle {
             handle.shutdown().await;
+        }
+        let worker = self.workers.lock().await.remove(&account);
+        if let Some(worker) = worker {
+            worker.shutdown().await;
         }
     }
 

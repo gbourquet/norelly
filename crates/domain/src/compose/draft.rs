@@ -20,6 +20,16 @@ use crate::ports::BlobId;
 
 use super::Threading;
 
+/// Identifiant de message utilisable dans un en-tête : ASCII imprimable,
+/// sans espace ni chevron, borné.
+fn valid_message_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= MAX_MESSAGE_ID_LEN
+        && id
+            .bytes()
+            .all(|b| b.is_ascii_graphic() && b != b'<' && b != b'>')
+}
+
 /// Destinataires au plus, tous champs confondus.
 pub const MAX_RECIPIENTS: usize = 100;
 /// Taille cumulée maximale des pièces jointes (25 Mio, limite usuelle des
@@ -29,6 +39,9 @@ pub const MAX_ATTACHMENTS_BYTES: u64 = 25 * 1024 * 1024;
 pub const MAX_BODY_BYTES: usize = 5 * 1024 * 1024;
 /// Caractères au plus dans le sujet.
 pub const MAX_SUBJECT_CHARS: usize = 998;
+/// Longueur maximale d'un identifiant de message (`In-Reply-To`,
+/// `References`).
+pub const MAX_MESSAGE_ID_LEN: usize = 250;
 /// Intervalle minimal entre deux copies d'un brouillon sur le serveur.
 pub const REMOTE_SAVE_INTERVAL_SECS: i64 = 30;
 
@@ -90,6 +103,8 @@ pub enum ComposeError {
     BodyTooLarge,
     #[error("pièces jointes trop volumineuses")]
     AttachmentsTooLarge,
+    #[error("identifiant de message invalide (In-Reply-To, References)")]
+    InvalidThreading,
 }
 
 impl Draft {
@@ -136,6 +151,16 @@ impl Draft {
             || self.html.as_ref().is_some_and(|h| h.len() > MAX_BODY_BYTES)
         {
             return Err(ComposeError::BodyTooLarge);
+        }
+        let threading = &self.threading;
+        if threading.references.len() > super::MAX_REFERENCES
+            || !threading
+                .in_reply_to
+                .iter()
+                .chain(&threading.references)
+                .all(|id| valid_message_id(id))
+        {
+            return Err(ComposeError::InvalidThreading);
         }
         let total = self
             .attachments
@@ -299,6 +324,46 @@ mod tests {
         assert_eq!(d.check_sendable(), Err(ComposeError::InvalidSubject));
         d.subject = "é".repeat(MAX_SUBJECT_CHARS);
         assert_eq!(d.check_sendable(), Ok(()));
+    }
+
+    #[test]
+    fn threading_identifiers_cannot_inject_headers() {
+        let mut d = sendable();
+        d.threading = Threading {
+            in_reply_to: Some("m1@example.com".into()),
+            references: vec!["m0@example.com".into(), "m1@example.com".into()],
+        };
+        assert_eq!(d.check_storable(), Ok(()));
+        for bad in [
+            "a\r\nBcc: pirate@example.com",
+            "a b@example.com",
+            "<a@example.com>",
+            "",
+            "é@example.com",
+        ] {
+            let mut d = sendable();
+            d.threading.in_reply_to = Some(bad.into());
+            assert_eq!(
+                d.check_storable(),
+                Err(ComposeError::InvalidThreading),
+                "{bad:?}"
+            );
+            let mut d = sendable();
+            d.threading.references = vec![bad.into()];
+            assert_eq!(
+                d.check_storable(),
+                Err(ComposeError::InvalidThreading),
+                "{bad:?}"
+            );
+        }
+        let mut d = sendable();
+        d.threading.in_reply_to = Some("x".repeat(MAX_MESSAGE_ID_LEN + 1));
+        assert_eq!(d.check_storable(), Err(ComposeError::InvalidThreading));
+        let mut d = sendable();
+        d.threading.references = (0..=crate::compose::MAX_REFERENCES)
+            .map(|n| format!("r{n}@x"))
+            .collect();
+        assert_eq!(d.check_storable(), Err(ComposeError::InvalidThreading));
     }
 
     #[test]

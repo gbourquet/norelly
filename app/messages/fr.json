@@ -250,5 +250,7 @@
   "err_outbox_busy": "Ce message est en cours d'envoi : réessayez dans un instant.",
   "field_draft": "brouillon",
   "field_attachment": "pièce jointe",
-  "field_outbox": "message en attente d'envoi"
+  "field_outbox": "message en attente d'envoi",
+  "compose_attribution": "Le {date}, {name} a écrit :",
+  "compose_forward_intro": "Message transféré de {name}, le {date} :"
 }

@@ -22,10 +22,25 @@ import {
   type IpcError,
   type ActionDto,
   type ActionResultDto,
+  type ComposeEventDto,
+  type ComposeKindDto,
+  type DraftAttachmentDto,
+  type DraftDto_Serialize,
+  type OutboxItemDto,
+  type RecipientDto,
+  type SavedDraftDto,
 } from "./bindings";
 import { IpcFailure } from "../errors";
 
 export type {
+  ComposeEventDto,
+  ComposeKindDto,
+  DraftAttachmentDto,
+  OutboxItemDto,
+  OutboxStateDto,
+  RecipientDto,
+  SavedDraftDto,
+  SendFailureDto,
   AccountDto,
   ActionDto,
   ActionResultDto,
@@ -54,6 +69,8 @@ export type AddAccountResult = AddAccountResultDto_Serialize;
 export type Discovery = DiscoveryDto_Serialize;
 export type ConversationPage = ConversationPageDto_Serialize;
 export type ConversationMessage = ConversationMessageDto_Serialize;
+/** Brouillon échangé avec l'éditeur (même forme dans les deux sens). */
+export type Draft = DraftDto_Serialize;
 
 export { IpcFailure } from "../errors";
 
@@ -137,6 +154,43 @@ export const api = {
 
   setArchiveFolder: (account: number, mailbox: number | null): Promise<void> =>
     unwrap(commands.setArchiveFolder(account, mailbox)).then(() => undefined),
+
+  /** Brouillon de départ ; `attribution` : en-tête de citation localisé. */
+  prepareCompose: (
+    account: number,
+    kind: ComposeKindDto,
+    message: number | null,
+    attribution: string,
+  ): Promise<Draft> => unwrap(commands.prepareCompose(account, kind, message, attribution)),
+
+  saveDraft: (draft: Draft): Promise<SavedDraftDto> => unwrap(commands.saveDraft(draft)),
+
+  /** Met en file d'envoi ; renvoie l'identifiant dans la file. */
+  sendDraft: (draft: Draft): Promise<number> => unwrap(commands.sendDraft(draft)),
+
+  discardDraft: (id: number): Promise<void> =>
+    unwrap(commands.discardDraft(id)).then(() => undefined),
+
+  outbox: (account: number): Promise<OutboxItemDto[]> => unwrap(commands.outbox(account)),
+
+  retrySend: (account: number, id: number): Promise<void> =>
+    unwrap(commands.retrySend(account, id)).then(() => undefined),
+
+  cancelSend: (account: number, id: number): Promise<void> =>
+    unwrap(commands.cancelSend(account, id)).then(() => undefined),
+
+  suggestContacts: (account: number, text: string): Promise<RecipientDto[]> =>
+    unwrap(commands.suggestContacts(account, text)),
+
+  /** `title` : titre du sélecteur de fichiers, localisé. */
+  pickAttachments: (account: number, title: string): Promise<DraftAttachmentDto[]> =>
+    unwrap(commands.pickAttachments(account, title)),
+
+  attachDropped: (account: number, token: number): Promise<DraftAttachmentDto[]> =>
+    unwrap(commands.attachDropped(account, token)),
+
+  onComposeEvent: async (listener: (event: ComposeEventDto) => void): Promise<() => void> =>
+    events.composeEventDto.listen((e) => listener(e.payload)),
 
   /** Abonnement aux événements de synchronisation ; renvoie le retrait. */
   onSyncEvent: async (listener: (event: SyncEventDto) => void): Promise<() => void> =>

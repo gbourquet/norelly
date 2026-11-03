@@ -7,10 +7,12 @@
 //! - [`DownloadPart`] : télécharge une partie différée (pièce jointe
 //!   volumineuse) par la connexion IMAP du compte, puis l'enregistre.
 
+use std::sync::Arc;
+
 use norelly_domain::fetch_policy::{BodyFetch, FetchPolicy, PartPath};
 use norelly_domain::ports::{
     BlobStore, FetchedBody, MailStore, MessageId, MessageLocation, MessageLocator,
-    ReadingPreferences, RemoteBodyFetcher, StoreError, StoredBody,
+    ReadingPreferences, RemoteBodyFetcher, SearchTextExtractor, StoreError, StoredBody,
 };
 use norelly_domain::reading::{RemoteContent, remote_content, sender_address};
 
@@ -193,7 +195,7 @@ where
             deferred: deferred.iter().filter(|p| *p != path).cloned().collect(),
         };
         self.store
-            .set_body(location.mailbox, location.uid, &body)
+            .set_body(location.mailbox, location.uid, &body, None)
             .await?;
         Ok(())
     }
@@ -209,6 +211,9 @@ pub struct DownloadBody<'a, L, B, M, F> {
     pub store: &'a M,
     pub fetcher: &'a F,
     pub policy: FetchPolicy,
+    /// Texte cherchable du corps téléchargé (extrait hors du fil
+    /// asynchrone, en temps borné).
+    pub text: Arc<dyn SearchTextExtractor>,
 }
 
 impl<L, B, M, F> DownloadBody<'_, L, B, M, F>
@@ -239,9 +244,16 @@ where
             .await
             .map_err(|e| ReadError::Download(e.to_string()))?
             .ok_or_else(|| ReadError::Download("message disparu du serveur".into()))?;
+        let text = crate::sync::extract_text(
+            &self.text,
+            &fetched,
+            location.structure.as_ref(),
+            crate::sync::TEXT_EXTRACTION_TIMEOUT,
+        )
+        .await;
         let body = store_fetched(self.blobs, location.account, fetched, fetch).await?;
         self.store
-            .set_body(location.mailbox, location.uid, &body)
+            .set_body(location.mailbox, location.uid, &body, Some(&text))
             .await?;
         Ok(true)
     }

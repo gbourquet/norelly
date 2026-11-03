@@ -29,6 +29,9 @@ import {
   type OutboxItemDto,
   type RecipientDto,
   type SavedDraftDto,
+  type SearchHitDto_Serialize,
+  type SearchPageDto_Serialize,
+  type SearchScopeDto,
 } from "./bindings";
 import { IpcFailure } from "../errors";
 
@@ -63,12 +66,16 @@ export type {
   FieldDto,
   SecurityDto,
   ServerDto,
+  SearchScopeDto,
+  SegmentDto,
 } from "./bindings";
 export type AddAccountInput = AddAccountInput_Deserialize;
 export type AddAccountResult = AddAccountResultDto_Serialize;
 export type Discovery = DiscoveryDto_Serialize;
 export type ConversationPage = ConversationPageDto_Serialize;
 export type ConversationMessage = ConversationMessageDto_Serialize;
+export type SearchHit = SearchHitDto_Serialize;
+export type SearchPage = SearchPageDto_Serialize;
 /** Brouillon échangé avec l'éditeur (même forme dans les deux sens). */
 export type Draft = DraftDto_Serialize;
 
@@ -141,6 +148,17 @@ export const api = {
 
   openAttachment: (message: number, part: string): Promise<void> =>
     unwrap(commands.openAttachment(message, part)).then(() => undefined),
+
+  /** Recherche locale (hors ligne) ; `utcOffsetMinutes` : fuseau de
+   * l'utilisateur, pour `before:` et `after:`. */
+  searchMessages: (
+    query: string,
+    scope: SearchScopeDto,
+    utcOffsetMinutes: number,
+    offset: number,
+    limit: number,
+  ): Promise<SearchPage> =>
+    unwrap(commands.searchMessages(query, scope, utcOffsetMinutes, offset, limit)),
 
   /** Action sur des conversations de la portée affichée. */
   performAction: (

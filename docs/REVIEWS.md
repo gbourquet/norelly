@@ -7,6 +7,70 @@ accepté (justification) ou reporté (phase).
 
 ---
 
+# Revue sécurité : phase 8, recherche plein texte (2026-11-03)
+
+Périmètre : `git diff master...HEAD` sur `phase-8/recherche` :
+- domaine `search` (analyse de la requête, pliage, surlignage), ports
+  `SearchIndex` et `SearchTextExtractor` ;
+- `sqlite` (migrations 7 et 8, `search.rs`, `set_body` avec texte,
+  revalidation des brouillons relus), `render` (`search_text.rs`) ;
+- application (`sync.rs`, `reading.rs`, corbeille et refus des brouillons
+  dans `compose.rs`), commande IPC `search_messages`, interface
+  (`search.svelte.ts`, `SearchPanel.svelte`, `app.svelte.ts`,
+  `mail.svelte.ts`).
+
+Bilan : 0 critique, 0 haute, 1 moyenne, 3 basses, 5 points INFO. La
+moyenne est corrigée, ainsi que deux basses (l'une en partie) ; les autres
+sont reportées en phase 9. Aucune injection SQL ou FTS5, aucune fuite entre
+comptes ni de message masqué ou `\Deleted`, aucun chemin qui interprète du
+HTML. `cargo deny`, `pnpm audit --prod` et `check-sql.sh` sans constat.
+
+## [MOYENNE] Extraction du texte cherchable sur le fil async, sans délai maximal
+- `searchable_text` (mail-parser, `ammonia`, réduction au texte) était
+  appelé directement dans la tâche async de la synchronisation et de
+  l'ouverture d'un message : un message hostile pouvait bloquer un worker
+  tokio sans plafond de durée.
+- Statut : **corrigé** : `sync::extract_text` exécute l'extraction dans
+  `spawn_blocking`, sous `TEXT_EXTRACTION_TIMEOUT` (5 s) ; au-delà, le
+  message est indexé sans son texte (tests `text_extraction_is_bounded_in_time`,
+  `hostile_html_stays_fast` : 2 Mio de HTML dense en moins d'une seconde).
+
+## [BASSE] Requête de recherche sans délai maximal ; préfixe d'une lettre non indexé
+- Un mot d'une lettre devenait un préfixe non indexé (parcours de tous
+  les termes) ; 16 clauses de ce type, ou une frappe rapide, pouvaient
+  occuper les lecteurs plusieurs secondes sur une grosse boîte.
+- Statut : **corrigé en partie** : un mot d'une lettre est cherché tel
+  quel, sans préfixe (contrat `search_index_contract`). **Reporté** (phase 9) :
+  budget de temps des lectures de recherche (`progress_handler` ou
+  interruption quand une nouvelle requête arrive) et bench avec des corps
+  réalistes.
+
+## [BASSE] Extrait sans retrait des caractères de format (bidi, largeur nulle)
+- Statut : **corrigé** : l'extrait est nettoyé par `header_text`, comme le
+  sujet (cas U+202E et U+200B dans le contrat).
+
+## [BASSE] `hostile_message_sql.rs` non étendu à la phase 8
+- Le test de bout en bout ne cherche pas les charges piégées et ne couvre
+  pas le nom de boîte des copies distantes.
+- Statut : **reporté** (phase 9).
+
+## [INFO] Points relevés sans action immédiate
+- Migration 8 : copies existantes rattachées au dossier qui porte
+  aujourd'hui le rôle `\Drafts` (risque identique à l'avant-phase 8, limité
+  aux données migrées, `\Draft` et UIDVALIDITY toujours vérifiés).
+- Corbeille des brouillons : tout refus de `SELECT` fait oublier les copies
+  de la boîte (au pire une copie reste sur le serveur).
+- Au-delà de 64 niveaux d'imbrication, le repli de `sanitize_composed_html`
+  indexe le contenu des `<script>`/`<style>` comme du texte (faux résultats
+  possibles, sans danger).
+- Copies provisoires des déplacements indexées sans leur texte jusqu'à la
+  synchronisation suivante.
+- `x` pendant une recherche peut cocher une conversation de la liste
+  masquée ; aucune action ne peut la viser, et Rust ne vise que la
+  conversation dans la portée transmise.
+
+---
+
 # Revue sécurité : phase 7, rédaction et envoi (2026-11-03)
 
 Périmètre : `git diff master...HEAD` sur `phase-7/redaction` :
@@ -82,24 +146,26 @@ trois autres basses sont reportées. `cargo deny`, `pnpm audit --prod` et
 ## [BASSE] Corbeille des copies distantes sans nom de boîte
 - L'ancienne copie est supprimée dans le dossier qui porte aujourd'hui le
   rôle `\Drafts` ; UIDVALIDITY et `\Draft` sont vérifiés.
-- Statut : **reporté** (phase 8) : enregistrer le nom de la boîte dans
-  `RemoteCopy` et la corbeille.
+- Statut : **corrigé** (phase 8) : `RemoteCopy::mailbox`, migration 8,
+  corbeille traitée dans la boîte de chaque copie (test
+  `old_copies_are_removed_from_their_own_mailbox`).
 
 ## [BASSE] Brouillon refusé ou impossible à construire : synchronisation bloquée, reconnexion chaque minute
-- Statut : **reporté** (phase 8) : traiter `Rejected` comme pour Envoyés
-  (journaliser, espacer les essais) et poursuivre avec les brouillons
-  suivants et la corbeille.
+- Statut : **corrigé** (phase 8) : refus ou échec de construction
+  journalisé, nouvel essai une heure plus tard, synchronisation poursuivie
+  (test `a_refused_draft_does_not_block_the_others`).
 
 ## [BASSE] Taille des pièces jointes déclarée par l'interface, nombre non borné
-- Statut : **reporté** (phase 8) : revérifier la taille réelle des blobs
-  dans `QueueMessage` et `local_copy`, borner le nombre de pièces jointes,
-  recalculer `content_type` en Rust. Le nom de fichier et le type ne sont
+- Statut : **corrigé** (phase 8) : taille réelle revérifiée
+  (`load_attachments`), 100 pièces jointes au plus, type recalculé d'après
+  le nom dans `draft_of` (tests `queue_message_checks_the_real_attachment_sizes`,
+  `attachment_count_is_bounded`, `attachment_types_are_recomputed_in_rust`). Le nom de fichier et le type ne sont
   pas exploitables (`safe_file_name`, encodage RFC 2231, `mime` refusent
   CR/LF).
 
 ## [BASSE] Brouillon relu depuis SQLite sans `check_storable`
-- Statut : **reporté** (phase 8) : appeler `check_storable` à la
-  relecture (base modifiée à la main seulement).
+- Statut : **corrigé** (phase 8) : brouillon relu revalidé (test
+  `hand_modified_draft_is_revalidated_on_read`).
 
 ## [INFO] Points relevés sans action immédiate
 - Plafond `MAX_PENDING_OPS` vérifié hors de la transaction de

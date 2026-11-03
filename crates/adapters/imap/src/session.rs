@@ -860,6 +860,7 @@ impl Connection {
         Ok(match reply.status.code {
             Some(Code::AppendUid { uid, uid_validity }) => UidValidity::new(uid_validity.get())
                 .map(|validity| RemoteCopy {
+                    mailbox: to.clone(),
                     validity,
                     uid: Uid::from_nonzero(uid),
                 }),

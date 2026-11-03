@@ -139,6 +139,7 @@ impl MailServices {
             Arc::clone(&self.imap),
             Arc::clone(&self.store),
             Arc::clone(&self.blobs),
+            Arc::new(norelly_render::search_text::MimeTextExtractor),
             ActorConfig::default(),
         );
         let mut events = handle.subscribe();
@@ -294,6 +295,7 @@ impl MailServices {
             store: &*self.store,
             fetcher: self,
             policy: FetchPolicy::default(),
+            text: std::sync::Arc::new(norelly_render::search_text::MimeTextExtractor),
         };
         match download.execute(id).await {
             Ok(_) => self.reader().load(id).await,

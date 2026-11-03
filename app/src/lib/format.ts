@@ -55,3 +55,9 @@ export function personName(p: { name: string; address: string } | null | undefin
   if (p === null || p === undefined) return m.common_unknown_sender();
   return p.name !== "" ? p.name : p.address;
 }
+
+/** Décalage du fuseau local par rapport à UTC, en minutes (pour
+ * `before:` et `after:` dans une recherche). */
+export function localUtcOffset(now = new Date()): number {
+  return -now.getTimezoneOffset();
+}

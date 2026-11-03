@@ -64,6 +64,8 @@ export function fieldLabel(field: FieldDto | null): string {
       return m.field_attachment();
     case "outbox":
       return m.field_outbox();
+    case "query":
+      return m.field_query();
     case null:
       return "?";
   }
@@ -113,6 +115,8 @@ function codeText(code: ErrorCodeDto, field: FieldDto | null): string {
       return m.err_body_too_large();
     case "attachments_too_large":
       return m.err_attachments_too_large();
+    case "too_many_attachments":
+      return m.err_too_many_attachments();
     case "outbox_busy":
       return m.err_outbox_busy();
     case "internal":

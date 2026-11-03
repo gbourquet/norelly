@@ -16,9 +16,9 @@ use norelly_domain::mailbox::{
     RemoteMailbox, Uid, UidValidity, header_text,
 };
 use norelly_domain::ports::{
-    BlobId, FolderNode, FolderTreeQuery, MAX_PAGE_SIZE, MailStore, MessageId, MessageListItem,
-    MessageListQuery, MessagePage, PageCursor, PendingBody, StoreError, StoredBody, StoredMailbox,
-    StoredMessage, SyncBatch,
+    BlobId, FolderNode, FolderTreeQuery, MAX_INDEXED_TEXT_CHARS, MAX_PAGE_SIZE, MailStore,
+    MessageId, MessageListItem, MessageListQuery, MessagePage, PageCursor, PendingBody, StoreError,
+    StoredBody, StoredMailbox, StoredMessage, SyncBatch,
 };
 use norelly_domain::sync::{LocalMailbox, MailboxSyncState};
 use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, params};
@@ -432,8 +432,10 @@ impl MailStore for SqliteMailStore {
         mailbox: MailboxId,
         uid: Uid,
         body: &StoredBody,
+        text: Option<&str>,
     ) -> Result<(), StoreError> {
         let body = body.clone();
+        let text: Option<String> = text.map(|t| t.chars().take(MAX_INDEXED_TEXT_CHARS).collect());
         self.db
             .run(move |c| {
                 let tx = c
@@ -449,6 +451,13 @@ impl MailStore for SqliteMailStore {
                     .map_err(store_error)?;
                 if let Some(id) = id {
                     write_body(&tx, id, &body)?;
+                    if let Some(text) = &text {
+                        tx.prepare_cached(
+                            "UPDATE message_texts SET body = ?2 WHERE message_id = ?1",
+                        )
+                        .and_then(|mut stmt| stmt.execute(params![id, text]))
+                        .map_err(store_error)?;
+                    }
                 }
                 tx.commit().map_err(store_error)
             })

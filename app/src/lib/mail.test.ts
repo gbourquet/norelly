@@ -195,3 +195,42 @@ describe("état de la lecture", () => {
     }
   });
 });
+
+describe("conversation ouverte depuis la recherche", () => {
+  it("agit dans le dossier du résultat, puis revient à la portée affichée", async () => {
+    const api = fakeApi(3);
+    const mail = new MailState(api);
+    await mail.show(UNIFIED_INBOX);
+    const acted = vi.fn();
+    mail.onActed = acted;
+    const found = { ...conversation(42), mailbox: 77 };
+    await mail.openConversation(found, { kind: "mailbox", id: 77 });
+    expect(mail.opened?.id).toBe(42);
+    expect(mail.messages.map((x) => x.id)).toEqual([420]);
+    expect(mail.targets().map((c) => c.id)).toEqual([42]);
+    await mail.act({ kind: "mark_seen", value: true }, "lu");
+    expect(api.performAction).toHaveBeenLastCalledWith(
+      [42],
+      { kind: "mailbox", id: 77 },
+      { kind: "mark_seen", value: true },
+    );
+    expect(acted).toHaveBeenCalledTimes(1);
+    mail.back();
+    mail.select(0);
+    await mail.act({ kind: "mark_seen", value: true }, "lu");
+    expect(api.performAction).toHaveBeenLastCalledWith([1], UNIFIED_INBOX, {
+      kind: "mark_seen",
+      value: true,
+    });
+  });
+
+  it("ignore les conversations cochées dans la liste", async () => {
+    const api = fakeApi(3);
+    const mail = new MailState(api);
+    await mail.show(UNIFIED_INBOX);
+    mail.toggleMark();
+    await mail.openConversation(conversation(9), { kind: "mailbox", id: 10 });
+    expect(mail.marked).toEqual([]);
+    expect(mail.targets().map((c) => c.id)).toEqual([9]);
+  });
+});

@@ -4,6 +4,7 @@
 //! - [`mime`] : corps (meilleure alternative, charsets), pièces jointes ;
 //! - [`sanitize`] : liste blanche `ammonia`, réécriture des images ;
 //! - [`css`] : CSS des mails ;
+//! - [`search_text`] : texte cherchable d'un message (recherche) ;
 //! - [`render`] : document complet, prêt à servir ;
 //! - [`content_security_policy`] : CSP du document, qui n'autorise que
 //!   l'agent ([`AGENT_JS`]) par son empreinte SHA-256, calculée à la
@@ -16,6 +17,7 @@ pub mod compose;
 pub mod css;
 pub mod mime;
 pub mod sanitize;
+pub mod search_text;
 
 use norelly_domain::fetch_policy::{MimePart, PartPath};
 use norelly_domain::reading::{ExternalLink, RemoteContent};

@@ -17,13 +17,17 @@
 //!
 //! Chaque boîte modifiée produit un événement [`SyncEvent::FolderChanged`].
 
+use std::sync::Arc;
+use std::time::Duration;
+
 use norelly_domain::account::AccountId;
 use norelly_domain::connection::ConnectionError;
+use norelly_domain::fetch_policy::MimePart;
 use norelly_domain::fetch_policy::{BodyFetch, FetchPolicy};
 use norelly_domain::mailbox::{MailboxId, MailboxName, classify_mailboxes};
 use norelly_domain::ports::{
     BlobStore, FetchedBody, MAX_FETCH_BATCH, MailStore, PendingBody, RemoteMailboxSession,
-    StoreError, StoredBody, StoredMailbox, StoredMessage, SyncBatch,
+    SearchTextExtractor, StoreError, StoredBody, StoredMailbox, StoredMessage, SyncBatch,
 };
 use norelly_domain::sync::{
     ServerQuery, ServerReport, SyncError, SyncExtensions, SyncPlan, needs_uid_list, plan,
@@ -121,6 +125,9 @@ pub struct SyncAccount<'a, M, B> {
     pub store: &'a M,
     pub blobs: &'a B,
     pub policy: FetchPolicy,
+    /// Texte cherchable des corps téléchargés (extrait hors du fil
+    /// asynchrone, en temps borné).
+    pub text: Arc<dyn SearchTextExtractor>,
 }
 
 impl<M: MailStore, B: BlobStore> SyncAccount<'_, M, B> {
@@ -296,8 +303,17 @@ impl<M: MailStore, B: BlobStore> SyncAccount<'_, M, B> {
                     Err(e) => return Err(e.into()),
                     Ok(Some(body)) => body,
                 };
+                let text = extract_text(
+                    &self.text,
+                    &body,
+                    structure.as_ref(),
+                    TEXT_EXTRACTION_TIMEOUT,
+                )
+                .await;
                 let body = store_fetched(self.blobs, self.account, body, fetch).await?;
-                self.store.set_body(mailbox, uid, &body).await?;
+                self.store
+                    .set_body(mailbox, uid, &body, Some(&text))
+                    .await?;
                 done += 1;
                 progressed = true;
             }
@@ -306,6 +322,36 @@ impl<M: MailStore, B: BlobStore> SyncAccount<'_, M, B> {
             if !progressed {
                 return Ok(done);
             }
+        }
+    }
+}
+
+/// Délai maximal de l'extraction du texte cherchable d'un corps (message
+/// hostile) ; au-delà, le message est indexé sans son texte.
+pub const TEXT_EXTRACTION_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Texte cherchable d'un corps, extrait hors du fil asynchrone, en au plus
+/// `timeout` (vide au-delà).
+pub async fn extract_text(
+    extractor: &Arc<dyn SearchTextExtractor>,
+    body: &FetchedBody,
+    structure: Option<&MimePart>,
+    timeout: Duration,
+) -> String {
+    let extractor = Arc::clone(extractor);
+    let body = body.clone();
+    let structure = structure.cloned();
+    let task =
+        tokio::task::spawn_blocking(move || extractor.searchable_text(&body, structure.as_ref()));
+    match tokio::time::timeout(timeout, task).await {
+        Ok(Ok(text)) => text,
+        Ok(Err(e)) => {
+            tracing::warn!(error = %e, "extraction du texte interrompue");
+            String::new()
+        }
+        Err(_) => {
+            tracing::warn!("extraction du texte trop longue : message indexé sans son texte");
+            String::new()
         }
     }
 }

@@ -133,9 +133,81 @@ pub fn synthetic_messages(count: u32, start: i64, seed: u64) -> Vec<StoredMessag
         .collect()
 }
 
+const FILLER: &[&str] = &[
+    "bonjour",
+    "merci",
+    "pour",
+    "votre",
+    "message",
+    "nous",
+    "avons",
+    "bien",
+    "reçu",
+    "le",
+    "document",
+    "joint",
+    "cordialement",
+    "semaine",
+    "prochaine",
+    "équipe",
+    "client",
+    "dossier",
+    "délai",
+    "prévu",
+    "suite",
+    "échange",
+    "téléphone",
+    "vendredi",
+    "matin",
+    "après-midi",
+    "proposition",
+    "validation",
+    "rapport",
+    "version",
+    "modifications",
+    "retour",
+    "urgent",
+    "information",
+    "sujet",
+    "réponse",
+    "demande",
+    "point",
+    "étape",
+    "calendrier",
+];
+
+/// Texte de corps déterministe d'environ `words` mots (vocabulaire courant,
+/// sujets du générateur, un nom propre rare par message : `ref{n}`).
+#[must_use]
+pub fn synthetic_text(n: u32, seed: u64, words: usize) -> String {
+    let mut rng = Rng::new(seed.wrapping_mul(1_000_003).wrapping_add(u64::from(n)));
+    let mut out: Vec<String> = Vec::with_capacity(words + 1);
+    for i in 0..words {
+        let pick = |rng: &mut Rng, list: &[&str]| {
+            list[usize::try_from(rng.below(list.len() as u64)).unwrap_or(0)].to_owned()
+        };
+        out.push(if i % 7 == 3 {
+            pick(&mut rng, WORDS)
+        } else {
+            pick(&mut rng, FILLER)
+        });
+    }
+    out.push(format!("ref{n}"));
+    out.join(" ")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn synthetic_text_is_deterministic_and_distinct() {
+        let a = synthetic_text(5, 1, 80);
+        assert_eq!(a, synthetic_text(5, 1, 80));
+        assert_ne!(a, synthetic_text(6, 1, 80));
+        assert!(a.ends_with(" ref5"), "{a}");
+        assert!(a.split_whitespace().count() >= 80);
+    }
 
     #[test]
     fn generator_is_deterministic_and_complete() {

@@ -72,6 +72,9 @@ export class MailState {
   selectedIndex = $state(-1);
   /** Conversation ouverte (vue de lecture), `null` : liste seule. */
   opened = $state<ConversationDto | null>(null);
+  /** Portée propre de la conversation ouverte (résultat de recherche) ;
+   * `null` : la portée affichée. */
+  #openedScope: ScopeDto | null = null;
   messages = $state<ConversationMessage[]>([]);
   /** Conversations cochées (sélection multiple, « x »). */
   marked = $state<number[]>([]);
@@ -107,6 +110,7 @@ export class MailState {
     this.scope = scope;
     this.marked = [];
     this.opened = null;
+    this.#openedScope = null;
     this.messages = [];
     this.selectedIndex = -1;
     await this.reload();
@@ -203,6 +207,7 @@ export class MailState {
     const conversation = this.selected;
     if (conversation === null) return;
     this.opened = conversation;
+    this.#openedScope = null;
     this.messages = [];
     await this.#loadMessages(conversation.id);
   }
@@ -237,6 +242,19 @@ export class MailState {
       : [...this.marked, id];
   }
 
+  /** Rappel après chaque action (rafraîchir une recherche affichée). */
+  onActed: (() => void) | null = null;
+
+  /** Ouvre une conversation trouvée par la recherche ; `scope` : dossier
+   * du message trouvé, où s'appliquent les actions. */
+  async openConversation(conversation: ConversationDto, scope: ScopeDto): Promise<void> {
+    this.marked = [];
+    this.opened = conversation;
+    this.#openedScope = scope;
+    this.messages = [];
+    await this.#loadMessages(conversation.id);
+  }
+
   /** Conversations visées : cochées, sinon ouverte, sinon sélectionnée. */
   targets(): ConversationDto[] {
     if (this.marked.length > 0) {
@@ -255,9 +273,10 @@ export class MailState {
     const targets = this.targets();
     if (targets.length === 0) return;
     try {
+      const scope = this.marked.length === 0 ? (this.#openedScope ?? this.scope) : this.scope;
       const result = await this.#api.performAction(
         targets.map((c) => c.id),
-        this.scope,
+        scope,
         action,
       );
       this.marked = [];
@@ -304,11 +323,13 @@ export class MailState {
     const unique = accounts.filter((a, i) => accounts.indexOf(a) === i);
     await Promise.all(unique.map((a) => this.loadFolders(a)));
     await this.reload();
+    this.onActed?.();
   }
 
   /** Retour à la liste. */
   back(): void {
     this.opened = null;
+    this.#openedScope = null;
     this.messages = [];
   }
 

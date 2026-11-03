@@ -23,6 +23,11 @@ use norelly_domain::ports::{
     ConversationPage, ConversationQuery, MAX_CONVERSATION_MESSAGES, MAX_LISTED_SENDERS,
     MessageLocation, MessageLocator, same_sender,
 };
+use norelly_domain::ports::{
+    MAX_INDEXED_TEXT_CHARS, MAX_SEARCH_RESULTS, MAX_SNIPPET_CHARS, SearchHit, SearchPage,
+    SearchRequest, SearchScope,
+};
+use norelly_domain::search::{Atom, Field, Filter, tokens};
 use norelly_domain::sync::{FlagUpdate, LocalMailbox, MailboxSyncState};
 
 use norelly_domain::actions::{
@@ -135,7 +140,9 @@ pub(crate) fn uid(n: u32) -> Uid {
     Uid::new(n).unwrap_or_else(|| panic!("uid {n}"))
 }
 
-pub(crate) fn mailbox(name: &str, role: MailboxRole, selectable: bool) -> RemoteMailbox {
+/// Boîte distante de test.
+#[must_use]
+pub fn mailbox(name: &str, role: MailboxRole, selectable: bool) -> RemoteMailbox {
     RemoteMailbox {
         name: MailboxName::parse(name).unwrap_or_else(|e| panic!("{name} : {e}")),
         delimiter: Some('/'),
@@ -309,7 +316,7 @@ where
     );
     let full = blob_id(b"un")?;
     store
-        .set_body(inbox, uid(3), &StoredBody::Full(full))
+        .set_body(inbox, uid(3), &StoredBody::Full(full), None)
         .await?;
     let partial = StoredBody::Partial {
         header: blob_id(b"en-tete")?,
@@ -319,8 +326,8 @@ where
         )],
         deferred: vec![PartPath::parse("2").unwrap_or_else(|| panic!("chemin"))],
     };
-    store.set_body(inbox, uid(1), &partial).await?;
-    store.set_body(inbox, uid(42), &partial).await?; // disparu : sans effet
+    store.set_body(inbox, uid(1), &partial, None).await?;
+    store.set_body(inbox, uid(42), &partial, None).await?; // disparu : sans effet
     assert!(store.missing_bodies(inbox, 10).await?.is_empty());
     let pending: Vec<PendingBody> = store.missing_bodies(inbox, 0).await?;
     assert!(pending.is_empty());
@@ -462,6 +469,9 @@ struct MemMessage {
     hidden: bool,
     /// Copie provisoire créée par ce déplacement (pas encore synchronisée).
     pending_op: Option<PendingOpId>,
+    /// Texte du message, pour la recherche (vide tant que le corps n'est
+    /// pas téléchargé).
+    text: String,
 }
 
 impl MemMessage {
@@ -585,6 +595,7 @@ impl MailStore for InMemoryMailStore {
                     stored: new.clone(),
                     hidden: false,
                     pending_op: None,
+                    text: String::new(),
                 },
             );
         }
@@ -620,6 +631,7 @@ impl MailStore for InMemoryMailStore {
         mailbox: MailboxId,
         target: Uid,
         body: &StoredBody,
+        text: Option<&str>,
     ) -> Result<(), StoreError> {
         let mut s = lock(&self.state);
         if let Some(m) = s
@@ -628,6 +640,9 @@ impl MailStore for InMemoryMailStore {
             .and_then(|msgs| msgs.get_mut(&target))
         {
             m.stored.body = body.clone();
+            if let Some(text) = text {
+                m.text = text.chars().take(MAX_INDEXED_TEXT_CHARS).collect();
+            }
         }
         Ok(())
     }
@@ -1292,6 +1307,208 @@ impl MessageLocator for InMemoryMailStore {
         }
         Ok(None)
     }
+}
+
+// ---------------------------------------------------------------------------
+// Recherche plein texte (faux : évaluation directe de la requête)
+// ---------------------------------------------------------------------------
+
+/// Colonnes cherchables d'un message, en jetons pliés, avec leur poids
+/// dans le classement.
+struct SearchDoc {
+    columns: [(Field, u32, Vec<String>); 4],
+}
+
+impl SearchDoc {
+    fn of(message: &StoredMessage, body: &str) -> Self {
+        let h = &message.meta.headers;
+        let people = |list: &[Correspondent]| -> Vec<String> {
+            list.iter()
+                .flat_map(|c| tokens(&c.name).into_iter().chain(tokens(&c.address)))
+                .collect()
+        };
+        let recipients: Vec<Correspondent> = h.to.iter().chain(&h.cc).cloned().collect();
+        Self {
+            columns: [
+                (Field::Subject, 10, tokens(&h.subject)),
+                (Field::From, 5, people(&h.from)),
+                (Field::To, 3, people(&recipients)),
+                (Field::Any, 1, tokens(body)),
+            ],
+        }
+    }
+
+    /// Poids de la meilleure colonne où figurent les mots `words` (le
+    /// dernier en préfixe sauf pour une phrase), `None` sinon.
+    fn score(&self, field: Field, words: &[String], phrase: bool) -> Option<u32> {
+        self.columns
+            .iter()
+            .filter(|(f, _, _)| field == Field::Any || *f == field)
+            .filter(|(_, _, doc)| contains_words(doc, words, phrase))
+            .map(|(_, weight, _)| *weight)
+            .max()
+    }
+}
+
+fn contains_words(doc: &[String], words: &[String], phrase: bool) -> bool {
+    let Some((last, head)) = words.split_last() else {
+        return false;
+    };
+    doc.windows(words.len()).any(|w| {
+        w.iter().zip(head).all(|(d, t)| d == t)
+            && w.last().is_some_and(|d| {
+                if phrase || last.chars().count() < 2 {
+                    d == last
+                } else {
+                    d.starts_with(last.as_str())
+                }
+            })
+    })
+}
+
+impl norelly_domain::ports::SearchIndex for InMemoryMailStore {
+    async fn search(&self, request: SearchRequest) -> Result<SearchPage, StoreError> {
+        let limit = request.limit.min(MAX_PAGE_SIZE);
+        if limit == 0 || request.offset >= MAX_SEARCH_RESULTS {
+            return Ok(SearchPage::default());
+        }
+        // Clauses effectives : une clause de texte sans mot est ignorée.
+        let clauses: Vec<(bool, Atom, Vec<String>)> = request
+            .query
+            .clauses()
+            .iter()
+            .map(|c| {
+                let words = match &c.atom {
+                    Atom::Text { text, .. } => tokens(text),
+                    Atom::Filter(_) => Vec::new(),
+                };
+                (c.negated, c.atom.clone(), words)
+            })
+            .filter(|(_, atom, words)| matches!(atom, Atom::Filter(_)) || !words.is_empty())
+            .collect();
+        if clauses.is_empty() {
+            return Ok(SearchPage::default());
+        }
+        let ranked = clauses
+            .iter()
+            .any(|(negated, atom, _)| !negated && matches!(atom, Atom::Text { .. }));
+        let terms: Vec<&String> = clauses
+            .iter()
+            .filter(|(negated, atom, _)| !negated && matches!(atom, Atom::Text { .. }))
+            .flat_map(|(_, _, words)| words)
+            .collect();
+        let s = lock(&self.state);
+        let convs = s.conversations();
+        let located = s.located();
+        let outside_all: BTreeSet<(AccountId, &str)> = located
+            .iter()
+            .filter(|l| l.role != MailboxRole::All)
+            .filter_map(|l| {
+                let mid = l.message.stored.meta.headers.message_id.as_deref()?;
+                Some((l.account, mid))
+            })
+            .collect();
+        let mut hits: Vec<(u32, &Located<'_>)> = Vec::new();
+        'messages: for l in &located {
+            let in_scope = match request.scope {
+                SearchScope::All => true,
+                SearchScope::Account(a) => l.account == a,
+                SearchScope::Mailbox(m) => l.mailbox == m,
+            };
+            if !in_scope {
+                continue;
+            }
+            let meta = &l.message.stored.meta;
+            if !matches!(request.scope, SearchScope::Mailbox(_))
+                && l.role == MailboxRole::All
+                && meta
+                    .headers
+                    .message_id
+                    .as_deref()
+                    .is_some_and(|mid| outside_all.contains(&(l.account, mid)))
+            {
+                continue;
+            }
+            let doc = SearchDoc::of(&l.message.stored, &l.message.text);
+            let date = meta.sort_date();
+            let mut score = 0;
+            for (negated, atom, words) in &clauses {
+                let matched = match atom {
+                    Atom::Text { field, phrase, .. } => {
+                        let found = doc.score(*field, words, *phrase);
+                        if !negated {
+                            score += found.unwrap_or(0);
+                        }
+                        found.is_some()
+                    }
+                    Atom::Filter(filter) => match filter {
+                        Filter::HasAttachment => meta.has_attachments(),
+                        Filter::Unread => !meta.flags.seen,
+                        Filter::Read => meta.flags.seen,
+                        Filter::Flagged => meta.flags.flagged,
+                        Filter::Before(d) => date < d.start_timestamp(request.utc_offset_seconds),
+                        Filter::After(d) => date >= d.start_timestamp(request.utc_offset_seconds),
+                    },
+                };
+                if matched == *negated {
+                    continue 'messages;
+                }
+            }
+            hits.push((score, l));
+        }
+        hits.sort_by(|(sa, a), (sb, b)| {
+            let by_date = (b.message.stored.meta.sort_date(), b.message.id)
+                .cmp(&(a.message.stored.meta.sort_date(), a.message.id));
+            if ranked {
+                sb.cmp(sa).then(by_date)
+            } else {
+                by_date
+            }
+        });
+        let total = hits.len().min(MAX_SEARCH_RESULTS as usize);
+        let start = request.offset as usize;
+        let end = (start + limit as usize).min(total);
+        let items = hits
+            .get(start..end)
+            .unwrap_or_default()
+            .iter()
+            .map(|(_, l)| {
+                let meta = &l.message.stored.meta;
+                SearchHit {
+                    id: l.message.id,
+                    account: l.account,
+                    mailbox: l.mailbox,
+                    conversation: convs.get(&l.message.id).copied(),
+                    uid: meta.uid,
+                    date: meta.sort_date(),
+                    from: meta.headers.from.first().cloned(),
+                    subject: meta.headers.subject.clone(),
+                    snippet: snippet(&l.message.text, &terms),
+                    flags: meta.flags.clone(),
+                    has_attachments: meta.has_attachments(),
+                }
+            })
+            .collect();
+        let next = (end < total).then(|| u32::try_from(end).unwrap_or(MAX_SEARCH_RESULTS));
+        Ok(SearchPage { items, next })
+    }
+}
+
+/// Passage du texte borné à [`MAX_SNIPPET_CHARS`] caractères : quelques
+/// mots avant le premier mot qui commence par l'un des `terms`, sinon le
+/// début.
+fn snippet(text: &str, terms: &[&String]) -> String {
+    let words: Vec<&str> = text.split_whitespace().collect();
+    let first_hit = words.iter().position(|w| {
+        tokens(w)
+            .iter()
+            .any(|t| terms.iter().any(|term| t.starts_with(term.as_str())))
+    });
+    let start = first_hit.map_or(0, |i| i.saturating_sub(4));
+    norelly_domain::mailbox::header_text(
+        &words.get(start..).unwrap_or_default().join(" "),
+        MAX_SNIPPET_CHARS,
+    )
 }
 
 #[cfg(test)]

@@ -70,6 +70,7 @@ impl World {
             store: &self.store,
             blobs: &self.blobs,
             policy: FetchPolicy::default(),
+            text: std::sync::Arc::new(norelly_render::search_text::MimeTextExtractor),
         };
         self.boxes = use_case
             .sync_all(&mut self.session, self.ext, |_| {})

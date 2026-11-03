@@ -238,16 +238,30 @@ Commandes de référence (détail dans `scripts/check.sh`) :
 
 ## Phase 8 : recherche plein texte
 
-- [ ] Domaine : analyse de la syntaxe de requête (`from:`, `to:`, `subject:`, `has:attachment`, `is:unread`, `before:`/`after:`, guillemets, négation) en arbre syntaxique, avec des tests et `proptest` (aucune panique)
-- [ ] `adapters/sqlite` : FTS5 à contenu externe (`unicode61 remove_diacritics 2`), indexation dans la même transaction que l'insertion, préfixe automatique, `SearchQuery` paginée avec BM25
-- [ ] Test de contrat `SearchIndex` ; protection contre l'injection de syntaxe FTS5 (les termes de l'utilisateur sont échappés)
-- [ ] Bench : recherche dans 50k messages < 100 ms
-- [ ] Interface : barre de recherche (`/`), résultats en liste, surlignage, fonctionnement hors ligne
-- [ ] Revue security-reviewer, consignée dans REVIEWS.md (0 critique, 0 haute ; moyennes corrigées)
+- [x] Domaine : analyse de la syntaxe de requête (`from:`, `to:`, `subject:`, `has:attachment`, `is:unread`, `before:`/`after:`, guillemets, négation) en arbre syntaxique, avec des tests et `proptest` (aucune panique)
+  - `crates/domain/src/search.rs` : conjonction de clauses niables (texte sur un champ, ou filtre) ; aussi `is:read`, `is:flagged` ; opérateur inconnu ou valeur invalide cherchés comme du texte (jamais d'échec pour une faute de frappe) ; requête bornée (512 caractères, 16 clauses) ; `before:` exclut le jour, `after:` l'inclut, début du jour selon le décalage horaire reçu ; pliage casse et diacritiques aligné sur `unicode61 remove_diacritics 2` et surlignage en segments de texte (jamais de HTML).
+- [x] `adapters/sqlite` : FTS5 à contenu externe (`unicode61 remove_diacritics 2`), indexation dans la même transaction que l'insertion, préfixe automatique, `SearchQuery` paginée avec BM25
+  - migration 7 : `message_texts` (sujet, expéditeur, destinataires, texte) et `message_search`, tenus par des déclencheurs (synchronisation, copies provisoires, cascades) ; messages existants indexés à la montée de version ; texte du corps extrait par `render` (`MimeTextExtractor` : partie texte, sinon HTML réassaini réduit au texte, pièces jointes exclues, 100 000 caractères au plus) et enregistré par `set_body` dans la transaction du corps ; port `SearchIndex` : portée tous comptes, compte ou dossier, doublons de `\All` écartés, BM25 pondéré (sujet 10, expéditeur 5, destinataires 3, texte 1), sinon tri par date ; pagination par décalage, 1 000 résultats au plus ; `integrity_problems` vérifie aussi l'index (`integrity-check`).
+- [x] Test de contrat `SearchIndex` ; protection contre l'injection de syntaxe FTS5 (les termes de l'utilisateur sont échappés)
+  - `crates/test-support/src/search_contracts.rs`, joué contre le faux en mémoire et SQLite (mémoire, fichier avec pool de lecteurs) ; chaque clause devient une chaîne FTS5 entre guillemets (guillemets doublés), passée en paramètre lié ; SQL assemblé uniquement à partir de fragments constants (`check-sql.sh`) ; requêtes hostiles (`OR`, `NEAR`, `col:`, `^`, `*`, guillemets, parenthèses…) cherchées comme du texte.
+- [x] Bench : recherche dans 50k messages < 100 ms
+  - `crates/adapters/sqlite/benches/search.rs` (50 000 messages avec ~80 mots de texte) : de 0,4 ms (mot rare) à 43 ms (trois mots fréquents), médiane, mesuré le 2026-11-03.
+- [x] Interface : barre de recherche (`/`), résultats en liste, surlignage, fonctionnement hors ligne
+  - commande IPC `search_messages` (surlignage calculé en Rust, transmis en segments de texte) ; `SearchPanel.svelte` à la place de la liste (bouton de l'en-tête ou `/`), recherche pendant la frappe, `j`/`k`, Entrée ouvre la conversation dans le dossier du message (actions dans ce dossier), Échap revient ; index local uniquement, donc hors ligne (tests de commande sans aucune connexion) ; scénario e2e `search.e2e.mjs`.
+- [x] Reports de la revue de la phase 7 (REVIEWS.md, 4 basses) :
+  - boîte enregistrée avec chaque copie distante d'un brouillon (migration 8 : `drafts.remote_mailbox`, boîte dans la clé de `draft_remote_trash`) ; corbeille traitée boîte par boîte, boîte disparue ou refusée : copies oubliées ;
+  - brouillon refusé (`NO`) ou impossible à construire : journalisé, nouvel essai une heure plus tard (`DraftSync::remote_refused`), les brouillons suivants et la corbeille continuent ;
+  - pièces jointes : taille réelle des blobs revérifiée (`QueueMessage`, copie locale), 100 au plus (`ComposeError::TooManyAttachments`), type MIME recalculé en Rust d'après le nom ;
+  - brouillon relu depuis SQLite revalidé (`check_storable`).
+- [x] Revue security-reviewer, consignée dans REVIEWS.md (0 critique, 0 haute ; moyennes corrigées)
+  - 0 critique, 0 haute, 1 moyenne (extraction du texte hors du fil async, en temps borné : corrigée), 3 basses (extrait nettoyé : corrigée ; préfixe d'une lettre : corrigé en partie ; budget de temps des recherches et `hostile_message_sql.rs` : reportés en phase 9).
 
 **Condition de fin** : `./scripts/check.sh full && cargo bench -p norelly-sqlite -- --test && pnpm -C app e2e` passent sans erreur.
+- Vérifiée le 2026-11-03 : les trois commandes passent (bench recherche : 0,2 à 42 ms ; liste : < 1 ms ; e2e : 4 scénarios).
 
 ## Phase 9 : notifications et finitions
+
+- [ ] Reports de la revue de la phase 8 (REVIEWS.md) : budget de temps des lectures de recherche (interruption quand une nouvelle requête arrive), bench avec des corps réalistes ; `hostile_message_sql.rs` étendu à la recherche et au nom de boîte des copies distantes
 
 - [ ] Notifications natives (`tauri-plugin-notification`) pour les nouveaux messages (regroupées, sans contenu si l'option de confidentialité est active)
 - [ ] Traduction anglaise complète, relue ; choix de la langue dans les paramètres (système par défaut) ; textes des notifications localisés côté interface (ADR-011)

@@ -13,6 +13,8 @@
 //!   est construit par l'interface dans la langue de l'utilisateur et
 //!   reçu ici comme une donnée.
 
+pub mod draft;
+
 use crate::address::EmailAddress;
 use crate::conversation::strip_prefix;
 use crate::mailbox::Correspondent;

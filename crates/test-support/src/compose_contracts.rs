@@ -287,6 +287,8 @@ pub async fn contact_query_contract<S: ContactQuery + MailStore>(
             &[
                 mailbox("INBOX", MailboxRole::Inbox, true),
                 mailbox("Envoyés", MailboxRole::Sent, true),
+                mailbox("Indésirables", MailboxRole::Junk, true),
+                mailbox("Corbeille", MailboxRole::Trash, true),
             ],
         )
         .await?;
@@ -329,6 +331,22 @@ pub async fn contact_query_contract<S: ContactQuery + MailStore>(
             },
         )
         .await?;
+    // Indésirables et Corbeille : un inconnu ne peut pas s'y inviter dans
+    // les suggestions (revue de sécurité de la phase 7).
+    for (name, validity) in [("Indésirables", 4), ("Corbeille", 5)] {
+        store
+            .apply_sync(
+                id_of(name)?,
+                &SyncBatch {
+                    new: (1..=5)
+                        .map(|n| received(n, ("Alice Martin <alice@example.com>", "alice@evil.example"), &[]))
+                        .collect(),
+                    state: state(validity, 10, 6),
+                    ..SyncBatch::default()
+                },
+            )
+            .await?;
+    }
     let others = store
         .replace_mailboxes(other, &[mailbox("INBOX", MailboxRole::Inbox, true)])
         .await?;
@@ -365,6 +383,7 @@ pub async fn contact_query_contract<S: ContactQuery + MailStore>(
         "destinataires des messages reçus exclus"
     );
     assert!(!all.iter().any(|a| a.contains("autre")), "autre compte");
+    assert!(!all.iter().any(|a| a.contains("evil")), "indésirables et corbeille exclus");
     // Recherche dans le nom.
     assert_eq!(
         addresses(store.suggest(account, "martin", 10).await?),

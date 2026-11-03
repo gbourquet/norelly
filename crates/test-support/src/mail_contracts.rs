@@ -1227,7 +1227,9 @@ impl norelly_domain::ports::ContactQuery for InMemoryMailStore {
         // Adresse en minuscules → (nombre, correspondant).
         let mut seen: BTreeMap<String, (usize, Correspondent)> = BTreeMap::new();
         for (owner, mailbox, _) in &s.mailboxes {
-            if *owner != account {
+            if *owner != account
+                || matches!(mailbox.mailbox.role, MailboxRole::Junk | MailboxRole::Trash)
+            {
                 continue;
             }
             let Some(messages) = s.messages.get(&mailbox.id) else {

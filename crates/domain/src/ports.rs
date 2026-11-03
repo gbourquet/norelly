@@ -1206,8 +1206,9 @@ pub trait ContactQuery: Send + Sync {
     /// (sans distinction de casse ; texte vide : aucun), les plus
     /// fréquents d'abord, une seule fois par adresse ; au plus `limit`
     /// (borné à [`MAX_CONTACT_SUGGESTIONS`]). Sources : expéditeurs des
-    /// messages reçus, destinataires (À, Cc) des messages du dossier
-    /// Envoyés.
+    /// messages reçus, hors Indésirables et Corbeille (un inconnu ne peut
+    /// pas s'inviter dans les suggestions), destinataires (À, Cc) des
+    /// messages du dossier Envoyés.
     fn suggest(
         &self,
         account: AccountId,

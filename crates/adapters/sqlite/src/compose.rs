@@ -641,7 +641,8 @@ impl ContactQuery for SqliteMailStore {
                         "WITH people(name, address) AS ( \
                            SELECT m.from_name, m.from_address \
                              FROM messages m JOIN mailboxes b ON b.id = m.mailbox_id \
-                            WHERE b.account_id = ?1 AND b.role <> 'sent' \
+                            WHERE b.account_id = ?1 \
+                              AND b.role NOT IN ('sent', 'junk', 'trash') \
                               AND m.pending_op IS NULL \
                            UNION ALL \
                            SELECT json_extract(j.value, '$.name'), json_extract(j.value, '$.address') \

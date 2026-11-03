@@ -33,7 +33,11 @@
     }
   }
 
-  const format = (r: RecipientDto): string => (r.name ? `${r.name} <${r.address}>` : r.address);
+  /** « Nom <adresse> » ; un nom qui imite une adresse (`@`, `<`, `>`) est
+   * écarté : seule l'adresse réelle est montrée (revue de sécurité de la
+   * phase 7). */
+  const format = (r: RecipientDto): string =>
+    r.name && !/[@<>]/.test(r.name) ? `${r.name} <${r.address}>` : r.address;
 
   function onKeyDown(e: KeyboardEvent): void {
     if (e.ctrlKey || e.metaKey || e.altKey) return;
@@ -58,7 +62,7 @@
   <div class="chips">
     {#each recipients as r, i (r.address)}
       <span class="chip" title={r.address}>
-        {r.name || r.address}
+        {format(r)}
         <button
           type="button"
           aria-label={m.compose_remove_recipient({ address: r.address })}

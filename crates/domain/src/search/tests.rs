@@ -343,3 +343,12 @@ proptest! {
         prop_assert!(segments.windows(2).all(|w| w[0].hit != w[1].hit));
     }
 }
+
+#[test]
+fn tokens_are_folded_alphanumeric_runs() {
+    assert_eq!(
+        tokens("Compte-rendu : RÉUNION n°2, alice@example.com"),
+        ["compte", "rendu", "reunion", "n", "2", "alice", "example", "com"]
+    );
+    assert!(tokens(" -- ! ").is_empty());
+}

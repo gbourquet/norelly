@@ -30,6 +30,7 @@ use crate::mailbox::{
     Correspondent, Flags, ListedMailbox, MailboxId, MailboxName, MailboxRole, MessageMeta, ModSeq,
     RemoteMailbox, Uid,
 };
+use crate::search::Query;
 use crate::security::{CertificateException, PlaintextPolicy};
 use crate::sync::{
     FlagUpdate, LocalMailbox, MailboxSyncState, SelectRequest, SelectedMailbox, ServerQuery,
@@ -1219,6 +1220,83 @@ pub trait ContactQuery: Send + Sync {
         text: &str,
         limit: usize,
     ) -> impl Future<Output = Result<Vec<Correspondent>, StoreError>> + Send;
+}
+
+// ---------------------------------------------------------------------------
+// Recherche plein texte (phase 8)
+// ---------------------------------------------------------------------------
+
+/// Où chercher.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SearchScope {
+    /// Tous les comptes. Un message du dossier `\All` (Gmail : « Tous les
+    /// messages ») n'est listé que s'il n'a pas de copie (même
+    /// `Message-ID`) dans un autre dossier du compte.
+    All,
+    /// Un compte (même règle pour `\All`).
+    Account(AccountId),
+    /// Un dossier.
+    Mailbox(MailboxId),
+}
+
+/// Nombre maximal de résultats d'une recherche, toutes pages comprises.
+pub const MAX_SEARCH_RESULTS: u32 = 1000;
+/// Longueur maximale d'un extrait, en caractères.
+pub const MAX_SNIPPET_CHARS: usize = 200;
+
+/// Recherche demandée.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SearchRequest {
+    pub query: Query,
+    pub scope: SearchScope,
+    /// Décalage du fuseau de l'utilisateur, pour `before:` et `after:`.
+    pub utc_offset_seconds: i32,
+    /// Résultats à sauter (pages précédentes).
+    pub offset: u32,
+    /// Au plus [`MAX_PAGE_SIZE`].
+    pub limit: u32,
+}
+
+/// Message trouvé.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SearchHit {
+    pub id: MessageId,
+    pub account: AccountId,
+    pub mailbox: MailboxId,
+    pub conversation: Option<ConversationId>,
+    pub uid: Uid,
+    pub date: i64,
+    pub from: Option<Correspondent>,
+    pub subject: String,
+    /// Passage du texte du message (au plus [`MAX_SNIPPET_CHARS`]
+    /// caractères), vide si le texte n'est pas encore connu.
+    pub snippet: String,
+    pub flags: Flags,
+    pub has_attachments: bool,
+}
+
+/// Une page de résultats.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SearchPage {
+    pub items: Vec<SearchHit>,
+    /// Décalage de la page suivante ; `None` à la fin (ou au-delà de
+    /// [`MAX_SEARCH_RESULTS`]).
+    pub next: Option<u32>,
+}
+
+/// Index plein texte des messages locaux (fonctionne hors ligne).
+pub trait SearchIndex: Send + Sync {
+    /// Messages visibles (ni masqués par une action en attente, ni
+    /// `\Deleted`) qui satisfont toutes les clauses de la requête. Avec
+    /// au moins un terme de texte : les plus pertinents d'abord (le sujet
+    /// compte plus que l'expéditeur, puis les destinataires, puis le
+    /// texte) ; sinon du plus récent au plus ancien. Une requête vide ne
+    /// trouve rien. Les termes de l'utilisateur ne sont jamais interprétés
+    /// comme une syntaxe du moteur.
+    fn search(
+        &self,
+        request: SearchRequest,
+    ) -> impl Future<Output = Result<SearchPage, StoreError>> + Send;
 }
 
 /// Identifiant d'un message de la file d'envoi.

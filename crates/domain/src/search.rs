@@ -234,7 +234,7 @@ impl Query {
         let mut terms: Vec<String> = Vec::new();
         for clause in self.clauses.iter().filter(|c| !c.negated) {
             if let Atom::Text { text, .. } = &clause.atom {
-                for word in words(text).map(fold) {
+                for word in tokens(text) {
                     if !terms.contains(&word) {
                         terms.push(word);
                     }
@@ -344,6 +344,13 @@ fn base_letter(c: char) -> char {
         'ź' | 'ż' | 'ž' => 'z',
         other => other,
     }
+}
+
+/// Mots pliés d'un texte (voir [`fold`]), dans l'ordre : les jetons
+/// qu'indexe le tokenizer `unicode61 remove_diacritics 2`.
+#[must_use]
+pub fn tokens(text: &str) -> Vec<String> {
+    words(text).map(fold).collect()
 }
 
 /// Mots d'un texte : suites de lettres et de chiffres, comme les jetons

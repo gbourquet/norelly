@@ -15,7 +15,7 @@
 
 use crate::account::AccountId;
 use crate::address::EmailAddress;
-use crate::mailbox::{MAX_ADDRESS_CHARS, Uid, header_text};
+use crate::mailbox::{MAX_ADDRESS_CHARS, Uid, UidValidity, header_text};
 use crate::ports::BlobId;
 
 use super::Threading;
@@ -148,6 +148,24 @@ impl Draft {
     }
 }
 
+/// Message déposé sur le serveur (`APPENDUID`) : l'UID n'a de sens
+/// qu'avec l'UIDVALIDITY de sa boîte. Avant de supprimer une ancienne
+/// copie, on vérifie que la boîte a toujours cette UIDVALIDITY (sinon l'UID
+/// désignerait un autre message).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct RemoteCopy {
+    pub validity: UidValidity,
+    pub uid: Uid,
+}
+
+/// Les brouillons sont-ils copiés sur ce serveur ? Seulement avec UIDPLUS :
+/// sans `APPENDUID`, l'ancienne copie ne pourrait pas être retrouvée ni
+/// remplacée, et les copies s'accumuleraient.
+#[must_use]
+pub fn remote_drafts_supported(imap: &crate::capabilities::ServerCapabilities) -> bool {
+    imap.has("UIDPLUS")
+}
+
 /// État de la copie d'un brouillon sur le serveur.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct DraftSync {
@@ -155,8 +173,8 @@ pub struct DraftSync {
     pub revision: u64,
     /// Révision copiée sur le serveur.
     pub remote_revision: Option<u64>,
-    /// UID de la copie dans « Brouillons » (à remplacer puis supprimer).
-    pub remote_uid: Option<Uid>,
+    /// Copie dans « Brouillons » (à remplacer puis supprimer).
+    pub remote: Option<RemoteCopy>,
     /// Instant de la dernière copie (secondes Unix).
     pub last_remote_save: Option<i64>,
 }
@@ -181,18 +199,23 @@ impl DraftSync {
                 .is_none_or(|last| now.saturating_sub(last) >= REMOTE_SAVE_INTERVAL_SECS)
     }
 
-    /// Copie de la révision `revision` faite à `now` ; `uid` : UID de la
-    /// nouvelle copie (UIDPLUS `APPENDUID`), si connu. Renvoie l'état et
-    /// l'UID de l'ancienne copie, à supprimer.
+    /// Copie de la révision `revision` faite à `now` ; `copy` : la nouvelle
+    /// copie (UIDPLUS `APPENDUID`), si connue. Renvoie l'état et l'ancienne
+    /// copie, à supprimer.
     #[must_use]
-    pub fn remote_saved(self, revision: u64, uid: Option<Uid>, now: i64) -> (Self, Option<Uid>) {
+    pub fn remote_saved(
+        self,
+        revision: u64,
+        copy: Option<RemoteCopy>,
+        now: i64,
+    ) -> (Self, Option<RemoteCopy>) {
         let next = Self {
             revision: self.revision,
             remote_revision: Some(revision),
-            remote_uid: uid,
+            remote: copy,
             last_remote_save: Some(now),
         };
-        (next, self.remote_uid.filter(|old| Some(*old) != uid))
+        (next, self.remote.filter(|old| Some(*old) != copy))
     }
 }
 
@@ -211,8 +234,11 @@ mod tests {
         )
     }
 
-    fn uid(n: u32) -> Uid {
-        Uid::new(n).unwrap_or_else(|| panic!("uid"))
+    fn uid(n: u32) -> RemoteCopy {
+        RemoteCopy {
+            validity: UidValidity::new(7).unwrap_or_else(|| panic!("validité")),
+            uid: Uid::new(n).unwrap_or_else(|| panic!("uid")),
+        }
     }
 
     fn sendable() -> Draft {
@@ -293,6 +319,14 @@ mod tests {
     }
 
     #[test]
+    fn remote_drafts_need_uidplus() {
+        let caps =
+            |t: &[&str]| crate::capabilities::ServerCapabilities::from_imap(t.iter().copied());
+        assert!(remote_drafts_supported(&caps(&["IMAP4rev1", "UIDPLUS"])));
+        assert!(!remote_drafts_supported(&caps(&["IMAP4rev1"])));
+    }
+
+    #[test]
     fn remote_copy_is_periodic_and_only_when_changed() {
         let s = DraftSync::default();
         assert!(!s.remote_save_due(0), "rien à copier");
@@ -301,7 +335,7 @@ mod tests {
         assert!(s.remote_save_due(0), "première copie aussitôt");
         let (s, old) = s.remote_saved(1, Some(uid(10)), 100);
         assert_eq!(old, None);
-        assert_eq!(s.remote_uid, Some(uid(10)));
+        assert_eq!(s.remote, Some(uid(10)));
         assert!(!s.remote_save_due(200), "inchangé");
         let s = s.edited();
         assert!(
@@ -311,7 +345,7 @@ mod tests {
         assert!(s.remote_save_due(100 + REMOTE_SAVE_INTERVAL_SECS));
         let (s, old) = s.remote_saved(2, Some(uid(11)), 200);
         assert_eq!(old, Some(uid(10)), "ancienne copie à supprimer");
-        assert_eq!((s.remote_revision, s.remote_uid), (Some(2), Some(uid(11))));
+        assert_eq!((s.remote_revision, s.remote), (Some(2), Some(uid(11))));
     }
 
     #[test]
@@ -324,11 +358,11 @@ mod tests {
         assert!(s.remote_save_due(100 + REMOTE_SAVE_INTERVAL_SECS));
         // Sans APPENDUID : l'ancienne copie reste à supprimer plus tard.
         let s = DraftSync {
-            remote_uid: Some(uid(5)),
+            remote: Some(uid(5)),
             ..DraftSync::default()
         }
         .edited();
         let (s, old) = s.remote_saved(1, None, 0);
-        assert_eq!((s.remote_uid, old), (None, Some(uid(5))));
+        assert_eq!((s.remote, old), (None, Some(uid(5))));
     }
 }

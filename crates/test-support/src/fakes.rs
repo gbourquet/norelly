@@ -8,6 +8,7 @@ use std::time::Duration;
 
 use norelly_domain::actions::{FlagChange, StoreOutcome};
 use norelly_domain::capabilities::ServerCapabilities;
+use norelly_domain::compose::draft::RemoteCopy;
 use norelly_domain::connection::ConnectionError;
 use norelly_domain::discovery::{
     AutoconfigRequest, DiscoveredServers, ServerCandidate, SrvRecord, SrvService,
@@ -206,7 +207,7 @@ impl RemoteMailboxSession for FakeSession {
         mailbox: &MailboxName,
         raw: &[u8],
         draft: bool,
-    ) -> impl Future<Output = Result<Option<Uid>, ConnectionError>> + Send {
+    ) -> impl Future<Output = Result<Option<RemoteCopy>, ConnectionError>> + Send {
         self.inner.append(mailbox, raw, draft)
     }
     fn expunge_all(&mut self) -> impl Future<Output = Result<u32, ConnectionError>> + Send {

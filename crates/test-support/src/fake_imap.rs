@@ -13,6 +13,7 @@ use std::time::Duration;
 
 use norelly_domain::actions::{FlagChange, StoreOutcome};
 use norelly_domain::capabilities::ServerCapabilities;
+use norelly_domain::compose::draft::RemoteCopy;
 use norelly_domain::connection::ConnectionError;
 use norelly_domain::fetch_policy::BodyFetch;
 use norelly_domain::fetch_policy::PartPath;
@@ -788,7 +789,7 @@ impl RemoteMailboxSession for FakeImapSession {
         mailbox: &MailboxName,
         raw: &[u8],
         draft: bool,
-    ) -> Result<Option<Uid>, ConnectionError> {
+    ) -> Result<Option<RemoteCopy>, ConnectionError> {
         self.throttle().await;
         let (uidplus, exists) = {
             let mut s = self.step()?;
@@ -803,7 +804,11 @@ impl RemoteMailboxSession for FakeImapSession {
         let mut flags = Flags::from_tokens(["\\Seen"]);
         flags.draft = draft;
         let assigned = self.server.append(mailbox.as_str(), raw, flags, 0);
-        Ok(assigned.filter(|_| uidplus))
+        let validity = self.server.uid_validity(mailbox.as_str());
+        Ok(assigned
+            .zip(validity)
+            .filter(|_| uidplus)
+            .map(|(uid, validity)| RemoteCopy { validity, uid }))
     }
 
     async fn expunge_all(&mut self) -> Result<u32, ConnectionError> {

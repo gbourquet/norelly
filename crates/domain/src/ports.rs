@@ -15,6 +15,7 @@ use crate::actions::{
 use crate::address::EmailAddress;
 use crate::auth::{AuthError, AuthMechanism};
 use crate::capabilities::ServerCapabilities;
+use crate::compose::draft::RemoteCopy;
 use crate::connection::ConnectionError;
 use crate::conversation::ConversationScope;
 use crate::credentials::{Credentials, Secret, SecretBytes, Username};
@@ -338,15 +339,15 @@ pub trait RemoteMailboxSession: Send {
     ) -> impl Future<Output = Result<(), ConnectionError>> + Send;
 
     /// `APPEND` d'un message dans `mailbox` (sélection inutile), marqué
-    /// `\Seen`, et `\Draft` pour un brouillon. Renvoie l'UID attribué
-    /// quand le serveur le donne (UIDPLUS, code `APPENDUID`). Boîte
-    /// absente : [`ConnectionError::Rejected`].
+    /// `\Seen`, et `\Draft` pour un brouillon. Renvoie la copie
+    /// (UIDVALIDITY et UID) quand le serveur la donne (UIDPLUS, code
+    /// `APPENDUID`). Boîte absente : [`ConnectionError::Rejected`].
     fn append(
         &mut self,
         mailbox: &MailboxName,
         raw: &[u8],
         draft: bool,
-    ) -> impl Future<Output = Result<Option<Uid>, ConnectionError>> + Send;
+    ) -> impl Future<Output = Result<Option<RemoteCopy>, ConnectionError>> + Send;
 
     /// `UID COPY`.
     fn copy_to(

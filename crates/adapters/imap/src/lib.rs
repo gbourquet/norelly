@@ -25,6 +25,7 @@ use imap_next::imap_types::response::GreetingKind;
 use norelly_domain::actions::{ActionFlag, FlagChange, StoreOutcome};
 use norelly_domain::auth::{AuthMethod, authenticator_for, select_imap_auth_method};
 use norelly_domain::capabilities::ServerCapabilities;
+use norelly_domain::compose::draft::RemoteCopy;
 use norelly_domain::connection::{ConnectionError, TimeoutStage};
 use norelly_domain::endpoint::{Security, ServerEndpoint};
 use norelly_domain::fetch_policy::BodyFetch;
@@ -366,7 +367,7 @@ impl RemoteMailboxSession for ImapSession {
         mailbox: &MailboxName,
         raw: &[u8],
         draft: bool,
-    ) -> Result<Option<Uid>, ConnectionError> {
+    ) -> Result<Option<RemoteCopy>, ConnectionError> {
         self.conn.append(mailbox, raw, draft).await
     }
 

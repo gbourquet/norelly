@@ -26,6 +26,7 @@ use imap_next::imap_types::search::SearchKey;
 use imap_next::imap_types::sequence::SequenceSet;
 use mail_parser::{Address, HeaderValue, MessageParser};
 use norelly_domain::actions::StoreOutcome;
+use norelly_domain::compose::draft::RemoteCopy;
 use norelly_domain::connection::{ConnectionError, server_text};
 use norelly_domain::fetch_policy::{
     BodyFetch, Disposition, MAX_MIME_DEPTH, MAX_MIME_PARTS, MimePart, PartPath, attachment_name,
@@ -841,7 +842,7 @@ impl Connection {
         to: &MailboxName,
         raw: &[u8],
         draft: bool,
-    ) -> Result<Option<Uid>, ConnectionError> {
+    ) -> Result<Option<RemoteCopy>, ConnectionError> {
         let mut flags = vec![Flag::Seen];
         if draft {
             flags.push(Flag::Draft);
@@ -857,7 +858,11 @@ impl Connection {
         let reply = self.execute(body, false).await?;
         ensure_ok(&reply.status)?;
         Ok(match reply.status.code {
-            Some(Code::AppendUid { uid, .. }) => Some(Uid::from_nonzero(uid)),
+            Some(Code::AppendUid { uid, uid_validity }) => UidValidity::new(uid_validity.get())
+                .map(|validity| RemoteCopy {
+                    validity,
+                    uid: Uid::from_nonzero(uid),
+                }),
             _ => None,
         })
     }

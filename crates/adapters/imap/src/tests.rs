@@ -1068,7 +1068,11 @@ async fn append_sends_a_literal_and_reads_appenduid() -> TestResult {
         ))
         .await?;
     let drafts = MailboxName::parse("Brouillons")?;
-    assert_eq!(session.append(&drafts, raw, true).await?, Uid::new(42));
+    let copy = session.append(&drafts, raw, true).await?;
+    assert_eq!(
+        copy.map(|c| (c.validity.get(), c.uid)),
+        Some((7, Uid::new(42).ok_or("uid")?))
+    );
     let sent = MailboxName::parse("Envoyés")?;
     assert_eq!(session.append(&sent, raw, false).await?, None);
     let missing = MailboxName::parse("Absente")?;

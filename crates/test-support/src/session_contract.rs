@@ -506,8 +506,13 @@ where
         .into_iter()
         .max()
         .ok_or("APPEND absent")?;
-    if let Some(u) = appended {
-        assert_eq!(u, newest, "UID annoncé");
+    if let Some(copy) = appended {
+        assert_eq!(copy.uid, newest, "UID annoncé");
+        assert_eq!(
+            Some(copy.validity),
+            selected.uid_validity,
+            "UIDVALIDITY annoncée"
+        );
     }
     let flags = session.message_flags(newest).await.map_err(e)?;
     assert!(

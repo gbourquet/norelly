@@ -14,6 +14,7 @@
 //!   reçu ici comme une donnée.
 
 pub mod draft;
+pub mod outbox;
 
 use crate::address::EmailAddress;
 use crate::conversation::strip_prefix;

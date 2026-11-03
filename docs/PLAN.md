@@ -209,7 +209,8 @@ Commandes de référence (détail dans `scripts/check.sh`) :
   - `crates/domain/src/compose.rs` ; répondre à son propre message vise ses destinataires ; `References` bornées à 20 (racine et plus récents).
 - [x] Domaine (ADR-011) : reconnaissance des préfixes de sujet étrangers (`TR`, `AW`, `WG`, `SV`, `VS`, `Antw`, `RIF`, `RE :`…) avec `proptest` ; préfixes produits toujours `Re:`/`Fwd:` ; en-tête de citation reçu en paramètre, localisé par l'interface
   - liste partagée avec le regroupement des conversations (`conversation::strip_prefix`).
-- [ ] Domaine : brouillon (cycle de vie, sauvegarde périodique), file d'envoi (états, nouvelles tentatives, échec définitif)
+- [x] Domaine : brouillon (cycle de vie, sauvegarde périodique), file d'envoi (états, nouvelles tentatives, échec définitif)
+  - `compose/draft.rs` : validation avant envoi (destinataires, sujet sans contrôle, tailles), copie sur le serveur au plus toutes les 30 s et seulement si modifié ; `compose/outbox.rs` : essais hors ligne non comptés, attente croissante, 8 essais, envoi interrompu par un arrêt = incertain, jamais renvoyé automatiquement.
 - [ ] `adapters/render` : réassainissement du HTML Tiptap ; construction `multipart/alternative` + pièces jointes avec `lettre` ; tests du MIME produit (relu par `mail-parser`)
 - [ ] `adapters/imap` : APPEND des brouillons (remplacement de l'ancien via UIDPLUS), copie dans Envoyés (sauf serveurs qui le font eux-mêmes : Gmail)
 - [ ] Application : `SendMessage` (file d'envoi persistante, envoi différé hors ligne), `SaveDraft`

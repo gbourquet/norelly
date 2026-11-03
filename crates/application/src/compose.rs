@@ -233,8 +233,15 @@ impl<O: OutboxStore, S: MailSender> DeliverOutbox<'_, O, S> {
                     let failure = SendFailure::of(&e);
                     tracing::warn!(account = %self.account, error = %e, ?failure, "envoi en échec");
                     report.failed.push((item.id, failure));
-                    // Hors ligne : inutile de tenter les suivants.
-                    if failure == SendFailure::Unreachable {
+                    // Même cause pour tous les messages (hors ligne,
+                    // identifiants ou connexion refusés) : inutile de tenter
+                    // les suivants, ni d'enchaîner les échecs d'AUTH.
+                    if matches!(
+                        failure,
+                        SendFailure::Unreachable
+                            | SendFailure::Authentication
+                            | SendFailure::Security
+                    ) {
                         break;
                     }
                 }

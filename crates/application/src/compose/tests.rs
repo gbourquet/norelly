@@ -703,3 +703,44 @@ async fn stale_or_foreign_copies_are_never_deleted() {
         "rien supprimé dans la boîte recréée"
     );
 }
+
+/// Revue de la phase 7 (BASSE) : mot de passe ou certificat refusé, même
+/// cause pour tous les messages : la tournée s'arrête (pas de rafale
+/// d'échecs d'authentification).
+#[tokio::test]
+async fn delivery_stops_on_authentication_or_security_failure() {
+    use norelly_domain::auth::AuthError;
+    for (error, failure) in [
+        (
+            ConnectionError::Authentication(AuthError::Rejected {
+                message: "535".into(),
+            }),
+            SendFailure::Authentication,
+        ),
+        (
+            ConnectionError::Tls("certificat".into()),
+            SendFailure::Security,
+        ),
+    ] {
+        let w = world(true).await;
+        for to in ["a@example.com", "b@example.com"] {
+            w.queue()
+                .execute(None, &draft_to(to), &me(), NOW)
+                .await
+                .unwrap_or_else(|e| panic!("{e}"));
+        }
+        w.smtp.reply(Err(SendError::Connection(error)));
+        let report = w
+            .deliver()
+            .execute(&request(), NOW)
+            .await
+            .unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(
+            report.failed.len(),
+            1,
+            "{failure:?} : le second n'est pas tenté"
+        );
+        assert_eq!(report.failed[0].1, failure);
+        assert_eq!(w.entries().await[1], OutboxEntry::queued(NOW));
+    }
+}

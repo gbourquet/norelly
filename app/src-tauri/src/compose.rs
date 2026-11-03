@@ -200,6 +200,18 @@ pub fn content_type_of(name: &str) -> &'static str {
     }
 }
 
+/// Lit au plus `limit` octets d'un fichier ; `None` s'il est plus long
+/// (même s'il a grossi depuis `metadata`, ou si sa taille annoncée est
+/// fausse, comme celle d'un pseudo-fichier).
+pub fn read_bounded(path: &std::path::Path, limit: u64) -> std::io::Result<Option<Vec<u8>>> {
+    use std::io::Read;
+    let mut bytes = Vec::new();
+    std::fs::File::open(path)?
+        .take(limit.saturating_add(1))
+        .read_to_end(&mut bytes)?;
+    Ok((u64::try_from(bytes.len()).unwrap_or(u64::MAX) <= limit).then_some(bytes))
+}
+
 /// Suggestions d'adresses demandées par l'éditeur.
 const SUGGESTIONS: usize = 8;
 
@@ -446,12 +458,13 @@ async fn store_files(
             if !meta.is_file() {
                 continue;
             }
-            total = total.saturating_add(meta.len());
-            if total > MAX_ATTACHMENTS_BYTES {
-                return Err(ComposeFailure::from(ComposeError::AttachmentsTooLarge).into());
-            }
-            let bytes = std::fs::read(&path)
-                .map_err(|e| IpcError::new(ErrorCodeDto::OpenFailed).with_detail(e))?;
+            let remaining = MAX_ATTACHMENTS_BYTES.saturating_sub(total);
+            let bytes = read_bounded(&path, remaining)
+                .map_err(|e| IpcError::new(ErrorCodeDto::OpenFailed).with_detail(e))?
+                .ok_or_else(|| {
+                    IpcError::from(ComposeFailure::from(ComposeError::AttachmentsTooLarge))
+                })?;
+            total = total.saturating_add(u64::try_from(bytes.len()).unwrap_or(u64::MAX));
             let name = path
                 .file_name()
                 .map(|n| n.to_string_lossy().into_owned())
@@ -642,6 +655,23 @@ mod tests {
         );
         assert_eq!(c(ComposeFailure::NotFound), ErrorCodeDto::NotFound);
         assert_eq!(c(StoreError("x".into()).into()), ErrorCodeDto::Storage);
+    }
+
+    #[test]
+    fn attached_files_are_read_within_the_limit() {
+        let dir = std::env::temp_dir().join(format!("norelly-borne-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let path = dir.join("f.bin");
+        std::fs::write(&path, b"0123456789").unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(
+            read_bounded(&path, 10).unwrap_or_else(|e| panic!("{e}")),
+            Some(b"0123456789".to_vec())
+        );
+        assert_eq!(
+            read_bounded(&path, 9).unwrap_or_else(|e| panic!("{e}")),
+            None
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

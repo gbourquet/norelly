@@ -1,3 +1,4 @@
+use crate::account::AccountId;
 use proptest::prelude::*;
 
 use super::*;
@@ -239,4 +240,19 @@ fn quote_prefixes_every_line_under_the_attribution() {
         "Le 2 nov. 2026, Alice a écrit :\n> Bonjour,\n>\n> À demain\n>> déjà cité\n"
     );
     assert_eq!(quote("", "X :"), "X :\n>\n");
+}
+
+/// Revue de la phase 7 (BASSE) : un identifiant reçu non conforme (non
+/// ASCII, trop long) est ignoré, il n'empêche pas de répondre.
+#[test]
+fn invalid_received_identifiers_are_dropped_from_threading() {
+    let mut s = source();
+    s.message_id = Some("é@x".into());
+    s.references = vec!["ok@x".into(), "y".repeat(300), "b<c@x".into()];
+    let t = reply_threading(&s);
+    assert_eq!(t.in_reply_to, None);
+    assert_eq!(t.references, ["ok@x"]);
+    let mut d = super::draft::Draft::empty(AccountId::new(1).unwrap_or_else(|_| panic!("compte")));
+    d.threading = t;
+    assert_eq!(d.check_storable(), Ok(()));
 }

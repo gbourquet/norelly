@@ -150,8 +150,18 @@ pub fn reply_threading(source: &ReplySource) -> Threading {
     } else {
         &source.references
     };
+    // Identifiants reçus non conformes (non ASCII, trop longs…) ignorés :
+    // ils empêcheraient d'enregistrer la réponse.
+    let message_id = source
+        .message_id
+        .clone()
+        .filter(|id| draft::valid_message_id(id));
     let mut references: Vec<String> = Vec::new();
-    for id in parents.iter().chain(&source.message_id) {
+    for id in parents
+        .iter()
+        .chain(&message_id)
+        .filter(|id| draft::valid_message_id(id))
+    {
         if !references.contains(id) {
             references.push(id.clone());
         }
@@ -163,7 +173,7 @@ pub fn reply_threading(source: &ReplySource) -> Threading {
         references.extend(tail);
     }
     Threading {
-        in_reply_to: source.message_id.clone(),
+        in_reply_to: message_id,
         references,
     }
 }

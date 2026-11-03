@@ -22,7 +22,7 @@ use super::Threading;
 
 /// Identifiant de message utilisable dans un en-tête : ASCII imprimable,
 /// sans espace ni chevron, borné.
-fn valid_message_id(id: &str) -> bool {
+pub(crate) fn valid_message_id(id: &str) -> bool {
     !id.is_empty()
         && id.len() <= MAX_MESSAGE_ID_LEN
         && id

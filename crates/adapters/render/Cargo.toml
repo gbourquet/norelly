@@ -12,8 +12,13 @@ norelly-domain.workspace = true
 # Charsets hérités (ISO-2022-JP, windows-125x…) : full_encoding.
 mail-parser = { workspace = true, features = ["full_encoding"] }
 ammonia.workspace = true
+# Construction MIME des messages rédigés (ADR-002).
+lettre = { workspace = true, features = ["builder"] }
+getrandom.workspace = true
+thiserror.workspace = true
 
 [dev-dependencies]
+proptest.workspace = true
 sha2.workspace = true
 
 [build-dependencies]

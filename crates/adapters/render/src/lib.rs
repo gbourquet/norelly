@@ -12,6 +12,7 @@
 //! Ce crate est une zone de relecture prioritaire : tout ce qu'il reçoit
 //! est hostile.
 
+pub mod compose;
 pub mod css;
 pub mod mime;
 pub mod sanitize;

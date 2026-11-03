@@ -211,7 +211,8 @@ Commandes de référence (détail dans `scripts/check.sh`) :
   - liste partagée avec le regroupement des conversations (`conversation::strip_prefix`).
 - [x] Domaine : brouillon (cycle de vie, sauvegarde périodique), file d'envoi (états, nouvelles tentatives, échec définitif)
   - `compose/draft.rs` : validation avant envoi (destinataires, sujet sans contrôle, tailles), copie sur le serveur au plus toutes les 30 s et seulement si modifié ; `compose/outbox.rs` : essais hors ligne non comptés, attente croissante, 8 essais, envoi interrompu par un arrêt = incertain, jamais renvoyé automatiquement.
-- [ ] `adapters/render` : réassainissement du HTML Tiptap ; construction `multipart/alternative` + pièces jointes avec `lettre` ; tests du MIME produit (relu par `mail-parser`)
+- [x] `adapters/render` : réassainissement du HTML Tiptap ; construction `multipart/alternative` + pièces jointes avec `lettre` ; tests du MIME produit (relu par `mail-parser`)
+  - `crates/adapters/render/src/compose.rs` : liste blanche minimale (p, br, gras, italique, barré, liens http/https/mailto, listes, citations) ; version texte dérivée du HTML assaini ; `Bcc` seulement dans les copies locales ; `Message-ID` aléatoire (128 bits) sans nom de machine ; imbrication bornée à 64 niveaux (au-delà, réduit au texte). `lettre` compilé avec `builder`, `getrandom` ajouté en dépendance directe.
 - [ ] `adapters/imap` : APPEND des brouillons (remplacement de l'ancien via UIDPLUS), copie dans Envoyés (sauf serveurs qui le font eux-mêmes : Gmail)
 - [ ] Application : `SendMessage` (file d'envoi persistante, envoi différé hors ligne), `SaveDraft`
 - [ ] Interface : éditeur Tiptap (gras, italique, liens, listes, citation), destinataires avec autocomplétion depuis les adresses connues, pièces jointes par glisser-déposer et par sélecteur, `c`/`r`/`a`/`f`, Ctrl+Entrée pour envoyer

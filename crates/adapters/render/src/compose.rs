@@ -20,21 +20,18 @@ use std::time::{Duration, SystemTime};
 use lettre::address::Envelope;
 use lettre::message::header::{self, ContentType};
 use lettre::message::{Attachment, Mailbox, Mailboxes, Message, MultiPart, SinglePart};
+use mail_parser::{HeaderValue, MessageParser};
 use norelly_domain::address::EmailAddress;
-use norelly_domain::compose::draft::{Draft, Recipient};
-use norelly_domain::ports::OutgoingMessage;
+use norelly_domain::compose::ReplySource;
+use norelly_domain::compose::draft::Recipient;
+use norelly_domain::mailbox::{Correspondent, MAX_ADDRESSES, MessageHeaders, RawHeaders};
+use norelly_domain::ports::{
+    ComposeBuildError, ComposedMessage, Composition, MessageComposer, OutgoingMessage,
+};
 use norelly_domain::reading::safe_file_name;
 
 use crate::escape_html;
 use crate::sanitize::nesting_depth;
-
-/// Pièce jointe à joindre (contenu relu du stockage).
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct OutgoingAttachment {
-    pub file_name: String,
-    pub content_type: String,
-    pub bytes: Vec<u8>,
-}
 
 /// Écrire l'en-tête `Bcc` ?
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -45,28 +42,8 @@ pub enum BccHeader {
     Omit,
 }
 
-/// Message à construire.
-#[derive(Debug, Clone)]
-pub struct Composition<'a> {
-    pub from: &'a Recipient,
-    pub draft: &'a Draft,
-    pub attachments: &'a [OutgoingAttachment],
-    /// Date d'envoi, secondes Unix.
-    pub date: i64,
-    /// `Message-ID`, sans chevrons ([`new_message_id`]).
-    pub message_id: &'a str,
-}
-
-/// Échec de construction.
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-pub enum BuildError {
-    #[error("adresse refusée : {0}")]
-    Address(String),
-    #[error("construction MIME impossible : {0}")]
-    Mime(String),
-    #[error("aléa du système indisponible")]
-    Random,
-}
+/// Échec de construction (port du domaine).
+pub type BuildError = ComposeBuildError;
 
 /// Liste blanche du HTML rédigé : ce que l'éditeur sait produire.
 fn composed_builder() -> ammonia::Builder<'static> {
@@ -104,6 +81,10 @@ pub fn sanitize_composed_html(html: &str) -> String {
     }
     composed_builder().clean(html).to_string()
 }
+
+/// Taille maximale du texte cité dans une réponse (le brouillon reste
+/// sous [`norelly_domain::compose::draft::MAX_BODY_BYTES`]).
+pub const MAX_QUOTED_BYTES: usize = 1024 * 1024;
 
 /// Profondeur d'imbrication maximale du HTML rédigé (l'éditeur en produit
 /// bien moins) ; au-delà, il est réduit à son texte.
@@ -476,9 +457,9 @@ fn mime_error(e: impl std::fmt::Display) -> BuildError {
 }
 
 /// Message RFC 5322 brut.
-pub fn build_message(c: &Composition<'_>, bcc: BccHeader) -> Result<Vec<u8>, BuildError> {
-    let d = c.draft;
-    let from = mailbox(c.from)?;
+pub fn build_message(c: &Composition, bcc: BccHeader) -> Result<Vec<u8>, BuildError> {
+    let d = &c.draft;
+    let from = mailbox(&c.from)?;
     // Enveloppe imposée (la vraie est calculée par [`outgoing`]) : un
     // brouillon peut n'avoir aucun destinataire.
     let envelope =
@@ -538,7 +519,7 @@ pub fn build_message(c: &Composition<'_>, bcc: BccHeader) -> Result<Vec<u8>, Bui
             Body::Plain(part) => MultiPart::mixed().singlepart(part),
             Body::Alternative(part) => MultiPart::mixed().multipart(part),
         };
-        for a in c.attachments {
+        for a in &c.attachments {
             let content_type = ContentType::parse(&a.content_type)
                 .or_else(|_| ContentType::parse("application/octet-stream"))
                 .map_err(mime_error)?;
@@ -559,8 +540,8 @@ enum Body {
 
 /// Enveloppe SMTP et message transmis (sans `Bcc`) : tous les
 /// destinataires, Cci compris, sont dans l'enveloppe.
-pub fn outgoing(c: &Composition<'_>) -> Result<OutgoingMessage, BuildError> {
-    let d = c.draft;
+pub fn outgoing(c: &Composition) -> Result<OutgoingMessage, BuildError> {
+    let d = &c.draft;
     Ok(OutgoingMessage {
         from: c.from.address.to_string(),
         recipients: d
@@ -572,6 +553,123 @@ pub fn outgoing(c: &Composition<'_>) -> Result<OutgoingMessage, BuildError> {
             .collect(),
         raw: build_message(c, BccHeader::Omit)?,
     })
+}
+
+fn pairs(list: &[(String, String)]) -> Vec<(&str, &str)> {
+    list.iter().map(|(n, a)| (n.as_str(), a.as_str())).collect()
+}
+
+/// Implémentation du port [`MessageComposer`].
+#[derive(Debug, Clone, Copy, Default)]
+pub struct MimeComposer;
+
+impl MessageComposer for MimeComposer {
+    fn new_message_id(&self, from: &EmailAddress) -> Result<String, ComposeBuildError> {
+        new_message_id(from)
+    }
+
+    fn compose(&self, composition: &Composition) -> Result<ComposedMessage, ComposeBuildError> {
+        Ok(ComposedMessage {
+            outgoing: outgoing(composition)?,
+            local_copy: build_message(composition, BccHeader::Keep)?,
+        })
+    }
+
+    fn reply_source(&self, raw: &[u8]) -> Option<ReplySource> {
+        let message = MessageParser::default().parse(raw)?;
+        let people = |value: Option<&mail_parser::Address<'_>>| -> Vec<(String, String)> {
+            value
+                .map(|a| {
+                    a.iter()
+                        .map(|p| {
+                            (
+                                p.name().unwrap_or_default().to_owned(),
+                                p.address().unwrap_or_default().to_owned(),
+                            )
+                        })
+                        .collect()
+                })
+                .unwrap_or_default()
+        };
+        let ids = |value: &HeaderValue<'_>| -> Vec<String> {
+            match value {
+                HeaderValue::Text(t) => vec![t.to_string()],
+                HeaderValue::TextList(list) => list.iter().map(ToString::to_string).collect(),
+                _ => Vec::new(),
+            }
+        };
+        let (from, to, cc) = (
+            people(message.from()),
+            people(message.to()),
+            people(message.cc()),
+        );
+        let (in_reply_to, references) = (ids(message.in_reply_to()), ids(message.references()));
+
+        let headers = MessageHeaders::sanitize(&RawHeaders {
+            subject: message.subject().unwrap_or_default(),
+            from: pairs(&from),
+            to: pairs(&to),
+            cc: pairs(&cc),
+            date: None,
+            message_id: message.message_id(),
+            in_reply_to: in_reply_to.iter().map(String::as_str).collect(),
+            references: references.iter().map(String::as_str).collect(),
+        });
+        let reply_to = people(message.reply_to())
+            .iter()
+            .take(MAX_ADDRESSES)
+            .map(|(n, a)| Correspondent::new(n, a))
+            .collect();
+        // Message HTML seul : texte dérivé du HTML réassaini (sans script
+        // ni style) ; sinon sa partie texte.
+        let html_only = !message.html_body.is_empty() && message.text_body == message.html_body;
+        let mut body = if html_only {
+            message
+                .body_html(0)
+                .map(|h| html_to_text(&h))
+                .unwrap_or_default()
+        } else {
+            message
+                .body_text(0)
+                .map(|t| t.into_owned())
+                .unwrap_or_default()
+        };
+        if body.len() > MAX_QUOTED_BYTES {
+            let mut cut = MAX_QUOTED_BYTES;
+            while !body.is_char_boundary(cut) {
+                cut -= 1;
+            }
+            body.truncate(cut);
+        }
+        Some(ReplySource {
+            subject: headers.subject,
+            from: headers.from,
+            to: headers.to,
+            cc: headers.cc,
+            reply_to,
+            message_id: headers.message_id,
+            in_reply_to: headers.in_reply_to,
+            references: headers.references,
+            body,
+        })
+    }
+
+    fn quote_html(&self, text: &str, attribution: &str) -> String {
+        let mut html = format!("<p>{}</p><blockquote>", escape_html(attribution));
+        let normalized = text.replace("\r\n", "\n");
+        for paragraph in normalized.split("\n\n").filter(|p| !p.trim().is_empty()) {
+            let lines: Vec<String> = paragraph
+                .trim_matches('\n')
+                .split('\n')
+                .map(escape_html)
+                .collect();
+            html.push_str("<p>");
+            html.push_str(&lines.join("<br>"));
+            html.push_str("</p>");
+        }
+        html.push_str("</blockquote>");
+        html
+    }
 }
 
 #[cfg(test)]

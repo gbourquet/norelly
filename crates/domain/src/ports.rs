@@ -15,7 +15,8 @@ use crate::actions::{
 use crate::address::EmailAddress;
 use crate::auth::{AuthError, AuthMechanism};
 use crate::capabilities::ServerCapabilities;
-use crate::compose::draft::{Draft, DraftSync, RemoteCopy};
+use crate::compose::ReplySource;
+use crate::compose::draft::{Draft, DraftSync, Recipient, RemoteCopy};
 use crate::compose::outbox::OutboxEntry;
 use crate::connection::ConnectionError;
 use crate::conversation::ConversationScope;
@@ -1136,6 +1137,64 @@ pub trait DraftStore: Send + Sync {
         account: AccountId,
         copy: RemoteCopy,
     ) -> impl Future<Output = Result<(), StoreError>> + Send;
+}
+
+/// Pièce jointe relue du stockage, à joindre.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ComposedAttachment {
+    pub file_name: String,
+    pub content_type: String,
+    pub bytes: Vec<u8>,
+}
+
+/// Message à construire.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Composition {
+    pub from: Recipient,
+    pub draft: Draft,
+    pub attachments: Vec<ComposedAttachment>,
+    /// Date, secondes Unix.
+    pub date: i64,
+    /// `Message-ID`, sans chevrons ([`MessageComposer::new_message_id`]).
+    pub message_id: String,
+}
+
+/// Message construit.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ComposedMessage {
+    /// Enveloppe (Cci compris) et message transmis, sans `Bcc`.
+    pub outgoing: OutgoingMessage,
+    /// Copie locale (brouillon, Envoyés), avec `Bcc`.
+    pub local_copy: Vec<u8>,
+}
+
+/// Échec de construction d'un message.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum ComposeBuildError {
+    #[error("adresse refusée : {0}")]
+    Address(String),
+    #[error("construction MIME impossible : {0}")]
+    Mime(String),
+    #[error("aléa du système indisponible")]
+    Random,
+}
+
+/// Écriture et lecture MIME pour la rédaction (adaptateur `render`).
+pub trait MessageComposer: Send + Sync {
+    /// `Message-ID` aléatoire dans le domaine de l'expéditeur.
+    fn new_message_id(&self, from: &EmailAddress) -> Result<String, ComposeBuildError>;
+
+    /// Construit le message (HTML réassaini, version texte, pièces
+    /// jointes).
+    fn compose(&self, composition: &Composition) -> Result<ComposedMessage, ComposeBuildError>;
+
+    /// Relit un message reçu pour y répondre ou le transférer (en-têtes
+    /// assainis, `Reply-To`, texte). `None` s'il est illisible.
+    fn reply_source(&self, raw: &[u8]) -> Option<ReplySource>;
+
+    /// HTML d'éditeur d'une citation : `attribution` puis `text` dans un
+    /// `<blockquote>`, échappés.
+    fn quote_html(&self, text: &str, attribution: &str) -> String;
 }
 
 /// Suggestions au plus, quelle que soit la demande.

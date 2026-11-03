@@ -1,6 +1,9 @@
 use mail_parser::{MessageParser, MimeHeaders};
 use norelly_domain::account::AccountId;
 use norelly_domain::compose::Threading;
+use norelly_domain::ports::ComposedAttachment;
+
+use norelly_domain::ports::MessageComposer;
 
 use super::*;
 
@@ -30,21 +33,17 @@ fn me() -> Recipient {
     recipient("Élodie Martin", "elodie@example.com")
 }
 
-fn composition<'a>(
-    from: &'a Recipient,
-    d: &'a Draft,
-    attachments: &'a [OutgoingAttachment],
-) -> Composition<'a> {
+fn composition(from: &Recipient, d: &Draft, attachments: &[ComposedAttachment]) -> Composition {
     Composition {
-        from,
-        draft: d,
-        attachments,
+        from: from.clone(),
+        draft: d.clone(),
+        attachments: attachments.to_vec(),
         date: 1_793_613_600,
-        message_id: "abc123@example.com",
+        message_id: "abc123@example.com".into(),
     }
 }
 
-fn built(c: &Composition<'_>, bcc: BccHeader) -> Vec<u8> {
+fn built(c: &Composition, bcc: BccHeader) -> Vec<u8> {
     build_message(c, bcc).unwrap_or_else(|e| panic!("{e}"))
 }
 
@@ -238,12 +237,12 @@ fn attachments_make_a_mixed_message() {
     let mut d = draft();
     d.html = Some("<p>Ci-joint</p>".into());
     let files = [
-        OutgoingAttachment {
+        ComposedAttachment {
             file_name: "../../etc/passwd\r\nX-Injecté: 1".into(),
             content_type: "application/pdf".into(),
             bytes: vec![0, 159, 146, 150, 255],
         },
-        OutgoingAttachment {
+        ComposedAttachment {
             file_name: "notes été.txt".into(),
             content_type: "pas un type".into(),
             bytes: b"bonjour".to_vec(),
@@ -334,4 +333,93 @@ proptest::proptest! {
         let text = html_to_text(&html);
         proptest::prop_assert!(text.ends_with('\n'));
     }
+}
+
+// --- Port MessageComposer ---
+
+#[test]
+fn composer_builds_the_transmitted_message_and_the_local_copy() {
+    let from = me();
+    let d = draft();
+    let built = MimeComposer
+        .compose(&composition(&from, &d, &[]))
+        .unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(built.outgoing.recipients.len(), 3, "Cci dans l'enveloppe");
+    assert!(!String::from_utf8_lossy(&built.outgoing.raw).contains("cache@example.com"));
+    assert!(String::from_utf8_lossy(&built.local_copy).contains("cache@example.com"));
+}
+
+#[test]
+fn reply_source_reads_headers_reply_to_and_text() {
+    let raw = b"From: \"Alice\" <alice@example.com>\r\n\
+Reply-To: Liste <liste@example.org>\r\n\
+To: bob@example.com, \"Moi\" <moi@example.com>\r\n\
+Cc: carole@example.com\r\n\
+Subject: =?UTF-8?B?UsOpdW5pb24=?=\r\n\
+Message-ID: <m3@example.com>\r\n\
+In-Reply-To: <m2@example.com>\r\n\
+References: <m1@example.com> <m2@example.com>\r\n\
+Content-Type: text/html; charset=utf-8\r\n\r\n\
+<p>Bonjour <b>Bob</b></p><script>x()</script>\r\n";
+    let source = MimeComposer
+        .reply_source(raw)
+        .unwrap_or_else(|| panic!("illisible"));
+    assert_eq!(source.subject, "Réunion");
+    assert_eq!(
+        source.from.first().map(|c| c.address.as_str()),
+        Some("alice@example.com")
+    );
+    assert_eq!(
+        source
+            .reply_to
+            .first()
+            .map(|c| (c.name.as_str(), c.address.as_str())),
+        Some(("Liste", "liste@example.org"))
+    );
+    assert_eq!(source.to.len(), 2);
+    assert_eq!(source.cc.len(), 1);
+    assert_eq!(source.message_id.as_deref(), Some("m3@example.com"));
+    assert_eq!(source.in_reply_to, ["m2@example.com"]);
+    assert_eq!(source.references, ["m1@example.com", "m2@example.com"]);
+    assert!(source.body.contains("Bonjour Bob"), "{:?}", source.body);
+    assert!(
+        !source.body.contains("x()") && !source.body.contains('<'),
+        "{:?}",
+        source.body
+    );
+}
+
+#[test]
+fn reply_source_bounds_hostile_input() {
+    let long = format!(
+        "Subject: {}\r\nReply-To: \"a\r\n b\" <x@example.com>\r\n\r\n{}",
+        "s".repeat(10_000),
+        "corps ".repeat(2_000_000)
+    );
+    let source = MimeComposer
+        .reply_source(long.as_bytes())
+        .unwrap_or_else(|| panic!("illisible"));
+    assert!(source.subject.chars().count() <= 998);
+    assert!(source.body.len() <= MAX_QUOTED_BYTES);
+    assert!(
+        !source
+            .reply_to
+            .iter()
+            .any(|c| c.name.contains(['\r', '\n']))
+    );
+}
+
+#[test]
+fn quote_html_escapes_and_wraps_in_blockquote() {
+    let html = MimeComposer.quote_html(
+        "Bonjour <script>\n\n> déjà cité\nfin",
+        "Le 2 nov., Alice <alice@example.com> a écrit :",
+    );
+    assert_eq!(
+        html,
+        "<p>Le 2 nov., Alice &lt;alice@example.com&gt; a écrit :</p>\
+         <blockquote><p>Bonjour &lt;script&gt;</p><p>&gt; déjà cité<br>fin</p></blockquote>"
+    );
+    // Relu par le réassainissement sans perte.
+    assert_eq!(sanitize_composed_html(&html), html);
 }

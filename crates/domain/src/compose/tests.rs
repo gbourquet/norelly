@@ -124,6 +124,7 @@ fn source() -> ReplySource {
         message_id: Some("m3@example.com".into()),
         in_reply_to: vec!["m2@example.com".into()],
         references: vec!["m1@example.com".into(), "m2@example.com".into()],
+        body: String::new(),
     }
 }
 

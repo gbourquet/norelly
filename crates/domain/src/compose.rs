@@ -63,6 +63,8 @@ pub struct ReplySource {
     pub message_id: Option<String>,
     pub in_reply_to: Vec<String>,
     pub references: Vec<String>,
+    /// Texte du message (sa meilleure version texte), pour la citation.
+    pub body: String,
 }
 
 /// Nature d'une rédaction à partir d'un message.

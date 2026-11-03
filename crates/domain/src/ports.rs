@@ -957,7 +957,10 @@ pub trait PendingOpStore: Send + Sync {
     ) -> impl Future<Output = Result<Vec<FolderRef>, StoreError>> + Send;
 
     /// Enfile une opération et applique son effet local
-    /// ([`crate::actions::local_effect`]).
+    /// ([`crate::actions::local_effect`]). Un déplacement crée aussi une
+    /// copie provisoire du message dans le dossier de destination, que
+    /// [`PendingOpStore::revert`] et [`PendingOpStore::cancel`] retirent ;
+    /// ces copies sont ignorées par la synchronisation et par les actions.
     fn record(
         &self,
         op: &PendingOp,
@@ -991,6 +994,16 @@ pub trait PendingOpStore: Send + Sync {
         &self,
         id: PendingOpId,
     ) -> impl Future<Output = Result<Option<u32>, StoreError>> + Send;
+
+    /// Retire les copies provisoires des déplacements déjà rejoués (leur
+    /// opération a quitté la file), dans `mailbox` ou dans tout le compte.
+    /// À appeler juste après la synchronisation de la destination, qui
+    /// apporte le vrai message : ni trou ni doublon visible.
+    fn purge_placeholders(
+        &self,
+        account: AccountId,
+        mailbox: Option<MailboxId>,
+    ) -> impl Future<Output = Result<usize, StoreError>> + Send;
 
     /// Réapplique les effets locaux des opérations en attente d'un compte
     /// (après une synchronisation qui a rapporté l'état du serveur).

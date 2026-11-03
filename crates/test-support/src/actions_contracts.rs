@@ -152,6 +152,40 @@ where
     assert_eq!(unread(store.tree(account).await?), Some((1, 0)));
     // Toujours connu de la synchronisation.
     assert_eq!(store.local_mailbox(inbox).await?.messages.len(), 2);
+    // Copie provisoire visible tout de suite dans la Corbeille (liste,
+    // compteurs), mais ignorée par la synchronisation et par les actions.
+    let trash_page = store.page(trash, None, 10).await?;
+    assert_eq!(
+        trash_page.items.len(),
+        1,
+        "copie provisoire dans la destination"
+    );
+    assert_eq!(
+        trash_page.items.first().map(|i| i.subject.as_str()),
+        Some("Sujet 2")
+    );
+    let copy = trash_page
+        .items
+        .first()
+        .map(|i| i.id)
+        .ok_or_else(|| fail("copie"))?;
+    let trash_node = |nodes: Vec<norelly_domain::ports::FolderNode>| {
+        nodes
+            .iter()
+            .find(|n| n.id == trash)
+            .map(|n| (n.total, n.unread))
+    };
+    assert_eq!(trash_node(store.tree(account).await?), Some((1, 1)));
+    assert!(
+        store.local_mailbox(trash).await?.messages.is_empty(),
+        "inconnue de la synchronisation"
+    );
+    assert!(store.missing_bodies(trash, 10).await?.is_empty());
+    assert_eq!(
+        store.action_target(copy).await?,
+        None,
+        "pas d'action sur une copie"
+    );
 
     // --- File durable, dans l'ordre ---
     let pending = store.pending(account).await?;
@@ -210,6 +244,62 @@ where
         [m2, m1],
         "de nouveau visible"
     );
+    assert!(visible_ids(store, trash).await?.is_empty(), "copie retirée");
+
+    // --- Rejeu réussi d'un déplacement : la copie reste jusqu'à la
+    // synchronisation de la destination, puis la purge la retire ---
+    let t2 = target(store, m2).await?;
+    let op3 = PendingOp::new(&delete, &t2, 100).ok_or_else(|| fail("opération"))?;
+    let id3 = store.record(&op3).await?;
+    assert_eq!(visible_ids(store, trash).await?.len(), 1);
+    assert_eq!(
+        store.purge_placeholders(account, None).await?,
+        0,
+        "opération en file"
+    );
+    assert!(store.complete(id3).await?);
+    assert_eq!(
+        visible_ids(store, trash).await?.len(),
+        1,
+        "pas de trou avant la synchronisation"
+    );
+    store
+        .apply_sync(
+            trash,
+            &SyncBatch {
+                new: vec![sample_message(1, 2_000, false)],
+                state: state(11, 3, 2),
+                ..SyncBatch::default()
+            },
+        )
+        .await?;
+    assert_eq!(
+        store.purge_placeholders(other, None).await?,
+        0,
+        "autre compte"
+    );
+    assert_eq!(
+        store.purge_placeholders(account, Some(inbox)).await?,
+        0,
+        "autre dossier"
+    );
+    assert_eq!(store.purge_placeholders(account, Some(trash)).await?, 1);
+    assert_eq!(
+        visible_ids(store, trash).await?.len(),
+        1,
+        "le vrai message, sans doublon"
+    );
+    // Corbeille vidée pour la suite du contrat.
+    store
+        .apply_sync(
+            trash,
+            &SyncBatch {
+                reset: true,
+                state: state(11, 4, 2),
+                ..SyncBatch::default()
+            },
+        )
+        .await?;
 
     // --- Rejeu réussi : retirée, effet conservé ---
     assert!(store.complete(id1).await?);

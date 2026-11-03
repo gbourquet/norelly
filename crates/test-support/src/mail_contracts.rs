@@ -26,8 +26,8 @@ use norelly_domain::ports::{
 use norelly_domain::sync::{FlagUpdate, LocalMailbox, MailboxSyncState};
 
 use norelly_domain::actions::{
-    FolderRef, LocalEffect, LocalMessage, MAX_ACTION_TARGETS, Member, PendingOp, local_effect,
-    revert_effect,
+    FolderRef, LocalEffect, LocalMessage, MAX_ACTION_TARGETS, Member, OpKind, PendingOp,
+    local_effect, revert_effect,
 };
 use norelly_domain::ports::{PendingOpId, PendingOpStore};
 
@@ -460,6 +460,8 @@ struct MemMessage {
     stored: StoredMessage,
     /// Masqué par une action en attente (application optimiste).
     hidden: bool,
+    /// Copie provisoire créée par ce déplacement (pas encore synchronisée).
+    pending_op: Option<PendingOpId>,
 }
 
 impl MemMessage {
@@ -545,6 +547,7 @@ impl MailStore for InMemoryMailStore {
             .get(&mailbox)
             .map(|msgs| {
                 msgs.iter()
+                    .filter(|(_, m)| m.pending_op.is_none())
                     .map(|(u, m)| (*u, m.stored.meta.flags.clone()))
                     .collect()
             })
@@ -581,6 +584,7 @@ impl MailStore for InMemoryMailStore {
                     id,
                     stored: new.clone(),
                     hidden: false,
+                    pending_op: None,
                 },
             );
         }
@@ -599,7 +603,7 @@ impl MailStore for InMemoryMailStore {
             .map(|msgs| {
                 msgs.values()
                     .rev()
-                    .filter(|m| m.stored.body == StoredBody::Missing)
+                    .filter(|m| m.stored.body == StoredBody::Missing && m.pending_op.is_none())
                     .take(limit)
                     .map(|m| PendingBody {
                         uid: m.stored.meta.uid,
@@ -932,6 +936,44 @@ impl MemState {
             .find(|m| m.id == id)
     }
 
+    /// Copie provisoire du message déplacé dans la destination (UID
+    /// synthétique tout en haut de l'espace des UID).
+    fn create_placeholder(&mut self, id: PendingOpId, op: &PendingOp, to: &MailboxName) {
+        let Some(target) = self
+            .mailboxes
+            .iter()
+            .find(|(a, m, _)| *a == op.account && m.mailbox.name == *to)
+            .map(|(_, m, _)| m.id)
+        else {
+            return;
+        };
+        let source = self
+            .messages
+            .values()
+            .flat_map(BTreeMap::values)
+            .find(|m| m.id == op.message)
+            .cloned();
+        let Some(mut copy) = source else { return };
+        let raw = u32::MAX - u32::try_from(id.get().rem_euclid(100_000_000)).unwrap_or(0);
+        let Some(uid) = Uid::new(raw) else { return };
+        self.next_message += 1;
+        let Some(new_id) = MessageId::new(self.next_message) else {
+            return;
+        };
+        copy.id = new_id;
+        copy.stored.meta.uid = uid;
+        copy.stored.meta.flags.deleted = false;
+        copy.hidden = false;
+        copy.pending_op = Some(id);
+        self.messages.entry(target).or_default().insert(uid, copy);
+    }
+
+    fn remove_placeholders(&mut self, id: PendingOpId) {
+        for msgs in self.messages.values_mut() {
+            msgs.retain(|_, m| m.pending_op != Some(id));
+        }
+    }
+
     fn apply(&mut self, effect: LocalEffect) {
         match effect {
             LocalEffect::SetFlag {
@@ -970,11 +1012,10 @@ impl PendingOpStore for InMemoryMailStore {
     async fn action_target(&self, message: MessageId) -> Result<Option<LocalMessage>, StoreError> {
         let s = lock(&self.state);
         for (account, mailbox, state) in &s.mailboxes {
-            if let Some(m) = s
-                .messages
-                .get(&mailbox.id)
-                .and_then(|msgs| msgs.values().find(|m| m.id == message && !m.hidden))
-            {
+            if let Some(m) = s.messages.get(&mailbox.id).and_then(|msgs| {
+                msgs.values()
+                    .find(|m| m.id == message && !m.hidden && m.pending_op.is_none())
+            }) {
                 return Ok(Some(LocalMessage {
                     id: message,
                     account: *account,
@@ -999,6 +1040,7 @@ impl PendingOpStore for InMemoryMailStore {
             .located()
             .iter()
             .filter(|l| convs.get(&l.message.id) == Some(&conversation))
+            .filter(|l| l.message.pending_op.is_none())
             .map(|l| Member {
                 id: l.message.id,
                 mailbox: l.mailbox,
@@ -1027,7 +1069,34 @@ impl PendingOpStore for InMemoryMailStore {
         let id = PendingOpId::new(s.next_op).ok_or_else(|| StoreError("identifiant".into()))?;
         s.ops.insert(id, op.clone());
         s.apply(local_effect(op));
+        if let OpKind::Move { to } = &op.kind {
+            s.create_placeholder(id, op, to);
+        }
         Ok(id)
+    }
+
+    async fn purge_placeholders(
+        &self,
+        account: AccountId,
+        mailbox: Option<MailboxId>,
+    ) -> Result<usize, StoreError> {
+        let mut s = lock(&self.state);
+        let ids: Vec<MailboxId> = s
+            .mailboxes
+            .iter()
+            .filter(|(a, m, _)| *a == account && mailbox.is_none_or(|x| x == m.id))
+            .map(|(_, m, _)| m.id)
+            .collect();
+        let live: BTreeSet<PendingOpId> = s.ops.keys().copied().collect();
+        let mut n = 0;
+        for id in ids {
+            if let Some(msgs) = s.messages.get_mut(&id) {
+                let before = msgs.len();
+                msgs.retain(|_, m| m.pending_op.is_none_or(|op| live.contains(&op)));
+                n += before - msgs.len();
+            }
+        }
+        Ok(n)
     }
 
     async fn pending(
@@ -1055,6 +1124,7 @@ impl PendingOpStore for InMemoryMailStore {
             return Ok(false);
         };
         s.apply(revert_effect(&op));
+        s.remove_placeholders(id);
         Ok(true)
     }
 
@@ -1067,6 +1137,7 @@ impl PendingOpStore for InMemoryMailStore {
             return Ok(false);
         };
         s.apply(revert_effect(&op));
+        s.remove_placeholders(id);
         Ok(true)
     }
 

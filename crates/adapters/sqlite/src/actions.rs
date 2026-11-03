@@ -64,6 +64,72 @@ fn apply_effect(c: &Connection, effect: LocalEffect) -> Result<(), StoreError> {
     Ok(())
 }
 
+/// UID synthétique d'une copie provisoire : tout en haut de l'espace des
+/// UID (les serveurs attribuent les UID en croissant depuis 1), distinct
+/// pour chaque opération. La synchronisation ignore ces lignes
+/// (`pending_op IS NOT NULL`).
+fn placeholder_uid(op: i64) -> i64 {
+    4_294_967_295 - op.rem_euclid(100_000_000)
+}
+
+/// Copie provisoire du message déplacé dans le dossier de destination
+/// (l'utilisateur voit l'état final sans attendre le serveur). Sans effet
+/// si la destination est inconnue localement.
+fn create_placeholder(
+    c: &Connection,
+    op_id: i64,
+    op: &PendingOp,
+    to: &MailboxName,
+) -> Result<(), StoreError> {
+    let target: Option<i64> = c
+        .query_row(
+            "SELECT id FROM mailboxes WHERE account_id = ?1 AND name = ?2",
+            params![op.account.get(), to.as_str()],
+            |r| r.get(0),
+        )
+        .optional()
+        .map_err(store_error)?;
+    let Some(target) = target else {
+        return Ok(());
+    };
+    let uid = placeholder_uid(op_id);
+    c.execute(
+        "DELETE FROM messages WHERE mailbox_id = ?1 AND uid = ?2",
+        params![target, uid],
+    )
+    .map_err(store_error)?;
+    let copied = c
+        .execute(
+            "INSERT INTO messages (mailbox_id, uid, flags, keywords, internal_date, sort_date, \
+             size, subject, from_name, from_address, to_json, cc_json, message_id, in_reply_to, \
+             refs, header_date, has_attachments, structure, body_state, body_blob, \
+             conversation_id, pending_op) \
+             SELECT ?1, ?2, flags & ~8, keywords, internal_date, sort_date, size, subject, \
+             from_name, from_address, to_json, cc_json, message_id, in_reply_to, refs, \
+             header_date, has_attachments, structure, body_state, body_blob, conversation_id, ?3 \
+             FROM messages WHERE id = ?4",
+            params![target, uid, op_id, op.message.get()],
+        )
+        .map_err(store_error)?;
+    if copied > 0 {
+        let copy = c.last_insert_rowid();
+        c.execute(
+            "INSERT INTO message_parts (message_id, section, blob) \
+             SELECT ?1, section, blob FROM message_parts WHERE message_id = ?2",
+            params![copy, op.message.get()],
+        )
+        .map_err(store_error)?;
+    }
+    Ok(())
+}
+
+/// Retire les copies provisoires d'une opération.
+fn remove_placeholders(c: &Connection, op_id: i64) -> Result<(), StoreError> {
+    c.execute("DELETE FROM messages WHERE pending_op = ?1", [op_id])
+        .map_err(store_error)?;
+    Ok(())
+}
+
 fn insert_op(c: &Connection, op: &PendingOp) -> Result<i64, StoreError> {
     let (kind, flag, value, previous, since, target) = match &op.kind {
         OpKind::Flag {
@@ -242,7 +308,7 @@ impl PendingOpStore for SqliteMailStore {
                         "SELECT b.account_id, b.id, b.name, b.role, b.selectable, m.uid, m.flags, \
                          m.keywords, b.uid_validity, b.highest_modseq \
                          FROM messages m JOIN mailboxes b ON b.id = m.mailbox_id \
-                         WHERE m.id = ?1 AND m.hidden = 0",
+                         WHERE m.id = ?1 AND m.hidden = 0 AND m.pending_op IS NULL",
                         [message.get()],
                         |r| {
                             Ok((
@@ -304,6 +370,7 @@ impl PendingOpStore for SqliteMailStore {
                         "SELECT m.id, m.mailbox_id, b.role, m.flags, m.keywords, m.sort_date \
                          FROM messages m JOIN mailboxes b ON b.id = m.mailbox_id \
                          WHERE m.conversation_id = ?1 AND m.hidden = 0 AND (m.flags & 8) = 0 \
+                         AND m.pending_op IS NULL \
                          ORDER BY m.sort_date, m.id LIMIT ?2",
                     )
                     .map_err(store_error)?;
@@ -369,6 +436,9 @@ impl PendingOpStore for SqliteMailStore {
                     .map_err(store_error)?;
                 let id = insert_op(&tx, &op)?;
                 apply_effect(&tx, local_effect(&op))?;
+                if let OpKind::Move { to } = &op.kind {
+                    create_placeholder(&tx, id, &op, to)?;
+                }
                 tx.commit().map_err(store_error)?;
                 PendingOpId::new(id).ok_or_else(|| corrupted("identifiant d'opération"))
             })
@@ -405,6 +475,7 @@ impl PendingOpStore for SqliteMailStore {
                 tx.execute("DELETE FROM pending_ops WHERE id = ?1", [id.get()])
                     .map_err(store_error)?;
                 apply_effect(&tx, revert_effect(&op))?;
+                remove_placeholders(&tx, id.get())?;
                 tx.commit().map_err(store_error)?;
                 Ok(true)
             })
@@ -430,6 +501,7 @@ impl PendingOpStore for SqliteMailStore {
                     return Ok(false);
                 }
                 apply_effect(&tx, revert_effect(&op))?;
+                remove_placeholders(&tx, id.get())?;
                 tx.commit().map_err(store_error)?;
                 Ok(true)
             })
@@ -449,6 +521,27 @@ impl PendingOpStore for SqliteMailStore {
                     .optional()
                     .map_err(store_error)?;
                 Ok(attempts.map(|a| u32::try_from(a).unwrap_or(u32::MAX)))
+            })
+            .await
+    }
+
+    async fn purge_placeholders(
+        &self,
+        account: AccountId,
+        mailbox: Option<MailboxId>,
+    ) -> Result<usize, StoreError> {
+        self.db()
+            .run(move |c| {
+                let n = c
+                    .execute(
+                        "DELETE FROM messages WHERE pending_op IS NOT NULL \
+                         AND pending_op NOT IN (SELECT id FROM pending_ops) \
+                         AND mailbox_id IN (SELECT id FROM mailboxes WHERE account_id = ?1) \
+                         AND (?2 IS NULL OR mailbox_id = ?2)",
+                        params![account.get(), mailbox.map(MailboxId::get)],
+                    )
+                    .map_err(store_error)?;
+                Ok(n)
             })
             .await
     }

@@ -342,7 +342,11 @@ fn local(conn: &Connection, mailbox: MailboxId) -> Result<LocalMailbox, StoreErr
         .map_err(store_error)?
         .unwrap_or_default();
     let mut stmt = conn
-        .prepare_cached("SELECT uid, flags, keywords FROM messages WHERE mailbox_id = ?1")
+        // Copies provisoires (pending_op) ignorées : inconnues du serveur.
+        .prepare_cached(
+            "SELECT uid, flags, keywords FROM messages WHERE mailbox_id = ?1 \
+             AND pending_op IS NULL",
+        )
         .map_err(store_error)?;
     let rows = stmt
         .query_map([mailbox.get()], |r| {
@@ -394,6 +398,7 @@ impl MailStore for SqliteMailStore {
                     .prepare_cached(
                         "SELECT uid, size, structure FROM messages \
                          WHERE mailbox_id = ?1 AND body_state = 'missing' \
+                         AND pending_op IS NULL \
                          ORDER BY uid DESC LIMIT ?2",
                     )
                     .map_err(store_error)?;

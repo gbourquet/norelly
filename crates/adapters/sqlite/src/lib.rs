@@ -39,6 +39,7 @@ fn migrations() -> Migrations<'static> {
         M::up(include_str!("../migrations/0002_mail.sql")),
         M::up(include_str!("../migrations/0003_conversations.sql")),
         M::up(include_str!("../migrations/0004_actions.sql")),
+        M::up(include_str!("../migrations/0005_placeholder_copies.sql")),
     ])
 }
 
@@ -531,6 +532,11 @@ mod tests {
          INSERT INTO pending_ops (account_id, message_id, mailbox, uid_validity, uid, kind, \
          target, not_before) VALUES (1, 1, 'INBOX', 42, 7, 'move', 'Archives', 0); \
          INSERT INTO action_settings (account_id, archive_mailbox) VALUES (1, 1);",
+        // Version 5 : une copie provisoire (message déplacé, pas encore
+        // synchronisé dans la destination).
+        "INSERT INTO messages (mailbox_id, uid, internal_date, sort_date, size, subject, \
+         from_name, from_address, has_attachments, pending_op) \
+         VALUES (1, 4294967294, 100, 100, 10, 'v5', '', 'a@example.com', 0, 1);",
     ];
 
     /// Montée de version depuis chaque version précédente, données

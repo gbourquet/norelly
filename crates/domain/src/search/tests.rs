@@ -348,7 +348,9 @@ proptest! {
 fn tokens_are_folded_alphanumeric_runs() {
     assert_eq!(
         tokens("Compte-rendu : RÉUNION n°2, alice@example.com"),
-        ["compte", "rendu", "reunion", "n", "2", "alice", "example", "com"]
+        [
+            "compte", "rendu", "reunion", "n", "2", "alice", "example", "com"
+        ]
     );
     assert!(tokens(" -- ! ").is_empty());
 }

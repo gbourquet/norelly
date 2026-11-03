@@ -11,12 +11,13 @@ use norelly_domain::mailbox::{
     Correspondent, Flags, MailboxId, MailboxRole, MessageHeaders, MessageMeta,
 };
 use norelly_domain::ports::{
-    MAX_PAGE_SIZE, MAX_SEARCH_RESULTS, MailStore, SearchIndex, SearchPage, SearchRequest,
-    SearchScope, StoreError, StoredBody, StoredMailbox, StoredMessage, SyncBatch,
+    BlobId, MAX_INDEXED_TEXT_CHARS, MAX_PAGE_SIZE, MAX_SEARCH_RESULTS, MAX_SNIPPET_CHARS,
+    MailStore, SearchIndex, SearchPage, SearchRequest, SearchScope, StoreError, StoredBody,
+    StoredMailbox, StoredMessage, SyncBatch,
 };
 use norelly_domain::search::{Date, parse_query};
 
-use crate::mail_contracts::{mailbox, state, uid};
+use crate::mail_contracts::{mailbox, sha256_hex, state, uid};
 
 /// Message de test décrit champ par champ.
 struct Mail<'a> {
@@ -485,6 +486,73 @@ where
     );
     assert_eq!(found(store, "facture*", mine).await?, ["Facture d'avril"]);
     assert_eq!(found(store, "%", mine).await?, Vec::<String>::new());
+
+    // --- Texte des messages ---
+    let blob = BlobId::parse(&sha256_hex(b"corps")).ok_or_else(|| StoreError("blob".into()))?;
+    let body = StoredBody::Full(blob);
+    let text = format!(
+        "Bonjour Bob,\n\n{}les cerises sont mûres.\r\n{}",
+        "bla ".repeat(100),
+        "fin ".repeat(100)
+    );
+    store.set_body(inbox, uid(2), &body, Some(&text)).await?;
+    assert_eq!(found(store, "cerises", mine).await?, ["Réunion de lundi"]);
+    assert_eq!(found(store, "MURES", mine).await?, ["Réunion de lundi"]);
+    assert_eq!(
+        found(store, "\"cerises sont\"", mine).await?,
+        ["Réunion de lundi"]
+    );
+    assert_eq!(
+        found(store, "subject:cerises", mine).await?,
+        Vec::<String>::new(),
+        "le texte n'est cherché que sans champ"
+    );
+    let hit = store.search(request("cerises", mine)).await?;
+    let snippet = hit
+        .items
+        .first()
+        .map(|h| h.snippet.clone())
+        .unwrap_or_default();
+    assert!(
+        snippet.contains("cerises"),
+        "extrait autour du terme : {snippet:?}"
+    );
+    assert!(snippet.chars().count() <= MAX_SNIPPET_CHARS, "{snippet:?}");
+    assert!(!snippet.contains(['\n', '\r']), "{snippet:?}");
+    let hit = store.search(request("is:flagged", mine)).await?;
+    let snippet = hit
+        .items
+        .first()
+        .map(|h| h.snippet.clone())
+        .unwrap_or_default();
+    assert!(
+        snippet.starts_with("Bonjour Bob, bla"),
+        "sans texte cherché : le début ({snippet:?})"
+    );
+    // Corps réenregistré sans texte : le texte reste.
+    store.set_body(inbox, uid(2), &body, None).await?;
+    assert_eq!(found(store, "cerises", mine).await?, ["Réunion de lundi"]);
+    // Le texte compte moins que le sujet.
+    store
+        .set_body(inbox, uid(3), &body, Some("On se voit lundi ?"))
+        .await?;
+    assert_eq!(
+        subjects(store, "lundi", SearchScope::Mailbox(inbox)).await?,
+        ["Réunion de lundi", "Carole arrive"]
+    );
+    // Texte vidé.
+    store.set_body(inbox, uid(2), &body, Some("")).await?;
+    assert_eq!(found(store, "cerises", mine).await?, Vec::<String>::new());
+    // Texte borné : ce qui dépasse n'est pas indexé.
+    let huge = format!(
+        "{} débutmot {} finmot",
+        "a".repeat(10),
+        "b ".repeat(MAX_INDEXED_TEXT_CHARS / 2)
+    );
+    store.set_body(inbox, uid(2), &body, Some(&huge)).await?;
+    assert_eq!(found(store, "débutmot", mine).await?, ["Réunion de lundi"]);
+    assert_eq!(found(store, "finmot", mine).await?, Vec::<String>::new());
+    store.set_body(inbox, uid(2), &body, Some("")).await?;
 
     // --- Pagination ---
     let mut paged = request("-zzz", mine);

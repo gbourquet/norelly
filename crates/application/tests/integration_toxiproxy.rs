@@ -197,6 +197,7 @@ async fn half_open_connection_times_out_then_converges() -> TestResult {
         store: &*l.store,
         blobs: &*l.blobs,
         policy: FetchPolicy::default(),
+        text: &norelly_render::search_text::MimeTextExtractor,
     }
     .sync_all(&mut session, ext, |_| {})
     .await;
@@ -263,6 +264,7 @@ async fn actor_reconnects_after_outage_and_converges() -> TestResult {
         Arc::clone(&conn),
         Arc::clone(&l.store),
         Arc::clone(&l.blobs),
+        Arc::new(norelly_render::search_text::MimeTextExtractor),
         ActorConfig {
             backoff: Backoff::new(200, 2_000),
             ..ActorConfig::default()
@@ -328,6 +330,7 @@ async fn offline_actions_are_replayed_when_the_network_comes_back() -> TestResul
         Arc::clone(&conn),
         Arc::clone(&l.store),
         Arc::clone(&l.blobs),
+        Arc::new(norelly_render::search_text::MimeTextExtractor),
         ActorConfig {
             backoff: Backoff::new(200, 2_000),
             ..ActorConfig::default()

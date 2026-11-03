@@ -29,7 +29,7 @@ use norelly_domain::fetch_policy::{BodyFetch, FetchPolicy};
 use norelly_domain::mailbox::{MailboxId, MailboxName, Uid};
 use norelly_domain::ports::{
     BlobStore, ConnectRequest, FetchedBody, IdleOutcome, MailStore, PendingOpStore,
-    RemoteMailboxConnector, RemoteMailboxSession, StoredMailbox,
+    RemoteMailboxConnector, RemoteMailboxSession, SearchTextExtractor, StoredMailbox,
 };
 use norelly_domain::sync::{Backoff, IDLE_RENEWAL_SECS, SelectRequest, SyncExtensions};
 use tokio::sync::{broadcast, mpsc, oneshot, watch};
@@ -220,6 +220,7 @@ struct Shared<C, M, B> {
     connector: Arc<C>,
     store: Arc<M>,
     blobs: Arc<B>,
+    text: Arc<dyn SearchTextExtractor>,
     config: ActorConfig,
     events: broadcast::Sender<SyncEvent>,
 }
@@ -267,6 +268,7 @@ where
             store: &self.store,
             blobs: &self.blobs,
             policy: self.config.policy,
+            text: &*self.text,
         }
     }
 
@@ -640,6 +642,7 @@ pub fn spawn<C, M, B>(
     connector: Arc<C>,
     store: Arc<M>,
     blobs: Arc<B>,
+    text: Arc<dyn SearchTextExtractor>,
     config: ActorConfig,
 ) -> AccountHandle
 where
@@ -657,6 +660,7 @@ where
         connector,
         store,
         blobs,
+        text,
         config,
         events: events.clone(),
     });

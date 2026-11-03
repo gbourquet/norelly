@@ -128,6 +128,7 @@ async fn idle_receives_appended_message_within_five_seconds() -> TestResult {
         Arc::clone(&conn),
         Arc::clone(&l.store),
         Arc::clone(&l.blobs),
+        Arc::new(norelly_render::search_text::MimeTextExtractor),
         ActorConfig {
             backoff: Backoff::new(100, 1_000),
             ..ActorConfig::default()

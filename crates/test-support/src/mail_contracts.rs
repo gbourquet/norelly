@@ -24,7 +24,8 @@ use norelly_domain::ports::{
     MessageLocation, MessageLocator, same_sender,
 };
 use norelly_domain::ports::{
-    MAX_SEARCH_RESULTS, MAX_SNIPPET_CHARS, SearchHit, SearchPage, SearchRequest, SearchScope,
+    MAX_INDEXED_TEXT_CHARS, MAX_SEARCH_RESULTS, MAX_SNIPPET_CHARS, SearchHit, SearchPage,
+    SearchRequest, SearchScope,
 };
 use norelly_domain::search::{Atom, Field, Filter, tokens};
 use norelly_domain::sync::{FlagUpdate, LocalMailbox, MailboxSyncState};
@@ -315,7 +316,7 @@ where
     );
     let full = blob_id(b"un")?;
     store
-        .set_body(inbox, uid(3), &StoredBody::Full(full))
+        .set_body(inbox, uid(3), &StoredBody::Full(full), None)
         .await?;
     let partial = StoredBody::Partial {
         header: blob_id(b"en-tete")?,
@@ -325,8 +326,8 @@ where
         )],
         deferred: vec![PartPath::parse("2").unwrap_or_else(|| panic!("chemin"))],
     };
-    store.set_body(inbox, uid(1), &partial).await?;
-    store.set_body(inbox, uid(42), &partial).await?; // disparu : sans effet
+    store.set_body(inbox, uid(1), &partial, None).await?;
+    store.set_body(inbox, uid(42), &partial, None).await?; // disparu : sans effet
     assert!(store.missing_bodies(inbox, 10).await?.is_empty());
     let pending: Vec<PendingBody> = store.missing_bodies(inbox, 0).await?;
     assert!(pending.is_empty());
@@ -630,6 +631,7 @@ impl MailStore for InMemoryMailStore {
         mailbox: MailboxId,
         target: Uid,
         body: &StoredBody,
+        text: Option<&str>,
     ) -> Result<(), StoreError> {
         let mut s = lock(&self.state);
         if let Some(m) = s
@@ -638,6 +640,9 @@ impl MailStore for InMemoryMailStore {
             .and_then(|msgs| msgs.get_mut(&target))
         {
             m.stored.body = body.clone();
+            if let Some(text) = text {
+                m.text = text.chars().take(MAX_INDEXED_TEXT_CHARS).collect();
+            }
         }
         Ok(())
     }
@@ -1387,6 +1392,11 @@ impl norelly_domain::ports::SearchIndex for InMemoryMailStore {
         let ranked = clauses
             .iter()
             .any(|(negated, atom, _)| !negated && matches!(atom, Atom::Text { .. }));
+        let terms: Vec<&String> = clauses
+            .iter()
+            .filter(|(negated, atom, _)| !negated && matches!(atom, Atom::Text { .. }))
+            .flat_map(|(_, _, words)| words)
+            .collect();
         let s = lock(&self.state);
         let convs = s.conversations();
         let located = s.located();
@@ -1436,12 +1446,8 @@ impl norelly_domain::ports::SearchIndex for InMemoryMailStore {
                         Filter::Unread => !meta.flags.seen,
                         Filter::Read => meta.flags.seen,
                         Filter::Flagged => meta.flags.flagged,
-                        Filter::Before(d) => {
-                            date < d.start_timestamp(request.utc_offset_seconds)
-                        }
-                        Filter::After(d) => {
-                            date >= d.start_timestamp(request.utc_offset_seconds)
-                        }
+                        Filter::Before(d) => date < d.start_timestamp(request.utc_offset_seconds),
+                        Filter::After(d) => date >= d.start_timestamp(request.utc_offset_seconds),
                     },
                 };
                 if matched == *negated {
@@ -1477,7 +1483,7 @@ impl norelly_domain::ports::SearchIndex for InMemoryMailStore {
                     date: meta.sort_date(),
                     from: meta.headers.from.first().cloned(),
                     subject: meta.headers.subject.clone(),
-                    snippet: snippet(&l.message.text),
+                    snippet: snippet(&l.message.text, &terms),
                     flags: meta.flags.clone(),
                     has_attachments: meta.has_attachments(),
                 }
@@ -1488,10 +1494,20 @@ impl norelly_domain::ports::SearchIndex for InMemoryMailStore {
     }
 }
 
-/// Début du texte, borné à [`MAX_SNIPPET_CHARS`] caractères.
-fn snippet(text: &str) -> String {
-    text.split_whitespace()
-        .collect::<Vec<_>>()
+/// Passage du texte borné à [`MAX_SNIPPET_CHARS`] caractères : quelques
+/// mots avant le premier mot qui commence par l'un des `terms`, sinon le
+/// début.
+fn snippet(text: &str, terms: &[&String]) -> String {
+    let words: Vec<&str> = text.split_whitespace().collect();
+    let first_hit = words.iter().position(|w| {
+        tokens(w)
+            .iter()
+            .any(|t| terms.iter().any(|term| t.starts_with(term.as_str())))
+    });
+    let start = first_hit.map_or(0, |i| i.saturating_sub(4));
+    words
+        .get(start..)
+        .unwrap_or_default()
         .join(" ")
         .chars()
         .take(MAX_SNIPPET_CHARS)

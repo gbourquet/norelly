@@ -23,7 +23,7 @@ use norelly_domain::fetch_policy::{BodyFetch, FetchPolicy};
 use norelly_domain::mailbox::{MailboxId, MailboxName, classify_mailboxes};
 use norelly_domain::ports::{
     BlobStore, FetchedBody, MAX_FETCH_BATCH, MailStore, PendingBody, RemoteMailboxSession,
-    StoreError, StoredBody, StoredMailbox, StoredMessage, SyncBatch,
+    SearchTextExtractor, StoreError, StoredBody, StoredMailbox, StoredMessage, SyncBatch,
 };
 use norelly_domain::sync::{
     ServerQuery, ServerReport, SyncError, SyncExtensions, SyncPlan, needs_uid_list, plan,
@@ -121,6 +121,8 @@ pub struct SyncAccount<'a, M, B> {
     pub store: &'a M,
     pub blobs: &'a B,
     pub policy: FetchPolicy,
+    /// Texte cherchable des corps téléchargés.
+    pub text: &'a dyn SearchTextExtractor,
 }
 
 impl<M: MailStore, B: BlobStore> SyncAccount<'_, M, B> {
@@ -296,8 +298,9 @@ impl<M: MailStore, B: BlobStore> SyncAccount<'_, M, B> {
                     Err(e) => return Err(e.into()),
                     Ok(Some(body)) => body,
                 };
+                let text = self.text.searchable_text(&body, structure.as_ref());
                 let body = store_fetched(self.blobs, self.account, body, fetch).await?;
-                self.store.set_body(mailbox, uid, &body).await?;
+                self.store.set_body(mailbox, uid, &body, Some(&text)).await?;
                 done += 1;
                 progressed = true;
             }

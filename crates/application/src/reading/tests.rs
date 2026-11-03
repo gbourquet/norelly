@@ -230,6 +230,7 @@ async fn missing_body_is_downloaded_on_open() -> Result<(), ReadError> {
         store: &store,
         fetcher: &fetcher,
         policy: FetchPolicy::default(),
+        text: &norelly_render::search_text::MimeTextExtractor,
     };
     assert!(download.execute(id).await?);
     let location = store.locate(id).await?.ok_or(ReadError::NotFound)?;
@@ -237,5 +238,36 @@ async fn missing_body_is_downloaded_on_open() -> Result<(), ReadError> {
     // Déjà présent : rien à faire.
     assert!(!download.execute(id).await?);
     assert_eq!(fetcher.calls.lock().map(|c| c.len()).unwrap_or(0), 1);
+    Ok(())
+}
+
+#[tokio::test]
+async fn body_downloaded_on_open_is_searchable() -> Result<(), ReadError> {
+    use norelly_domain::ports::{SearchIndex, SearchRequest, SearchScope};
+    let (store, blobs) = (InMemoryMailStore::default(), InMemoryBlobStore::default());
+    let id = setup(&store, &blobs, |_| StoredBody::Missing).await?;
+    let fetcher = FakeFetcher {
+        entity: b"Subject: x\r\n\r\nmotdutexte".to_vec(),
+        ..FakeFetcher::default()
+    };
+    let download = DownloadBody {
+        locator: &store,
+        blobs: &blobs,
+        store: &store,
+        fetcher: &fetcher,
+        policy: FetchPolicy::default(),
+        text: &norelly_render::search_text::MimeTextExtractor,
+    };
+    assert!(download.execute(id).await?);
+    let page = store
+        .search(SearchRequest {
+            query: norelly_domain::search::parse_query("motdutexte").unwrap_or_default(),
+            scope: SearchScope::All,
+            utc_offset_seconds: 0,
+            offset: 0,
+            limit: 10,
+        })
+        .await?;
+    assert_eq!(page.items.iter().map(|h| h.id).collect::<Vec<_>>(), [id]);
     Ok(())
 }

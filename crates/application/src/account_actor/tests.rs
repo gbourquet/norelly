@@ -57,6 +57,7 @@ fn start(imap: &FakeImap) -> Running {
         Arc::new(FakeMailServers::with_imap(imap.clone())),
         Arc::clone(&store),
         Arc::new(InMemoryBlobStore::default()),
+        Arc::new(norelly_render::search_text::MimeTextExtractor),
         config(),
     );
     let events = handle.subscribe();

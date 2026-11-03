@@ -114,6 +114,7 @@ async fn trapped_messages_cannot_alter_the_database() -> Result<(), Box<dyn std:
         store: &*l.store,
         blobs: &*l.blobs,
         policy: FetchPolicy::default(),
+        text: &norelly_render::search_text::MimeTextExtractor,
     };
     for _ in 0..2 {
         let mut session = imap.session()?;

@@ -692,13 +692,14 @@ pub trait MailStore: Send + Sync {
         limit: usize,
     ) -> impl Future<Output = Result<Vec<PendingBody>, StoreError>> + Send;
 
-    /// Enregistre le corps d'un message déjà connu ; sans effet s'il a
-    /// disparu.
+    /// Enregistre le corps d'un message déjà connu, avec son texte
+    /// cherchable (`None` : texte inchangé) ; sans effet s'il a disparu.
     fn set_body(
         &self,
         mailbox: MailboxId,
         uid: Uid,
         body: &StoredBody,
+        text: Option<&str>,
     ) -> impl Future<Output = Result<(), StoreError>> + Send;
 }
 
@@ -1243,6 +1244,9 @@ pub enum SearchScope {
 pub const MAX_SEARCH_RESULTS: u32 = 1000;
 /// Longueur maximale d'un extrait, en caractères.
 pub const MAX_SNIPPET_CHARS: usize = 200;
+/// Longueur maximale du texte indexé d'un message, en caractères (au-delà,
+/// le texte est tronqué).
+pub const MAX_INDEXED_TEXT_CHARS: usize = 100_000;
 
 /// Recherche demandée.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1282,6 +1286,16 @@ pub struct SearchPage {
     /// Décalage de la page suivante ; `None` à la fin (ou au-delà de
     /// [`MAX_SEARCH_RESULTS`]).
     pub next: Option<u32>,
+}
+
+/// Texte cherchable d'un corps téléchargé (adaptateur `render`). Appelé
+/// de façon synchrone par les cas d'usage, au moment d'enregistrer le
+/// corps ; le texte part avec lui dans [`MailStore::set_body`].
+pub trait SearchTextExtractor: fmt::Debug + Send + Sync {
+    /// Texte lisible du message (sa partie texte, sinon son HTML réduit
+    /// au texte, sans scripts ni styles ; pièces jointes exclues), au plus
+    /// [`MAX_INDEXED_TEXT_CHARS`] caractères ; vide s'il est illisible.
+    fn searchable_text(&self, body: &FetchedBody, structure: Option<&MimePart>) -> String;
 }
 
 /// Index plein texte des messages locaux (fonctionne hors ligne).

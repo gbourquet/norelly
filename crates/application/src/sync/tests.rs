@@ -55,6 +55,7 @@ impl World {
             store: &self.store,
             blobs: &self.blobs,
             policy: self.policy,
+            text: &norelly_render::search_text::MimeTextExtractor,
         }
     }
 
@@ -292,5 +293,33 @@ async fn interrupted_sync_converges_after_resume() -> Result<(), SyncFailure> {
         w.sync().await?;
         w.assert_converged(&["INBOX", "Archives", "Sent"]).await;
     }
+    Ok(())
+}
+
+#[tokio::test]
+async fn downloaded_bodies_are_searchable() -> Result<(), SyncFailure> {
+    use norelly_domain::ports::{SearchIndex, SearchRequest, SearchScope};
+    let w = World::new();
+    w.append("INBOX", 1, seen());
+    w.sync().await?;
+    let page = w
+        .store
+        .search(SearchRequest {
+            query: norelly_domain::search::parse_query("corps").unwrap_or_default(),
+            scope: SearchScope::All,
+            utc_offset_seconds: 0,
+            offset: 0,
+            limit: 10,
+        })
+        .await?;
+    let found: Vec<(String, String)> = page
+        .items
+        .into_iter()
+        .map(|h| (h.subject, h.snippet))
+        .collect();
+    assert_eq!(
+        found,
+        [("Message 1".to_owned(), "Corps du message 1.".to_owned())]
+    );
     Ok(())
 }

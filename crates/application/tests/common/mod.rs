@@ -120,6 +120,7 @@ impl Local {
             store: &*self.store,
             blobs: &*self.blobs,
             policy: FetchPolicy::default(),
+            text: &norelly_render::search_text::MimeTextExtractor,
         }
         .sync_all(&mut session, ext, |_| {})
         .await?;

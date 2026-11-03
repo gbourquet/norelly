@@ -1,6 +1,7 @@
 use mail_parser::{MessageParser, MimeHeaders};
 use norelly_domain::account::AccountId;
 use norelly_domain::compose::Threading;
+use norelly_domain::compose::draft::Draft;
 use norelly_domain::ports::ComposedAttachment;
 
 use norelly_domain::ports::MessageComposer;

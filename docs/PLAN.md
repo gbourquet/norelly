@@ -274,7 +274,8 @@ Commandes de référence (détail dans `scripts/check.sh`) :
 - [ ] Mesure de bout en bout : démarrage et changement de dossier < 200 ms sur la boîte de 50k messages (test end-to-end avec mesure, seuil dans le job nocturne)
 - [x] Passe accessibilité : focus visible, rôles ARIA, navigation entièrement au clavier, contrastes
   - `app/src/styles/accessibility.test.ts` : contrastes WCAG AA des jetons dans les deux thèmes (4,5:1 pour le texte, 3:1 pour le focus) ; tout composant qui retire le contour fournit sa règle `:focus-visible` (palette, liste, éditeur, destinataires corrigés) ; `App.test.ts` : aucun bouton, champ, case, liste déroulante ou liste sans nom accessible (liste, recherche, paramètres). Clavier : chaque action est une commande du registre (raccourci et palette) ; listes en `listbox`/`option` avec `aria-activedescendant`.
-- [ ] Checklist de tests manuels Gmail, Fastmail, Outlook.com (IMAP par mot de passe d'application), consignée dans `docs/MANUAL-TESTS.md`
+- [x] Checklist de tests manuels Gmail, Fastmail, Outlook.com (IMAP par mot de passe d'application), consignée dans `docs/MANUAL-TESTS.md`
+  - grille rédigée (préparation des comptes, compte, synchronisation, notifications, actions, rédaction, recherche, paramètres) et tableau de résultats ; **exécution à faire par le mainteneur** avec des comptes de test dédiés (aucun test automatisé contre un vrai serveur).
 - [ ] Revue security-reviewer, consignée dans REVIEWS.md (0 critique, 0 haute ; moyennes corrigées)
 
 **Condition de fin** : `./scripts/check.sh full && pnpm -C app e2e` passent sans erreur.

@@ -3067,6 +3067,7 @@ dependencies = [
  "norelly-blobs",
  "norelly-domain",
  "norelly-imap",
+ "norelly-render",
  "norelly-sqlite",
  "norelly-test-support",
  "norelly-tls",

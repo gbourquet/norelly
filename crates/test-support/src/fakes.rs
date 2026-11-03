@@ -368,3 +368,38 @@ impl PortProber for FakeProber {
             .collect()
     }
 }
+
+/// Faux serveur SMTP : réponses programmées (succès par défaut), messages
+/// acceptés mémorisés.
+#[derive(Debug, Clone, Default)]
+pub struct FakeSmtp {
+    replies: Arc<Mutex<std::collections::VecDeque<Result<(), SendError>>>>,
+    accepted: Arc<Mutex<Vec<OutgoingMessage>>>,
+}
+
+impl FakeSmtp {
+    /// Programme la réponse aux prochains envois, dans l'ordre.
+    pub fn reply(&self, result: Result<(), SendError>) {
+        lock(&self.replies).push_back(result);
+    }
+
+    /// Messages acceptés.
+    #[must_use]
+    pub fn accepted(&self) -> Vec<OutgoingMessage> {
+        lock(&self.accepted).clone()
+    }
+}
+
+impl MailSender for FakeSmtp {
+    async fn verify(&self, _: &ConnectRequest) -> Result<ServerCapabilities, ConnectionError> {
+        Ok(ServerCapabilities::default())
+    }
+
+    async fn send(&self, _: &ConnectRequest, message: &OutgoingMessage) -> Result<(), SendError> {
+        let reply = lock(&self.replies).pop_front().unwrap_or(Ok(()));
+        if reply.is_ok() {
+            lock(&self.accepted).push(message.clone());
+        }
+        reply
+    }
+}

@@ -261,7 +261,8 @@ Commandes de référence (détail dans `scripts/check.sh`) :
 
 ## Phase 9 : notifications et finitions
 
-- [ ] Reports de la revue de la phase 8 (REVIEWS.md) : budget de temps des lectures de recherche (interruption quand une nouvelle requête arrive), bench avec des corps réalistes ; `hostile_message_sql.rs` étendu à la recherche et au nom de boîte des copies distantes
+- [x] Reports de la revue de la phase 8 (REVIEWS.md) : budget de temps des lectures de recherche (interruption quand une nouvelle requête arrive), bench avec des corps réalistes ; `hostile_message_sql.rs` étendu à la recherche et au nom de boîte des copies distantes
+  - recherche interrompue au-delà de 2 s (`progress_handler` SQLite, retiré après chaque requête), plutôt qu'à l'arrivée d'une nouvelle requête : borne la durée quelle qu'en soit la cause ; bench à 300 mots par corps, plus une requête d'une lettre et 8 négations (de 0,3 à 89 ms, seuil 100 ms : marge faible pour trois mots fréquents) ; `hostile_message_sql.rs` : chaque charge comme requête, messages piégés retrouvés par leur texte, copie distante dans la boîte au nom piégé.
 
 - [ ] Notifications natives (`tauri-plugin-notification`) pour les nouveaux messages (regroupées, sans contenu si l'option de confidentialité est active)
 - [ ] Traduction anglaise complète, relue ; choix de la langue dans les paramètres (système par défaut) ; textes des notifications localisés côté interface (ADR-011)

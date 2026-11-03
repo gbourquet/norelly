@@ -40,10 +40,9 @@ HTML. `cargo deny`, `pnpm audit --prod` et `check-sql.sh` sans constat.
   les termes) ; 16 clauses de ce type, ou une frappe rapide, pouvaient
   occuper les lecteurs plusieurs secondes sur une grosse boîte.
 - Statut : **corrigé en partie** : un mot d'une lettre est cherché tel
-  quel, sans préfixe (contrat `search_index_contract`). **Reporté** (phase 9) :
-  budget de temps des lectures de recherche (`progress_handler` ou
-  interruption quand une nouvelle requête arrive) et bench avec des corps
-  réalistes.
+  quel, sans préfixe (contrat `search_index_contract`). Puis, en phase 9 :
+  recherche interrompue au-delà de 2 s (`progress_handler`, test
+  `a_search_past_its_deadline_is_interrupted`), bench à 300 mots par corps.
 
 ## [BASSE] Extrait sans retrait des caractères de format (bidi, largeur nulle)
 - Statut : **corrigé** : l'extrait est nettoyé par `header_text`, comme le
@@ -52,7 +51,8 @@ HTML. `cargo deny`, `pnpm audit --prod` et `check-sql.sh` sans constat.
 ## [BASSE] `hostile_message_sql.rs` non étendu à la phase 8
 - Le test de bout en bout ne cherche pas les charges piégées et ne couvre
   pas le nom de boîte des copies distantes.
-- Statut : **reporté** (phase 9).
+- Statut : **corrigé** (phase 9) : recherche des charges et copie distante
+  dans la boîte au nom piégé ajoutées au test.
 
 ## [INFO] Points relevés sans action immédiate
 - Migration 8 : copies existantes rattachées au dossier qui porte

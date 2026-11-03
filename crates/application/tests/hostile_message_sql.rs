@@ -12,18 +12,23 @@
 mod common;
 
 use common::local;
+use norelly_application::actions::{PerformAction, ReplayActions};
 use norelly_application::sync::SyncAccount;
+use norelly_domain::actions::{MessageAction, OpKind};
 use norelly_domain::address::EmailAddress;
 use norelly_domain::conversation::ConversationScope;
 use norelly_domain::fetch_policy::FetchPolicy;
 use norelly_domain::mailbox::{Flags, Keyword, header_text};
 use norelly_domain::ports::{
     AccountRepository, BlobStore, ConversationQuery, FolderTreeQuery, MailStore, MessageListQuery,
-    ReadingPreferences, RemoteMailboxSession, StoredBody,
+    PendingOpStore, ReadingPreferences, RemoteMailboxSession, StoredBody,
 };
 use norelly_sqlite::SqliteAccountRepository;
 use norelly_sqlite::preferences::SqliteReadingPreferences;
 use norelly_test_support::fake_imap::FakeImap;
+
+/// Instant des actions (secondes Unix).
+const NOW: i64 = 1_800_000_000;
 
 /// Charges classiques : sortie de chaîne, commentaires, requêtes
 /// empilées, sous-requêtes, `ATTACH`, rupture du JSON, octet nul.
@@ -217,6 +222,74 @@ async fn trapped_messages_cannot_alter_the_database() -> Result<(), Box<dyn std:
     );
     prefs.set_prefer_plain_text(true).await?;
     assert!(prefs.prefer_plain_text().await?);
+
+    // Actions (phase 6) : le nom de boîte piégé est copié dans la file
+    // (`pending_ops.mailbox`/`target`), les mots-clés piégés sont relus par
+    // `action_target`, puis tout est rejoué sur le serveur.
+    let ids: Vec<_> = page.items.iter().map(|i| i.id).collect();
+    let perform = PerformAction { store: &*l.store };
+    perform
+        .execute(&ids, MessageAction::MarkFlagged(true), NOW)
+        .await?;
+    let moved = perform
+        .execute(&ids, MessageAction::Move(trapped_box.id), NOW)
+        .await?;
+    assert_eq!(moved.recorded.len(), PAYLOADS.len());
+    let pending = l.store.pending(l.account).await?;
+    assert_eq!(pending.len(), 2 * PAYLOADS.len());
+    for (_, op) in &pending {
+        assert!(op.mailbox.is_inbox(), "boîte source relue : {op:?}");
+        if let OpKind::Move { to } = &op.kind {
+            assert_eq!(to.as_str(), box_name, "destination relue à l'identique");
+        }
+    }
+    assert_eq!(
+        l.store.tree(l.account).await?.len(),
+        2,
+        "aucune boîte créée par injection"
+    );
+    l.store
+        .set_archive_fallback(l.account, Some(trapped_box.id))
+        .await?;
+    assert_eq!(
+        l.store.archive_fallback(l.account).await?,
+        Some(trapped_box.id)
+    );
+    let mut session = imap.session()?;
+    let replayed = ReplayActions {
+        account: l.account,
+        store: &*l.store,
+    }
+    .execute(&mut session, NOW + 60)
+    .await?;
+    assert_eq!(replayed.applied, 2 * PAYLOADS.len());
+    assert!(replayed.dropped.is_empty(), "{:?}", replayed.dropped);
+    assert!(l.store.pending(l.account).await?.is_empty());
+    // Sur le serveur : tout est dans la boîte piégée, suivi, mots-clés
+    // intacts.
+    assert!(imap.flags_of("INBOX").is_empty());
+    let on_server = imap.flags_of(box_name);
+    assert_eq!(on_server.len(), 2 * PAYLOADS.len());
+    assert_eq!(
+        on_server
+            .values()
+            .filter(|f| f.flagged && f.keywords() == keywords.keywords())
+            .count(),
+        PAYLOADS.len()
+    );
+    let mut session = imap.session()?;
+    let ext = session.enable_sync_extensions().await?;
+    sync.sync_all(&mut session, ext, |_| {}).await?;
+    l.store.purge_placeholders(l.account, None).await?;
+    let tree = l.store.tree(l.account).await?;
+    let total = |pred: &dyn Fn(&str) -> bool| {
+        tree.iter()
+            .filter(|n| pred(n.name.as_str()))
+            .map(|n| n.total)
+            .sum::<u32>()
+    };
+    assert_eq!(total(&|n| n == "INBOX"), 0);
+    assert_eq!(total(&|n| n == box_name) as usize, 2 * PAYLOADS.len());
 
     assert_eq!(l.db.integrity_problems().await?, Vec::<String>::new());
     assert_eq!(l.db.schema().await?, schema_before, "schéma modifié");

@@ -213,7 +213,8 @@ Commandes de référence (détail dans `scripts/check.sh`) :
 - [ ] Application : `SendMessage` (file d'envoi persistante, envoi différé hors ligne), `SaveDraft`
 - [ ] Interface : éditeur Tiptap (gras, italique, liens, listes, citation), destinataires avec autocomplétion depuis les adresses connues, pièces jointes par glisser-déposer et par sélecteur, `c`/`r`/`a`/`f`, Ctrl+Entrée pour envoyer
 - [ ] Intégration : envoi via Mailpit vérifié par son API, brouillon présent sur Dovecot, copie dans Envoyés présente
-- [ ] Reports de la revue de la phase 6 (REVIEWS.md) : `hostile_message_sql.rs` étendu aux actions ; garde-fou `EXPUNGE` sans UIDPLUS (compte des `* n EXPUNGE`) ; file `pending_ops` lue une fois, `record_all` transactionnel, plafond par compte
+- [x] Reports de la revue de la phase 6 (REVIEWS.md) : `hostile_message_sql.rs` étendu aux actions ; garde-fou `EXPUNGE` sans UIDPLUS (compte des `* n EXPUNGE`) ; file `pending_ops` lue une fois, `record_all` transactionnel, plafond par compte
+  - plafond `MAX_PENDING_OPS` (10 000 par compte, code IPC `pending_queue_full`) ; suppressions en trop signalées par `ReplayReport::foreign_expunges` (boîte resynchronisée).
 - [ ] Revue security-reviewer, consignée dans REVIEWS.md (0 critique, 0 haute ; moyennes corrigées)
 
 **Condition de fin** : `./scripts/check.sh full && pnpm -C app e2e` passent sans erreur.

@@ -57,17 +57,20 @@ ni SQL ; aucun secret dans `detail` ; `cargo deny`, `pnpm audit --prod` et
   par `action_target` et `action_settings` ne sont pas couverts de bout en
   bout par le test du message piégé (seulement par `check-sql.sh` et le
   contrat).
-- Statut : **reporté** (phase 7, avec les nouvelles écritures des
-  brouillons).
+- Statut : **corrigé** (phase 7) : actions sur les messages piégés
+  (drapeau, déplacement vers la boîte au nom piégé), relecture de la file,
+  dossier de repli, rejeu sur le faux serveur et resynchronisation. Les
+  écritures des brouillons y seront ajoutées avec eux.
 
 ## [BASSE] Fenêtre de concurrence du garde-fou `EXPUNGE` sans UIDPLUS
 - Entre `UID SEARCH DELETED` et `EXPUNGE`, un autre client peut poser
   `\Deleted` sur un message, qui part aussi. Aucune opération atomique
   n'existe sans UIDPLUS ; les deux commandes s'enchaînent déjà sans autre
   commande entre elles.
-- Statut : **reporté** (phase 7) : compter les réponses `* n EXPUNGE`,
-  journaliser et resynchroniser si elles dépassent l'attendu ; documenter
-  la limite dans `expunge_is_safe`.
+- Statut : **corrigé** (phase 7) : `expunge_all` compte les réponses
+  `* n EXPUNGE` ; au-delà de l'attendu, journalisation et
+  `ReplayReport::foreign_expunges` (boîte resynchronisée) ; limite
+  documentée dans `expunge_is_safe`.
 
 ## [BASSE] Commandes IPC accordées sans manifeste applicatif
 - `perform_action`, `undo_actions` et `set_archive_folder` sont
@@ -81,8 +84,9 @@ ni SQL ; aucun secret dans `detail` ; `cargo deny`, `pnpm audit --prod` et
 - La file est relue pour chaque opération planifiée ; chaque `record` est
   une transaction séparée (une erreur de stockage en cours de boucle laisse
   une action à moitié appliquée).
-- Statut : **reporté** (phase 7) : lecture unique de la file, `record_all`
-  en une transaction, plafond par compte.
+- Statut : **corrigé** (phase 7) : lecture unique de la file par compte,
+  fusion et plafond décidés par `plan_queue`, `record_all` en une
+  transaction, plafond `MAX_PENDING_OPS`.
 
 ## [INFO] Points relevés sans action immédiate
 - `undo_actions` accepte tout identifiant d'opération en attente : pas de

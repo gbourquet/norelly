@@ -271,4 +271,84 @@ mod tests {
             .unwrap_or_else(|e| panic!("{e}"));
         assert_eq!(segments(&request), ["12", "1.2"]);
     }
+
+    fn get(uri: &str) -> Request<Vec<u8>> {
+        Request::builder()
+            .uri(uri)
+            .body(Vec::new())
+            .unwrap_or_else(|e| panic!("{e}"))
+    }
+
+    #[tokio::test]
+    async fn mail_views_carry_the_security_headers() {
+        let t = crate::test_app::test_app().await;
+        let handle = t.app.handle();
+        let id = t.messages[0].get();
+        let response = mailview(handle, get(&format!("mailview://localhost/{id}"))).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        let headers = response.headers();
+        assert_eq!(
+            headers.get(header::CONTENT_TYPE).map(|v| v.as_bytes()),
+            Some(&b"text/html; charset=utf-8"[..])
+        );
+        assert_eq!(
+            headers
+                .get(header::X_CONTENT_TYPE_OPTIONS)
+                .map(|v| v.as_bytes()),
+            Some(&b"nosniff"[..])
+        );
+        assert_eq!(
+            headers.get(header::REFERRER_POLICY).map(|v| v.as_bytes()),
+            Some(&b"no-referrer"[..])
+        );
+        let csp = headers
+            .get(header::CONTENT_SECURITY_POLICY)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or_default();
+        assert!(csp.contains("default-src 'none'"), "{csp}");
+        for bad in [
+            "mailview://localhost/",
+            "mailview://localhost/abc",
+            "mailview://localhost/1/2",
+            "mailview://localhost/999999",
+        ] {
+            assert_eq!(
+                mailview(handle, get(bad)).await.status(),
+                StatusCode::NOT_FOUND,
+                "{bad}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn parts_and_remote_images_are_refused_by_default() {
+        let t = crate::test_app::test_app().await;
+        let handle = t.app.handle();
+        let id = t.messages[0].get();
+        for bad in [
+            format!("mailpart://localhost/{id}"),
+            format!("mailpart://localhost/{id}/pas-un-chemin"),
+            format!("mailpart://localhost/{id}/1.9"),
+            "mailpart://localhost/0/1".to_owned(),
+        ] {
+            assert_eq!(
+                mailpart(handle, get(&bad)).await.status(),
+                StatusCode::NOT_FOUND,
+                "{bad}"
+            );
+        }
+        // Expéditeur non autorisé : aucune requête vers l'extérieur.
+        assert_eq!(
+            remote_image(handle, get(&format!("remote-img://localhost/{id}/0")))
+                .await
+                .status(),
+            StatusCode::FORBIDDEN
+        );
+        assert_eq!(
+            remote_image(handle, get("remote-img://localhost/x/0"))
+                .await
+                .status(),
+            StatusCode::NOT_FOUND
+        );
+    }
 }

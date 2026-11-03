@@ -279,3 +279,32 @@ async fn readers_see_committed_writes() -> Result<(), StoreError> {
     let _ = std::fs::remove_dir_all(path.parent().unwrap_or(&path));
     Ok(())
 }
+
+#[tokio::test]
+async fn record_all_is_all_or_nothing() -> Result<(), StoreError> {
+    use norelly_domain::actions::{OpKind, PendingOp, QueueChange};
+    use norelly_domain::mailbox::{MailboxName, Uid, UidValidity};
+    use norelly_domain::ports::PendingOpStore;
+    let db = Database::open_in_memory().map_err(|e| StoreError(e.to_string()))?;
+    let (a, _) = two_accounts(&db).await?;
+    let store = SqliteMailStore::new(db);
+    let op = |account: AccountId| -> Result<PendingOp, StoreError> {
+        Ok(PendingOp {
+            account,
+            message: MessageId::new(1).ok_or_else(|| StoreError("id".into()))?,
+            mailbox: MailboxName::parse("INBOX").map_err(|e| StoreError(e.to_string()))?,
+            uid_validity: UidValidity::new(7).ok_or_else(|| StoreError("validité".into()))?,
+            uid: Uid::new(1).ok_or_else(|| StoreError("uid".into()))?,
+            kind: OpKind::Expunge,
+            not_before: 0,
+        })
+    };
+    // Second changement invalide (compte inexistant : clé étrangère).
+    let ghost = AccountId::new(999).map_err(|e| StoreError(e.to_string()))?;
+    let result = store
+        .record_all(&[QueueChange::Push(op(a)?), QueueChange::Push(op(ghost)?)])
+        .await;
+    assert!(result.is_err(), "lot refusé : {result:?}");
+    assert!(store.pending(a).await?.is_empty(), "rien n'est enfilé");
+    Ok(())
+}

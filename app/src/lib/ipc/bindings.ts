@@ -359,6 +359,11 @@ export type ErrorCodeDto =
 "folder_not_selectable" | 
 /**  Trop de messages visés par une action. */
 "too_many_messages" | 
+/**
+ *  Trop d'opérations en attente sur le compte (serveur injoignable
+ *  depuis longtemps) : action refusée.
+ */
+"pending_queue_full" | 
 /**  Erreur interne (journalisée). */
 "internal";
 

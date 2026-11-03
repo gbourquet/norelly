@@ -3,7 +3,8 @@
 
 use norelly_domain::account::AccountId;
 use norelly_domain::actions::{
-    ActionFlag, Effect, FlagChange, LocalMessage, MessageAction, OpKind, PendingOp, resolve,
+    ActionFlag, Effect, FlagChange, LocalMessage, MessageAction, OpKind, PendingOp, QueueChange,
+    resolve,
 };
 use norelly_domain::conversation::ConversationScope;
 use norelly_domain::mailbox::{Flags, MailboxRole};
@@ -52,6 +53,17 @@ async fn target<S: PendingOpStore>(store: &S, id: MessageId) -> Result<LocalMess
         .action_target(id)
         .await?
         .ok_or_else(|| fail("message visé introuvable"))
+}
+
+/// Enfile une seule opération.
+async fn record_one<S: PendingOpStore>(
+    store: &S,
+    op: &PendingOp,
+) -> Result<norelly_domain::ports::PendingOpId, StoreError> {
+    match store.record_all(&[QueueChange::Push(op.clone())]).await?[..] {
+        [id] => Ok(id),
+        _ => Err(fail("une opération enfilée attendue")),
+    }
 }
 
 /// Contrat de [`PendingOpStore`] pour `account` (qui doit exister et
@@ -126,7 +138,7 @@ where
         value: true,
     });
     let op1 = PendingOp::new(&seen, &t1, 100).ok_or_else(|| fail("opération"))?;
-    let id1 = store.record(&op1).await?;
+    let id1 = record_one(store, &op1).await?;
     assert!(flags_of(store, inbox, m1).await?.seen, "lu tout de suite");
     let unread = |nodes: Vec<norelly_domain::ports::FolderNode>| {
         nodes
@@ -142,7 +154,7 @@ where
         .map_err(|e| fail(&e.to_string()))?;
     assert!(matches!(&delete, Effect::MoveTo(f) if f.id == trash));
     let op2 = PendingOp::new(&delete, &t2, 100).ok_or_else(|| fail("opération"))?;
-    let id2 = store.record(&op2).await?;
+    let id2 = record_one(store, &op2).await?;
     assert_eq!(visible_ids(store, inbox).await?, [m1], "masqué");
     assert_eq!(
         store.action_target(m2).await?,
@@ -250,7 +262,7 @@ where
     // synchronisation de la destination, puis la purge la retire ---
     let t2 = target(store, m2).await?;
     let op3 = PendingOp::new(&delete, &t2, 100).ok_or_else(|| fail("opération"))?;
-    let id3 = store.record(&op3).await?;
+    let id3 = record_one(store, &op3).await?;
     assert_eq!(visible_ids(store, trash).await?.len(), 1);
     assert_eq!(
         store.purge_placeholders(account, None).await?,
@@ -347,7 +359,7 @@ where
         selectable: true,
     });
     let op = PendingOp::new(&hide, &t1, 100).ok_or_else(|| fail("opération"))?;
-    let hidden = store.record(&op).await?;
+    let hidden = record_one(store, &op).await?;
     assert_eq!(
         store.conversation_members(conversation).await?.len(),
         1,
@@ -360,6 +372,63 @@ where
         2,
         "de nouveau visible"
     );
+
+    // --- Lot de changements : fusion et ajout en une seule transaction ---
+    let unseen = Effect::SetFlag(FlagChange {
+        flag: ActionFlag::Seen,
+        value: false,
+    });
+    let op_a =
+        PendingOp::new(&unseen, &target(store, m1).await?, 100).ok_or_else(|| fail("opération"))?;
+    let id_a = record_one(store, &op_a).await?;
+    assert!(!flags_of(store, inbox, m1).await?.seen);
+    let op_b =
+        PendingOp::new(&seen, &target(store, m1).await?, 100).ok_or_else(|| fail("opération"))?;
+    let op_c =
+        PendingOp::new(&delete, &target(store, m1).await?, 100).ok_or_else(|| fail("opération"))?;
+    let ids = store
+        .record_all(&[
+            QueueChange::CancelOrPush {
+                existing: id_a,
+                op: op_b,
+            },
+            QueueChange::Push(op_c.clone()),
+        ])
+        .await?;
+    let [id_c] = ids[..] else {
+        return Err(fail("seul le déplacement est enfilé"));
+    };
+    assert_eq!(store.pending(account).await?, vec![(id_c, op_c)]);
+    assert!(
+        visible_ids(store, inbox).await?.is_empty(),
+        "déplacement appliqué"
+    );
+    assert!(store.revert(id_c).await?);
+    assert!(flags_of(store, inbox, m1).await?.seen, "fusion : annulée");
+    // Opération réservée par le rejeu : trop tard, la nouvelle est enfilée.
+    let op_d =
+        PendingOp::new(&unseen, &target(store, m1).await?, 100).ok_or_else(|| fail("opération"))?;
+    let id_d = record_one(store, &op_d).await?;
+    assert_eq!(store.claim(id_d).await?, Some(1));
+    let op_e =
+        PendingOp::new(&seen, &target(store, m1).await?, 100).ok_or_else(|| fail("opération"))?;
+    let ids = store
+        .record_all(&[QueueChange::CancelOrPush {
+            existing: id_d,
+            op: op_e.clone(),
+        }])
+        .await?;
+    let [id_e] = ids[..] else {
+        return Err(fail("réservée : la nouvelle est enfilée"));
+    };
+    assert_eq!(
+        store.pending(account).await?,
+        vec![(id_d, op_d), (id_e, op_e)]
+    );
+    assert!(flags_of(store, inbox, m1).await?.seen);
+    assert!(store.record_all(&[]).await?.is_empty());
+    assert!(store.revert(id_e).await? && store.revert(id_d).await?);
+    assert!(store.pending(account).await?.is_empty());
 
     // --- Dossier de repli d'« archiver » ---
     assert_eq!(store.archive_fallback(account).await?, None);

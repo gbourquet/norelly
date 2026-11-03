@@ -1,3 +1,4 @@
+use norelly_domain::actions::QueueChange;
 use norelly_domain::fetch_policy::FetchPolicy;
 use norelly_domain::mailbox::Flags;
 use norelly_domain::ports::{MessageListQuery, RemoteMailboxSession, StoredMailbox};
@@ -502,4 +503,33 @@ async fn connection_loss_keeps_the_queue_for_the_next_session() {
         .unwrap_or_else(|e| panic!("{e}"));
     assert_eq!(w.replay(LATER).await.applied, 1);
     assert_eq!(w.server_uids("INBOX"), [2, 3]);
+}
+
+#[tokio::test]
+async fn an_action_is_refused_when_the_account_queue_is_full() {
+    let w = world(true, true).await;
+    let m1 = w.id_of("INBOX", 1).await;
+    // File pleine d'opérations visant un message absent (sans effet local).
+    let filler = PendingOp {
+        account: account(),
+        message: MessageId::new(999_999).unwrap_or_else(|| panic!("id")),
+        mailbox: MailboxName::parse("INBOX").unwrap_or_else(|_| panic!("nom")),
+        uid_validity: norelly_domain::mailbox::UidValidity::new(1)
+            .unwrap_or_else(|| panic!("validité")),
+        uid: uid(99),
+        kind: OpKind::Expunge,
+        not_before: 0,
+    };
+    let fill: Vec<QueueChange> = (0..norelly_domain::actions::MAX_PENDING_OPS)
+        .map(|_| QueueChange::Push(filler.clone()))
+        .collect();
+    w.store
+        .record_all(&fill)
+        .await
+        .unwrap_or_else(|e| panic!("{e}"));
+    let result = PerformAction { store: &w.store }
+        .execute(&[m1], MessageAction::Delete, NOW)
+        .await;
+    assert_eq!(result, Err(ActionFailure::Invalid(ActionError::QueueFull)));
+    assert_eq!(w.visible("INBOX").await.len(), 3, "rien n'est appliqué");
 }

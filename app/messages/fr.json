@@ -200,6 +200,7 @@
   "err_same_folder": "La conversation est déjà dans ce dossier.",
   "err_folder_not_selectable": "Ce dossier ne peut pas recevoir de messages.",
   "err_too_many_messages": "Trop de messages sélectionnés.",
+  "err_pending_queue_full": "Trop d'actions attendent le serveur sur ce compte : réessayez une fois reconnecté.",
   "action_archived": "Archivé.",
   "action_deleted": "Supprimé.",
   "action_moved": "Déplacé vers « {folder} ».",

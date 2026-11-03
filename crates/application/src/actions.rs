@@ -9,9 +9,9 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use norelly_domain::account::AccountId;
 use norelly_domain::actions::{
-    ActionError, Coalesce, Conflict, FolderRef, MAX_ACTION_TARGETS, MAX_REPLAY_ATTEMPTS,
-    MessageAction, MoveStrategy, OpKind, PendingOp, ReplayDecision, ServerView, StoreOutcome,
-    after_modified, coalesce, decide, expunge_is_safe, expunge_strategy, move_strategy, resolve,
+    ActionError, Conflict, FolderRef, MAX_ACTION_TARGETS, MAX_REPLAY_ATTEMPTS, MessageAction,
+    MoveStrategy, OpKind, PendingOp, ReplayDecision, ServerView, StoreOutcome, after_modified,
+    decide, expunge_is_safe, expunge_strategy, move_strategy, plan_queue, resolve,
 };
 use norelly_domain::connection::ConnectionError;
 use norelly_domain::mailbox::{MailboxId, MailboxName, Uid};
@@ -83,24 +83,20 @@ impl<S: PendingOpStore> PerformAction<'_, S> {
                 None => report.skipped += 1,
             }
         }
+        // Par compte : file lue une fois, fusion et plafond décidés par le
+        // domaine pour tout le lot, puis écrits en une seule transaction.
+        let mut by_account: BTreeMap<AccountId, Vec<PendingOp>> = BTreeMap::new();
         for op in planned {
-            let queue = self.store.pending(op.account).await?;
-            let ops: Vec<PendingOp> = queue.iter().map(|(_, o)| o.clone()).collect();
-            match coalesce(&ops, &op) {
-                Coalesce::Push => report.recorded.push(self.store.record(&op).await?),
-                Coalesce::Cancel(i) => {
-                    // Déjà réservée par le rejeu : trop tard pour fusionner,
-                    // la nouvelle opération est enregistrée à la suite.
-                    let cancelled = match queue.get(i) {
-                        Some((existing, _)) => self.store.cancel(*existing).await?,
-                        None => false,
-                    };
-                    if !cancelled {
-                        report.recorded.push(self.store.record(&op).await?);
-                    }
-                }
-            }
-            report.accounts.insert(op.account);
+            by_account.entry(op.account).or_default().push(op);
+        }
+        let mut changes = Vec::new();
+        for (account, ops) in by_account {
+            let queue = self.store.pending(account).await?;
+            changes.push(plan_queue(&queue, ops)?);
+            report.accounts.insert(account);
+        }
+        for batch in changes {
+            report.recorded.extend(self.store.record_all(&batch).await?);
         }
         Ok(report)
     }

@@ -9,7 +9,9 @@ use std::future::Future;
 use std::time::Duration;
 
 use crate::account::{Account, AccountDraft, AccountId};
-use crate::actions::{FlagChange, FolderRef, LocalMessage, Member, PendingOp, StoreOutcome};
+use crate::actions::{
+    FlagChange, FolderRef, LocalMessage, Member, PendingOp, QueueChange, StoreOutcome,
+};
 use crate::address::EmailAddress;
 use crate::auth::{AuthError, AuthMechanism};
 use crate::capabilities::ServerCapabilities;
@@ -956,15 +958,23 @@ pub trait PendingOpStore: Send + Sync {
         account: AccountId,
     ) -> impl Future<Output = Result<Vec<FolderRef>, StoreError>> + Send;
 
-    /// Enfile une opération et applique son effet local
-    /// ([`crate::actions::local_effect`]). Un déplacement crée aussi une
-    /// copie provisoire du message dans le dossier de destination, que
-    /// [`PendingOpStore::revert`] et [`PendingOpStore::cancel`] retirent ;
-    /// ces copies sont ignorées par la synchronisation et par les actions.
-    fn record(
+    /// Applique un lot de changements de la file
+    /// ([`crate::actions::plan_queue`]) en une seule transaction : tout ou
+    /// rien. Renvoie les identifiants des opérations enfilées, dans l'ordre.
+    ///
+    /// - [`QueueChange::Push`] enfile l'opération et applique son effet
+    ///   local ([`crate::actions::local_effect`]). Un déplacement crée
+    ///   aussi une copie provisoire du message dans le dossier de
+    ///   destination, que [`PendingOpStore::revert`] et
+    ///   [`PendingOpStore::cancel`] retirent ; ces copies sont ignorées par
+    ///   la synchronisation et par les actions.
+    /// - [`QueueChange::CancelOrPush`] annule l'opération existante comme
+    ///   [`PendingOpStore::cancel`] ; si elle est réservée par le rejeu,
+    ///   enfile la nouvelle à la place.
+    fn record_all(
         &self,
-        op: &PendingOp,
-    ) -> impl Future<Output = Result<PendingOpId, StoreError>> + Send;
+        changes: &[QueueChange],
+    ) -> impl Future<Output = Result<Vec<PendingOpId>, StoreError>> + Send;
 
     /// Opérations en attente d'un compte, dans l'ordre d'enregistrement.
     fn pending(

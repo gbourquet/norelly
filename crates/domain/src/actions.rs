@@ -33,7 +33,7 @@ use crate::account::AccountId;
 use crate::capabilities::ServerCapabilities;
 use crate::conversation::ConversationScope;
 use crate::mailbox::{Flags, MailboxId, MailboxName, MailboxRole, ModSeq, Uid, UidValidity};
-use crate::ports::MessageId;
+use crate::ports::{MessageId, PendingOpId};
 
 /// Délai avant le rejeu d'une opération : l'utilisateur peut l'annuler
 /// pendant ce temps sans qu'elle ait touché le serveur.
@@ -135,6 +135,8 @@ pub enum ActionError {
     NotSelectable,
     #[error("trop de messages visés")]
     TooManyTargets,
+    #[error("trop d'opérations en attente sur ce compte")]
+    QueueFull,
 }
 
 /// Effet de `action` sur un message du dossier `source`. `folders` :
@@ -392,6 +394,74 @@ pub fn coalesce(queue: &[PendingOp], new: &PendingOp) -> Coalesce {
                 if c.flag == change.flag && *previous == change.value)
     });
     found.map_or(Coalesce::Push, Coalesce::Cancel)
+}
+
+/// Plafond d'opérations en attente par compte : au-delà, une nouvelle
+/// action est refusée ([`ActionError::QueueFull`]) plutôt que de laisser
+/// la file grossir sans fin (serveur injoignable pendant des semaines).
+pub const MAX_PENDING_OPS: usize = 10_000;
+
+/// Changement de la file d'un compte, décidé par [`plan_queue`] et
+/// appliqué en une seule transaction (`PendingOpStore::record_all`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum QueueChange {
+    /// Enfiler l'opération.
+    Push(PendingOp),
+    /// Fusion : annuler l'opération `existing` ; si le rejeu l'a déjà
+    /// réservée (trop tard), enfiler `op` à la suite.
+    CancelOrPush {
+        existing: PendingOpId,
+        op: PendingOp,
+    },
+}
+
+/// Changements de la file d'un compte pour les opérations `planned`,
+/// à partir de la file `queue` lue une seule fois : les opérations
+/// planifiées sont fusionnées entre elles comme avec la file
+/// ([`coalesce`]). Refuse tout si la file dépasserait [`MAX_PENDING_OPS`].
+pub fn plan_queue(
+    queue: &[(PendingOpId, PendingOp)],
+    planned: Vec<PendingOp>,
+) -> Result<Vec<QueueChange>, ActionError> {
+    /// Origine d'une entrée de la file simulée.
+    enum Source {
+        Existing(PendingOpId),
+        Planned(usize),
+    }
+    let mut view: Vec<(Source, PendingOp)> = queue
+        .iter()
+        .map(|(id, op)| (Source::Existing(*id), op.clone()))
+        .collect();
+    let mut changes: Vec<Option<QueueChange>> = Vec::new();
+    for op in planned {
+        let ops: Vec<PendingOp> = view.iter().map(|(_, o)| o.clone()).collect();
+        match coalesce(&ops, &op) {
+            Coalesce::Push => {
+                view.push((Source::Planned(changes.len()), op.clone()));
+                changes.push(Some(QueueChange::Push(op)));
+            }
+            Coalesce::Cancel(i) => match view.remove(i).0 {
+                Source::Existing(existing) => {
+                    changes.push(Some(QueueChange::CancelOrPush { existing, op }));
+                }
+                // Annule une opération du même lot : ni l'une ni l'autre.
+                Source::Planned(index) => {
+                    if let Some(change) = changes.get_mut(index) {
+                        *change = None;
+                    }
+                }
+            },
+        }
+    }
+    let changes: Vec<QueueChange> = changes.into_iter().flatten().collect();
+    let pushed = changes
+        .iter()
+        .filter(|c| matches!(c, QueueChange::Push(_)))
+        .count();
+    if queue.len().saturating_add(pushed) > MAX_PENDING_OPS {
+        return Err(ActionError::QueueFull);
+    }
+    Ok(changes)
 }
 
 /// Résultat d'un `STORE` conditionnel.

@@ -200,6 +200,7 @@
   "err_same_folder": "The conversation is already in this folder.",
   "err_folder_not_selectable": "This folder cannot hold messages.",
   "err_too_many_messages": "Too many messages selected.",
+  "err_pending_queue_full": "Too many actions are waiting for the server on this account: try again once reconnected.",
   "action_archived": "Archived.",
   "action_deleted": "Deleted.",
   "action_moved": "Moved to “{folder}”.",

@@ -54,6 +54,9 @@ pub enum ErrorCodeDto {
     FolderNotSelectable,
     /// Trop de messages visés par une action.
     TooManyMessages,
+    /// Trop d'opérations en attente sur le compte (serveur injoignable
+    /// depuis longtemps) : action refusée.
+    PendingQueueFull,
     /// Erreur interne (journalisée).
     Internal,
 }
@@ -166,6 +169,7 @@ impl From<norelly_application::actions::ActionFailure> for IpcError {
                 ActionError::NotSelectable => Self::new(ErrorCodeDto::FolderNotSelectable),
                 ActionError::TooManyTargets => Self::new(ErrorCodeDto::TooManyMessages),
                 ActionError::UnknownFolder => Self::invalid(FieldDto::Mailbox),
+                ActionError::QueueFull => Self::new(ErrorCodeDto::PendingQueueFull),
             },
         }
     }
@@ -812,6 +816,37 @@ mod error_tests {
         assert_eq!(
             json(&IpcError::storage("disque plein")),
             serde_json::json!({ "code": "storage", "field": null, "detail": null })
+        );
+    }
+
+    #[test]
+    fn action_errors_are_projected_to_their_own_codes() {
+        use norelly_application::actions::ActionFailure;
+        use norelly_domain::actions::ActionError;
+        let code = |e: ActionError| IpcError::from(ActionFailure::Invalid(e)).code;
+        assert_eq!(code(ActionError::NoTrash), ErrorCodeDto::NoTrash);
+        assert_eq!(code(ActionError::NoArchive), ErrorCodeDto::NoArchive);
+        assert_eq!(code(ActionError::SameFolder), ErrorCodeDto::SameFolder);
+        assert_eq!(
+            code(ActionError::NotSelectable),
+            ErrorCodeDto::FolderNotSelectable
+        );
+        assert_eq!(
+            code(ActionError::TooManyTargets),
+            ErrorCodeDto::TooManyMessages
+        );
+        assert_eq!(
+            code(ActionError::QueueFull),
+            ErrorCodeDto::PendingQueueFull
+        );
+        let e = IpcError::from(ActionFailure::Invalid(ActionError::UnknownFolder));
+        assert_eq!(
+            (e.code, e.field),
+            (ErrorCodeDto::InvalidInput, Some(FieldDto::Mailbox))
+        );
+        assert_eq!(
+            IpcError::from(ActionFailure::Store(norelly_domain::ports::StoreError("x".into()))).code,
+            ErrorCodeDto::Storage
         );
     }
 

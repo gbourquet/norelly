@@ -5,7 +5,7 @@
 use norelly_domain::account::AccountId;
 use norelly_domain::actions::{
     ActionFlag, FlagChange, FolderRef, LocalEffect, LocalMessage, MAX_ACTION_TARGETS, Member,
-    OpKind, PendingOp, local_effect, revert_effect,
+    OpKind, PendingOp, QueueChange, local_effect, revert_effect,
 };
 use norelly_domain::mailbox::{MailboxId, MailboxName, MailboxRole, ModSeq, UidValidity};
 use norelly_domain::ports::{ConversationId, MessageId, PendingOpId, PendingOpStore, StoreError};
@@ -62,6 +62,26 @@ fn apply_effect(c: &Connection, effect: LocalEffect) -> Result<(), StoreError> {
         }
     }
     Ok(())
+}
+
+/// Retire l'opération `id` et inverse son effet local, seulement si le
+/// rejeu ne l'a pas réservée. `false` si elle est réservée ou absente.
+fn cancel_unclaimed(c: &Connection, id: PendingOpId) -> Result<bool, StoreError> {
+    let Some(op) = read_op(c, id)? else {
+        return Ok(false);
+    };
+    let n = c
+        .execute(
+            "DELETE FROM pending_ops WHERE id = ?1 AND claimed = 0",
+            [id.get()],
+        )
+        .map_err(store_error)?;
+    if n == 0 {
+        return Ok(false);
+    }
+    apply_effect(c, revert_effect(&op))?;
+    remove_placeholders(c, id.get())?;
+    Ok(true)
 }
 
 /// UID synthétique d'une copie provisoire : tout en haut de l'espace des
@@ -427,20 +447,35 @@ impl PendingOpStore for SqliteMailStore {
             .await
     }
 
-    async fn record(&self, op: &PendingOp) -> Result<PendingOpId, StoreError> {
-        let op = op.clone();
+    async fn record_all(&self, changes: &[QueueChange]) -> Result<Vec<PendingOpId>, StoreError> {
+        let changes = changes.to_vec();
         self.db()
             .run(move |c| {
                 let tx = c
                     .transaction_with_behavior(TransactionBehavior::Immediate)
                     .map_err(store_error)?;
-                let id = insert_op(&tx, &op)?;
-                apply_effect(&tx, local_effect(&op))?;
-                if let OpKind::Move { to } = &op.kind {
-                    create_placeholder(&tx, id, &op, to)?;
+                let mut recorded = Vec::new();
+                for change in &changes {
+                    let op = match change {
+                        QueueChange::Push(op) => op,
+                        QueueChange::CancelOrPush { existing, op } => {
+                            if cancel_unclaimed(&tx, *existing)? {
+                                continue;
+                            }
+                            op
+                        }
+                    };
+                    let id = insert_op(&tx, op)?;
+                    apply_effect(&tx, local_effect(op))?;
+                    if let OpKind::Move { to } = &op.kind {
+                        create_placeholder(&tx, id, op, to)?;
+                    }
+                    recorded.push(
+                        PendingOpId::new(id).ok_or_else(|| corrupted("identifiant d'opération"))?,
+                    );
                 }
                 tx.commit().map_err(store_error)?;
-                PendingOpId::new(id).ok_or_else(|| corrupted("identifiant d'opération"))
+                Ok(recorded)
             })
             .await
     }
@@ -488,22 +523,9 @@ impl PendingOpStore for SqliteMailStore {
                 let tx = c
                     .transaction_with_behavior(TransactionBehavior::Immediate)
                     .map_err(store_error)?;
-                let Some(op) = read_op(&tx, id)? else {
-                    return Ok(false);
-                };
-                let n = tx
-                    .execute(
-                        "DELETE FROM pending_ops WHERE id = ?1 AND claimed = 0",
-                        [id.get()],
-                    )
-                    .map_err(store_error)?;
-                if n == 0 {
-                    return Ok(false);
-                }
-                apply_effect(&tx, revert_effect(&op))?;
-                remove_placeholders(&tx, id.get())?;
+                let cancelled = cancel_unclaimed(&tx, id)?;
                 tx.commit().map_err(store_error)?;
-                Ok(true)
+                Ok(cancelled)
             })
             .await
     }

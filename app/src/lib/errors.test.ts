@@ -13,6 +13,12 @@ describe("traduction des erreurs IPC", () => {
     expect(errorText(new IpcFailure("link_refused"))).toMatch(/http, https et mailto/);
   });
 
+  it("explique une file d'actions pleine", () => {
+    expect(errorText(new IpcFailure("pending_queue_full"))).toBe(
+      "Trop d'actions attendent le serveur sur ce compte : réessayez une fois reconnecté.",
+    );
+  });
+
   it("cite le détail technique tel quel, sans le traduire", () => {
     expect(errorText(new IpcFailure("open_failed", null, "No such file"))).toBe(
       "Ouverture impossible. (« No such file »)",

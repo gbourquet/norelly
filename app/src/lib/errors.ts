@@ -95,6 +95,8 @@ function codeText(code: ErrorCodeDto, field: FieldDto | null): string {
       return m.err_folder_not_selectable();
     case "too_many_messages":
       return m.err_too_many_messages();
+    case "pending_queue_full":
+      return m.err_pending_queue_full();
     case "internal":
       return m.err_internal();
   }

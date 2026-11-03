@@ -16,7 +16,9 @@
 //! - Un envoi interrompu par l'arrêt de l'application (`Sending` au
 //!   démarrage) a peut-être abouti : il devient un échec
 //!   [`SendFailure::Uncertain`], jamais renvoyé automatiquement (pas de
-//!   doublon chez les destinataires) ; l'utilisateur décide.
+//!   doublon chez les destinataires) ; l'utilisateur décide. Il en va de
+//!   même d'une transmission interrompue sans réponse du serveur
+//!   ([`crate::ports::SendError::Interrupted`]).
 
 use crate::capabilities::ServerCapabilities;
 use crate::connection::{ConnectionError, TimeoutStage};
@@ -64,6 +66,7 @@ impl SendFailure {
     pub fn of(error: &SendError) -> Self {
         match error {
             SendError::Deferred(_) => Self::Temporary,
+            SendError::Interrupted(_) => Self::Uncertain,
             SendError::Rejected(_) | SendError::InvalidAddress(_) => Self::Rejected,
             SendError::Connection(e) => match e {
                 // Avant tout échange : hors ligne, rien n'est parti.
@@ -324,6 +327,11 @@ mod tests {
         assert_eq!(
             of(SendError::Deferred("451".into())),
             SendFailure::Temporary
+        );
+        assert_eq!(
+            of(SendError::Interrupted("délai".into())),
+            SendFailure::Uncertain,
+            "peut-être parti : jamais renvoyé automatiquement"
         );
         assert_eq!(of(SendError::Rejected("550".into())), SendFailure::Rejected);
         assert_eq!(

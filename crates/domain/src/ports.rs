@@ -427,6 +427,10 @@ pub enum SendError {
     /// Refus temporaire (réponse SMTP 4xx) : à retenter plus tard.
     #[error("message différé par le serveur : {0}")]
     Deferred(String),
+    /// Connexion perdue ou délai dépassé pendant la transmission, sans
+    /// réponse du serveur : le message est peut-être parti.
+    #[error("transmission interrompue, issue incertaine : {0}")]
+    Interrupted(String),
 }
 
 /// Envoi de messages (SMTP).

@@ -339,7 +339,13 @@ pub async fn contact_query_contract<S: ContactQuery + MailStore>(
                 id_of(name)?,
                 &SyncBatch {
                     new: (1..=5)
-                        .map(|n| received(n, ("Alice Martin <alice@example.com>", "alice@evil.example"), &[]))
+                        .map(|n| {
+                            received(
+                                n,
+                                ("Alice Martin <alice@example.com>", "alice@evil.example"),
+                                &[],
+                            )
+                        })
                         .collect(),
                     state: state(validity, 10, 6),
                     ..SyncBatch::default()
@@ -383,7 +389,10 @@ pub async fn contact_query_contract<S: ContactQuery + MailStore>(
         "destinataires des messages reçus exclus"
     );
     assert!(!all.iter().any(|a| a.contains("autre")), "autre compte");
-    assert!(!all.iter().any(|a| a.contains("evil")), "indésirables et corbeille exclus");
+    assert!(
+        !all.iter().any(|a| a.contains("evil")),
+        "indésirables et corbeille exclus"
+    );
     // Recherche dans le nom.
     assert_eq!(
         addresses(store.suggest(account, "martin", 10).await?),

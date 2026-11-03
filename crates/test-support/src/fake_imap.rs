@@ -783,6 +783,29 @@ impl RemoteMailboxSession for FakeImapSession {
             .map(|_| ())
     }
 
+    async fn append(
+        &mut self,
+        mailbox: &MailboxName,
+        raw: &[u8],
+        draft: bool,
+    ) -> Result<Option<Uid>, ConnectionError> {
+        self.throttle().await;
+        let (uidplus, exists) = {
+            let mut s = self.step()?;
+            let uidplus = s.uidplus;
+            (uidplus, s.mailbox(mailbox.as_str()).is_some())
+        };
+        if !exists {
+            return Err(ConnectionError::Rejected(
+                "NO [TRYCREATE] boîte inexistante".into(),
+            ));
+        }
+        let mut flags = Flags::from_tokens(["\\Seen"]);
+        flags.draft = draft;
+        let assigned = self.server.append(mailbox.as_str(), raw, flags, 0);
+        Ok(assigned.filter(|_| uidplus))
+    }
+
     async fn expunge_all(&mut self) -> Result<u32, ConnectionError> {
         {
             let mut s = lock(&self.server.state);

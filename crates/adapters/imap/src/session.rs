@@ -13,7 +13,8 @@ use std::time::Duration;
 
 use imap_next::imap_types::body::{BodyStructure, SpecificFields};
 use imap_next::imap_types::command::{CommandBody, FetchModifier, SelectParameter, StoreModifier};
-use imap_next::imap_types::core::{IString, NString, Vec1};
+use imap_next::imap_types::core::{IString, Literal, NString, Vec1};
+use imap_next::imap_types::extensions::binary::LiteralOrLiteral8;
 use imap_next::imap_types::extensions::enable::CapabilityEnable;
 use imap_next::imap_types::fetch::{
     MacroOrMessageDataItemNames, MessageDataItem, MessageDataItemName, Part, Section,
@@ -830,6 +831,34 @@ impl Connection {
             StoreOutcome::Modified
         } else {
             StoreOutcome::Stored
+        })
+    }
+
+    /// `APPEND` (littéral synchrone), `\Seen` et `\Draft` si `draft` ;
+    /// UID lu dans `APPENDUID`.
+    pub(crate) async fn append(
+        &mut self,
+        to: &MailboxName,
+        raw: &[u8],
+        draft: bool,
+    ) -> Result<Option<Uid>, ConnectionError> {
+        let mut flags = vec![Flag::Seen];
+        if draft {
+            flags.push(Flag::Draft);
+        }
+        let literal = Literal::try_from(raw.to_vec())
+            .map_err(|_| protocol("message impossible à transmettre (octet nul)"))?;
+        let body = CommandBody::Append {
+            mailbox: mailbox_arg(to)?,
+            flags,
+            date: None,
+            message: LiteralOrLiteral8::Literal(literal),
+        };
+        let reply = self.execute(body, false).await?;
+        ensure_ok(&reply.status)?;
+        Ok(match reply.status.code {
+            Some(Code::AppendUid { uid, .. }) => Some(Uid::from_nonzero(uid)),
+            _ => None,
         })
     }
 

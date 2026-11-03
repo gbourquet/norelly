@@ -1025,3 +1025,57 @@ async fn expunge_counts_untagged_expunge_responses() -> TestResult {
     server.finish().await.result?;
     Ok(())
 }
+
+/// `APPEND` : littéral envoyé après la continuation, drapeaux `\Seen` et
+/// `\Draft`, UID lu dans `APPENDUID` ; refus `NO` → `Rejected`.
+#[tokio::test]
+async fn append_sends_a_literal_and_reads_appenduid() -> TestResult {
+    use norelly_domain::connection::ConnectionError;
+    use norelly_domain::mailbox::{MailboxName, Uid};
+
+    let f = fixture()?;
+    let cert = f.ca.issue(&["localhost"])?;
+    let raw = b"Subject: brouillon\r\n\r\ncorps du brouillon\r\n";
+    let script = authenticated(
+        Script::new()
+            .expect(format!("APPEND Brouillons (\\Seen \\Draft) {{{}}}", raw.len()))
+            .send("+ pret\r\n")
+            .expect_data_until("corps du brouillon")
+            // Fin de la commande, après le littéral.
+            .expect_data()
+            .send("{tag} OK [APPENDUID 7 42] APPEND termine\r\n")
+            .expect("APPEND Envoy&AOk-s (\\Seen) {")
+            .send("+ pret\r\n")
+            .expect_data_until("corps du brouillon")
+            .expect_data()
+            .send("{tag} OK APPEND termine\r\n")
+            .expect("APPEND Absente")
+            .send("{tag} NO [TRYCREATE] boite absente\r\n")
+            // Littéral jamais envoyé : `imap-next` ne libère la commande
+            // que sur `BAD` ; la session est fermée sans LOGOUT.
+            .expect_eof(),
+    );
+    let server = ScriptedServer::start_tls(script, cert.server_config()?).await?;
+    let mut session = f
+        .connector
+        .connect(&request(
+            server.port(),
+            Security::Tls,
+            PlaintextPolicy::deny_all(),
+        ))
+        .await?;
+    let drafts = MailboxName::parse("Brouillons")?;
+    assert_eq!(session.append(&drafts, raw, true).await?, Uid::new(42));
+    let sent = MailboxName::parse("Envoyés")?;
+    assert_eq!(session.append(&sent, raw, false).await?, None);
+    let missing = MailboxName::parse("Absente")?;
+    let refused = session.append(&missing, raw, true).await;
+    assert!(matches!(refused, Err(ConnectionError::Rejected(_))), "{refused:?}");
+    assert!(
+        session.search_all_uids().await.is_err(),
+        "session inutilisable après un littéral refusé"
+    );
+    session.logout().await?;
+    server.finish().await.result?;
+    Ok(())
+}

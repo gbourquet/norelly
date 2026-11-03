@@ -361,6 +361,15 @@ impl RemoteMailboxSession for ImapSession {
         self.conn.expunge(Some(uid)).await.map(|_| ())
     }
 
+    async fn append(
+        &mut self,
+        mailbox: &MailboxName,
+        raw: &[u8],
+        draft: bool,
+    ) -> Result<Option<Uid>, ConnectionError> {
+        self.conn.append(mailbox, raw, draft).await
+    }
+
     async fn expunge_all(&mut self) -> Result<u32, ConnectionError> {
         self.conn.expunge(None).await
     }

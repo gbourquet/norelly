@@ -117,6 +117,11 @@ pub(crate) struct Connection {
     /// Commande en cours : reste vrai si son futur a été abandonné ; la
     /// session est alors désynchronisée et n'est plus que fermée.
     busy: bool,
+    /// Réponse étiquetée reçue avant l'envoi complet de la commande (`NO`
+    /// à la place de la continuation d'un littéral) : `imap-next` 0.3.4
+    /// garde alors le littéral en attente et bloquerait les commandes
+    /// suivantes. La session n'est plus que fermée.
+    literal_pending: bool,
     /// Session authentifiée : une réponse indécodable est alors écartée
     /// (et comptée) au lieu d'interrompre la commande.
     authenticated: bool,
@@ -181,6 +186,7 @@ impl Connection {
             next_tag: 0,
             in_idle: false,
             busy: false,
+            literal_pending: false,
             authenticated: false,
             skipped: 0,
             command_bytes: 0,
@@ -203,7 +209,7 @@ impl Connection {
     }
 
     fn ensure_usable(&self) -> Result<(), ConnectionError> {
-        if self.in_idle || self.busy {
+        if self.in_idle || self.busy || self.literal_pending {
             return Err(protocol("session interrompue pendant une commande"));
         }
         Ok(())
@@ -539,13 +545,14 @@ impl Connection {
         self.client.enqueue_command(command);
         let mut data = Vec::new();
         let mut untagged = Vec::new();
+        let mut sent = false;
         loop {
             let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
             if remaining.is_zero() {
                 return Err(ConnectionError::Timeout(TimeoutStage::Response));
             }
             match self.next_event_within(self.timeout.min(remaining)).await? {
-                Event::CommandSent { .. } => {}
+                Event::CommandSent { .. } => sent = true,
                 Event::DataReceived { data: d } => {
                     if data.len() >= max_data {
                         return Err(protocol("trop de réponses non étiquetées"));
@@ -554,6 +561,10 @@ impl Connection {
                 }
                 Event::StatusReceived { status } => match status {
                     Status::Tagged(tagged) if tagged.tag == tag => {
+                        if !sent {
+                            tracing::warn!("réponse avant l'envoi complet de la commande : session fermée");
+                            self.literal_pending = true;
+                        }
                         return Ok(Reply {
                             data,
                             untagged,
@@ -571,7 +582,12 @@ impl Connection {
                     Status::Bye(_) if allow_bye => {}
                     Status::Bye(_) => return Err(ConnectionError::Closed),
                 },
+                // Refus avant l'envoi d'un littéral (APPEND) : un `NO`
+                // laisse la session intacte, comme après la commande.
                 Event::CommandRejected { status, .. } => {
+                    if let Status::Tagged(tagged) = &status {
+                        ensure_ok(&tagged.body)?;
+                    }
                     return Err(ConnectionError::Protocol(format!(
                         "commande rejetée : {}",
                         status_text(&status)
@@ -709,7 +725,7 @@ impl Connection {
 
     /// `LOGOUT`.
     pub(crate) async fn logout(&mut self) -> Result<(), ConnectionError> {
-        if self.in_idle || self.busy {
+        if self.in_idle || self.busy || self.literal_pending {
             // IDLE abandonné : rien d'autre ne peut être envoyé proprement ;
             // la connexion est simplement fermée.
             self.transport = Transport::Detached;

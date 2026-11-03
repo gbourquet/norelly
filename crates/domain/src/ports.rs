@@ -337,6 +337,17 @@ pub trait RemoteMailboxSession: Send {
         to: &MailboxName,
     ) -> impl Future<Output = Result<(), ConnectionError>> + Send;
 
+    /// `APPEND` d'un message dans `mailbox` (sélection inutile), marqué
+    /// `\Seen`, et `\Draft` pour un brouillon. Renvoie l'UID attribué
+    /// quand le serveur le donne (UIDPLUS, code `APPENDUID`). Boîte
+    /// absente : [`ConnectionError::Rejected`].
+    fn append(
+        &mut self,
+        mailbox: &MailboxName,
+        raw: &[u8],
+        draft: bool,
+    ) -> impl Future<Output = Result<Option<Uid>, ConnectionError>> + Send;
+
     /// `UID COPY`.
     fn copy_to(
         &mut self,

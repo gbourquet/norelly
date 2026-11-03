@@ -491,6 +491,56 @@ where
     let selected = session.select_writable(&dest).await.map_err(e)?;
     assert_eq!(selected.exists, if has_move { 2 } else { 1 });
 
+    // --- APPEND (brouillon, copie dans Envoyés) ---
+    let appended = session
+        .append(&dest, &contract_message(9), true)
+        .await
+        .map_err(e)?;
+    assert_eq!(appended.is_some(), has_uidplus, "APPENDUID si UIDPLUS");
+    let selected = session.select_writable(&dest).await.map_err(e)?;
+    assert_eq!(selected.exists, if has_move { 3 } else { 2 });
+    let newest = session
+        .search_all_uids()
+        .await
+        .map_err(e)?
+        .into_iter()
+        .max()
+        .ok_or("APPEND absent")?;
+    if let Some(u) = appended {
+        assert_eq!(u, newest, "UID annoncé");
+    }
+    let flags = session.message_flags(newest).await.map_err(e)?;
+    assert!(
+        flags.as_ref().is_some_and(|f| f.seen && f.draft),
+        "\\Seen et \\Draft : {flags:?}"
+    );
+    session
+        .append(&dest, &contract_message(10), false)
+        .await
+        .map_err(e)?;
+    let newest = session
+        .search_all_uids()
+        .await
+        .map_err(e)?
+        .into_iter()
+        .max()
+        .ok_or("APPEND absent")?;
+    let flags = session.message_flags(newest).await.map_err(e)?;
+    assert!(
+        flags.as_ref().is_some_and(|f| f.seen && !f.draft),
+        "copie envoyée : {flags:?}"
+    );
+    let refused = session
+        .append(&missing, &contract_message(11), true)
+        .await;
+    assert!(
+        matches!(
+            refused,
+            Err(norelly_domain::connection::ConnectionError::Rejected(_))
+        ),
+        "boîte absente : {refused:?}"
+    );
+
     session.logout().await.map_err(e)?;
     control.delete(&dest_name).await?;
     control.delete(box_name).await?;

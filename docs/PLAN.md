@@ -238,7 +238,8 @@ Commandes de référence (détail dans `scripts/check.sh`) :
 
 ## Phase 8 : recherche plein texte
 
-- [ ] Domaine : analyse de la syntaxe de requête (`from:`, `to:`, `subject:`, `has:attachment`, `is:unread`, `before:`/`after:`, guillemets, négation) en arbre syntaxique, avec des tests et `proptest` (aucune panique)
+- [x] Domaine : analyse de la syntaxe de requête (`from:`, `to:`, `subject:`, `has:attachment`, `is:unread`, `before:`/`after:`, guillemets, négation) en arbre syntaxique, avec des tests et `proptest` (aucune panique)
+  - `crates/domain/src/search.rs` : conjonction de clauses niables (texte sur un champ, ou filtre) ; aussi `is:read`, `is:flagged` ; opérateur inconnu ou valeur invalide cherchés comme du texte (jamais d'échec pour une faute de frappe) ; requête bornée (512 caractères, 16 clauses) ; `before:` exclut le jour, `after:` l'inclut, début du jour selon le décalage horaire reçu ; pliage casse et diacritiques aligné sur `unicode61 remove_diacritics 2` et surlignage en segments de texte (jamais de HTML).
 - [ ] `adapters/sqlite` : FTS5 à contenu externe (`unicode61 remove_diacritics 2`), indexation dans la même transaction que l'insertion, préfixe automatique, `SearchQuery` paginée avec BM25
 - [ ] Test de contrat `SearchIndex` ; protection contre l'injection de syntaxe FTS5 (les termes de l'utilisateur sont échappés)
 - [ ] Bench : recherche dans 50k messages < 100 ms

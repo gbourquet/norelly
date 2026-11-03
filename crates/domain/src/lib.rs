@@ -15,6 +15,7 @@
 //! - [`fetch_policy`] : politique de rapatriement des corps ;
 //! - [`reading`] : liens externes, images distantes, pièces jointes ;
 //! - [`actions`] : actions sur les messages, file d'opérations, rejeu ;
+//! - [`search`] : syntaxe des requêtes de recherche, surlignage ;
 //! - [`ports`] : traits implémentés par les adaptateurs.
 
 pub mod account;
@@ -32,5 +33,6 @@ pub mod fetch_policy;
 pub mod mailbox;
 pub mod ports;
 pub mod reading;
+pub mod search;
 pub mod security;
 pub mod sync;

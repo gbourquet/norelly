@@ -105,6 +105,7 @@ describe("traduction des erreurs IPC", () => {
       attachment: true,
       outbox: true,
       query: true,
+      settings: true,
     } satisfies Record<FieldDto, true>;
     const kinds = {
       network: true,

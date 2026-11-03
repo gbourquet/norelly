@@ -439,3 +439,44 @@ async fn search_inputs_are_revalidated() {
         (ErrorCodeDto::InvalidInput, Some(FieldDto::Mailbox))
     );
 }
+
+#[tokio::test]
+async fn settings_round_trip_and_are_revalidated() {
+    use crate::ipc::{LanguageDto, SettingsDto, UpdateCheckDto};
+    use crate::settings::{get_settings, save_settings};
+    let t = test_app().await;
+    let first = get_settings(t.state())
+        .await
+        .unwrap_or_else(|e| panic!("{e:?}"));
+    assert_eq!(first.language, LanguageDto::System);
+    assert_eq!(
+        first.update_check,
+        UpdateCheckDto::NotAsked,
+        "question pas encore posée"
+    );
+    assert!(first.notifications && !first.notification_privacy);
+    let chosen = SettingsDto {
+        language: LanguageDto::En,
+        update_check: UpdateCheckDto::Enabled,
+        notifications: true,
+        notification_privacy: true,
+        attachment_threshold: 4 * 1024 * 1024,
+    };
+    save_settings(t.state(), chosen)
+        .await
+        .unwrap_or_else(|e| panic!("{e:?}"));
+    assert_eq!(
+        get_settings(t.state())
+            .await
+            .unwrap_or_else(|e| panic!("{e:?}")),
+        chosen
+    );
+    let invalid = SettingsDto {
+        attachment_threshold: 1,
+        ..chosen
+    };
+    assert_eq!(
+        code(save_settings(t.state(), invalid).await),
+        (ErrorCodeDto::InvalidInput, Some(FieldDto::Settings))
+    );
+}

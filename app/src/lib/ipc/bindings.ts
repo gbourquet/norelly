@@ -84,6 +84,17 @@ export const commands = {
 	setArchiveFolder: (account: number, mailbox: number | null) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("set_archive_folder", { account, mailbox })),
 	/**  Une page de messages trouvés, hors ligne (index local). */
 	searchMessages: (query: string, scope: SearchScopeDto, utcOffsetMinutes: number, offset: number, limit: number) => typedError<SearchPageDto_Serialize, IpcError_Serialize>(__TAURI_INVOKE("search_messages", { query, scope, utcOffsetMinutes, offset, limit })),
+	/**  Paramètres de l'application. */
+	getSettings: () => typedError<SettingsDto, IpcError_Serialize>(__TAURI_INVOKE("get_settings")),
+	/**  Enregistre les paramètres (revalidés par le domaine). */
+	saveSettings: (settings: SettingsDto) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("save_settings", { settings })),
+	/**
+	 *  Affiche une notification du système. Le texte, composé par
+	 *  l'interface dans la langue de l'utilisateur, est revalidé ; l'appel au
+	 *  système se fait hors du fil asynchrone. Une notification impossible
+	 *  (pas de service de notification) est seulement journalisée.
+	 */
+	showNotification: (title: string, body: string) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("show_notification", { title, body })),
 	/**
 	 *  Brouillon de départ : nouveau message, réponse, réponse à tous ou
 	 *  transfert de `message`. `attribution` : en-tête de citation construit
@@ -493,7 +504,9 @@ export type FieldDto = "address" | "display_name" | "host" | "port" | "username"
 /**  Serveurs IMAP et SMTP fournis ensemble ou pas du tout. */
 "servers" | "account" | "message" | "part" | "mailbox" | "role" | "cursor" | "conversation" | "folder" | "certificate" | "draft" | "attachment" | "outbox" | 
 /**  Requête de recherche (trop longue, trop de clauses) ou fuseau. */
-"query";
+"query" | 
+/**  Paramètres hors bornes. */
+"settings";
 
 /**  Dossier d'un compte. */
 export type FolderDto = {
@@ -537,6 +550,9 @@ export type IpcError_Serialize = {
 	field: FieldDto | null,
 	detail: string | null,
 };
+
+/**  Langue de l'interface. */
+export type LanguageDto = "system" | "fr" | "en";
 
 /**
  *  Message ouvert : métadonnées du rendu (le document lui-même est servi
@@ -681,18 +697,43 @@ export type ServerDto = {
 	username: string,
 };
 
+/**  Paramètres de l'application. */
+export type SettingsDto = {
+	language: LanguageDto,
+	update_check: UpdateCheckDto,
+	notifications: boolean,
+	notification_privacy: boolean,
+	/**  Octets. */
+	attachment_threshold: number,
+};
+
 /**  Événement de synchronisation relayé à l'interface. */
 export type SyncEventDto = SyncEventDto_Serialize | SyncEventDto_Deserialize;
 
 /**  Événement de synchronisation relayé à l'interface. */
 export type SyncEventDto_Deserialize = { kind: "folder_changed"; account: number; mailbox: number } | { kind: "folders_changed"; account: number } | { kind: "online"; account: number } | 
+/**
+ *  Nouveaux messages non lus dans la boîte de réception : nombre et,
+ *  sauf option de confidentialité, le plus récent (texte composé par
+ *  l'interface, ADR-011).
+ */
+{ kind: "new_mail"; account: number; count: number; from?: CorrespondentDto | null; subject?: string | null } | 
 /**  Connexion perdue : catégorie et détail technique brut éventuel. */
 { kind: "offline"; account: number; failure: FailureKindDto; detail?: string | null };
 
 /**  Événement de synchronisation relayé à l'interface. */
 export type SyncEventDto_Serialize = { kind: "folder_changed"; account: number; mailbox: number } | { kind: "folders_changed"; account: number } | { kind: "online"; account: number } | 
+/**
+ *  Nouveaux messages non lus dans la boîte de réception : nombre et,
+ *  sauf option de confidentialité, le plus récent (texte composé par
+ *  l'interface, ADR-011).
+ */
+{ kind: "new_mail"; account: number; count: number; from: CorrespondentDto | null; subject: string | null } | 
 /**  Connexion perdue : catégorie et détail technique brut éventuel. */
 { kind: "offline"; account: number; failure: FailureKindDto; detail: string | null };
+
+/**  Recherche de mises à jour. */
+export type UpdateCheckDto = "not_asked" | "enabled" | "disabled";
 
 /* Tauri Specta runtime */
 async function typedError<T, E>(result: Promise<T>): Promise<{ status: "ok"; data: T } | { status: "error"; error: E }> {

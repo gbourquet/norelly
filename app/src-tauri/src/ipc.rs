@@ -100,6 +100,8 @@ pub enum FieldDto {
     Outbox,
     /// Requête de recherche (trop longue, trop de clauses) ou fuseau.
     Query,
+    /// Paramètres hors bornes.
+    Settings,
 }
 
 /// Erreur renvoyée à l'interface : un code, le champ concerné, et un détail
@@ -651,6 +653,15 @@ pub enum SyncEventDto {
     Online {
         account: u32,
     },
+    /// Nouveaux messages non lus dans la boîte de réception : nombre et,
+    /// sauf option de confidentialité, le plus récent (texte composé par
+    /// l'interface, ADR-011).
+    NewMail {
+        account: u32,
+        count: u32,
+        from: Option<CorrespondentDto>,
+        subject: Option<String>,
+    },
     /// Connexion perdue : catégorie et détail technique brut éventuel.
     Offline {
         account: u32,
@@ -797,6 +808,35 @@ impl From<&norelly_domain::mailbox::Correspondent> for CorrespondentDto {
             address: c.address.clone(),
         }
     }
+}
+
+/// Langue de l'interface.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum LanguageDto {
+    System,
+    Fr,
+    En,
+}
+
+/// Recherche de mises à jour.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum UpdateCheckDto {
+    NotAsked,
+    Enabled,
+    Disabled,
+}
+
+/// Paramètres de l'application.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+pub struct SettingsDto {
+    pub language: LanguageDto,
+    pub update_check: UpdateCheckDto,
+    pub notifications: bool,
+    pub notification_privacy: bool,
+    /// Octets.
+    pub attachment_threshold: u32,
 }
 
 /// Où chercher.

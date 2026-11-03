@@ -260,6 +260,7 @@
   "field_attachment": "fichier joint",
   "field_outbox": "message en attente d'envoi",
   "field_query": "recherche (trop longue ou trop de critères)",
+  "field_settings": "paramètres",
   "compose_attribution": "Le {date}, {name} a écrit :",
   "compose_forward_intro": "Message transféré de {name}, le {date} :",
   "compose_title_new": "Nouveau message",

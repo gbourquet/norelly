@@ -41,6 +41,26 @@ impl HickorySrvResolver {
     }
 }
 
+impl HickorySrvResolver {
+    /// Résolveur qui n'interroge que `server` (UDP) : serveur DNS de test,
+    /// jamais un vrai DNS.
+    pub fn with_nameserver(server: std::net::SocketAddr) -> Result<Self, DiscoveryError> {
+        use hickory_resolver::config::{ConnectionConfig, NameServerConfig, ResolverConfig};
+        use hickory_resolver::net::runtime::TokioRuntimeProvider;
+        let mut udp = ConnectionConfig::udp();
+        udp.port = server.port();
+        let config = ResolverConfig::from_name_servers(vec![NameServerConfig::new(
+            server.ip(),
+            true,
+            vec![udp],
+        )]);
+        let resolver = TokioResolver::builder_with_config(config, TokioRuntimeProvider::default())
+            .build()
+            .map_err(|e| DiscoveryError::Network(e.to_string()))?;
+        Ok(Self { resolver })
+    }
+}
+
 impl SrvResolver for HickorySrvResolver {
     async fn lookup(
         &self,
@@ -119,5 +139,117 @@ mod tests {
         );
         assert_eq!(srv_record(0, 0, 0, ".").map(|r| r.target), Some(None));
         assert_eq!(srv_record(0, 0, 993, "bad host\r\n"), None);
+    }
+
+    use hickory_resolver::proto::op::{Message, OpCode, ResponseCode};
+    use hickory_resolver::proto::rr::rdata::SRV;
+    use hickory_resolver::proto::rr::{Name, Record};
+
+    /// Serveur DNS de test (UDP, 127.0.0.1) : SRV pour `_imaps._tcp.example.com.`
+    /// (dont un « service absent »), 20 SRV pour
+    /// `_imap._tcp.example.com.`, SERVFAIL pour `panne.example.`, NXDOMAIN
+    /// sinon.
+    async fn fake_dns() -> std::net::SocketAddr {
+        let socket = tokio::net::UdpSocket::bind("127.0.0.1:0")
+            .await
+            .unwrap_or_else(|e| panic!("{e}"));
+        let addr = socket.local_addr().unwrap_or_else(|e| panic!("{e}"));
+        tokio::spawn(async move {
+            let mut buf = [0u8; 2048];
+            loop {
+                let Ok((n, peer)) = socket.recv_from(&mut buf).await else {
+                    return;
+                };
+                let Ok(query) = Message::from_vec(&buf[..n]) else {
+                    continue;
+                };
+                let mut reply = Message::response(query.metadata.id, OpCode::Query);
+                reply.metadata.recursion_desired = true;
+                reply.metadata.recursion_available = true;
+                let name = query.queries.first().map(|q| q.name().to_ascii());
+                for q in &query.queries {
+                    reply.add_query(q.clone());
+                }
+                let srv = |prio, port, target: &str| {
+                    Record::from_rdata(
+                        Name::from_ascii(name.as_deref().unwrap_or("."))
+                            .unwrap_or_else(|e| panic!("{e}")),
+                        60,
+                        hickory_resolver::proto::rr::RData::SRV(SRV::new(
+                            prio,
+                            1,
+                            port,
+                            Name::from_ascii(target).unwrap_or_else(|e| panic!("{e}")),
+                        )),
+                    )
+                };
+                match name.as_deref() {
+                    Some("_imaps._tcp.example.com.") => {
+                        reply.add_answer(srv(0, 993, "imap.example.com."));
+                        reply.add_answer(srv(10, 0, "."));
+                    }
+                    Some("_imap._tcp.example.com.") => {
+                        for i in 0..20 {
+                            reply.add_answer(srv(i, 143, &format!("imap{i}.example.com.")));
+                        }
+                    }
+                    Some(n) if n.ends_with("panne.example.") => {
+                        reply.metadata.response_code = ResponseCode::ServFail;
+                    }
+                    _ => reply.metadata.response_code = ResponseCode::NXDomain,
+                }
+                if let Ok(bytes) = reply.to_vec() {
+                    let _ = socket.send_to(&bytes, peer).await;
+                }
+            }
+        });
+        addr
+    }
+
+    fn host(raw: &str) -> Host {
+        Host::parse(raw).unwrap_or_else(|_| panic!("{raw}"))
+    }
+
+    #[tokio::test]
+    async fn srv_records_are_read_from_the_test_server() {
+        let resolver =
+            HickorySrvResolver::with_nameserver(fake_dns().await).unwrap_or_else(|e| panic!("{e}"));
+        let records = resolver
+            .lookup(SrvService::Imaps, &host("example.com"))
+            .await
+            .unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(records.len(), 2, "{records:?}");
+        assert!(
+            records
+                .iter()
+                .any(|r| r.target.as_ref().map(Host::as_str) == Some("imap.example.com"))
+        );
+        assert!(
+            records.iter().any(|r| r.target.is_none()),
+            "« . » : service absent"
+        );
+        let many = resolver
+            .lookup(SrvService::Imap, &host("example.com"))
+            .await
+            .unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(many.len(), MAX_RECORDS);
+    }
+
+    #[tokio::test]
+    async fn missing_names_are_empty_and_failures_are_errors() {
+        let resolver =
+            HickorySrvResolver::with_nameserver(fake_dns().await).unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(
+            resolver
+                .lookup(SrvService::Submission, &host("example.com"))
+                .await,
+            Ok(Vec::new())
+        );
+        assert!(matches!(
+            resolver
+                .lookup(SrvService::Imaps, &host("panne.example"))
+                .await,
+            Err(DiscoveryError::Network(_))
+        ));
     }
 }

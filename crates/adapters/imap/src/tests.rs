@@ -1119,3 +1119,79 @@ async fn expunge_counts_vanished_responses_under_qresync() -> TestResult {
     server.finish().await.result?;
     Ok(())
 }
+
+/// Session authentifiée sur un script ; renvoie la session et le serveur.
+async fn scripted_session(
+    script: Script,
+) -> Result<(super::ImapSession, ScriptedServer), Box<dyn std::error::Error>> {
+    let f = fixture()?;
+    let cert = f.ca.issue(&["localhost"])?;
+    let server = ScriptedServer::start_tls(authenticated(script), cert.server_config()?).await?;
+    let session = f
+        .connector
+        .connect(&request(
+            server.port(),
+            Security::Tls,
+            PlaintextPolicy::deny_all(),
+        ))
+        .await?;
+    Ok((session, server))
+}
+
+/// IDLE : un changement signalé (`EXISTS`) termine l'attente par DONE.
+#[tokio::test]
+async fn idle_returns_on_a_signalled_change() -> TestResult {
+    use norelly_domain::ports::IdleOutcome;
+    let script = Script::new()
+        .expect("IDLE")
+        .send("+ idling\r\n* 1 RECENT\r\n* 5 EXISTS\r\n")
+        .expect_data_with("DONE")
+        .send("{tag} OK IDLE termine\r\n");
+    let (mut session, server) = scripted_session(script).await?;
+    let outcome = session.idle(Duration::from_secs(30)).await?;
+    assert_eq!(outcome, IdleOutcome::Changed);
+    drop(session);
+    let _ = server.finish().await;
+    Ok(())
+}
+
+/// IDLE sans changement : DONE à l'échéance, `Timeout`.
+#[tokio::test]
+async fn idle_times_out_without_change() -> TestResult {
+    use norelly_domain::ports::IdleOutcome;
+    let script = Script::new()
+        .expect("IDLE")
+        .send("+ idling\r\n")
+        .expect_data_with("DONE")
+        .send("* OK encore la\r\n{tag} OK IDLE termine\r\n");
+    let (mut session, server) = scripted_session(script).await?;
+    let outcome = session.idle(Duration::from_millis(300)).await?;
+    assert_eq!(outcome, IdleOutcome::Timeout);
+    drop(session);
+    let _ = server.finish().await;
+    Ok(())
+}
+
+/// IDLE refusé par le serveur, ou BYE pendant l'attente : erreurs nettes.
+#[tokio::test]
+async fn idle_refusal_and_bye_are_errors() -> TestResult {
+    use norelly_domain::connection::ConnectionError;
+    let refused = Script::new()
+        .expect("IDLE")
+        .send("{tag} BAD IDLE indisponible\r\n");
+    let (mut session, server) = scripted_session(refused).await?;
+    let result = session.idle(Duration::from_secs(5)).await;
+    assert!(matches!(result, Err(ConnectionError::Protocol(_))), "{result:?}");
+    drop(session);
+    let _ = server.finish().await;
+
+    let bye = Script::new()
+        .expect("IDLE")
+        .send("+ idling\r\n* BYE arret du serveur\r\n");
+    let (mut session, server) = scripted_session(bye).await?;
+    let result = session.idle(Duration::from_secs(5)).await;
+    assert_eq!(result, Err(ConnectionError::Closed));
+    drop(session);
+    let _ = server.finish().await;
+    Ok(())
+}

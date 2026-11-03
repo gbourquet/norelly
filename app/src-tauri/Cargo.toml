@@ -48,6 +48,8 @@ norelly-render.workspace = true
 
 [dev-dependencies]
 norelly-test-support.workspace = true
+# Application factice (MockRuntime) : commandes IPC testées sans webview.
+tauri = { version = "2.12", features = ["test"] }
 
 [lints]
 workspace = true

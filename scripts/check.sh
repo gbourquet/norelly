@@ -22,7 +22,7 @@ step "Clippy";                 cargo clippy --workspace --all-targets --locked -
 if [ -z "${LLVM_COV:-}" ] && command -v llvm-cov >/dev/null; then export LLVM_COV="$(command -v llvm-cov)"; fi
 if [ -z "${LLVM_PROFDATA:-}" ] && command -v llvm-profdata >/dev/null; then export LLVM_PROFDATA="$(command -v llvm-profdata)"; fi
 step "Tests Rust (unitaires, couverture)"
-cargo llvm-cov nextest --workspace --locked --no-tests=warn --summary-only --fail-under-lines 83
+cargo llvm-cov nextest --workspace --locked --no-tests=warn --summary-only --fail-under-lines 85
 step "Doctests";               cargo test --workspace --doc --locked
 step "cargo deny";             cargo deny --locked check
 step "Règle de dépendance du domaine"; ./scripts/check-domain-deps.sh

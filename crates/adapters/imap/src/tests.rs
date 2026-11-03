@@ -1181,7 +1181,10 @@ async fn idle_refusal_and_bye_are_errors() -> TestResult {
         .send("{tag} BAD IDLE indisponible\r\n");
     let (mut session, server) = scripted_session(refused).await?;
     let result = session.idle(Duration::from_secs(5)).await;
-    assert!(matches!(result, Err(ConnectionError::Protocol(_))), "{result:?}");
+    assert!(
+        matches!(result, Err(ConnectionError::Protocol(_))),
+        "{result:?}"
+    );
     drop(session);
     let _ = server.finish().await;
 

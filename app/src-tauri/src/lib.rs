@@ -2,6 +2,8 @@
 //! personnalisés) et point d'assemblage des adaptateurs (ADR-008).
 
 pub mod actions;
+#[cfg(test)]
+mod command_tests;
 pub mod commands;
 pub mod compose;
 pub mod ipc;
@@ -10,6 +12,8 @@ pub mod protocols;
 pub mod reading;
 pub mod remote_images;
 pub mod state;
+#[cfg(test)]
+mod test_app;
 
 use norelly_domain::ports::AccountRepository;
 use tauri::Manager;

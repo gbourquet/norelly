@@ -11,6 +11,8 @@ import { $, browser, expect } from "@wdio/globals";
 import { addTestAccount, address, appendMessages, removeTestAccount } from "./helpers.mjs";
 
 const SUBJECT = "Commande de printemps <b>gras</b>";
+/** Sujet tel qu'il doit apparaître dans le HTML : échappé, jamais une balise. */
+const ESCAPED = "Commande de printemps &lt;b&gt;gras&lt;/b&gt;";
 
 const message = `From: Bruno <bruno@norelly.test>
 To: ${address}
@@ -37,9 +39,9 @@ describe("recherche", () => {
 
   it("trouve un mot du texte, surligné, et ouvre le résultat", async () => {
     // Sujet affiché littéralement dans la liste (jamais interprété).
-    const row = $('//span[starts-with(normalize-space(.), "Commande de printemps")]');
+    const row = $("span*=Commande de printemps");
     await row.waitForDisplayed({ timeout: 90000 });
-    await expect(row).toHaveText(SUBJECT);
+    expect(await row.getHTML()).toContain(ESCAPED);
     await expect(row.$("b")).not.toBeExisting();
     await browser.keys("/");
     const box = $('input[type="search"]');
@@ -66,9 +68,9 @@ describe("recherche", () => {
     // Entrée dans la barre a placé le focus sur les résultats.
     await expect(results).toBeFocused();
     await browser.keys("Enter");
-    const title = $('//h1[starts-with(normalize-space(.), "Commande de printemps")]');
+    const title = $("h1*=Commande de printemps");
     await expect(title).toBeDisplayed({ wait: 30000 });
-    await expect(title).toHaveText(SUBJECT);
+    expect(await title.getHTML()).toContain(ESCAPED);
     await browser.keys("Escape");
     await expect(results).toBeDisplayed();
     await browser.keys("Escape");

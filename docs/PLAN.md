@@ -246,15 +246,18 @@ Commandes de référence (détail dans `scripts/check.sh`) :
   - `crates/test-support/src/search_contracts.rs`, joué contre le faux en mémoire et SQLite (mémoire, fichier avec pool de lecteurs) ; chaque clause devient une chaîne FTS5 entre guillemets (guillemets doublés), passée en paramètre lié ; SQL assemblé uniquement à partir de fragments constants (`check-sql.sh`) ; requêtes hostiles (`OR`, `NEAR`, `col:`, `^`, `*`, guillemets, parenthèses…) cherchées comme du texte.
 - [x] Bench : recherche dans 50k messages < 100 ms
   - `crates/adapters/sqlite/benches/search.rs` (50 000 messages avec ~80 mots de texte) : de 0,4 ms (mot rare) à 43 ms (trois mots fréquents), médiane, mesuré le 2026-11-03.
-- [ ] Interface : barre de recherche (`/`), résultats en liste, surlignage, fonctionnement hors ligne
+- [x] Interface : barre de recherche (`/`), résultats en liste, surlignage, fonctionnement hors ligne
+  - commande IPC `search_messages` (surlignage calculé en Rust, transmis en segments de texte) ; `SearchPanel.svelte` à la place de la liste (bouton de l'en-tête ou `/`), recherche pendant la frappe, `j`/`k`, Entrée ouvre la conversation dans le dossier du message (actions dans ce dossier), Échap revient ; index local uniquement, donc hors ligne (tests de commande sans aucune connexion) ; scénario e2e `search.e2e.mjs`.
 - [x] Reports de la revue de la phase 7 (REVIEWS.md, 4 basses) :
   - boîte enregistrée avec chaque copie distante d'un brouillon (migration 8 : `drafts.remote_mailbox`, boîte dans la clé de `draft_remote_trash`) ; corbeille traitée boîte par boîte, boîte disparue ou refusée : copies oubliées ;
   - brouillon refusé (`NO`) ou impossible à construire : journalisé, nouvel essai une heure plus tard (`DraftSync::remote_refused`), les brouillons suivants et la corbeille continuent ;
   - pièces jointes : taille réelle des blobs revérifiée (`QueueMessage`, copie locale), 100 au plus (`ComposeError::TooManyAttachments`), type MIME recalculé en Rust d'après le nom ;
   - brouillon relu depuis SQLite revalidé (`check_storable`).
 - [ ] Revue security-reviewer, consignée dans REVIEWS.md (0 critique, 0 haute ; moyennes corrigées)
+  - **Blocage (2026-11-03)** : revue lancée, interrompue par la limite d'usage de l'API (réinitialisation à 17 h 30, heure de Paris) avant de rendre son rapport. À relancer, puis consigner et corriger les constats critiques et hauts.
 
 **Condition de fin** : `./scripts/check.sh full && cargo bench -p norelly-sqlite -- --test && pnpm -C app e2e` passent sans erreur.
+- Vérifiée le 2026-11-03 : les trois commandes passent (bench recherche : 0,2 à 42 ms ; liste : < 1 ms ; e2e : 4 scénarios).
 
 ## Phase 9 : notifications et finitions
 

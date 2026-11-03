@@ -249,6 +249,10 @@ Commandes de référence (détail dans `scripts/check.sh`) :
 
 ## Phase 9 : notifications et finitions
 
+- [ ] Rédaction, compléments :
+  - transfert avec les pièces jointes du message d'origine (relues depuis le stockage local, téléchargées si besoin, mêmes bornes de taille que l'envoi) ;
+  - liste des brouillons enregistrés pour les rouvrir et les reprendre (brouillons locaux et copies du dossier « Brouillons ») ;
+  - envoi différé : date et heure choisies par l'utilisateur, message gardé dans la file d'envoi jusque-là, modifiable ou annulable avant l'échéance
 - [ ] Notifications natives (`tauri-plugin-notification`) pour les nouveaux messages (regroupées, sans contenu si l'option de confidentialité est active)
 - [ ] Traduction anglaise complète, relue ; choix de la langue dans les paramètres (système par défaut) ; textes des notifications localisés côté interface (ADR-011)
 - [ ] Paramètres : question de mise à jour au premier lancement (oui présélectionné), modifiable ; préférences d'affichage, de rapatriement et de notifications

@@ -102,7 +102,15 @@ fn content_of(draft: &Draft) -> Result<String, StoreError> {
     serde_json::to_string(&dto).map_err(|e| StoreError(format!("sérialisation : {e}")))
 }
 
+/// Brouillon relu, revalidé par le domaine (base modifiée à la main :
+/// sujet avec saut de ligne, tailles hors bornes…).
 fn draft_of(account: AccountId, content: &str) -> Result<Draft, StoreError> {
+    let draft = decode_draft(account, content)?;
+    draft.check_storable().map_err(|_| corrupted("brouillon"))?;
+    Ok(draft)
+}
+
+fn decode_draft(account: AccountId, content: &str) -> Result<Draft, StoreError> {
     let dto: DraftDto = serde_json::from_str(content).map_err(|_| corrupted("brouillon"))?;
     Ok(Draft {
         account,

@@ -42,3 +42,24 @@ async fn contacts_pass_contract() -> Result<(), StoreError> {
     let (_, db, a, b) = setup().await?;
     contact_query_contract(&SqliteMailStore::new(db), a, b).await
 }
+
+/// Brouillon modifié à la main dans la base (sujet avec un saut de ligne,
+/// injection d'en-tête) : relu comme une donnée corrompue, jamais accepté.
+#[tokio::test]
+async fn hand_modified_draft_is_revalidated_on_read() -> Result<(), StoreError> {
+    let (store, db, a, _) = setup().await?;
+    let mut draft = Draft::empty(a);
+    draft.subject = "Bonjour".into();
+    let stored = store.save_draft(None, &draft, 100).await?;
+    assert!(store.draft(stored.id).await?.is_some());
+    db.write_for_tests(
+        "UPDATE drafts SET content = json_set(content, '$.subject', 'a' || char(13, 10) || 'Bcc: x@y')",
+    )
+    .await?;
+    assert!(
+        store.draft(stored.id).await.is_err(),
+        "brouillon relu sans revalidation"
+    );
+    assert!(store.drafts(a).await.is_err());
+    Ok(())
+}

@@ -194,6 +194,13 @@ Commandes de référence (détail dans `scripts/check.sh`) :
 
 ## Phase 7 : rédaction et envoi
 
+- [ ] Rattrapage de couverture (TDD, voir CLAUDE.md), mesuré le 2026-11-02 sur `master` (Rust : `cargo llvm-cov`, tests unitaires et d'intégration, 87 % des lignes ; front : Vitest + coverage-v8, 71 % des lignes). Le code non couvert reçoit des tests qui décrivent son comportement ; un test qui révèle un défaut suit la règle « bug = d'abord un test rouge » :
+  - `app/src-tauri` (adaptateur entrant), le moins couvert : `mail.rs` (7 %), `actions.rs` (14 %), `reading.rs` (22 %), `protocols.rs` (26 %), `ipc.rs` (34 %), `commands.rs` (38 %), `remote_images.rs` (68 %). Commandes IPC et protocoles testés sans webview, contre le faux serveur ou Dovecot en conteneur : revalidation des entrées, codes d'erreur, `mailview://`, `mailpart://`, `remote-img://`, enregistrement et ouverture des pièces jointes ;
+  - `adapters/keyring/src/lib.rs` (38 %) : chemin Secret Service, joué seulement si un trousseau répond (conteneur avec gnome-keyring, comme les e2e) ;
+  - `adapters/discovery/src/srv.rs` (52 %) : résolution SRV contre un serveur DNS de test en conteneur, jamais un vrai DNS ;
+  - `adapters/imap/src/connection.rs` (81 %), `adapters/smtp/src/stream.rs` (86 %) : chemins d'erreur (réponses tronquées, `BAD`, délais) via le faux serveur scripté ;
+  - front : `ServerFields.svelte` (0 %), `AddAccountDialog.svelte` (17 %), `lib/errors.ts` (40 %, tous les codes), `lib/i18n.ts` (55 %, `applySystemLocale`), `Splitter.svelte` (18 %, clavier), `ThreePaneLayout.svelte` (68 %, largeurs mémorisées), `lib/add-account.svelte.ts` (77 %) ; `lib/ipc/api.ts` (0 %, enveloppe des erreurs IPC) ;
+  - décision du mainteneur : ajouter `cargo-llvm-cov` et `@vitest/coverage-v8` au projet, avec un seuil vérifié par `./scripts/check.sh` (renforcement, pas assouplissement).
 - [ ] Domaine :
   - destinataires de répondre, répondre à tous et transférer (exclure ses propres adresses, dédoublonner, `Reply-To`) ;
   - sujet `Re:`/`Fwd:` sans empilement ;

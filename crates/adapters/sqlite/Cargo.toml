@@ -24,5 +24,9 @@ criterion.workspace = true
 name = "message_list"
 harness = false
 
+[[bench]]
+name = "search"
+harness = false
+
 [lints]
 workspace = true

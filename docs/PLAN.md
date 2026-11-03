@@ -240,9 +240,12 @@ Commandes de référence (détail dans `scripts/check.sh`) :
 
 - [x] Domaine : analyse de la syntaxe de requête (`from:`, `to:`, `subject:`, `has:attachment`, `is:unread`, `before:`/`after:`, guillemets, négation) en arbre syntaxique, avec des tests et `proptest` (aucune panique)
   - `crates/domain/src/search.rs` : conjonction de clauses niables (texte sur un champ, ou filtre) ; aussi `is:read`, `is:flagged` ; opérateur inconnu ou valeur invalide cherchés comme du texte (jamais d'échec pour une faute de frappe) ; requête bornée (512 caractères, 16 clauses) ; `before:` exclut le jour, `after:` l'inclut, début du jour selon le décalage horaire reçu ; pliage casse et diacritiques aligné sur `unicode61 remove_diacritics 2` et surlignage en segments de texte (jamais de HTML).
-- [ ] `adapters/sqlite` : FTS5 à contenu externe (`unicode61 remove_diacritics 2`), indexation dans la même transaction que l'insertion, préfixe automatique, `SearchQuery` paginée avec BM25
-- [ ] Test de contrat `SearchIndex` ; protection contre l'injection de syntaxe FTS5 (les termes de l'utilisateur sont échappés)
-- [ ] Bench : recherche dans 50k messages < 100 ms
+- [x] `adapters/sqlite` : FTS5 à contenu externe (`unicode61 remove_diacritics 2`), indexation dans la même transaction que l'insertion, préfixe automatique, `SearchQuery` paginée avec BM25
+  - migration 7 : `message_texts` (sujet, expéditeur, destinataires, texte) et `message_search`, tenus par des déclencheurs (synchronisation, copies provisoires, cascades) ; messages existants indexés à la montée de version ; texte du corps extrait par `render` (`MimeTextExtractor` : partie texte, sinon HTML réassaini réduit au texte, pièces jointes exclues, 100 000 caractères au plus) et enregistré par `set_body` dans la transaction du corps ; port `SearchIndex` : portée tous comptes, compte ou dossier, doublons de `\All` écartés, BM25 pondéré (sujet 10, expéditeur 5, destinataires 3, texte 1), sinon tri par date ; pagination par décalage, 1 000 résultats au plus ; `integrity_problems` vérifie aussi l'index (`integrity-check`).
+- [x] Test de contrat `SearchIndex` ; protection contre l'injection de syntaxe FTS5 (les termes de l'utilisateur sont échappés)
+  - `crates/test-support/src/search_contracts.rs`, joué contre le faux en mémoire et SQLite (mémoire, fichier avec pool de lecteurs) ; chaque clause devient une chaîne FTS5 entre guillemets (guillemets doublés), passée en paramètre lié ; SQL assemblé uniquement à partir de fragments constants (`check-sql.sh`) ; requêtes hostiles (`OR`, `NEAR`, `col:`, `^`, `*`, guillemets, parenthèses…) cherchées comme du texte.
+- [x] Bench : recherche dans 50k messages < 100 ms
+  - `crates/adapters/sqlite/benches/search.rs` (50 000 messages avec ~80 mots de texte) : de 0,4 ms (mot rare) à 43 ms (trois mots fréquents), médiane, mesuré le 2026-11-03.
 - [ ] Interface : barre de recherche (`/`), résultats en liste, surlignage, fonctionnement hors ligne
 - [ ] Revue security-reviewer, consignée dans REVIEWS.md (0 critique, 0 haute ; moyennes corrigées)
 

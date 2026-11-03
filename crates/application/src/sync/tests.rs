@@ -55,7 +55,7 @@ impl World {
             store: &self.store,
             blobs: &self.blobs,
             policy: self.policy,
-            text: &norelly_render::search_text::MimeTextExtractor,
+            text: std::sync::Arc::new(norelly_render::search_text::MimeTextExtractor),
         }
     }
 
@@ -322,4 +322,40 @@ async fn downloaded_bodies_are_searchable() -> Result<(), SyncFailure> {
         [("Message 1".to_owned(), "Corps du message 1.".to_owned())]
     );
     Ok(())
+}
+
+#[derive(Debug)]
+struct Stuck;
+
+impl norelly_domain::ports::SearchTextExtractor for Stuck {
+    fn searchable_text(
+        &self,
+        _: &FetchedBody,
+        _: Option<&norelly_domain::fetch_policy::MimePart>,
+    ) -> String {
+        std::thread::sleep(std::time::Duration::from_secs(2));
+        "trop tard".into()
+    }
+}
+
+/// Revue de la phase 8 (MOYENNE) : l'extraction du texte d'un message
+/// hostile ne bloque pas le fil asynchrone et s'arrête au délai maximal.
+#[tokio::test]
+async fn text_extraction_is_bounded_in_time() {
+    use std::sync::Arc;
+    use std::time::{Duration, Instant};
+    let body = FetchedBody::Full(raw(1));
+    let real: Arc<dyn norelly_domain::ports::SearchTextExtractor> =
+        Arc::new(norelly_render::search_text::MimeTextExtractor);
+    let text = extract_text(&real, &body, None, Duration::from_secs(5)).await;
+    assert!(text.contains("Corps du message 1."), "{text:?}");
+    let stuck: Arc<dyn norelly_domain::ports::SearchTextExtractor> = Arc::new(Stuck);
+    let started = Instant::now();
+    let text = extract_text(&stuck, &body, None, Duration::from_millis(100)).await;
+    assert_eq!(text, "");
+    assert!(
+        started.elapsed() < Duration::from_secs(1),
+        "{:?}",
+        started.elapsed()
+    );
 }

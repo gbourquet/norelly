@@ -1357,7 +1357,7 @@ fn contains_words(doc: &[String], words: &[String], phrase: bool) -> bool {
     doc.windows(words.len()).any(|w| {
         w.iter().zip(head).all(|(d, t)| d == t)
             && w.last().is_some_and(|d| {
-                if phrase {
+                if phrase || last.chars().count() < 2 {
                     d == last
                 } else {
                     d.starts_with(last.as_str())
@@ -1505,13 +1505,10 @@ fn snippet(text: &str, terms: &[&String]) -> String {
             .any(|t| terms.iter().any(|term| t.starts_with(term.as_str())))
     });
     let start = first_hit.map_or(0, |i| i.saturating_sub(4));
-    words
-        .get(start..)
-        .unwrap_or_default()
-        .join(" ")
-        .chars()
-        .take(MAX_SNIPPET_CHARS)
-        .collect()
+    norelly_domain::mailbox::header_text(
+        &words.get(start..).unwrap_or_default().join(" "),
+        MAX_SNIPPET_CHARS,
+    )
 }
 
 #[cfg(test)]

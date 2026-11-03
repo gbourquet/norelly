@@ -230,7 +230,7 @@ async fn missing_body_is_downloaded_on_open() -> Result<(), ReadError> {
         store: &store,
         fetcher: &fetcher,
         policy: FetchPolicy::default(),
-        text: &norelly_render::search_text::MimeTextExtractor,
+        text: std::sync::Arc::new(norelly_render::search_text::MimeTextExtractor),
     };
     assert!(download.execute(id).await?);
     let location = store.locate(id).await?.ok_or(ReadError::NotFound)?;
@@ -256,7 +256,7 @@ async fn body_downloaded_on_open_is_searchable() -> Result<(), ReadError> {
         store: &store,
         fetcher: &fetcher,
         policy: FetchPolicy::default(),
-        text: &norelly_render::search_text::MimeTextExtractor,
+        text: std::sync::Arc::new(norelly_render::search_text::MimeTextExtractor),
     };
     assert!(download.execute(id).await?);
     let page = store

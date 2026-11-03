@@ -104,3 +104,18 @@ fn arbitrary_bytes_do_not_panic() {
         let _ = MimeTextExtractor.searchable_text(&FetchedBody::Full(raw.to_vec()), None);
     }
 }
+
+/// Revue de la phase 8 (MOYENNE) : un HTML dense de 2 Mio est réduit au
+/// texte en temps raisonnable (le délai maximal du cas d'usage reste le
+/// filet de sécurité).
+#[test]
+fn hostile_html_stays_fast() {
+    let started = std::time::Instant::now();
+    let html = "<p><b>mot</b> <i>autre</i></p></q>".repeat(60_000);
+    let raw = format!("Content-Type: text/html\r\n\r\n{html}");
+    let text = text_of(&raw);
+    assert!(text.chars().count() <= MAX_INDEXED_TEXT_CHARS);
+    let elapsed = started.elapsed();
+    eprintln!("HTML hostile : {elapsed:?}");
+    assert!(elapsed < std::time::Duration::from_secs(5), "{elapsed:?}");
+}

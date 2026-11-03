@@ -295,7 +295,7 @@ impl MailServices {
             store: &*self.store,
             fetcher: self,
             policy: FetchPolicy::default(),
-            text: &norelly_render::search_text::MimeTextExtractor,
+            text: std::sync::Arc::new(norelly_render::search_text::MimeTextExtractor),
         };
         match download.execute(id).await {
             Ok(_) => self.reader().load(id).await,

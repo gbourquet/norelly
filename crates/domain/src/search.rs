@@ -3,7 +3,8 @@
 //!
 //! Syntaxe reconnue par [`parse_query`] :
 //! - mots libres, cherchés partout (sujet, expéditeur, destinataires,
-//!   texte du message), en préfixe (`fact` trouve « facture ») ;
+//!   texte du message), en préfixe (`fact` trouve « facture ») à partir de
+//!   deux lettres ;
 //! - `"phrase exacte"` (guillemet final facultatif) ;
 //! - `from:`, `to:` (destinataires, À et Cc), `subject:`, suivis d'un mot
 //!   ou d'une phrase entre guillemets ;

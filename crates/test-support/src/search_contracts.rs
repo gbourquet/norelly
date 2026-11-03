@@ -327,6 +327,12 @@ where
 
     // --- Préfixe, casse, diacritiques ---
     assert_eq!(found(store, "FACT", mine).await?, ["Facture d'avril"]);
+    assert_eq!(found(store, "fa", mine).await?, ["Facture d'avril"]);
+    assert_eq!(
+        found(store, "f", mine).await?,
+        Vec::<String>::new(),
+        "un mot d'une lettre est cherché tel quel (préfixe non indexé)"
+    );
     assert_eq!(
         found(store, "reunion", mine).await?,
         ["Compte-rendu de la réunion", "Réunion de lundi"]
@@ -539,6 +545,26 @@ where
     assert_eq!(
         subjects(store, "lundi", SearchScope::Mailbox(inbox)).await?,
         ["Réunion de lundi", "Carole arrive"]
+    );
+    // Extrait nettoyé comme un sujet : ni inversion bidi ni largeur nulle.
+    store
+        .set_body(
+            inbox,
+            uid(2),
+            &body,
+            Some("Virement validé \u{202E}lirva\u{202C} ok\u{200B}"),
+        )
+        .await?;
+    let hit = store.search(request("virement", mine)).await?;
+    let snippet = hit
+        .items
+        .first()
+        .map(|h| h.snippet.clone())
+        .unwrap_or_default();
+    assert!(snippet.contains("Virement"), "{snippet:?}");
+    assert!(
+        !snippet.contains(['\u{202E}', '\u{202C}', '\u{200B}']),
+        "caractères de format retirés : {snippet:?}"
     );
     // Texte vidé.
     store.set_body(inbox, uid(2), &body, Some("")).await?;

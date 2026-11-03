@@ -253,13 +253,15 @@ Commandes de référence (détail dans `scripts/check.sh`) :
   - brouillon refusé (`NO`) ou impossible à construire : journalisé, nouvel essai une heure plus tard (`DraftSync::remote_refused`), les brouillons suivants et la corbeille continuent ;
   - pièces jointes : taille réelle des blobs revérifiée (`QueueMessage`, copie locale), 100 au plus (`ComposeError::TooManyAttachments`), type MIME recalculé en Rust d'après le nom ;
   - brouillon relu depuis SQLite revalidé (`check_storable`).
-- [ ] Revue security-reviewer, consignée dans REVIEWS.md (0 critique, 0 haute ; moyennes corrigées)
-  - **Blocage (2026-11-03)** : revue lancée, interrompue par la limite d'usage de l'API (réinitialisation à 17 h 30, heure de Paris) avant de rendre son rapport. À relancer, puis consigner et corriger les constats critiques et hauts.
+- [x] Revue security-reviewer, consignée dans REVIEWS.md (0 critique, 0 haute ; moyennes corrigées)
+  - 0 critique, 0 haute, 1 moyenne (extraction du texte hors du fil async, en temps borné : corrigée), 3 basses (extrait nettoyé : corrigée ; préfixe d'une lettre : corrigé en partie ; budget de temps des recherches et `hostile_message_sql.rs` : reportés en phase 9).
 
 **Condition de fin** : `./scripts/check.sh full && cargo bench -p norelly-sqlite -- --test && pnpm -C app e2e` passent sans erreur.
 - Vérifiée le 2026-11-03 : les trois commandes passent (bench recherche : 0,2 à 42 ms ; liste : < 1 ms ; e2e : 4 scénarios).
 
 ## Phase 9 : notifications et finitions
+
+- [ ] Reports de la revue de la phase 8 (REVIEWS.md) : budget de temps des lectures de recherche (interruption quand une nouvelle requête arrive), bench avec des corps réalistes ; `hostile_message_sql.rs` étendu à la recherche et au nom de boîte des copies distantes
 
 - [ ] Notifications natives (`tauri-plugin-notification`) pour les nouveaux messages (regroupées, sans contenu si l'option de confidentialité est active)
 - [ ] Traduction anglaise complète, relue ; choix de la langue dans les paramètres (système par défaut) ; textes des notifications localisés côté interface (ADR-011)

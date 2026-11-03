@@ -268,7 +268,7 @@ where
             store: &self.store,
             blobs: &self.blobs,
             policy: self.config.policy,
-            text: &*self.text,
+            text: Arc::clone(&self.text),
         }
     }
 

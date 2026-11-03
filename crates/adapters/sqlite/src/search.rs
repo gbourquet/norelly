@@ -51,7 +51,10 @@ fn fts_term(field: Field, text: &str, phrase: bool) -> String {
         Field::Subject => "subject : ",
     };
     let quoted = text.replace('"', "\"\"");
-    let prefix = if phrase { "" } else { " *" };
+    // Préfixe d'une lettre : non indexé (`prefix = '2 3'`), coûteux ;
+    // le mot est alors cherché tel quel.
+    let short = tokens(text).last().is_none_or(|w| w.chars().count() < 2);
+    let prefix = if phrase || short { "" } else { " *" };
     format!("{column}\"{quoted}\"{prefix}")
 }
 
@@ -124,16 +127,11 @@ fn hit(row: HitRow) -> Result<SearchHit, StoreError> {
     })
 }
 
-/// Passage affichable : blancs et caractères de contrôle réduits à une
-/// espace, au plus [`MAX_SNIPPET_CHARS`] caractères.
+/// Passage affichable : nettoyé comme un sujet (contrôles et caractères
+/// de mise en forme retirés, blancs réduits), au plus
+/// [`MAX_SNIPPET_CHARS`] caractères.
 fn snippet_text(raw: &str) -> String {
-    raw.split(|c: char| c.is_whitespace() || c.is_control())
-        .filter(|w| !w.is_empty())
-        .collect::<Vec<_>>()
-        .join(" ")
-        .chars()
-        .take(MAX_SNIPPET_CHARS)
-        .collect()
+    header_text(raw, MAX_SNIPPET_CHARS)
 }
 
 fn search_query(c: &Connection, request: &SearchRequest) -> Result<SearchPage, StoreError> {

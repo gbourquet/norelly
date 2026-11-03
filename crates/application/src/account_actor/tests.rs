@@ -417,7 +417,10 @@ async fn unread_arrivals_in_the_inbox_are_signalled() {
         Flags::default(),
         2,
     );
-    let event = wait_for(&mut r.events, WAIT, |e| matches!(e, SyncEvent::NewMail { .. })).await;
+    let event = wait_for(&mut r.events, WAIT, |e| {
+        matches!(e, SyncEvent::NewMail { .. })
+    })
+    .await;
     let SyncEvent::NewMail { mail, .. } = event else {
         panic!("{event:?}");
     };

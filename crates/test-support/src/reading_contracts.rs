@@ -14,7 +14,8 @@ use norelly_domain::mailbox::{
 };
 use norelly_domain::ports::{
     ConversationId, ConversationListItem, ConversationQuery, MailStore, MessageLocator,
-    ReadingPreferences, StoreError, StoredBody, StoredMailbox, StoredMessage, SyncBatch,
+    ReadingPreferences, SettingsStore, StoreError, StoredBody, StoredMailbox, StoredMessage,
+    SyncBatch,
 };
 use norelly_domain::sync::FlagUpdate;
 
@@ -485,6 +486,60 @@ pub async fn reading_preferences_contract<P: ReadingPreferences>(
     Ok(())
 }
 
+/// Contrat de [`SettingsStore`] (stockage vide au départ).
+pub async fn settings_store_contract<S: SettingsStore>(store: &S) -> Result<(), StoreError> {
+    use norelly_domain::settings::{Language, MAX_ATTACHMENT_THRESHOLD, Settings, UpdateCheck};
+    assert_eq!(
+        store.settings().await?,
+        Settings::default(),
+        "valeurs par défaut"
+    );
+    let chosen = Settings {
+        language: Language::English,
+        update_check: UpdateCheck::Disabled,
+        notifications: false,
+        notification_privacy: true,
+        attachment_threshold: 8 * 1024 * 1024,
+    };
+    store.save_settings(&chosen).await?;
+    assert_eq!(store.settings().await?, chosen);
+    let invalid = Settings {
+        attachment_threshold: MAX_ATTACHMENT_THRESHOLD + 1,
+        ..chosen
+    };
+    assert!(
+        store.save_settings(&invalid).await.is_err(),
+        "hors bornes refusé"
+    );
+    assert_eq!(store.settings().await?, chosen, "rien enregistré");
+    Ok(())
+}
+
+/// Faux [`SettingsStore`] en mémoire.
+#[derive(Debug, Default)]
+pub struct InMemorySettings {
+    settings: Mutex<Option<norelly_domain::settings::Settings>>,
+}
+
+impl SettingsStore for InMemorySettings {
+    async fn settings(&self) -> Result<norelly_domain::settings::Settings, StoreError> {
+        Ok(self
+            .settings
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .unwrap_or_default())
+    }
+
+    async fn save_settings(
+        &self,
+        settings: &norelly_domain::settings::Settings,
+    ) -> Result<(), StoreError> {
+        settings.validate().map_err(|e| StoreError(e.to_string()))?;
+        *self.settings.lock().unwrap_or_else(PoisonError::into_inner) = Some(*settings);
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -497,6 +552,11 @@ mod tests {
             AccountId::new(2).map_err(|e| StoreError(e.to_string()))?,
         );
         conversation_query_contract(&InMemoryMailStore::default(), a, b).await
+    }
+
+    #[tokio::test]
+    async fn in_memory_settings_pass_contract() -> Result<(), StoreError> {
+        settings_store_contract(&InMemorySettings::default()).await
     }
 
     #[tokio::test]

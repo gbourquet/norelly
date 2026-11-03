@@ -32,6 +32,7 @@ use crate::mailbox::{
 };
 use crate::search::Query;
 use crate::security::{CertificateException, PlaintextPolicy};
+use crate::settings::Settings;
 use crate::sync::{
     FlagUpdate, LocalMailbox, MailboxSyncState, SelectRequest, SelectedMailbox, ServerQuery,
     SyncExtensions,
@@ -1286,6 +1287,20 @@ pub struct SearchPage {
     /// Décalage de la page suivante ; `None` à la fin (ou au-delà de
     /// [`MAX_SEARCH_RESULTS`]).
     pub next: Option<u32>,
+}
+
+/// Paramètres de l'application.
+pub trait SettingsStore: Send + Sync {
+    /// Paramètres enregistrés ; une valeur absente, illisible ou hors
+    /// bornes reprend sa valeur par défaut.
+    fn settings(&self) -> impl Future<Output = Result<Settings, StoreError>> + Send;
+
+    /// Enregistre des paramètres ; refusés s'ils sont hors bornes
+    /// ([`Settings::validate`]).
+    fn save_settings(
+        &self,
+        settings: &Settings,
+    ) -> impl Future<Output = Result<(), StoreError>> + Send;
 }
 
 /// Texte cherchable d'un corps téléchargé (adaptateur `render`). Appelé

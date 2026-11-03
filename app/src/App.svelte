@@ -17,6 +17,9 @@
   import ComposeDialog from "./components/ComposeDialog.svelte";
   import OutboxDialog from "./components/OutboxDialog.svelte";
   import SearchPanel from "./components/SearchPanel.svelte";
+  import SettingsDialog from "./components/SettingsDialog.svelte";
+  import UpdateQuestion from "./components/UpdateQuestion.svelte";
+  import { notificationText } from "./lib/notifications";
   import { conversationActions } from "./lib/visible-actions";
   import {
     app,
@@ -27,6 +30,7 @@
     registerAppCommands,
     registry,
     search,
+    settings,
   } from "./lib/app.svelte";
   import { shortcutFromEvent, type Shortcut } from "./lib/commands/shortcut";
   import { api, type ScopeDto } from "./lib/ipc/api";
@@ -37,6 +41,7 @@
     let unlisten: (() => void) | null = null;
     let unlistenCompose: (() => void) | null = null;
     let disposed = false;
+    void settings.load();
     void (async () => {
       await app.refreshAccounts();
       await mail.show(UNIFIED_INBOX);
@@ -45,6 +50,13 @@
           void mail.onSyncEvent(event);
           // Résultats affichés tenus à jour (index local modifié).
           if (event.kind === "folder_changed") void search.refresh();
+          // Nouveaux messages : notification si la fenêtre n'a pas le
+          // focus (Rust a déjà appliqué les paramètres).
+          if (event.kind === "new_mail" && !document.hasFocus()) {
+            const account = app.accounts.find((a) => a.id === event.account);
+            const { title, body } = notificationText(event, account?.address ?? "");
+            void api.showNotification(title, body).catch(() => undefined);
+          }
         });
         if (disposed) off();
         else unlisten = off;
@@ -283,6 +295,23 @@
   canUndo={mail.lastAction !== null}
   onUndo={() => void mail.undo()}
   onDismiss={() => (mail.notice = null)}
+/>
+<SettingsDialog
+  open={app.dialog === "settings"}
+  settings={settings.current}
+  plainText={app.plainText}
+  error={settings.error}
+  onClose={() => app.close()}
+  onSave={async (next, plain) => {
+    const saved = await settings.save(next);
+    if (!saved) return;
+    if (plain !== app.plainText) await api.setPreferPlainText(plain).catch(() => undefined);
+    app.close();
+  }}
+/>
+<UpdateQuestion
+  open={settings.askUpdate && app.dialog === null}
+  onAnswer={(yes) => void settings.answerUpdate(yes)}
 />
 <RemoveAccountDialog
   open={app.dialog === "remove-account"}

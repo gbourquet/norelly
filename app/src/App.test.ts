@@ -3,6 +3,15 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/sve
 import type { AccountDto } from "./lib/ipc/api";
 
 const accounts: AccountDto[] = [];
+const syncListeners: ((e: unknown) => void)[] = [];
+const askedSettings = {
+  language: "system" as "system" | "fr" | "en",
+  update_check: "enabled" as "not_asked" | "enabled" | "disabled",
+  notifications: true,
+  notification_privacy: false,
+  attachment_threshold: 2 * 1024 * 1024,
+};
+let storedSettings = { ...askedSettings };
 
 vi.mock("./lib/ipc/api", () => ({
   IpcFailure: class extends Error {},
@@ -27,7 +36,15 @@ vi.mock("./lib/ipc/api", () => ({
     openExternal: vi.fn(),
     saveAttachment: vi.fn(),
     openAttachment: vi.fn(),
-    onSyncEvent: vi.fn(async () => () => undefined),
+    onSyncEvent: vi.fn(async (listener: (e: unknown) => void) => {
+      syncListeners.push(listener);
+      return () => undefined;
+    }),
+    getSettings: vi.fn(async () => ({ ...storedSettings })),
+    saveSettings: vi.fn(async (s: typeof storedSettings) => {
+      storedSettings = { ...s };
+    }),
+    showNotification: vi.fn(async () => undefined),
     onComposeEvent: vi.fn(async () => () => undefined),
     prepareCompose: vi.fn(async (account: number) => ({
       id: null,
@@ -70,6 +87,8 @@ beforeEach(() => {
   // l'autre.
   app.close();
   accounts.splice(0, accounts.length);
+  syncListeners.splice(0, syncListeners.length);
+  storedSettings = { ...askedSettings };
   vi.clearAllMocks();
 });
 
@@ -261,5 +280,71 @@ describe("App", () => {
     expect(await screen.findByText("Aucun message trouvé.")).toBeInTheDocument();
     await fireEvent.keyDown(box, { key: "Escape" });
     await waitFor(() => expect(screen.queryByRole("searchbox")).toBeNull());
+  });
+
+  it("demande au premier lancement s'il faut chercher les mises à jour (oui présélectionné)", async () => {
+    storedSettings = { ...askedSettings, update_check: "not_asked" };
+    render(App);
+    const dialog = await screen.findByRole("dialog", { name: "Mises à jour" });
+    const yes = within(dialog).getByRole("button", { name: "Oui" });
+    await waitFor(() => expect(yes).toHaveFocus());
+    await fireEvent.click(yes);
+    await waitFor(() =>
+      expect(api.saveSettings).toHaveBeenCalledWith(
+        expect.objectContaining({ update_check: "enabled" }),
+      ),
+    );
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Mises à jour" })).toBeNull());
+  });
+
+  it("ouvre les paramètres avec Ctrl+, et les enregistre", async () => {
+    render(App);
+    await waitFor(() => expect(api.getSettings).toHaveBeenCalled());
+    await fireEvent.keyDown(window, { key: ",", ctrlKey: true });
+    const dialog = await screen.findByRole("dialog", { name: "Paramètres" });
+    await fireEvent.click(
+      within(dialog).getByRole("checkbox", {
+        name: "Masquer l'expéditeur et le sujet dans les notifications",
+      }),
+    );
+    await fireEvent.click(within(dialog).getByRole("button", { name: "Enregistrer" }));
+    await waitFor(() =>
+      expect(api.saveSettings).toHaveBeenCalledWith(
+        expect.objectContaining({ notification_privacy: true, update_check: "enabled" }),
+      ),
+    );
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Paramètres" })).toBeNull());
+  });
+
+  it("notifie les nouveaux messages quand la fenêtre n'a pas le focus", async () => {
+    accounts.push({
+      id: 7,
+      address: "alice@example.com",
+      display_name: "Alice",
+      imap: server,
+      smtp: server,
+    } as AccountDto);
+    const focus = vi.spyOn(document, "hasFocus").mockReturnValue(false);
+    render(App);
+    await screen.findAllByText("alice@example.com");
+    await waitFor(() => expect(syncListeners.length).toBeGreaterThan(0));
+    for (const l of syncListeners) {
+      l({
+        kind: "new_mail",
+        account: 7,
+        count: 1,
+        from: { name: "Bob", address: "bob@example.com" },
+        subject: "Devis",
+      });
+    }
+    await waitFor(() => expect(api.showNotification).toHaveBeenCalledWith("Bob", "Devis"));
+    focus.mockReturnValue(true);
+    vi.mocked(api.showNotification).mockClear();
+    for (const l of syncListeners) {
+      l({ kind: "new_mail", account: 7, count: 2, from: null, subject: null });
+    }
+    await new Promise((r) => setTimeout(r, 20));
+    expect(api.showNotification).not.toHaveBeenCalled();
+    focus.mockRestore();
   });
 });

@@ -32,6 +32,7 @@ import {
   type SearchHitDto_Serialize,
   type SearchPageDto_Serialize,
   type SearchScopeDto,
+  type SettingsDto,
 } from "./bindings";
 import { IpcFailure } from "../errors";
 
@@ -68,6 +69,9 @@ export type {
   ServerDto,
   SearchScopeDto,
   SegmentDto,
+  SettingsDto,
+  LanguageDto,
+  UpdateCheckDto,
 } from "./bindings";
 export type AddAccountInput = AddAccountInput_Deserialize;
 export type AddAccountResult = AddAccountResultDto_Serialize;
@@ -159,6 +163,15 @@ export const api = {
     limit: number,
   ): Promise<SearchPage> =>
     unwrap(commands.searchMessages(query, scope, utcOffsetMinutes, offset, limit)),
+
+  getSettings: (): Promise<SettingsDto> => unwrap(commands.getSettings()),
+
+  saveSettings: (settings: SettingsDto): Promise<void> =>
+    unwrap(commands.saveSettings(settings)).then(() => undefined),
+
+  /** Notification du système ; le texte est revalidé côté Rust. */
+  showNotification: (title: string, body: string): Promise<void> =>
+    unwrap(commands.showNotification(title, body)).then(() => undefined),
 
   /** Action sur des conversations de la portée affichée. */
   performAction: (

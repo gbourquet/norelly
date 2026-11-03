@@ -6,6 +6,7 @@ import { api, type AccountDto, type ComposeKindDto, type OutboxItemDto } from ".
 import { ComposeState } from "./compose.svelte";
 import { MailState } from "./mail.svelte";
 import { SearchState } from "./search.svelte";
+import { SettingsState } from "./settings.svelte";
 import type { ConversationMessage } from "./ipc/api";
 import { failureLabel } from "./outbox";
 import { m } from "./paraglide/messages.js";
@@ -22,7 +23,8 @@ export type DialogName =
   | "move"
   | "archive-folder"
   | "compose"
-  | "outbox";
+  | "outbox"
+  | "settings";
 
 export interface AppContext {
   selectedAccount: AccountDto | null;
@@ -51,6 +53,8 @@ class AppState {
   /** File d'envoi du compte affiché dans la boîte d'envoi. */
   outbox = $state<OutboxItemDto[]>([]);
   outboxAccount = $state<number | null>(null);
+  /** Préférence « texte brut », affichée dans les paramètres. */
+  plainText = $state(false);
   /** Échecs déjà signalés (identifiants dans la file). */
   #reported = new Set<number>();
 
@@ -145,6 +149,8 @@ export const mail = new MailState(api);
 
 export const search = new SearchState(api);
 
+export const settings = new SettingsState(api);
+
 // Une action peut retirer un résultat (suppression, déplacement…).
 mail.onActed = () => void search.refresh();
 
@@ -196,6 +202,18 @@ export function registerAppCommands(): () => void {
       shortcut: "?",
       keywords: words(m.cmd_help_keywords()),
       run: () => app.open("help"),
+    }),
+    registry.register({
+      id: "settings.open",
+      title: m.cmd_settings(),
+      group: m.group_general(),
+      shortcut: "Ctrl+,",
+      keywords: words(m.cmd_settings_keywords()),
+      run: async () => {
+        const prefs = await api.readingPreferences().catch(() => null);
+        app.plainText = prefs?.prefer_plain_text ?? false;
+        app.open("settings");
+      },
     }),
     registry.register({
       id: "account.add",

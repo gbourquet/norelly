@@ -16,14 +16,17 @@ use norelly_application::actions::{PerformAction, ReplayActions};
 use norelly_application::sync::SyncAccount;
 use norelly_domain::actions::{MessageAction, OpKind};
 use norelly_domain::address::EmailAddress;
+use norelly_domain::compose::draft::{Draft, Recipient};
 use norelly_domain::conversation::ConversationScope;
 use norelly_domain::fetch_policy::FetchPolicy;
 use norelly_domain::mailbox::{Flags, Keyword, header_text};
 use norelly_domain::ports::{
-    AccountRepository, BlobStore, ConversationQuery, FolderTreeQuery, MailStore, MessageListQuery,
-    PendingOpStore, ReadingPreferences, RemoteMailboxSession, StoredBody,
+    AccountRepository, BlobStore, ConversationQuery, DraftStore, FolderTreeQuery, MailStore,
+    MessageListQuery, OutboxStore, OutgoingMessage, PendingOpStore, ReadingPreferences,
+    RemoteMailboxSession, StoredBody,
 };
 use norelly_sqlite::SqliteAccountRepository;
+use norelly_sqlite::compose::SqliteComposeStore;
 use norelly_sqlite::preferences::SqliteReadingPreferences;
 use norelly_test_support::fake_imap::FakeImap;
 
@@ -290,6 +293,39 @@ async fn trapped_messages_cannot_alter_the_database() -> Result<(), Box<dyn std:
     };
     assert_eq!(total(&|n| n == "INBOX"), 0);
     assert_eq!(total(&|n| n == box_name) as usize, 2 * PAYLOADS.len());
+
+    // Rédaction (phase 7) : brouillon et file d'envoi aux champs piégés,
+    // relus à l'identique, sans effet sur la base.
+    let compose = SqliteComposeStore::new(l.db.clone());
+    let mut draft = Draft::empty(l.account);
+    draft.subject = PAYLOADS[0].to_owned();
+    draft.html = Some(PAYLOADS.join("<br>"));
+    draft.to = vec![Recipient::new(
+        PAYLOADS[4],
+        EmailAddress::parse("x'--@example.com")?,
+    )];
+    let saved = compose.save_draft(None, &draft, NOW).await?;
+    assert_eq!(compose.draft(saved.id).await?.map(|d| d.draft), Some(draft));
+    let outgoing = OutgoingMessage {
+        from: PAYLOADS[1].to_owned(),
+        recipients: PAYLOADS.iter().map(|p| (*p).to_owned()).collect(),
+        raw: PAYLOADS.join("\r\n").into_bytes(),
+    };
+    compose
+        .enqueue(
+            l.account,
+            &outgoing,
+            b"\0'); DROP TABLE outbox; --",
+            PAYLOADS[2],
+            Some(saved.id),
+            NOW,
+        )
+        .await?;
+    let queued = compose.outbox(l.account).await?;
+    assert_eq!(queued.len(), 1);
+    assert_eq!(queued[0].message, outgoing);
+    assert_eq!(queued[0].subject, PAYLOADS[2]);
+    assert!(compose.draft(saved.id).await?.is_none());
 
     assert_eq!(l.db.integrity_problems().await?, Vec::<String>::new());
     assert_eq!(l.db.schema().await?, schema_before, "schéma modifié");

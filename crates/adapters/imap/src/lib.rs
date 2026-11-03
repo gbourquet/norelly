@@ -25,6 +25,7 @@ use imap_next::imap_types::response::GreetingKind;
 use norelly_domain::actions::{ActionFlag, FlagChange, StoreOutcome};
 use norelly_domain::auth::{AuthMethod, authenticator_for, select_imap_auth_method};
 use norelly_domain::capabilities::ServerCapabilities;
+use norelly_domain::compose::draft::RemoteCopy;
 use norelly_domain::connection::{ConnectionError, TimeoutStage};
 use norelly_domain::endpoint::{Security, ServerEndpoint};
 use norelly_domain::fetch_policy::BodyFetch;
@@ -358,10 +359,19 @@ impl RemoteMailboxSession for ImapSession {
         if !self.capabilities.has("UIDPLUS") {
             return Err(ConnectionError::Protocol("UIDPLUS non annoncé".to_owned()));
         }
-        self.conn.expunge(Some(uid)).await
+        self.conn.expunge(Some(uid)).await.map(|_| ())
     }
 
-    async fn expunge_all(&mut self) -> Result<(), ConnectionError> {
+    async fn append(
+        &mut self,
+        mailbox: &MailboxName,
+        raw: &[u8],
+        draft: bool,
+    ) -> Result<Option<RemoteCopy>, ConnectionError> {
+        self.conn.append(mailbox, raw, draft).await
+    }
+
+    async fn expunge_all(&mut self) -> Result<u32, ConnectionError> {
         self.conn.expunge(None).await
     }
 

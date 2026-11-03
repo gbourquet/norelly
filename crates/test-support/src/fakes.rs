@@ -8,6 +8,7 @@ use std::time::Duration;
 
 use norelly_domain::actions::{FlagChange, StoreOutcome};
 use norelly_domain::capabilities::ServerCapabilities;
+use norelly_domain::compose::draft::RemoteCopy;
 use norelly_domain::connection::ConnectionError;
 use norelly_domain::discovery::{
     AutoconfigRequest, DiscoveredServers, ServerCandidate, SrvRecord, SrvService,
@@ -201,7 +202,15 @@ impl RemoteMailboxSession for FakeSession {
     ) -> impl Future<Output = Result<(), ConnectionError>> + Send {
         self.inner.expunge_uid(uid)
     }
-    fn expunge_all(&mut self) -> impl Future<Output = Result<(), ConnectionError>> + Send {
+    fn append(
+        &mut self,
+        mailbox: &MailboxName,
+        raw: &[u8],
+        draft: bool,
+    ) -> impl Future<Output = Result<Option<RemoteCopy>, ConnectionError>> + Send {
+        self.inner.append(mailbox, raw, draft)
+    }
+    fn expunge_all(&mut self) -> impl Future<Output = Result<u32, ConnectionError>> + Send {
         self.inner.expunge_all()
     }
     fn deleted_uids(
@@ -357,5 +366,40 @@ impl PortProber for FakeProber {
             .into_iter()
             .filter(|c| reachable.contains(&c.endpoint))
             .collect()
+    }
+}
+
+/// Faux serveur SMTP : réponses programmées (succès par défaut), messages
+/// acceptés mémorisés.
+#[derive(Debug, Clone, Default)]
+pub struct FakeSmtp {
+    replies: Arc<Mutex<std::collections::VecDeque<Result<(), SendError>>>>,
+    accepted: Arc<Mutex<Vec<OutgoingMessage>>>,
+}
+
+impl FakeSmtp {
+    /// Programme la réponse aux prochains envois, dans l'ordre.
+    pub fn reply(&self, result: Result<(), SendError>) {
+        lock(&self.replies).push_back(result);
+    }
+
+    /// Messages acceptés.
+    #[must_use]
+    pub fn accepted(&self) -> Vec<OutgoingMessage> {
+        lock(&self.accepted).clone()
+    }
+}
+
+impl MailSender for FakeSmtp {
+    async fn verify(&self, _: &ConnectRequest) -> Result<ServerCapabilities, ConnectionError> {
+        Ok(ServerCapabilities::default())
+    }
+
+    async fn send(&self, _: &ConnectRequest, message: &OutgoingMessage) -> Result<(), SendError> {
+        let reply = lock(&self.replies).pop_front().unwrap_or(Ok(()));
+        if reply.is_ok() {
+            lock(&self.accepted).push(message.clone());
+        }
+        reply
     }
 }

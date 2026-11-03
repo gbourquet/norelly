@@ -2,8 +2,11 @@
 // l'application.
 
 import { CommandRegistry } from "./commands/registry";
-import { api, type AccountDto } from "./ipc/api";
+import { api, type AccountDto, type ComposeKindDto, type OutboxItemDto } from "./ipc/api";
+import { ComposeState } from "./compose.svelte";
 import { MailState } from "./mail.svelte";
+import type { ConversationMessage } from "./ipc/api";
+import { failureLabel } from "./outbox";
 import { m } from "./paraglide/messages.js";
 import { errorText } from "./errors";
 
@@ -11,7 +14,14 @@ import { errorText } from "./errors";
 const words = (s: string): string[] => s.split(" ").filter(Boolean);
 
 export type DialogName =
-  "palette" | "help" | "add-account" | "remove-account" | "move" | "archive-folder";
+  | "palette"
+  | "help"
+  | "add-account"
+  | "remove-account"
+  | "move"
+  | "archive-folder"
+  | "compose"
+  | "outbox";
 
 export interface AppContext {
   selectedAccount: AccountDto | null;
@@ -31,6 +41,13 @@ class AppState {
   selectedAccountId = $state<number | null>(null);
   dialog = $state<DialogName | null>(null);
   loadError = $state<string | null>(null);
+  /** Nature de la rédaction ouverte. */
+  composeKind = $state<ComposeKindDto>("new");
+  /** File d'envoi du compte affiché dans la boîte d'envoi. */
+  outbox = $state<OutboxItemDto[]>([]);
+  outboxAccount = $state<number | null>(null);
+  /** Échecs déjà signalés (identifiants dans la file). */
+  #reported = new Set<number>();
 
   readonly selectedAccount = $derived(
     this.accounts.find((a) => a.id === this.selectedAccountId) ?? null,
@@ -55,6 +72,46 @@ class AppState {
     this.dialog = null;
   }
 
+  /** Ouvre l'éditeur : nouveau message, réponse ou transfert. */
+  async compose(
+    kind: ComposeKindDto,
+    account: number,
+    message: ConversationMessage | null,
+  ): Promise<void> {
+    this.composeKind = kind;
+    this.dialog = "compose";
+    await compose.open(account, kind, message);
+  }
+
+  /** Relit la file d'un compte ; signale une fois chaque nouvel échec. */
+  async refreshOutbox(account: number): Promise<void> {
+    try {
+      const items = await api.outbox(account);
+      if (this.outboxAccount === account) this.outbox = items;
+      for (const item of items) {
+        if (item.state.state === "failed" && !this.#reported.has(item.id)) {
+          this.#reported.add(item.id);
+          mail.notice = {
+            text: m.compose_send_failed({
+              subject: item.subject || m.outbox_no_subject(),
+              reason: failureLabel(item.state.failure),
+            }),
+            undoable: false,
+          };
+        }
+      }
+    } catch (e) {
+      mail.notice = { text: errorText(e), undoable: false };
+    }
+  }
+
+  async showOutbox(account: number): Promise<void> {
+    this.outboxAccount = account;
+    this.outbox = [];
+    this.dialog = "outbox";
+    await this.refreshOutbox(account);
+  }
+
   async refreshAccounts(): Promise<void> {
     try {
       this.accounts = await api.listAccounts();
@@ -76,6 +133,8 @@ class AppState {
 }
 
 export const mail = new MailState(api);
+
+export const compose = new ComposeState(api);
 
 export const app = new AppState();
 
@@ -249,6 +308,43 @@ export function registerAppCommands(): () => void {
       keywords: words(m.cmd_undo_keywords()),
       when: (ctx) => ctx.canUndo,
       run: () => mail.undo(),
+    }),
+    registry.register({
+      id: "compose.new",
+      title: m.cmd_compose(),
+      group: m.group_compose(),
+      shortcut: "c",
+      keywords: words(m.cmd_compose_keywords()),
+      when: (ctx) => ctx.selectedAccount !== null,
+      run: (ctx) =>
+        ctx.selectedAccount ? app.compose("new", ctx.selectedAccount.id, null) : undefined,
+    }),
+    ...(
+      [
+        ["compose.reply", m.cmd_reply(), "r", "reply"],
+        ["compose.reply-all", m.cmd_reply_all(), "a", "reply_all"],
+        ["compose.forward", m.cmd_forward(), "f", "forward"],
+      ] as const
+    ).map(([id, title, shortcut, kind]) =>
+      registry.register({
+        id,
+        title,
+        group: m.group_compose(),
+        shortcut,
+        when: (ctx) => ctx.reading && mail.messages.length > 0,
+        run: () => {
+          const message = mail.messages.at(-1);
+          return message ? app.compose(kind, message.account, message) : undefined;
+        },
+      }),
+    ),
+    registry.register({
+      id: "compose.outbox",
+      title: m.cmd_outbox(),
+      group: m.group_compose(),
+      keywords: words(m.cmd_outbox_keywords()),
+      when: (ctx) => ctx.selectedAccount !== null,
+      run: (ctx) => (ctx.selectedAccount ? app.showOutbox(ctx.selectedAccount.id) : undefined),
     }),
     registry.register({
       id: "account.archive-folder",

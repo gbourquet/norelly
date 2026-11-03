@@ -999,3 +999,202 @@ async fn hostile_bodystructures_do_not_block_metadata() -> TestResult {
     );
     Ok(())
 }
+
+/// `EXPUNGE` sans UIDPLUS : chaque réponse `* n EXPUNGE` est comptée, pour
+/// détecter les messages marqués par un autre client entre-temps.
+#[tokio::test]
+async fn expunge_counts_untagged_expunge_responses() -> TestResult {
+    let f = fixture()?;
+    let cert = f.ca.issue(&["localhost"])?;
+    let script = authenticated(
+        Script::new()
+            .expect("EXPUNGE")
+            .send("* 3 EXPUNGE\r\n* 3 EXPUNGE\r\n* 7 EXISTS\r\n{tag} OK EXPUNGE termine\r\n"),
+    );
+    let server = ScriptedServer::start_tls(script, cert.server_config()?).await?;
+    let mut session = f
+        .connector
+        .connect(&request(
+            server.port(),
+            Security::Tls,
+            PlaintextPolicy::deny_all(),
+        ))
+        .await?;
+    assert_eq!(session.expunge_all().await?, 2);
+    session.logout().await?;
+    server.finish().await.result?;
+    Ok(())
+}
+
+/// `APPEND` : littéral envoyé après la continuation, drapeaux `\Seen` et
+/// `\Draft`, UID lu dans `APPENDUID` ; refus `NO` → `Rejected`.
+#[tokio::test]
+async fn append_sends_a_literal_and_reads_appenduid() -> TestResult {
+    use norelly_domain::connection::ConnectionError;
+    use norelly_domain::mailbox::{MailboxName, Uid};
+
+    let f = fixture()?;
+    let cert = f.ca.issue(&["localhost"])?;
+    let raw = b"Subject: brouillon\r\n\r\ncorps du brouillon\r\n";
+    let script = authenticated(
+        Script::new()
+            .expect(format!(
+                "APPEND Brouillons (\\Seen \\Draft) {{{}}}",
+                raw.len()
+            ))
+            .send("+ pret\r\n")
+            .expect_data_until("corps du brouillon")
+            // Fin de la commande, après le littéral.
+            .expect_data()
+            .send("{tag} OK [APPENDUID 7 42] APPEND termine\r\n")
+            .expect("APPEND Envoy&AOk-s (\\Seen) {")
+            .send("+ pret\r\n")
+            .expect_data_until("corps du brouillon")
+            .expect_data()
+            .send("{tag} OK APPEND termine\r\n")
+            .expect("APPEND Absente")
+            .send("{tag} NO [TRYCREATE] boite absente\r\n")
+            // Littéral jamais envoyé : `imap-next` ne libère la commande
+            // que sur `BAD` ; la session est fermée sans LOGOUT.
+            .expect_eof(),
+    );
+    let server = ScriptedServer::start_tls(script, cert.server_config()?).await?;
+    let mut session = f
+        .connector
+        .connect(&request(
+            server.port(),
+            Security::Tls,
+            PlaintextPolicy::deny_all(),
+        ))
+        .await?;
+    let drafts = MailboxName::parse("Brouillons")?;
+    let copy = session.append(&drafts, raw, true).await?;
+    assert_eq!(
+        copy.map(|c| (c.validity.get(), c.uid)),
+        Some((7, Uid::new(42).ok_or("uid")?))
+    );
+    let sent = MailboxName::parse("Envoyés")?;
+    assert_eq!(session.append(&sent, raw, false).await?, None);
+    let missing = MailboxName::parse("Absente")?;
+    let refused = session.append(&missing, raw, true).await;
+    assert!(
+        matches!(refused, Err(ConnectionError::Rejected(_))),
+        "{refused:?}"
+    );
+    assert!(
+        session.search_all_uids().await.is_err(),
+        "session inutilisable après un littéral refusé"
+    );
+    session.logout().await?;
+    server.finish().await.result?;
+    Ok(())
+}
+
+/// Avec QRESYNC activé, le serveur annonce les suppressions par
+/// `* VANISHED` (RFC 7162) au lieu de `* n EXPUNGE` : elles sont comptées
+/// aussi.
+#[tokio::test]
+async fn expunge_counts_vanished_responses_under_qresync() -> TestResult {
+    let f = fixture()?;
+    let cert = f.ca.issue(&["localhost"])?;
+    let script = authenticated(
+        Script::new()
+            .expect("EXPUNGE")
+            .send("* VANISHED 3:4,7\r\n* VANISHED (EARLIER) 1\r\n{tag} OK EXPUNGE termine\r\n")
+            .expect("LOGOUT")
+            .send("* BYE au revoir\r\n{tag} OK LOGOUT termine\r\n"),
+    );
+    let server = ScriptedServer::start_tls(script, cert.server_config()?).await?;
+    let mut session = f
+        .connector
+        .connect(&request(
+            server.port(),
+            Security::Tls,
+            PlaintextPolicy::deny_all(),
+        ))
+        .await?;
+    // VANISHED (EARLIER) ne décrit pas cette commande : non compté.
+    assert_eq!(session.expunge_all().await?, 3);
+    session.logout().await?;
+    server.finish().await.result?;
+    Ok(())
+}
+
+/// Session authentifiée sur un script ; renvoie la session et le serveur.
+async fn scripted_session(
+    script: Script,
+) -> Result<(super::ImapSession, ScriptedServer), Box<dyn std::error::Error>> {
+    let f = fixture()?;
+    let cert = f.ca.issue(&["localhost"])?;
+    let server = ScriptedServer::start_tls(authenticated(script), cert.server_config()?).await?;
+    let session = f
+        .connector
+        .connect(&request(
+            server.port(),
+            Security::Tls,
+            PlaintextPolicy::deny_all(),
+        ))
+        .await?;
+    Ok((session, server))
+}
+
+/// IDLE : un changement signalé (`EXISTS`) termine l'attente par DONE.
+#[tokio::test]
+async fn idle_returns_on_a_signalled_change() -> TestResult {
+    use norelly_domain::ports::IdleOutcome;
+    let script = Script::new()
+        .expect("IDLE")
+        .send("+ idling\r\n* 1 RECENT\r\n* 5 EXISTS\r\n")
+        .expect_data_with("DONE")
+        .send("{tag} OK IDLE termine\r\n");
+    let (mut session, server) = scripted_session(script).await?;
+    let outcome = session.idle(Duration::from_secs(30)).await?;
+    assert_eq!(outcome, IdleOutcome::Changed);
+    drop(session);
+    let _ = server.finish().await;
+    Ok(())
+}
+
+/// IDLE sans changement : DONE à l'échéance, `Timeout`.
+#[tokio::test]
+async fn idle_times_out_without_change() -> TestResult {
+    use norelly_domain::ports::IdleOutcome;
+    let script = Script::new()
+        .expect("IDLE")
+        .send("+ idling\r\n")
+        .expect_data_with("DONE")
+        .send("* OK encore la\r\n{tag} OK IDLE termine\r\n");
+    let (mut session, server) = scripted_session(script).await?;
+    let outcome = session.idle(Duration::from_millis(300)).await?;
+    assert_eq!(outcome, IdleOutcome::Timeout);
+    drop(session);
+    let _ = server.finish().await;
+    Ok(())
+}
+
+/// IDLE refusé par le serveur, ou BYE pendant l'attente : erreurs nettes.
+#[tokio::test]
+async fn idle_refusal_and_bye_are_errors() -> TestResult {
+    use norelly_domain::connection::ConnectionError;
+    let refused = Script::new()
+        .expect("IDLE")
+        .send("{tag} BAD IDLE indisponible\r\n");
+    let (mut session, server) = scripted_session(refused).await?;
+    let result = session.idle(Duration::from_secs(5)).await;
+    assert!(
+        matches!(result, Err(ConnectionError::Protocol(_))),
+        "{result:?}"
+    );
+    drop(session);
+    let _ = server.finish().await;
+
+    let bye = Script::new()
+        .expect("IDLE")
+        .send("+ idling\r\n* BYE arret du serveur\r\n");
+    let (mut session, server) = scripted_session(bye).await?;
+    let result = session.idle(Duration::from_secs(5)).await;
+    assert_eq!(result, Err(ConnectionError::Closed));
+    drop(session);
+    let _ = server.finish().await;
+    Ok(())
+}

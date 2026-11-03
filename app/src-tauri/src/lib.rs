@@ -2,13 +2,18 @@
 //! personnalisés) et point d'assemblage des adaptateurs (ADR-008).
 
 pub mod actions;
+#[cfg(test)]
+mod command_tests;
 pub mod commands;
+pub mod compose;
 pub mod ipc;
 pub mod mail;
 pub mod protocols;
 pub mod reading;
 pub mod remote_images;
 pub mod state;
+#[cfg(test)]
+mod test_app;
 
 use norelly_domain::ports::AccountRepository;
 use tauri::Manager;
@@ -41,8 +46,21 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             actions::perform_action,
             actions::undo_actions,
             actions::set_archive_folder,
+            compose::prepare_compose,
+            compose::save_draft,
+            compose::send_draft,
+            compose::discard_draft,
+            compose::outbox,
+            compose::retry_send,
+            compose::cancel_send,
+            compose::suggest_contacts,
+            compose::pick_attachments,
+            compose::attach_dropped,
         ])
-        .events(tauri_specta::collect_events![ipc::SyncEventDto])
+        .events(tauri_specta::collect_events![
+            ipc::SyncEventDto,
+            ipc::ComposeEventDto
+        ])
 }
 
 /// Configuration de l'export TypeScript (en-tête stable).
@@ -70,6 +88,32 @@ pub fn run() {
             let cache_dir = app.path().app_cache_dir()?;
             let state = state::AppState::open(&data_dir, &cache_dir)?;
             app.manage(state);
+            // Fichiers déposés sur la fenêtre : les chemins viennent de
+            // l'événement natif et restent ici ; l'interface ne reçoit
+            // qu'un jeton (`attach_dropped`).
+            if let Some(window) = app.get_webview_window("main") {
+                let handle = app.handle().clone();
+                window.on_window_event(move |event| {
+                    if let tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Drop {
+                        paths, ..
+                    }) = event
+                    {
+                        let files: Vec<_> = paths.iter().filter(|p| p.is_file()).cloned().collect();
+                        if files.is_empty() {
+                            return;
+                        }
+                        let count = u32::try_from(files.len()).unwrap_or(u32::MAX);
+                        let token = handle
+                            .state::<state::AppState>()
+                            .mail
+                            .remember_dropped(files);
+                        let _ = tauri_specta::Event::emit(
+                            &ipc::ComposeEventDto::FilesDropped { token, count },
+                            &handle,
+                        );
+                    }
+                });
+            }
             // Synchronisation de chaque compte enregistré.
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {

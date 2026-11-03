@@ -13,7 +13,8 @@ use std::time::Duration;
 
 use imap_next::imap_types::body::{BodyStructure, SpecificFields};
 use imap_next::imap_types::command::{CommandBody, FetchModifier, SelectParameter, StoreModifier};
-use imap_next::imap_types::core::{IString, NString, Vec1};
+use imap_next::imap_types::core::{IString, Literal, NString, Vec1};
+use imap_next::imap_types::extensions::binary::LiteralOrLiteral8;
 use imap_next::imap_types::extensions::enable::CapabilityEnable;
 use imap_next::imap_types::fetch::{
     MacroOrMessageDataItemNames, MessageDataItem, MessageDataItemName, Part, Section,
@@ -25,6 +26,7 @@ use imap_next::imap_types::search::SearchKey;
 use imap_next::imap_types::sequence::SequenceSet;
 use mail_parser::{Address, HeaderValue, MessageParser};
 use norelly_domain::actions::StoreOutcome;
+use norelly_domain::compose::draft::RemoteCopy;
 use norelly_domain::connection::{ConnectionError, server_text};
 use norelly_domain::fetch_policy::{
     BodyFetch, Disposition, MAX_MIME_DEPTH, MAX_MIME_PARTS, MimePart, PartPath, attachment_name,
@@ -833,6 +835,38 @@ impl Connection {
         })
     }
 
+    /// `APPEND` (littéral synchrone), `\Seen` et `\Draft` si `draft` ;
+    /// UID lu dans `APPENDUID`.
+    pub(crate) async fn append(
+        &mut self,
+        to: &MailboxName,
+        raw: &[u8],
+        draft: bool,
+    ) -> Result<Option<RemoteCopy>, ConnectionError> {
+        let mut flags = vec![Flag::Seen];
+        if draft {
+            flags.push(Flag::Draft);
+        }
+        let literal = Literal::try_from(raw.to_vec())
+            .map_err(|_| protocol("message impossible à transmettre (octet nul)"))?;
+        let body = CommandBody::Append {
+            mailbox: mailbox_arg(to)?,
+            flags,
+            date: None,
+            message: LiteralOrLiteral8::Literal(literal),
+        };
+        let reply = self.execute(body, false).await?;
+        ensure_ok(&reply.status)?;
+        Ok(match reply.status.code {
+            Some(Code::AppendUid { uid, uid_validity }) => UidValidity::new(uid_validity.get())
+                .map(|validity| RemoteCopy {
+                    validity,
+                    uid: Uid::from_nonzero(uid),
+                }),
+            _ => None,
+        })
+    }
+
     /// `UID MOVE` ou `UID COPY`.
     pub(crate) async fn transfer(
         &mut self,
@@ -859,8 +893,9 @@ impl Connection {
         ensure_ok(&reply.status)
     }
 
-    /// `UID EXPUNGE uid` (UIDPLUS), ou `EXPUNGE` (`uid` absent).
-    pub(crate) async fn expunge(&mut self, uid: Option<Uid>) -> Result<(), ConnectionError> {
+    /// `UID EXPUNGE uid` (UIDPLUS), ou `EXPUNGE` (`uid` absent). Renvoie
+    /// le nombre de réponses `* n EXPUNGE` (messages supprimés).
+    pub(crate) async fn expunge(&mut self, uid: Option<Uid>) -> Result<u32, ConnectionError> {
         let body = match uid {
             Some(uid) => CommandBody::ExpungeUid {
                 sequence_set: uid_set([uid]).ok_or_else(|| protocol("UID invalide"))?,
@@ -868,7 +903,28 @@ impl Connection {
             None => CommandBody::Expunge,
         };
         let reply = self.execute_bulk(body).await?;
-        ensure_ok(&reply.status)
+        ensure_ok(&reply.status)?;
+        // `* n EXPUNGE`, ou `* VANISHED` sous QRESYNC (RFC 7162) ;
+        // `VANISHED (EARLIER)` ne décrit pas cette commande.
+        let mut expunged: u32 = 0;
+        for data in &reply.data {
+            match data {
+                Data::Expunge(_) => expunged = expunged.saturating_add(1),
+                Data::Vanished {
+                    earlier: false,
+                    known_uids,
+                } => {
+                    let mut ranges = Vec::new();
+                    vanished_ranges(known_uids, &mut ranges);
+                    for (a, b) in ranges {
+                        let (lo, hi) = (a.get().min(b.get()), a.get().max(b.get()));
+                        expunged = expunged.saturating_add(hi - lo).saturating_add(1);
+                    }
+                }
+                _ => {}
+            }
+        }
+        Ok(expunged)
     }
 
     /// `UID SEARCH DELETED`.

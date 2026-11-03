@@ -57,6 +57,8 @@ imap-next = { version = "0.3.4", default-features = false, features = ["starttls
 mail-parser = "0.11"
 # Assainissement du HTML des mails (ADR-004).
 ammonia = "4.2"
+# Aléa du système (Message-ID des messages rédigés).
+getrandom = "0.3.4"
 sha2 = "0.10"
 lettre = { version = "0.11.23", default-features = false, features = ["smtp-transport", "tokio1"] }
 # Trousseau : keyring-core et magasins natifs choisis explicitement (le

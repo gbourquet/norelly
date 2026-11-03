@@ -20,6 +20,8 @@ norelly-imap.workspace = true
 norelly-tls.workspace = true
 norelly-sqlite.workspace = true
 norelly-blobs.workspace = true
+norelly-render.workspace = true
+norelly-smtp.workspace = true
 
 [lints]
 workspace = true

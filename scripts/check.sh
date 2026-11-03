@@ -16,14 +16,23 @@ step() { printf '\n==> %s\n' "$*"; }
 step "Front : build";          pnpm -C app build
 step "Format Rust";            cargo fmt --all --check
 step "Clippy";                 cargo clippy --workspace --all-targets --locked -- -D warnings
-step "Tests Rust (unitaires)"; cargo nextest run --workspace --locked --no-tests=warn
+# Couverture (cargo-llvm-cov) : seuil de lignes des tests unitaires, mesuré
+# le 2026-11-03, à relever, jamais à baisser. Avec rustup, les outils de
+# `llvm-tools-preview` ; sans rustup seulement (Rust du système), ceux du
+# système, de même version majeure que rustc.
+if ! command -v rustup >/dev/null; then
+  if [ -z "${LLVM_COV:-}" ] && command -v llvm-cov >/dev/null; then export LLVM_COV="$(command -v llvm-cov)"; fi
+  if [ -z "${LLVM_PROFDATA:-}" ] && command -v llvm-profdata >/dev/null; then export LLVM_PROFDATA="$(command -v llvm-profdata)"; fi
+fi
+step "Tests Rust (unitaires, couverture)"
+cargo llvm-cov nextest --workspace --locked --no-tests=warn --summary-only --fail-under-lines 86
 step "Doctests";               cargo test --workspace --doc --locked
 step "cargo deny";             cargo deny --locked check
 step "Règle de dépendance du domaine"; ./scripts/check-domain-deps.sh
 step "SQL : requêtes paramétrées"; ./scripts/check-sql.sh
 step "Front : svelte-check";   pnpm -C app check
 step "Front : lint";           pnpm -C app lint
-step "Front : tests";          pnpm -C app test
+step "Front : tests (couverture)"; pnpm -C app coverage
 
 if [ "$mode" = "full" ]; then
   step "Build workspace";      cargo build --workspace --locked

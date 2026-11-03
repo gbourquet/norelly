@@ -16,6 +16,7 @@
 
 pub mod actions_contracts;
 pub mod certs;
+pub mod compose_contracts;
 pub mod containers;
 pub mod contracts;
 pub mod fake_imap;

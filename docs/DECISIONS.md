@@ -96,6 +96,15 @@ est majoritairement écrit par Claude et relu par le mainteneur.
     (`crates/adapters/imap/src/connection.rs`) fournit les lignes une à une
     à la machine d'états, borne les tailles, applique les délais et rejette
     toute donnée reçue après la réponse à `STARTTLS`.
+  - `imap-next` 0.3.4 ne libère une commande à littéral synchrone
+    (`APPEND`) que si le serveur la refuse par `BAD` avant la
+    continuation ; sur un `NO` (`[TRYCREATE]`…), le littéral reste en
+    attente et toutes les commandes suivantes sont bloquées. Constaté en
+    phase 7 (test `append_sends_a_literal_and_reads_appenduid`).
+    Contournement : une réponse étiquetée reçue avant `CommandSent`
+    renvoie bien `Rejected`, mais la session est ensuite déclarée
+    inutilisable (`literal_pending`) et seulement fermée ; l'appelant se
+    reconnecte. À signaler en amont.
   - `lettre` 0.11.23 n'accepte pas de `rustls::ClientConfig` fourni par
     l'appelant (`TlsParameters` aux champs privés ; seuls des réglages
     `dangerous_accept_invalid_*` sont exposés). Contournement par l'API

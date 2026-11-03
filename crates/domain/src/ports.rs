@@ -9,10 +9,15 @@ use std::future::Future;
 use std::time::Duration;
 
 use crate::account::{Account, AccountDraft, AccountId};
-use crate::actions::{FlagChange, FolderRef, LocalMessage, Member, PendingOp, StoreOutcome};
+use crate::actions::{
+    FlagChange, FolderRef, LocalMessage, Member, PendingOp, QueueChange, StoreOutcome,
+};
 use crate::address::EmailAddress;
 use crate::auth::{AuthError, AuthMechanism};
 use crate::capabilities::ServerCapabilities;
+use crate::compose::ReplySource;
+use crate::compose::draft::{Draft, DraftSync, Recipient, RemoteCopy};
+use crate::compose::outbox::OutboxEntry;
 use crate::connection::ConnectionError;
 use crate::conversation::ConversationScope;
 use crate::credentials::{Credentials, Secret, SecretBytes, Username};
@@ -335,6 +340,17 @@ pub trait RemoteMailboxSession: Send {
         to: &MailboxName,
     ) -> impl Future<Output = Result<(), ConnectionError>> + Send;
 
+    /// `APPEND` d'un message dans `mailbox` (sélection inutile), marqué
+    /// `\Seen`, et `\Draft` pour un brouillon. Renvoie la copie
+    /// (UIDVALIDITY et UID) quand le serveur la donne (UIDPLUS, code
+    /// `APPENDUID`). Boîte absente : [`ConnectionError::Rejected`].
+    fn append(
+        &mut self,
+        mailbox: &MailboxName,
+        raw: &[u8],
+        draft: bool,
+    ) -> impl Future<Output = Result<Option<RemoteCopy>, ConnectionError>> + Send;
+
     /// `UID COPY`.
     fn copy_to(
         &mut self,
@@ -348,8 +364,9 @@ pub trait RemoteMailboxSession: Send {
     -> impl Future<Output = Result<(), ConnectionError>> + Send;
 
     /// `EXPUNGE` : supprime tous les messages marqués `\Deleted` de la
-    /// boîte (voir [`crate::actions::expunge_is_safe`]).
-    fn expunge_all(&mut self) -> impl Future<Output = Result<(), ConnectionError>> + Send;
+    /// boîte (voir [`crate::actions::expunge_is_safe`]). Renvoie le nombre
+    /// de messages supprimés (réponses `* n EXPUNGE`).
+    fn expunge_all(&mut self) -> impl Future<Output = Result<u32, ConnectionError>> + Send;
 
     /// UID des messages marqués `\Deleted` (`UID SEARCH DELETED`).
     fn deleted_uids(
@@ -404,8 +421,16 @@ pub enum SendError {
     Connection(#[from] ConnectionError),
     #[error("adresse invalide : {0}")]
     InvalidAddress(String),
+    /// Refus définitif (réponse SMTP 5xx).
     #[error("message refusé par le serveur : {0}")]
     Rejected(String),
+    /// Refus temporaire (réponse SMTP 4xx) : à retenter plus tard.
+    #[error("message différé par le serveur : {0}")]
+    Deferred(String),
+    /// Connexion perdue ou délai dépassé pendant la transmission, sans
+    /// réponse du serveur : le message est peut-être parti.
+    #[error("transmission interrompue, issue incertaine : {0}")]
+    Interrupted(String),
 }
 
 /// Envoi de messages (SMTP).
@@ -956,15 +981,23 @@ pub trait PendingOpStore: Send + Sync {
         account: AccountId,
     ) -> impl Future<Output = Result<Vec<FolderRef>, StoreError>> + Send;
 
-    /// Enfile une opération et applique son effet local
-    /// ([`crate::actions::local_effect`]). Un déplacement crée aussi une
-    /// copie provisoire du message dans le dossier de destination, que
-    /// [`PendingOpStore::revert`] et [`PendingOpStore::cancel`] retirent ;
-    /// ces copies sont ignorées par la synchronisation et par les actions.
-    fn record(
+    /// Applique un lot de changements de la file
+    /// ([`crate::actions::plan_queue`]) en une seule transaction : tout ou
+    /// rien. Renvoie les identifiants des opérations enfilées, dans l'ordre.
+    ///
+    /// - [`QueueChange::Push`] enfile l'opération et applique son effet
+    ///   local ([`crate::actions::local_effect`]). Un déplacement crée
+    ///   aussi une copie provisoire du message dans le dossier de
+    ///   destination, que [`PendingOpStore::revert`] et
+    ///   [`PendingOpStore::cancel`] retirent ; ces copies sont ignorées par
+    ///   la synchronisation et par les actions.
+    /// - [`QueueChange::CancelOrPush`] annule l'opération existante comme
+    ///   [`PendingOpStore::cancel`] ; si elle est réservée par le rejeu,
+    ///   enfile la nouvelle à la place.
+    fn record_all(
         &self,
-        op: &PendingOp,
-    ) -> impl Future<Output = Result<PendingOpId, StoreError>> + Send;
+        changes: &[QueueChange],
+    ) -> impl Future<Output = Result<Vec<PendingOpId>, StoreError>> + Send;
 
     /// Opérations en attente d'un compte, dans l'ordre d'enregistrement.
     fn pending(
@@ -1020,6 +1053,239 @@ pub trait PendingOpStore: Send + Sync {
         account: AccountId,
         mailbox: Option<MailboxId>,
     ) -> impl Future<Output = Result<(), StoreError>> + Send;
+}
+
+// ---------------------------------------------------------------------------
+// Rédaction : brouillons et file d'envoi
+// ---------------------------------------------------------------------------
+
+/// Identifiant local d'un brouillon.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct DraftId(i64);
+
+impl DraftId {
+    #[must_use]
+    pub fn new(raw: i64) -> Option<Self> {
+        (raw > 0).then_some(Self(raw))
+    }
+
+    #[must_use]
+    pub const fn get(self) -> i64 {
+        self.0
+    }
+}
+
+/// Brouillon enregistré.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StoredDraft {
+    pub id: DraftId,
+    pub draft: Draft,
+    pub sync: DraftSync,
+    /// Dernier enregistrement (secondes Unix).
+    pub updated_at: i64,
+}
+
+/// Brouillons locaux et copies distantes à supprimer.
+pub trait DraftStore: Send + Sync {
+    /// Enregistre un brouillon (le crée si `id` est absent) et incrémente
+    /// sa révision ([`DraftSync::edited`]). Un brouillon inconnu, ou d'un
+    /// autre compte, est une erreur.
+    fn save_draft(
+        &self,
+        id: Option<DraftId>,
+        draft: &Draft,
+        now: i64,
+    ) -> impl Future<Output = Result<StoredDraft, StoreError>> + Send;
+
+    fn draft(
+        &self,
+        id: DraftId,
+    ) -> impl Future<Output = Result<Option<StoredDraft>, StoreError>> + Send;
+
+    /// Brouillons d'un compte, du plus récent au plus ancien.
+    fn drafts(
+        &self,
+        account: AccountId,
+    ) -> impl Future<Output = Result<Vec<StoredDraft>, StoreError>> + Send;
+
+    /// Copie distante faite : n'écrit que l'état distant de `sync`
+    /// (révision copiée, copie, instant), jamais la révision locale. Si
+    /// `replaced` est donnée (ancienne copie), elle rejoint les copies à
+    /// supprimer dans la même transaction. `false` si le brouillon de
+    /// `account` n'existe plus : la nouvelle copie rejoint alors aussi les
+    /// copies à supprimer. Les copies à supprimer forment un ensemble.
+    fn set_remote(
+        &self,
+        account: AccountId,
+        id: DraftId,
+        sync: DraftSync,
+        replaced: Option<RemoteCopy>,
+    ) -> impl Future<Output = Result<bool, StoreError>> + Send;
+
+    /// Supprime un brouillon ; sa copie distante rejoint les copies à
+    /// supprimer, dans la même transaction. Renvoie le brouillon retiré.
+    fn delete_draft(
+        &self,
+        id: DraftId,
+    ) -> impl Future<Output = Result<Option<StoredDraft>, StoreError>> + Send;
+
+    /// Copies distantes (dossier « Brouillons ») à supprimer du serveur.
+    fn remote_trash(
+        &self,
+        account: AccountId,
+    ) -> impl Future<Output = Result<Vec<RemoteCopy>, StoreError>> + Send;
+
+    /// Copie supprimée du serveur (ou disparue) : oubliée.
+    fn forget_remote(
+        &self,
+        account: AccountId,
+        copy: RemoteCopy,
+    ) -> impl Future<Output = Result<(), StoreError>> + Send;
+}
+
+/// Pièce jointe relue du stockage, à joindre.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ComposedAttachment {
+    pub file_name: String,
+    pub content_type: String,
+    pub bytes: Vec<u8>,
+}
+
+/// Message à construire.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Composition {
+    pub from: Recipient,
+    pub draft: Draft,
+    pub attachments: Vec<ComposedAttachment>,
+    /// Date, secondes Unix.
+    pub date: i64,
+    /// `Message-ID`, sans chevrons ([`MessageComposer::new_message_id`]).
+    pub message_id: String,
+}
+
+/// Message construit.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ComposedMessage {
+    /// Enveloppe (Cci compris) et message transmis, sans `Bcc`.
+    pub outgoing: OutgoingMessage,
+    /// Copie locale (brouillon, Envoyés), avec `Bcc`.
+    pub local_copy: Vec<u8>,
+}
+
+/// Échec de construction d'un message.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum ComposeBuildError {
+    #[error("adresse refusée : {0}")]
+    Address(String),
+    #[error("construction MIME impossible : {0}")]
+    Mime(String),
+    #[error("aléa du système indisponible")]
+    Random,
+}
+
+/// Écriture et lecture MIME pour la rédaction (adaptateur `render`).
+pub trait MessageComposer: Send + Sync {
+    /// `Message-ID` aléatoire dans le domaine de l'expéditeur.
+    fn new_message_id(&self, from: &EmailAddress) -> Result<String, ComposeBuildError>;
+
+    /// Construit le message (HTML réassaini, version texte, pièces
+    /// jointes).
+    fn compose(&self, composition: &Composition) -> Result<ComposedMessage, ComposeBuildError>;
+
+    /// Relit un message reçu pour y répondre ou le transférer (en-têtes
+    /// assainis, `Reply-To`, texte). `None` s'il est illisible.
+    fn reply_source(&self, raw: &[u8]) -> Option<ReplySource>;
+
+    /// HTML d'éditeur d'une citation : `attribution` puis `text` dans un
+    /// `<blockquote>`, échappés.
+    fn quote_html(&self, text: &str, attribution: &str) -> String;
+}
+
+/// Suggestions au plus, quelle que soit la demande.
+pub const MAX_CONTACT_SUGGESTIONS: usize = 20;
+
+/// Adresses connues, pour l'autocomplétion des destinataires.
+pub trait ContactQuery: Send + Sync {
+    /// Correspondants d'un compte dont le nom ou l'adresse contient `text`
+    /// (sans distinction de casse ; texte vide : aucun), les plus
+    /// fréquents d'abord, une seule fois par adresse ; au plus `limit`
+    /// (borné à [`MAX_CONTACT_SUGGESTIONS`]). Sources : expéditeurs des
+    /// messages reçus, hors Indésirables et Corbeille (un inconnu ne peut
+    /// pas s'inviter dans les suggestions), destinataires (À, Cc) des
+    /// messages du dossier Envoyés.
+    fn suggest(
+        &self,
+        account: AccountId,
+        text: &str,
+        limit: usize,
+    ) -> impl Future<Output = Result<Vec<Correspondent>, StoreError>> + Send;
+}
+
+/// Identifiant d'un message de la file d'envoi.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct OutboxId(i64);
+
+impl OutboxId {
+    #[must_use]
+    pub fn new(raw: i64) -> Option<Self> {
+        (raw > 0).then_some(Self(raw))
+    }
+
+    #[must_use]
+    pub const fn get(self) -> i64 {
+        self.0
+    }
+}
+
+/// Message de la file d'envoi.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OutboxItem {
+    pub id: OutboxId,
+    pub account: AccountId,
+    /// Enveloppe et message transmis (sans `Bcc`).
+    pub message: OutgoingMessage,
+    /// Copie pour « Envoyés » (avec `Bcc`).
+    pub sent_copy: Vec<u8>,
+    /// Sujet, pour l'affichage de la file.
+    pub subject: String,
+    pub entry: OutboxEntry,
+    /// Mise en file (secondes Unix).
+    pub queued_at: i64,
+}
+
+/// File d'envoi durable.
+pub trait OutboxStore: Send + Sync {
+    /// Met un message en file ; le brouillon `draft` éventuel est supprimé
+    /// dans la même transaction (comme [`DraftStore::delete_draft`]).
+    fn enqueue(
+        &self,
+        account: AccountId,
+        message: &OutgoingMessage,
+        sent_copy: &[u8],
+        subject: &str,
+        draft: Option<DraftId>,
+        now: i64,
+    ) -> impl Future<Output = Result<OutboxId, StoreError>> + Send;
+
+    /// Messages d'un compte, dans l'ordre de mise en file.
+    fn outbox(
+        &self,
+        account: AccountId,
+    ) -> impl Future<Output = Result<Vec<OutboxItem>, StoreError>> + Send;
+
+    /// Remplace l'état `from` par `to` seulement si l'état courant est
+    /// encore `from` (transitions décidées par le domaine, sans course
+    /// entre deux appelants). `false` sinon, ou si le message n'existe
+    /// plus.
+    fn transition(
+        &self,
+        id: OutboxId,
+        from: OutboxEntry,
+        to: OutboxEntry,
+    ) -> impl Future<Output = Result<bool, StoreError>> + Send;
+
+    /// Retire un message de la file. `false` s'il n'existait plus.
+    fn remove(&self, id: OutboxId) -> impl Future<Output = Result<bool, StoreError>> + Send;
 }
 
 // ---------------------------------------------------------------------------

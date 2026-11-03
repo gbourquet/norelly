@@ -287,7 +287,11 @@ pub const MAX_HTML_LEN: usize = 2 * 1024 * 1024;
 pub const MAX_NESTING: usize = 512;
 
 /// Estimation bon marché de la profondeur d'imbrication des balises
-/// (balises ouvrantes moins fermantes, éléments vides ignorés).
+/// (éléments vides ignorés). Une balise fermante ne réduit la profondeur
+/// que si elle ferme un élément ouvert : une fermante orpheline (`</q>`)
+/// est ignorée par l'analyseur HTML, qui imbrique alors bien les éléments
+/// suivants (revue de sécurité de la phase 7). L'estimation s'arrête dès
+/// [`DEPTH_SCAN_LIMIT`] niveaux : le coût reste linéaire.
 #[must_use]
 pub fn nesting_depth(html: &str) -> usize {
     const VOID: &[&str] = &[
@@ -295,7 +299,8 @@ pub fn nesting_depth(html: &str) -> usize {
         "track", "wbr", "p", "li", "td", "tr", "th", "option",
     ];
     let bytes = html.as_bytes();
-    let (mut depth, mut max) = (0usize, 0usize);
+    let mut open: Vec<String> = Vec::new();
+    let mut max = 0usize;
     let mut i = 0;
     while i + 1 < bytes.len() {
         if bytes[i] == b'<' {
@@ -311,10 +316,15 @@ pub fn nesting_depth(html: &str) -> usize {
                     .unwrap_or_default()
                     .to_ascii_lowercase();
                 if closing {
-                    depth = depth.saturating_sub(1);
+                    if let Some(at) = open.iter().rposition(|n| *n == name) {
+                        open.truncate(at);
+                    }
                 } else if !VOID.contains(&name.as_str()) {
-                    depth += 1;
-                    max = max.max(depth);
+                    open.push(name);
+                    max = max.max(open.len());
+                    if max >= DEPTH_SCAN_LIMIT {
+                        return max;
+                    }
                 }
             }
             i = end.max(i + 1);
@@ -324,6 +334,10 @@ pub fn nesting_depth(html: &str) -> usize {
     }
     max
 }
+
+/// Profondeur au-delà de laquelle l'estimation s'arrête (bien au-delà de
+/// toute limite d'usage).
+pub const DEPTH_SCAN_LIMIT: usize = 4 * MAX_NESTING;
 
 /// Assainit le HTML d'un mail.
 #[must_use]
@@ -413,6 +427,24 @@ mod tests {
             content_ids,
             protocols: Protocols::custom_schemes(),
         }
+    }
+
+    /// Revue de sécurité de la phase 7 : une balise fermante orpheline ne
+    /// ferme rien et ne doit pas réduire l'estimation.
+    #[test]
+    fn orphan_closing_tags_do_not_hide_depth() {
+        let html = "<b></q>".repeat(2_000);
+        assert!(
+            nesting_depth(&html) > MAX_NESTING,
+            "{}",
+            nesting_depth(&html)
+        );
+        assert_eq!(nesting_depth("<div><b>x</b></div></div></q>"), 2);
+        assert_eq!(nesting_depth("<div><span><b>x</div>"), 3);
+        let started = std::time::Instant::now();
+        let out = sanitize_html(&"<b></q>".repeat(80_000), &options(RemoteContent::Blocked));
+        assert!(out.too_complex);
+        assert!(started.elapsed() < std::time::Duration::from_secs(2));
     }
 
     #[test]

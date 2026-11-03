@@ -14,8 +14,10 @@
   import FolderPicker from "./components/FolderPicker.svelte";
   import ActionNotice from "./components/ActionNotice.svelte";
   import ActionButtons from "./components/ActionButtons.svelte";
+  import ComposeDialog from "./components/ComposeDialog.svelte";
+  import OutboxDialog from "./components/OutboxDialog.svelte";
   import { conversationActions } from "./lib/visible-actions";
-  import { app, mail, moveAccount, registerAppCommands, registry } from "./lib/app.svelte";
+  import { app, compose, mail, moveAccount, registerAppCommands, registry } from "./lib/app.svelte";
   import { shortcutFromEvent, type Shortcut } from "./lib/commands/shortcut";
   import { api, type ScopeDto } from "./lib/ipc/api";
   import { UNIFIED_INBOX } from "./lib/mail.svelte";
@@ -23,6 +25,7 @@
   onMount(() => {
     const unregister = registerAppCommands();
     let unlisten: (() => void) | null = null;
+    let unlistenCompose: (() => void) | null = null;
     let disposed = false;
     void (async () => {
       await app.refreshAccounts();
@@ -31,6 +34,12 @@
         const off = await api.onSyncEvent((event) => void mail.onSyncEvent(event));
         if (disposed) off();
         else unlisten = off;
+        const offCompose = await api.onComposeEvent((event) => {
+          if (event.kind === "outbox_changed") void app.refreshOutbox(event.account);
+          else if (compose.draft !== null) void compose.attachDropped(event.token);
+        });
+        if (disposed) offCompose();
+        else unlistenCompose = offCompose;
       } catch {
         // Hors de Tauri (tests) : pas d'événements.
       }
@@ -38,6 +47,7 @@
     return () => {
       disposed = true;
       unlisten?.();
+      unlistenCompose?.();
       unregister();
     };
   });
@@ -62,6 +72,14 @@
       ? []
       : (mail.folders[account] ?? []).filter((f) => !current.includes(f.id));
   });
+
+  const composeTitle = $derived(
+    app.composeKind === "new"
+      ? m.compose_title_new()
+      : app.composeKind === "forward"
+        ? m.compose_title_forward()
+        : m.compose_title_reply(),
+  );
 
   const archiveFolders = $derived(
     app.selectedAccountId === null ? [] : (mail.folders[app.selectedAccountId] ?? []),
@@ -199,6 +217,40 @@
           text: m.action_archive_folder_set({ folder: folder.name }),
           undoable: false,
         }),
+      (e: unknown) => (mail.notice = { text: errorText(e), undoable: false }),
+    );
+  }}
+/>
+<ComposeDialog
+  open={app.dialog === "compose"}
+  title={composeTitle}
+  {compose}
+  onClose={() => {
+    void compose.close();
+    app.close();
+  }}
+  onSent={() => {
+    app.close();
+    mail.notice = { text: m.compose_queued(), undoable: false };
+  }}
+/>
+<OutboxDialog
+  open={app.dialog === "outbox"}
+  items={app.outbox}
+  onClose={() => app.close()}
+  onRetry={(id) => {
+    const account = app.outboxAccount;
+    if (account === null) return;
+    api.retrySend(account, id).then(
+      () => app.refreshOutbox(account),
+      (e: unknown) => (mail.notice = { text: errorText(e), undoable: false }),
+    );
+  }}
+  onCancel={(id) => {
+    const account = app.outboxAccount;
+    if (account === null) return;
+    api.cancelSend(account, id).then(
+      () => app.refreshOutbox(account),
       (e: unknown) => (mail.notice = { text: errorText(e), undoable: false }),
     );
   }}

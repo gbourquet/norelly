@@ -13,6 +13,7 @@ use std::time::Duration;
 
 use norelly_domain::actions::{FlagChange, StoreOutcome};
 use norelly_domain::capabilities::ServerCapabilities;
+use norelly_domain::compose::draft::RemoteCopy;
 use norelly_domain::connection::ConnectionError;
 use norelly_domain::fetch_policy::BodyFetch;
 use norelly_domain::fetch_policy::PartPath;
@@ -78,6 +79,9 @@ struct State {
     operations: usize,
     /// Durée de chaque opération (serveur lent).
     delay: Duration,
+    /// Course simulée : un autre client marque ce message `\Deleted`
+    /// juste avant le prochain `EXPUNGE` (une seule fois).
+    race_deleted: Option<(String, u32)>,
 }
 
 impl State {
@@ -126,6 +130,7 @@ impl FakeImap {
             cut_after: None,
             operations: 0,
             delay: Duration::ZERO,
+            race_deleted: None,
         };
         Self {
             state: Arc::new(Mutex::new(state)),
@@ -265,6 +270,12 @@ impl FakeImap {
             }
         }
         self.touch(name);
+    }
+
+    /// Simule un autre client qui marque `target` `\Deleted` entre le
+    /// `UID SEARCH DELETED` et l'`EXPUNGE` suivants (une seule fois).
+    pub fn race_deleted_before_expunge(&self, name: &str, target: Uid) {
+        lock(&self.state).race_deleted = Some((name.to_owned(), target.get()));
     }
 
     /// Supprime définitivement un message.
@@ -488,9 +499,10 @@ impl FakeImapSession {
     async fn expunge_where(
         &mut self,
         which: impl Fn(u32, &Message) -> bool,
-    ) -> Result<(), ConnectionError> {
+    ) -> Result<u32, ConnectionError> {
         let name = self.selected_name()?;
         self.throttle().await;
+        let count;
         {
             let mut s = self.step()?;
             let m = s.mailbox(&name).ok_or(ConnectionError::Closed)?;
@@ -500,6 +512,7 @@ impl FakeImapSession {
                 .filter(|(u, msg)| which(**u, msg))
                 .map(|(u, _)| *u)
                 .collect();
+            count = u32::try_from(gone.len()).unwrap_or(u32::MAX);
             for u in gone {
                 m.messages.remove(&u);
                 m.modseq += 1;
@@ -508,7 +521,7 @@ impl FakeImapSession {
             }
         }
         self.server.touch(&name);
-        Ok(())
+        Ok(count)
     }
 }
 
@@ -768,9 +781,45 @@ impl RemoteMailboxSession for FakeImapSession {
         }
         self.expunge_where(|u, msg| u == target.get() && msg.flags.deleted)
             .await
+            .map(|_| ())
     }
 
-    async fn expunge_all(&mut self) -> Result<(), ConnectionError> {
+    async fn append(
+        &mut self,
+        mailbox: &MailboxName,
+        raw: &[u8],
+        draft: bool,
+    ) -> Result<Option<RemoteCopy>, ConnectionError> {
+        self.throttle().await;
+        let (uidplus, exists) = {
+            let mut s = self.step()?;
+            let uidplus = s.uidplus;
+            (uidplus, s.mailbox(mailbox.as_str()).is_some())
+        };
+        if !exists {
+            return Err(ConnectionError::Rejected(
+                "NO [TRYCREATE] boîte inexistante".into(),
+            ));
+        }
+        let mut flags = Flags::from_tokens(["\\Seen"]);
+        flags.draft = draft;
+        let assigned = self.server.append(mailbox.as_str(), raw, flags, 0);
+        let validity = self.server.uid_validity(mailbox.as_str());
+        Ok(assigned
+            .zip(validity)
+            .filter(|_| uidplus)
+            .map(|(uid, validity)| RemoteCopy { validity, uid }))
+    }
+
+    async fn expunge_all(&mut self) -> Result<u32, ConnectionError> {
+        {
+            let mut s = lock(&self.server.state);
+            if let Some((name, target)) = s.race_deleted.take()
+                && let Some(msg) = s.mailbox(&name).and_then(|m| m.messages.get_mut(&target))
+            {
+                msg.flags.deleted = true;
+            }
+        }
         self.expunge_where(|_, msg| msg.flags.deleted).await
     }
 

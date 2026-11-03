@@ -28,11 +28,34 @@ vi.mock("./lib/ipc/api", () => ({
     saveAttachment: vi.fn(),
     openAttachment: vi.fn(),
     onSyncEvent: vi.fn(async () => () => undefined),
+    onComposeEvent: vi.fn(async () => () => undefined),
+    prepareCompose: vi.fn(async (account: number) => ({
+      id: null,
+      account,
+      to: [],
+      cc: [],
+      bcc: [],
+      subject: "",
+      html: "",
+      in_reply_to: null,
+      references: [],
+      attachments: [],
+    })),
+    saveDraft: vi.fn(async () => ({ id: 1, revision: 1 })),
+    sendDraft: vi.fn(async () => 3),
+    discardDraft: vi.fn(),
+    suggestContacts: vi.fn(async () => []),
+    pickAttachments: vi.fn(async () => []),
+    attachDropped: vi.fn(async () => []),
+    outbox: vi.fn(async () => []),
+    retrySend: vi.fn(),
+    cancelSend: vi.fn(),
   },
 }));
 
 const { default: App } = await import("./App.svelte");
 const { api } = await import("./lib/ipc/api");
+const { app } = await import("./lib/app.svelte");
 
 const server = {
   host: "imap.example.com",
@@ -42,6 +65,9 @@ const server = {
 };
 
 beforeEach(() => {
+  // État global de l'application : aucune fenêtre ouverte d'un test à
+  // l'autre.
+  app.close();
   accounts.splice(0, accounts.length);
   vi.clearAllMocks();
 });
@@ -115,5 +141,38 @@ describe("App", () => {
     const address = await screen.findByLabelText("Adresse électronique");
     await fireEvent.keyDown(address, { key: "?", shiftKey: true });
     expect(screen.queryByRole("dialog", { name: "Raccourcis clavier" })).toBeNull();
+  });
+
+  it("rédige avec c et envoie avec Ctrl+Entrée", async () => {
+    accounts.push({
+      id: 7,
+      address: "alice@example.com",
+      display_name: "Alice",
+      imap: server,
+      smtp: server,
+    } as AccountDto);
+    render(App);
+    await screen.findAllByText("alice@example.com");
+    await fireEvent.keyDown(window, { key: "c" });
+    const dialog = await screen.findByRole("dialog", { name: "Nouveau message" });
+    expect(api.prepareCompose).toHaveBeenCalledWith(7, "new", null, "");
+    const to = within(dialog).getByRole("combobox", { name: "À" });
+    await fireEvent.input(to, { target: { value: "bob@example.com" } });
+    await fireEvent.keyDown(to, { key: "Enter" });
+    expect(within(dialog).getByText("bob@example.com")).toBeInTheDocument();
+    const subject = within(dialog).getByRole("textbox", { name: "Objet" });
+    await fireEvent.input(subject, { target: { value: "Bonjour" } });
+    await fireEvent.keyDown(subject, { key: "Enter", ctrlKey: true });
+    await waitFor(() =>
+      expect(api.sendDraft).toHaveBeenCalledWith(
+        expect.objectContaining({
+          subject: "Bonjour",
+          to: [{ name: "", address: "bob@example.com" }],
+        }),
+      ),
+    );
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "Nouveau message" })).toBeNull(),
+    );
   });
 });

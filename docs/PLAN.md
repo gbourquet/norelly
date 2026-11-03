@@ -194,27 +194,45 @@ Commandes de référence (détail dans `scripts/check.sh`) :
 
 ## Phase 7 : rédaction et envoi
 
-- [ ] Rattrapage de couverture (TDD, voir CLAUDE.md), mesuré le 2026-11-02 sur `master` (Rust : `cargo llvm-cov`, tests unitaires et d'intégration, 87 % des lignes ; front : Vitest + coverage-v8, 71 % des lignes). Le code non couvert reçoit des tests qui décrivent son comportement ; un test qui révèle un défaut suit la règle « bug = d'abord un test rouge » :
+- [x] Rattrapage de couverture (TDD, voir CLAUDE.md), mesuré le 2026-11-02 sur `master` (Rust : `cargo llvm-cov`, tests unitaires et d'intégration, 87 % des lignes ; front : Vitest + coverage-v8, 71 % des lignes). Le code non couvert reçoit des tests qui décrivent son comportement ; un test qui révèle un défaut suit la règle « bug = d'abord un test rouge » :
   - `app/src-tauri` (adaptateur entrant), le moins couvert : `mail.rs` (7 %), `actions.rs` (14 %), `reading.rs` (22 %), `protocols.rs` (26 %), `ipc.rs` (34 %), `commands.rs` (38 %), `remote_images.rs` (68 %). Commandes IPC et protocoles testés sans webview, contre le faux serveur ou Dovecot en conteneur : revalidation des entrées, codes d'erreur, `mailview://`, `mailpart://`, `remote-img://`, enregistrement et ouverture des pièces jointes ;
   - `adapters/keyring/src/lib.rs` (38 %) : chemin Secret Service, joué seulement si un trousseau répond (conteneur avec gnome-keyring, comme les e2e) ;
   - `adapters/discovery/src/srv.rs` (52 %) : résolution SRV contre un serveur DNS de test en conteneur, jamais un vrai DNS ;
   - `adapters/imap/src/connection.rs` (81 %), `adapters/smtp/src/stream.rs` (86 %) : chemins d'erreur (réponses tronquées, `BAD`, délais) via le faux serveur scripté ;
   - front : `ServerFields.svelte` (0 %), `AddAccountDialog.svelte` (17 %), `lib/errors.ts` (40 %, tous les codes), `lib/i18n.ts` (55 %, `applySystemLocale`), `Splitter.svelte` (18 %, clavier), `ThreePaneLayout.svelte` (68 %, largeurs mémorisées), `lib/add-account.svelte.ts` (77 %) ; `lib/ipc/api.ts` (0 %, enveloppe des erreurs IPC) ;
   - décision du mainteneur : ajouter `cargo-llvm-cov` et `@vitest/coverage-v8` au projet, avec un seuil vérifié par `./scripts/check.sh` (renforcement, pas assouplissement).
-- [ ] Domaine :
+  - **Fait (2026-11-03)** : `cargo-llvm-cov` et `@vitest/coverage-v8` 5.0.5 branchés dans `./scripts/check.sh` avec des seuils au niveau mesuré (Rust : 83 % des lignes en tests unitaires ; front : 78 % des lignes, 74 % des instructions, 67 % des branches, 72 % des fonctions) ; front : `errors.ts` (tous les codes, champs et catégories, liste vérifiée par le typage, doublon de libellé corrigé), `i18n.ts` (`applySystemLocale`), `Splitter.svelte` (clavier), `lib/ipc/api.ts` (enveloppe des erreurs), `ServerFields.svelte`.
+  - **Fait ensuite (2026-11-03)** :
+    - `app/src-tauri` : commandes IPC appelées sans webview (application factice `tauri::test`, état réel sur dossier temporaire : actions, dossiers, conversations, lecture, rédaction, file d'envoi, suggestions, comptes) et protocoles `mailview://`, `mailpart://`, `remote-img://` (en-têtes de sécurité, refus) ;
+    - `adapters/keyring` : contrat `SecretStore` joué contre GNOME Keyring dans le conteneur des e2e (`integration_secret_service.rs`, `in-container.sh`), jamais contre le trousseau d'un poste ;
+    - `adapters/discovery/src/srv.rs` : serveur DNS de test en processus (UDP local, même principe que les faux serveurs scriptés d'ADR-007, plutôt qu'un conteneur de plus) ;
+    - `imap/src/connection.rs` : IDLE (changement, délai, refus, `BYE`) ; front : `ThreePaneLayout.svelte`, `AddAccountDialog.svelte`.
+    - Seuils relevés : Rust 86 % des lignes (tests unitaires) ; front 81 % des lignes, 77 % des instructions, 71 % des branches, 74 % des fonctions.
+    - Encore faible, couvert par les tests d'intégration et e2e plutôt qu'unitaires : `app/src-tauri/src/mail.rs` (acteurs, rendu avec téléchargement) et le chemin Secret Service de `keyring` dans la mesure de l'hôte.
+- [x] Domaine :
   - destinataires de répondre, répondre à tous et transférer (exclure ses propres adresses, dédoublonner, `Reply-To`) ;
   - sujet `Re:`/`Fwd:` sans empilement ;
   - `In-Reply-To`/`References` ;
   - citation
-- [ ] Domaine (ADR-011) : reconnaissance des préfixes de sujet étrangers (`TR`, `AW`, `WG`, `SV`, `VS`, `Antw`, `RIF`, `RE :`…) avec `proptest` ; préfixes produits toujours `Re:`/`Fwd:` ; en-tête de citation reçu en paramètre, localisé par l'interface
-- [ ] Domaine : brouillon (cycle de vie, sauvegarde périodique), file d'envoi (états, nouvelles tentatives, échec définitif)
-- [ ] `adapters/render` : réassainissement du HTML Tiptap ; construction `multipart/alternative` + pièces jointes avec `lettre` ; tests du MIME produit (relu par `mail-parser`)
-- [ ] `adapters/imap` : APPEND des brouillons (remplacement de l'ancien via UIDPLUS), copie dans Envoyés (sauf serveurs qui le font eux-mêmes : Gmail)
-- [ ] Application : `SendMessage` (file d'envoi persistante, envoi différé hors ligne), `SaveDraft`
-- [ ] Interface : éditeur Tiptap (gras, italique, liens, listes, citation), destinataires avec autocomplétion depuis les adresses connues, pièces jointes par glisser-déposer et par sélecteur, `c`/`r`/`a`/`f`, Ctrl+Entrée pour envoyer
-- [ ] Intégration : envoi via Mailpit vérifié par son API, brouillon présent sur Dovecot, copie dans Envoyés présente
-- [ ] Reports de la revue de la phase 6 (REVIEWS.md) : `hostile_message_sql.rs` étendu aux actions ; garde-fou `EXPUNGE` sans UIDPLUS (compte des `* n EXPUNGE`) ; file `pending_ops` lue une fois, `record_all` transactionnel, plafond par compte
-- [ ] Revue security-reviewer, consignée dans REVIEWS.md (0 critique, 0 haute ; moyennes corrigées)
+  - `crates/domain/src/compose.rs` ; répondre à son propre message vise ses destinataires ; `References` bornées à 20 (racine et plus récents).
+- [x] Domaine (ADR-011) : reconnaissance des préfixes de sujet étrangers (`TR`, `AW`, `WG`, `SV`, `VS`, `Antw`, `RIF`, `RE :`…) avec `proptest` ; préfixes produits toujours `Re:`/`Fwd:` ; en-tête de citation reçu en paramètre, localisé par l'interface
+  - liste partagée avec le regroupement des conversations (`conversation::strip_prefix`).
+- [x] Domaine : brouillon (cycle de vie, sauvegarde périodique), file d'envoi (états, nouvelles tentatives, échec définitif)
+  - `compose/draft.rs` : validation avant envoi (destinataires, sujet sans contrôle, tailles), copie sur le serveur au plus toutes les 30 s et seulement si modifié ; `compose/outbox.rs` : essais hors ligne non comptés, attente croissante, 8 essais, envoi interrompu par un arrêt = incertain, jamais renvoyé automatiquement.
+- [x] `adapters/render` : réassainissement du HTML Tiptap ; construction `multipart/alternative` + pièces jointes avec `lettre` ; tests du MIME produit (relu par `mail-parser`)
+  - `crates/adapters/render/src/compose.rs` : liste blanche minimale (p, br, gras, italique, barré, liens http/https/mailto, listes, citations) ; version texte dérivée du HTML assaini ; `Bcc` seulement dans les copies locales ; `Message-ID` aléatoire (128 bits) sans nom de machine ; imbrication bornée à 64 niveaux (au-delà, réduit au texte). `lettre` compilé avec `builder`, `getrandom` ajouté en dépendance directe.
+- [x] `adapters/imap` : APPEND des brouillons (remplacement de l'ancien via UIDPLUS), copie dans Envoyés (sauf serveurs qui le font eux-mêmes : Gmail)
+  - `RemoteMailboxSession::append` renvoie la copie (UIDVALIDITY et UID d'APPENDUID) ; sans UIDPLUS, les brouillons restent locaux ; une ancienne copie n'est supprimée que si la boîte a la même UIDVALIDITY et que le message porte `\Draft` ; Gmail (`X-GM-EXT-1`) dépose lui-même la copie dans Envoyés. Défaut d'`imap-next` (littéral refusé par `NO`) contourné, consigné dans ADR-002.
+- [x] Application : `SendMessage` (file d'envoi persistante, envoi différé hors ligne), `SaveDraft`
+  - `crates/application/src/compose.rs` (`SaveDraft`, `QueueMessage`, `PrepareReply`, `DeliverOutbox`, `RecoverOutbox`, `FileSentCopies`, `SyncDrafts`) ; `compose_worker.rs` : un travailleur par compte, connexion IMAP courte seulement s'il y a du travail.
+- [x] Interface : éditeur Tiptap (gras, italique, liens, listes, citation), destinataires avec autocomplétion depuis les adresses connues, pièces jointes par glisser-déposer et par sélecteur, `c`/`r`/`a`/`f`, Ctrl+Entrée pour envoyer
+  - Tiptap 3.32.0 (figé, MIT), limité à ce que le réassainissement Rust conserve ; chemins des fichiers joints jamais transmis par l'interface (sélecteur ouvert par Rust, dépôt natif désigné par un jeton) ; boîte d'envoi (relancer, annuler) ; scénario e2e `compose.e2e.mjs`.
+- [x] Intégration : envoi via Mailpit vérifié par son API, brouillon présent sur Dovecot, copie dans Envoyés présente
+  - `crates/application/tests/integration_compose.rs` (stockage réel, travailleur de rédaction) ; scénario e2e `app/e2e/specs/compose.e2e.mjs` (réponse par `r`, Cci hors des en-têtes, HTML saisi jamais interprété).
+- [x] Reports de la revue de la phase 6 (REVIEWS.md) : `hostile_message_sql.rs` étendu aux actions ; garde-fou `EXPUNGE` sans UIDPLUS (compte des `* n EXPUNGE`) ; file `pending_ops` lue une fois, `record_all` transactionnel, plafond par compte
+  - plafond `MAX_PENDING_OPS` (10 000 par compte, code IPC `pending_queue_full`) ; suppressions en trop signalées par `ReplayReport::foreign_expunges` (boîte resynchronisée).
+- [x] Revue security-reviewer, consignée dans REVIEWS.md (0 critique, 0 haute ; moyennes corrigées)
+  - 1 haute et 3 moyennes trouvées, toutes corrigées ; 3 basses corrigées, 3 reportées en phase 8.
 
 **Condition de fin** : `./scripts/check.sh full && pnpm -C app e2e` passent sans erreur.
 

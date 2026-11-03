@@ -9,7 +9,10 @@ pilotable au clavier, configuration quasi automatique. Aucune télémétrie.
 
 Prérequis : Rust ≥ 1.90, Node ≥ 22 et pnpm 10, Docker (tests d'intégration),
 dépendances système Tauri (Linux : `webkit2gtk-4.1`, `libsoup-3.0`),
-`cargo install --locked cargo-nextest cargo-deny`.
+`cargo install --locked cargo-nextest cargo-deny cargo-llvm-cov` et les
+outils LLVM (`rustup component add llvm-tools-preview`, ou `llvm-cov` et
+`llvm-profdata` du système, de même version majeure que `rustc`) pour la
+couverture vérifiée par `./scripts/check.sh`.
 
 ```sh
 pnpm -C app install

@@ -407,3 +407,58 @@ fn conversation_targets_follow_the_action() {
         [id(4)]
     );
 }
+
+fn op_id(n: i64) -> PendingOpId {
+    PendingOpId::new(n).unwrap_or_else(|| panic!("opération"))
+}
+
+#[test]
+fn plan_queue_coalesces_against_the_queue_read_once() {
+    let queue = vec![(op_id(5), seen_op(false, true))];
+    let changes = plan_queue(&queue, vec![seen_op(true, false), op(OpKind::Expunge)])
+        .unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(
+        changes,
+        vec![
+            QueueChange::CancelOrPush {
+                existing: op_id(5),
+                op: seen_op(true, false),
+            },
+            QueueChange::Push(op(OpKind::Expunge)),
+        ]
+    );
+}
+
+#[test]
+fn plan_queue_coalesces_planned_ops_between_themselves() {
+    // Aller-retour dans le même lot : rien n'est enfilé.
+    let changes = plan_queue(&[], vec![seen_op(false, true), seen_op(true, false)])
+        .unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(changes, Vec::new());
+}
+
+#[test]
+fn plan_queue_refuses_beyond_the_per_account_cap() {
+    let full: Vec<(PendingOpId, PendingOp)> = (1..=i64::try_from(MAX_PENDING_OPS).unwrap_or(0))
+        .map(|n| (op_id(n), op(OpKind::Expunge)))
+        .collect();
+    assert_eq!(
+        plan_queue(&full, vec![op(OpKind::Expunge)]),
+        Err(ActionError::QueueFull)
+    );
+    // Une fusion ne fait pas grossir la file : acceptée même pleine.
+    let mut almost = full;
+    almost[0].1 = seen_op(false, true);
+    assert!(plan_queue(&almost, vec![seen_op(true, false)]).is_ok());
+    // Juste sous le plafond : accepté.
+    almost.pop();
+    assert!(plan_queue(&almost, vec![op(OpKind::Expunge)]).is_ok());
+}
+
+#[test]
+fn expunges_beyond_the_expected_ones_are_reported() {
+    assert_eq!(unexpected_expunges(1, 1), 0);
+    assert_eq!(unexpected_expunges(1, 0), 0, "déjà supprimé : rien en trop");
+    assert_eq!(unexpected_expunges(1, 3), 2);
+    assert_eq!(unexpected_expunges(usize::MAX, u32::MAX), 0);
+}

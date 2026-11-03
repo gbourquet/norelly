@@ -33,7 +33,7 @@ use crate::account::AccountId;
 use crate::capabilities::ServerCapabilities;
 use crate::conversation::ConversationScope;
 use crate::mailbox::{Flags, MailboxId, MailboxName, MailboxRole, ModSeq, Uid, UidValidity};
-use crate::ports::MessageId;
+use crate::ports::{MessageId, PendingOpId};
 
 /// Délai avant le rejeu d'une opération : l'utilisateur peut l'annuler
 /// pendant ce temps sans qu'elle ait touché le serveur.
@@ -135,6 +135,8 @@ pub enum ActionError {
     NotSelectable,
     #[error("trop de messages visés")]
     TooManyTargets,
+    #[error("trop d'opérations en attente sur ce compte")]
+    QueueFull,
 }
 
 /// Effet de `action` sur un message du dossier `source`. `folders` :
@@ -394,6 +396,74 @@ pub fn coalesce(queue: &[PendingOp], new: &PendingOp) -> Coalesce {
     found.map_or(Coalesce::Push, Coalesce::Cancel)
 }
 
+/// Plafond d'opérations en attente par compte : au-delà, une nouvelle
+/// action est refusée ([`ActionError::QueueFull`]) plutôt que de laisser
+/// la file grossir sans fin (serveur injoignable pendant des semaines).
+pub const MAX_PENDING_OPS: usize = 10_000;
+
+/// Changement de la file d'un compte, décidé par [`plan_queue`] et
+/// appliqué en une seule transaction (`PendingOpStore::record_all`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum QueueChange {
+    /// Enfiler l'opération.
+    Push(PendingOp),
+    /// Fusion : annuler l'opération `existing` ; si le rejeu l'a déjà
+    /// réservée (trop tard), enfiler `op` à la suite.
+    CancelOrPush {
+        existing: PendingOpId,
+        op: PendingOp,
+    },
+}
+
+/// Changements de la file d'un compte pour les opérations `planned`,
+/// à partir de la file `queue` lue une seule fois : les opérations
+/// planifiées sont fusionnées entre elles comme avec la file
+/// ([`coalesce`]). Refuse tout si la file dépasserait [`MAX_PENDING_OPS`].
+pub fn plan_queue(
+    queue: &[(PendingOpId, PendingOp)],
+    planned: Vec<PendingOp>,
+) -> Result<Vec<QueueChange>, ActionError> {
+    /// Origine d'une entrée de la file simulée.
+    enum Source {
+        Existing(PendingOpId),
+        Planned(usize),
+    }
+    let mut view: Vec<(Source, PendingOp)> = queue
+        .iter()
+        .map(|(id, op)| (Source::Existing(*id), op.clone()))
+        .collect();
+    let mut changes: Vec<Option<QueueChange>> = Vec::new();
+    for op in planned {
+        let ops: Vec<PendingOp> = view.iter().map(|(_, o)| o.clone()).collect();
+        match coalesce(&ops, &op) {
+            Coalesce::Push => {
+                view.push((Source::Planned(changes.len()), op.clone()));
+                changes.push(Some(QueueChange::Push(op)));
+            }
+            Coalesce::Cancel(i) => match view.remove(i).0 {
+                Source::Existing(existing) => {
+                    changes.push(Some(QueueChange::CancelOrPush { existing, op }));
+                }
+                // Annule une opération du même lot : ni l'une ni l'autre.
+                Source::Planned(index) => {
+                    if let Some(change) = changes.get_mut(index) {
+                        *change = None;
+                    }
+                }
+            },
+        }
+    }
+    let changes: Vec<QueueChange> = changes.into_iter().flatten().collect();
+    let pushed = changes
+        .iter()
+        .filter(|c| matches!(c, QueueChange::Push(_)))
+        .count();
+    if queue.len().saturating_add(pushed) > MAX_PENDING_OPS {
+        return Err(ActionError::QueueFull);
+    }
+    Ok(changes)
+}
+
 /// Résultat d'un `STORE` conditionnel.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StoreOutcome {
@@ -436,9 +506,24 @@ pub fn expunge_strategy(capabilities: &ServerCapabilities) -> MoveStrategy {
 /// Garde-fou d'un `EXPUNGE` sans UIDPLUS : il supprime tous les messages
 /// marqués `\Deleted` de la boîte. Autorisé seulement si ce sont
 /// exactement ceux que l'on veut supprimer.
+///
+/// Limite : sans UIDPLUS, aucune commande n'est atomique. Entre
+/// `UID SEARCH DELETED` et `EXPUNGE` (envoyés l'un après l'autre, sans
+/// autre commande entre eux), un autre client peut encore marquer un
+/// message `\Deleted`, qui part aussi. On le détecte après coup avec
+/// [`unexpected_expunges`] : journalisation et resynchronisation.
 #[must_use]
 pub fn expunge_is_safe(ours: &BTreeSet<Uid>, deleted_on_server: &BTreeSet<Uid>) -> bool {
     deleted_on_server.is_subset(ours)
+}
+
+/// Messages supprimés en trop par un `EXPUNGE` sans UIDPLUS : réponses
+/// `* n EXPUNGE` reçues (`reported`) au-delà des `expected` messages
+/// visés. Non nul : un autre client a marqué un message entre-temps.
+#[must_use]
+pub fn unexpected_expunges(expected: usize, reported: u32) -> u32 {
+    let expected = u32::try_from(expected).unwrap_or(u32::MAX);
+    reported.saturating_sub(expected)
 }
 
 /// État du serveur au moment du rejeu.

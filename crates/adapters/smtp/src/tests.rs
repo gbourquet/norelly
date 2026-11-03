@@ -312,6 +312,86 @@ async fn send_message() -> TestResult {
     Ok(())
 }
 
+/// Refus au `RCPT` : 4xx temporaire (`Deferred`), 5xx définitif
+/// (`Rejected`), texte brut du serveur conservé.
+#[tokio::test]
+async fn smtp_refusals_distinguish_temporary_from_permanent() -> TestResult {
+    for (reply, temporary) in [
+        ("451 4.7.1 Greylisting, reessayez\r\n", true),
+        ("550 5.1.1 Destinataire inconnu\r\n", false),
+    ] {
+        let ca = TestCa::new()?;
+        let cert = ca.issue(&["localhost"])?;
+        let script = ehlo_once(Script::new().send(smtp::greeting()), &["AUTH PLAIN"])
+            .expect("AUTH PLAIN")
+            .send("235 ok\r\n")
+            .expect("MAIL FROM:<alice@example.com>")
+            .send("250 ok\r\n")
+            .expect("RCPT TO:<bob@example.com>")
+            .send(reply)
+            // `lettre` abandonne proprement la transaction.
+            .expect("QUIT")
+            .send("221 bye\r\n")
+            .expect_eof();
+        let server = ScriptedServer::start_tls(script, cert.server_config()?).await?;
+        let message = OutgoingMessage {
+            from: "alice@example.com".into(),
+            recipients: vec!["bob@example.com".into()],
+            raw: b"Subject: essai\r\n\r\ncorps\r\n".to_vec(),
+        };
+        let result = sender(&ca)
+            .send(
+                &request(server.port(), Security::Tls, PlaintextPolicy::deny_all()),
+                &message,
+            )
+            .await;
+        match (&result, temporary) {
+            (Err(SendError::Deferred(text)), true) => {
+                assert!(text.contains("Greylisting"), "{text}")
+            }
+            (Err(SendError::Rejected(text)), false) => assert!(text.contains("inconnu"), "{text}"),
+            _ => panic!("{reply} : {result:?}"),
+        }
+        server.finish().await.result?;
+    }
+    Ok(())
+}
+
+/// Connexion coupée après la fin du DATA, sans réponse : le message est
+/// peut-être parti, l'issue est incertaine (revue de la phase 7).
+#[tokio::test]
+async fn cut_after_data_is_an_uncertain_outcome() -> TestResult {
+    let ca = TestCa::new()?;
+    let cert = ca.issue(&["localhost"])?;
+    let script = ehlo_once(Script::new().send(smtp::greeting()), &["AUTH PLAIN"])
+        .expect("AUTH PLAIN")
+        .send("235 ok\r\n")
+        .expect("MAIL FROM:<alice@example.com>")
+        .send("250 ok\r\n")
+        .expect("RCPT TO:<bob@example.com>")
+        .send("250 ok\r\n")
+        .expect("DATA")
+        .send("354 go\r\n")
+        .expect_data_until(".");
+    let server = ScriptedServer::start_tls(script, cert.server_config()?).await?;
+    let message = OutgoingMessage {
+        from: "alice@example.com".into(),
+        recipients: vec!["bob@example.com".into()],
+        raw: b"Subject: essai\r\n\r\ncorps\r\n".to_vec(),
+    };
+    let result = sender(&ca)
+        .send(
+            &request(server.port(), Security::Tls, PlaintextPolicy::deny_all()),
+            &message,
+        )
+        .await;
+    assert!(
+        matches!(result, Err(SendError::Interrupted(_))),
+        "{result:?}"
+    );
+    Ok(())
+}
+
 #[tokio::test]
 async fn invalid_address_is_rejected_before_connecting() -> TestResult {
     let ca = TestCa::new()?;

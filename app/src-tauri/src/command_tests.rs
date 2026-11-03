@@ -1,0 +1,319 @@
+//! Commandes IPC appelées sans webview (application factice) : entrées
+//! revalidées, codes d'erreur, effets sur le stockage réel.
+
+use crate::actions::{perform_action, set_archive_folder, undo_actions};
+use crate::compose::{
+    cancel_send, discard_draft, outbox, prepare_compose, retry_send, save_draft, send_draft,
+    suggest_contacts,
+};
+use crate::ipc::{
+    ActionDto, ComposeKindDto, ErrorCodeDto, FieldDto, IpcError, OutboxStateDto, RecipientDto,
+    ScopeDto,
+};
+use crate::reading::{list_conversations, list_folders};
+use crate::test_app::test_app;
+
+fn code<T: std::fmt::Debug>(r: Result<T, IpcError>) -> (ErrorCodeDto, Option<FieldDto>) {
+    match r {
+        Err(e) => (e.code, e.field),
+        Ok(v) => panic!("erreur attendue : {v:?}"),
+    }
+}
+
+fn id32(raw: i64) -> u32 {
+    u32::try_from(raw).unwrap_or_else(|_| panic!("identifiant"))
+}
+
+#[tokio::test]
+async fn folders_conversations_and_actions_round_trip() {
+    let t = test_app().await;
+    let account = id32(t.account.get());
+    let folders = list_folders(t.state(), account)
+        .await
+        .unwrap_or_else(|e| panic!("{e:?}"));
+    assert_eq!(folders.len(), 3);
+    let inbox = folders
+        .iter()
+        .find(|f| f.role == "inbox")
+        .map(|f| f.id)
+        .unwrap_or_else(|| panic!("INBOX"));
+    let scope = ScopeDto::Mailbox { id: inbox };
+    let page = list_conversations(t.state(), scope.clone(), None, 50)
+        .await
+        .unwrap_or_else(|e| panic!("{e:?}"));
+    assert_eq!(page.items.len(), 2);
+    let first = page.items[0].id;
+
+    let result = perform_action(t.state(), vec![first], scope.clone(), ActionDto::Delete)
+        .await
+        .unwrap_or_else(|e| panic!("{e:?}"));
+    assert_eq!(result.messages, 1);
+    let after = list_conversations(t.state(), scope.clone(), None, 50)
+        .await
+        .unwrap_or_else(|e| panic!("{e:?}"));
+    assert_eq!(after.items.len(), 1, "masquée tout de suite");
+    let undone = undo_actions(t.state(), result.ops)
+        .await
+        .unwrap_or_else(|e| panic!("{e:?}"));
+    assert_eq!(undone, 1);
+
+    // Entrées refusées.
+    assert_eq!(
+        code(perform_action(t.state(), vec![0], scope.clone(), ActionDto::Delete).await),
+        (ErrorCodeDto::InvalidInput, Some(FieldDto::Conversation))
+    );
+    assert_eq!(
+        code(
+            perform_action(
+                t.state(),
+                vec![first; 1001],
+                scope.clone(),
+                ActionDto::Archive
+            )
+            .await
+        )
+        .0,
+        ErrorCodeDto::TooManyMessages
+    );
+    assert_eq!(
+        code(undo_actions(t.state(), vec![0]).await),
+        (ErrorCodeDto::InvalidInput, Some(FieldDto::Message))
+    );
+    // Pas de dossier d'archives ni de repli : refus explicite.
+    assert_eq!(
+        code(perform_action(t.state(), vec![first], scope, ActionDto::Archive).await).0,
+        ErrorCodeDto::NoArchive
+    );
+    // Repli : seulement un dossier du compte.
+    assert_eq!(
+        code(set_archive_folder(t.state(), account, Some(999_999)).await),
+        (ErrorCodeDto::InvalidInput, Some(FieldDto::Mailbox))
+    );
+    set_archive_folder(t.state(), account, Some(inbox))
+        .await
+        .unwrap_or_else(|e| panic!("{e:?}"));
+    assert_eq!(
+        code(set_archive_folder(t.state(), 0, None).await),
+        (ErrorCodeDto::InvalidInput, Some(FieldDto::Account))
+    );
+}
+
+#[tokio::test]
+async fn drafts_are_saved_sent_listed_and_cancelled() {
+    let t = test_app().await;
+    let account = id32(t.account.get());
+    let mut draft = prepare_compose(t.state(), account, ComposeKindDto::New, None, String::new())
+        .await
+        .unwrap_or_else(|e| panic!("{e:?}"));
+    assert_eq!((draft.account, draft.id), (account, None));
+    // Réponse sans message : refusée.
+    assert_eq!(
+        code(
+            prepare_compose(
+                t.state(),
+                account,
+                ComposeKindDto::Reply,
+                None,
+                String::new()
+            )
+            .await
+        ),
+        (ErrorCodeDto::InvalidInput, Some(FieldDto::Message))
+    );
+
+    draft.subject = "Bonjour".into();
+    draft.html = "<p>Salut</p>".into();
+    let saved = save_draft(t.state(), draft.clone())
+        .await
+        .unwrap_or_else(|e| panic!("{e:?}"));
+    assert_eq!(saved.revision, 1);
+    draft.id = Some(saved.id);
+    // Sans destinataire : refus du domaine.
+    assert_eq!(
+        code(send_draft(t.state(), draft.clone()).await).0,
+        ErrorCodeDto::NoRecipient
+    );
+    draft.to = vec![RecipientDto {
+        name: "Bob".into(),
+        address: "bob@example.com".into(),
+    }];
+    let queued = send_draft(t.state(), draft.clone())
+        .await
+        .unwrap_or_else(|e| panic!("{e:?}"));
+    let items = outbox(t.state(), account)
+        .await
+        .unwrap_or_else(|e| panic!("{e:?}"));
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0].id, queued);
+    assert!(matches!(items[0].state, OutboxStateDto::Queued { .. }));
+    // Pas en échec : rien à relancer ; annulation possible.
+    assert_eq!(
+        code(retry_send(t.state(), account, queued).await).0,
+        ErrorCodeDto::OutboxBusy
+    );
+    cancel_send(t.state(), account, queued)
+        .await
+        .unwrap_or_else(|e| panic!("{e:?}"));
+    assert!(
+        outbox(t.state(), account)
+            .await
+            .unwrap_or_else(|e| panic!("{e:?}"))
+            .is_empty()
+    );
+    assert_eq!(
+        code(cancel_send(t.state(), account, queued).await),
+        (ErrorCodeDto::NotFound, Some(FieldDto::Outbox))
+    );
+
+    // Brouillon abandonné.
+    let other = save_draft(
+        t.state(),
+        crate::ipc::DraftDto {
+            id: None,
+            ..draft.clone()
+        },
+    )
+    .await
+    .unwrap_or_else(|e| panic!("{e:?}"));
+    discard_draft(t.state(), other.id)
+        .await
+        .unwrap_or_else(|e| panic!("{e:?}"));
+    assert_eq!(
+        code(discard_draft(t.state(), 0).await),
+        (ErrorCodeDto::InvalidInput, Some(FieldDto::Draft))
+    );
+}
+
+#[tokio::test]
+async fn contacts_come_from_received_messages() {
+    let t = test_app().await;
+    let account = id32(t.account.get());
+    let found = suggest_contacts(t.state(), account, "e1@".into())
+        .await
+        .unwrap_or_else(|e| panic!("{e:?}"));
+    assert_eq!(
+        found.iter().map(|r| r.address.as_str()).collect::<Vec<_>>(),
+        ["e1@example.com"]
+    );
+    assert_eq!(
+        code(suggest_contacts(t.state(), 0, "e".into()).await),
+        (ErrorCodeDto::InvalidInput, Some(FieldDto::Account))
+    );
+    assert!(!t.messages.is_empty());
+}
+
+#[tokio::test]
+async fn accounts_are_listed_and_removed() {
+    use crate::commands::{list_accounts, remove_account, trust_certificate};
+    let t = test_app().await;
+    let accounts = list_accounts(t.state())
+        .await
+        .unwrap_or_else(|e| panic!("{e:?}"));
+    assert_eq!(accounts.len(), 1);
+    assert_eq!(accounts[0].address, "alice@example.com");
+    // Certificat jamais présenté à l'utilisateur : pas de confiance possible.
+    assert_eq!(
+        code(trust_certificate(t.state(), "imap.example.com".into(), "AA:BB".into()).await),
+        (ErrorCodeDto::NotFound, Some(FieldDto::Certificate))
+    );
+    assert_eq!(
+        code(remove_account(t.state(), 0).await),
+        (ErrorCodeDto::InvalidInput, Some(FieldDto::Account))
+    );
+    remove_account(t.state(), id32(t.account.get()))
+        .await
+        .unwrap_or_else(|e| panic!("{e:?}"));
+    assert!(
+        list_accounts(t.state())
+            .await
+            .unwrap_or_else(|e| panic!("{e:?}"))
+            .is_empty()
+    );
+}
+
+#[tokio::test]
+async fn reading_commands_revalidate_and_answer() {
+    use crate::reading::{
+        allow_remote_images, conversation_messages, open_attachment, open_external, open_message,
+        reading_preferences, set_prefer_plain_text, sync_account,
+    };
+    let t = test_app().await;
+    let account = id32(t.account.get());
+    let message = id32(t.messages[0].get());
+
+    // Message ouvert (corps absent : vue sans contenu, pas d'erreur).
+    let view = open_message(t.state(), message)
+        .await
+        .unwrap_or_else(|e| panic!("{e:?}"));
+    assert_eq!(view.id, message);
+    assert_eq!(
+        code(open_message(t.state(), 0).await),
+        (ErrorCodeDto::InvalidInput, Some(FieldDto::Message))
+    );
+    assert_eq!(
+        code(open_message(t.state(), 999_999).await).0,
+        ErrorCodeDto::NotFound
+    );
+
+    // Conversation du message.
+    let folders = list_folders(t.state(), account)
+        .await
+        .unwrap_or_else(|e| panic!("{e:?}"));
+    let inbox = folders
+        .iter()
+        .find(|f| f.role == "inbox")
+        .map(|f| f.id)
+        .unwrap_or_else(|| panic!("INBOX"));
+    let page = list_conversations(t.state(), ScopeDto::Mailbox { id: inbox }, None, 10)
+        .await
+        .unwrap_or_else(|e| panic!("{e:?}"));
+    let messages = conversation_messages(t.state(), page.items[0].id)
+        .await
+        .unwrap_or_else(|e| panic!("{e:?}"));
+    assert_eq!(messages.len(), 1);
+    assert_eq!(
+        code(conversation_messages(t.state(), 0).await),
+        (ErrorCodeDto::InvalidInput, Some(FieldDto::Conversation))
+    );
+
+    // Préférences de lecture.
+    set_prefer_plain_text(t.state(), true)
+        .await
+        .unwrap_or_else(|e| panic!("{e:?}"));
+    assert!(
+        reading_preferences(t.state())
+            .await
+            .unwrap_or_else(|e| panic!("{e:?}"))
+            .prefer_plain_text
+    );
+    allow_remote_images(t.state(), message)
+        .await
+        .unwrap_or_else(|e| panic!("{e:?}"));
+
+    // Liens : seuls http, https et mailto (aucune ouverture tentée ici).
+    for bad in [
+        "javascript:alert(1)",
+        "file:///etc/passwd",
+        "data:text/html,x",
+    ] {
+        assert_eq!(
+            code(open_external(bad.into()).await).0,
+            ErrorCodeDto::LinkRefused,
+            "{bad}"
+        );
+    }
+    // Pièce jointe introuvable, partie invalide.
+    assert_eq!(
+        code(open_attachment(t.state(), message, "pas-une-partie".into()).await),
+        (ErrorCodeDto::InvalidInput, Some(FieldDto::Part))
+    );
+    assert_eq!(
+        code(open_attachment(t.state(), message, "1.9".into()).await).0,
+        ErrorCodeDto::NotFound
+    );
+    // Compte inconnu ou invalide.
+    assert_eq!(
+        code(sync_account(t.state(), 0).await),
+        (ErrorCodeDto::InvalidInput, Some(FieldDto::Account))
+    );
+}

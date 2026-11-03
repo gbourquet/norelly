@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import fr from "../../messages/fr.json";
 import en from "../../messages/en.json";
-import { pickLocale } from "./i18n";
+import { activeLocale, applySystemLocale, pickLocale } from "./i18n";
 
 // Test exécuté par ./scripts/check.sh (via `pnpm -C app test`) : une chaîne
 // d'interface = une clé dans chaque catalogue (ADR-011).
@@ -53,5 +53,17 @@ describe("choix de la langue", () => {
   it("se replie sur l'anglais pour toute autre langue", () => {
     expect(pickLocale(["de-DE", "ja"])).toBe("en");
     expect(pickLocale([])).toBe("en");
+  });
+});
+
+describe("langue du système", () => {
+  it("applique la première langue disponible et marque le document", () => {
+    expect(applySystemLocale({ languages: ["en-US", "fr"], language: "fr" })).toBe("en");
+    expect(activeLocale()).toBe("en");
+    expect(document.documentElement.lang).toBe("en");
+    // Liste vide : langue principale du navigateur.
+    expect(applySystemLocale({ languages: [], language: "fr-FR" })).toBe("fr");
+    expect(activeLocale()).toBe("fr");
+    expect(document.documentElement.lang).toBe("fr");
   });
 });

@@ -269,17 +269,27 @@ impl MailSender for SmtpSender {
             .map_err(|e| SendError::InvalidAddress(e.to_string()))?;
 
         let mut session = self.open_authenticated(request).await?;
-        let sent = tokio::time::timeout(
-            self.timeouts.response,
-            session.conn.send(&envelope, &message.raw),
-        )
-        .await;
+        // Délai de la transmission proportionnel à la taille (≥ 64 Kio/s) :
+        // un message de 34 Mio ne doit pas expirer sur une liaison lente.
+        let budget = self.timeouts.response
+            + Duration::from_secs(
+                u64::try_from(message.raw.len() / (64 * 1024)).unwrap_or(u64::MAX),
+            );
+        let sent = tokio::time::timeout(budget, session.conn.send(&envelope, &message.raw)).await;
         match sent {
-            Err(_) => Err(ConnectionError::Timeout(TimeoutStage::Response).into()),
-            Ok(Err(e)) if e.is_permanent() || e.is_transient() => {
+            // Réponse du serveur : refus certain, rien n'est parti.
+            Ok(Err(e)) if e.is_transient() => {
+                Err(SendError::Deferred(server_text(e.to_string().as_bytes())))
+            }
+            Ok(Err(e)) if e.is_permanent() => {
                 Err(SendError::Rejected(server_text(e.to_string().as_bytes())))
             }
-            Ok(Err(e)) => Err(lettre_error(&e).into()),
+            // Coupure ou délai dépassé sans réponse : le serveur a peut-être
+            // accepté le message ; ne pas le renvoyer automatiquement.
+            Err(_) => Err(SendError::Interrupted("délai dépassé".to_owned())),
+            Ok(Err(e)) => Err(SendError::Interrupted(server_text(
+                e.to_string().as_bytes(),
+            ))),
             Ok(Ok(_)) => {
                 self.quit(session).await;
                 tracing::debug!(endpoint = %request.endpoint, "message envoyé");

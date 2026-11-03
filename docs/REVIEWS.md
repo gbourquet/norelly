@@ -7,6 +7,118 @@ accepté (justification) ou reporté (phase).
 
 ---
 
+# Revue sécurité : phase 7, rédaction et envoi (2026-11-03)
+
+Périmètre : `git diff master...HEAD` sur `phase-7/redaction` :
+- domaine `compose` (réponses, préfixes, fil, citation, brouillons, file
+  d'envoi), ports `DraftStore`, `OutboxStore`, `ContactQuery`,
+  `MessageComposer`, `RemoteMailboxSession::append` ;
+- `render` (HTML rédigé réassaini, version texte, MIME avec `lettre`,
+  lecture d'un message pour y répondre) ;
+- `imap` (APPEND, contournement d'`imap-next`), `smtp` (4xx/5xx),
+  `sqlite` (migration 0006, suggestions d'adresses) ;
+- application (`compose.rs`, `compose_worker.rs`), reports de la phase 6 ;
+- commandes Tauri de rédaction, fichiers joints, interface (Tiptap,
+  destinataires, boîte d'envoi), nouvelles dépendances.
+
+Bilan : 0 critique, 1 haute, 3 moyennes, 6 basses, 3 points INFO. La
+haute et les trois moyennes sont corrigées, ainsi que trois basses ; les
+trois autres basses sont reportées. `cargo deny`, `pnpm audit --prod` et
+`check-sql.sh` sans constat.
+
+## [HAUTE] « Répondre » à un mail HTML piégé fait planter l'application (débordement de pile)
+- `nesting_depth` décrémentait sur toute balise fermante, même orpheline
+  (`</q>`) : `<b></q>` répété était estimé à une profondeur de 1 alors
+  qu'html5ever imbrique les `<b>`. La version texte (analyseur récursif)
+  débordait alors la pile ; `reply_source` lisait un HTML non borné.
+- Statut : **corrigé** :
+  - l'estimation ne compte que les fermetures d'éléments ouverts
+    (arrêt à 4 × 512 niveaux, coût linéaire) ;
+  - l'analyseur de la version texte ignore les ouvrantes au-delà de
+    64 niveaux (récursion bornée) ;
+  - le HTML lu pour une réponse est borné à 2 Mio (comme la lecture) ;
+  - tests `orphan_closing_tags_do_not_overflow_the_stack` (pile de
+    2 Mio), `orphan_closing_tags_stay_fast`,
+    `orphan_closing_tags_do_not_hide_depth`.
+
+## [MOYENNE] Le même contournement neutralise la protection du chemin de lecture
+- `sanitize_html` devenait quadratique (24 s pour 560 Ko).
+- Statut : **corrigé** par la même correction de `nesting_depth` (rejet
+  « trop complexe » immédiat, testé sur 80 000 motifs).
+
+## [MOYENNE] Autocomplétion empoisonnable, puce de destinataire usurpable
+- Les expéditeurs d'Indésirables et de la Corbeille alimentaient les
+  suggestions ; la puce n'affichait que le nom, qui pouvait imiter une
+  adresse.
+- Statut : **corrigé** :
+  - Indésirables et Corbeille exclus (contrat `ContactQuery`, faux et
+    SQLite) ;
+  - la puce et la liste affichent toujours l'adresse réelle ; un nom qui
+    contient `@`, `<` ou `>` est remplacé par l'adresse (test
+    `RecipientInput.test.ts`).
+
+## [MOYENNE] Envoi d'issue incertaine renvoyé automatiquement (doublons)
+- Une coupure ou un délai dépassé pendant la transmission était classé
+  temporaire et renvoyé jusqu'à 8 fois ; délai global de 60 s pour un
+  message jusqu'à 34 Mio.
+- Statut : **corrigé** : `SendError::Interrupted` (erreur sans réponse du
+  serveur pendant l'envoi) devient `SendFailure::Uncertain`, jamais
+  renvoyé automatiquement ; délai de transmission proportionnel à la
+  taille (≥ 64 Kio/s). Tests `cut_after_data_is_an_uncertain_outcome`,
+  `send_errors_map_to_failures`.
+
+## [BASSE] Un Message-ID reçu non conforme empêche de répondre
+- Statut : **corrigé** : `reply_threading` ignore les identifiants non
+  conformes (test `invalid_received_identifiers_are_dropped_from_threading`).
+
+## [BASSE] Échecs d'authentification ou de sécurité enchaînés sur toute la file
+- Statut : **corrigé** : la tournée s'arrête aussi sur `Authentication`
+  et `Security` (test `delivery_stops_on_authentication_or_security_failure`).
+
+## [BASSE] Lecture des fichiers joints non bornée entre `metadata` et `read`
+- Statut : **corrigé** : `read_bounded` (lecture limitée au reste du
+  budget de 25 Mio, refus au-delà).
+
+## [BASSE] Corbeille des copies distantes sans nom de boîte
+- L'ancienne copie est supprimée dans le dossier qui porte aujourd'hui le
+  rôle `\Drafts` ; UIDVALIDITY et `\Draft` sont vérifiés.
+- Statut : **reporté** (phase 8) : enregistrer le nom de la boîte dans
+  `RemoteCopy` et la corbeille.
+
+## [BASSE] Brouillon refusé ou impossible à construire : synchronisation bloquée, reconnexion chaque minute
+- Statut : **reporté** (phase 8) : traiter `Rejected` comme pour Envoyés
+  (journaliser, espacer les essais) et poursuivre avec les brouillons
+  suivants et la corbeille.
+
+## [BASSE] Taille des pièces jointes déclarée par l'interface, nombre non borné
+- Statut : **reporté** (phase 8) : revérifier la taille réelle des blobs
+  dans `QueueMessage` et `local_copy`, borner le nombre de pièces jointes,
+  recalculer `content_type` en Rust. Le nom de fichier et le type ne sont
+  pas exploitables (`safe_file_name`, encodage RFC 2231, `mime` refusent
+  CR/LF).
+
+## [BASSE] Brouillon relu depuis SQLite sans `check_storable`
+- Statut : **reporté** (phase 8) : appeler `check_storable` à la
+  relecture (base modifiée à la main seulement).
+
+## [INFO] Points relevés sans action immédiate
+- Plafond `MAX_PENDING_OPS` vérifié hors de la transaction de
+  `record_all` : dépassement léger possible entre deux commandes
+  concurrentes, sans gravité.
+- `hostile_message_sql.rs` : la rédaction couvre sujet, HTML, nom de
+  destinataire, enveloppe, message brut et sujet de la file ; à compléter
+  (Cc, Cci, fil, pièces jointes, `suggest`).
+- `deny.toml` : licence `Unicode-DFS-2016` autorisée mais plus
+  rencontrée ; la retirer serait un resserrement.
+
+## Résultats outils
+- `cargo deny --locked check` : advisories, bans, licenses, sources ok
+  (avertissement `license-not-encountered` pour `Unicode-DFS-2016`).
+- `pnpm -C app audit --prod` : aucune vulnérabilité connue.
+- `scripts/check-sql.sh` : requêtes paramétrées uniquement.
+
+---
+
 # Revue sécurité : phase 6, actions et hors ligne (2026-11-02)
 
 Périmètre : `git diff origin/master...HEAD` sur `phase-6/actions` :
@@ -57,17 +169,20 @@ ni SQL ; aucun secret dans `detail` ; `cargo deny`, `pnpm audit --prod` et
   par `action_target` et `action_settings` ne sont pas couverts de bout en
   bout par le test du message piégé (seulement par `check-sql.sh` et le
   contrat).
-- Statut : **reporté** (phase 7, avec les nouvelles écritures des
-  brouillons).
+- Statut : **corrigé** (phase 7) : actions sur les messages piégés
+  (drapeau, déplacement vers la boîte au nom piégé), relecture de la file,
+  dossier de repli, rejeu sur le faux serveur et resynchronisation. Les
+  écritures des brouillons y seront ajoutées avec eux.
 
 ## [BASSE] Fenêtre de concurrence du garde-fou `EXPUNGE` sans UIDPLUS
 - Entre `UID SEARCH DELETED` et `EXPUNGE`, un autre client peut poser
   `\Deleted` sur un message, qui part aussi. Aucune opération atomique
   n'existe sans UIDPLUS ; les deux commandes s'enchaînent déjà sans autre
   commande entre elles.
-- Statut : **reporté** (phase 7) : compter les réponses `* n EXPUNGE`,
-  journaliser et resynchroniser si elles dépassent l'attendu ; documenter
-  la limite dans `expunge_is_safe`.
+- Statut : **corrigé** (phase 7) : `expunge_all` compte les réponses
+  `* n EXPUNGE` ; au-delà de l'attendu, journalisation et
+  `ReplayReport::foreign_expunges` (boîte resynchronisée) ; limite
+  documentée dans `expunge_is_safe`.
 
 ## [BASSE] Commandes IPC accordées sans manifeste applicatif
 - `perform_action`, `undo_actions` et `set_archive_folder` sont
@@ -81,8 +196,9 @@ ni SQL ; aucun secret dans `detail` ; `cargo deny`, `pnpm audit --prod` et
 - La file est relue pour chaque opération planifiée ; chaque `record` est
   une transaction séparée (une erreur de stockage en cours de boucle laisse
   une action à moitié appliquée).
-- Statut : **reporté** (phase 7) : lecture unique de la file, `record_all`
-  en une transaction, plafond par compte.
+- Statut : **corrigé** (phase 7) : lecture unique de la file par compte,
+  fusion et plafond décidés par `plan_queue`, `record_all` en une
+  transaction, plafond `MAX_PENDING_OPS`.
 
 ## [INFO] Points relevés sans action immédiate
 - `undo_actions` accepte tout identifiant d'opération en attente : pas de

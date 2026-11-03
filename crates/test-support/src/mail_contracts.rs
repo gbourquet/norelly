@@ -27,7 +27,7 @@ use norelly_domain::sync::{FlagUpdate, LocalMailbox, MailboxSyncState};
 
 use norelly_domain::actions::{
     FolderRef, LocalEffect, LocalMessage, MAX_ACTION_TARGETS, Member, OpKind, PendingOp,
-    local_effect, revert_effect,
+    QueueChange, local_effect, revert_effect,
 };
 use norelly_domain::ports::{PendingOpId, PendingOpStore};
 
@@ -1063,16 +1063,34 @@ impl PendingOpStore for InMemoryMailStore {
             .collect())
     }
 
-    async fn record(&self, op: &PendingOp) -> Result<PendingOpId, StoreError> {
+    async fn record_all(&self, changes: &[QueueChange]) -> Result<Vec<PendingOpId>, StoreError> {
+        // Un seul verrou pour tout le lot : atomique vu des autres appels.
         let mut s = lock(&self.state);
-        s.next_op += 1;
-        let id = PendingOpId::new(s.next_op).ok_or_else(|| StoreError("identifiant".into()))?;
-        s.ops.insert(id, op.clone());
-        s.apply(local_effect(op));
-        if let OpKind::Move { to } = &op.kind {
-            s.create_placeholder(id, op, to);
+        let mut recorded = Vec::new();
+        for change in changes {
+            let op = match change {
+                QueueChange::Push(op) => op,
+                QueueChange::CancelOrPush { existing, op } => {
+                    if !s.claimed.contains_key(existing)
+                        && let Some(old) = s.ops.remove(existing)
+                    {
+                        s.apply(revert_effect(&old));
+                        s.remove_placeholders(*existing);
+                        continue;
+                    }
+                    op
+                }
+            };
+            s.next_op += 1;
+            let id = PendingOpId::new(s.next_op).ok_or_else(|| StoreError("identifiant".into()))?;
+            s.ops.insert(id, op.clone());
+            s.apply(local_effect(op));
+            if let OpKind::Move { to } = &op.kind {
+                s.create_placeholder(id, op, to);
+            }
+            recorded.push(id);
         }
-        Ok(id)
+        Ok(recorded)
     }
 
     async fn purge_placeholders(
@@ -1191,6 +1209,62 @@ impl PendingOpStore for InMemoryMailStore {
             }
         }
         Ok(())
+    }
+}
+
+impl norelly_domain::ports::ContactQuery for InMemoryMailStore {
+    async fn suggest(
+        &self,
+        account: AccountId,
+        text: &str,
+        limit: usize,
+    ) -> Result<Vec<Correspondent>, StoreError> {
+        let needle = text.to_lowercase();
+        if needle.is_empty() {
+            return Ok(Vec::new());
+        }
+        let s = lock(&self.state);
+        // Adresse en minuscules → (nombre, correspondant).
+        let mut seen: BTreeMap<String, (usize, Correspondent)> = BTreeMap::new();
+        for (owner, mailbox, _) in &s.mailboxes {
+            if *owner != account
+                || matches!(mailbox.mailbox.role, MailboxRole::Junk | MailboxRole::Trash)
+            {
+                continue;
+            }
+            let Some(messages) = s.messages.get(&mailbox.id) else {
+                continue;
+            };
+            for m in messages.values().filter(|m| m.pending_op.is_none()) {
+                let h = &m.stored.meta.headers;
+                let people: Vec<&Correspondent> = if mailbox.mailbox.role == MailboxRole::Sent {
+                    h.to.iter().chain(&h.cc).collect()
+                } else {
+                    h.from.iter().collect()
+                };
+                for c in people {
+                    let key = c.address.to_lowercase();
+                    if key.is_empty() {
+                        continue;
+                    }
+                    let entry = seen.entry(key).or_insert_with(|| (0, c.clone()));
+                    entry.0 += 1;
+                }
+            }
+        }
+        let mut found: Vec<(usize, Correspondent)> = seen
+            .into_iter()
+            .filter(|(key, (_, c))| {
+                key.contains(&needle) || c.name.to_lowercase().contains(&needle)
+            })
+            .map(|(_, v)| v)
+            .collect();
+        found.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.address.cmp(&b.1.address)));
+        Ok(found
+            .into_iter()
+            .take(limit.min(norelly_domain::ports::MAX_CONTACT_SUGGESTIONS))
+            .map(|(_, c)| c)
+            .collect())
     }
 }
 

@@ -268,9 +268,31 @@ const SELECT_BY_DATE: &str = "SELECT m.id, b.account_id, m.mailbox_id, m.convers
      FROM messages m JOIN mailboxes b ON b.id = m.mailbox_id \
      LEFT JOIN message_texts t ON t.message_id = m.id";
 
+/// Budget de temps d'une recherche : au-delà, elle est interrompue
+/// (requête pathologique, très grosse boîte) plutôt que d'occuper un
+/// lecteur.
+pub const SEARCH_BUDGET: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// Recherche interrompue à l'instant `deadline`.
+fn search_until(
+    c: &Connection,
+    request: &SearchRequest,
+    deadline: std::time::Instant,
+) -> Result<SearchPage, StoreError> {
+    // Vérifié toutes les 8 instructions de la machine virtuelle (coût
+    // négligeable devant celui d'une recherche) ; retiré ensuite
+    // (connexion du pool réutilisée).
+    c.progress_handler(8, Some(move || std::time::Instant::now() >= deadline));
+    let result = search_query(c, request);
+    c.progress_handler(0, None::<fn() -> bool>);
+    result
+}
+
 impl SearchIndex for SqliteMailStore {
     async fn search(&self, request: SearchRequest) -> Result<SearchPage, StoreError> {
-        self.db().read(move |c| search_query(c, &request)).await
+        self.db()
+            .read(move |c| search_until(c, &request, std::time::Instant::now() + SEARCH_BUDGET))
+            .await
     }
 }
 

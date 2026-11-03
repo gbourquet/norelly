@@ -82,6 +82,29 @@ async fn one_message() -> Result<(Database, SqliteMailStore), StoreError> {
     Ok((db, store))
 }
 
+/// Revue de la phase 8 (BASSE) : une recherche qui dépasse son budget est
+/// interrompue, et la connexion reste utilisable ensuite.
+#[tokio::test]
+async fn a_search_past_its_deadline_is_interrupted() -> Result<(), StoreError> {
+    let (db, _store) = one_message().await?;
+    let past = std::time::Instant::now();
+    let outcome = db
+        .read_for_tests(move |c| Ok(crate::search::search_until(c, &request("sujet"), past)))
+        .await?;
+    assert!(outcome.is_err(), "{outcome:?}");
+    let again = db
+        .read_for_tests(move |c| {
+            Ok(crate::search::search_until(
+                c,
+                &request("sujet"),
+                std::time::Instant::now() + std::time::Duration::from_secs(5),
+            ))
+        })
+        .await??;
+    assert_eq!(again.items.len(), 1, "gestionnaire retiré de la connexion");
+    Ok(())
+}
+
 #[tokio::test]
 async fn messages_hidden_by_a_pending_action_are_not_found() -> Result<(), StoreError> {
     let (db, store) = one_message().await?;

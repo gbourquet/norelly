@@ -1,5 +1,5 @@
 //! Bench de la recherche plein texte (ADR-003, phase 8) sur 50 000
-//! messages synthétiques avec leur texte (environ 80 mots chacun) :
+//! messages synthétiques avec leur texte (environ 300 mots chacun) :
 //! première page de résultats, requête seule. Seuil exigé : 100 ms
 //! (médiane) pour chaque requête type, vérifié avant les mesures
 //! `criterion` ; `cargo bench -p norelly-sqlite -- --test` échoue s'il est
@@ -26,7 +26,7 @@ use tokio::runtime::Runtime;
 /// Nombre de messages.
 const SIZE: u32 = 50_000;
 /// Mots du texte de chaque message.
-const TEXT_WORDS: usize = 80;
+const TEXT_WORDS: usize = 300;
 /// Taille d'une page d'écran.
 const PAGE: u32 = 50;
 /// Seuil exigé.
@@ -43,6 +43,8 @@ const QUERIES: &[&str] = &[
     "\"compte rendu\"",
     "bo",
     "bonjour merci document",
+    "a",
+    "-a -b -c -d -e -f -g -h",
 ];
 
 struct Fixture {

@@ -180,6 +180,16 @@ impl Database {
             .await
     }
 
+    /// Lecture arbitraire (tests seulement).
+    #[cfg(test)]
+    pub(crate) async fn read_for_tests<T, F>(&self, f: F) -> Result<T, StoreError>
+    where
+        T: Send + 'static,
+        F: FnOnce(&Connection) -> Result<T, StoreError> + Send + 'static,
+    {
+        self.read(f).await
+    }
+
     /// Schéma de la base (type, nom, SQL de création), trié : permet de
     /// vérifier qu'aucune donnée reçue ne l'a modifié.
     pub async fn schema(&self) -> Result<Vec<(String, String, Option<String>)>, StoreError> {

@@ -201,3 +201,32 @@ async fn contacts_come_from_received_messages() {
     );
     assert!(!t.messages.is_empty());
 }
+
+#[tokio::test]
+async fn accounts_are_listed_and_removed() {
+    use crate::commands::{list_accounts, remove_account, trust_certificate};
+    let t = test_app().await;
+    let accounts = list_accounts(t.state())
+        .await
+        .unwrap_or_else(|e| panic!("{e:?}"));
+    assert_eq!(accounts.len(), 1);
+    assert_eq!(accounts[0].address, "alice@example.com");
+    // Certificat jamais présenté à l'utilisateur : pas de confiance possible.
+    assert_eq!(
+        code(trust_certificate(t.state(), "imap.example.com".into(), "AA:BB".into()).await),
+        (ErrorCodeDto::NotFound, Some(FieldDto::Certificate))
+    );
+    assert_eq!(
+        code(remove_account(t.state(), 0).await),
+        (ErrorCodeDto::InvalidInput, Some(FieldDto::Account))
+    );
+    remove_account(t.state(), id32(t.account.get()))
+        .await
+        .unwrap_or_else(|e| panic!("{e:?}"));
+    assert!(
+        list_accounts(t.state())
+            .await
+            .unwrap_or_else(|e| panic!("{e:?}"))
+            .is_empty()
+    );
+}

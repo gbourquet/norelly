@@ -1089,3 +1089,33 @@ async fn append_sends_a_literal_and_reads_appenduid() -> TestResult {
     server.finish().await.result?;
     Ok(())
 }
+
+/// Avec QRESYNC activé, le serveur annonce les suppressions par
+/// `* VANISHED` (RFC 7162) au lieu de `* n EXPUNGE` : elles sont comptées
+/// aussi.
+#[tokio::test]
+async fn expunge_counts_vanished_responses_under_qresync() -> TestResult {
+    let f = fixture()?;
+    let cert = f.ca.issue(&["localhost"])?;
+    let script = authenticated(
+        Script::new()
+            .expect("EXPUNGE")
+            .send("* VANISHED 3:4,7\r\n* VANISHED (EARLIER) 1\r\n{tag} OK EXPUNGE termine\r\n")
+            .expect("LOGOUT")
+            .send("* BYE au revoir\r\n{tag} OK LOGOUT termine\r\n"),
+    );
+    let server = ScriptedServer::start_tls(script, cert.server_config()?).await?;
+    let mut session = f
+        .connector
+        .connect(&request(
+            server.port(),
+            Security::Tls,
+            PlaintextPolicy::deny_all(),
+        ))
+        .await?;
+    // VANISHED (EARLIER) ne décrit pas cette commande : non compté.
+    assert_eq!(session.expunge_all().await?, 3);
+    session.logout().await?;
+    server.finish().await.result?;
+    Ok(())
+}

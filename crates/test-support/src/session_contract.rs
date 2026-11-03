@@ -492,12 +492,43 @@ where
     assert_eq!(selected.exists, if has_move { 2 } else { 1 });
 
     // --- APPEND (brouillon, copie dans Envoyés) ---
+    // Sur le tas : le futur du contrat dépasserait sinon la pile d'un fil
+    // de test (session IMAP réelle, build de débogage).
+    Box::pin(append_contract(
+        &mut session,
+        &dest,
+        &missing,
+        has_uidplus,
+        has_move,
+    ))
+    .await?;
+
+    session.logout().await.map_err(e)?;
+    control.delete(&dest_name).await?;
+    control.delete(box_name).await?;
+    Ok(())
+}
+
+/// Partie APPEND du contrat des actions.
+async fn append_contract<S: RemoteMailboxSession>(
+    session: &mut S,
+    dest: &MailboxName,
+    missing: &MailboxName,
+    has_uidplus: bool,
+    has_move: bool,
+) -> Result<(), String> {
+    let e = |e: norelly_domain::connection::ConnectionError| e.to_string();
     let appended = session
-        .append(&dest, &contract_message(9), true)
+        .append(dest, &contract_message(9), true)
         .await
         .map_err(e)?;
-    assert_eq!(appended.is_some(), has_uidplus, "APPENDUID si UIDPLUS");
-    let selected = session.select_writable(&dest).await.map_err(e)?;
+    // APPENDUID exigé avec UIDPLUS ; sans (capacité masquée), un serveur
+    // peut encore le renvoyer (Dovecot) : le domaine ne s'en sert alors
+    // pas (`remote_drafts_supported`).
+    if has_uidplus {
+        assert!(appended.is_some(), "APPENDUID si UIDPLUS");
+    }
+    let selected = session.select_writable(dest).await.map_err(e)?;
     assert_eq!(selected.exists, if has_move { 3 } else { 2 });
     let newest = session
         .search_all_uids()
@@ -520,7 +551,7 @@ where
         "\\Seen et \\Draft : {flags:?}"
     );
     session
-        .append(&dest, &contract_message(10), false)
+        .append(dest, &contract_message(10), false)
         .await
         .map_err(e)?;
     let newest = session
@@ -535,7 +566,7 @@ where
         flags.as_ref().is_some_and(|f| f.seen && !f.draft),
         "copie envoyée : {flags:?}"
     );
-    let refused = session.append(&missing, &contract_message(11), true).await;
+    let refused = session.append(missing, &contract_message(11), true).await;
     assert!(
         matches!(
             refused,
@@ -544,9 +575,6 @@ where
         "boîte absente : {refused:?}"
     );
 
-    session.logout().await.map_err(e)?;
-    control.delete(&dest_name).await?;
-    control.delete(box_name).await?;
     Ok(())
 }
 

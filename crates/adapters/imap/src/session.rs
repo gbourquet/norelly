@@ -904,12 +904,27 @@ impl Connection {
         };
         let reply = self.execute_bulk(body).await?;
         ensure_ok(&reply.status)?;
-        let expunged = reply
-            .data
-            .iter()
-            .filter(|d| matches!(d, Data::Expunge(_)))
-            .count();
-        Ok(u32::try_from(expunged).unwrap_or(u32::MAX))
+        // `* n EXPUNGE`, ou `* VANISHED` sous QRESYNC (RFC 7162) ;
+        // `VANISHED (EARLIER)` ne décrit pas cette commande.
+        let mut expunged: u32 = 0;
+        for data in &reply.data {
+            match data {
+                Data::Expunge(_) => expunged = expunged.saturating_add(1),
+                Data::Vanished {
+                    earlier: false,
+                    known_uids,
+                } => {
+                    let mut ranges = Vec::new();
+                    vanished_ranges(known_uids, &mut ranges);
+                    for (a, b) in ranges {
+                        let (lo, hi) = (a.get().min(b.get()), a.get().max(b.get()));
+                        expunged = expunged.saturating_add(hi - lo).saturating_add(1);
+                    }
+                }
+                _ => {}
+            }
+        }
+        Ok(expunged)
     }
 
     /// `UID SEARCH DELETED`.

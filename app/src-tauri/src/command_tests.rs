@@ -317,3 +317,89 @@ async fn reading_commands_revalidate_and_answer() {
         (ErrorCodeDto::InvalidInput, Some(FieldDto::Account))
     );
 }
+
+fn plain(segments: &[crate::ipc::SegmentDto]) -> String {
+    segments.iter().map(|s| s.text.as_str()).collect()
+}
+
+fn hits(segments: &[crate::ipc::SegmentDto]) -> Vec<&str> {
+    segments
+        .iter()
+        .filter(|s| s.hit)
+        .map(|s| s.text.as_str())
+        .collect()
+}
+
+#[tokio::test]
+async fn search_finds_messages_with_highlighted_segments() {
+    use crate::ipc::SearchScopeDto;
+    use crate::search::search_messages;
+    let t = test_app().await;
+    let account = id32(t.account.get());
+    let page = search_messages(t.state(), "sujet".into(), SearchScopeDto::All, 60, 0, 50)
+        .await
+        .unwrap_or_else(|e| panic!("{e:?}"));
+    assert_eq!(page.items.len(), 2);
+    assert_eq!(page.next, None);
+    let subjects: Vec<String> = page.items.iter().map(|h| plain(&h.subject)).collect();
+    assert_eq!(subjects, ["Sujet 2", "Sujet 1"], "à pertinence égale : le plus récent");
+    let first = &page.items[0];
+    assert_eq!(hits(&first.subject), ["Sujet"]);
+    assert_eq!(first.account, account);
+    assert!(first.conversation.is_some());
+    assert!(first.unread && !first.flagged);
+    assert_eq!(first.from.as_ref().map(|f| f.address.as_str()), Some("e2@example.com"));
+
+    let one = search_messages(t.state(), "from:e1".into(), SearchScopeDto::All, 0, 0, 50)
+        .await
+        .unwrap_or_else(|e| panic!("{e:?}"));
+    assert_eq!(one.items.iter().map(|h| plain(&h.subject)).collect::<Vec<_>>(), ["Sujet 1"]);
+    assert!(hits(&one.items[0].subject).is_empty(), "terme de l'expéditeur : sujet non surligné");
+
+    let scoped = search_messages(
+        t.state(),
+        "sujet".into(),
+        SearchScopeDto::Account { id: account },
+        0,
+        1,
+        1,
+    )
+    .await
+    .unwrap_or_else(|e| panic!("{e:?}"));
+    assert_eq!(scoped.items.len(), 1);
+    assert_eq!(scoped.next, None, "dernière page");
+
+    let empty = search_messages(t.state(), "  ".into(), SearchScopeDto::All, 0, 0, 50)
+        .await
+        .unwrap_or_else(|e| panic!("{e:?}"));
+    assert!(empty.items.is_empty());
+}
+
+#[tokio::test]
+async fn search_inputs_are_revalidated() {
+    use crate::ipc::SearchScopeDto;
+    use crate::search::search_messages;
+    let t = test_app().await;
+    let long = "a".repeat(norelly_domain::search::MAX_QUERY_CHARS + 1);
+    assert_eq!(
+        code(search_messages(t.state(), long, SearchScopeDto::All, 0, 0, 50).await),
+        (ErrorCodeDto::InvalidInput, Some(FieldDto::Query))
+    );
+    let many = vec!["a"; norelly_domain::search::MAX_CLAUSES + 1].join(" ");
+    assert_eq!(
+        code(search_messages(t.state(), many, SearchScopeDto::All, 0, 0, 50).await),
+        (ErrorCodeDto::InvalidInput, Some(FieldDto::Query))
+    );
+    assert_eq!(
+        code(search_messages(t.state(), "a".into(), SearchScopeDto::All, 15 * 60, 0, 50).await),
+        (ErrorCodeDto::InvalidInput, Some(FieldDto::Query))
+    );
+    assert_eq!(
+        code(search_messages(t.state(), "a".into(), SearchScopeDto::Account { id: 0 }, 0, 0, 50).await),
+        (ErrorCodeDto::InvalidInput, Some(FieldDto::Account))
+    );
+    assert_eq!(
+        code(search_messages(t.state(), "a".into(), SearchScopeDto::Mailbox { id: 0 }, 0, 0, 50).await),
+        (ErrorCodeDto::InvalidInput, Some(FieldDto::Mailbox))
+    );
+}

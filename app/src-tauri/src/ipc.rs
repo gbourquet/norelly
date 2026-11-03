@@ -96,6 +96,8 @@ pub enum FieldDto {
     Draft,
     Attachment,
     Outbox,
+    /// Requête de recherche (trop longue, trop de clauses) ou fuseau.
+    Query,
 }
 
 /// Erreur renvoyée à l'interface : un code, le champ concerné, et un détail
@@ -793,6 +795,48 @@ impl From<&norelly_domain::mailbox::Correspondent> for CorrespondentDto {
             address: c.address.clone(),
         }
     }
+}
+
+/// Où chercher.
+#[derive(Debug, Clone, Deserialize, Type)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum SearchScopeDto {
+    All,
+    Account { id: u32 },
+    Mailbox { id: u32 },
+}
+
+/// Morceau d'un texte surligné (à afficher comme du texte, jamais comme du
+/// HTML).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
+pub struct SegmentDto {
+    pub text: String,
+    pub hit: bool,
+}
+
+/// Message trouvé par une recherche.
+#[derive(Debug, Clone, Serialize, Type)]
+pub struct SearchHitDto {
+    pub message: u32,
+    /// Conversation à ouvrir (absente : message pas encore rattaché).
+    pub conversation: Option<u32>,
+    pub account: u32,
+    pub mailbox: u32,
+    pub date: u32,
+    pub from: Option<CorrespondentDto>,
+    pub subject: Vec<SegmentDto>,
+    pub snippet: Vec<SegmentDto>,
+    pub unread: bool,
+    pub flagged: bool,
+    pub has_attachments: bool,
+}
+
+/// Une page de résultats.
+#[derive(Debug, Clone, Serialize, Type)]
+pub struct SearchPageDto {
+    pub items: Vec<SearchHitDto>,
+    /// Décalage de la page suivante.
+    pub next: Option<u32>,
 }
 
 /// Ligne de la liste des conversations.

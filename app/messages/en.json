@@ -251,6 +251,7 @@
   "field_draft": "draft",
   "field_attachment": "attached file",
   "field_outbox": "message waiting to be sent",
+  "field_query": "search (too long or too many criteria)",
   "compose_attribution": "On {date}, {name} wrote:",
   "compose_forward_intro": "Forwarded message from {name}, {date}:",
   "compose_title_new": "New message",

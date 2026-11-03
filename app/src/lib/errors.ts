@@ -64,6 +64,8 @@ export function fieldLabel(field: FieldDto | null): string {
       return m.field_attachment();
     case "outbox":
       return m.field_outbox();
+    case "query":
+      return m.field_query();
     case null:
       return "?";
   }

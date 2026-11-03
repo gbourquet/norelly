@@ -225,7 +225,8 @@ Commandes de référence (détail dans `scripts/check.sh`) :
   - `crates/application/tests/integration_compose.rs` (stockage réel, travailleur de rédaction) ; scénario e2e `app/e2e/specs/compose.e2e.mjs` (réponse par `r`, Cci hors des en-têtes, HTML saisi jamais interprété).
 - [x] Reports de la revue de la phase 6 (REVIEWS.md) : `hostile_message_sql.rs` étendu aux actions ; garde-fou `EXPUNGE` sans UIDPLUS (compte des `* n EXPUNGE`) ; file `pending_ops` lue une fois, `record_all` transactionnel, plafond par compte
   - plafond `MAX_PENDING_OPS` (10 000 par compte, code IPC `pending_queue_full`) ; suppressions en trop signalées par `ReplayReport::foreign_expunges` (boîte resynchronisée).
-- [ ] Revue security-reviewer, consignée dans REVIEWS.md (0 critique, 0 haute ; moyennes corrigées)
+- [x] Revue security-reviewer, consignée dans REVIEWS.md (0 critique, 0 haute ; moyennes corrigées)
+  - 1 haute et 3 moyennes trouvées, toutes corrigées ; 3 basses corrigées, 3 reportées en phase 8.
 
 **Condition de fin** : `./scripts/check.sh full && pnpm -C app e2e` passent sans erreur.
 

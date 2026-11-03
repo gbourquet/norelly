@@ -276,7 +276,10 @@ impl MailSender for SmtpSender {
         .await;
         match sent {
             Err(_) => Err(ConnectionError::Timeout(TimeoutStage::Response).into()),
-            Ok(Err(e)) if e.is_permanent() || e.is_transient() => {
+            Ok(Err(e)) if e.is_transient() => {
+                Err(SendError::Deferred(server_text(e.to_string().as_bytes())))
+            }
+            Ok(Err(e)) if e.is_permanent() => {
                 Err(SendError::Rejected(server_text(e.to_string().as_bytes())))
             }
             Ok(Err(e)) => Err(lettre_error(&e).into()),

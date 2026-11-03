@@ -530,9 +530,7 @@ where
         flags.as_ref().is_some_and(|f| f.seen && !f.draft),
         "copie envoyée : {flags:?}"
     );
-    let refused = session
-        .append(&missing, &contract_message(11), true)
-        .await;
+    let refused = session.append(&missing, &contract_message(11), true).await;
     assert!(
         matches!(
             refused,

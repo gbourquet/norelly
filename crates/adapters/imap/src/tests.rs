@@ -1038,7 +1038,10 @@ async fn append_sends_a_literal_and_reads_appenduid() -> TestResult {
     let raw = b"Subject: brouillon\r\n\r\ncorps du brouillon\r\n";
     let script = authenticated(
         Script::new()
-            .expect(format!("APPEND Brouillons (\\Seen \\Draft) {{{}}}", raw.len()))
+            .expect(format!(
+                "APPEND Brouillons (\\Seen \\Draft) {{{}}}",
+                raw.len()
+            ))
             .send("+ pret\r\n")
             .expect_data_until("corps du brouillon")
             // Fin de la commande, après le littéral.
@@ -1070,7 +1073,10 @@ async fn append_sends_a_literal_and_reads_appenduid() -> TestResult {
     assert_eq!(session.append(&sent, raw, false).await?, None);
     let missing = MailboxName::parse("Absente")?;
     let refused = session.append(&missing, raw, true).await;
-    assert!(matches!(refused, Err(ConnectionError::Rejected(_))), "{refused:?}");
+    assert!(
+        matches!(refused, Err(ConnectionError::Rejected(_))),
+        "{refused:?}"
+    );
     assert!(
         session.search_all_uids().await.is_err(),
         "session inutilisable après un littéral refusé"

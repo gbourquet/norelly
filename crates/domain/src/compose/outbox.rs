@@ -18,6 +18,10 @@
 //!   [`SendFailure::Uncertain`], jamais renvoyé automatiquement (pas de
 //!   doublon chez les destinataires) ; l'utilisateur décide.
 
+use crate::capabilities::ServerCapabilities;
+use crate::connection::{ConnectionError, TimeoutStage};
+use crate::ports::SendError;
+
 /// Essais comptés avant l'échec définitif.
 pub const MAX_SEND_ATTEMPTS: u32 = 8;
 /// Attente avant le premier nouvel essai, doublée ensuite.
@@ -37,10 +41,50 @@ pub enum SendFailure {
     Rejected,
     /// Identifiants refusés : à corriger par l'utilisateur.
     Authentication,
+    /// Connexion non sûre (certificat, TLS, STARTTLS absent) : à régler
+    /// par l'utilisateur, jamais contourné automatiquement.
+    Security,
     /// Envoi interrompu par l'arrêt de l'application : peut-être parti.
     Uncertain,
     /// Trop d'échecs temporaires.
     TooManyAttempts,
+}
+
+/// Faut-il déposer une copie du message envoyé dans « Envoyés » ? Non
+/// quand le serveur le fait lui-même à l'envoi SMTP : Gmail (capacité IMAP
+/// `X-GM-EXT-1`), sans quoi le message y apparaîtrait deux fois.
+#[must_use]
+pub fn sent_copy_needed(imap: &ServerCapabilities) -> bool {
+    !imap.has("X-GM-EXT-1")
+}
+
+impl SendFailure {
+    /// Cause d'échec d'une erreur d'envoi.
+    #[must_use]
+    pub fn of(error: &SendError) -> Self {
+        match error {
+            SendError::Deferred(_) => Self::Temporary,
+            SendError::Rejected(_) | SendError::InvalidAddress(_) => Self::Rejected,
+            SendError::Connection(e) => match e {
+                // Avant tout échange : hors ligne, rien n'est parti.
+                ConnectionError::Network(_)
+                | ConnectionError::Timeout(TimeoutStage::Connect | TimeoutStage::TlsHandshake) => {
+                    Self::Unreachable
+                }
+                ConnectionError::Timeout(TimeoutStage::Response | TimeoutStage::Write)
+                | ConnectionError::Closed
+                | ConnectionError::Protocol(_) => Self::Temporary,
+                ConnectionError::Rejected(_) => Self::Rejected,
+                ConnectionError::Authentication(_) => Self::Authentication,
+                ConnectionError::Certificate(_)
+                | ConnectionError::Tls(_)
+                | ConnectionError::StartTlsUnavailable
+                | ConnectionError::StartTlsRejected(_)
+                | ConnectionError::PlaintextInjection
+                | ConnectionError::PlaintextRefused(_) => Self::Security,
+            },
+        }
+    }
 }
 
 /// État d'un message de la file d'envoi.
@@ -262,6 +306,66 @@ mod tests {
         // L'utilisateur relance : nouvel essai, compteur remis à zéro.
         let e = e.retry(NOW + 5).unwrap_or_else(|e| panic!("{e}"));
         assert_eq!(e, OutboxEntry::queued(NOW + 5));
+    }
+
+    #[test]
+    fn gmail_files_sent_messages_itself() {
+        let caps = |t: &[&str]| ServerCapabilities::from_imap(t.iter().copied());
+        assert!(sent_copy_needed(&caps(&["IMAP4rev1", "UIDPLUS"])));
+        assert!(!sent_copy_needed(&caps(&["IMAP4rev1", "X-GM-EXT-1"])));
+        assert!(!sent_copy_needed(&caps(&["x-gm-ext-1"])), "casse ignorée");
+    }
+
+    #[test]
+    fn send_errors_map_to_failures() {
+        use crate::auth::AuthError;
+        let of = |e: SendError| SendFailure::of(&e);
+        let conn = |e: ConnectionError| SendFailure::of(&SendError::Connection(e));
+        assert_eq!(
+            of(SendError::Deferred("451".into())),
+            SendFailure::Temporary
+        );
+        assert_eq!(of(SendError::Rejected("550".into())), SendFailure::Rejected);
+        assert_eq!(
+            of(SendError::InvalidAddress("x".into())),
+            SendFailure::Rejected
+        );
+        assert_eq!(
+            conn(ConnectionError::Network("dns".into())),
+            SendFailure::Unreachable
+        );
+        assert_eq!(
+            conn(ConnectionError::Timeout(TimeoutStage::Connect)),
+            SendFailure::Unreachable
+        );
+        assert_eq!(
+            conn(ConnectionError::Timeout(TimeoutStage::Response)),
+            SendFailure::Temporary,
+            "coupure pendant l'envoi : compté"
+        );
+        assert_eq!(conn(ConnectionError::Closed), SendFailure::Temporary);
+        assert_eq!(
+            conn(ConnectionError::Protocol("x".into())),
+            SendFailure::Temporary
+        );
+        assert_eq!(
+            conn(ConnectionError::Rejected("x".into())),
+            SendFailure::Rejected
+        );
+        assert_eq!(
+            conn(ConnectionError::Authentication(AuthError::Rejected {
+                message: "535".into()
+            })),
+            SendFailure::Authentication
+        );
+        for security in [
+            ConnectionError::Tls("x".into()),
+            ConnectionError::StartTlsUnavailable,
+            ConnectionError::StartTlsRejected("x".into()),
+            ConnectionError::PlaintextInjection,
+        ] {
+            assert_eq!(conn(security), SendFailure::Security);
+        }
     }
 
     #[test]

@@ -418,8 +418,12 @@ pub enum SendError {
     Connection(#[from] ConnectionError),
     #[error("adresse invalide : {0}")]
     InvalidAddress(String),
+    /// Refus définitif (réponse SMTP 5xx).
     #[error("message refusé par le serveur : {0}")]
     Rejected(String),
+    /// Refus temporaire (réponse SMTP 4xx) : à retenter plus tard.
+    #[error("message différé par le serveur : {0}")]
+    Deferred(String),
 }
 
 /// Envoi de messages (SMTP).

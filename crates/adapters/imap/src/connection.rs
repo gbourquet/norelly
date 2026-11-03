@@ -562,7 +562,9 @@ impl Connection {
                 Event::StatusReceived { status } => match status {
                     Status::Tagged(tagged) if tagged.tag == tag => {
                         if !sent {
-                            tracing::warn!("réponse avant l'envoi complet de la commande : session fermée");
+                            tracing::warn!(
+                                "réponse avant l'envoi complet de la commande : session fermée"
+                            );
                             self.literal_pending = true;
                         }
                         return Ok(Reply {

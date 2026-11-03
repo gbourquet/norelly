@@ -9,11 +9,14 @@ use norelly_domain::address::EmailAddress;
 use norelly_domain::compose::Threading;
 use norelly_domain::compose::draft::{Draft, DraftAttachment, DraftSync, Recipient, RemoteCopy};
 use norelly_domain::compose::outbox::{OutboxEntry, OutboxState, SendFailure};
+use norelly_domain::mailbox::{Correspondent, MailboxRole};
 use norelly_domain::mailbox::{Uid, UidValidity};
 use norelly_domain::ports::{
-    BlobId, DraftId, DraftStore, OutboxId, OutboxItem, OutboxStore, OutgoingMessage, StoreError,
-    StoredDraft,
+    BlobId, ContactQuery, DraftId, DraftStore, MAX_CONTACT_SUGGESTIONS, MailStore, OutboxId,
+    OutboxItem, OutboxStore, OutgoingMessage, StoreError, StoredDraft, StoredMessage, SyncBatch,
 };
+
+use crate::mail_contracts::{mailbox, sample_message, state};
 
 fn fail(what: &str) -> StoreError {
     StoreError(format!("contrat : {what}"))
@@ -264,6 +267,123 @@ pub async fn outbox_store_contract<S: OutboxStore + DraftStore>(
     Ok(())
 }
 
+fn received(n: u32, from: (&str, &str), to: &[(&str, &str)]) -> StoredMessage {
+    let mut m = sample_message(n, 1_000 + i64::from(n), true);
+    m.meta.headers.from = vec![Correspondent::new(from.0, from.1)];
+    m.meta.headers.to = to.iter().map(|(n, a)| Correspondent::new(n, a)).collect();
+    m
+}
+
+/// Contrat de [`ContactQuery`] : `account` et `other` existent, sans
+/// boîte.
+pub async fn contact_query_contract<S: ContactQuery + MailStore>(
+    store: &S,
+    account: AccountId,
+    other: AccountId,
+) -> Result<(), StoreError> {
+    let boxes = store
+        .replace_mailboxes(
+            account,
+            &[
+                mailbox("INBOX", MailboxRole::Inbox, true),
+                mailbox("Envoyés", MailboxRole::Sent, true),
+            ],
+        )
+        .await?;
+    let id_of = |name: &str| {
+        boxes
+            .iter()
+            .find(|m| m.mailbox.name.as_str() == name)
+            .map(|m| m.id)
+            .ok_or_else(|| fail(name))
+    };
+    let alice = ("Alice Martin", "alice@example.com");
+    store
+        .apply_sync(
+            id_of("INBOX")?,
+            &SyncBatch {
+                new: vec![
+                    received(1, alice, &[("Dave", "dave@example.com")]),
+                    received(2, ("ALICE", "Alice@Example.com"), &[]),
+                    received(3, ("Bob", "bob@example.com"), &[]),
+                    received(4, ("Pourcent", "100%x@example.com"), &[]),
+                ],
+                state: state(1, 10, 5),
+                ..SyncBatch::default()
+            },
+        )
+        .await?;
+    let mut sent = received(
+        1,
+        ("Moi", "moi@example.com"),
+        &[("Carole", "carole@example.com")],
+    );
+    sent.meta.headers.cc = vec![Correspondent::new("Alice", "alice@example.com")];
+    store
+        .apply_sync(
+            id_of("Envoyés")?,
+            &SyncBatch {
+                new: vec![sent],
+                state: state(2, 10, 2),
+                ..SyncBatch::default()
+            },
+        )
+        .await?;
+    let others = store
+        .replace_mailboxes(other, &[mailbox("INBOX", MailboxRole::Inbox, true)])
+        .await?;
+    let other_inbox = others.first().map(|m| m.id).ok_or_else(|| fail("INBOX"))?;
+    store
+        .apply_sync(
+            other_inbox,
+            &SyncBatch {
+                new: vec![received(1, ("Alice autre", "alice.autre@example.com"), &[])],
+                state: state(3, 10, 2),
+                ..SyncBatch::default()
+            },
+        )
+        .await?;
+
+    let addresses = |list: Vec<Correspondent>| -> Vec<String> {
+        list.into_iter().map(|c| c.address.to_lowercase()).collect()
+    };
+    // Une seule fois par adresse (casse ignorée), la plus fréquente
+    // d'abord ; autre compte exclu.
+    assert_eq!(
+        addresses(store.suggest(account, "ali", 10).await?),
+        ["alice@example.com"]
+    );
+    let all = addresses(store.suggest(account, "EXAMPLE", 10).await?);
+    assert_eq!(all.first().map(String::as_str), Some("alice@example.com"));
+    assert!(all.contains(&"bob@example.com".to_owned()));
+    assert!(
+        all.contains(&"carole@example.com".to_owned()),
+        "destinataire envoyé"
+    );
+    assert!(
+        !all.contains(&"dave@example.com".to_owned()),
+        "destinataires des messages reçus exclus"
+    );
+    assert!(!all.iter().any(|a| a.contains("autre")), "autre compte");
+    // Recherche dans le nom.
+    assert_eq!(
+        addresses(store.suggest(account, "martin", 10).await?),
+        ["alice@example.com"]
+    );
+    // Jokers LIKE pris littéralement.
+    assert_eq!(
+        addresses(store.suggest(account, "%x", 10).await?),
+        ["100%x@example.com"]
+    );
+    assert!(store.suggest(account, "_lice", 10).await?.is_empty());
+    assert!(store.suggest(account, "", 10).await?.is_empty());
+    // Limites.
+    assert_eq!(store.suggest(account, "example", 1).await?.len(), 1);
+    assert!(store.suggest(account, "example", 0).await?.is_empty());
+    assert!(store.suggest(account, "e", usize::MAX).await?.len() <= MAX_CONTACT_SUGGESTIONS);
+    Ok(())
+}
+
 /// Faux en mémoire des brouillons et de la file d'envoi.
 #[derive(Debug, Default)]
 pub struct InMemoryComposeStore {
@@ -478,6 +598,12 @@ mod tests {
     async fn in_memory_store_passes_draft_contract() -> Result<(), StoreError> {
         let (a, b) = accounts()?;
         draft_store_contract(&InMemoryComposeStore::default(), a, b).await
+    }
+
+    #[tokio::test]
+    async fn in_memory_mail_store_passes_contact_contract() -> Result<(), StoreError> {
+        let (a, b) = accounts()?;
+        contact_query_contract(&crate::mail_contracts::InMemoryMailStore::default(), a, b).await
     }
 
     #[tokio::test]

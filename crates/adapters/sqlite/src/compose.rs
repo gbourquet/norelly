@@ -6,15 +6,16 @@ use norelly_domain::address::EmailAddress;
 use norelly_domain::compose::Threading;
 use norelly_domain::compose::draft::{Draft, DraftAttachment, DraftSync, Recipient, RemoteCopy};
 use norelly_domain::compose::outbox::{OutboxEntry, OutboxState, SendFailure};
+use norelly_domain::mailbox::Correspondent;
 use norelly_domain::mailbox::{Uid, UidValidity};
 use norelly_domain::ports::{
-    BlobId, DraftId, DraftStore, OutboxId, OutboxItem, OutboxStore, OutgoingMessage, StoreError,
-    StoredDraft,
+    BlobId, ContactQuery, DraftId, DraftStore, MAX_CONTACT_SUGGESTIONS, OutboxId, OutboxItem,
+    OutboxStore, OutgoingMessage, StoreError, StoredDraft,
 };
 use rusqlite::{Connection, OptionalExtension, Row, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
 
-use crate::mail::corrupted;
+use crate::mail::{SqliteMailStore, corrupted};
 use crate::{Database, store_error};
 
 /// Brouillons et file d'envoi en base.
@@ -286,9 +287,9 @@ impl DraftStore for SqliteComposeStore {
     async fn drafts(&self, account: AccountId) -> Result<Vec<StoredDraft>, StoreError> {
         self.db
             .read(move |c| {
+                // sql-const : liste de colonnes constante.
                 let mut stmt = c
                     .prepare_cached(&format!(
-                        // sql-const : liste de colonnes constante.
                         "SELECT {DRAFT_COLUMNS} FROM drafts WHERE account_id = ?1 \
                          ORDER BY updated_at DESC, id DESC"
                     ))
@@ -610,3 +611,69 @@ impl OutboxStore for SqliteComposeStore {
 
 #[cfg(test)]
 mod tests;
+
+impl ContactQuery for SqliteMailStore {
+    async fn suggest(
+        &self,
+        account: AccountId,
+        text: &str,
+        limit: usize,
+    ) -> Result<Vec<Correspondent>, StoreError> {
+        let limit = limit.min(MAX_CONTACT_SUGGESTIONS);
+        let text = text.trim().to_lowercase();
+        if text.is_empty() || limit == 0 {
+            return Ok(Vec::new());
+        }
+        // Jokers de LIKE pris littéralement.
+        let mut pattern = String::from("%");
+        for c in text.chars() {
+            if matches!(c, '%' | '_' | '\\') {
+                pattern.push('\\');
+            }
+            pattern.push(c);
+        }
+        pattern.push('%');
+        let limit = i64::try_from(limit).unwrap_or(i64::MAX);
+        self.db()
+            .read(move |c| {
+                let mut stmt = c
+                    .prepare_cached(
+                        "WITH people(name, address) AS ( \
+                           SELECT m.from_name, m.from_address \
+                             FROM messages m JOIN mailboxes b ON b.id = m.mailbox_id \
+                            WHERE b.account_id = ?1 AND b.role <> 'sent' \
+                              AND m.pending_op IS NULL \
+                           UNION ALL \
+                           SELECT json_extract(j.value, '$.name'), json_extract(j.value, '$.address') \
+                             FROM messages m JOIN mailboxes b ON b.id = m.mailbox_id, \
+                                  json_each(m.to_json) j \
+                            WHERE b.account_id = ?1 AND b.role = 'sent' AND m.pending_op IS NULL \
+                           UNION ALL \
+                           SELECT json_extract(j.value, '$.name'), json_extract(j.value, '$.address') \
+                             FROM messages m JOIN mailboxes b ON b.id = m.mailbox_id, \
+                                  json_each(m.cc_json) j \
+                            WHERE b.account_id = ?1 AND b.role = 'sent' AND m.pending_op IS NULL) \
+                         SELECT MAX(name), MAX(address), COUNT(*) AS n FROM people \
+                          WHERE address IS NOT NULL AND address <> '' \
+                            AND (lower(address) LIKE ?2 ESCAPE '\\' \
+                                 OR lower(name) LIKE ?2 ESCAPE '\\') \
+                          GROUP BY lower(address) \
+                          ORDER BY n DESC, lower(address) \
+                          LIMIT ?3",
+                    )
+                    .map_err(store_error)?;
+                let rows: Vec<(Option<String>, String)> = stmt
+                    .query_map(params![account.get(), pattern, limit], |r| {
+                        Ok((r.get(0)?, r.get(1)?))
+                    })
+                    .map_err(store_error)?
+                    .collect::<Result<_, _>>()
+                    .map_err(store_error)?;
+                Ok(rows
+                    .into_iter()
+                    .map(|(name, address)| Correspondent::new(&name.unwrap_or_default(), &address))
+                    .collect())
+            })
+            .await
+    }
+}

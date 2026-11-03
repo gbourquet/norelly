@@ -1,5 +1,7 @@
 use norelly_domain::ports::AccountRepository;
-use norelly_test_support::compose_contracts::{draft_store_contract, outbox_store_contract};
+use norelly_test_support::compose_contracts::{
+    contact_query_contract, draft_store_contract, outbox_store_contract,
+};
 use norelly_test_support::contracts::sample_account;
 
 use super::*;
@@ -33,4 +35,10 @@ async fn outbox_passes_contract() -> Result<(), StoreError> {
     outbox_store_contract(&store, a, b).await?;
     assert_eq!(db.integrity_problems().await?, Vec::<String>::new());
     Ok(())
+}
+
+#[tokio::test]
+async fn contacts_pass_contract() -> Result<(), StoreError> {
+    let (_, db, a, b) = setup().await?;
+    contact_query_contract(&SqliteMailStore::new(db), a, b).await
 }

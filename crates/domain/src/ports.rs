@@ -1138,6 +1138,25 @@ pub trait DraftStore: Send + Sync {
     ) -> impl Future<Output = Result<(), StoreError>> + Send;
 }
 
+/// Suggestions au plus, quelle que soit la demande.
+pub const MAX_CONTACT_SUGGESTIONS: usize = 20;
+
+/// Adresses connues, pour l'autocomplétion des destinataires.
+pub trait ContactQuery: Send + Sync {
+    /// Correspondants d'un compte dont le nom ou l'adresse contient `text`
+    /// (sans distinction de casse ; texte vide : aucun), les plus
+    /// fréquents d'abord, une seule fois par adresse ; au plus `limit`
+    /// (borné à [`MAX_CONTACT_SUGGESTIONS`]). Sources : expéditeurs des
+    /// messages reçus, destinataires (À, Cc) des messages du dossier
+    /// Envoyés.
+    fn suggest(
+        &self,
+        account: AccountId,
+        text: &str,
+        limit: usize,
+    ) -> impl Future<Output = Result<Vec<Correspondent>, StoreError>> + Send;
+}
+
 /// Identifiant d'un message de la file d'envoi.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct OutboxId(i64);

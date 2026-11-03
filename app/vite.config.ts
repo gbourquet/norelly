@@ -38,7 +38,7 @@ export default defineConfig({
       reporter: ["text-summary", "text"],
       // Seuils vérifiés par ./scripts/check.sh (mesure du 2026-11-03) : à
       // relever, jamais à baisser.
-      thresholds: { lines: 78, statements: 74, branches: 67, functions: 72 },
+      thresholds: { lines: 81, statements: 77, branches: 71, functions: 74 },
     },
   },
 });

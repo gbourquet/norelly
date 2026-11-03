@@ -13,6 +13,8 @@
   import ConversationView from "./components/ConversationView.svelte";
   import FolderPicker from "./components/FolderPicker.svelte";
   import ActionNotice from "./components/ActionNotice.svelte";
+  import ActionButtons from "./components/ActionButtons.svelte";
+  import { conversationActions } from "./lib/visible-actions";
   import { app, mail, moveAccount, registerAppCommands, registry } from "./lib/app.svelte";
   import { shortcutFromEvent, type Shortcut } from "./lib/commands/shortcut";
   import { api, type ScopeDto } from "./lib/ipc/api";
@@ -113,7 +115,7 @@
   {/snippet}
   {#snippet list()}
     {#if app.accounts.length > 0}
-      <ConversationList {mail} title={listTitle} />
+      <ConversationList {mail} title={listTitle} {registry} context={app.context()} />
     {/if}
   {/snippet}
   {#snippet reader()}
@@ -124,7 +126,16 @@
         {api}
         onBack={() => mail.back()}
         onKey={onFrameKey}
-      />
+      >
+        {#snippet toolbar()}
+          <ActionButtons
+            actions={conversationActions(mail.opened)}
+            {registry}
+            context={app.context()}
+            label={m.conversation_toolbar()}
+          />
+        {/snippet}
+      </ConversationView>
     {:else}
       <div class="placeholder welcome">
         <InboxIcon size={40} aria-hidden="true" />

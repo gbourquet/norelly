@@ -237,5 +237,8 @@
   "cmd_undo": "Annuler la dernière action",
   "cmd_undo_keywords": "défaire retour",
   "cmd_archive_folder": "Choisir le dossier d'archives…",
-  "cmd_archive_folder_keywords": "archive repli réglage"
+  "cmd_archive_folder_keywords": "archive repli réglage",
+  "list_row_actions": "Actions sur la conversation",
+  "list_context_menu": "Actions sur la conversation",
+  "conversation_toolbar": "Actions sur la conversation"
 }

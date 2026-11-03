@@ -3,6 +3,7 @@
   // Vue d'une conversation : messages empilés du plus ancien au plus
   // récent ; le dernier et les non lus sont dépliés, les autres se
   // déplient d'un clic.
+  import type { Snippet } from "svelte";
   import ArrowLeftIcon from "@lucide/svelte/icons/arrow-left";
   import type { Api, ConversationDto, ConversationMessage } from "../lib/ipc/api";
   import type { Shortcut } from "../lib/commands/shortcut";
@@ -15,9 +16,11 @@
     api: Api;
     onBack: () => void;
     onKey: (shortcut: Shortcut) => void;
+    /** Barre d'outils des actions (à droite du titre). */
+    toolbar?: Snippet;
   }
 
-  let { conversation, messages, api, onBack, onKey }: Props = $props();
+  let { conversation, messages, api, onBack, onKey, toolbar }: Props = $props();
 
   let expanded = $state<number[]>([]);
 
@@ -47,6 +50,9 @@
       <ArrowLeftIcon size={16} aria-hidden="true" />
     </button>
     <h1>{conversation.subject !== "" ? conversation.subject : m.common_no_subject()}</h1>
+    {#if toolbar}
+      <div class="toolbar">{@render toolbar()}</div>
+    {/if}
   </header>
   <ol class="messages">
     {#each messages as msg (msg.id)}
@@ -83,6 +89,11 @@
     gap: var(--space-2);
     padding: var(--space-3) var(--space-4);
     border-bottom: var(--border-width) solid var(--color-border);
+  }
+
+  .toolbar {
+    flex: none;
+    margin-left: auto;
   }
 
   h1 {

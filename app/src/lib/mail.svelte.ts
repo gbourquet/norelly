@@ -216,6 +216,18 @@ export class MailState {
     }
   }
 
+  /**
+   * Désigne une ligne à la souris (bouton de ligne, clic droit) : elle
+   * devient la sélection ; si des conversations sont cochées et qu'elle
+   * n'en fait pas partie, l'action ne vise qu'elle.
+   */
+  pointAt(index: number): void {
+    const c = this.conversations[index];
+    if (c === undefined) return;
+    this.select(index);
+    if (this.marked.length > 0 && !this.marked.includes(c.id)) this.marked = [];
+  }
+
   /** Coche ou décoche la conversation sélectionnée. */
   toggleMark(): void {
     const id = this.selected?.id;

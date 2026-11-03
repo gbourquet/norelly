@@ -237,5 +237,8 @@
   "cmd_undo": "Undo last action",
   "cmd_undo_keywords": "revert back",
   "cmd_archive_folder": "Choose archive folder…",
-  "cmd_archive_folder_keywords": "archive fallback setting"
+  "cmd_archive_folder_keywords": "archive fallback setting",
+  "list_row_actions": "Conversation actions",
+  "list_context_menu": "Conversation actions",
+  "conversation_toolbar": "Conversation actions"
 }

@@ -999,3 +999,29 @@ async fn hostile_bodystructures_do_not_block_metadata() -> TestResult {
     );
     Ok(())
 }
+
+/// `EXPUNGE` sans UIDPLUS : chaque réponse `* n EXPUNGE` est comptée, pour
+/// détecter les messages marqués par un autre client entre-temps.
+#[tokio::test]
+async fn expunge_counts_untagged_expunge_responses() -> TestResult {
+    let f = fixture()?;
+    let cert = f.ca.issue(&["localhost"])?;
+    let script = authenticated(
+        Script::new()
+            .expect("EXPUNGE")
+            .send("* 3 EXPUNGE\r\n* 3 EXPUNGE\r\n* 7 EXISTS\r\n{tag} OK EXPUNGE termine\r\n"),
+    );
+    let server = ScriptedServer::start_tls(script, cert.server_config()?).await?;
+    let mut session = f
+        .connector
+        .connect(&request(
+            server.port(),
+            Security::Tls,
+            PlaintextPolicy::deny_all(),
+        ))
+        .await?;
+    assert_eq!(session.expunge_all().await?, 2);
+    session.logout().await?;
+    server.finish().await.result?;
+    Ok(())
+}

@@ -506,9 +506,24 @@ pub fn expunge_strategy(capabilities: &ServerCapabilities) -> MoveStrategy {
 /// Garde-fou d'un `EXPUNGE` sans UIDPLUS : il supprime tous les messages
 /// marqués `\Deleted` de la boîte. Autorisé seulement si ce sont
 /// exactement ceux que l'on veut supprimer.
+///
+/// Limite : sans UIDPLUS, aucune commande n'est atomique. Entre
+/// `UID SEARCH DELETED` et `EXPUNGE` (envoyés l'un après l'autre, sans
+/// autre commande entre eux), un autre client peut encore marquer un
+/// message `\Deleted`, qui part aussi. On le détecte après coup avec
+/// [`unexpected_expunges`] : journalisation et resynchronisation.
 #[must_use]
 pub fn expunge_is_safe(ours: &BTreeSet<Uid>, deleted_on_server: &BTreeSet<Uid>) -> bool {
     deleted_on_server.is_subset(ours)
+}
+
+/// Messages supprimés en trop par un `EXPUNGE` sans UIDPLUS : réponses
+/// `* n EXPUNGE` reçues (`reported`) au-delà des `expected` messages
+/// visés. Non nul : un autre client a marqué un message entre-temps.
+#[must_use]
+pub fn unexpected_expunges(expected: usize, reported: u32) -> u32 {
+    let expected = u32::try_from(expected).unwrap_or(u32::MAX);
+    reported.saturating_sub(expected)
 }
 
 /// État du serveur au moment du rejeu.

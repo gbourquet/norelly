@@ -454,3 +454,11 @@ fn plan_queue_refuses_beyond_the_per_account_cap() {
     almost.pop();
     assert!(plan_queue(&almost, vec![op(OpKind::Expunge)]).is_ok());
 }
+
+#[test]
+fn expunges_beyond_the_expected_ones_are_reported() {
+    assert_eq!(unexpected_expunges(1, 1), 0);
+    assert_eq!(unexpected_expunges(1, 0), 0, "déjà supprimé : rien en trop");
+    assert_eq!(unexpected_expunges(1, 3), 2);
+    assert_eq!(unexpected_expunges(usize::MAX, u32::MAX), 0);
+}

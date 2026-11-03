@@ -350,8 +350,9 @@ pub trait RemoteMailboxSession: Send {
     -> impl Future<Output = Result<(), ConnectionError>> + Send;
 
     /// `EXPUNGE` : supprime tous les messages marqués `\Deleted` de la
-    /// boîte (voir [`crate::actions::expunge_is_safe`]).
-    fn expunge_all(&mut self) -> impl Future<Output = Result<(), ConnectionError>> + Send;
+    /// boîte (voir [`crate::actions::expunge_is_safe`]). Renvoie le nombre
+    /// de messages supprimés (réponses `* n EXPUNGE`).
+    fn expunge_all(&mut self) -> impl Future<Output = Result<u32, ConnectionError>> + Send;
 
     /// UID des messages marqués `\Deleted` (`UID SEARCH DELETED`).
     fn deleted_uids(

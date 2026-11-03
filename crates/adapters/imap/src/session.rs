@@ -859,8 +859,9 @@ impl Connection {
         ensure_ok(&reply.status)
     }
 
-    /// `UID EXPUNGE uid` (UIDPLUS), ou `EXPUNGE` (`uid` absent).
-    pub(crate) async fn expunge(&mut self, uid: Option<Uid>) -> Result<(), ConnectionError> {
+    /// `UID EXPUNGE uid` (UIDPLUS), ou `EXPUNGE` (`uid` absent). Renvoie
+    /// le nombre de réponses `* n EXPUNGE` (messages supprimés).
+    pub(crate) async fn expunge(&mut self, uid: Option<Uid>) -> Result<u32, ConnectionError> {
         let body = match uid {
             Some(uid) => CommandBody::ExpungeUid {
                 sequence_set: uid_set([uid]).ok_or_else(|| protocol("UID invalide"))?,
@@ -868,7 +869,13 @@ impl Connection {
             None => CommandBody::Expunge,
         };
         let reply = self.execute_bulk(body).await?;
-        ensure_ok(&reply.status)
+        ensure_ok(&reply.status)?;
+        let expunged = reply
+            .data
+            .iter()
+            .filter(|d| matches!(d, Data::Expunge(_)))
+            .count();
+        Ok(u32::try_from(expunged).unwrap_or(u32::MAX))
     }
 
     /// `UID SEARCH DELETED`.

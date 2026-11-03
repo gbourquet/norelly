@@ -358,10 +358,10 @@ impl RemoteMailboxSession for ImapSession {
         if !self.capabilities.has("UIDPLUS") {
             return Err(ConnectionError::Protocol("UIDPLUS non annoncé".to_owned()));
         }
-        self.conn.expunge(Some(uid)).await
+        self.conn.expunge(Some(uid)).await.map(|_| ())
     }
 
-    async fn expunge_all(&mut self) -> Result<(), ConnectionError> {
+    async fn expunge_all(&mut self) -> Result<u32, ConnectionError> {
         self.conn.expunge(None).await
     }
 

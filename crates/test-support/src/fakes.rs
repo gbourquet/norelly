@@ -201,7 +201,7 @@ impl RemoteMailboxSession for FakeSession {
     ) -> impl Future<Output = Result<(), ConnectionError>> + Send {
         self.inner.expunge_uid(uid)
     }
-    fn expunge_all(&mut self) -> impl Future<Output = Result<(), ConnectionError>> + Send {
+    fn expunge_all(&mut self) -> impl Future<Output = Result<u32, ConnectionError>> + Send {
         self.inner.expunge_all()
     }
     fn deleted_uids(

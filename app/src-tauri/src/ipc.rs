@@ -835,17 +835,17 @@ mod error_tests {
             code(ActionError::TooManyTargets),
             ErrorCodeDto::TooManyMessages
         );
-        assert_eq!(
-            code(ActionError::QueueFull),
-            ErrorCodeDto::PendingQueueFull
-        );
+        assert_eq!(code(ActionError::QueueFull), ErrorCodeDto::PendingQueueFull);
         let e = IpcError::from(ActionFailure::Invalid(ActionError::UnknownFolder));
         assert_eq!(
             (e.code, e.field),
             (ErrorCodeDto::InvalidInput, Some(FieldDto::Mailbox))
         );
         assert_eq!(
-            IpcError::from(ActionFailure::Store(norelly_domain::ports::StoreError("x".into()))).code,
+            IpcError::from(ActionFailure::Store(norelly_domain::ports::StoreError(
+                "x".into()
+            )))
+            .code,
             ErrorCodeDto::Storage
         );
     }

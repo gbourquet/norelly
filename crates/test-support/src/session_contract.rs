@@ -472,7 +472,8 @@ where
             "UID EXPUNGE ne touche que l'UID visé"
         );
     }
-    session.expunge_all().await.map_err(e)?;
+    let expunged = session.expunge_all().await.map_err(e)?;
+    assert_eq!(expunged, 1, "une réponse EXPUNGE par message supprimé");
     let deleted = session.deleted_uids().await.map_err(e)?;
     assert!(deleted.is_empty(), "EXPUNGE");
 

@@ -12,6 +12,7 @@ use norelly_domain::actions::{
     ActionError, Conflict, FolderRef, MAX_ACTION_TARGETS, MAX_REPLAY_ATTEMPTS, MessageAction,
     MoveStrategy, OpKind, PendingOp, ReplayDecision, ServerView, StoreOutcome, after_modified,
     decide, expunge_is_safe, expunge_strategy, move_strategy, plan_queue, resolve,
+    unexpected_expunges,
 };
 use norelly_domain::connection::ConnectionError;
 use norelly_domain::mailbox::{MailboxId, MailboxName, Uid};
@@ -132,6 +133,10 @@ pub struct ReplayReport {
     pub dropped: Vec<(PendingOpId, Option<Conflict>)>,
     /// Boîtes à resynchroniser (sources et destinations).
     pub touched: BTreeSet<MailboxName>,
+    /// Messages supprimés en trop par un `EXPUNGE` sans UIDPLUS (marqués
+    /// par un autre client entre la vérification et l'`EXPUNGE`) ; leur
+    /// boîte est dans `touched`.
+    pub foreign_expunges: u32,
 }
 
 /// Cas d'usage : rejouer les opérations dues d'un compte sur une session
@@ -145,7 +150,8 @@ pub struct ReplayActions<'a, S> {
 
 /// Résultat de l'exécution d'une opération.
 enum Executed {
-    Done,
+    /// Exécutée ; nombre de messages supprimés en trop par l'`EXPUNGE`.
+    Done(u32),
     Dropped(Option<Conflict>),
 }
 
@@ -193,9 +199,10 @@ impl<S: PendingOpStore> ReplayActions<'_, S> {
                 report.touched.insert(to.clone());
             }
             match outcome {
-                Executed::Done => {
+                Executed::Done(foreign) => {
                     self.store.complete(id).await?;
                     report.applied += 1;
+                    report.foreign_expunges = report.foreign_expunges.saturating_add(foreign);
                 }
                 Executed::Dropped(conflict) => {
                     tracing::info!(account = %self.account, ?conflict, "opération abandonnée");
@@ -232,11 +239,11 @@ impl<S: PendingOpStore> ReplayActions<'_, S> {
             },
         };
         match decide(op, &view) {
-            ReplayDecision::AlreadyDone => return Ok(Executed::Done),
+            ReplayDecision::AlreadyDone => return Ok(Executed::Done(0)),
             ReplayDecision::Drop(conflict) => return Ok(Executed::Dropped(Some(conflict))),
             ReplayDecision::Apply => {}
         }
-        match &op.kind {
+        let foreign = match &op.kind {
             OpKind::Flag {
                 change,
                 unchanged_since,
@@ -255,46 +262,62 @@ impl<S: PendingOpStore> ReplayActions<'_, S> {
                         session.store_flag(op.uid, *change, None).await?;
                     }
                 }
+                0
             }
             OpKind::Move { to } => match move_strategy(session.capabilities()) {
-                MoveStrategy::Move => session.move_to(op.uid, to).await?,
+                MoveStrategy::Move => {
+                    session.move_to(op.uid, to).await?;
+                    0
+                }
                 strategy => {
                     session.copy_to(op.uid, to).await?;
-                    remove(session, op.uid, strategy).await?;
+                    remove(session, op.uid, strategy).await?
                 }
             },
             OpKind::Expunge => {
                 let strategy = expunge_strategy(session.capabilities());
-                remove(session, op.uid, strategy).await?;
+                remove(session, op.uid, strategy).await?
             }
-        }
-        Ok(Executed::Done)
+        };
+        Ok(Executed::Done(foreign))
     }
 }
 
 /// Marque `uid` `\Deleted` puis le supprime selon `strategy`. Sans
 /// UIDPLUS, l'`EXPUNGE` n'a lieu que si aucun autre message n'est marqué :
 /// sinon le message reste `\Deleted` (masqué localement) jusqu'au prochain
-/// `EXPUNGE` d'un client.
+/// `EXPUNGE` d'un client. Renvoie le nombre de messages supprimés en trop
+/// (course avec un autre client, voir `expunge_is_safe`).
 async fn remove<R: RemoteMailboxSession>(
     session: &mut R,
     uid: Uid,
     strategy: MoveStrategy,
-) -> Result<(), ConnectionError> {
+) -> Result<u32, ConnectionError> {
     session.mark_deleted(uid).await?;
     match strategy {
-        MoveStrategy::Move | MoveStrategy::CopyUidExpunge => session.expunge_uid(uid).await,
+        MoveStrategy::Move | MoveStrategy::CopyUidExpunge => {
+            session.expunge_uid(uid).await?;
+            Ok(0)
+        }
         MoveStrategy::CopyGuardedExpunge => {
+            let ours = BTreeSet::from([uid]);
             let deleted = session.deleted_uids().await?;
-            if expunge_is_safe(&BTreeSet::from([uid]), &deleted) {
-                session.expunge_all().await
-            } else {
+            if !expunge_is_safe(&ours, &deleted) {
                 tracing::warn!(
                     others = deleted.len().saturating_sub(1),
                     "EXPUNGE différé : d'autres messages sont marqués \\Deleted"
                 );
-                Ok(())
+                return Ok(0);
             }
+            let reported = session.expunge_all().await?;
+            let foreign = unexpected_expunges(ours.len(), reported);
+            if foreign > 0 {
+                tracing::warn!(
+                    foreign,
+                    "EXPUNGE : messages marqués par un autre client supprimés aussi ; boîte resynchronisée"
+                );
+            }
+            Ok(foreign)
         }
     }
 }

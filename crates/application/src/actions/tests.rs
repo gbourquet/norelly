@@ -278,6 +278,31 @@ async fn guarded_expunge_spares_messages_deleted_by_another_client() {
 }
 
 #[tokio::test]
+async fn foreign_deletion_racing_the_guarded_expunge_is_reported() {
+    let mut w = world(false, false).await;
+    let m1 = w.id_of("INBOX", 1).await;
+    w.act(&[m1], MessageAction::Delete).await;
+    // Un autre client marque le message 2 entre UID SEARCH DELETED et
+    // EXPUNGE : aucune commande atomique sans UIDPLUS, il part aussi.
+    w.imap.race_deleted_before_expunge("INBOX", uid(2));
+    let report = w.replay(LATER).await;
+    assert_eq!(report.applied, 1);
+    assert_eq!(report.foreign_expunges, 1, "suppression en trop signalée");
+    assert!(report.touched.iter().any(|m| m.as_str() == "INBOX"));
+    assert_eq!(w.server_uids("INBOX"), [3]);
+    w.sync().await;
+    assert_eq!(
+        w.visible("INBOX")
+            .await
+            .iter()
+            .map(|v| v.1)
+            .collect::<Vec<_>>(),
+        [3],
+        "resynchronisée"
+    );
+}
+
+#[tokio::test]
 async fn delete_from_trash_is_permanent() {
     let mut w = world(true, true).await;
     let m1 = w.id_of("INBOX", 1).await;

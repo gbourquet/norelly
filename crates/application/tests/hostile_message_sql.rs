@@ -375,7 +375,10 @@ async fn trapped_messages_cannot_alter_the_database() -> Result<(), Box<dyn std:
             .await?
     );
     compose.delete_draft(saved.id).await?;
-    assert_eq!(compose.remote_trash(l.account).await?, [copy.clone()]);
+    assert_eq!(
+        compose.remote_trash(l.account).await?,
+        std::slice::from_ref(&copy)
+    );
     compose.forget_remote(l.account, copy).await?;
     assert!(compose.remote_trash(l.account).await?.is_empty());
 

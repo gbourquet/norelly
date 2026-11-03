@@ -282,9 +282,11 @@ fn search_until(
     // Vérifié toutes les 8 instructions de la machine virtuelle (coût
     // négligeable devant celui d'une recherche) ; retiré ensuite
     // (connexion du pool réutilisée).
-    c.progress_handler(8, Some(move || std::time::Instant::now() >= deadline));
+    c.progress_handler(8, Some(move || std::time::Instant::now() >= deadline))
+        .map_err(store_error)?;
     let result = search_query(c, request);
-    c.progress_handler(0, None::<fn() -> bool>);
+    c.progress_handler(0, None::<fn() -> bool>)
+        .map_err(store_error)?;
     result
 }
 

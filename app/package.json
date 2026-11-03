@@ -11,6 +11,7 @@
     "lint": "pnpm i18n && prettier --check . && eslint .",
     "format": "prettier --write .",
     "test": "vitest run",
+    "coverage": "vitest run --coverage",
     "tauri": "tauri",
     "e2e": "bash e2e/run.sh",
     "i18n": "paraglide-js compile --project ./project.inlang --outdir ./src/lib/paraglide --strategy globalVariable baseLocale --emit-ts-declarations --silent"
@@ -35,6 +36,7 @@
     "@testing-library/svelte": "5.4.2",
     "@tsconfig/svelte": "5.0.8",
     "@types/node": "^24.19.2",
+    "@vitest/coverage-v8": "5.0.5",
     "@wdio/cli": "10.0.2",
     "@wdio/globals": "10.0.2",
     "@wdio/local-runner": "10.0.2",

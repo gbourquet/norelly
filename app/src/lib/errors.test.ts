@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { IpcFailure, errorText, failureText } from "./errors";
+import type { ErrorCodeDto, FailureKindDto, FieldDto } from "./ipc/bindings";
+import { IpcFailure, errorText, failureText, fieldLabel } from "./errors";
 import { setLocale } from "./paraglide/runtime.js";
 
 describe("traduction des erreurs IPC", () => {
@@ -34,7 +35,7 @@ describe("traduction des erreurs IPC", () => {
     );
     expect(errorText(new IpcFailure("not_found", "draft"))).toBe("Introuvable : brouillon.");
     expect(errorText(new IpcFailure("invalid_input", "attachment"))).toBe(
-      "Valeur refusée : pièce jointe.",
+      "Valeur refusée : fichier joint.",
     );
     expect(errorText(new IpcFailure("not_found", "outbox"))).toBe(
       "Introuvable : message en attente d'envoi.",
@@ -55,5 +56,73 @@ describe("traduction des erreurs IPC", () => {
 
   it("une erreur inattendue n'expose pas son texte", () => {
     expect(errorText(new Error("pile interne"))).toBe("Erreur inattendue.");
+  });
+
+  it("traduit chaque code, champ et catégorie d'échec (liste vérifiée par le typage)", () => {
+    const codes = {
+      invalid_input: true,
+      not_found: true,
+      no_valid_sender: true,
+      download_failed: true,
+      storage: true,
+      secret_store: true,
+      link_refused: true,
+      executable_attachment: true,
+      write_failed: true,
+      open_failed: true,
+      no_trash: true,
+      no_archive: true,
+      same_folder: true,
+      folder_not_selectable: true,
+      too_many_messages: true,
+      pending_queue_full: true,
+      no_recipient: true,
+      too_many_recipients: true,
+      invalid_subject: true,
+      body_too_large: true,
+      attachments_too_large: true,
+      outbox_busy: true,
+      internal: true,
+    } satisfies Record<ErrorCodeDto, true>;
+    const fields = {
+      address: true,
+      display_name: true,
+      host: true,
+      port: true,
+      username: true,
+      servers: true,
+      account: true,
+      message: true,
+      part: true,
+      mailbox: true,
+      role: true,
+      cursor: true,
+      conversation: true,
+      folder: true,
+      certificate: true,
+      draft: true,
+      attachment: true,
+      outbox: true,
+    } satisfies Record<FieldDto, true>;
+    const kinds = {
+      network: true,
+      authentication: true,
+      security: true,
+      protocol: true,
+      invalid_input: true,
+      secret_store: true,
+      storage: true,
+      internal: true,
+    } satisfies Record<FailureKindDto, true>;
+    const texts = (Object.keys(codes) as ErrorCodeDto[]).map((c) =>
+      errorText(new IpcFailure(c, "address")),
+    );
+    for (const t of texts) expect(t).not.toBe("Erreur inattendue.");
+    expect(new Set(texts).size).toBe(texts.length);
+    const labels = (Object.keys(fields) as FieldDto[]).map(fieldLabel);
+    expect(new Set(labels).size).toBe(labels.length);
+    expect(fieldLabel(null)).toBe("?");
+    const failures = (Object.keys(kinds) as FailureKindDto[]).map(failureText);
+    expect(new Set(failures).size).toBe(failures.length);
   });
 });

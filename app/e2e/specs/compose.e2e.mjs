@@ -3,7 +3,11 @@
 // - Ctrl+Entrée envoie : Mailpit reçoit le message (In-Reply-To, version
 //   texte et HTML), et la copie arrive dans Envoyés sur Dovecot ;
 // - « c » rédige un nouveau message avec un Cci : présent dans
-//   l'enveloppe SMTP, absent des en-têtes transmis ;
+//   l'enveloppe SMTP, ni en « À » ni en « Cc » (Mailpit reconstruit
+//   lui-même un en-tête Bcc depuis l'enveloppe : l'absence de Bcc dans les
+//   octets transmis est vérifiée par les tests de crates/adapters/render) ;
+// - le message déposé est daté avant ceux de reading-security.e2e.mjs
+//   (même serveur) pour ne pas changer leur ordre dans la liste ;
 // - le HTML saisi n'est jamais interprété (texte littéral).
 import { $, browser, expect } from "@wdio/globals";
 import {
@@ -11,15 +15,16 @@ import {
   address,
   appendMessages,
   imapMessages,
+  mailpitHeaders,
+  mailpitMessage,
   mailpitMessages,
-  mailpitRaw,
   removeTestAccount,
 } from "./helpers.mjs";
 
 const received = `From: Alice <alice@norelly.test>
 To: ${address}
 Subject: Préparation de la réunion
-Date: Mon, 2 Nov 2026 10:00:00 +0000
+Date: Mon, 2 Nov 2026 08:00:00 +0000
 Message-ID: <reunion@norelly.test>
 MIME-Version: 1.0
 Content-Type: text/plain; charset=utf-8
@@ -38,26 +43,27 @@ describe("rédaction et envoi", () => {
   });
 
   after(async () => {
+    // Aucune fenêtre ouverte ne doit bloquer le retrait du compte.
+    await browser.keys("Escape");
+    await browser.keys("Escape");
     await removeTestAccount();
   });
 
   it("répond avec r et envoie avec Ctrl+Entrée", async () => {
-    const row = $("*=Préparation de la réunion");
+    const row = $("span=Préparation de la réunion");
     await row.waitForDisplayed({ timeout: 90000 });
-    await row.click();
-    await browser.keys("Enter");
-    await $("*=peux-tu confirmer").waitForExist({ timeout: 30000 });
     const sentBefore = await imapMessages("Sent");
+    await row.click();
+    await expect($("h1=Préparation de la réunion")).toBeDisplayed({ wait: 30000 });
     await browser.keys("r");
-    const dialog = $("aria/Répondre");
+    const dialog = $('[role="dialog"]');
     await dialog.waitForDisplayed({ timeout: 20000 });
-    await expect($("*=alice@norelly.test")).toBeDisplayed();
+    await expect(dialog.$('span[title="alice@norelly.test"]')).toBeDisplayed();
     await expect($("#compose-subject")).toHaveValue("Re: Préparation de la réunion");
-    const body = $('[aria-label="Corps du message"]');
-    await body.click();
+    await dialog.$('[aria-label="Corps du message"]').click();
     await browser.keys("Oui, je serai là. <b>pas du HTML</b>");
     await browser.keys(["Control", "Enter"]);
-    await $("*=Message en cours d'envoi.").waitForDisplayed({ timeout: 20000 });
+    await dialog.waitForDisplayed({ reverse: true, timeout: 20000 });
 
     await waitFor(
       async () =>
@@ -68,11 +74,14 @@ describe("rédaction et envoi", () => {
       (m) => m.Subject === "Re: Préparation de la réunion",
     );
     expect(reply.To.map((t) => t.Address)).toEqual(["alice@norelly.test"]);
-    const raw = await mailpitRaw(reply.ID);
-    expect(raw).toContain("In-Reply-To: <reunion@norelly.test>");
-    expect(raw).toMatch(/multipart\/alternative/);
-    expect(raw).toContain("&lt;b&gt;pas du HTML&lt;/b&gt;");
-    expect(raw).not.toMatch(/<b>pas du HTML<\/b>/);
+    const headers = await mailpitHeaders(reply.ID);
+    expect(headers["In-Reply-To"]).toEqual(["<reunion@norelly.test>"]);
+    const message = await mailpitMessage(reply.ID);
+    expect(message.Text).toContain("<b>pas du HTML</b>");
+    expect(message.Text).toContain("> Bonjour, peux-tu confirmer ta présence ?");
+    expect(message.HTML).toContain("&lt;b&gt;pas du HTML&lt;/b&gt;");
+    expect(message.HTML).not.toContain("<b>pas du HTML");
+    expect(message.HTML).toContain("<blockquote>");
     await waitFor(
       async () => (await imapMessages("Sent")) === sentBefore + 1,
       "copie absente d'Envoyés",
@@ -80,27 +89,28 @@ describe("rédaction et envoi", () => {
   });
 
   it("rédige avec c ; le Cci reste hors des en-têtes", async () => {
-    await browser.keys("Escape");
     await browser.keys("c");
-    const dialog = $("aria/Nouveau message");
+    const dialog = $('[role="dialog"]');
     await dialog.waitForDisplayed({ timeout: 20000 });
-    const to = $('[aria-label="À"]');
-    await to.setValue("bob@norelly.test");
+    await dialog.$('[aria-label="À"]').setValue("bob@norelly.test");
     await browser.keys("Enter");
-    await $("button=Cc et Cci").click();
-    await $('[aria-label="Cci"]').setValue("cache@norelly.test");
+    await dialog.$("button=Cc et Cci").click();
+    await dialog.$('[aria-label="Cci"]').setValue("cache@norelly.test");
     await browser.keys("Enter");
     await $("#compose-subject").setValue("Ordre du jour");
-    await $('[aria-label="Corps du message"]').click();
+    await dialog.$('[aria-label="Corps du message"]').click();
     await browser.keys("Voici l'ordre du jour.");
-    await $("button=Envoyer").click();
+    await dialog.$("button*=Envoyer").click();
+    await dialog.waitForDisplayed({ reverse: true, timeout: 20000 });
     await waitFor(
       async () => (await mailpitMessages()).some((m) => m.Subject === "Ordre du jour"),
       "message absent de Mailpit",
     );
     const sent = (await mailpitMessages()).find((m) => m.Subject === "Ordre du jour");
     expect(sent.Bcc.map((b) => b.Address)).toEqual(["cache@norelly.test"]);
-    const raw = await mailpitRaw(sent.ID);
-    expect(raw).not.toContain("cache@norelly.test");
+    expect(sent.To.map((t) => t.Address)).toEqual(["bob@norelly.test"]);
+    expect(sent.Cc ?? []).toEqual([]);
+    const headers = await mailpitHeaders(sent.ID);
+    expect(headers["Message-Id"]?.[0]).toMatch(/^<[0-9a-f]{32}@norelly\.test>$/);
   });
 });

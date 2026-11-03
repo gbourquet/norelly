@@ -249,7 +249,7 @@
   "err_attachments_too_large": "Attachments exceed 25 MiB.",
   "err_outbox_busy": "This message is being sent: try again in a moment.",
   "field_draft": "draft",
-  "field_attachment": "attachment",
+  "field_attachment": "attached file",
   "field_outbox": "message waiting to be sent",
   "compose_attribution": "On {date}, {name} wrote:",
   "compose_forward_intro": "Forwarded message from {name}, {date}:",

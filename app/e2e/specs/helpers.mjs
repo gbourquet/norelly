@@ -134,8 +134,14 @@ export async function mailpitMessages() {
   return body.messages ?? [];
 }
 
-/** Message brut reçu par Mailpit. */
-export async function mailpitRaw(id) {
-  const response = await fetch(`${mailpit}/api/v1/message/${id}/raw`);
-  return response.text();
+/** Message reçu par Mailpit (corps texte et HTML décodés). */
+export async function mailpitMessage(id) {
+  const response = await fetch(`${mailpit}/api/v1/message/${id}`);
+  return response.json();
+}
+
+/** En-têtes transmis d'un message reçu par Mailpit (nom → valeurs). */
+export async function mailpitHeaders(id) {
+  const response = await fetch(`${mailpit}/api/v1/message/${id}/headers`);
+  return response.json();
 }

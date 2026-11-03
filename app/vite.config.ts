@@ -30,5 +30,15 @@ export default defineConfig({
     environment: "jsdom",
     include: ["src/**/*.test.ts"],
     setupFiles: ["./vitest-setup.ts"],
+    coverage: {
+      provider: "v8",
+      include: ["src/**/*.{ts,svelte}"],
+      // Code généré (catalogues, bindings IPC), point d'entrée et types.
+      exclude: ["src/lib/paraglide/**", "src/lib/ipc/bindings.ts", "src/main.ts", "src/**/*.d.ts"],
+      reporter: ["text-summary", "text"],
+      // Seuils vérifiés par ./scripts/check.sh (mesure du 2026-11-03) : à
+      // relever, jamais à baisser.
+      thresholds: { lines: 78, statements: 74, branches: 67, functions: 72 },
+    },
   },
 });

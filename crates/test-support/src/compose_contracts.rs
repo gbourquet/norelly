@@ -360,7 +360,10 @@ impl DraftStore for InMemoryComposeStore {
         replaced: Option<RemoteCopy>,
     ) -> Result<bool, StoreError> {
         let mut s = lock(&self.state);
-        let exists = s.drafts.get(&id).is_some_and(|d| d.draft.account == account);
+        let exists = s
+            .drafts
+            .get(&id)
+            .is_some_and(|d| d.draft.account == account);
         if !exists {
             // Brouillon disparu : sa nouvelle copie est à supprimer.
             for copy in sync.remote.into_iter().chain(replaced) {

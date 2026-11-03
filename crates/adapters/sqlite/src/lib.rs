@@ -13,6 +13,7 @@
 //! une base modifiée à la main ne peut pas produire un compte invalide.
 
 pub mod actions;
+pub mod compose;
 pub mod conversations;
 pub mod mail;
 pub mod preferences;
@@ -40,6 +41,7 @@ fn migrations() -> Migrations<'static> {
         M::up(include_str!("../migrations/0003_conversations.sql")),
         M::up(include_str!("../migrations/0004_actions.sql")),
         M::up(include_str!("../migrations/0005_placeholder_copies.sql")),
+        M::up(include_str!("../migrations/0006_compose.sql")),
     ])
 }
 
@@ -537,6 +539,14 @@ mod tests {
         "INSERT INTO messages (mailbox_id, uid, internal_date, sort_date, size, subject, \
          from_name, from_address, has_attachments, pending_op) \
          VALUES (1, 4294967294, 100, 100, 10, 'v5', '', 'a@example.com', 0, 1);",
+        // Version 6 : un brouillon copié sur le serveur, une copie à
+        // supprimer, un message en file d'envoi.
+        "INSERT INTO drafts (account_id, content, revision, remote_revision, remote_validity, \
+         remote_uid, last_remote_save, updated_at) VALUES (1, '{}', 2, 1, 9, 3, 50, 60); \
+         INSERT INTO draft_remote_trash (account_id, validity, uid) VALUES (1, 9, 2); \
+         INSERT INTO outbox (account_id, envelope_from, recipients, raw, sent_copy, subject, \
+         state, not_before, attempts, queued_at) \
+         VALUES (1, 'v6@example.com', '[]', x'00', x'00', 'v6', 'queued', 0, 0, 70);",
     ];
 
     /// Montée de version depuis chaque version précédente, données

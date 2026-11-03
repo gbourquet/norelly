@@ -70,7 +70,7 @@ impl World {
         let (mut session, ext) = self.session().await?;
         let mut changed = Vec::new();
         self.use_case()
-            .sync_all(&mut session, ext, |id| changed.push(id))
+            .sync_all(&mut session, ext, |m, _| changed.push(m.id))
             .await?;
         Ok(changed)
     }
@@ -358,4 +358,40 @@ async fn text_extraction_is_bounded_in_time() {
         "{:?}",
         started.elapsed()
     );
+}
+
+#[tokio::test]
+async fn unread_arrivals_are_reported_except_on_first_sync() -> Result<(), SyncFailure> {
+    let w = World::new();
+    w.append("INBOX", 1, Flags::default());
+    let (mut session, ext) = w.session().await?;
+    let mut first = Vec::new();
+    w.use_case()
+        .sync_all(&mut session, ext, |m, r| {
+            first.push((m.mailbox.name.to_string(), r.arrivals.clone()))
+        })
+        .await?;
+    assert!(
+        first.iter().all(|(_, a)| a.is_none()),
+        "première synchronisation : {first:?}"
+    );
+    w.append("INBOX", 2, Flags::default());
+    w.append("INBOX", 3, seen());
+    let mut second = Vec::new();
+    w.use_case()
+        .sync_all(&mut session, ext, |m, r| {
+            second.push((m.mailbox.name.to_string(), r.arrivals.clone()))
+        })
+        .await?;
+    let inbox = second
+        .iter()
+        .find(|(n, _)| n == "INBOX")
+        .and_then(|(_, a)| a.clone())
+        .unwrap_or_else(|| panic!("arrivées non signalées : {second:?}"));
+    assert_eq!(inbox.count, 1, "seul le message non lu");
+    assert_eq!(
+        inbox.latest.map(|l| l.subject),
+        Some("Message 2".to_owned())
+    );
+    Ok(())
 }

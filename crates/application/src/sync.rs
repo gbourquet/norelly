@@ -25,6 +25,7 @@ use norelly_domain::connection::ConnectionError;
 use norelly_domain::fetch_policy::MimePart;
 use norelly_domain::fetch_policy::{BodyFetch, FetchPolicy};
 use norelly_domain::mailbox::{MailboxId, MailboxName, classify_mailboxes};
+use norelly_domain::notify::{NewMail, new_mail};
 use norelly_domain::ports::{
     BlobStore, FetchedBody, MAX_FETCH_BATCH, MailStore, PendingBody, RemoteMailboxSession,
     SearchTextExtractor, StoreError, StoredBody, StoredMailbox, StoredMessage, SyncBatch,
@@ -47,6 +48,14 @@ pub enum SyncEvent {
     },
     /// La liste des dossiers a changé (ou a été lue pour la première fois).
     FoldersChanged { account: AccountId },
+    /// Nouveaux messages non lus arrivés dans la boîte de réception d'un
+    /// compte (notification ; contenu filtré ensuite selon les
+    /// préférences).
+    NewMail {
+        account: AccountId,
+        mailbox: MailboxId,
+        mail: NewMail,
+    },
     /// Connexion établie (après une coupure éventuelle).
     Online { account: AccountId },
     /// Connexion perdue ; nouvelle tentative prévue. L'échec est transmis
@@ -79,8 +88,11 @@ impl SyncFailure {
 }
 
 /// Bilan de la synchronisation d'une boîte.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct MailboxReport {
+    /// Nouveaux messages non lus à signaler (jamais à la première
+    /// synchronisation de la boîte).
+    pub arrivals: Option<NewMail>,
     pub plan: Option<SyncPlanKind>,
     pub new: usize,
     pub removed: usize,
@@ -152,12 +164,12 @@ impl<M: MailStore, B: BlobStore> SyncAccount<'_, M, B> {
         &self,
         session: &mut S,
         ext: SyncExtensions,
-        mut on_change: impl FnMut(MailboxId) + Send,
+        mut on_change: impl FnMut(&StoredMailbox, &MailboxReport) + Send,
     ) -> Result<Vec<StoredMailbox>, SyncFailure> {
         let mailboxes = self.sync_folders(session).await?;
         for m in mailboxes.iter().filter(|m| m.mailbox.selectable) {
             match self.sync_mailbox(session, ext, m.id, &m.mailbox.name).await {
-                Ok(report) if report.changed() => on_change(m.id),
+                Ok(report) if report.changed() => on_change(m, &report),
                 Ok(_) => {}
                 Err(SyncFailure::Reconcile { mailbox, error }) => {
                     tracing::warn!(%mailbox, %error, "boîte ignorée");
@@ -199,7 +211,11 @@ impl<M: MailStore, B: BlobStore> SyncAccount<'_, M, B> {
             }
         }
         let outcome = reconcile(&local, &selected, plan, &report).map_err(reconcile_error)?;
+        // Boîte jamais synchronisée, ou repartie de zéro (UIDVALIDITY
+        // changée) : ses messages ne sont pas des arrivées.
+        let first_sync = local.state.uid_validity.is_none() || outcome.reset;
         let mut summary = MailboxReport {
+            arrivals: None,
             plan: Some(plan.into()),
             new: 0,
             removed: outcome.removed.len(),
@@ -228,6 +244,12 @@ impl<M: MailStore, B: BlobStore> SyncAccount<'_, M, B> {
                     session.fetch_meta(&uids).await?
                 };
                 summary.new += metas.len();
+                if let Some(batch) = new_mail(first_sync, &metas) {
+                    summary.arrivals = Some(match summary.arrivals.take() {
+                        Some(earlier) => earlier.merge(batch),
+                        None => batch,
+                    });
+                }
                 let first = index == 0;
                 let last = index + 1 == count;
                 let batch = SyncBatch {

@@ -122,7 +122,7 @@ impl Local {
             policy: FetchPolicy::default(),
             text: std::sync::Arc::new(norelly_render::search_text::MimeTextExtractor),
         }
-        .sync_all(&mut session, ext, |_| {})
+        .sync_all(&mut session, ext, |_, _| {})
         .await?;
         // Comme l'acteur : effets des actions en attente conservés, copies
         // provisoires des déplacements rejoués remplacées.

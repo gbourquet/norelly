@@ -122,7 +122,7 @@ async fn trapped_messages_cannot_alter_the_database() -> Result<(), Box<dyn std:
     for _ in 0..2 {
         let mut session = imap.session()?;
         let ext = session.enable_sync_extensions().await?;
-        sync.sync_all(&mut session, ext, |_| {}).await?;
+        sync.sync_all(&mut session, ext, |_, _| {}).await?;
     }
 
     // Base intègre, schéma identique, comptes intacts.
@@ -286,7 +286,7 @@ async fn trapped_messages_cannot_alter_the_database() -> Result<(), Box<dyn std:
     );
     let mut session = imap.session()?;
     let ext = session.enable_sync_extensions().await?;
-    sync.sync_all(&mut session, ext, |_| {}).await?;
+    sync.sync_all(&mut session, ext, |_, _| {}).await?;
     l.store.purge_placeholders(l.account, None).await?;
     let tree = l.store.tree(l.account).await?;
     let total = |pred: &dyn Fn(&str) -> bool| {

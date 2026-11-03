@@ -94,7 +94,7 @@ async fn worker() -> (Worker, FakeImap) {
         policy: FetchPolicy::default(),
         text: std::sync::Arc::new(norelly_render::search_text::MimeTextExtractor),
     }
-    .sync_all(&mut session, ext, |_| {})
+    .sync_all(&mut session, ext, |_, _| {})
     .await
     .unwrap_or_else(|e| panic!("{e}"));
     let worker = ComposeWorker {

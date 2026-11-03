@@ -73,7 +73,7 @@ impl World {
             text: std::sync::Arc::new(norelly_render::search_text::MimeTextExtractor),
         };
         self.boxes = use_case
-            .sync_all(&mut self.session, self.ext, |_| {})
+            .sync_all(&mut self.session, self.ext, |_, _| {})
             .await
             .unwrap_or_else(|e| panic!("{e}"));
         self.store

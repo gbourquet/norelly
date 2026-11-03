@@ -488,6 +488,8 @@ impl SyncEventDto {
             SyncEvent::FoldersChanged { account } => Self::FoldersChanged {
                 account: id(*account)?,
             },
+            // Relayé à part, selon les paramètres de notification.
+            SyncEvent::NewMail { .. } => return None,
             SyncEvent::Online { account } => Self::Online {
                 account: id(*account)?,
             },

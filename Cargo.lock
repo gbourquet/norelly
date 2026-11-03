@@ -3068,6 +3068,7 @@ dependencies = [
  "norelly-domain",
  "norelly-imap",
  "norelly-render",
+ "norelly-smtp",
  "norelly-sqlite",
  "norelly-test-support",
  "norelly-tls",

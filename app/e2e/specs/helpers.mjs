@@ -90,3 +90,52 @@ export async function canaryHits() {
   const body = await response.json();
   return body.hits;
 }
+
+/** Commande IMAP brève sur une session authentifiée ; renvoie la réponse. */
+export async function imapCommand(command) {
+  const socket = tls.connect({
+    host: "imap.norelly.test",
+    port: 31993,
+    servername: "imap.norelly.test",
+    rejectUnauthorized: false,
+  });
+  let buffer = "";
+  socket.setEncoding("utf8");
+  socket.on("data", (d) => (buffer += d));
+  const waitFor = async (pattern) => {
+    const deadline = Date.now() + 20000;
+    while (!pattern.test(buffer)) {
+      if (Date.now() > deadline) throw new Error(`IMAP : ${pattern} non reçu : ${buffer}`);
+      await new Promise((r) => setTimeout(r, 50));
+    }
+  };
+  await waitFor(/^\* OK/m);
+  socket.write(`a LOGIN norelly "${password}"\r\nb ${command}\r\n`);
+  await waitFor(/^b (OK|NO|BAD)/m);
+  const out = buffer;
+  socket.write("z LOGOUT\r\n");
+  socket.end();
+  return out;
+}
+
+/** Nombre de messages d'une boîte du serveur IMAP (STATUS). */
+export async function imapMessages(mailbox) {
+  const reply = await imapCommand(`STATUS "${mailbox}" (MESSAGES)`);
+  const match = /MESSAGES (\d+)/.exec(reply);
+  return match ? Number(match[1]) : 0;
+}
+
+const mailpit = "http://smtp.norelly.test:8025";
+
+/** Messages reçus par Mailpit (résumés, du plus récent au plus ancien). */
+export async function mailpitMessages() {
+  const response = await fetch(`${mailpit}/api/v1/messages`);
+  const body = await response.json();
+  return body.messages ?? [];
+}
+
+/** Message brut reçu par Mailpit. */
+export async function mailpitRaw(id) {
+  const response = await fetch(`${mailpit}/api/v1/message/${id}/raw`);
+  return response.text();
+}

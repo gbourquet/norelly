@@ -218,7 +218,8 @@ Commandes de référence (détail dans `scripts/check.sh`) :
 - [x] Application : `SendMessage` (file d'envoi persistante, envoi différé hors ligne), `SaveDraft`
   - `crates/application/src/compose.rs` (`SaveDraft`, `QueueMessage`, `PrepareReply`, `DeliverOutbox`, `RecoverOutbox`, `FileSentCopies`, `SyncDrafts`) ; `compose_worker.rs` : un travailleur par compte, connexion IMAP courte seulement s'il y a du travail.
 - [ ] Interface : éditeur Tiptap (gras, italique, liens, listes, citation), destinataires avec autocomplétion depuis les adresses connues, pièces jointes par glisser-déposer et par sélecteur, `c`/`r`/`a`/`f`, Ctrl+Entrée pour envoyer
-- [ ] Intégration : envoi via Mailpit vérifié par son API, brouillon présent sur Dovecot, copie dans Envoyés présente
+- [x] Intégration : envoi via Mailpit vérifié par son API, brouillon présent sur Dovecot, copie dans Envoyés présente
+  - `crates/application/tests/integration_compose.rs` (stockage réel, travailleur de rédaction) ; scénario e2e `app/e2e/specs/compose.e2e.mjs` (réponse par `r`, Cci hors des en-têtes, HTML saisi jamais interprété).
 - [x] Reports de la revue de la phase 6 (REVIEWS.md) : `hostile_message_sql.rs` étendu aux actions ; garde-fou `EXPUNGE` sans UIDPLUS (compte des `* n EXPUNGE`) ; file `pending_ops` lue une fois, `record_all` transactionnel, plafond par compte
   - plafond `MAX_PENDING_OPS` (10 000 par compte, code IPC `pending_queue_full`) ; suppressions en trop signalées par `ReplayReport::foreign_expunges` (boîte resynchronisée).
 - [ ] Revue security-reviewer, consignée dans REVIEWS.md (0 critique, 0 haute ; moyennes corrigées)

@@ -109,7 +109,7 @@ fn strip_tag(s: &str) -> Option<&str> {
 
 /// `Re: reste`, `RE[2]: reste`, `Fwd : reste`, `Ｒｅ：` (deux-points pleine
 /// chasse) → `reste`.
-fn strip_prefix(s: &str) -> Option<&str> {
+pub(crate) fn strip_prefix(s: &str) -> Option<&str> {
     let word_end = s
         .char_indices()
         .find(|(_, c)| !c.is_alphabetic())

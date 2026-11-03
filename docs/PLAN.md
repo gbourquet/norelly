@@ -201,12 +201,14 @@ Commandes de référence (détail dans `scripts/check.sh`) :
   - `adapters/imap/src/connection.rs` (81 %), `adapters/smtp/src/stream.rs` (86 %) : chemins d'erreur (réponses tronquées, `BAD`, délais) via le faux serveur scripté ;
   - front : `ServerFields.svelte` (0 %), `AddAccountDialog.svelte` (17 %), `lib/errors.ts` (40 %, tous les codes), `lib/i18n.ts` (55 %, `applySystemLocale`), `Splitter.svelte` (18 %, clavier), `ThreePaneLayout.svelte` (68 %, largeurs mémorisées), `lib/add-account.svelte.ts` (77 %) ; `lib/ipc/api.ts` (0 %, enveloppe des erreurs IPC) ;
   - décision du mainteneur : ajouter `cargo-llvm-cov` et `@vitest/coverage-v8` au projet, avec un seuil vérifié par `./scripts/check.sh` (renforcement, pas assouplissement).
-- [ ] Domaine :
+- [x] Domaine :
   - destinataires de répondre, répondre à tous et transférer (exclure ses propres adresses, dédoublonner, `Reply-To`) ;
   - sujet `Re:`/`Fwd:` sans empilement ;
   - `In-Reply-To`/`References` ;
   - citation
-- [ ] Domaine (ADR-011) : reconnaissance des préfixes de sujet étrangers (`TR`, `AW`, `WG`, `SV`, `VS`, `Antw`, `RIF`, `RE :`…) avec `proptest` ; préfixes produits toujours `Re:`/`Fwd:` ; en-tête de citation reçu en paramètre, localisé par l'interface
+  - `crates/domain/src/compose.rs` ; répondre à son propre message vise ses destinataires ; `References` bornées à 20 (racine et plus récents).
+- [x] Domaine (ADR-011) : reconnaissance des préfixes de sujet étrangers (`TR`, `AW`, `WG`, `SV`, `VS`, `Antw`, `RIF`, `RE :`…) avec `proptest` ; préfixes produits toujours `Re:`/`Fwd:` ; en-tête de citation reçu en paramètre, localisé par l'interface
+  - liste partagée avec le regroupement des conversations (`conversation::strip_prefix`).
 - [ ] Domaine : brouillon (cycle de vie, sauvegarde périodique), file d'envoi (états, nouvelles tentatives, échec définitif)
 - [ ] `adapters/render` : réassainissement du HTML Tiptap ; construction `multipart/alternative` + pièces jointes avec `lettre` ; tests du MIME produit (relu par `mail-parser`)
 - [ ] `adapters/imap` : APPEND des brouillons (remplacement de l'ancien via UIDPLUS), copie dans Envoyés (sauf serveurs qui le font eux-mêmes : Gmail)

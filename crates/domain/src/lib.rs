@@ -23,6 +23,7 @@ pub mod address;
 pub mod auth;
 pub mod capabilities;
 pub mod connection;
+pub mod compose;
 pub mod conversation;
 pub mod credentials;
 pub mod discovery;

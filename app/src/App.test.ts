@@ -50,6 +50,7 @@ vi.mock("./lib/ipc/api", () => ({
     outbox: vi.fn(async () => []),
     retrySend: vi.fn(),
     cancelSend: vi.fn(),
+    searchMessages: vi.fn(async () => ({ items: [], next: null })),
   },
 }));
 
@@ -174,5 +175,91 @@ describe("App", () => {
     await waitFor(() =>
       expect(screen.queryByRole("dialog", { name: "Nouveau message" })).toBeNull(),
     );
+  });
+
+  it("cherche avec /, surligne, ouvre un résultat et revient", async () => {
+    accounts.push({
+      id: 7,
+      address: "alice@example.com",
+      display_name: "Alice",
+      imap: server,
+      smtp: server,
+    } as AccountDto);
+    const found = (n: number, subject: string) => ({
+      message: n,
+      conversation: 100 + n,
+      account: 7,
+      mailbox: 30 + n,
+      date: 1_700_000_000,
+      from: { name: "Bob", address: "bob@example.com" },
+      subject: [
+        { text: "Facture", hit: true },
+        { text: subject, hit: false },
+      ],
+      snippet: [
+        { text: "la ", hit: false },
+        { text: "facture", hit: true },
+      ],
+      unread: false,
+      flagged: false,
+      has_attachments: false,
+    });
+    vi.mocked(api.searchMessages).mockResolvedValue({
+      items: [found(1, " d'avril"), found(2, " <img src=x onerror=alert(1)>")],
+      next: null,
+    });
+    render(App);
+    await screen.findAllByText("alice@example.com");
+    await fireEvent.keyDown(window, { key: "/" });
+    const box = await screen.findByRole("searchbox", { name: "Rechercher dans les messages" });
+    await waitFor(() => expect(box).toHaveFocus());
+    await fireEvent.input(box, { target: { value: "facture" } });
+    await fireEvent.keyDown(box, { key: "Enter" });
+    await waitFor(() =>
+      expect(api.searchMessages).toHaveBeenCalledWith(
+        "facture",
+        { kind: "all" },
+        expect.any(Number),
+        0,
+        50,
+      ),
+    );
+    const results = await screen.findByRole("listbox", { name: "Résultats de la recherche" });
+    await waitFor(() => expect(within(results).getAllByRole("option")).toHaveLength(2));
+    await waitFor(() => expect(results).toHaveFocus());
+    const marks = [...results.querySelectorAll("mark")].map((e) => e.textContent);
+    expect(marks).toEqual(["Facture", "facture", "Facture", "facture"]);
+    // Texte reçu affiché comme du texte, jamais interprété.
+    expect(within(results).getByText(/<img src=x onerror=alert\(1\)>/)).toBeInTheDocument();
+    expect(results.querySelector("img")).toBeNull();
+
+    await fireEvent.keyDown(results, { key: "j" });
+    await fireEvent.keyDown(results, { key: "Enter" });
+    await waitFor(() => expect(api.conversationMessages).toHaveBeenCalledWith(102));
+    await fireEvent.keyDown(window, { key: "Escape" });
+    expect(screen.getByRole("listbox", { name: "Résultats de la recherche" })).toBeInTheDocument();
+    await fireEvent.keyDown(window, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("searchbox")).toBeNull());
+    expect(screen.getByRole("listbox", { name: "Conversations" })).toBeInTheDocument();
+  });
+
+  it("signale une recherche sans résultat", async () => {
+    vi.mocked(api.searchMessages).mockResolvedValue({ items: [], next: null });
+    accounts.push({
+      id: 7,
+      address: "alice@example.com",
+      display_name: "Alice",
+      imap: server,
+      smtp: server,
+    } as AccountDto);
+    render(App);
+    await screen.findAllByText("alice@example.com");
+    await fireEvent.click(screen.getByRole("button", { name: "Rechercher dans les messages" }));
+    const box = await screen.findByRole("searchbox", { name: "Rechercher dans les messages" });
+    await fireEvent.input(box, { target: { value: "zzz" } });
+    await fireEvent.keyDown(box, { key: "Enter" });
+    expect(await screen.findByText("Aucun message trouvé.")).toBeInTheDocument();
+    await fireEvent.keyDown(box, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("searchbox")).toBeNull());
   });
 });

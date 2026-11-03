@@ -174,10 +174,10 @@ fn search_query(c: &Connection, request: &SearchRequest) -> Result<SearchPage, S
 
     let mut sql = Sql::default();
     if ranked {
-        sql.push(concat_select_ranked());
+        sql.push(SELECT_RANKED);
         sql.bind("WHERE message_search MATCH ?", positive.join(" AND "));
     } else {
-        sql.push(concat_select_by_date());
+        sql.push(SELECT_BY_DATE);
         sql.push("WHERE 1 = 1");
     }
     sql.push("AND");
@@ -257,29 +257,18 @@ fn search_query(c: &Connection, request: &SearchRequest) -> Result<SearchPage, S
 }
 
 /// Début de la requête classée par pertinence (texte cherché).
-const fn concat_select_ranked() -> &'static str {
-    // sql-const : fragments littéraux et constantes seulement.
-    concat!(
-        "SELECT m.id, b.account_id, m.mailbox_id, m.conversation_id, m.uid, ",
-        "m.sort_date, m.from_name, m.from_address, m.subject, m.flags, ",
-        "m.keywords, m.has_attachments, ",
-        "snippet(message_search, 3, '', '', '…', 24) ",
-        "FROM message_search JOIN messages m ON m.id = message_search.rowid ",
-        "JOIN mailboxes b ON b.id = m.mailbox_id"
-    )
-}
+const SELECT_RANKED: &str = "SELECT m.id, b.account_id, m.mailbox_id, m.conversation_id, m.uid, \
+     m.sort_date, m.from_name, m.from_address, m.subject, m.flags, m.keywords, \
+     m.has_attachments, snippet(message_search, 3, '', '', '…', 24) \
+     FROM message_search JOIN messages m ON m.id = message_search.rowid \
+     JOIN mailboxes b ON b.id = m.mailbox_id";
 
 /// Début de la requête classée par date (filtres et négations seulement).
-const fn concat_select_by_date() -> &'static str {
-    // sql-const : fragments littéraux seulement.
-    concat!(
-        "SELECT m.id, b.account_id, m.mailbox_id, m.conversation_id, m.uid, ",
-        "m.sort_date, m.from_name, m.from_address, m.subject, m.flags, ",
-        "m.keywords, m.has_attachments, substr(t.body, 1, 400) ",
-        "FROM messages m JOIN mailboxes b ON b.id = m.mailbox_id ",
-        "LEFT JOIN message_texts t ON t.message_id = m.id"
-    )
-}
+const SELECT_BY_DATE: &str = "SELECT m.id, b.account_id, m.mailbox_id, m.conversation_id, m.uid, \
+     m.sort_date, m.from_name, m.from_address, m.subject, m.flags, m.keywords, \
+     m.has_attachments, substr(t.body, 1, 400) \
+     FROM messages m JOIN mailboxes b ON b.id = m.mailbox_id \
+     LEFT JOIN message_texts t ON t.message_id = m.id";
 
 impl SearchIndex for SqliteMailStore {
     async fn search(&self, request: SearchRequest) -> Result<SearchPage, StoreError> {

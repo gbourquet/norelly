@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { setLocale } from "./paraglide/runtime.js";
-import { fileSize, personName, shortDate } from "./format";
+import { fileSize, localUtcOffset, personName, shortDate } from "./format";
 
 describe("mise en forme", () => {
   it("date courte selon l'ancienneté", () => {
@@ -30,5 +30,14 @@ describe("mise en forme dans la locale active", () => {
     expect(fileSize(512)).toBe("512 B");
     expect(fileSize(3.5 * 1024 * 1024)).toBe("3.5 MB");
     expect(personName(null)).toBe("(unknown sender)");
+  });
+});
+
+describe("fuseau local", () => {
+  it("donne le décalage UTC en minutes, de signe inverse à getTimezoneOffset", () => {
+    const paris = { getTimezoneOffset: () => -60 } as Date;
+    expect(localUtcOffset(paris)).toBe(60);
+    const quebec = { getTimezoneOffset: () => 300 } as Date;
+    expect(localUtcOffset(quebec)).toBe(-300);
   });
 });

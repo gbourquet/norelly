@@ -5,6 +5,7 @@
   import PaperclipIcon from "@lucide/svelte/icons/paperclip";
   import FlagIcon from "@lucide/svelte/icons/flag";
   import CheckIcon from "@lucide/svelte/icons/check";
+  import SearchIcon from "@lucide/svelte/icons/search";
   import { ContextMenu } from "bits-ui";
   import type { MailState } from "../lib/mail.svelte";
   import type { CommandRegistry } from "../lib/commands/registry";
@@ -19,9 +20,11 @@
     title: string;
     registry: CommandRegistry<C>;
     context: C;
+    /** Ouvre la recherche (bouton de l'en-tête). */
+    onSearch?: () => void;
   }
 
-  let { mail, title, registry, context }: Props = $props();
+  let { mail, title, registry, context, onSearch }: Props = $props();
 
   /** Entrées du menu contextuel : ouvrir, puis les actions de la
    * conversation visée. */
@@ -76,6 +79,17 @@
     <h2>{title}</h2>
     {#if mail.marked.length > 0}
       <span class="marked-count">{m.list_marked({ count: mail.marked.length })}</span>
+    {/if}
+    {#if onSearch}
+      <button
+        class="btn-icon search-button"
+        type="button"
+        aria-label={m.search_label()}
+        title={m.search_label()}
+        onclick={onSearch}
+      >
+        <SearchIcon size={16} aria-hidden="true" />
+      </button>
     {/if}
   </header>
   {#if mail.error}
@@ -194,6 +208,11 @@
     gap: var(--space-2);
     padding: var(--space-3) var(--space-4);
     border-bottom: var(--border-width) solid var(--color-border);
+  }
+
+  .search-button {
+    margin-left: auto;
+    align-self: center;
   }
 
   h2 {

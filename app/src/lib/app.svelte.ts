@@ -5,6 +5,7 @@ import { CommandRegistry } from "./commands/registry";
 import { api, type AccountDto, type ComposeKindDto, type OutboxItemDto } from "./ipc/api";
 import { ComposeState } from "./compose.svelte";
 import { MailState } from "./mail.svelte";
+import { SearchState } from "./search.svelte";
 import type { ConversationMessage } from "./ipc/api";
 import { failureLabel } from "./outbox";
 import { m } from "./paraglide/messages.js";
@@ -34,6 +35,10 @@ export interface AppContext {
   hasTargets: boolean;
   /** La dernière action peut être annulée. */
   canUndo: boolean;
+  /** La recherche est affichée à la place de la liste. */
+  searching: boolean;
+  /** Nombre de résultats de recherche affichés. */
+  results: number;
 }
 
 class AppState {
@@ -59,8 +64,12 @@ class AppState {
       dialog: this.dialog,
       conversations: mail.conversations.length,
       reading: mail.opened !== null,
-      hasTargets: mail.targets().length > 0,
+      // Liste des résultats sans conversation ouverte : rien à viser (la
+      // liste des conversations est masquée).
+      hasTargets: search.active && mail.opened === null ? false : mail.targets().length > 0,
       canUndo: mail.lastAction !== null,
+      searching: search.active,
+      results: search.hits.length,
     };
   }
 
@@ -134,6 +143,27 @@ class AppState {
 
 export const mail = new MailState(api);
 
+export const search = new SearchState(api);
+
+// Une action peut retirer un résultat (suppression, déplacement…).
+mail.onActed = () => void search.refresh();
+
+/** Ouvre la conversation du résultat sélectionné, dans son dossier. */
+export async function openSelectedHit(): Promise<void> {
+  const hit = search.selected;
+  if (hit === null) return;
+  const conversation = search.conversationOf(hit);
+  if (conversation === null) return;
+  await mail.openConversation(conversation, { kind: "mailbox", id: hit.mailbox });
+}
+
+/** Résultat suivant ou précédent ; ouvert si la lecture est affichée. */
+async function stepHit(forward: boolean): Promise<void> {
+  if (forward) search.next();
+  else search.previous();
+  if (mail.opened !== null) await openSelectedHit();
+}
+
 export const compose = new ComposeState(api);
 
 export const app = new AppState();
@@ -179,32 +209,40 @@ export function registerAppCommands(): () => void {
       title: m.cmd_next(),
       group: m.group_reading(),
       shortcut: "j",
-      when: (ctx) => ctx.conversations > 0,
-      run: () => mail.next(),
+      when: (ctx) => (ctx.searching ? ctx.results > 0 : ctx.conversations > 0),
+      run: () => (search.active ? stepHit(true) : mail.next()),
     }),
     registry.register({
       id: "conversation.previous",
       title: m.cmd_previous(),
       group: m.group_reading(),
       shortcut: "k",
-      when: (ctx) => ctx.conversations > 0,
-      run: () => mail.previous(),
+      when: (ctx) => (ctx.searching ? ctx.results > 0 : ctx.conversations > 0),
+      run: () => (search.active ? stepHit(false) : mail.previous()),
     }),
     registry.register({
       id: "conversation.open",
       title: m.cmd_open(),
       group: m.group_reading(),
       shortcut: "Enter",
-      when: (ctx) => ctx.conversations > 0 && !ctx.reading,
-      run: () => mail.open(),
+      when: (ctx) => !ctx.reading && (ctx.searching ? ctx.results > 0 : ctx.conversations > 0),
+      run: () => (search.active ? openSelectedHit() : mail.open()),
     }),
     registry.register({
       id: "conversation.back",
       title: m.cmd_back(),
       group: m.group_reading(),
       shortcut: "Escape",
-      when: (ctx) => ctx.reading,
-      run: () => mail.back(),
+      when: (ctx) => ctx.reading || ctx.searching,
+      run: (ctx) => (ctx.reading ? mail.back() : search.close()),
+    }),
+    registry.register({
+      id: "search.open",
+      title: m.cmd_search(),
+      group: m.group_reading(),
+      shortcut: "/",
+      keywords: words(m.cmd_search_keywords()),
+      run: () => search.open(),
     }),
     registry.register({
       id: "mailbox.unified",

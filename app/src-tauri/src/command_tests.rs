@@ -342,19 +342,35 @@ async fn search_finds_messages_with_highlighted_segments() {
     assert_eq!(page.items.len(), 2);
     assert_eq!(page.next, None);
     let subjects: Vec<String> = page.items.iter().map(|h| plain(&h.subject)).collect();
-    assert_eq!(subjects, ["Sujet 2", "Sujet 1"], "à pertinence égale : le plus récent");
+    assert_eq!(
+        subjects,
+        ["Sujet 2", "Sujet 1"],
+        "à pertinence égale : le plus récent"
+    );
     let first = &page.items[0];
     assert_eq!(hits(&first.subject), ["Sujet"]);
     assert_eq!(first.account, account);
     assert!(first.conversation.is_some());
     assert!(first.unread && !first.flagged);
-    assert_eq!(first.from.as_ref().map(|f| f.address.as_str()), Some("e2@example.com"));
+    assert_eq!(
+        first.from.as_ref().map(|f| f.address.as_str()),
+        Some("e2@example.com")
+    );
 
     let one = search_messages(t.state(), "from:e1".into(), SearchScopeDto::All, 0, 0, 50)
         .await
         .unwrap_or_else(|e| panic!("{e:?}"));
-    assert_eq!(one.items.iter().map(|h| plain(&h.subject)).collect::<Vec<_>>(), ["Sujet 1"]);
-    assert!(hits(&one.items[0].subject).is_empty(), "terme de l'expéditeur : sujet non surligné");
+    assert_eq!(
+        one.items
+            .iter()
+            .map(|h| plain(&h.subject))
+            .collect::<Vec<_>>(),
+        ["Sujet 1"]
+    );
+    assert!(
+        hits(&one.items[0].subject).is_empty(),
+        "terme de l'expéditeur : sujet non surligné"
+    );
 
     let scoped = search_messages(
         t.state(),
@@ -395,11 +411,31 @@ async fn search_inputs_are_revalidated() {
         (ErrorCodeDto::InvalidInput, Some(FieldDto::Query))
     );
     assert_eq!(
-        code(search_messages(t.state(), "a".into(), SearchScopeDto::Account { id: 0 }, 0, 0, 50).await),
+        code(
+            search_messages(
+                t.state(),
+                "a".into(),
+                SearchScopeDto::Account { id: 0 },
+                0,
+                0,
+                50
+            )
+            .await
+        ),
         (ErrorCodeDto::InvalidInput, Some(FieldDto::Account))
     );
     assert_eq!(
-        code(search_messages(t.state(), "a".into(), SearchScopeDto::Mailbox { id: 0 }, 0, 0, 50).await),
+        code(
+            search_messages(
+                t.state(),
+                "a".into(),
+                SearchScopeDto::Mailbox { id: 0 },
+                0,
+                0,
+                50
+            )
+            .await
+        ),
         (ErrorCodeDto::InvalidInput, Some(FieldDto::Mailbox))
     );
 }

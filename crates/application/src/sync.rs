@@ -300,7 +300,9 @@ impl<M: MailStore, B: BlobStore> SyncAccount<'_, M, B> {
                 };
                 let text = self.text.searchable_text(&body, structure.as_ref());
                 let body = store_fetched(self.blobs, self.account, body, fetch).await?;
-                self.store.set_body(mailbox, uid, &body, Some(&text)).await?;
+                self.store
+                    .set_body(mailbox, uid, &body, Some(&text))
+                    .await?;
                 done += 1;
                 progressed = true;
             }

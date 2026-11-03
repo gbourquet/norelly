@@ -12,8 +12,8 @@ use norelly_domain::search::{Segment, highlight, parse_query};
 use tauri::State;
 
 use crate::ipc::{
-    CorrespondentDto, FieldDto, IpcError, SearchHitDto, SearchPageDto, SearchScopeDto,
-    SegmentDto, date_dto, id32,
+    CorrespondentDto, FieldDto, IpcError, SearchHitDto, SearchPageDto, SearchScopeDto, SegmentDto,
+    date_dto, id32,
 };
 use crate::state::AppState;
 

@@ -1,5 +1,7 @@
 use norelly_domain::capabilities::ServerCapabilities;
-use norelly_domain::compose::draft::{DraftAttachment, REMOTE_SAVE_INTERVAL_SECS};
+use norelly_domain::compose::draft::{
+    DraftAttachment, MAX_ATTACHMENTS_BYTES, REMOTE_SAVE_INTERVAL_SECS,
+};
 use norelly_domain::compose::outbox::{OutboxEntry, OutboxState, RETRY_BASE_SECS};
 use norelly_domain::credentials::{Credentials, Secret, Username};
 use norelly_domain::endpoint::{Host, Security, ServerEndpoint};
@@ -291,6 +293,29 @@ async fn queue_message_refuses_invalid_drafts() {
             .await
             .unwrap_or_else(|e| panic!("{e}"))
             .is_empty()
+    );
+}
+
+#[tokio::test]
+async fn queue_message_checks_the_real_attachment_sizes() {
+    let w = world(true).await;
+    let size = usize::try_from(MAX_ATTACHMENTS_BYTES).unwrap_or(usize::MAX) + 1;
+    let blob = w
+        .blobs
+        .put(account(), vec![b'x'; size])
+        .await
+        .unwrap_or_else(|e| panic!("{e}"));
+    let mut d = draft_to("bob@example.com");
+    // Taille déclarée par l'interface : mensongère.
+    d.attachments = vec![DraftAttachment {
+        blob,
+        file_name: "gros.bin".into(),
+        content_type: "application/octet-stream".into(),
+        size: 1,
+    }];
+    assert_eq!(
+        w.queue().execute(None, &d, &me(), NOW).await,
+        Err(ComposeFailure::Invalid(ComposeError::AttachmentsTooLarge))
     );
 }
 

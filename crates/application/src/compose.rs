@@ -11,7 +11,9 @@
 
 use norelly_domain::account::AccountId;
 use norelly_domain::address::EmailAddress;
-use norelly_domain::compose::draft::{ComposeError, Draft, Recipient, remote_drafts_supported};
+use norelly_domain::compose::draft::{
+    ComposeError, Draft, MAX_ATTACHMENTS_BYTES, Recipient, remote_drafts_supported,
+};
 use norelly_domain::compose::outbox::{OutboxState, SendFailure, sent_copy_needed};
 use norelly_domain::compose::{
     ReplyKind, Threading, forward_subject, quote, reply_recipients, reply_subject, reply_threading,
@@ -79,19 +81,7 @@ where
         now: i64,
     ) -> Result<OutboxId, ComposeFailure> {
         draft.check_sendable()?;
-        let mut attachments = Vec::with_capacity(draft.attachments.len());
-        for a in &draft.attachments {
-            let bytes = self
-                .blobs
-                .get(draft.account, &a.blob)
-                .await?
-                .ok_or(ComposeFailure::NotFound)?;
-            attachments.push(ComposedAttachment {
-                file_name: a.file_name.clone(),
-                content_type: a.content_type.clone(),
-                bytes,
-            });
-        }
+        let attachments = load_attachments(self.blobs, draft).await?;
         let composition = Composition {
             from: from.clone(),
             draft: draft.clone(),
@@ -440,19 +430,7 @@ where
         from: &Recipient,
         now: i64,
     ) -> Result<Vec<u8>, ComposeFailure> {
-        let mut attachments = Vec::with_capacity(draft.attachments.len());
-        for a in &draft.attachments {
-            let bytes = self
-                .blobs
-                .get(draft.account, &a.blob)
-                .await?
-                .ok_or(ComposeFailure::NotFound)?;
-            attachments.push(ComposedAttachment {
-                file_name: a.file_name.clone(),
-                content_type: a.content_type.clone(),
-                bytes,
-            });
-        }
+        let attachments = load_attachments(self.blobs, draft).await?;
         let composition = Composition {
             from: from.clone(),
             draft: draft.clone(),
@@ -462,6 +440,32 @@ where
         };
         Ok(self.composer.compose(&composition)?.local_copy)
     }
+}
+
+/// Pièces jointes d'un brouillon relues dans les blobs. Leur taille réelle
+/// est revérifiée : celle du brouillon est déclarée par l'interface.
+async fn load_attachments<B: BlobStore>(
+    blobs: &B,
+    draft: &Draft,
+) -> Result<Vec<ComposedAttachment>, ComposeFailure> {
+    let mut attachments = Vec::with_capacity(draft.attachments.len());
+    let mut total: u64 = 0;
+    for a in &draft.attachments {
+        let bytes = blobs
+            .get(draft.account, &a.blob)
+            .await?
+            .ok_or(ComposeFailure::NotFound)?;
+        total = total.saturating_add(u64::try_from(bytes.len()).unwrap_or(u64::MAX));
+        if total > MAX_ATTACHMENTS_BYTES {
+            return Err(ComposeError::AttachmentsTooLarge.into());
+        }
+        attachments.push(ComposedAttachment {
+            file_name: a.file_name.clone(),
+            content_type: a.content_type.clone(),
+            bytes,
+        });
+    }
+    Ok(attachments)
 }
 
 /// Nom du dossier d'un compte ayant ce rôle.

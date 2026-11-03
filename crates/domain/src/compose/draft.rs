@@ -35,6 +35,8 @@ pub const MAX_RECIPIENTS: usize = 100;
 /// Taille cumulée maximale des pièces jointes (25 Mio, limite usuelle des
 /// serveurs).
 pub const MAX_ATTACHMENTS_BYTES: u64 = 25 * 1024 * 1024;
+/// Nombre maximal de pièces jointes d'un message.
+pub const MAX_ATTACHMENTS: usize = 100;
 /// Taille maximale du corps (texte et HTML, chacun).
 pub const MAX_BODY_BYTES: usize = 5 * 1024 * 1024;
 /// Caractères au plus dans le sujet.
@@ -103,6 +105,8 @@ pub enum ComposeError {
     BodyTooLarge,
     #[error("pièces jointes trop volumineuses")]
     AttachmentsTooLarge,
+    #[error("trop de pièces jointes")]
+    TooManyAttachments,
     #[error("identifiant de message invalide (In-Reply-To, References)")]
     InvalidThreading,
 }
@@ -161,6 +165,9 @@ impl Draft {
                 .all(|id| valid_message_id(id))
         {
             return Err(ComposeError::InvalidThreading);
+        }
+        if self.attachments.len() > MAX_ATTACHMENTS {
+            return Err(ComposeError::TooManyAttachments);
         }
         let total = self
             .attachments
@@ -364,6 +371,15 @@ mod tests {
             .map(|n| format!("r{n}@x"))
             .collect();
         assert_eq!(d.check_storable(), Err(ComposeError::InvalidThreading));
+    }
+
+    #[test]
+    fn attachment_count_is_bounded() {
+        let mut d = sendable();
+        d.attachments = (0..MAX_ATTACHMENTS).map(|_| attachment(1)).collect();
+        assert_eq!(d.check_storable(), Ok(()));
+        d.attachments.push(attachment(1));
+        assert_eq!(d.check_storable(), Err(ComposeError::TooManyAttachments));
     }
 
     #[test]

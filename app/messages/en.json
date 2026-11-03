@@ -254,6 +254,7 @@
   "err_invalid_subject": "The subject contains a forbidden character or is too long.",
   "err_body_too_large": "The message is too long.",
   "err_attachments_too_large": "Attachments exceed 25 MiB.",
+  "err_too_many_attachments": "Too many attachments (100 at most).",
   "err_outbox_busy": "This message is being sent: try again in a moment.",
   "field_draft": "draft",
   "field_attachment": "attached file",

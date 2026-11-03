@@ -473,6 +473,8 @@ export type ErrorCodeDto =
 "body_too_large" | 
 /**  Pièces jointes trop volumineuses. */
 "attachments_too_large" | 
+/**  Plus de pièces jointes que la limite. */
+"too_many_attachments" | 
 /**  Envoi non annulable ou non relançable dans son état. */
 "outbox_busy" | 
 /**  Erreur interne (journalisée). */

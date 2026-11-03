@@ -230,3 +230,90 @@ async fn accounts_are_listed_and_removed() {
             .is_empty()
     );
 }
+
+#[tokio::test]
+async fn reading_commands_revalidate_and_answer() {
+    use crate::reading::{
+        allow_remote_images, conversation_messages, open_attachment, open_external, open_message,
+        reading_preferences, set_prefer_plain_text, sync_account,
+    };
+    let t = test_app().await;
+    let account = id32(t.account.get());
+    let message = id32(t.messages[0].get());
+
+    // Message ouvert (corps absent : vue sans contenu, pas d'erreur).
+    let view = open_message(t.state(), message)
+        .await
+        .unwrap_or_else(|e| panic!("{e:?}"));
+    assert_eq!(view.id, message);
+    assert_eq!(
+        code(open_message(t.state(), 0).await),
+        (ErrorCodeDto::InvalidInput, Some(FieldDto::Message))
+    );
+    assert_eq!(
+        code(open_message(t.state(), 999_999).await).0,
+        ErrorCodeDto::NotFound
+    );
+
+    // Conversation du message.
+    let folders = list_folders(t.state(), account)
+        .await
+        .unwrap_or_else(|e| panic!("{e:?}"));
+    let inbox = folders
+        .iter()
+        .find(|f| f.role == "inbox")
+        .map(|f| f.id)
+        .unwrap_or_else(|| panic!("INBOX"));
+    let page = list_conversations(t.state(), ScopeDto::Mailbox { id: inbox }, None, 10)
+        .await
+        .unwrap_or_else(|e| panic!("{e:?}"));
+    let messages = conversation_messages(t.state(), page.items[0].id)
+        .await
+        .unwrap_or_else(|e| panic!("{e:?}"));
+    assert_eq!(messages.len(), 1);
+    assert_eq!(
+        code(conversation_messages(t.state(), 0).await),
+        (ErrorCodeDto::InvalidInput, Some(FieldDto::Conversation))
+    );
+
+    // Préférences de lecture.
+    set_prefer_plain_text(t.state(), true)
+        .await
+        .unwrap_or_else(|e| panic!("{e:?}"));
+    assert!(
+        reading_preferences(t.state())
+            .await
+            .unwrap_or_else(|e| panic!("{e:?}"))
+            .prefer_plain_text
+    );
+    allow_remote_images(t.state(), message)
+        .await
+        .unwrap_or_else(|e| panic!("{e:?}"));
+
+    // Liens : seuls http, https et mailto (aucune ouverture tentée ici).
+    for bad in [
+        "javascript:alert(1)",
+        "file:///etc/passwd",
+        "data:text/html,x",
+    ] {
+        assert_eq!(
+            code(open_external(bad.into()).await).0,
+            ErrorCodeDto::LinkRefused,
+            "{bad}"
+        );
+    }
+    // Pièce jointe introuvable, partie invalide.
+    assert_eq!(
+        code(open_attachment(t.state(), message, "pas-une-partie".into()).await),
+        (ErrorCodeDto::InvalidInput, Some(FieldDto::Part))
+    );
+    assert_eq!(
+        code(open_attachment(t.state(), message, "1.9".into()).await).0,
+        ErrorCodeDto::NotFound
+    );
+    // Compte inconnu ou invalide.
+    assert_eq!(
+        code(sync_account(t.state(), 0).await),
+        (ErrorCodeDto::InvalidInput, Some(FieldDto::Account))
+    );
+}

@@ -194,7 +194,7 @@ Commandes de référence (détail dans `scripts/check.sh`) :
 
 ## Phase 7 : rédaction et envoi
 
-- [ ] Rattrapage de couverture (TDD, voir CLAUDE.md), mesuré le 2026-11-02 sur `master` (Rust : `cargo llvm-cov`, tests unitaires et d'intégration, 87 % des lignes ; front : Vitest + coverage-v8, 71 % des lignes). Le code non couvert reçoit des tests qui décrivent son comportement ; un test qui révèle un défaut suit la règle « bug = d'abord un test rouge » :
+- [x] Rattrapage de couverture (TDD, voir CLAUDE.md), mesuré le 2026-11-02 sur `master` (Rust : `cargo llvm-cov`, tests unitaires et d'intégration, 87 % des lignes ; front : Vitest + coverage-v8, 71 % des lignes). Le code non couvert reçoit des tests qui décrivent son comportement ; un test qui révèle un défaut suit la règle « bug = d'abord un test rouge » :
   - `app/src-tauri` (adaptateur entrant), le moins couvert : `mail.rs` (7 %), `actions.rs` (14 %), `reading.rs` (22 %), `protocols.rs` (26 %), `ipc.rs` (34 %), `commands.rs` (38 %), `remote_images.rs` (68 %). Commandes IPC et protocoles testés sans webview, contre le faux serveur ou Dovecot en conteneur : revalidation des entrées, codes d'erreur, `mailview://`, `mailpart://`, `remote-img://`, enregistrement et ouverture des pièces jointes ;
   - `adapters/keyring/src/lib.rs` (38 %) : chemin Secret Service, joué seulement si un trousseau répond (conteneur avec gnome-keyring, comme les e2e) ;
   - `adapters/discovery/src/srv.rs` (52 %) : résolution SRV contre un serveur DNS de test en conteneur, jamais un vrai DNS ;
@@ -202,7 +202,13 @@ Commandes de référence (détail dans `scripts/check.sh`) :
   - front : `ServerFields.svelte` (0 %), `AddAccountDialog.svelte` (17 %), `lib/errors.ts` (40 %, tous les codes), `lib/i18n.ts` (55 %, `applySystemLocale`), `Splitter.svelte` (18 %, clavier), `ThreePaneLayout.svelte` (68 %, largeurs mémorisées), `lib/add-account.svelte.ts` (77 %) ; `lib/ipc/api.ts` (0 %, enveloppe des erreurs IPC) ;
   - décision du mainteneur : ajouter `cargo-llvm-cov` et `@vitest/coverage-v8` au projet, avec un seuil vérifié par `./scripts/check.sh` (renforcement, pas assouplissement).
   - **Fait (2026-11-03)** : `cargo-llvm-cov` et `@vitest/coverage-v8` 5.0.5 branchés dans `./scripts/check.sh` avec des seuils au niveau mesuré (Rust : 83 % des lignes en tests unitaires ; front : 78 % des lignes, 74 % des instructions, 67 % des branches, 72 % des fonctions) ; front : `errors.ts` (tous les codes, champs et catégories, liste vérifiée par le typage, doublon de libellé corrigé), `i18n.ts` (`applySystemLocale`), `Splitter.svelte` (clavier), `lib/ipc/api.ts` (enveloppe des erreurs), `ServerFields.svelte`.
-  - **Reste** : `app/src-tauri` (commandes et protocoles sans webview), `adapters/keyring` (Secret Service en conteneur), `adapters/discovery/src/srv.rs` (DNS de test en conteneur), chemins d'erreur de `imap/src/connection.rs` et `smtp/src/stream.rs`, `AddAccountDialog.svelte`, `ThreePaneLayout.svelte`, `add-account.svelte.ts`. Les seuils seront relevés au fil de ces ajouts.
+  - **Fait ensuite (2026-11-03)** :
+    - `app/src-tauri` : commandes IPC appelées sans webview (application factice `tauri::test`, état réel sur dossier temporaire : actions, dossiers, conversations, lecture, rédaction, file d'envoi, suggestions, comptes) et protocoles `mailview://`, `mailpart://`, `remote-img://` (en-têtes de sécurité, refus) ;
+    - `adapters/keyring` : contrat `SecretStore` joué contre GNOME Keyring dans le conteneur des e2e (`integration_secret_service.rs`, `in-container.sh`), jamais contre le trousseau d'un poste ;
+    - `adapters/discovery/src/srv.rs` : serveur DNS de test en processus (UDP local, même principe que les faux serveurs scriptés d'ADR-007, plutôt qu'un conteneur de plus) ;
+    - `imap/src/connection.rs` : IDLE (changement, délai, refus, `BYE`) ; front : `ThreePaneLayout.svelte`, `AddAccountDialog.svelte`.
+    - Seuils relevés : Rust 86 % des lignes (tests unitaires) ; front 81 % des lignes, 77 % des instructions, 71 % des branches, 74 % des fonctions.
+    - Encore faible, couvert par les tests d'intégration et e2e plutôt qu'unitaires : `app/src-tauri/src/mail.rs` (acteurs, rendu avec téléchargement) et le chemin Secret Service de `keyring` dans la mesure de l'hôte.
 - [x] Domaine :
   - destinataires de répondre, répondre à tous et transférer (exclure ses propres adresses, dédoublonner, `Reply-To`) ;
   - sujet `Re:`/`Fwd:` sans empilement ;

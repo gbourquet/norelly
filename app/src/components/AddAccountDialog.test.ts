@@ -21,8 +21,8 @@ function fakeApi(results: AddAccountResult[]): AccountApi {
   return {
     listAccounts: vi.fn(async () => []),
     discoverSettings: vi.fn(async () => ({
-      imap: { server: account.imap, source: "mozilla_ispdb", requires_confirmation: false },
-      smtp: { server: account.smtp, source: "mozilla_ispdb", requires_confirmation: false },
+      imap: { server: account.imap, source: "mozilla_ispdb" as const, requires_confirmation: false },
+      smtp: { server: account.smtp, source: "mozilla_ispdb" as const, requires_confirmation: false },
     })),
     addAccount: vi.fn(async () => {
       const next = results.shift();

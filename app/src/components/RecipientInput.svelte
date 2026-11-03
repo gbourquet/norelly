@@ -141,6 +141,10 @@
     cursor: pointer;
   }
 
+  input:focus-visible {
+    box-shadow: inset 0 -2px 0 var(--color-focus);
+  }
+
   input {
     flex: 1;
     min-width: 10rem;

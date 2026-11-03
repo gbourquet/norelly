@@ -347,4 +347,29 @@ describe("App", () => {
     expect(api.showNotification).not.toHaveBeenCalled();
     focus.mockRestore();
   });
+
+  it("donne un nom accessible à chaque contrôle (passe d'accessibilité)", async () => {
+    accounts.push({
+      id: 7,
+      address: "alice@example.com",
+      display_name: "Alice",
+      imap: server,
+      smtp: server,
+    } as AccountDto);
+    render(App);
+    await screen.findAllByText("alice@example.com");
+    const unnamed = () =>
+      ["button", "textbox", "searchbox", "checkbox", "combobox", "listbox"].flatMap((role) =>
+        screen
+          .queryAllByRole(role, { name: "" })
+          .map((e) => `${role} : ${e.outerHTML.slice(0, 80)}`),
+      );
+    expect(unnamed()).toEqual([]);
+    await fireEvent.keyDown(window, { key: "/" });
+    await screen.findByRole("searchbox");
+    expect(unnamed()).toEqual([]);
+    await fireEvent.keyDown(window, { key: ",", ctrlKey: true });
+    await screen.findByRole("dialog", { name: "Paramètres" });
+    expect(unnamed()).toEqual([]);
+  });
 });

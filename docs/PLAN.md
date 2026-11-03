@@ -272,7 +272,8 @@ Commandes de référence (détail dans `scripts/check.sh`) :
 - [x] Paramètres : question de mise à jour au premier lancement (oui présélectionné), modifiable ; préférences d'affichage, de rapatriement et de notifications
   - domaine `settings` (bornes du seuil de rapatriement, filtre des notifications), port `SettingsStore` (contrat, faux, SQLite : valeur illisible ou hors bornes remplacée par sa valeur par défaut), commandes `get_settings`/`save_settings`, dialogue Paramètres (`Ctrl+,`), question au premier lancement (`UpdateQuestion`, « Oui » a le focus) ; le seuil s'applique au démarrage des acteurs. La recherche de mises à jour elle-même arrive en phase 10 (`tauri-plugin-updater`).
 - [ ] Mesure de bout en bout : démarrage et changement de dossier < 200 ms sur la boîte de 50k messages (test end-to-end avec mesure, seuil dans le job nocturne)
-- [ ] Passe accessibilité : focus visible, rôles ARIA, navigation entièrement au clavier, contrastes
+- [x] Passe accessibilité : focus visible, rôles ARIA, navigation entièrement au clavier, contrastes
+  - `app/src/styles/accessibility.test.ts` : contrastes WCAG AA des jetons dans les deux thèmes (4,5:1 pour le texte, 3:1 pour le focus) ; tout composant qui retire le contour fournit sa règle `:focus-visible` (palette, liste, éditeur, destinataires corrigés) ; `App.test.ts` : aucun bouton, champ, case, liste déroulante ou liste sans nom accessible (liste, recherche, paramètres). Clavier : chaque action est une commande du registre (raccourci et palette) ; listes en `listbox`/`option` avec `aria-activedescendant`.
 - [ ] Checklist de tests manuels Gmail, Fastmail, Outlook.com (IMAP par mot de passe d'application), consignée dans `docs/MANUAL-TESTS.md`
 - [ ] Revue security-reviewer, consignée dans REVIEWS.md (0 critique, 0 haute ; moyennes corrigées)
 

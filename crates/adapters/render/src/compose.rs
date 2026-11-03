@@ -31,7 +31,7 @@ use norelly_domain::ports::{
 use norelly_domain::reading::safe_file_name;
 
 use crate::escape_html;
-use crate::sanitize::nesting_depth;
+use crate::sanitize::{MAX_HTML_LEN, nesting_depth};
 
 /// Écrire l'en-tête `Bcc` ?
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -217,9 +217,12 @@ mod text {
                         children: Vec::new(),
                     });
                 }
-            } else {
+            } else if stack.len() <= super::MAX_COMPOSED_NESTING {
                 stack.push((name, href, Vec::new()));
             }
+            // Au-delà de la profondeur maximale, les balises ouvrantes sont
+            // ignorées (leur texte rejoint l'élément courant) : l'arbre, et
+            // donc la récursion qui le parcourt, reste borné.
         }
         while stack.len() > 1 {
             let Some((n, h, children)) = stack.pop() else {
@@ -626,7 +629,14 @@ impl MessageComposer for MimeComposer {
         let mut body = if html_only {
             message
                 .body_html(0)
-                .map(|h| html_to_text(&h))
+                .map(|h| {
+                    // Même borne que la lecture : coût linéaire et limité.
+                    let mut cut = h.len().min(MAX_HTML_LEN);
+                    while !h.is_char_boundary(cut) {
+                        cut -= 1;
+                    }
+                    html_to_text(h.get(..cut).unwrap_or_default())
+                })
                 .unwrap_or_default()
         } else {
             message

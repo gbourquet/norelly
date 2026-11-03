@@ -424,3 +424,36 @@ fn quote_html_escapes_and_wraps_in_blockquote() {
     // Relu par le réassainissement sans perte.
     assert_eq!(sanitize_composed_html(&html), html);
 }
+
+/// Balises fermantes orphelines : `</q>` ne ferme rien pour html5ever, qui
+/// imbrique donc 20 000 `<b>`. Revue de sécurité de la phase 7 (HAUTE).
+fn orphan_closings(n: usize) -> String {
+    format!("{}profond", "<b></q>".repeat(n))
+}
+
+#[test]
+fn orphan_closing_tags_do_not_overflow_the_stack() {
+    let html = orphan_closings(20_000);
+    let raw = format!("Content-Type: text/html; charset=utf-8\r\n\r\n{html}").into_bytes();
+    let (text, source) = std::thread::Builder::new()
+        .stack_size(2 * 1024 * 1024)
+        .spawn(move || (html_to_text(&html), MimeComposer.reply_source(&raw)))
+        .unwrap_or_else(|e| panic!("{e}"))
+        .join()
+        .unwrap_or_else(|_| panic!("débordement de pile"));
+    assert!(text.contains("profond"));
+    assert!(source.is_some_and(|s| s.body.contains("profond")));
+}
+
+#[test]
+fn orphan_closing_tags_stay_fast() {
+    let html = orphan_closings(80_000);
+    let started = std::time::Instant::now();
+    let _ = sanitize_composed_html(&html);
+    let _ = html_to_text(&html);
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(5),
+        "{:?}",
+        started.elapsed()
+    );
+}

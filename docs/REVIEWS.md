@@ -82,24 +82,26 @@ trois autres basses sont reportées. `cargo deny`, `pnpm audit --prod` et
 ## [BASSE] Corbeille des copies distantes sans nom de boîte
 - L'ancienne copie est supprimée dans le dossier qui porte aujourd'hui le
   rôle `\Drafts` ; UIDVALIDITY et `\Draft` sont vérifiés.
-- Statut : **reporté** (phase 8) : enregistrer le nom de la boîte dans
-  `RemoteCopy` et la corbeille.
+- Statut : **corrigé** (phase 8) : `RemoteCopy::mailbox`, migration 8,
+  corbeille traitée dans la boîte de chaque copie (test
+  `old_copies_are_removed_from_their_own_mailbox`).
 
 ## [BASSE] Brouillon refusé ou impossible à construire : synchronisation bloquée, reconnexion chaque minute
-- Statut : **reporté** (phase 8) : traiter `Rejected` comme pour Envoyés
-  (journaliser, espacer les essais) et poursuivre avec les brouillons
-  suivants et la corbeille.
+- Statut : **corrigé** (phase 8) : refus ou échec de construction
+  journalisé, nouvel essai une heure plus tard, synchronisation poursuivie
+  (test `a_refused_draft_does_not_block_the_others`).
 
 ## [BASSE] Taille des pièces jointes déclarée par l'interface, nombre non borné
-- Statut : **reporté** (phase 8) : revérifier la taille réelle des blobs
-  dans `QueueMessage` et `local_copy`, borner le nombre de pièces jointes,
-  recalculer `content_type` en Rust. Le nom de fichier et le type ne sont
+- Statut : **corrigé** (phase 8) : taille réelle revérifiée
+  (`load_attachments`), 100 pièces jointes au plus, type recalculé d'après
+  le nom dans `draft_of` (tests `queue_message_checks_the_real_attachment_sizes`,
+  `attachment_count_is_bounded`, `attachment_types_are_recomputed_in_rust`). Le nom de fichier et le type ne sont
   pas exploitables (`safe_file_name`, encodage RFC 2231, `mime` refusent
   CR/LF).
 
 ## [BASSE] Brouillon relu depuis SQLite sans `check_storable`
-- Statut : **reporté** (phase 8) : appeler `check_storable` à la
-  relecture (base modifiée à la main seulement).
+- Statut : **corrigé** (phase 8) : brouillon relu revalidé (test
+  `hand_modified_draft_is_revalidated_on_read`).
 
 ## [INFO] Points relevés sans action immédiate
 - Plafond `MAX_PENDING_OPS` vérifié hors de la transaction de

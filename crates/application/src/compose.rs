@@ -9,10 +9,12 @@
 //! [`crate::compose_worker`], qui n'ouvre une connexion que s'il y a du
 //! travail.
 
+use std::collections::BTreeMap;
+
 use norelly_domain::account::AccountId;
 use norelly_domain::address::EmailAddress;
 use norelly_domain::compose::draft::{
-    ComposeError, Draft, MAX_ATTACHMENTS_BYTES, Recipient, remote_drafts_supported,
+    ComposeError, Draft, MAX_ATTACHMENTS_BYTES, Recipient, RemoteCopy, remote_drafts_supported,
 };
 use norelly_domain::compose::outbox::{OutboxState, SendFailure, sent_copy_needed};
 use norelly_domain::compose::{
@@ -377,40 +379,70 @@ where
             if !stored.sync.remote_save_due(now) {
                 continue;
             }
+            let refused = stored.sync.clone().remote_refused(now);
             let raw = match self.local_copy(&stored.draft, from, now).await {
                 Ok(raw) => raw,
                 Err(e) => {
                     tracing::warn!(account = %self.account, error = %e, "brouillon non copié");
+                    self.drafts
+                        .set_remote(self.account, stored.id, refused, None)
+                        .await?;
                     continue;
                 }
             };
-            let copy = session.append(&mailbox, &raw, true).await?;
-            let (next, old) = stored.sync.remote_saved(stored.sync.revision, copy, now);
+            let copy = match session.append(&mailbox, &raw, true).await {
+                Ok(copy) => copy,
+                // Refus pour ce seul brouillon (quota, message refusé) :
+                // nouvel essai bien plus tard, les suivants continuent.
+                Err(ConnectionError::Rejected(reason)) => {
+                    tracing::warn!(account = %self.account, %reason, "copie du brouillon refusée");
+                    self.drafts
+                        .set_remote(self.account, stored.id, refused, None)
+                        .await?;
+                    continue;
+                }
+                Err(e) => return Err(e.into()),
+            };
+            let revision = stored.sync.revision;
+            let (next, old) = stored.sync.remote_saved(revision, copy, now);
             self.drafts
                 .set_remote(self.account, stored.id, next, old)
                 .await?;
             report.saved += 1;
         }
-        let trash = self.drafts.remote_trash(self.account).await?;
-        if trash.is_empty() {
-            return Ok(report);
+        // Chaque copie est supprimée dans la boîte où elle a été déposée.
+        let mut trash: BTreeMap<MailboxName, Vec<RemoteCopy>> = BTreeMap::new();
+        for copy in self.drafts.remote_trash(self.account).await? {
+            trash.entry(copy.mailbox.clone()).or_default().push(copy);
         }
-        let selected = session.select_writable(&mailbox).await?;
-        for copy in trash {
-            // UIDVALIDITY changée : l'UID désignerait un autre message.
-            // Message sans \Draft : plus notre brouillon. Dans les deux
-            // cas, rien n'est supprimé.
-            if selected.uid_validity == Some(copy.validity)
-                && session
-                    .message_flags(copy.uid)
-                    .await?
-                    .is_some_and(|f| f.draft)
-            {
-                session.mark_deleted(copy.uid).await?;
-                session.expunge_uid(copy.uid).await?;
+        for (name, copies) in trash {
+            let selected = match session.select_writable(&name).await {
+                Ok(selected) => Some(selected),
+                // Boîte disparue ou refusée : ses copies sont oubliées (au
+                // pire, une copie reste sur le serveur).
+                Err(ConnectionError::Rejected(reason)) => {
+                    tracing::warn!(account = %self.account, mailbox = %name, %reason, "corbeille des brouillons inaccessible");
+                    None
+                }
+                Err(e) => return Err(e.into()),
+            };
+            for copy in copies {
+                // UIDVALIDITY changée : l'UID désignerait un autre message.
+                // Message sans \Draft : plus notre brouillon. Dans les deux
+                // cas, rien n'est supprimé.
+                if let Some(selected) = &selected
+                    && selected.uid_validity == Some(copy.validity)
+                    && session
+                        .message_flags(copy.uid)
+                        .await?
+                        .is_some_and(|f| f.draft)
+                {
+                    session.mark_deleted(copy.uid).await?;
+                    session.expunge_uid(copy.uid).await?;
+                }
+                self.drafts.forget_remote(self.account, copy).await?;
+                report.removed += 1;
             }
-            self.drafts.forget_remote(self.account, copy).await?;
-            report.removed += 1;
         }
         Ok(report)
     }

@@ -247,6 +247,11 @@ Commandes de référence (détail dans `scripts/check.sh`) :
 - [x] Bench : recherche dans 50k messages < 100 ms
   - `crates/adapters/sqlite/benches/search.rs` (50 000 messages avec ~80 mots de texte) : de 0,4 ms (mot rare) à 43 ms (trois mots fréquents), médiane, mesuré le 2026-11-03.
 - [ ] Interface : barre de recherche (`/`), résultats en liste, surlignage, fonctionnement hors ligne
+- [x] Reports de la revue de la phase 7 (REVIEWS.md, 4 basses) :
+  - boîte enregistrée avec chaque copie distante d'un brouillon (migration 8 : `drafts.remote_mailbox`, boîte dans la clé de `draft_remote_trash`) ; corbeille traitée boîte par boîte, boîte disparue ou refusée : copies oubliées ;
+  - brouillon refusé (`NO`) ou impossible à construire : journalisé, nouvel essai une heure plus tard (`DraftSync::remote_refused`), les brouillons suivants et la corbeille continuent ;
+  - pièces jointes : taille réelle des blobs revérifiée (`QueueMessage`, copie locale), 100 au plus (`ComposeError::TooManyAttachments`), type MIME recalculé en Rust d'après le nom ;
+  - brouillon relu depuis SQLite revalidé (`check_storable`).
 - [ ] Revue security-reviewer, consignée dans REVIEWS.md (0 critique, 0 haute ; moyennes corrigées)
 
 **Condition de fin** : `./scripts/check.sh full && cargo bench -p norelly-sqlite -- --test && pnpm -C app e2e` passent sans erreur.

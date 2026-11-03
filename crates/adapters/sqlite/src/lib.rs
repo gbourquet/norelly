@@ -44,6 +44,7 @@ fn migrations() -> Migrations<'static> {
         M::up(include_str!("../migrations/0005_placeholder_copies.sql")),
         M::up(include_str!("../migrations/0006_compose.sql")),
         M::up(include_str!("../migrations/0007_search.sql")),
+        M::up(include_str!("../migrations/0008_remote_copy_mailbox.sql")),
     ])
 }
 
@@ -566,6 +567,8 @@ mod tests {
          VALUES (1, 'v6@example.com', '[]', x'00', x'00', 'v6', 'queued', 0, 0, 70);",
         // Version 7 : le texte d'un message connu.
         "UPDATE message_texts SET body = 'texte v7' WHERE message_id = 1;",
+        // Version 8 : une copie distante rattachée à sa boîte.
+        "UPDATE drafts SET remote_mailbox = 'INBOX' WHERE id = 1;",
     ];
 
     /// Montée de version depuis chaque version précédente, données
@@ -604,6 +607,70 @@ mod tests {
             )
             .unwrap_or_else(|e| panic!("depuis v{} : {e}", start + 1));
         }
+    }
+
+    /// Base de version 7 : à la montée en version 8, les copies distantes
+    /// des brouillons sont rattachées au dossier « Brouillons » du compte ;
+    /// sans tel dossier, elles sont oubliées.
+    #[tokio::test]
+    async fn upgrading_to_v8_attaches_remote_copies_to_their_mailbox() -> Result<(), StoreError> {
+        use norelly_domain::ports::DraftStore;
+        let mut conn = Connection::open_in_memory().map_err(store_error)?;
+        migrations()
+            .to_version(&mut conn, 7)
+            .map_err(|e| StoreError(e.to_string()))?;
+        for fixture in FIXTURES.iter().take(7) {
+            conn.execute_batch(fixture).map_err(store_error)?;
+        }
+        conn.execute_batch(
+            "INSERT INTO accounts (address, display_name, imap_host, imap_port, imap_security, \
+             imap_username, smtp_host, smtp_port, smtp_security, smtp_username) \
+             VALUES ('v8@example.com', 'V8', 'imap.example.com', 993, 'tls', 'v8', \
+             'smtp.example.com', 465, 'tls', 'v8'); \
+             INSERT INTO mailboxes (account_id, name, role, selectable) \
+             VALUES (2, 'Brouillons', 'drafts', 1); \
+             INSERT INTO drafts (account_id, content, revision, remote_revision, remote_validity, \
+             remote_uid, last_remote_save, updated_at) VALUES (2, '{\"to\":[],\"cc\":[],\"bcc\":[],\
+             \"subject\":\"\",\"text\":\"\",\"html\":null,\"in_reply_to\":null,\"references\":[],\
+             \"attachments\":[]}', 1, 1, 9, 4, 50, 60); \
+             INSERT INTO draft_remote_trash (account_id, validity, uid) VALUES (2, 9, 3);",
+        )
+        .map_err(store_error)?;
+        migrations()
+            .to_latest(&mut conn)
+            .map_err(|e| StoreError(e.to_string()))?;
+        // Compte 1 : aucun dossier « Brouillons », copie oubliée.
+        let forgotten: Option<i64> = conn
+            .query_row(
+                "SELECT remote_uid FROM drafts WHERE account_id = 1",
+                [],
+                |r| r.get(0),
+            )
+            .map_err(store_error)?;
+        assert_eq!(forgotten, None);
+        let db = Database {
+            conn: Arc::new(Mutex::new(conn)),
+            readers: None,
+        };
+        let store = compose::SqliteComposeStore::new(db);
+        let two = AccountId::new(2).map_err(|e| StoreError(e.to_string()))?;
+        let one = AccountId::new(1).map_err(|e| StoreError(e.to_string()))?;
+        let drafts = store.drafts(two).await?;
+        let copy = drafts
+            .first()
+            .and_then(|d| d.sync.remote.clone())
+            .ok_or_else(|| StoreError("copie perdue".into()))?;
+        assert_eq!((copy.mailbox.as_str(), copy.uid.get()), ("Brouillons", 4));
+        let trash = store.remote_trash(two).await?;
+        assert_eq!(
+            trash
+                .iter()
+                .map(|c| (c.mailbox.as_str(), c.uid.get()))
+                .collect::<Vec<_>>(),
+            [("Brouillons", 3)]
+        );
+        assert!(store.remote_trash(one).await?.is_empty());
+        Ok(())
     }
 
     /// Base de version 6 : à la montée en version 7, les messages

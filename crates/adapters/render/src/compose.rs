@@ -20,13 +20,14 @@ use std::time::{Duration, SystemTime};
 use lettre::address::Envelope;
 use lettre::message::header::{self, ContentType};
 use lettre::message::{Attachment, Mailbox, Mailboxes, Message, MultiPart, SinglePart};
-use mail_parser::{HeaderValue, MessageParser};
+use mail_parser::{HeaderValue, MessageParser, MimeHeaders};
 use norelly_domain::address::EmailAddress;
 use norelly_domain::compose::ReplySource;
 use norelly_domain::compose::draft::Recipient;
 use norelly_domain::mailbox::{Correspondent, MAX_ADDRESSES, MessageHeaders, RawHeaders};
 use norelly_domain::ports::{
-    ComposeBuildError, ComposedMessage, Composition, MessageComposer, OutgoingMessage,
+    ComposeBuildError, ComposedAttachment, ComposedMessage, Composition, MessageComposer,
+    OutgoingMessage,
 };
 use norelly_domain::reading::safe_file_name;
 
@@ -576,6 +577,29 @@ impl MessageComposer for MimeComposer {
             outgoing: outgoing(composition)?,
             local_copy: build_message(composition, BccHeader::Keep)?,
         })
+    }
+
+    fn forwarded_attachments(&self, raw: &[u8]) -> Vec<ComposedAttachment> {
+        if raw.len() > crate::mime::MAX_PARSE_LEN {
+            return Vec::new();
+        }
+        let Some(message) = MessageParser::default().parse(raw) else {
+            return Vec::new();
+        };
+        message
+            .attachments()
+            .map(|part| ComposedAttachment {
+                // Nom d'affichage, puis sans chemin ni caractère réservé.
+                file_name: safe_file_name(
+                    &part
+                        .attachment_name()
+                        .map(norelly_domain::fetch_policy::attachment_name)
+                        .unwrap_or_default(),
+                ),
+                content_type: crate::mime::media_type(part),
+                bytes: part.contents().to_vec(),
+            })
+            .collect()
     }
 
     fn reply_source(&self, raw: &[u8]) -> Option<ReplySource> {

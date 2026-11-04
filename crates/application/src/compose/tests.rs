@@ -7,7 +7,9 @@ use norelly_domain::credentials::{Credentials, Secret, Username};
 use norelly_domain::endpoint::{Host, Security, ServerEndpoint};
 use norelly_domain::fetch_policy::FetchPolicy;
 use norelly_domain::mailbox::Flags;
-use norelly_domain::ports::{BlobId, MessageListQuery, SendError, StoredMailbox};
+use norelly_domain::ports::{
+    BlobId, MailStore, MessageListQuery, MessageLocator, SendError, StoredMailbox,
+};
 use norelly_domain::security::PlaintextPolicy;
 use norelly_render::compose::MimeComposer;
 use norelly_test_support::compose_contracts::InMemoryComposeStore;
@@ -61,6 +63,24 @@ References: <m1@example.com>\r\n\
 Date: Mon, 2 Nov 2026 10:00:00 +0000\r\n\
 Content-Type: text/plain; charset=utf-8\r\n\r\n\
 Bonjour,\r\n\r\nA demain.\r\n";
+
+/// Téléchargeur qui ne doit jamais être appelé (corps complet local).
+struct NoFetch;
+
+impl norelly_domain::ports::RemoteBodyFetcher for NoFetch {
+    async fn fetch(
+        &self,
+        _: AccountId,
+        _: &norelly_domain::mailbox::MailboxName,
+        _: norelly_domain::mailbox::Uid,
+        _: &norelly_domain::fetch_policy::BodyFetch,
+    ) -> Result<
+        Option<norelly_domain::ports::FetchedBody>,
+        norelly_domain::connection::ConnectionError,
+    > {
+        panic!("téléchargement inattendu")
+    }
+}
 
 struct World {
     imap: FakeImap,
@@ -373,6 +393,7 @@ async fn prepare_reply_fills_recipients_subject_threading_and_quote() {
         locator: &w.mail,
         blobs: &w.blobs,
         composer: &MimeComposer,
+        fetcher: &NoFetch,
     };
     let own = [address("moi@example.com")];
     let reply = prepare
@@ -616,6 +637,142 @@ async fn gmail_files_sent_messages_itself() {
     .unwrap_or_else(|e| panic!("{e}"));
     assert!(w.imap.flags_of("Envoyés").is_empty(), "pas de doublon");
     assert!(w.entries().await.is_empty());
+}
+
+/// Message reçu avec un devis PDF en pièce jointe.
+const WITH_ATTACHMENT: &[u8] = b"From: Alice <alice@example.com>\r\nTo: moi@example.com\r\n\
+Subject: Devis\r\nMessage-ID: <devis@example.com>\r\nDate: Mon, 2 Nov 2026 11:00:00 +0000\r\n\
+Content-Type: multipart/mixed; boundary=b\r\n\r\n\
+--b\r\nContent-Type: text/plain\r\n\r\nVoici le devis.\r\n\
+--b\r\nContent-Type: application/pdf; name=devis.pdf\r\n\
+Content-Disposition: attachment; filename=devis.pdf\r\n\
+Content-Transfer-Encoding: base64\r\n\r\nJVBERi0xLjQ=\r\n--b--\r\n";
+
+/// Téléchargeur du message entier (corps partiel localement).
+struct FullFetch(Vec<u8>, std::sync::atomic::AtomicUsize);
+
+impl norelly_domain::ports::RemoteBodyFetcher for FullFetch {
+    async fn fetch(
+        &self,
+        _: AccountId,
+        _: &norelly_domain::mailbox::MailboxName,
+        _: norelly_domain::mailbox::Uid,
+        fetch: &norelly_domain::fetch_policy::BodyFetch,
+    ) -> Result<
+        Option<norelly_domain::ports::FetchedBody>,
+        norelly_domain::connection::ConnectionError,
+    > {
+        assert_eq!(fetch, &norelly_domain::fetch_policy::BodyFetch::Full);
+        self.1.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        Ok(Some(norelly_domain::ports::FetchedBody::Full(
+            self.0.clone(),
+        )))
+    }
+}
+
+/// Phase 9 : le transfert reprend les pièces jointes du message d'origine.
+#[tokio::test]
+async fn forward_carries_the_original_attachments() {
+    let mut w = world(true).await;
+    w.imap
+        .append("INBOX", WITH_ATTACHMENT, Flags::default(), 200);
+    w.sync().await;
+    let message = w.received().await;
+    let own = [address("moi@example.com")];
+    let draft = PrepareReply {
+        locator: &w.mail,
+        blobs: &w.blobs,
+        composer: &MimeComposer,
+        fetcher: &NoFetch,
+    }
+    .execute(message, ReplyKind::Forward, &own, "Message transféré")
+    .await
+    .unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(draft.subject, "Fwd: Devis");
+    let names: Vec<&str> = draft
+        .attachments
+        .iter()
+        .map(|a| a.file_name.as_str())
+        .collect();
+    assert_eq!(names, ["devis.pdf"]);
+    let a = &draft.attachments[0];
+    assert_eq!((a.content_type.as_str(), a.size), ("application/pdf", 8));
+    let bytes = w
+        .blobs
+        .get(account(), &a.blob)
+        .await
+        .unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(bytes.as_deref(), Some(&b"%PDF-1.4"[..]));
+    // Répondre ne reprend pas les pièces jointes.
+    let reply = PrepareReply {
+        locator: &w.mail,
+        blobs: &w.blobs,
+        composer: &MimeComposer,
+        fetcher: &NoFetch,
+    }
+    .execute(message, ReplyKind::Reply, &own, "a écrit")
+    .await
+    .unwrap_or_else(|e| panic!("{e}"));
+    assert!(reply.attachments.is_empty());
+}
+
+/// Corps partiel localement (pièce jointe différée) : le message entier
+/// est téléchargé pour le transfert.
+#[tokio::test]
+async fn forward_downloads_deferred_attachments() {
+    let mut w = world(true).await;
+    w.imap
+        .append("INBOX", WITH_ATTACHMENT, Flags::default(), 200);
+    w.sync().await;
+    let message = w.received().await;
+    // Corps remplacé par un corps partiel (en-têtes seulement).
+    let location = w
+        .mail
+        .locate(message)
+        .await
+        .unwrap_or_else(|e| panic!("{e}"))
+        .unwrap_or_else(|| panic!("message"));
+    let header = w
+        .blobs
+        .put(account(), b"Subject: Devis\r\n\r\n".to_vec())
+        .await
+        .unwrap_or_else(|e| panic!("{e}"));
+    w.mail
+        .set_body(
+            location.mailbox,
+            location.uid,
+            &StoredBody::Partial {
+                header,
+                parts: vec![],
+                deferred: vec![
+                    norelly_domain::fetch_policy::PartPath::parse("2")
+                        .unwrap_or_else(|| panic!("chemin")),
+                ],
+            },
+            None,
+        )
+        .await
+        .unwrap_or_else(|e| panic!("{e}"));
+    let fetcher = FullFetch(
+        WITH_ATTACHMENT.to_vec(),
+        std::sync::atomic::AtomicUsize::new(0),
+    );
+    let draft = PrepareReply {
+        locator: &w.mail,
+        blobs: &w.blobs,
+        composer: &MimeComposer,
+        fetcher: &fetcher,
+    }
+    .execute(
+        message,
+        ReplyKind::Forward,
+        &[address("moi@example.com")],
+        "Transféré",
+    )
+    .await
+    .unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(fetcher.1.load(std::sync::atomic::Ordering::Relaxed), 1);
+    assert_eq!(draft.attachments.len(), 1);
 }
 
 // --- Brouillons sur le serveur ---

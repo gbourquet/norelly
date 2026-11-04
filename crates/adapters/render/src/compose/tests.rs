@@ -457,3 +457,40 @@ fn orphan_closing_tags_stay_fast() {
         started.elapsed()
     );
 }
+
+/// Phase 9 : transfert avec les pièces jointes du message d'origine.
+#[test]
+fn forwarded_attachments_are_decoded_with_safe_names() {
+    let raw = b"From: Alice <alice@example.com>\r\nSubject: Devis\r\n\
+        Content-Type: multipart/mixed; boundary=b\r\n\r\n\
+        --b\r\nContent-Type: text/plain\r\n\r\nVoici le devis.\r\n\
+        --b\r\nContent-Type: application/pdf; name=\"devis.pdf\"\r\n\
+        Content-Disposition: attachment; filename=\"../../devis\r.pdf\"\r\n\
+        Content-Transfer-Encoding: base64\r\n\r\nJVBERi0xLjQ=\r\n\
+        --b\r\nContent-Type: image/png\r\nContent-Disposition: attachment; filename=logo.png\r\n\
+        Content-Transfer-Encoding: base64\r\n\r\niVBORw0K\r\n\
+        --b--\r\n";
+    let found = MimeComposer.forwarded_attachments(raw);
+    assert_eq!(found.len(), 2, "{found:?}");
+    let pdf = &found[0];
+    assert_eq!(pdf.bytes, b"%PDF-1.4");
+    assert_eq!(pdf.content_type, "application/pdf");
+    assert!(
+        !pdf.file_name.contains(['/', '\r', '\n']),
+        "{:?}",
+        pdf.file_name
+    );
+    assert!(pdf.file_name.ends_with(".pdf"), "{:?}", pdf.file_name);
+    assert_eq!(found[1].file_name, "logo.png");
+    assert_eq!(found[1].content_type, "image/png");
+}
+
+#[test]
+fn messages_without_attachments_forward_nothing() {
+    assert!(
+        MimeComposer
+            .forwarded_attachments(b"Subject: x\r\nContent-Type: text/plain\r\n\r\ncorps\r\n")
+            .is_empty()
+    );
+    assert!(MimeComposer.forwarded_attachments(b"\xff\x00").is_empty());
+}

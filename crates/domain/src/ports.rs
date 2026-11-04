@@ -1199,6 +1199,11 @@ pub trait MessageComposer: Send + Sync {
     /// assainis, `Reply-To`, texte). `None` s'il est illisible.
     fn reply_source(&self, raw: &[u8]) -> Option<ReplySource>;
 
+    /// Pièces jointes d'un message reçu, décodées, pour le transférer :
+    /// nom assaini, type, contenu ; corps texte et HTML exclus. Vide s'il
+    /// est illisible.
+    fn forwarded_attachments(&self, raw: &[u8]) -> Vec<ComposedAttachment>;
+
     /// HTML d'éditeur d'une citation : `attribution` puis `text` dans un
     /// `<blockquote>`, échappés.
     fn quote_html(&self, text: &str, attribution: &str) -> String;

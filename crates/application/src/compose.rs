@@ -14,18 +14,21 @@ use std::collections::BTreeMap;
 use norelly_domain::account::AccountId;
 use norelly_domain::address::EmailAddress;
 use norelly_domain::compose::draft::{
-    ComposeError, Draft, MAX_ATTACHMENTS_BYTES, Recipient, RemoteCopy, remote_drafts_supported,
+    ComposeError, Draft, DraftAttachment, MAX_ATTACHMENTS, MAX_ATTACHMENTS_BYTES, Recipient,
+    RemoteCopy, remote_drafts_supported,
 };
 use norelly_domain::compose::outbox::{OutboxEntry, OutboxState, SendFailure, sent_copy_needed};
 use norelly_domain::compose::{
     ReplyKind, Threading, forward_subject, quote, reply_recipients, reply_subject, reply_threading,
 };
 use norelly_domain::connection::ConnectionError;
+use norelly_domain::fetch_policy::BodyFetch;
 use norelly_domain::mailbox::{Correspondent, MailboxName, MailboxRole};
 use norelly_domain::ports::{
     BlobStore, ComposeBuildError, ComposedAttachment, ComposedMessage, Composition, ConnectRequest,
-    DraftId, DraftStore, MailSender, MessageComposer, MessageId, MessageLocator, OutboxId,
-    OutboxStore, PendingOpStore, RemoteMailboxSession, StoreError, StoredBody, StoredDraft,
+    DraftId, DraftStore, FetchedBody, MailSender, MessageComposer, MessageId, MessageLocator,
+    OutboxId, OutboxStore, PendingOpStore, RemoteBodyFetcher, RemoteMailboxSession, StoreError,
+    StoredBody, StoredDraft,
 };
 
 /// Échec d'un cas d'usage de rédaction.
@@ -33,6 +36,9 @@ use norelly_domain::ports::{
 pub enum ComposeFailure {
     #[error(transparent)]
     Invalid(#[from] ComposeError),
+    /// Téléchargement du message impossible (hors ligne…).
+    #[error("téléchargement impossible : {0}")]
+    Download(String),
     #[error(transparent)]
     Store(#[from] StoreError),
     #[error(transparent)]
@@ -145,17 +151,21 @@ where
 
 /// Cas d'usage : préparer une réponse, une réponse à tous ou un transfert.
 #[derive(Debug)]
-pub struct PrepareReply<'a, L, B, M> {
+pub struct PrepareReply<'a, L, B, M, F> {
     pub locator: &'a L,
     pub blobs: &'a B,
     pub composer: &'a M,
+    /// Téléchargement du message entier pour un transfert dont le corps
+    /// n'est pas complet localement (pièces jointes différées).
+    pub fetcher: &'a F,
 }
 
-impl<L, B, M> PrepareReply<'_, L, B, M>
+impl<L, B, M, F> PrepareReply<'_, L, B, M, F>
 where
     L: MessageLocator,
     B: BlobStore,
     M: MessageComposer,
+    F: RemoteBodyFetcher,
 {
     /// `own` : adresses de l'utilisateur ; `attribution` : en-tête de
     /// citation (ou de transfert), construit par l'interface dans la langue
@@ -172,18 +182,47 @@ where
             .locate(message)
             .await?
             .ok_or(ComposeFailure::NotFound)?;
-        // Message complet, sinon ses en-têtes (corps partiel : la citation
-        // reste vide).
-        let blob = match &location.body {
-            StoredBody::Full(blob) => blob,
-            StoredBody::Partial { header, .. } => header,
-            StoredBody::Missing => return Err(ComposeFailure::NotFound),
+        // Transfert : le message entier (pièces jointes comprises),
+        // téléchargé s'il n'est pas complet localement.
+        let forwarding = kind == ReplyKind::Forward;
+        let raw = if forwarding && !matches!(location.body, StoredBody::Full(_)) {
+            // Borne avant téléchargement : un message bien plus gros que la
+            // limite des pièces jointes ne peut pas être transféré avec
+            // elles (encodage base64 compris).
+            if u64::from(location.size) > 2 * MAX_ATTACHMENTS_BYTES {
+                return Err(ComposeError::AttachmentsTooLarge.into());
+            }
+            match self
+                .fetcher
+                .fetch(
+                    location.account,
+                    &location.mailbox_name,
+                    location.uid,
+                    &BodyFetch::Full,
+                )
+                .await
+                .map_err(|e| ComposeFailure::Download(e.to_string()))?
+            {
+                Some(FetchedBody::Full(raw)) => raw,
+                _ => {
+                    return Err(ComposeFailure::Download(
+                        "message disparu du serveur".into(),
+                    ));
+                }
+            }
+        } else {
+            // Message complet, sinon ses en-têtes (corps partiel : la
+            // citation reste vide).
+            let blob = match &location.body {
+                StoredBody::Full(blob) => blob,
+                StoredBody::Partial { header, .. } => header,
+                StoredBody::Missing => return Err(ComposeFailure::NotFound),
+            };
+            self.blobs
+                .get(location.account, blob)
+                .await?
+                .ok_or(ComposeFailure::NotFound)?
         };
-        let raw = self
-            .blobs
-            .get(location.account, blob)
-            .await?
-            .ok_or(ComposeFailure::NotFound)?;
         let source = self
             .composer
             .reply_source(&raw)
@@ -205,7 +244,40 @@ where
             self.composer.quote_html(&source.body, attribution)
         ));
         draft.threading = threading;
+        if forwarding {
+            draft.attachments = self.forwarded_attachments(location.account, &raw).await?;
+        }
         Ok(draft)
+    }
+
+    /// Pièces jointes d'un message transféré, rangées dans les blobs ;
+    /// mêmes bornes que l'envoi (nombre, taille totale).
+    async fn forwarded_attachments(
+        &self,
+        account: AccountId,
+        raw: &[u8],
+    ) -> Result<Vec<DraftAttachment>, ComposeFailure> {
+        let found = self.composer.forwarded_attachments(raw);
+        if found.len() > MAX_ATTACHMENTS {
+            return Err(ComposeError::TooManyAttachments.into());
+        }
+        let total = found.iter().fold(0_u64, |acc, a| {
+            acc.saturating_add(u64::try_from(a.bytes.len()).unwrap_or(u64::MAX))
+        });
+        if total > MAX_ATTACHMENTS_BYTES {
+            return Err(ComposeError::AttachmentsTooLarge.into());
+        }
+        let mut out = Vec::with_capacity(found.len());
+        for a in found {
+            let size = u64::try_from(a.bytes.len()).unwrap_or(u64::MAX);
+            out.push(DraftAttachment {
+                blob: self.blobs.put(account, a.bytes).await?,
+                file_name: a.file_name,
+                content_type: a.content_type,
+                size,
+            });
+        }
+        Ok(out)
     }
 }
 

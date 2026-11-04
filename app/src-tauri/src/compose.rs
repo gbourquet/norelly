@@ -175,6 +175,9 @@ impl From<ComposeFailure> for IpcError {
             ComposeFailure::Store(e) => Self::storage(e),
             ComposeFailure::Build(e) => Self::internal(e),
             ComposeFailure::NotFound => Self::not_found(FieldDto::Message),
+            ComposeFailure::Download(detail) => {
+                Self::new(ErrorCodeDto::DownloadFailed).with_detail(detail)
+            }
         }
     }
 }
@@ -257,6 +260,7 @@ pub async fn prepare_compose(
         locator: &*state.mail.store,
         blobs: &*state.mail.blobs,
         composer: &MimeComposer,
+        fetcher: &state.mail,
     }
     .execute(message, kind, &own, &server_text(attribution.as_bytes()))
     .await?;

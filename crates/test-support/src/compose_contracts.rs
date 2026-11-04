@@ -10,7 +10,7 @@ use norelly_domain::compose::Threading;
 use norelly_domain::compose::draft::{Draft, DraftAttachment, DraftSync, Recipient, RemoteCopy};
 use norelly_domain::compose::outbox::{OutboxEntry, OutboxState, SendFailure};
 use norelly_domain::mailbox::{Correspondent, MailboxRole};
-use norelly_domain::mailbox::{Uid, UidValidity};
+use norelly_domain::mailbox::{MailboxName, Uid, UidValidity};
 use norelly_domain::ports::{
     BlobId, ContactQuery, DraftId, DraftStore, MAX_CONTACT_SUGGESTIONS, MailStore, OutboxId,
     OutboxItem, OutboxStore, OutgoingMessage, StoreError, StoredDraft, StoredMessage, SyncBatch,
@@ -52,7 +52,12 @@ pub fn sample_draft(account: AccountId) -> Result<Draft, StoreError> {
 }
 
 fn copy(validity: u32, uid: u32) -> Result<RemoteCopy, StoreError> {
+    copy_in("Brouillons", validity, uid)
+}
+
+fn copy_in(mailbox: &str, validity: u32, uid: u32) -> Result<RemoteCopy, StoreError> {
     Ok(RemoteCopy {
+        mailbox: MailboxName::parse(mailbox).map_err(|_| fail("boîte"))?,
         validity: UidValidity::new(validity).ok_or_else(|| fail("validité"))?,
         uid: Uid::new(uid).ok_or_else(|| fail("uid"))?,
     })
@@ -112,7 +117,7 @@ pub async fn draft_store_contract<S: DraftStore>(
     assert_eq!(old, Some(copy(7, 10)?));
     let stale = DraftSync {
         revision: 1,
-        ..synced
+        ..synced.clone()
     };
     assert!(store.set_remote(account, first.id, stale, old).await?);
     let reread = store
@@ -137,13 +142,17 @@ pub async fn draft_store_contract<S: DraftStore>(
     // Copie faite pour un brouillon supprimé entre-temps : à supprimer.
     let late = DraftSync {
         remote: Some(copy(7, 12)?),
-        ..synced
+        ..synced.clone()
     };
     assert!(
         !store.set_remote(account, first.id, late, None).await?,
         "brouillon disparu"
     );
-    assert!(!store.set_remote(account, first.id, synced, None).await?);
+    assert!(
+        !store
+            .set_remote(account, first.id, synced.clone(), None)
+            .await?
+    );
     let mut trash = store.remote_trash(account).await?;
     trash.sort_by_key(|c| c.uid);
     assert_eq!(
@@ -151,6 +160,19 @@ pub async fn draft_store_contract<S: DraftStore>(
         [copy(7, 10)?, copy(7, 11)?, copy(7, 12)?],
         "ensemble, sans doublon"
     );
+    // Même UIDVALIDITY et même UID dans une autre boîte : une autre copie,
+    // dont la boîte est conservée.
+    let elsewhere = DraftSync {
+        remote: Some(copy_in("Anciens brouillons", 7, 10)?),
+        ..synced
+    };
+    assert!(!store.set_remote(account, first.id, elsewhere, None).await?);
+    let trash = store.remote_trash(account).await?;
+    assert_eq!(trash.len(), 4);
+    assert!(trash.contains(&copy_in("Anciens brouillons", 7, 10)?));
+    store
+        .forget_remote(account, copy_in("Anciens brouillons", 7, 10)?)
+        .await?;
     store.forget_remote(other, copy(7, 10)?).await?;
     assert_eq!(store.remote_trash(account).await?.len(), 3, "autre compte");
     for uid in [10, 11, 12] {
@@ -438,15 +460,16 @@ impl ComposeState {
 
     fn delete_draft(&mut self, id: DraftId) -> Option<StoredDraft> {
         let removed = self.drafts.remove(&id)?;
-        if let Some(copy) = removed.sync.remote {
+        if let Some(copy) = removed.sync.remote.clone() {
             self.trash_insert(removed.draft.account, copy);
         }
         Some(removed)
     }
 
     fn trash_insert(&mut self, account: AccountId, copy: RemoteCopy) {
-        if !self.trash.contains(&(account, copy)) {
-            self.trash.push((account, copy));
+        let entry = (account, copy);
+        if !self.trash.contains(&entry) {
+            self.trash.push(entry);
         }
     }
 }
@@ -472,7 +495,7 @@ impl DraftStore for InMemoryComposeStore {
                 if existing.draft.account != draft.account {
                     return Err(fail("brouillon d'un autre compte"));
                 }
-                (id, existing.sync)
+                (id, existing.sync.clone())
             }
         };
         let stored = StoredDraft {
@@ -539,7 +562,7 @@ impl DraftStore for InMemoryComposeStore {
             .trash
             .iter()
             .filter(|(a, _)| *a == account)
-            .map(|(_, c)| *c)
+            .map(|(_, c)| c.clone())
             .collect())
     }
 

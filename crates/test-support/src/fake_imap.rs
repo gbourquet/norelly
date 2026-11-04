@@ -82,6 +82,9 @@ struct State {
     /// Course simulée : un autre client marque ce message `\Deleted`
     /// juste avant le prochain `EXPUNGE` (une seule fois).
     race_deleted: Option<(String, u32)>,
+    /// Taille maximale d'un message déposé (APPEND) ; au-delà : refus
+    /// `NO [OVERQUOTA]`.
+    append_limit: Option<usize>,
 }
 
 impl State {
@@ -131,6 +134,7 @@ impl FakeImap {
             operations: 0,
             delay: Duration::ZERO,
             race_deleted: None,
+            append_limit: None,
         };
         Self {
             state: Arc::new(Mutex::new(state)),
@@ -153,6 +157,12 @@ impl FakeImap {
         let mut s = lock(&self.state);
         s.move_ext = move_ext;
         s.uidplus = uidplus;
+    }
+
+    /// Refuse les dépôts (APPEND) de plus de `limit` octets, comme un
+    /// quota dépassé.
+    pub fn set_append_limit(&self, limit: Option<usize>) {
+        lock(&self.state).append_limit = limit;
     }
 
     /// Serveur injoignable : les connexions échouent.
@@ -199,6 +209,14 @@ impl FakeImap {
                 s.mailboxes
                     .push((name.to_owned(), Mailbox::new(validity, attrs)));
             }
+        }
+        self.changed.notify_waiters();
+    }
+
+    /// Remplace les attributs d'une boîte (rôle déplacé vers une autre).
+    pub fn set_attributes(&self, name: &str, attributes: &[&str]) {
+        if let Some(m) = lock(&self.state).mailbox(name) {
+            m.attributes = attributes.iter().map(|a| (*a).to_owned()).collect();
         }
         self.changed.notify_waiters();
     }
@@ -791,11 +809,17 @@ impl RemoteMailboxSession for FakeImapSession {
         draft: bool,
     ) -> Result<Option<RemoteCopy>, ConnectionError> {
         self.throttle().await;
-        let (uidplus, exists) = {
+        let (uidplus, exists, limit) = {
             let mut s = self.step()?;
             let uidplus = s.uidplus;
-            (uidplus, s.mailbox(mailbox.as_str()).is_some())
+            let limit = s.append_limit;
+            (uidplus, s.mailbox(mailbox.as_str()).is_some(), limit)
         };
+        if limit.is_some_and(|l| raw.len() > l) {
+            return Err(ConnectionError::Rejected(
+                "NO [OVERQUOTA] quota dépassé".into(),
+            ));
+        }
         if !exists {
             return Err(ConnectionError::Rejected(
                 "NO [TRYCREATE] boîte inexistante".into(),
@@ -808,7 +832,11 @@ impl RemoteMailboxSession for FakeImapSession {
         Ok(assigned
             .zip(validity)
             .filter(|_| uidplus)
-            .map(|(uid, validity)| RemoteCopy { validity, uid }))
+            .map(|(uid, validity)| RemoteCopy {
+                mailbox: mailbox.clone(),
+                validity,
+                uid,
+            }))
     }
 
     async fn expunge_all(&mut self) -> Result<u32, ConnectionError> {

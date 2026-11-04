@@ -17,6 +17,7 @@ pub mod compose;
 pub mod conversations;
 pub mod mail;
 pub mod preferences;
+pub mod search;
 
 use std::path::Path;
 use std::sync::{Arc, Mutex, PoisonError};
@@ -42,6 +43,8 @@ fn migrations() -> Migrations<'static> {
         M::up(include_str!("../migrations/0004_actions.sql")),
         M::up(include_str!("../migrations/0005_placeholder_copies.sql")),
         M::up(include_str!("../migrations/0006_compose.sql")),
+        M::up(include_str!("../migrations/0007_search.sql")),
+        M::up(include_str!("../migrations/0008_remote_copy_mailbox.sql")),
     ])
 }
 
@@ -131,8 +134,8 @@ impl Database {
         .map_err(|e| StoreError(format!("tâche SQLite interrompue : {e}")))?
     }
 
-    /// Contrôle d'intégrité : `PRAGMA integrity_check` et
-    /// `foreign_key_check`. Renvoie les problèmes trouvés (vide si la base
+    /// Contrôle d'intégrité : `PRAGMA integrity_check`,
+    /// `foreign_key_check` et cohérence de l'index de recherche. Renvoie les problèmes trouvés (vide si la base
     /// est saine).
     pub async fn integrity_problems(&self) -> Result<Vec<String>, StoreError> {
         self.run(|c| {
@@ -157,9 +160,24 @@ impl Database {
                     table.map_err(store_error)?
                 ));
             }
+            // Index de recherche comparé à sa table de contenu (rang 1).
+            if let Err(e) = c.execute(
+                "INSERT INTO message_search (message_search, rank) VALUES ('integrity-check', 1)",
+                [],
+            ) {
+                problems.push(format!("index de recherche : {e}"));
+            }
             Ok(problems)
         })
         .await
+    }
+
+    /// Exécute un texte SQL arbitraire sur le rédacteur (tests seulement :
+    /// simuler une base modifiée à la main).
+    #[cfg(test)]
+    pub(crate) async fn write_for_tests(&self, sql: &'static str) -> Result<(), StoreError> {
+        self.run(move |c| c.execute_batch(sql).map_err(store_error))
+            .await
     }
 
     /// Schéma de la base (type, nom, SQL de création), trié : permet de
@@ -547,6 +565,10 @@ mod tests {
          INSERT INTO outbox (account_id, envelope_from, recipients, raw, sent_copy, subject, \
          state, not_before, attempts, queued_at) \
          VALUES (1, 'v6@example.com', '[]', x'00', x'00', 'v6', 'queued', 0, 0, 70);",
+        // Version 7 : le texte d'un message connu.
+        "UPDATE message_texts SET body = 'texte v7' WHERE message_id = 1;",
+        // Version 8 : une copie distante rattachée à sa boîte.
+        "UPDATE drafts SET remote_mailbox = 'INBOX' WHERE id = 1;",
     ];
 
     /// Montée de version depuis chaque version précédente, données
@@ -585,6 +607,119 @@ mod tests {
             )
             .unwrap_or_else(|e| panic!("depuis v{} : {e}", start + 1));
         }
+    }
+
+    /// Base de version 7 : à la montée en version 8, les copies distantes
+    /// des brouillons sont rattachées au dossier « Brouillons » du compte ;
+    /// sans tel dossier, elles sont oubliées.
+    #[tokio::test]
+    async fn upgrading_to_v8_attaches_remote_copies_to_their_mailbox() -> Result<(), StoreError> {
+        use norelly_domain::ports::DraftStore;
+        let mut conn = Connection::open_in_memory().map_err(store_error)?;
+        migrations()
+            .to_version(&mut conn, 7)
+            .map_err(|e| StoreError(e.to_string()))?;
+        for fixture in FIXTURES.iter().take(7) {
+            conn.execute_batch(fixture).map_err(store_error)?;
+        }
+        conn.execute_batch(
+            "INSERT INTO accounts (address, display_name, imap_host, imap_port, imap_security, \
+             imap_username, smtp_host, smtp_port, smtp_security, smtp_username) \
+             VALUES ('v8@example.com', 'V8', 'imap.example.com', 993, 'tls', 'v8', \
+             'smtp.example.com', 465, 'tls', 'v8'); \
+             INSERT INTO mailboxes (account_id, name, role, selectable) \
+             VALUES (2, 'Brouillons', 'drafts', 1); \
+             INSERT INTO drafts (account_id, content, revision, remote_revision, remote_validity, \
+             remote_uid, last_remote_save, updated_at) VALUES (2, '{\"to\":[],\"cc\":[],\"bcc\":[],\
+             \"subject\":\"\",\"text\":\"\",\"html\":null,\"in_reply_to\":null,\"references\":[],\
+             \"attachments\":[]}', 1, 1, 9, 4, 50, 60); \
+             INSERT INTO draft_remote_trash (account_id, validity, uid) VALUES (2, 9, 3);",
+        )
+        .map_err(store_error)?;
+        migrations()
+            .to_latest(&mut conn)
+            .map_err(|e| StoreError(e.to_string()))?;
+        // Compte 1 : aucun dossier « Brouillons », copie oubliée.
+        let forgotten: Option<i64> = conn
+            .query_row(
+                "SELECT remote_uid FROM drafts WHERE account_id = 1",
+                [],
+                |r| r.get(0),
+            )
+            .map_err(store_error)?;
+        assert_eq!(forgotten, None);
+        let db = Database {
+            conn: Arc::new(Mutex::new(conn)),
+            readers: None,
+        };
+        let store = compose::SqliteComposeStore::new(db);
+        let two = AccountId::new(2).map_err(|e| StoreError(e.to_string()))?;
+        let one = AccountId::new(1).map_err(|e| StoreError(e.to_string()))?;
+        let drafts = store.drafts(two).await?;
+        let copy = drafts
+            .first()
+            .and_then(|d| d.sync.remote.clone())
+            .ok_or_else(|| StoreError("copie perdue".into()))?;
+        assert_eq!((copy.mailbox.as_str(), copy.uid.get()), ("Brouillons", 4));
+        let trash = store.remote_trash(two).await?;
+        assert_eq!(
+            trash
+                .iter()
+                .map(|c| (c.mailbox.as_str(), c.uid.get()))
+                .collect::<Vec<_>>(),
+            [("Brouillons", 3)]
+        );
+        assert!(store.remote_trash(one).await?.is_empty());
+        Ok(())
+    }
+
+    /// Base de version 6 : à la montée en version 7, les messages
+    /// existants sont indexés, même avec des destinataires illisibles.
+    #[tokio::test]
+    async fn upgrading_to_v7_indexes_existing_messages() -> Result<(), StoreError> {
+        use norelly_domain::ports::{SearchIndex, SearchRequest, SearchScope};
+        let dir = std::env::temp_dir().join(format!("norelly-v7-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).map_err(|e| StoreError(e.to_string()))?;
+        let path = dir.join("v6.sqlite3");
+        {
+            let mut conn = Connection::open(&path).map_err(store_error)?;
+            migrations()
+                .to_version(&mut conn, 6)
+                .map_err(|e| StoreError(e.to_string()))?;
+            for fixture in FIXTURES.iter().take(6) {
+                conn.execute_batch(fixture).map_err(store_error)?;
+            }
+            conn.execute_batch(
+                "INSERT INTO messages (mailbox_id, uid, internal_date, sort_date, size, subject, \
+                 from_name, from_address, has_attachments, to_json, cc_json) VALUES \
+                 (1, 8, 300, 300, 10, 'Ancien rapport', 'Zoé', 'zoe@example.com', 0, \
+                  '[{\"name\":\"Yves\",\"address\":\"yves@example.com\"}]', 'pas du json'), \
+                 (1, 9, 200, 200, 10, 'Autre', '', 'x@example.com', 0, '[\"texte\", 3]', '[]');",
+            )
+            .map_err(store_error)?;
+        }
+        let db = Database::open(&path).map_err(|e| StoreError(e.to_string()))?;
+        let store = mail::SqliteMailStore::new(db);
+        let search = |text: &str| SearchRequest {
+            query: norelly_domain::search::parse_query(text).unwrap_or_default(),
+            scope: SearchScope::All,
+            utc_offset_seconds: 0,
+            offset: 0,
+            limit: 10,
+        };
+        for (text, expected) in [
+            ("rapport", vec!["Ancien rapport"]),
+            ("from:zoe", vec!["Ancien rapport"]),
+            ("to:yves", vec!["Ancien rapport"]),
+            ("autre", vec!["Autre"]),
+        ] {
+            let page = store.search(search(text)).await?;
+            let subjects: Vec<String> = page.items.into_iter().map(|h| h.subject).collect();
+            assert_eq!(subjects, expected, "{text}");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+        Ok(())
     }
 
     /// Base de version 2 (messages sans conversation) : à l'ouverture, les

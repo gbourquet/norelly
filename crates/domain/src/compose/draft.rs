@@ -15,7 +15,7 @@
 
 use crate::account::AccountId;
 use crate::address::EmailAddress;
-use crate::mailbox::{MAX_ADDRESS_CHARS, Uid, UidValidity, header_text};
+use crate::mailbox::{MAX_ADDRESS_CHARS, MailboxName, Uid, UidValidity, header_text};
 use crate::ports::BlobId;
 
 use super::Threading;
@@ -35,6 +35,8 @@ pub const MAX_RECIPIENTS: usize = 100;
 /// Taille cumulée maximale des pièces jointes (25 Mio, limite usuelle des
 /// serveurs).
 pub const MAX_ATTACHMENTS_BYTES: u64 = 25 * 1024 * 1024;
+/// Nombre maximal de pièces jointes d'un message.
+pub const MAX_ATTACHMENTS: usize = 100;
 /// Taille maximale du corps (texte et HTML, chacun).
 pub const MAX_BODY_BYTES: usize = 5 * 1024 * 1024;
 /// Caractères au plus dans le sujet.
@@ -44,6 +46,9 @@ pub const MAX_SUBJECT_CHARS: usize = 998;
 pub const MAX_MESSAGE_ID_LEN: usize = 250;
 /// Intervalle minimal entre deux copies d'un brouillon sur le serveur.
 pub const REMOTE_SAVE_INTERVAL_SECS: i64 = 30;
+/// Attente avant de retenter la copie d'un brouillon refusée par le
+/// serveur (quota, message refusé) ou impossible à construire.
+pub const REMOTE_REFUSED_RETRY_SECS: i64 = 3600;
 
 /// Destinataire validé.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -103,6 +108,8 @@ pub enum ComposeError {
     BodyTooLarge,
     #[error("pièces jointes trop volumineuses")]
     AttachmentsTooLarge,
+    #[error("trop de pièces jointes")]
+    TooManyAttachments,
     #[error("identifiant de message invalide (In-Reply-To, References)")]
     InvalidThreading,
 }
@@ -162,6 +169,9 @@ impl Draft {
         {
             return Err(ComposeError::InvalidThreading);
         }
+        if self.attachments.len() > MAX_ATTACHMENTS {
+            return Err(ComposeError::TooManyAttachments);
+        }
         let total = self
             .attachments
             .iter()
@@ -176,9 +186,12 @@ impl Draft {
 /// Message déposé sur le serveur (`APPENDUID`) : l'UID n'a de sens
 /// qu'avec l'UIDVALIDITY de sa boîte. Avant de supprimer une ancienne
 /// copie, on vérifie que la boîte a toujours cette UIDVALIDITY (sinon l'UID
-/// désignerait un autre message).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+/// désignerait un autre message). La boîte est mémorisée : la copie est
+/// supprimée là où elle a été déposée, même si le rôle `\Drafts` a changé
+/// de dossier entre-temps.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct RemoteCopy {
+    pub mailbox: MailboxName,
     pub validity: UidValidity,
     pub uid: Uid,
 }
@@ -192,7 +205,7 @@ pub fn remote_drafts_supported(imap: &crate::capabilities::ServerCapabilities) -
 }
 
 /// État de la copie d'un brouillon sur le serveur.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct DraftSync {
     /// Révision locale (incrémentée à chaque enregistrement).
     pub revision: u64,
@@ -200,7 +213,9 @@ pub struct DraftSync {
     pub remote_revision: Option<u64>,
     /// Copie dans « Brouillons » (à remplacer puis supprimer).
     pub remote: Option<RemoteCopy>,
-    /// Instant de la dernière copie (secondes Unix).
+    /// Instant de la dernière copie (secondes Unix) ; après un refus,
+    /// repère reporté de sorte que le prochain essai ait lieu
+    /// [`REMOTE_REFUSED_RETRY_SECS`] plus tard ([`Self::remote_refused`]).
     pub last_remote_save: Option<i64>,
 }
 
@@ -224,6 +239,19 @@ impl DraftSync {
                 .is_none_or(|last| now.saturating_sub(last) >= REMOTE_SAVE_INTERVAL_SECS)
     }
 
+    /// Copie refusée par le serveur (ou impossible à construire) à
+    /// `now` : nouvel essai dans [`REMOTE_REFUSED_RETRY_SECS`] secondes,
+    /// sans toucher à la copie précédente.
+    #[must_use]
+    pub fn remote_refused(self, now: i64) -> Self {
+        Self {
+            last_remote_save: Some(
+                now.saturating_add(REMOTE_REFUSED_RETRY_SECS - REMOTE_SAVE_INTERVAL_SECS),
+            ),
+            ..self
+        }
+    }
+
     /// Copie de la révision `revision` faite à `now` ; `copy` : la nouvelle
     /// copie (UIDPLUS `APPENDUID`), si connue. Renvoie l'état et l'ancienne
     /// copie, à supprimer.
@@ -240,7 +268,8 @@ impl DraftSync {
             remote: copy,
             last_remote_save: Some(now),
         };
-        (next, self.remote.filter(|old| Some(*old) != copy))
+        let old = self.remote.filter(|old| Some(old) != next.remote.as_ref());
+        (next, old)
     }
 }
 
@@ -261,6 +290,7 @@ mod tests {
 
     fn uid(n: u32) -> RemoteCopy {
         RemoteCopy {
+            mailbox: MailboxName::parse("Brouillons").unwrap_or_else(|_| panic!("boîte")),
             validity: UidValidity::new(7).unwrap_or_else(|| panic!("validité")),
             uid: Uid::new(n).unwrap_or_else(|| panic!("uid")),
         }
@@ -367,6 +397,15 @@ mod tests {
     }
 
     #[test]
+    fn attachment_count_is_bounded() {
+        let mut d = sendable();
+        d.attachments = (0..MAX_ATTACHMENTS).map(|_| attachment(1)).collect();
+        assert_eq!(d.check_storable(), Ok(()));
+        d.attachments.push(attachment(1));
+        assert_eq!(d.check_storable(), Err(ComposeError::TooManyAttachments));
+    }
+
+    #[test]
     fn sizes_are_bounded() {
         let mut d = sendable();
         d.attachments = vec![attachment(MAX_ATTACHMENTS_BYTES - 1), attachment(1)];
@@ -411,6 +450,19 @@ mod tests {
         let (s, old) = s.remote_saved(2, Some(uid(11)), 200);
         assert_eq!(old, Some(uid(10)), "ancienne copie à supprimer");
         assert_eq!((s.remote_revision, s.remote), (Some(2), Some(uid(11))));
+    }
+
+    #[test]
+    fn a_refused_copy_is_retried_much_later() {
+        let s = DraftSync::default().edited();
+        let (s, _) = s.remote_saved(1, Some(uid(10)), 100);
+        let s = s.edited();
+        let refused = s.remote_refused(1_000);
+        assert_eq!(refused.remote, Some(uid(10)), "copie précédente gardée");
+        assert_eq!(refused.remote_revision, Some(1));
+        assert!(!refused.remote_save_due(1_000 + REMOTE_SAVE_INTERVAL_SECS));
+        assert!(!refused.remote_save_due(1_000 + REMOTE_REFUSED_RETRY_SECS - 1));
+        assert!(refused.remote_save_due(1_000 + REMOTE_REFUSED_RETRY_SECS));
     }
 
     #[test]

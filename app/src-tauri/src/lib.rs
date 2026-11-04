@@ -11,6 +11,7 @@ pub mod mail;
 pub mod protocols;
 pub mod reading;
 pub mod remote_images;
+pub mod search;
 pub mod state;
 #[cfg(test)]
 mod test_app;
@@ -46,6 +47,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             actions::perform_action,
             actions::undo_actions,
             actions::set_archive_folder,
+            search::search_messages,
             compose::prepare_compose,
             compose::save_draft,
             compose::send_draft,

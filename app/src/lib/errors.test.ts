@@ -81,6 +81,7 @@ describe("traduction des erreurs IPC", () => {
       invalid_subject: true,
       body_too_large: true,
       attachments_too_large: true,
+      too_many_attachments: true,
       outbox_busy: true,
       internal: true,
     } satisfies Record<ErrorCodeDto, true>;
@@ -103,6 +104,7 @@ describe("traduction des erreurs IPC", () => {
       draft: true,
       attachment: true,
       outbox: true,
+      query: true,
     } satisfies Record<FieldDto, true>;
     const kinds = {
       network: true,

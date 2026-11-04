@@ -82,6 +82,8 @@ export const commands = {
 	 *  `\Archive` (`None` : aucun).
 	 */
 	setArchiveFolder: (account: number, mailbox: number | null) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("set_archive_folder", { account, mailbox })),
+	/**  Une page de messages trouvés, hors ligne (index local). */
+	searchMessages: (query: string, scope: SearchScopeDto, utcOffsetMinutes: number, offset: number, limit: number) => typedError<SearchPageDto_Serialize, IpcError_Serialize>(__TAURI_INVOKE("search_messages", { query, scope, utcOffsetMinutes, offset, limit })),
 	/**
 	 *  Brouillon de départ : nouveau message, réponse, réponse à tous ou
 	 *  transfert de `message`. `attribution` : en-tête de citation construit
@@ -471,6 +473,8 @@ export type ErrorCodeDto =
 "body_too_large" | 
 /**  Pièces jointes trop volumineuses. */
 "attachments_too_large" | 
+/**  Plus de pièces jointes que la limite. */
+"too_many_attachments" | 
 /**  Envoi non annulable ou non relançable dans son état. */
 "outbox_busy" | 
 /**  Erreur interne (journalisée). */
@@ -487,7 +491,9 @@ export type FailureKindDto = "network" | "authentication" | "security" | "protoc
 /**  Champ ou objet concerné par une erreur. */
 export type FieldDto = "address" | "display_name" | "host" | "port" | "username" | 
 /**  Serveurs IMAP et SMTP fournis ensemble ou pas du tout. */
-"servers" | "account" | "message" | "part" | "mailbox" | "role" | "cursor" | "conversation" | "folder" | "certificate" | "draft" | "attachment" | "outbox";
+"servers" | "account" | "message" | "part" | "mailbox" | "role" | "cursor" | "conversation" | "folder" | "certificate" | "draft" | "attachment" | "outbox" | 
+/**  Requête de recherche (trop longue, trop de clauses) ou fuseau. */
+"query";
 
 /**  Dossier d'un compte. */
 export type FolderDto = {
@@ -598,7 +604,71 @@ export type SavedDraftDto = {
 /**  Portée d'une liste de conversations. */
 export type ScopeDto = { kind: "mailbox"; id: number } | { kind: "unified"; role: string };
 
+/**  Message trouvé par une recherche. */
+export type SearchHitDto = SearchHitDto_Serialize | SearchHitDto_Deserialize;
+
+/**  Message trouvé par une recherche. */
+export type SearchHitDto_Deserialize = {
+	message: number,
+	/**  Conversation à ouvrir (absente : message pas encore rattaché). */
+	conversation?: number | null,
+	account: number,
+	mailbox: number,
+	date: number,
+	from?: CorrespondentDto | null,
+	subject: SegmentDto[],
+	snippet: SegmentDto[],
+	unread: boolean,
+	flagged: boolean,
+	has_attachments: boolean,
+};
+
+/**  Message trouvé par une recherche. */
+export type SearchHitDto_Serialize = {
+	message: number,
+	/**  Conversation à ouvrir (absente : message pas encore rattaché). */
+	conversation: number | null,
+	account: number,
+	mailbox: number,
+	date: number,
+	from: CorrespondentDto | null,
+	subject: SegmentDto[],
+	snippet: SegmentDto[],
+	unread: boolean,
+	flagged: boolean,
+	has_attachments: boolean,
+};
+
+/**  Une page de résultats. */
+export type SearchPageDto = SearchPageDto_Serialize | SearchPageDto_Deserialize;
+
+/**  Une page de résultats. */
+export type SearchPageDto_Deserialize = {
+	items: SearchHitDto_Deserialize[],
+	/**  Décalage de la page suivante. */
+	next?: number | null,
+};
+
+/**  Une page de résultats. */
+export type SearchPageDto_Serialize = {
+	items: SearchHitDto_Serialize[],
+	/**  Décalage de la page suivante. */
+	next: number | null,
+};
+
+/**  Où chercher. */
+export type SearchScopeDto = { kind: "all" } | { kind: "account"; id: number } | { kind: "mailbox"; id: number };
+
 export type SecurityDto = "tls" | "starttls" | "plain";
+
+/**
+ *  Morceau d'un texte surligné (à afficher comme du texte, jamais comme du
+ *  HTML).
+ */
+export type SegmentDto = {
+	text: string,
+	hit: boolean,
+};
 
 /**  Cause d'échec d'un envoi. */
 export type SendFailureDto = "unreachable" | "temporary" | "rejected" | "authentication" | "security" | "uncertain" | "too_many_attempts";

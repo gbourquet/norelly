@@ -174,6 +174,19 @@ est majoritairement écrit par Claude et relu par le mainteneur.
   disparaît. Mesure (bench, 50k messages) : première page de
   conversations ≈ 0,3 ms, boîte unifiée ≈ 0,3 ms.
 
+- **Mise en œuvre (phase 8, 2026-11-03)** : recherche derrière le port
+  `SearchIndex`, requête analysée par le domaine (`search::parse_query`,
+  arbre sans syntaxe de moteur). Migration 7 : table de contenu
+  `message_texts` et index FTS5 `message_search` (préfixes 2 et 3 indexés),
+  tenus par des déclencheurs dans la transaction de chaque écriture ; texte
+  du corps extrait par l'adaptateur `render` (port `SearchTextExtractor`,
+  passé en `&dyn` aux cas d'usage) et enregistré avec le corps. Chaque
+  clause de texte devient une chaîne FTS5 entre guillemets, en paramètre
+  lié : aucun mot de l'utilisateur n'est lu comme un opérateur. Classement
+  BM25 pondéré (sujet 10, expéditeur 5, destinataires 3, texte 1),
+  pagination par décalage plafonnée à 1 000 résultats. Mesure (bench,
+  50k messages avec leur texte) : 0,4 à 43 ms selon la requête.
+
 ## ADR-004 : rendu sécurisé du HTML des mails (« A+ »)
 
 - **Statut** : Acceptée (2026-11-01)

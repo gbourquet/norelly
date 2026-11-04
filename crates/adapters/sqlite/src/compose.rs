@@ -7,7 +7,7 @@ use norelly_domain::compose::Threading;
 use norelly_domain::compose::draft::{Draft, DraftAttachment, DraftSync, Recipient, RemoteCopy};
 use norelly_domain::compose::outbox::{OutboxEntry, OutboxState, SendFailure};
 use norelly_domain::mailbox::Correspondent;
-use norelly_domain::mailbox::{Uid, UidValidity};
+use norelly_domain::mailbox::{MailboxName, Uid, UidValidity};
 use norelly_domain::ports::{
     BlobId, ContactQuery, DraftId, DraftStore, MAX_CONTACT_SUGGESTIONS, OutboxId, OutboxItem,
     OutboxStore, OutgoingMessage, StoreError, StoredDraft,
@@ -102,7 +102,15 @@ fn content_of(draft: &Draft) -> Result<String, StoreError> {
     serde_json::to_string(&dto).map_err(|e| StoreError(format!("sérialisation : {e}")))
 }
 
+/// Brouillon relu, revalidé par le domaine (base modifiée à la main :
+/// sujet avec saut de ligne, tailles hors bornes…).
 fn draft_of(account: AccountId, content: &str) -> Result<Draft, StoreError> {
+    let draft = decode_draft(account, content)?;
+    draft.check_storable().map_err(|_| corrupted("brouillon"))?;
+    Ok(draft)
+}
+
+fn decode_draft(account: AccountId, content: &str) -> Result<Draft, StoreError> {
     let dto: DraftDto = serde_json::from_str(content).map_err(|_| corrupted("brouillon"))?;
     Ok(Draft {
         account,
@@ -131,9 +139,14 @@ fn draft_of(account: AccountId, content: &str) -> Result<Draft, StoreError> {
     })
 }
 
-fn copy_of(validity: Option<i64>, uid: Option<i64>) -> Result<Option<RemoteCopy>, StoreError> {
-    match (validity, uid) {
-        (Some(v), Some(u)) => {
+fn copy_of(
+    mailbox: Option<String>,
+    validity: Option<i64>,
+    uid: Option<i64>,
+) -> Result<Option<RemoteCopy>, StoreError> {
+    match (mailbox, validity, uid) {
+        (Some(m), Some(v), Some(u)) => {
+            let mailbox = MailboxName::parse(&m).map_err(|_| corrupted("boîte de la copie"))?;
             let validity = u32::try_from(v)
                 .ok()
                 .and_then(UidValidity::new)
@@ -142,9 +155,13 @@ fn copy_of(validity: Option<i64>, uid: Option<i64>) -> Result<Option<RemoteCopy>
                 .ok()
                 .and_then(Uid::new)
                 .ok_or_else(|| corrupted("UID"))?;
-            Ok(Some(RemoteCopy { validity, uid }))
+            Ok(Some(RemoteCopy {
+                mailbox,
+                validity,
+                uid,
+            }))
         }
-        (None, None) => Ok(None),
+        (_, None, None) => Ok(None),
         _ => Err(corrupted("copie distante")),
     }
 }
@@ -155,7 +172,7 @@ fn revision_of(raw: Option<i64>) -> Result<Option<u64>, StoreError> {
 }
 
 const DRAFT_COLUMNS: &str = "id, account_id, content, revision, remote_revision, \
-     remote_validity, remote_uid, last_remote_save, updated_at";
+     remote_validity, remote_uid, last_remote_save, updated_at, remote_mailbox";
 
 type DraftRow = (
     i64,
@@ -167,6 +184,7 @@ type DraftRow = (
     Option<i64>,
     Option<i64>,
     i64,
+    Option<String>,
 );
 
 fn read_draft_row(r: &Row<'_>) -> rusqlite::Result<DraftRow> {
@@ -180,11 +198,13 @@ fn read_draft_row(r: &Row<'_>) -> rusqlite::Result<DraftRow> {
         r.get(6)?,
         r.get(7)?,
         r.get(8)?,
+        r.get(9)?,
     ))
 }
 
 fn stored_of(row: DraftRow) -> Result<StoredDraft, StoreError> {
-    let (id, account, content, revision, remote_revision, validity, uid, last, updated_at) = row;
+    let (id, account, content, revision, remote_revision, validity, uid, last, updated_at, mailbox) =
+        row;
     let account = AccountId::new(account).map_err(|_| corrupted("compte"))?;
     Ok(StoredDraft {
         id: DraftId::new(id).ok_or_else(|| corrupted("identifiant de brouillon"))?,
@@ -192,7 +212,7 @@ fn stored_of(row: DraftRow) -> Result<StoredDraft, StoreError> {
         sync: DraftSync {
             revision: u64::try_from(revision).map_err(|_| corrupted("révision"))?,
             remote_revision: revision_of(remote_revision)?,
-            remote: copy_of(validity, uid)?,
+            remote: copy_of(mailbox, validity, uid)?,
             last_remote_save: last,
         },
         updated_at,
@@ -212,10 +232,16 @@ fn load_draft(c: &Connection, id: DraftId) -> Result<Option<StoredDraft>, StoreE
     row.map(stored_of).transpose()
 }
 
-fn trash_insert(c: &Connection, account: AccountId, copy: RemoteCopy) -> Result<(), StoreError> {
+fn trash_insert(c: &Connection, account: AccountId, copy: &RemoteCopy) -> Result<(), StoreError> {
     c.execute(
-        "INSERT OR IGNORE INTO draft_remote_trash (account_id, validity, uid) VALUES (?1, ?2, ?3)",
-        params![account.get(), copy.validity.get(), copy.uid.get()],
+        "INSERT OR IGNORE INTO draft_remote_trash (account_id, mailbox, validity, uid) \
+         VALUES (?1, ?2, ?3, ?4)",
+        params![
+            account.get(),
+            copy.mailbox.as_str(),
+            copy.validity.get(),
+            copy.uid.get()
+        ],
     )
     .map(|_| ())
     .map_err(store_error)
@@ -228,7 +254,7 @@ fn delete_draft_in(c: &Connection, id: DraftId) -> Result<Option<StoredDraft>, S
     };
     c.execute("DELETE FROM drafts WHERE id = ?1", [id.get()])
         .map_err(store_error)?;
-    if let Some(copy) = stored.sync.remote {
+    if let Some(copy) = &stored.sync.remote {
         trash_insert(c, stored.draft.account, copy)?;
     }
     Ok(Some(stored))
@@ -323,24 +349,25 @@ impl DraftStore for SqliteComposeStore {
                 let n = tx
                     .execute(
                         "UPDATE drafts SET remote_revision = ?3, remote_validity = ?4, \
-                         remote_uid = ?5, last_remote_save = ?6 \
+                         remote_uid = ?5, last_remote_save = ?6, remote_mailbox = ?7 \
                          WHERE id = ?1 AND account_id = ?2",
                         params![
                             id.get(),
                             account.get(),
                             remote_revision,
-                            sync.remote.map(|r| r.validity.get()),
-                            sync.remote.map(|r| r.uid.get()),
+                            sync.remote.as_ref().map(|r| r.validity.get()),
+                            sync.remote.as_ref().map(|r| r.uid.get()),
                             sync.last_remote_save,
+                            sync.remote.as_ref().map(|r| r.mailbox.as_str().to_owned()),
                         ],
                     )
                     .map_err(store_error)?;
                 let found = n > 0;
-                if !found && let Some(copy) = sync.remote {
+                if !found && let Some(copy) = &sync.remote {
                     // Brouillon disparu pendant la copie : à supprimer.
                     trash_insert(&tx, account, copy)?;
                 }
-                if let Some(old) = replaced {
+                if let Some(old) = &replaced {
                     trash_insert(&tx, account, old)?;
                 }
                 tx.commit().map_err(store_error)?;
@@ -367,17 +394,19 @@ impl DraftStore for SqliteComposeStore {
             .read(move |c| {
                 let mut stmt = c
                     .prepare_cached(
-                        "SELECT validity, uid FROM draft_remote_trash WHERE account_id = ?1 \
-                         ORDER BY validity, uid",
+                        "SELECT mailbox, validity, uid FROM draft_remote_trash \
+                         WHERE account_id = ?1 ORDER BY mailbox, validity, uid",
                     )
                     .map_err(store_error)?;
-                let rows: Vec<(i64, i64)> = stmt
-                    .query_map([account.get()], |r| Ok((r.get(0)?, r.get(1)?)))
+                let rows: Vec<(String, i64, i64)> = stmt
+                    .query_map([account.get()], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
                     .map_err(store_error)?
                     .collect::<Result<_, _>>()
                     .map_err(store_error)?;
                 rows.into_iter()
-                    .map(|(v, u)| copy_of(Some(v), Some(u))?.ok_or_else(|| corrupted("copie")))
+                    .map(|(m, v, u)| {
+                        copy_of(Some(m), Some(v), Some(u))?.ok_or_else(|| corrupted("copie"))
+                    })
                     .collect()
             })
             .await
@@ -387,9 +416,14 @@ impl DraftStore for SqliteComposeStore {
         self.db
             .run(move |c| {
                 c.execute(
-                    "DELETE FROM draft_remote_trash WHERE account_id = ?1 AND validity = ?2 \
-                     AND uid = ?3",
-                    params![account.get(), copy.validity.get(), copy.uid.get()],
+                    "DELETE FROM draft_remote_trash WHERE account_id = ?1 AND mailbox = ?2 \
+                     AND validity = ?3 AND uid = ?4",
+                    params![
+                        account.get(),
+                        copy.mailbox.as_str(),
+                        copy.validity.get(),
+                        copy.uid.get()
+                    ],
                 )
                 .map(|_| ())
                 .map_err(store_error)

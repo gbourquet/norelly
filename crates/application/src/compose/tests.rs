@@ -1,5 +1,7 @@
 use norelly_domain::capabilities::ServerCapabilities;
-use norelly_domain::compose::draft::{DraftAttachment, REMOTE_SAVE_INTERVAL_SECS};
+use norelly_domain::compose::draft::{
+    DraftAttachment, MAX_ATTACHMENTS_BYTES, REMOTE_SAVE_INTERVAL_SECS,
+};
 use norelly_domain::compose::outbox::{OutboxEntry, OutboxState, RETRY_BASE_SECS};
 use norelly_domain::credentials::{Credentials, Secret, Username};
 use norelly_domain::endpoint::{Host, Security, ServerEndpoint};
@@ -101,6 +103,7 @@ impl World {
             store: &self.mail,
             blobs: &self.blobs,
             policy: FetchPolicy::default(),
+            text: std::sync::Arc::new(norelly_render::search_text::MimeTextExtractor),
         }
         .sync_all(&mut session, ext, |_| {})
         .await
@@ -290,6 +293,29 @@ async fn queue_message_refuses_invalid_drafts() {
             .await
             .unwrap_or_else(|e| panic!("{e}"))
             .is_empty()
+    );
+}
+
+#[tokio::test]
+async fn queue_message_checks_the_real_attachment_sizes() {
+    let w = world(true).await;
+    let size = usize::try_from(MAX_ATTACHMENTS_BYTES).unwrap_or(usize::MAX) + 1;
+    let blob = w
+        .blobs
+        .put(account(), vec![b'x'; size])
+        .await
+        .unwrap_or_else(|e| panic!("{e}"));
+    let mut d = draft_to("bob@example.com");
+    // Taille déclarée par l'interface : mensongère.
+    d.attachments = vec![DraftAttachment {
+        blob,
+        file_name: "gros.bin".into(),
+        content_type: "application/octet-stream".into(),
+        size: 1,
+    }];
+    assert_eq!(
+        w.queue().execute(None, &d, &me(), NOW).await,
+        Err(ComposeFailure::Invalid(ComposeError::AttachmentsTooLarge))
     );
 }
 
@@ -702,6 +728,100 @@ async fn stale_or_foreign_copies_are_never_deleted() {
         before,
         "rien supprimé dans la boîte recréée"
     );
+}
+
+/// Revue de la phase 7 (BASSE) : une ancienne copie est supprimée dans le
+/// dossier où elle a été déposée, même si le rôle `\Drafts` est passé à un
+/// autre dossier entre-temps.
+#[tokio::test]
+async fn old_copies_are_removed_from_their_own_mailbox() {
+    let mut w = world(true).await;
+    let caps = ["IMAP4rev1", "UIDPLUS"];
+    let saved = SaveDraft { drafts: &w.compose }
+        .execute(None, &draft_to("bob@example.com"), NOW)
+        .await
+        .unwrap_or_else(|e| panic!("{e}"));
+    let mut session = w.session(&caps);
+    w.sync_drafts()
+        .execute(&mut session, &me(), NOW)
+        .await
+        .unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(w.imap.flags_of("Brouillons").len(), 1);
+    w.imap.set_attributes("Brouillons", &[]);
+    w.imap.create_mailbox("Drafts", &["\\Drafts"]);
+    w.sync().await;
+    w.compose
+        .delete_draft(saved.id)
+        .await
+        .unwrap_or_else(|e| panic!("{e}"));
+    let mut session = w.session(&caps);
+    let report = w
+        .sync_drafts()
+        .execute(&mut session, &me(), NOW + 1)
+        .await
+        .unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(report.removed, 1);
+    assert!(
+        w.imap.flags_of("Brouillons").is_empty(),
+        "copie supprimée dans son propre dossier"
+    );
+}
+
+/// Revue de la phase 7 (BASSE) : un brouillon refusé par le serveur
+/// (quota) ne bloque ni les autres brouillons ni la corbeille, et n'est
+/// retenté qu'après une longue attente.
+#[tokio::test]
+async fn a_refused_draft_does_not_block_the_others() {
+    use norelly_domain::compose::draft::REMOTE_REFUSED_RETRY_SECS;
+    let w = world(true).await;
+    let caps = ["IMAP4rev1", "UIDPLUS"];
+    let save = SaveDraft { drafts: &w.compose };
+    // Une ancienne copie à supprimer (brouillon supprimé localement).
+    let gone = save
+        .execute(None, &draft_to("old@example.com"), NOW)
+        .await
+        .unwrap_or_else(|e| panic!("{e}"));
+    let mut session = w.session(&caps);
+    w.sync_drafts()
+        .execute(&mut session, &me(), NOW)
+        .await
+        .unwrap_or_else(|e| panic!("{e}"));
+    w.compose
+        .delete_draft(gone.id)
+        .await
+        .unwrap_or_else(|e| panic!("{e}"));
+    // Un gros brouillon (refusé) puis un petit.
+    let mut big = draft_to("bob@example.com");
+    big.html = Some(format!("<p>{}</p>", "mot ".repeat(50_000)));
+    save.execute(None, &big, NOW + 1)
+        .await
+        .unwrap_or_else(|e| panic!("{e}"));
+    save.execute(None, &draft_to("carole@example.com"), NOW + 1)
+        .await
+        .unwrap_or_else(|e| panic!("{e}"));
+    w.imap.set_append_limit(Some(50_000));
+    let report = w
+        .sync_drafts()
+        .execute(&mut session, &me(), NOW + 1)
+        .await
+        .unwrap_or_else(|e| panic!("refus propagé : {e}"));
+    assert_eq!((report.saved, report.removed), (1, 1));
+    // Quota levé : pas de nouvel essai avant la longue attente.
+    w.imap.set_append_limit(None);
+    let soon = NOW + 1 + REMOTE_SAVE_INTERVAL_SECS;
+    let report = w
+        .sync_drafts()
+        .execute(&mut session, &me(), soon)
+        .await
+        .unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(report.saved, 0);
+    let later = NOW + 1 + REMOTE_REFUSED_RETRY_SECS;
+    let report = w
+        .sync_drafts()
+        .execute(&mut session, &me(), later)
+        .await
+        .unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(report.saved, 1);
 }
 
 /// Revue de la phase 7 (BASSE) : mot de passe ou certificat refusé, même

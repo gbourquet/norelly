@@ -16,8 +16,18 @@
   import ActionButtons from "./components/ActionButtons.svelte";
   import ComposeDialog from "./components/ComposeDialog.svelte";
   import OutboxDialog from "./components/OutboxDialog.svelte";
+  import SearchPanel from "./components/SearchPanel.svelte";
   import { conversationActions } from "./lib/visible-actions";
-  import { app, compose, mail, moveAccount, registerAppCommands, registry } from "./lib/app.svelte";
+  import {
+    app,
+    compose,
+    mail,
+    moveAccount,
+    openSelectedHit,
+    registerAppCommands,
+    registry,
+    search,
+  } from "./lib/app.svelte";
   import { shortcutFromEvent, type Shortcut } from "./lib/commands/shortcut";
   import { api, type ScopeDto } from "./lib/ipc/api";
   import { UNIFIED_INBOX } from "./lib/mail.svelte";
@@ -31,7 +41,11 @@
       await app.refreshAccounts();
       await mail.show(UNIFIED_INBOX);
       try {
-        const off = await api.onSyncEvent((event) => void mail.onSyncEvent(event));
+        const off = await api.onSyncEvent((event) => {
+          void mail.onSyncEvent(event);
+          // Résultats affichés tenus à jour (index local modifié).
+          if (event.kind === "folder_changed") void search.refresh();
+        });
         if (disposed) off();
         else unlisten = off;
         const offCompose = await api.onComposeEvent((event) => {
@@ -87,6 +101,7 @@
 
   function selectScope(scope: ScopeDto, account: number | null): void {
     if (account !== null) app.selectedAccountId = account;
+    search.close();
     void mail.show(scope);
   }
 
@@ -132,8 +147,16 @@
     />
   {/snippet}
   {#snippet list()}
-    {#if app.accounts.length > 0}
-      <ConversationList {mail} title={listTitle} {registry} context={app.context()} />
+    {#if search.active}
+      <SearchPanel {search} onOpen={() => void openSelectedHit()} />
+    {:else if app.accounts.length > 0}
+      <ConversationList
+        {mail}
+        title={listTitle}
+        {registry}
+        context={app.context()}
+        onSearch={() => search.open()}
+      />
     {/if}
   {/snippet}
   {#snippet reader()}

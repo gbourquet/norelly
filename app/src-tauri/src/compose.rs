@@ -91,7 +91,8 @@ pub fn draft_of(dto: &DraftDto) -> Result<(Option<DraftId>, Draft), IpcError> {
                 blob: BlobId::parse(&a.blob)
                     .ok_or_else(|| IpcError::invalid(FieldDto::Attachment))?,
                 file_name: a.file_name.clone(),
-                content_type: a.content_type.clone(),
+                // Type recalculé en Rust : celui de l'interface est ignoré.
+                content_type: content_type_of(&a.file_name).to_owned(),
                 size: u64::from(a.size),
             })
         })
@@ -166,6 +167,7 @@ impl From<ComposeFailure> for IpcError {
                 ComposeError::InvalidSubject => Self::new(ErrorCodeDto::InvalidSubject),
                 ComposeError::BodyTooLarge => Self::new(ErrorCodeDto::BodyTooLarge),
                 ComposeError::AttachmentsTooLarge => Self::new(ErrorCodeDto::AttachmentsTooLarge),
+                ComposeError::TooManyAttachments => Self::new(ErrorCodeDto::TooManyAttachments),
                 ComposeError::InvalidThreading => Self::invalid(FieldDto::Message),
             },
             ComposeFailure::Store(e) => Self::storage(e),
@@ -592,6 +594,14 @@ mod tests {
         assert_eq!(back.to[0].address, "bob@example.com");
         assert_eq!(back.attachments, dto().attachments);
         assert_eq!((back.id, back.account), (Some(4), 2));
+    }
+
+    #[test]
+    fn attachment_types_are_recomputed_in_rust() {
+        let mut d = dto();
+        d.attachments[0].content_type = "text/html".into();
+        let (_, draft) = draft_of(&d).unwrap_or_else(|e| panic!("{e:?}"));
+        assert_eq!(draft.attachments[0].content_type, "application/pdf");
     }
 
     #[test]

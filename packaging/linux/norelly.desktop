@@ -1,0 +1,15 @@
+[Desktop Entry]
+Type=Application
+Name=Norelly
+GenericName=Mail Client
+GenericName[fr]=Client mail
+Comment=Read and write your email, fast and from the keyboard
+Comment[fr]=Lire et écrire vos mails, vite et au clavier
+Keywords=email;mail;IMAP;SMTP;inbox;
+Keywords[fr]=courriel;mail;e-mail;IMAP;SMTP;messagerie;boîte de réception;
+Exec={{exec}}
+Icon={{icon}}
+Terminal=false
+Categories=Network;Email;
+StartupNotify=true
+StartupWMClass=norelly

@@ -34,6 +34,8 @@ step "Doctests";               cargo test --workspace --doc --locked
 step "cargo deny";             cargo deny --locked check
 step "Règle de dépendance du domaine"; ./scripts/check-domain-deps.sh
 step "SQL : requêtes paramétrées"; ./scripts/check-sql.sh
+# Paquets Linux (desktop-file-utils, appstream) : vérifiés sous Linux.
+if [ "$(uname -s)" = Linux ]; then step "Métadonnées de bureau"; ./scripts/check-packaging.sh; fi
 step "Front : svelte-check";   pnpm -C app check
 step "Front : lint";           pnpm -C app lint
 step "Front : tests (couverture)"; pnpm -C app coverage

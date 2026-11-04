@@ -1,0 +1,47 @@
+# Commandes de l'application accordées à la fenêtre principale (capability
+# `default`). Chaque commande de `ipc-commands.rs` y figure ; une commande
+# oubliée est refusée par l'ACL (test `acl_tests`).
+
+[[set]]
+identifier = "main-window"
+description = "Commandes IPC de la fenêtre principale."
+permissions = [
+  "allow-list-accounts",
+  "allow-discover-settings",
+  "allow-add-account",
+  "allow-trust-certificate",
+  "allow-allow-file-secrets",
+  "allow-remove-account",
+  "allow-list-folders",
+  "allow-list-conversations",
+  "allow-conversation-messages",
+  "allow-open-message",
+  "allow-allow-remote-images",
+  "allow-reading-preferences",
+  "allow-set-prefer-plain-text",
+  "allow-sync-account",
+  "allow-open-external",
+  "allow-save-attachment",
+  "allow-open-attachment",
+  "allow-perform-action",
+  "allow-undo-actions",
+  "allow-set-archive-folder",
+  "allow-search-messages",
+  "allow-get-settings",
+  "allow-save-settings",
+  "allow-show-notification",
+  "allow-prepare-compose",
+  "allow-save-draft",
+  "allow-send-draft",
+  "allow-discard-draft",
+  "allow-schedule-draft",
+  "allow-unschedule-send",
+  "allow-list-drafts",
+  "allow-open-draft",
+  "allow-outbox",
+  "allow-retry-send",
+  "allow-cancel-send",
+  "allow-suggest-contacts",
+  "allow-pick-attachments",
+  "allow-attach-dropped",
+]

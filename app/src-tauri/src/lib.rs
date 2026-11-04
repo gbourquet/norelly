@@ -1,6 +1,8 @@
 //! Shell Tauri de Norelly : adaptateur entrant (commandes IPC, protocoles
 //! personnalisés) et point d'assemblage des adaptateurs (ADR-008).
 
+#[cfg(test)]
+mod acl_tests;
 pub mod actions;
 #[cfg(test)]
 mod command_tests;

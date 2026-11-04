@@ -26,6 +26,7 @@ const askedSettings = {
   attachment_threshold: 2 * 1024 * 1024,
 };
 let storedSettings = { ...askedSettings };
+let updatesSupported = true;
 
 vi.mock("./lib/ipc/api", () => ({
   IpcFailure: class extends Error {},
@@ -59,6 +60,9 @@ vi.mock("./lib/ipc/api", () => ({
       storedSettings = { ...s };
     }),
     showNotification: vi.fn(async () => undefined),
+    updateStatus: vi.fn(async () => ({ supported: updatesSupported, available: null })),
+    installUpdate: vi.fn(async () => undefined),
+    onUpdateEvent: vi.fn(async () => () => undefined),
     onComposeEvent: vi.fn(async () => () => undefined),
     prepareCompose: vi.fn(async (account: number) => ({
       id: null,
@@ -113,6 +117,7 @@ beforeEach(() => {
   accounts.splice(0, accounts.length);
   syncListeners.splice(0, syncListeners.length);
   storedSettings = { ...askedSettings };
+  updatesSupported = true;
   vi.clearAllMocks();
 });
 
@@ -493,6 +498,16 @@ describe("App", () => {
     await waitFor(() => expect(api.prepareCompose).toHaveBeenCalledWith(7, "resume", 31, ""));
     const dialog = await screen.findByRole("dialog", { name: "Nouveau message" });
     expect(within(dialog).getByRole("textbox", { name: "Objet" })).toHaveValue("Écrit ailleurs");
+  });
+
+  it("ne pose pas la question sur un canal qui ne se met pas à jour lui-même", async () => {
+    storedSettings = { ...askedSettings, update_check: "not_asked" };
+    updatesSupported = false;
+    render(App);
+    await waitFor(() => expect(api.updateStatus).toHaveBeenCalled());
+    await waitFor(() => expect(api.getSettings).toHaveBeenCalled());
+    await new Promise((r) => setTimeout(r, 50));
+    expect(screen.queryByRole("dialog", { name: "Mises à jour" })).toBeNull();
   });
 
   it("Échap sur la question des mises à jour n'est pas un consentement", async () => {

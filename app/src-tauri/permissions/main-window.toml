@@ -44,4 +44,6 @@ permissions = [
   "allow-suggest-contacts",
   "allow-pick-attachments",
   "allow-attach-dropped",
+  "allow-update-status",
+  "allow-install-update",
 ]

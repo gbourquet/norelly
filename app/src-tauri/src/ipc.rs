@@ -73,6 +73,9 @@ pub enum ErrorCodeDto {
     ScheduleTooFar,
     /// Envoi non annulable ou non relançable dans son état.
     OutboxBusy,
+    /// Téléchargement ou installation d'une mise à jour impossible
+    /// (`detail` : erreur brute).
+    UpdateFailed,
     /// Erreur interne (journalisée).
     Internal,
 }
@@ -104,6 +107,8 @@ pub enum FieldDto {
     Query,
     /// Paramètres hors bornes.
     Settings,
+    /// Mise à jour de l'application.
+    Update,
 }
 
 /// Erreur renvoyée à l'interface : un code, le champ concerné, et un détail
@@ -639,6 +644,23 @@ pub fn date_dto(seconds: i64) -> u32 {
 #[must_use]
 pub fn date_from_dto(raw: u32) -> i64 {
     i64::from(raw)
+}
+
+/// Recherche de mises à jour (ADR-006).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
+pub struct UpdateStatusDto {
+    /// Canal qui se met à jour lui-même (installateur NSIS) ; ailleurs, la
+    /// question n'est pas posée (Flathub, paquets, winget).
+    pub supported: bool,
+    /// Version disponible, signature vérifiée, prête à installer.
+    pub available: Option<String>,
+}
+
+/// Mise à jour trouvée par la recherche périodique.
+#[derive(Debug, Clone, Serialize, Type, tauri_specta::Event)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum UpdateEventDto {
+    Available { version: String },
 }
 
 /// Événement de synchronisation relayé à l'interface.

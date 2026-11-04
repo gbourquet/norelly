@@ -68,6 +68,8 @@ export function fieldLabel(field: FieldDto | null): string {
       return m.field_query();
     case "settings":
       return m.field_settings();
+    case "update":
+      return m.field_update();
     case null:
       return "?";
   }
@@ -123,6 +125,8 @@ function codeText(code: ErrorCodeDto, field: FieldDto | null): string {
       return m.err_schedule_too_far();
     case "outbox_busy":
       return m.err_outbox_busy();
+    case "update_failed":
+      return m.err_update_failed();
     case "internal":
       return m.err_internal();
   }

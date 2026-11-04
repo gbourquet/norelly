@@ -18,6 +18,7 @@ pub mod settings;
 pub mod state;
 #[cfg(test)]
 mod test_app;
+pub mod updates;
 
 use norelly_domain::ports::AccountRepository;
 use tauri::Manager;
@@ -68,10 +69,13 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             compose::suggest_contacts,
             compose::pick_attachments,
             compose::attach_dropped,
+            updates::update_status,
+            updates::install_update,
         ])
         .events(tauri_specta::collect_events![
             ipc::SyncEventDto,
-            ipc::ComposeEventDto
+            ipc::ComposeEventDto,
+            ipc::UpdateEventDto
         ])
 }
 
@@ -90,9 +94,14 @@ pub fn typescript() -> specta_typescript::Typescript {
 #[allow(clippy::expect_used)]
 pub fn run() {
     let builder = specta_builder();
-    protocols::register(tauri::Builder::default())
+    let app = protocols::register(tauri::Builder::default())
         .plugin(protocols::navigation_guard())
-        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_dialog::init());
+    // Installateur NSIS seulement (ADR-006) : aucune permission accordée à
+    // l'interface, le module n'est appelé que depuis Rust (`updates`).
+    #[cfg(feature = "updater")]
+    let app = app.plugin(tauri_plugin_updater::Builder::new().build());
+    app.manage(updates::Updates::default())
         .invoke_handler(builder.invoke_handler())
         .setup(move |app| {
             builder.mount_events(app);
@@ -100,6 +109,8 @@ pub fn run() {
             let cache_dir = app.path().app_cache_dir()?;
             let state = state::AppState::open(&data_dir, &cache_dir)?;
             app.manage(state);
+            #[cfg(feature = "updater")]
+            updates::spawn_checks(app.handle());
             // Fichiers déposés sur la fenêtre : les chemins viennent de
             // l'événement natif et restent ici ; l'interface ne reçoit
             // qu'un jeton (`attach_dropped`).

@@ -24,11 +24,7 @@ fn registered_commands() -> Vec<&'static str> {
         .collect()
 }
 
-fn invoke(
-    webview: &tauri::WebviewWindow<MockRuntime>,
-    cmd: &str,
-    url: &str,
-) -> Result<(), String> {
+fn invoke(webview: &tauri::WebviewWindow<MockRuntime>, cmd: &str, url: &str) -> Result<(), String> {
     let request = InvokeRequest {
         cmd: cmd.into(),
         callback: CallbackFn(0),

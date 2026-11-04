@@ -1,12 +1,15 @@
 //! Base de mesure pour le test end-to-end de performance (phase 9) : un
 //! compte (serveurs sur un domaine `.invalid`, jamais joignables : aucune
 //! synchronisation ne modifie la base pendant la mesure), une boîte de
-//! réception de 50 000 messages synthétiques et des Archives de 20 000.
+//! réception de 50 000 messages synthétiques et des Archives de 20 000 ;
+//! question du premier lancement déjà répondue.
 //!
 //! Usage : `cargo run -p norelly-sqlite --example seed_perf -- <fichier.sqlite3>`
 
 use norelly_domain::mailbox::{MailboxName, MailboxRole, RemoteMailbox};
-use norelly_domain::ports::{AccountRepository, MailStore, SyncBatch};
+use norelly_domain::ports::{AccountRepository, MailStore, SettingsStore, SyncBatch};
+use norelly_domain::settings::{Settings, UpdateCheck};
+use norelly_sqlite::preferences::SqliteSettingsStore;
 use norelly_sqlite::mail::SqliteMailStore;
 use norelly_sqlite::{Database, SqliteAccountRepository};
 use norelly_test_support::contracts::sample_account;
@@ -32,6 +35,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .insert(&sample_account("perf@norelly.invalid", false))
         .await?
         .id();
+    // Utilisateur existant : la question du premier lancement a déjà eu
+    // sa réponse (la mesure porte sur un démarrage ordinaire).
+    SqliteSettingsStore::new(db.clone())
+        .save_settings(&Settings {
+            update_check: UpdateCheck::Disabled,
+            ..Settings::default()
+        })
+        .await?;
     let store = SqliteMailStore::new(db);
     let boxes = store
         .replace_mailboxes(

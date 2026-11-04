@@ -263,6 +263,10 @@ Commandes de référence (détail dans `scripts/check.sh`) :
 
 - [ ] Reports de la revue de la phase 8 (REVIEWS.md) : budget de temps des lectures de recherche (interruption quand une nouvelle requête arrive), bench avec des corps réalistes ; `hostile_message_sql.rs` étendu à la recherche et au nom de boîte des copies distantes
 
+- [ ] Rédaction, compléments :
+  - transfert avec les pièces jointes du message d'origine (relues depuis le stockage local, téléchargées si besoin, mêmes bornes de taille que l'envoi) ;
+  - liste des brouillons enregistrés pour les rouvrir et les reprendre (brouillons locaux et copies du dossier « Brouillons ») ;
+  - envoi différé : date et heure choisies par l'utilisateur, message gardé dans la file d'envoi jusque-là, modifiable ou annulable avant l'échéance
 - [ ] Notifications natives (`tauri-plugin-notification`) pour les nouveaux messages (regroupées, sans contenu si l'option de confidentialité est active)
 - [ ] Traduction anglaise complète, relue ; choix de la langue dans les paramètres (système par défaut) ; textes des notifications localisés côté interface (ADR-011)
 - [ ] Paramètres : question de mise à jour au premier lancement (oui présélectionné), modifiable ; préférences d'affichage, de rapatriement et de notifications
@@ -285,3 +289,32 @@ Commandes de référence (détail dans `scripts/check.sh`) :
 - [ ] Revue security-reviewer finale (chaîne d'approvisionnement, autorisations Flatpak, capabilities Tauri), consignée dans REVIEWS.md
 
 **Condition de fin** : `./scripts/check.sh full && pnpm -C app tauri build` passent sans erreur, et `flatpak-builder --force-clean build packaging/flatpak/io.github.gbourquet.Norelly.yml` réussit.
+
+## Phase 11 : documentation
+
+Trois documentations, chacune pour son public. Le français est la langue source ; la documentation utilisateur est aussi traduite en anglais (ADR-011).
+
+- [ ] Documentation fonctionnelle (`docs/fonctionnel/`) :
+  - présentation du produit : à qui il s'adresse, ce qu'il fait et ne fait pas, principes (sécurité, hors ligne, clavier) ;
+  - liste des fonctionnalités, puis une fiche par fonctionnalité : but, comportement attendu, règles métier (renvoi vers le domaine), cas limites, messages affichés, raccourcis ;
+  - glossaire (conversation, boîte unifiée, brouillon, file d'envoi…).
+- [ ] Documentation technique (`docs/technique/`, `CONTRIBUTING.md`), pour qu'un développeur puisse contribuer sans aide :
+  - technologies et versions, avec la raison de chaque choix (renvoi vers DECISIONS.md) ;
+  - architecture hexagonale : domaine, ports, adaptateurs, application, point d'assemblage Tauri, contrat IPC, flux principaux (synchronisation, lecture sécurisée, actions hors ligne, envoi) avec schémas ;
+  - modèle de données (migrations SQLite) et protocoles personnalisés ;
+  - sécurité : modèle de menace, défenses en place, revues (renvoi vers REVIEWS.md) ;
+  - tests : niveaux (unitaires, contrats, intégration en conteneurs, e2e), faux serveurs, couverture et seuils, bancs de performance ;
+  - méthode : TDD, phases du PLAN, conventions de code et de commit, branches et PR, CI ;
+  - premier pas : installer, lancer, tester, ajouter une commande IPC ou une migration (pas à pas).
+- [ ] Documentation utilisateur (`docs/utilisateur/`, en français et en anglais), rédigée pour quelqu'un qui n'est pas à l'aise avec un ordinateur :
+  - ce qu'est Norelly et à quoi il sert, en mots simples ;
+  - installation sous Windows et Linux, étape par étape, avec captures d'écran ;
+  - premier compte (adresse, mot de passe, mot de passe d'application pour Gmail et Outlook.com) ;
+  - usages courants : lire, répondre, écrire, joindre un fichier, ranger, supprimer, rechercher, retrouver un brouillon ;
+  - messages d'erreur fréquents et quoi faire (certificat, hors ligne, mot de passe refusé) ;
+  - questions fréquentes et aide-mémoire des raccourcis clavier.
+- [ ] Captures d'écran produites par un scénario e2e (toujours à jour, dans les deux langues)
+- [ ] `./scripts/check-docs.sh`, branché dans `./scripts/check.sh` : liens internes valides, captures présentes, mêmes pages en français et en anglais pour la documentation utilisateur, chaque commande du registre présente dans l'aide-mémoire des raccourcis
+- [ ] Relecture par le mainteneur, et lecture de la documentation utilisateur par une personne non technique (retours consignés)
+
+**Condition de fin** : `./scripts/check.sh full` passe sans erreur (avec `check-docs.sh`).

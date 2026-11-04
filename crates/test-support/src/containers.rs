@@ -122,6 +122,129 @@ pub async fn start_dovecot_tls_on(
     Ok(RunningServer { container, host })
 }
 
+/// Image Stalwart (second serveur IMAP, job nocturne, ADR-007), figée par
+/// empreinte : dernière version configurable par un seul `config.toml`
+/// (annuaire en mémoire). Sous AGPL : jamais liée à notre code (ADR-009).
+pub const STALWART_IMAGE: (&str, &str) = (
+    "stalwartlabs/mail-server",
+    "v0.11.8@sha256:a5ce0615640b29a01c0a55b9fff6dd2c9dfa261ec87862c22e4db7e0254cdb1f",
+);
+/// Port IMAP (STARTTLS) interne de Stalwart.
+pub const STALWART_IMAP_PORT: u16 = 143;
+/// Port IMAPS (TLS implicite) interne de Stalwart.
+pub const STALWART_IMAPS_PORT: u16 = 993;
+
+/// Configuration de Stalwart : IMAP seulement, stockage RocksDB du
+/// conteneur, utilisateur [`TEST_USER`] / [`TEST_PASSWORD`] en mémoire,
+/// certificat de test, filtre anti-spam désactivé (aucun téléchargement).
+fn stalwart_config() -> String {
+    format!(
+        r#"[server]
+hostname = "mail.norelly.test"
+
+[server.listener.imap]
+bind = ["[::]:{STALWART_IMAP_PORT}"]
+protocol = "imap"
+
+[server.listener.imaps]
+bind = ["[::]:{STALWART_IMAPS_PORT}"]
+protocol = "imap"
+tls.implicit = true
+
+[storage]
+data = "rocksdb"
+fts = "rocksdb"
+blob = "rocksdb"
+lookup = "rocksdb"
+directory = "memory"
+
+[store."rocksdb"]
+type = "rocksdb"
+path = "/opt/stalwart-mail/data"
+compression = "lz4"
+
+[directory."memory"]
+type = "memory"
+
+[[directory."memory".principals]]
+name = "{TEST_USER}"
+class = "individual"
+secret = "{TEST_PASSWORD}"
+email = ["{TEST_USER}@norelly.test"]
+
+[certificate."default"]
+cert = "%{{file:/opt/stalwart-mail/etc/tls.crt}}%"
+private-key = "%{{file:/opt/stalwart-mail/etc/tls.key}}%"
+default = true
+
+[spam-filter]
+enable = false
+
+[tracer."stdout"]
+type = "stdout"
+level = "warn"
+enable = true
+"#
+    )
+}
+
+/// Démarre Stalwart avec un certificat de test et l'utilisateur
+/// [`TEST_USER`].
+pub async fn start_stalwart_tls(cert: &TestCert) -> Result<RunningServer, ContainerError> {
+    let (name, tag) = STALWART_IMAGE;
+    let container = GenericImage::new(name, tag)
+        .with_exposed_port(STALWART_IMAP_PORT.tcp())
+        .with_exposed_port(STALWART_IMAPS_PORT.tcp())
+        .with_copy_to(
+            "/opt/stalwart-mail/etc/config.toml",
+            stalwart_config().into_bytes(),
+        )
+        .with_copy_to(
+            "/opt/stalwart-mail/etc/tls.crt",
+            cert.cert_pem.clone().into_bytes(),
+        )
+        .with_copy_to(
+            "/opt/stalwart-mail/etc/tls.key",
+            cert.key_pem.clone().into_bytes(),
+        )
+        .start()
+        .await?;
+    let host = container.get_host().await?.to_string();
+    Ok(RunningServer { container, host })
+}
+
+/// Serveur IMAP réel des tests d'intégration.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ImapServerKind {
+    /// Serveur de référence (chaque exécution).
+    Dovecot,
+    /// Second serveur (job nocturne).
+    Stalwart,
+}
+
+impl ImapServerKind {
+    /// Démarre le serveur avec un certificat de test et attend sa
+    /// bannière ; renvoie le serveur et son port IMAPS sur l'hôte.
+    pub async fn start_tls(self, cert: &TestCert) -> Result<(RunningServer, u16), ContainerError> {
+        let (server, plain, tls) = match self {
+            Self::Dovecot => (
+                start_dovecot_tls(cert).await?,
+                DOVECOT_IMAP_PORT,
+                DOVECOT_IMAPS_PORT,
+            ),
+            Self::Stalwart => (
+                start_stalwart_tls(cert).await?,
+                STALWART_IMAP_PORT,
+                STALWART_IMAPS_PORT,
+            ),
+        };
+        let plain = server.port(plain).await?;
+        read_banner(&server.host, plain, Duration::from_secs(60)).await?;
+        let port = server.port(tls).await?;
+        Ok((server, port))
+    }
+}
+
 /// Image Toxiproxy (pannes réseau simulées).
 pub const TOXIPROXY_IMAGE: (&str, &str) = ("ghcr.io/shopify/toxiproxy", "2.12.0");
 /// Port de l'API de Toxiproxy.

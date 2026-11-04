@@ -173,6 +173,9 @@ pub struct SelectedMailbox {
     pub changed: Vec<FlagUpdate>,
     /// Avec QRESYNC : `VANISHED (EARLIER)`.
     pub vanished: UidRanges,
+    /// Des réponses ont été écartées (indécodables) : `changed` et
+    /// `vanished` peuvent être incomplets.
+    pub incomplete: bool,
 }
 
 /// Drapeaux d'un message reçus du serveur.
@@ -264,6 +267,11 @@ pub fn plan(
         return Ok(SyncPlan::UidCompare);
     }
     if request.qresync.is_some() {
+        // Réponses écartées : suppressions ou changements peut-être
+        // perdus ; avancer le MODSEQ les perdrait pour de bon.
+        if selected.incomplete {
+            return Ok(SyncPlan::UidCompare);
+        }
         return Ok(SyncPlan::Qresync);
     }
     if !request.condstore {

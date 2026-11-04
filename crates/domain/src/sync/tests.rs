@@ -143,6 +143,7 @@ impl Server {
             exists: u32::try_from(self.messages.len()).unwrap_or(u32::MAX),
             changed: vec![],
             vanished: UidRanges::default(),
+            incomplete: false,
         };
         if let Some(q) = &request.qresync
             && self.condstore
@@ -324,6 +325,23 @@ fn qresync_applies_vanished_and_changes_without_extra_query() {
         [uid(5)]
     );
     assert_eq!(local.messages, server.flags_view());
+}
+
+/// Stalwart (job nocturne) : `* VANISHED (EARLIER) 0:1` (UID 0 interdit)
+/// est écarté par le décodeur. La réponse au `SELECT` est alors
+/// incomplète : se fier à QRESYNC perdrait la suppression pour de bon (le
+/// MODSEQ avance) ; on compare les UID.
+#[test]
+fn incomplete_qresync_select_falls_back_to_uid_comparison() {
+    let mut server = server_with(4, true);
+    let mut local = LocalMailbox::default();
+    sync(&mut local, &server, QRESYNC);
+    server.apply(&Op::Expunge(1)); // UID 2
+    let request = select_request(&local, QRESYNC);
+    let mut selected = server.select(&request);
+    selected.vanished = UidRanges::default(); // réponse écartée
+    selected.incomplete = true;
+    assert_eq!(plan(&local, &request, &selected), Ok(SyncPlan::UidCompare));
 }
 
 #[test]

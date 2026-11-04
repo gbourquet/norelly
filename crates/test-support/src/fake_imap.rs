@@ -600,6 +600,7 @@ impl RemoteMailboxSession for FakeImapSession {
             exists: u32::try_from(m.messages.len()).unwrap_or(u32::MAX),
             changed: vec![],
             vanished: UidRanges::default(),
+            incomplete: false,
         };
         if let Some(q) = &request.qresync
             && ext.qresync

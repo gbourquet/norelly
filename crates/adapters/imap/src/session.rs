@@ -507,6 +507,9 @@ impl Connection {
             }
         }
         selected.vanished = UidRanges::new(vanished);
+        // Réponse écartée (indécodable, par exemple `VANISHED (EARLIER) 0:1`
+        // de Stalwart) : le plan QRESYNC n'est plus fiable.
+        selected.incomplete = reply.skipped > 0;
         Ok(selected)
     }
 

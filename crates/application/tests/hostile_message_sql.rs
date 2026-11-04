@@ -1,7 +1,8 @@
 //! Message piégé contre la base : des charges d'injection SQL (et de
 //! rupture du JSON stocké) dans tous les champs qu'un expéditeur ou un
 //! serveur contrôle (sujet, expéditeur, destinataires, Message-ID,
-//! références, mots-clés, nom de boîte, corps) traversent toute la chaîne
+//! références, mots-clés, nom de boîte, corps, nom de pièce jointe)
+//! traversent toute la chaîne
 //! réelle : faux serveur IMAP, `mail-parser`, domaine, SQLite sur disque,
 //! fichiers. Elles doivent être stockées comme de simples données : schéma
 //! inchangé, base intègre, aucune autre ligne touchée, valeurs relues à
@@ -13,9 +14,11 @@ mod common;
 
 use common::local;
 use norelly_application::actions::{PerformAction, ReplayActions};
+use norelly_application::compose::{PrepareReply, QueueMessage};
 use norelly_application::sync::SyncAccount;
 use norelly_domain::actions::{MessageAction, OpKind};
 use norelly_domain::address::EmailAddress;
+use norelly_domain::compose::ReplyKind;
 use norelly_domain::compose::draft::{Draft, Recipient, RemoteCopy};
 use norelly_domain::conversation::ConversationScope;
 use norelly_domain::fetch_policy::FetchPolicy;
@@ -28,10 +31,29 @@ use norelly_domain::ports::{
 };
 use norelly_domain::ports::{SearchIndex, SearchRequest, SearchScope};
 use norelly_domain::search::parse_query;
+use norelly_render::compose::MimeComposer;
 use norelly_sqlite::SqliteAccountRepository;
 use norelly_sqlite::compose::SqliteComposeStore;
 use norelly_sqlite::preferences::SqliteReadingPreferences;
 use norelly_test_support::fake_imap::FakeImap;
+
+/// Corps tous complets localement : aucun téléchargement attendu.
+struct NoFetch;
+
+impl norelly_domain::ports::RemoteBodyFetcher for NoFetch {
+    async fn fetch(
+        &self,
+        _: norelly_domain::account::AccountId,
+        _: &MailboxName,
+        _: Uid,
+        _: &norelly_domain::fetch_policy::BodyFetch,
+    ) -> Result<
+        Option<norelly_domain::ports::FetchedBody>,
+        norelly_domain::connection::ConnectionError,
+    > {
+        Ok(None)
+    }
+}
 
 /// Instant des actions (secondes Unix).
 const NOW: i64 = 1_800_000_000;
@@ -381,6 +403,94 @@ async fn trapped_messages_cannot_alter_the_database() -> Result<(), Box<dyn std:
     );
     compose.forget_remote(l.account, copy).await?;
     assert!(compose.remote_trash(l.account).await?.is_empty());
+
+    // Transfert et reprise (phase 9) : pièce jointe au nom piégé, rangée
+    // dans les blobs et relue avec le brouillon ; envoi programmé
+    // (`outbox.draft_content`) puis repris, à l'identique.
+    let attachment_body = PAYLOADS.join("\n");
+    let with_attachment = format!(
+        "From: \"{}\" <a@example.com>\r\nTo: <b@example.com>\r\nSubject: pj {}\r\n\
+         Content-Type: multipart/mixed; boundary=b\r\n\r\n\
+         --b\r\nContent-Type: text/plain\r\n\r\n{}\r\n\
+         --b\r\nContent-Type: application/octet-stream\r\n\
+         Content-Disposition: attachment; filename=\"{}\"\r\n\r\n{attachment_body}\r\n--b--\r\n",
+        PAYLOADS[0].replace('"', "'"),
+        PAYLOADS[4],
+        PAYLOADS[5],
+        PAYLOADS[3].replace('"', "'"),
+    );
+    imap.append(
+        box_name,
+        with_attachment.as_bytes(),
+        Flags::default(),
+        1_700_000_000,
+    );
+    let mut session = imap.session()?;
+    let ext = session.enable_sync_extensions().await?;
+    sync.sync_all(&mut session, ext, |_, _| {}).await?;
+    let source = l
+        .store
+        .page(trapped_box.id, None, 100)
+        .await?
+        .items
+        .into_iter()
+        .find(|i| i.subject.starts_with("pj "))
+        .ok_or("message à pièce jointe absent")?;
+    let prepare = PrepareReply {
+        locator: &*l.store,
+        blobs: &*l.blobs,
+        composer: &MimeComposer,
+        fetcher: &NoFetch,
+    };
+    let me = Recipient::new(PAYLOADS[6], EmailAddress::parse("moi@example.com")?);
+    let mut forwarded = prepare
+        .execute(
+            source.id,
+            ReplyKind::Forward,
+            &[me.address.clone()],
+            PAYLOADS[7],
+        )
+        .await?;
+    let resumed = prepare.resume(source.id).await?;
+    for draft in [&forwarded, &resumed] {
+        assert_eq!(draft.attachments.len(), 1, "{:?}", draft.attachments);
+        let a = &draft.attachments[0];
+        let bytes = l
+            .blobs
+            .get(l.account, &a.blob)
+            .await?
+            .ok_or("pièce absente")?;
+        assert!(String::from_utf8_lossy(&bytes).starts_with(&attachment_body));
+        let saved = compose.save_draft(None, draft, NOW).await?;
+        assert_eq!(
+            compose.draft(saved.id).await?.map(|d| d.draft).as_ref(),
+            Some(draft),
+            "brouillon transféré ou repris relu à l'identique"
+        );
+        compose.delete_draft(saved.id).await?;
+    }
+    forwarded.to = vec![Recipient::new(
+        PAYLOADS[1],
+        EmailAddress::parse("b@example.com")?,
+    )];
+    let queue = QueueMessage {
+        store: &compose,
+        blobs: &*l.blobs,
+        composer: &MimeComposer,
+    };
+    let scheduled = queue
+        .schedule(None, &forwarded, &me, NOW, NOW + 3_600)
+        .await?;
+    let queued = compose.outbox(l.account).await?;
+    assert!(queued.iter().any(|q| q.id == scheduled));
+    let back = compose
+        .unschedule(scheduled, NOW + 60)
+        .await?
+        .ok_or("envoi programmé non repris")?;
+    assert_eq!(
+        back.draft, forwarded,
+        "brouillon programmé relu à l'identique"
+    );
 
     assert_eq!(l.db.integrity_problems().await?, Vec::<String>::new());
     assert_eq!(l.db.schema().await?, schema_before, "schéma modifié");

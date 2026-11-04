@@ -23,7 +23,9 @@ use lettre::message::{Attachment, Mailbox, Mailboxes, Message, MultiPart, Single
 use mail_parser::{HeaderValue, MessageParser, MimeHeaders};
 use norelly_domain::address::EmailAddress;
 use norelly_domain::compose::ReplySource;
-use norelly_domain::compose::draft::{ComposeError, MAX_ATTACHMENTS, MAX_ATTACHMENTS_BYTES, Recipient};
+use norelly_domain::compose::draft::{
+    ComposeError, MAX_ATTACHMENTS, MAX_ATTACHMENTS_BYTES, Recipient,
+};
 use norelly_domain::mailbox::{Correspondent, MAX_ADDRESSES, MessageHeaders, RawHeaders};
 use norelly_domain::ports::{
     ComposeBuildError, ComposedAttachment, ComposedMessage, Composition, MessageComposer,

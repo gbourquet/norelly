@@ -1205,8 +1205,7 @@ pub trait MessageComposer: Send + Sync {
     /// l'itération : au-delà de `MAX_ATTACHMENTS` pièces ou de
     /// `MAX_ATTACHMENTS_BYTES` octets décodés, l'analyse s'arrête sur
     /// `TooManyAttachments` ou `AttachmentsTooLarge`.
-    fn forwarded_attachments(&self, raw: &[u8])
-    -> Result<Vec<ComposedAttachment>, ComposeError>;
+    fn forwarded_attachments(&self, raw: &[u8]) -> Result<Vec<ComposedAttachment>, ComposeError>;
 
     /// HTML d'un texte brut (échappé, paragraphes), pour reprendre un
     /// brouillon dans l'éditeur.

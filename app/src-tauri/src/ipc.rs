@@ -700,6 +700,16 @@ pub struct DraftAttachmentDto {
     pub size: u32,
 }
 
+/// Brouillon enregistré, dans la liste des brouillons.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
+pub struct DraftSummaryDto {
+    pub id: u32,
+    pub subject: String,
+    /// Adresses des destinataires (À).
+    pub to: Vec<String>,
+    pub updated_at: u32,
+}
+
 /// Brouillon échangé avec l'éditeur.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 pub struct DraftDto {

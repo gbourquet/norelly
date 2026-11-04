@@ -480,3 +480,81 @@ async fn settings_round_trip_and_are_revalidated() {
         (ErrorCodeDto::InvalidInput, Some(FieldDto::Settings))
     );
 }
+
+#[tokio::test]
+async fn drafts_are_listed_reopened_scheduled_and_taken_back() {
+    use crate::compose::{list_drafts, open_draft, schedule_draft, unschedule_send};
+    let t = test_app().await;
+    let account = id32(t.account.get());
+    let mut draft = prepare_compose(t.state(), account, ComposeKindDto::New, None, String::new())
+        .await
+        .unwrap_or_else(|e| panic!("{e:?}"));
+    draft.subject = "Programmé".into();
+    draft.html = "<p>Plus tard</p>".into();
+    draft.to = vec![RecipientDto {
+        name: "Bob".into(),
+        address: "bob@example.com".into(),
+    }];
+    let saved = save_draft(t.state(), draft.clone())
+        .await
+        .unwrap_or_else(|e| panic!("{e:?}"));
+    draft.id = Some(saved.id);
+    let listed = list_drafts(t.state(), account)
+        .await
+        .unwrap_or_else(|e| panic!("{e:?}"));
+    assert_eq!(listed.len(), 1);
+    assert_eq!(
+        (listed[0].id, listed[0].subject.as_str()),
+        (saved.id, "Programmé")
+    );
+    assert_eq!(listed[0].to, ["bob@example.com"]);
+    let reopened = open_draft(t.state(), saved.id)
+        .await
+        .unwrap_or_else(|e| panic!("{e:?}"));
+    assert_eq!(reopened.subject, "Programmé");
+    assert_eq!(reopened.id, Some(saved.id));
+    assert_eq!(
+        code(open_draft(t.state(), 9999).await),
+        (ErrorCodeDto::NotFound, Some(FieldDto::Draft))
+    );
+
+    let in_an_hour =
+        u32::try_from(norelly_application::account_actor::unix_now() + 3600).unwrap_or(u32::MAX);
+    let queued = schedule_draft(t.state(), draft.clone(), in_an_hour)
+        .await
+        .unwrap_or_else(|e| panic!("{e:?}"));
+    assert!(
+        list_drafts(t.state(), account)
+            .await
+            .unwrap_or_else(|e| panic!("{e:?}"))
+            .is_empty()
+    );
+    let items = outbox(t.state(), account)
+        .await
+        .unwrap_or_else(|e| panic!("{e:?}"));
+    assert!(matches!(
+        items.iter().find(|i| i.id == queued).map(|i| &i.state),
+        Some(OutboxStateDto::Queued { not_before }) if *not_before == in_an_hour
+    ));
+    let back = unschedule_send(t.state(), account, queued)
+        .await
+        .unwrap_or_else(|e| panic!("{e:?}"));
+    assert_eq!(back.subject, "Programmé");
+    assert!(back.id.is_some());
+    assert!(
+        outbox(t.state(), account)
+            .await
+            .unwrap_or_else(|e| panic!("{e:?}"))
+            .is_empty()
+    );
+    assert_eq!(
+        code(unschedule_send(t.state(), account, queued).await).0,
+        ErrorCodeDto::NotFound,
+        "déjà repris : plus dans la file"
+    );
+    let far = u32::MAX;
+    assert_eq!(
+        code(schedule_draft(t.state(), back, far).await).0,
+        ErrorCodeDto::ScheduleTooFar
+    );
+}

@@ -110,6 +110,21 @@ export const commands = {
 	sendDraft: (draft: DraftDto_Deserialize) => typedError<number, IpcError_Serialize>(__TAURI_INVOKE("send_draft", { draft })),
 	/**  Abandonne un brouillon (sa copie sur le serveur sera supprimée). */
 	discardDraft: (id: number) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("discard_draft", { id })),
+	/**
+	 *  Programme l'envoi d'un brouillon à `at` (secondes Unix) ; renvoie son
+	 *  identifiant dans la file. Le brouillon reste récupérable avant
+	 *  l'échéance (`unschedule_send`).
+	 */
+	scheduleDraft: (draft: DraftDto_Deserialize, at: number) => typedError<number, IpcError_Serialize>(__TAURI_INVOKE("schedule_draft", { draft, at })),
+	/**
+	 *  Reprend un message programmé pour le modifier : retiré de la file, son
+	 *  brouillon est recréé et renvoyé.
+	 */
+	unscheduleSend: (account: number, id: number) => typedError<DraftDto_Serialize, IpcError_Serialize>(__TAURI_INVOKE("unschedule_send", { account, id })),
+	/**  Brouillons enregistrés d'un compte, du plus récent au plus ancien. */
+	listDrafts: (account: number) => typedError<DraftSummaryDto[], IpcError_Serialize>(__TAURI_INVOKE("list_drafts", { account })),
+	/**  Rouvre un brouillon enregistré. */
+	openDraft: (id: number) => typedError<DraftDto_Serialize, IpcError_Serialize>(__TAURI_INVOKE("open_draft", { id })),
 	/**  File d'envoi d'un compte. */
 	outbox: (account: number) => typedError<OutboxItemDto[], IpcError_Serialize>(__TAURI_INVOKE("outbox", { account })),
 	/**
@@ -428,6 +443,15 @@ export type DraftDto_Serialize = {
 	attachments: DraftAttachmentDto[],
 };
 
+/**  Brouillon enregistré, dans la liste des brouillons. */
+export type DraftSummaryDto = {
+	id: number,
+	subject: string,
+	/**  Adresses des destinataires (À). */
+	to: string[],
+	updated_at: number,
+};
+
 /**  Point de connexion (consentement au clair, exception de certificat). */
 export type EndpointDto = {
 	host: string,
@@ -486,6 +510,8 @@ export type ErrorCodeDto =
 "attachments_too_large" | 
 /**  Plus de pièces jointes que la limite. */
 "too_many_attachments" | 
+/**  Envoi différé à plus d'un an. */
+"schedule_too_far" | 
 /**  Envoi non annulable ou non relançable dans son état. */
 "outbox_busy" | 
 /**  Erreur interne (journalisée). */

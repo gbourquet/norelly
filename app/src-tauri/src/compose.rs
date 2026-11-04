@@ -33,8 +33,9 @@ use norelly_domain::compose::outbox::{OutboxState, SendFailure};
 use norelly_domain::ports::{BlobId, DraftId, OutboxItem};
 
 use crate::ipc::{
-    ComposeKindDto, DraftAttachmentDto, DraftDto, ErrorCodeDto, FieldDto, IpcError, OutboxItemDto,
-    OutboxStateDto, RecipientDto, SavedDraftDto, SendFailureDto, date_dto, id32,
+    ComposeKindDto, DraftAttachmentDto, DraftDto, DraftSummaryDto, ErrorCodeDto, FieldDto,
+    IpcError, OutboxItemDto, OutboxStateDto, RecipientDto, SavedDraftDto, SendFailureDto, date_dto,
+    id32,
 };
 
 fn recipients_of(list: &[RecipientDto]) -> Result<Vec<Recipient>, IpcError> {
@@ -304,6 +305,99 @@ pub async fn send_draft(state: State<'_, AppState>, draft: DraftDto) -> Result<u
     .await?;
     state.mail.compose_soon(draft.account).await;
     id32(queued.get())
+}
+
+/// Programme l'envoi d'un brouillon à `at` (secondes Unix) ; renvoie son
+/// identifiant dans la file. Le brouillon reste récupérable avant
+/// l'échéance (`unschedule_send`).
+#[tauri::command]
+#[specta::specta]
+pub async fn schedule_draft(
+    state: State<'_, AppState>,
+    draft: DraftDto,
+    at: u32,
+) -> Result<u32, IpcError> {
+    let (id, draft) = draft_of(&draft)?;
+    let account = state
+        .accounts
+        .get(draft.account)
+        .await
+        .map_err(IpcError::storage)?
+        .ok_or_else(|| IpcError::not_found(FieldDto::Account))?;
+    let from = Recipient::new(account.display_name().as_str(), account.address().clone());
+    let queued = QueueMessage {
+        store: &*state.mail.compose,
+        blobs: &*state.mail.blobs,
+        composer: &MimeComposer,
+    }
+    .schedule(id, &draft, &from, unix_now(), i64::from(at))
+    .await?;
+    state.mail.compose_soon(draft.account).await;
+    id32(queued.get())
+}
+
+/// Reprend un message programmé pour le modifier : retiré de la file, son
+/// brouillon est recréé et renvoyé.
+#[tauri::command]
+#[specta::specta]
+pub async fn unschedule_send(
+    state: State<'_, AppState>,
+    account: u32,
+    id: u32,
+) -> Result<DraftDto, IpcError> {
+    let account = account_of(account)?;
+    let item = outbox_item(&state, account, id).await?;
+    let back = state
+        .mail
+        .compose
+        .unschedule(item.id, unix_now())
+        .await
+        .map_err(IpcError::storage)?
+        // Envoi en cours ou déjà fait, ou message mis en file sans échéance.
+        .ok_or_else(|| IpcError::new(ErrorCodeDto::OutboxBusy))?;
+    state.mail.compose_soon(account).await;
+    draft_dto(Some(back.id), &back.draft)
+}
+
+/// Brouillons enregistrés d'un compte, du plus récent au plus ancien.
+#[tauri::command]
+#[specta::specta]
+pub async fn list_drafts(
+    state: State<'_, AppState>,
+    account: u32,
+) -> Result<Vec<DraftSummaryDto>, IpcError> {
+    let account = account_of(account)?;
+    let drafts = state
+        .mail
+        .compose
+        .drafts(account)
+        .await
+        .map_err(IpcError::storage)?;
+    drafts
+        .iter()
+        .map(|d| {
+            Ok(DraftSummaryDto {
+                id: id32(d.id.get())?,
+                subject: d.draft.subject.clone(),
+                to: d.draft.to.iter().map(|r| r.address.to_string()).collect(),
+                updated_at: date_dto(d.updated_at),
+            })
+        })
+        .collect()
+}
+
+/// Rouvre un brouillon enregistré.
+#[tauri::command]
+#[specta::specta]
+pub async fn open_draft(state: State<'_, AppState>, id: u32) -> Result<DraftDto, IpcError> {
+    let stored = state
+        .mail
+        .compose
+        .draft(draft_id_of(id)?)
+        .await
+        .map_err(IpcError::storage)?
+        .ok_or_else(|| IpcError::not_found(FieldDto::Draft))?;
+    draft_dto(Some(stored.id), &stored.draft)
 }
 
 /// Abandonne un brouillon (sa copie sur le serveur sera supprimée).

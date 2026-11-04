@@ -119,6 +119,8 @@ function codeText(code: ErrorCodeDto, field: FieldDto | null): string {
       return m.err_attachments_too_large();
     case "too_many_attachments":
       return m.err_too_many_attachments();
+    case "schedule_too_far":
+      return m.err_schedule_too_far();
     case "outbox_busy":
       return m.err_outbox_busy();
     case "internal":

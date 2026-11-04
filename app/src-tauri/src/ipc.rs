@@ -69,6 +69,8 @@ pub enum ErrorCodeDto {
     AttachmentsTooLarge,
     /// Plus de pièces jointes que la limite.
     TooManyAttachments,
+    /// Envoi différé à plus d'un an.
+    ScheduleTooFar,
     /// Envoi non annulable ou non relançable dans son état.
     OutboxBusy,
     /// Erreur interne (journalisée).

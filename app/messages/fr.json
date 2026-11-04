@@ -255,6 +255,7 @@
   "err_body_too_large": "Le message est trop long.",
   "err_attachments_too_large": "Les pièces jointes dépassent 25 Mio.",
   "err_too_many_attachments": "Trop de pièces jointes (100 au plus).",
+  "err_schedule_too_far": "L'envoi ne peut pas être programmé à plus d'un an.",
   "err_outbox_busy": "Ce message est en cours d'envoi : réessayez dans un instant.",
   "field_draft": "brouillon",
   "field_attachment": "fichier joint",

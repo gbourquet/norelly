@@ -110,6 +110,8 @@ pub enum ComposeError {
     AttachmentsTooLarge,
     #[error("trop de pièces jointes")]
     TooManyAttachments,
+    #[error("échéance d'envoi trop lointaine")]
+    ScheduleTooFar,
     #[error("identifiant de message invalide (In-Reply-To, References)")]
     InvalidThreading,
 }

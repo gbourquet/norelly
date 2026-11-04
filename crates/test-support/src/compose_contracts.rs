@@ -198,6 +198,73 @@ pub async fn outbox_store_contract<S: OutboxStore + DraftStore>(
     account: AccountId,
     other: AccountId,
 ) -> Result<(), StoreError> {
+    // --- Envoi programmé : brouillon gardé, récupérable avant l'échéance ---
+    let content = sample_draft(account)?;
+    let saved = store.save_draft(None, &content, 10).await?;
+    let at = OutboxEntry::queued(5_000);
+    let scheduled = store
+        .schedule(
+            account,
+            &message(9),
+            b"copie 9",
+            "Programmé",
+            Some(saved.id),
+            &content,
+            at,
+            20,
+        )
+        .await?;
+    assert_eq!(
+        store.draft(saved.id).await?,
+        None,
+        "brouillon d'origine retiré"
+    );
+    let item = store
+        .outbox(account)
+        .await?
+        .into_iter()
+        .find(|i| i.id == scheduled)
+        .ok_or_else(|| fail("programmé absent"))?;
+    assert_eq!(item.entry, at);
+    let back = store
+        .unschedule(scheduled, 30)
+        .await?
+        .ok_or_else(|| fail("brouillon non recréé"))?;
+    assert_eq!(back.draft, content);
+    assert_eq!(back.updated_at, 30);
+    assert!(store.draft(back.id).await?.is_some());
+    assert!(
+        store
+            .outbox(account)
+            .await?
+            .iter()
+            .all(|i| i.id != scheduled),
+        "retiré de la file"
+    );
+    assert_eq!(store.unschedule(scheduled, 31).await?, None, "déjà retiré");
+    // Envoi en cours : plus modifiable.
+    let busy = store
+        .schedule(
+            account,
+            &message(8),
+            b"copie 8",
+            "Occupé",
+            None,
+            &content,
+            at,
+            40,
+        )
+        .await?;
+    assert!(
+        store
+            .transition(busy, at, at.start().map_err(|e| fail(&e.to_string()))?)
+            .await?
+    );
+    assert_eq!(store.unschedule(busy, 41).await?, None);
+    assert!(store.outbox(account).await?.iter().any(|i| i.id == busy));
+    store.remove(busy).await?;
+    store.delete_draft(back.id).await?;
+
     // --- Mise en file : le brouillon disparaît dans la même transaction ---
     let draft = store.save_draft(None, &sample_draft(account)?, 10).await?;
     let (synced, _) = draft.sync.remote_saved(1, Some(copy(3, 5)?), 11);
@@ -446,6 +513,8 @@ struct ComposeState {
     drafts: BTreeMap<DraftId, StoredDraft>,
     trash: Vec<(AccountId, RemoteCopy)>,
     outbox: BTreeMap<OutboxId, OutboxItem>,
+    /// Brouillons gardés des messages programmés.
+    kept: BTreeMap<OutboxId, Draft>,
 }
 
 fn lock(m: &Mutex<ComposeState>) -> MutexGuard<'_, ComposeState> {
@@ -602,6 +671,53 @@ impl OutboxStore for InMemoryComposeStore {
             },
         );
         Ok(id)
+    }
+
+    async fn schedule(
+        &self,
+        account: AccountId,
+        message: &OutgoingMessage,
+        sent_copy: &[u8],
+        subject: &str,
+        draft: Option<DraftId>,
+        content: &Draft,
+        entry: OutboxEntry,
+        now: i64,
+    ) -> Result<OutboxId, StoreError> {
+        let id = self
+            .enqueue(account, message, sent_copy, subject, draft, now)
+            .await?;
+        let mut s = lock(&self.state);
+        if let Some(item) = s.outbox.get_mut(&id) {
+            item.entry = entry;
+        }
+        s.kept.insert(id, content.clone());
+        Ok(id)
+    }
+
+    async fn unschedule(&self, id: OutboxId, now: i64) -> Result<Option<StoredDraft>, StoreError> {
+        let mut s = lock(&self.state);
+        let waiting = s
+            .outbox
+            .get(&id)
+            .is_some_and(|i| matches!(i.entry.state, OutboxState::Queued { .. }));
+        if !waiting || !s.kept.contains_key(&id) {
+            return Ok(None);
+        }
+        s.outbox.remove(&id);
+        let Some(draft) = s.kept.remove(&id) else {
+            return Ok(None);
+        };
+        let raw = s.next_id();
+        let draft_id = DraftId::new(raw).ok_or_else(|| fail("identifiant"))?;
+        let stored = StoredDraft {
+            id: draft_id,
+            draft,
+            sync: DraftSync::default().edited(),
+            updated_at: now,
+        };
+        s.drafts.insert(draft_id, stored.clone());
+        Ok(Some(stored))
     }
 
     async fn outbox(&self, account: AccountId) -> Result<Vec<OutboxItem>, StoreError> {

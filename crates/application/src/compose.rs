@@ -16,16 +16,16 @@ use norelly_domain::address::EmailAddress;
 use norelly_domain::compose::draft::{
     ComposeError, Draft, MAX_ATTACHMENTS_BYTES, Recipient, RemoteCopy, remote_drafts_supported,
 };
-use norelly_domain::compose::outbox::{OutboxState, SendFailure, sent_copy_needed};
+use norelly_domain::compose::outbox::{OutboxEntry, OutboxState, SendFailure, sent_copy_needed};
 use norelly_domain::compose::{
     ReplyKind, Threading, forward_subject, quote, reply_recipients, reply_subject, reply_threading,
 };
 use norelly_domain::connection::ConnectionError;
 use norelly_domain::mailbox::{Correspondent, MailboxName, MailboxRole};
 use norelly_domain::ports::{
-    BlobStore, ComposeBuildError, ComposedAttachment, Composition, ConnectRequest, DraftId,
-    DraftStore, MailSender, MessageComposer, MessageId, MessageLocator, OutboxId, OutboxStore,
-    PendingOpStore, RemoteMailboxSession, StoreError, StoredBody, StoredDraft,
+    BlobStore, ComposeBuildError, ComposedAttachment, ComposedMessage, Composition, ConnectRequest,
+    DraftId, DraftStore, MailSender, MessageComposer, MessageId, MessageLocator, OutboxId,
+    OutboxStore, PendingOpStore, RemoteMailboxSession, StoreError, StoredBody, StoredDraft,
 };
 
 /// Échec d'un cas d'usage de rédaction.
@@ -75,13 +75,40 @@ where
     B: BlobStore,
     M: MessageComposer,
 {
-    pub async fn execute(
+    /// Envoi programmé à `at` (secondes Unix) : le brouillon est gardé
+    /// avec le message pour pouvoir être repris avant l'échéance.
+    pub async fn schedule(
         &self,
         id: Option<DraftId>,
         draft: &Draft,
         from: &Recipient,
         now: i64,
+        at: i64,
     ) -> Result<OutboxId, ComposeFailure> {
+        let entry = OutboxEntry::scheduled(now, at).map_err(|_| ComposeError::ScheduleTooFar)?;
+        let built = self.build(draft, from, now).await?;
+        Ok(self
+            .store
+            .schedule(
+                draft.account,
+                &built.outgoing,
+                &built.local_copy,
+                &draft.subject,
+                id,
+                draft,
+                entry,
+                now,
+            )
+            .await?)
+    }
+
+    /// Message construit (revalidé, pièces jointes relues).
+    async fn build(
+        &self,
+        draft: &Draft,
+        from: &Recipient,
+        now: i64,
+    ) -> Result<ComposedMessage, ComposeFailure> {
         draft.check_sendable()?;
         let attachments = load_attachments(self.blobs, draft).await?;
         let composition = Composition {
@@ -91,7 +118,17 @@ where
             date: now,
             message_id: self.composer.new_message_id(&from.address)?,
         };
-        let built = self.composer.compose(&composition)?;
+        Ok(self.composer.compose(&composition)?)
+    }
+
+    pub async fn execute(
+        &self,
+        id: Option<DraftId>,
+        draft: &Draft,
+        from: &Recipient,
+        now: i64,
+    ) -> Result<OutboxId, ComposeFailure> {
+        let built = self.build(draft, from, now).await?;
         Ok(self
             .store
             .enqueue(

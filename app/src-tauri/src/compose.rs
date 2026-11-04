@@ -168,6 +168,7 @@ impl From<ComposeFailure> for IpcError {
                 ComposeError::BodyTooLarge => Self::new(ErrorCodeDto::BodyTooLarge),
                 ComposeError::AttachmentsTooLarge => Self::new(ErrorCodeDto::AttachmentsTooLarge),
                 ComposeError::TooManyAttachments => Self::new(ErrorCodeDto::TooManyAttachments),
+                ComposeError::ScheduleTooFar => Self::new(ErrorCodeDto::ScheduleTooFar),
                 ComposeError::InvalidThreading => Self::invalid(FieldDto::Message),
             },
             ComposeFailure::Store(e) => Self::storage(e),

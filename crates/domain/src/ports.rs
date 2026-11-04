@@ -1374,6 +1374,33 @@ pub trait OutboxStore: Send + Sync {
         now: i64,
     ) -> impl Future<Output = Result<OutboxId, StoreError>> + Send;
 
+    /// Met en file un message programmé (`entry` : en attente jusqu'à son
+    /// échéance), en gardant son brouillon `content` pour pouvoir le
+    /// modifier avant l'échéance ; le brouillon `draft` éventuel est
+    /// supprimé dans la même transaction.
+    #[allow(clippy::too_many_arguments)]
+    fn schedule(
+        &self,
+        account: AccountId,
+        message: &OutgoingMessage,
+        sent_copy: &[u8],
+        subject: &str,
+        draft: Option<DraftId>,
+        content: &Draft,
+        entry: OutboxEntry,
+        now: i64,
+    ) -> impl Future<Output = Result<OutboxId, StoreError>> + Send;
+
+    /// Retire de la file un message programmé encore en attente et recrée
+    /// son brouillon, dans la même transaction. `None` s'il n'existe plus,
+    /// n'est plus en attente (envoi en cours, envoyé, en échec) ou n'a pas
+    /// de brouillon gardé (message mis en file sans échéance).
+    fn unschedule(
+        &self,
+        id: OutboxId,
+        now: i64,
+    ) -> impl Future<Output = Result<Option<StoredDraft>, StoreError>> + Send;
+
     /// Messages d'un compte, dans l'ordre de mise en file.
     fn outbox(
         &self,

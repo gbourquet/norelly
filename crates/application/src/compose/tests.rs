@@ -263,6 +263,50 @@ async fn queue_message_composes_and_retires_the_draft() {
     assert!(String::from_utf8_lossy(&item.sent_copy).contains("cache@example.com"));
 }
 
+/// Phase 9 : envoi différé, en file jusqu'à l'échéance, repris pour être
+/// modifié tant qu'il n'est pas parti.
+#[tokio::test]
+async fn scheduled_messages_wait_and_can_be_taken_back() {
+    use norelly_domain::compose::outbox::{MAX_SCHEDULE_SECS, OutboxEntry};
+    let w = world(true).await;
+    let d = draft_to("bob@example.com");
+    let at = NOW + 7200;
+    let id = w
+        .queue()
+        .schedule(None, &d, &me(), NOW, at)
+        .await
+        .unwrap_or_else(|e| panic!("{e}"));
+    let items = w
+        .compose
+        .outbox(account())
+        .await
+        .unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(
+        items.first().map(|i| i.entry),
+        Some(OutboxEntry::queued(at))
+    );
+    let report = w
+        .deliver()
+        .execute(&request(), NOW + 60)
+        .await
+        .unwrap_or_else(|e| panic!("{e}"));
+    assert!(report.sent.is_empty(), "pas avant l'échéance");
+    assert_eq!(report.next_attempt, Some(at));
+    let back = w
+        .compose
+        .unschedule(id, NOW + 120)
+        .await
+        .unwrap_or_else(|e| panic!("{e}"))
+        .unwrap_or_else(|| panic!("brouillon rendu"));
+    assert_eq!(back.draft, d);
+    assert_eq!(
+        w.queue()
+            .schedule(None, &d, &me(), NOW, NOW + MAX_SCHEDULE_SECS + 1)
+            .await,
+        Err(ComposeFailure::Invalid(ComposeError::ScheduleTooFar))
+    );
+}
+
 #[tokio::test]
 async fn queue_message_refuses_invalid_drafts() {
     let w = world(true).await;

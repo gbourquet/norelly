@@ -46,6 +46,7 @@ fn migrations() -> Migrations<'static> {
         M::up(include_str!("../migrations/0007_search.sql")),
         M::up(include_str!("../migrations/0008_remote_copy_mailbox.sql")),
         M::up(include_str!("../migrations/0009_folder_counts.sql")),
+        M::up(include_str!("../migrations/0010_scheduled_send.sql")),
     ])
 }
 
@@ -583,6 +584,8 @@ mod tests {
         "UPDATE drafts SET remote_mailbox = 'INBOX' WHERE id = 1;",
         // Version 9 : index seulement, un message marqué lu.
         "UPDATE messages SET flags = 1 WHERE id = 1;",
+        // Version 10 : un message programmé avec son brouillon.
+        "UPDATE outbox SET draft_content = '{}' WHERE id = 1;",
     ];
 
     /// Montée de version depuis chaque version précédente, données
@@ -818,7 +821,9 @@ mod tests {
         std::fs::create_dir_all(&dir).map_err(|e| StoreError(e.to_string()))?;
         let db = Database::open(&dir.join("t.sqlite3")).map_err(|e| StoreError(e.to_string()))?;
         let repo = SqliteAccountRepository::new(db.clone());
-        let stored = repo.insert(&sample_account("alice@example.com", false)).await?;
+        let stored = repo
+            .insert(&sample_account("alice@example.com", false))
+            .await?;
         let busy = db.clone();
         let writer = tokio::spawn(async move {
             busy.run(|_| {
@@ -832,7 +837,10 @@ mod tests {
         assert_eq!(repo.list().await?.len(), 1);
         assert!(repo.get(stored.id()).await?.is_some());
         let elapsed = started.elapsed();
-        assert!(elapsed < std::time::Duration::from_millis(200), "{elapsed:?}");
+        assert!(
+            elapsed < std::time::Duration::from_millis(200),
+            "{elapsed:?}"
+        );
         let _ = writer.await;
         let _ = std::fs::remove_dir_all(&dir);
         Ok(())

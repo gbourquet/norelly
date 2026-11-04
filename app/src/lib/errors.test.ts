@@ -82,6 +82,7 @@ describe("traduction des erreurs IPC", () => {
       body_too_large: true,
       attachments_too_large: true,
       too_many_attachments: true,
+      schedule_too_far: true,
       outbox_busy: true,
       internal: true,
     } satisfies Record<ErrorCodeDto, true>;

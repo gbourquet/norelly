@@ -151,10 +151,28 @@ pub async fn show_notification(title: String, body: String) -> Result<(), IpcErr
 /// Titre et texte d'une notification, revalidés.
 #[must_use]
 pub fn notification_text(title: &str, body: &str) -> (String, String) {
+    // Échappés après la troncature (aucune entité coupée) : le serveur de
+    // notifications freedesktop interprète un balisage (liens, images)
+    // dans le texte, qui vient d'un mail.
     (
-        header_text(title, MAX_NOTIFICATION_TITLE),
-        header_text(body, MAX_NOTIFICATION_BODY),
+        escape_markup(&header_text(title, MAX_NOTIFICATION_TITLE)),
+        escape_markup(&header_text(body, MAX_NOTIFICATION_BODY)),
     )
+}
+
+/// Le serveur de notifications interprète-t-il un balisage ? Oui pour
+/// `org.freedesktop.Notifications` (Linux et autres Unix) ; non pour
+/// Windows (texte brut) et macOS.
+const NOTIFICATION_MARKUP: bool = cfg!(all(unix, not(target_os = "macos")));
+
+/// `&`, `<` et `>` en entités XML, là où le balisage est interprété.
+fn escape_markup(text: &str) -> String {
+    if !NOTIFICATION_MARKUP {
+        return text.to_owned();
+    }
+    text.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
 }
 
 #[cfg(test)]
@@ -199,6 +217,22 @@ mod tests {
         ));
         settings.notifications = false;
         assert!(new_mail_event(account(), mail(), &settings).is_none());
+    }
+
+    /// Revue de la phase 9 (HAUTE) : le serveur de notifications
+    /// freedesktop interprète un balisage (liens, images) ; le texte reçu
+    /// d'un mail est échappé.
+    #[test]
+    #[cfg(all(unix, not(target_os = "macos")))]
+    fn notification_markup_is_escaped() {
+        let (title, body) = notification_text(
+            "<b>Bob</b> & co",
+            r#"<a href="file:///x.desktop">Colis</a> <img src="https://pisteur/x"> &amp;"#,
+        );
+        assert_eq!(title, "&lt;b&gt;Bob&lt;/b&gt; &amp; co");
+        assert!(!body.contains('<') && !body.contains('>'), "{body}");
+        assert!(body.starts_with("&lt;a href="), "{body}");
+        assert!(body.ends_with("&amp;amp;"), "{body}");
     }
 
     #[test]

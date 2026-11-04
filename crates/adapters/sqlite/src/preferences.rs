@@ -131,7 +131,12 @@ fn settings_of(rows: &[(String, String)]) -> Settings {
             .and_then(UpdateCheck::parse)
             .unwrap_or(defaults.update_check),
         notifications: flag_of(NOTIFY_KEY, defaults.notifications),
-        notification_privacy: flag_of(PRIVACY_KEY, defaults.notification_privacy),
+        // Présente mais illisible : la confidentialité s'applique (échec
+        // fermé sur une option de vie privée).
+        notification_privacy: match value(PRIVACY_KEY) {
+            None => defaults.notification_privacy,
+            Some(v) => v != "0",
+        },
         attachment_threshold: value(THRESHOLD_KEY)
             .and_then(|v| v.parse().ok())
             .unwrap_or(defaults.attachment_threshold),
@@ -242,6 +247,20 @@ mod tests {
         )
         .await?;
         assert_eq!(store.settings().await?, chosen);
+        Ok(())
+    }
+
+    /// Revue de la phase 9 (BASSE) : une option de confidentialité
+    /// illisible s'applique (échec fermé), les autres réglages illisibles
+    /// reprennent leur valeur par défaut.
+    #[tokio::test]
+    async fn unreadable_privacy_fails_closed() -> Result<(), StoreError> {
+        let db = Database::open_in_memory().map_err(|e| StoreError(e.to_string()))?;
+        let store = SqliteSettingsStore::new(db.clone());
+        store.save_settings(&Settings::default()).await?;
+        db.write_for_tests("UPDATE settings SET value = 'oui' WHERE key = 'notify.privacy'")
+            .await?;
+        assert!(store.settings().await?.notification_privacy);
         Ok(())
     }
 }

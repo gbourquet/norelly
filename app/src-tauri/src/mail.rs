@@ -157,7 +157,14 @@ impl MailServices {
                 match events.recv().await {
                     // Arrivées : filtrées selon les paramètres du moment.
                     Ok(SyncEvent::NewMail { account, mail, .. }) => {
-                        let current = settings_store.settings().await.unwrap_or_default();
+                        // Paramètres illisibles : notification sans
+                        // contenu (échec fermé sur la confidentialité).
+                        let current = settings_store.settings().await.unwrap_or(
+                            norelly_domain::settings::Settings {
+                                notification_privacy: true,
+                                ..norelly_domain::settings::Settings::default()
+                            },
+                        );
                         if let Some(dto) = crate::settings::new_mail_event(account, mail, &current)
                         {
                             let _ = dto.emit(&relay);

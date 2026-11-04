@@ -337,6 +337,7 @@
 <UpdateQuestion
   open={settings.askUpdate && app.dialog === null}
   onAnswer={(yes) => void settings.answerUpdate(yes)}
+  onDismiss={() => settings.dismissUpdate()}
 />
 <RemoveAccountDialog
   open={app.dialog === "remove-account"}

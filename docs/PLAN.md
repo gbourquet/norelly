@@ -286,7 +286,8 @@ Commandes de référence (détail dans `scripts/check.sh`) :
   - `app/src/styles/accessibility.test.ts` : contrastes WCAG AA des jetons dans les deux thèmes (4,5:1 pour le texte, 3:1 pour le focus) ; tout composant qui retire le contour fournit sa règle `:focus-visible` (palette, liste, éditeur, destinataires corrigés) ; `App.test.ts` : aucun bouton, champ, case, liste déroulante ou liste sans nom accessible (liste, recherche, paramètres). Clavier : chaque action est une commande du registre (raccourci et palette) ; listes en `listbox`/`option` avec `aria-activedescendant`.
 - [x] Checklist de tests manuels Gmail, Fastmail, Outlook.com (IMAP par mot de passe d'application), consignée dans `docs/MANUAL-TESTS.md`
   - grille rédigée (préparation des comptes, compte, synchronisation, notifications, actions, rédaction, recherche, paramètres) et tableau de résultats ; **exécution à faire par le mainteneur** avec des comptes de test dédiés (aucun test automatisé contre un vrai serveur).
-- [ ] Revue security-reviewer, consignée dans REVIEWS.md (0 critique, 0 haute ; moyennes corrigées)
+- [x] Revue security-reviewer, consignée dans REVIEWS.md (0 critique, 0 haute ; moyennes corrigées)
+  - 1 haute (balisage dans les notifications freedesktop) et 1 moyenne (fermer la question des mises à jour valait « Oui ») corrigées ; 4 basses : 3 corrigées (dont une en partie), reports en phase 10 (analyse des pièces jointes transférées hors du fil async, `hostile_message_sql.rs` étendu à l'envoi programmé et au transfert).
 
 **Condition de fin** : `./scripts/check.sh full && pnpm -C app e2e` passent sans erreur.
 

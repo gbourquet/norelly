@@ -292,6 +292,11 @@ where
         account: AccountId,
         raw: &[u8],
     ) -> Result<Vec<DraftAttachment>, ComposeFailure> {
+        // Borne avant l'analyse (encodage base64 compris), que le message
+        // vienne du stockage local ou du serveur.
+        if u64::try_from(raw.len()).unwrap_or(u64::MAX) > 2 * MAX_ATTACHMENTS_BYTES {
+            return Err(ComposeError::AttachmentsTooLarge.into());
+        }
         let found = self.composer.forwarded_attachments(raw);
         if found.len() > MAX_ATTACHMENTS {
             return Err(ComposeError::TooManyAttachments.into());

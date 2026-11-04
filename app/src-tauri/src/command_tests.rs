@@ -634,3 +634,26 @@ async fn drafts_from_another_client_are_listed_and_resumed() {
     );
     assert!(resumed.html.contains("Texte en cours"));
 }
+
+/// Revue de la phase 9 (BASSE) : « reprendre » ne vise qu'un message du
+/// dossier « Brouillons » du compte, vérifié en Rust avant tout
+/// téléchargement.
+#[tokio::test]
+async fn only_drafts_folder_messages_can_be_resumed() {
+    let t = test_app().await;
+    let account = id32(t.account.get());
+    let inbox_message = id32(t.messages[0].get());
+    assert_eq!(
+        code(
+            prepare_compose(
+                t.state(),
+                account,
+                ComposeKindDto::Resume,
+                Some(inbox_message),
+                String::new()
+            )
+            .await
+        ),
+        (ErrorCodeDto::InvalidInput, Some(FieldDto::Message))
+    );
+}

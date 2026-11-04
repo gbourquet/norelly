@@ -12,7 +12,12 @@ export class SettingsState {
   error = $state<string | null>(null);
 
   /** La question des mises à jour n'a pas encore été posée. */
-  readonly askUpdate = $derived(this.current?.update_check === "not_asked");
+  /** Question fermée sans réponse pendant cette session. */
+  #updateDismissed = $state(false);
+
+  readonly askUpdate = $derived(
+    this.current?.update_check === "not_asked" && !this.#updateDismissed,
+  );
 
   constructor(api: SettingsApi) {
     this.#api = api;
@@ -38,6 +43,11 @@ export class SettingsState {
       this.error = errorText(e);
       return false;
     }
+  }
+
+  /** Question fermée sans réponse : masquée pour cette session. */
+  dismissUpdate(): void {
+    this.#updateDismissed = true;
   }
 
   /** Réponse à la question du premier lancement. */

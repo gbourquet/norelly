@@ -48,4 +48,15 @@ describe("paramètres", () => {
     expect(settings.current).toEqual(next);
     expect(settings.error).toContain("paramètres");
   });
+
+  it("fermer la question sans répondre n'enregistre rien (reposée au lancement suivant)", async () => {
+    const api = fakeApi();
+    const settings = new SettingsState(api);
+    await settings.load();
+    expect(settings.askUpdate).toBe(true);
+    settings.dismissUpdate();
+    expect(settings.askUpdate).toBe(false);
+    expect(api.saveSettings).not.toHaveBeenCalled();
+    expect(settings.current?.update_check).toBe("not_asked");
+  });
 });

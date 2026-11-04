@@ -31,7 +31,9 @@ use norelly_domain::compose::draft::{
 };
 use norelly_domain::compose::outbox::{OutboxState, SendFailure};
 use norelly_domain::mailbox::MailboxRole;
-use norelly_domain::ports::{BlobId, DraftId, MessageListQuery, OutboxItem, PendingOpStore};
+use norelly_domain::ports::{
+    BlobId, DraftId, MessageListQuery, MessageLocator, OutboxItem, PendingOpStore,
+};
 
 use crate::ipc::{
     ComposeKindDto, DraftAttachmentDto, DraftDto, DraftSummaryDto, DraftsDto, ErrorCodeDto,
@@ -256,6 +258,28 @@ pub async fn prepare_compose(
             let message = message
                 .and_then(|m| MessageId::new(i64::from(m)))
                 .ok_or_else(|| IpcError::invalid(FieldDto::Message))?;
+            // Avant tout téléchargement : message du compte demandé, dans
+            // son dossier « Brouillons ».
+            let account = account_of(account)?;
+            let location = state
+                .mail
+                .store
+                .locate(message)
+                .await
+                .map_err(IpcError::storage)?
+                .ok_or_else(|| IpcError::not_found(FieldDto::Message))?;
+            let drafts_folder = state
+                .mail
+                .store
+                .action_folders(account)
+                .await
+                .map_err(IpcError::storage)?
+                .into_iter()
+                .find(|f| f.role == MailboxRole::Drafts)
+                .map(|f| f.id);
+            if location.account != account || Some(location.mailbox) != drafts_folder {
+                return Err(IpcError::invalid(FieldDto::Message));
+            }
             let draft = PrepareReply {
                 locator: &*state.mail.store,
                 blobs: &*state.mail.blobs,
@@ -264,10 +288,6 @@ pub async fn prepare_compose(
             }
             .resume(message)
             .await?;
-            // Le compte demandé doit être celui du message.
-            if draft.account != account_of(account)? {
-                return Err(IpcError::invalid(FieldDto::Message));
-            }
             return draft_dto(None, &draft);
         }
     };

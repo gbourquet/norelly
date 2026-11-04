@@ -494,4 +494,13 @@ describe("App", () => {
     const dialog = await screen.findByRole("dialog", { name: "Nouveau message" });
     expect(within(dialog).getByRole("textbox", { name: "Objet" })).toHaveValue("Écrit ailleurs");
   });
+
+  it("Échap sur la question des mises à jour n'est pas un consentement", async () => {
+    storedSettings = { ...askedSettings, update_check: "not_asked" };
+    render(App);
+    const dialog = await screen.findByRole("dialog", { name: "Mises à jour" });
+    await fireEvent.keyDown(dialog, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Mises à jour" })).toBeNull());
+    expect(api.saveSettings).not.toHaveBeenCalled();
+  });
 });

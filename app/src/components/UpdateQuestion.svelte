@@ -7,9 +7,12 @@
   interface Props {
     open: boolean;
     onAnswer: (yes: boolean) => void;
+    /** Fermée sans réponse (Échap, clic à côté) : ce n'est pas un
+     * consentement, la question sera reposée. */
+    onDismiss: () => void;
   }
 
-  let { open, onAnswer }: Props = $props();
+  let { open, onAnswer, onDismiss }: Props = $props();
 
   let yes: HTMLButtonElement | null = $state(null);
 
@@ -24,7 +27,7 @@
   });
 </script>
 
-<Modal {open} title={m.update_question_title()} onClose={() => onAnswer(true)}>
+<Modal {open} title={m.update_question_title()} onClose={onDismiss}>
   <p>{m.update_question()}</p>
   <div class="actions">
     <button bind:this={yes} class="btn btn-primary" type="button" onclick={() => onAnswer(true)}

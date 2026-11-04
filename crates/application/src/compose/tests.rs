@@ -839,6 +839,26 @@ Content-Transfer-Encoding: base64\r\n\r\nJVBERi0xLjQ=\r\n--b--\r\n";
     assert_eq!(draft.attachments.len(), 1);
 }
 
+/// Revue de la phase 9 (BASSE) : un message trop gros est refusé avant
+/// l'analyse de ses pièces jointes, même complet localement.
+#[tokio::test]
+async fn oversized_messages_are_refused_before_parsing() {
+    let w = world(true).await;
+    let prepare = PrepareReply {
+        locator: &w.mail,
+        blobs: &w.blobs,
+        composer: &MimeComposer,
+        fetcher: &NoFetch,
+    };
+    let size = usize::try_from(2 * MAX_ATTACHMENTS_BYTES).unwrap_or(usize::MAX) + 1;
+    let started = std::time::Instant::now();
+    assert_eq!(
+        prepare.forwarded_attachments(account(), &vec![b'x'; size]).await,
+        Err(ComposeFailure::Invalid(ComposeError::AttachmentsTooLarge))
+    );
+    assert!(started.elapsed() < std::time::Duration::from_secs(1));
+}
+
 // --- Brouillons sur le serveur ---
 
 #[tokio::test]

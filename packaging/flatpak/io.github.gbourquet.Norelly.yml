@@ -1,0 +1,59 @@
+# Manifeste Flatpak de Norelly (canal Linux principal, ADR-006).
+# Build local : flatpak-builder --force-clean build packaging/flatpak/io.github.gbourquet.Norelly.yml
+# Sources vendorisées : ./scripts/flatpak-sources.py après chaque changement
+# de Cargo.lock ou de app/pnpm-lock.yaml (vérifié par check-packaging.sh).
+id: io.github.gbourquet.Norelly
+runtime: org.gnome.Platform
+runtime-version: "51"
+sdk: org.gnome.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.rust-stable
+  - org.freedesktop.Sdk.Extension.node24
+command: norelly
+
+# Autorisations minimales (relues par la revue de sécurité de la phase 10) :
+finish-args:
+  # Affichage (Wayland, X11 en repli) et rendu accéléré de WebKitGTK.
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --share=ipc
+  - --device=dri
+  # Serveurs IMAP et SMTP.
+  - --share=network
+  # Mots de passe dans le trousseau du système (Secret Service).
+  - --talk-name=org.freedesktop.secrets
+  # Notifications des nouveaux messages (notify-rust, D-Bus).
+  - --talk-name=org.freedesktop.Notifications
+  # Pièces jointes : enregistrées dans Téléchargements, ou jointes depuis
+  # Téléchargements et Documents (le sélecteur GTK3 de tauri-plugin-dialog
+  # ne passe pas par le portail ; le glisser-déposer, si).
+  - --filesystem=xdg-download
+  - --filesystem=xdg-documents:ro
+
+build-options:
+  append-path: /usr/lib/sdk/rust-stable/bin:/usr/lib/sdk/node24/bin
+  env:
+    CARGO_NET_OFFLINE: "true"
+    CARGO_TERM_COLOR: never
+
+modules:
+  - name: norelly
+    buildsystem: simple
+    build-commands:
+      - sh packaging/flatpak/build.sh
+    sources:
+      - type: dir
+        path: ../..
+        skip:
+          - target
+          - app/node_modules
+          - app/dist
+          - build
+          - .flatpak-builder
+          - .git
+      - type: archive
+        url: https://registry.npmjs.org/pnpm/-/pnpm-10.34.9.tgz
+        sha256: 7e8a946108e7baab119e51d27c24d6178b46545422643dbc91e34e2f1ee32e0f
+        dest: pnpm
+      - cargo-sources.json
+      - node-sources.json

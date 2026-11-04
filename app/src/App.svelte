@@ -18,6 +18,7 @@
   import OutboxDialog from "./components/OutboxDialog.svelte";
   import SearchPanel from "./components/SearchPanel.svelte";
   import SettingsDialog from "./components/SettingsDialog.svelte";
+  import DraftsDialog from "./components/DraftsDialog.svelte";
   import UpdateQuestion from "./components/UpdateQuestion.svelte";
   import { notificationText } from "./lib/notifications";
   import { conversationActions } from "./lib/visible-actions";
@@ -271,15 +272,28 @@
     void compose.close();
     app.close();
   }}
-  onSent={() => {
+  onSent={(scheduled) => {
     app.close();
-    mail.notice = { text: m.compose_queued(), undoable: false };
+    mail.notice = {
+      text: scheduled ? m.compose_scheduled() : m.compose_queued(),
+      undoable: false,
+    };
   }}
+/>
+<DraftsDialog
+  open={app.dialog === "drafts"}
+  drafts={app.drafts}
+  onClose={() => app.close()}
+  onOpen={(id) => void app.openDraft(id)}
 />
 <OutboxDialog
   open={app.dialog === "outbox"}
   items={app.outbox}
   onClose={() => app.close()}
+  onEdit={(id) => {
+    const account = app.outboxAccount;
+    if (account !== null) void app.editScheduled(account, id);
+  }}
   onRetry={(id) => {
     const account = app.outboxAccount;
     if (account === null) return;

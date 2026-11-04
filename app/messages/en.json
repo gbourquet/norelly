@@ -338,5 +338,15 @@
   "update_yes": "Yes",
   "update_no": "No",
   "cmd_settings": "Settings…",
-  "cmd_settings_keywords": "preferences options language notifications"
+  "cmd_settings_keywords": "preferences options language notifications",
+  "compose_later": "Send later",
+  "compose_schedule": "Schedule",
+  "compose_scheduled": "Sending scheduled.",
+  "outbox_state_scheduled": "Scheduled for {date}",
+  "outbox_edit": "Edit",
+  "drafts_title": "Drafts",
+  "drafts_empty": "No saved drafts.",
+  "drafts_to": "To: {recipients}",
+  "cmd_drafts": "Drafts…",
+  "cmd_drafts_keywords": "draft resume reopen"
 }

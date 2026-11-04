@@ -33,6 +33,7 @@ import {
   type SearchPageDto_Serialize,
   type SearchScopeDto,
   type SettingsDto,
+  type DraftSummaryDto,
 } from "./bindings";
 import { IpcFailure } from "../errors";
 
@@ -70,6 +71,7 @@ export type {
   SearchScopeDto,
   SegmentDto,
   SettingsDto,
+  DraftSummaryDto,
   LanguageDto,
   UpdateCheckDto,
 } from "./bindings";
@@ -198,6 +200,18 @@ export const api = {
 
   /** Met en file d'envoi ; renvoie l'identifiant dans la file. */
   sendDraft: (draft: Draft): Promise<number> => unwrap(commands.sendDraft(draft)),
+
+  /** Programme l'envoi à `at` (secondes Unix). */
+  scheduleDraft: (draft: Draft, at: number): Promise<number> =>
+    unwrap(commands.scheduleDraft(draft, at)),
+
+  /** Reprend un envoi programmé : son brouillon. */
+  unscheduleSend: (account: number, id: number): Promise<Draft> =>
+    unwrap(commands.unscheduleSend(account, id)),
+
+  listDrafts: (account: number): Promise<DraftSummaryDto[]> => unwrap(commands.listDrafts(account)),
+
+  openDraft: (id: number): Promise<Draft> => unwrap(commands.openDraft(id)),
 
   discardDraft: (id: number): Promise<void> =>
     unwrap(commands.discardDraft(id)).then(() => undefined),

@@ -26,6 +26,7 @@ export type ComposeApi = Pick<
   | "prepareCompose"
   | "saveDraft"
   | "sendDraft"
+  | "scheduleDraft"
   | "discardDraft"
   | "suggestContacts"
   | "pickAttachments"
@@ -214,15 +215,25 @@ export class ComposeState {
     await this.#saving;
   }
 
-  /** Envoie ; `true` si le message est parti dans la file. */
-  async send(): Promise<boolean> {
+  /** Rouvre un brouillon enregistré (liste des brouillons, envoi
+   * programmé repris). */
+  resume(draft: Draft): void {
+    this.#reset();
+    this.draft = draft;
+  }
+
+  /** Envoie (`at` : échéance d'un envoi différé, secondes Unix) ; `true`
+   * si le message est parti dans la file. */
+  async send(at: number | null = null): Promise<boolean> {
     if (this.draft === null || this.busy) return false;
     if (this.#saveTimer !== null) clearTimeout(this.#saveTimer);
     this.#saveTimer = null;
     if (this.#saving !== null) await this.#saving;
     this.busy = true;
     try {
-      await this.#api.sendDraft($state.snapshot(this.draft));
+      const draft = $state.snapshot(this.draft);
+      if (at === null) await this.#api.sendDraft(draft);
+      else await this.#api.scheduleDraft(draft, at);
       this.#reset();
       return true;
     } catch (e) {

@@ -3,6 +3,20 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/sve
 import type { AccountDto } from "./lib/ipc/api";
 
 const accounts: AccountDto[] = [];
+function savedDraft(account: number) {
+  return {
+    id: 5,
+    account,
+    to: [{ name: "", address: "bob@example.com" }],
+    cc: [],
+    bcc: [],
+    subject: "",
+    html: "<p>Texte</p>",
+    in_reply_to: null,
+    references: [],
+    attachments: [],
+  };
+}
 const syncListeners: ((e: unknown) => void)[] = [];
 const askedSettings = {
   language: "system" as "system" | "fr" | "en",
@@ -60,6 +74,15 @@ vi.mock("./lib/ipc/api", () => ({
     })),
     saveDraft: vi.fn(async () => ({ id: 1, revision: 1 })),
     sendDraft: vi.fn(async () => 3),
+    scheduleDraft: vi.fn(async () => 4),
+    unscheduleSend: vi.fn(async (account: number) => ({
+      ...savedDraft(account),
+      subject: "Programmé",
+    })),
+    listDrafts: vi.fn(async () => [
+      { id: 5, subject: "Repris", to: ["bob@example.com"], updated_at: 1_700_000_000 },
+    ]),
+    openDraft: vi.fn(async () => ({ ...savedDraft(7), subject: "Repris" })),
     discardDraft: vi.fn(),
     suggestContacts: vi.fn(async () => []),
     pickAttachments: vi.fn(async () => []),
@@ -73,7 +96,7 @@ vi.mock("./lib/ipc/api", () => ({
 
 const { default: App } = await import("./App.svelte");
 const { api } = await import("./lib/ipc/api");
-const { app } = await import("./lib/app.svelte");
+const { app, registry } = await import("./lib/app.svelte");
 
 const server = {
   host: "imap.example.com",
@@ -371,5 +394,80 @@ describe("App", () => {
     await fireEvent.keyDown(window, { key: ",", ctrlKey: true });
     await screen.findByRole("dialog", { name: "Paramètres" });
     expect(unnamed()).toEqual([]);
+  });
+
+  it("rouvre un brouillon depuis la liste des brouillons", async () => {
+    accounts.push({
+      id: 7,
+      address: "alice@example.com",
+      display_name: "Alice",
+      imap: server,
+      smtp: server,
+    } as AccountDto);
+    render(App);
+    await screen.findAllByText("alice@example.com");
+    await registry.execute("drafts.open", app.context());
+    const list = await screen.findByRole("dialog", { name: "Brouillons" });
+    await fireEvent.click(within(list).getByRole("button", { name: /Repris/ }));
+    await waitFor(() => expect(api.openDraft).toHaveBeenCalledWith(5));
+    const dialog = await screen.findByRole("dialog", { name: "Nouveau message" });
+    expect(within(dialog).getByRole("textbox", { name: "Objet" })).toHaveValue("Repris");
+  });
+
+  it("programme l'envoi à la date choisie", async () => {
+    accounts.push({
+      id: 7,
+      address: "alice@example.com",
+      display_name: "Alice",
+      imap: server,
+      smtp: server,
+    } as AccountDto);
+    render(App);
+    await screen.findAllByText("alice@example.com");
+    await fireEvent.keyDown(window, { key: "c" });
+    const dialog = await screen.findByRole("dialog", { name: "Nouveau message" });
+    const to = within(dialog).getByRole("combobox", { name: "À" });
+    await fireEvent.input(to, { target: { value: "bob@example.com" } });
+    await fireEvent.keyDown(to, { key: "Enter" });
+    const later = within(dialog).getByLabelText("Envoyer plus tard");
+    await fireEvent.input(later, { target: { value: "2030-01-15T09:00" } });
+    await fireEvent.click(within(dialog).getByRole("button", { name: "Programmer" }));
+    await waitFor(() =>
+      expect(api.scheduleDraft).toHaveBeenCalledWith(
+        expect.objectContaining({ to: [{ name: "", address: "bob@example.com" }] }),
+        Math.floor(new Date("2030-01-15T09:00").getTime() / 1000),
+      ),
+    );
+    expect(api.sendDraft).not.toHaveBeenCalled();
+  });
+
+  it("reprend un envoi programmé pour le modifier", async () => {
+    accounts.push({
+      id: 7,
+      address: "alice@example.com",
+      display_name: "Alice",
+      imap: server,
+      smtp: server,
+    } as AccountDto);
+    vi.mocked(api.outbox).mockResolvedValue([
+      {
+        id: 11,
+        subject: "Programmé",
+        recipients: ["bob@example.com"],
+        state: { state: "queued", not_before: 1_900_000_000 },
+        attempts: 0,
+        queued_at: 1_700_000_000,
+      },
+    ]);
+    render(App);
+    await screen.findAllByText("alice@example.com");
+    await registry.execute("compose.outbox", app.context());
+    const box = await screen.findByRole("dialog", { name: "Boîte d'envoi" });
+    expect(within(box).getByText(/^Programmé pour le /)).toBeInTheDocument();
+    await fireEvent.click(within(box).getByRole("button", { name: "Modifier" }));
+    await waitFor(() => expect(api.unscheduleSend).toHaveBeenCalledWith(7, 11));
+    const dialog = await screen.findByRole("dialog", { name: "Nouveau message" });
+    expect(within(dialog).getByRole("textbox", { name: "Objet" })).toHaveValue("Programmé");
+    vi.mocked(api.outbox).mockResolvedValue([]);
   });
 });

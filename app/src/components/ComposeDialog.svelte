@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { unixOfLocal } from "../lib/outbox";
   // Fenêtre de rédaction : destinataires, objet, éditeur, pièces jointes.
   // Ctrl+Entrée envoie ; Échap ferme en gardant le brouillon.
   import PaperclipIcon from "@lucide/svelte/icons/paperclip";
@@ -17,7 +18,8 @@
     title: string;
     compose: ComposeState;
     onClose: () => void;
-    onSent: () => void;
+    /** `scheduled` : envoi différé plutôt qu'immédiat. */
+    onSent: (scheduled: boolean) => void;
   }
 
   let { open, title, compose, onClose, onSent }: Props = $props();
@@ -31,8 +33,14 @@
     { field: "bcc", label: m.compose_bcc },
   ];
 
-  async function send(): Promise<void> {
-    if (await compose.send()) onSent();
+  /** Date et heure d'un envoi différé (`datetime-local`). */
+  let later = $state("");
+
+  async function send(at: number | null = null): Promise<void> {
+    if (await compose.send(at)) {
+      later = "";
+      onSent(at !== null);
+    }
   }
 
   function onKeyDown(e: KeyboardEvent): void {
@@ -118,6 +126,16 @@
           onClose();
         }}><TrashIcon size={16} aria-hidden="true" /> {m.compose_discard()}</button
       >
+      <label class="later">
+        <span>{m.compose_later()}</span>
+        <input type="datetime-local" bind:value={later} disabled={draft === null} />
+      </label>
+      <button
+        class="btn"
+        type="button"
+        disabled={draft === null || compose.busy || unixOfLocal(later) === null}
+        onclick={() => void send(unixOfLocal(later))}>{m.compose_schedule()}</button
+      >
       <span class="hint">{m.compose_send_hint()}</span>
       <button
         class="btn btn-primary"
@@ -131,6 +149,13 @@
 </Modal>
 
 <style>
+  .later {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    font-size: var(--font-size-sm);
+  }
+
   .compose {
     display: flex;
     flex-direction: column;

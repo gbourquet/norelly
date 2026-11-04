@@ -2,7 +2,13 @@
 // l'application.
 
 import { CommandRegistry } from "./commands/registry";
-import { api, type AccountDto, type ComposeKindDto, type OutboxItemDto } from "./ipc/api";
+import {
+  api,
+  type AccountDto,
+  type ComposeKindDto,
+  type DraftSummaryDto,
+  type OutboxItemDto,
+} from "./ipc/api";
 import { ComposeState } from "./compose.svelte";
 import { MailState } from "./mail.svelte";
 import { SearchState } from "./search.svelte";
@@ -24,7 +30,8 @@ export type DialogName =
   | "archive-folder"
   | "compose"
   | "outbox"
-  | "settings";
+  | "settings"
+  | "drafts";
 
 export interface AppContext {
   selectedAccount: AccountDto | null;
@@ -53,6 +60,8 @@ class AppState {
   /** File d'envoi du compte affiché dans la boîte d'envoi. */
   outbox = $state<OutboxItemDto[]>([]);
   outboxAccount = $state<number | null>(null);
+  /** Brouillons du compte sélectionné (liste des brouillons). */
+  drafts = $state<DraftSummaryDto[]>([]);
   /** Préférence « texte brut », affichée dans les paramètres. */
   plainText = $state(false);
   /** Échecs déjà signalés (identifiants dans la file). */
@@ -113,6 +122,40 @@ class AppState {
           };
         }
       }
+    } catch (e) {
+      mail.notice = { text: errorText(e), undoable: false };
+    }
+  }
+
+  /** Liste des brouillons d'un compte. */
+  async showDrafts(account: number): Promise<void> {
+    try {
+      this.drafts = await api.listDrafts(account);
+      this.dialog = "drafts";
+    } catch (e) {
+      mail.notice = { text: errorText(e), undoable: false };
+    }
+  }
+
+  /** Rouvre un brouillon enregistré dans l'éditeur. */
+  async openDraft(id: number): Promise<void> {
+    try {
+      const draft = await api.openDraft(id);
+      this.composeKind = "new";
+      compose.resume(draft);
+      this.dialog = "compose";
+    } catch (e) {
+      mail.notice = { text: errorText(e), undoable: false };
+    }
+  }
+
+  /** Reprend un envoi programmé pour le modifier. */
+  async editScheduled(account: number, id: number): Promise<void> {
+    try {
+      const draft = await api.unscheduleSend(account, id);
+      this.composeKind = "new";
+      compose.resume(draft);
+      this.dialog = "compose";
     } catch (e) {
       mail.notice = { text: errorText(e), undoable: false };
     }
@@ -395,6 +438,14 @@ export function registerAppCommands(): () => void {
         },
       }),
     ),
+    registry.register({
+      id: "drafts.open",
+      title: m.cmd_drafts(),
+      group: m.group_compose(),
+      keywords: words(m.cmd_drafts_keywords()),
+      when: (ctx) => ctx.selectedAccount !== null,
+      run: (ctx) => (ctx.selectedAccount ? app.showDrafts(ctx.selectedAccount.id) : undefined),
+    }),
     registry.register({
       id: "compose.outbox",
       title: m.cmd_outbox(),

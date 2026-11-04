@@ -338,5 +338,15 @@
   "update_yes": "Oui",
   "update_no": "Non",
   "cmd_settings": "Paramètres…",
-  "cmd_settings_keywords": "préférences options réglages langue notifications"
+  "cmd_settings_keywords": "préférences options réglages langue notifications",
+  "compose_later": "Envoyer plus tard",
+  "compose_schedule": "Programmer",
+  "compose_scheduled": "Envoi programmé.",
+  "outbox_state_scheduled": "Programmé pour le {date}",
+  "outbox_edit": "Modifier",
+  "drafts_title": "Brouillons",
+  "drafts_empty": "Aucun brouillon enregistré.",
+  "drafts_to": "À : {recipients}",
+  "cmd_drafts": "Brouillons…",
+  "cmd_drafts_keywords": "brouillon reprendre rouvrir"
 }

@@ -30,12 +30,13 @@ use norelly_domain::compose::draft::{
     ComposeError, Draft, DraftAttachment, MAX_RECIPIENTS, Recipient,
 };
 use norelly_domain::compose::outbox::{OutboxState, SendFailure};
-use norelly_domain::ports::{BlobId, DraftId, OutboxItem};
+use norelly_domain::mailbox::MailboxRole;
+use norelly_domain::ports::{BlobId, DraftId, MessageListQuery, OutboxItem, PendingOpStore};
 
 use crate::ipc::{
-    ComposeKindDto, DraftAttachmentDto, DraftDto, DraftSummaryDto, ErrorCodeDto, FieldDto,
-    IpcError, OutboxItemDto, OutboxStateDto, RecipientDto, SavedDraftDto, SendFailureDto, date_dto,
-    id32,
+    ComposeKindDto, DraftAttachmentDto, DraftDto, DraftSummaryDto, DraftsDto, ErrorCodeDto,
+    FieldDto, IpcError, OutboxItemDto, OutboxStateDto, RecipientDto, RemoteDraftDto, SavedDraftDto,
+    SendFailureDto, date_dto, id32,
 };
 
 fn recipients_of(list: &[RecipientDto]) -> Result<Vec<Recipient>, IpcError> {
@@ -251,6 +252,24 @@ pub async fn prepare_compose(
         ComposeKindDto::Reply => ReplyKind::Reply,
         ComposeKindDto::ReplyAll => ReplyKind::ReplyAll,
         ComposeKindDto::Forward => ReplyKind::Forward,
+        ComposeKindDto::Resume => {
+            let message = message
+                .and_then(|m| MessageId::new(i64::from(m)))
+                .ok_or_else(|| IpcError::invalid(FieldDto::Message))?;
+            let draft = PrepareReply {
+                locator: &*state.mail.store,
+                blobs: &*state.mail.blobs,
+                composer: &MimeComposer,
+                fetcher: &state.mail,
+            }
+            .resume(message)
+            .await?;
+            // Le compte demandé doit être celui du message.
+            if draft.account != account_of(account)? {
+                return Err(IpcError::invalid(FieldDto::Message));
+            }
+            return draft_dto(None, &draft);
+        }
     };
     let message = message
         .and_then(|m| MessageId::new(i64::from(m)))
@@ -366,10 +385,7 @@ pub async fn unschedule_send(
 /// Brouillons enregistrés d'un compte, du plus récent au plus ancien.
 #[tauri::command]
 #[specta::specta]
-pub async fn list_drafts(
-    state: State<'_, AppState>,
-    account: u32,
-) -> Result<Vec<DraftSummaryDto>, IpcError> {
+pub async fn list_drafts(state: State<'_, AppState>, account: u32) -> Result<DraftsDto, IpcError> {
     let account = account_of(account)?;
     let drafts = state
         .mail
@@ -377,7 +393,7 @@ pub async fn list_drafts(
         .drafts(account)
         .await
         .map_err(IpcError::storage)?;
-    drafts
+    let local = drafts
         .iter()
         .map(|d| {
             Ok(DraftSummaryDto {
@@ -387,7 +403,39 @@ pub async fn list_drafts(
                 updated_at: date_dto(d.updated_at),
             })
         })
-        .collect()
+        .collect::<Result<Vec<_>, IpcError>>()?;
+    // Copies distantes des brouillons locaux : déjà listées.
+    let copies: Vec<(String, u32)> = drafts
+        .iter()
+        .filter_map(|d| d.sync.remote.as_ref())
+        .map(|c| (c.mailbox.as_str().to_owned(), c.uid.get()))
+        .collect();
+    let mut remote = Vec::new();
+    let folders = state
+        .mail
+        .store
+        .action_folders(account)
+        .await
+        .map_err(IpcError::storage)?;
+    if let Some(folder) = folders.iter().find(|f| f.role == MailboxRole::Drafts) {
+        let page = state
+            .mail
+            .store
+            .page(folder.id, None, 100)
+            .await
+            .map_err(IpcError::storage)?;
+        for item in page.items {
+            if copies.contains(&(folder.name.as_str().to_owned(), item.uid.get())) {
+                continue;
+            }
+            remote.push(RemoteDraftDto {
+                message: id32(item.id.get())?,
+                subject: item.subject,
+                date: date_dto(item.date),
+            });
+        }
+    }
+    Ok(DraftsDto { local, remote })
 }
 
 /// Rouvre un brouillon enregistré.

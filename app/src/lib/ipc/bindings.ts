@@ -122,7 +122,7 @@ export const commands = {
 	 */
 	unscheduleSend: (account: number, id: number) => typedError<DraftDto_Serialize, IpcError_Serialize>(__TAURI_INVOKE("unschedule_send", { account, id })),
 	/**  Brouillons enregistrés d'un compte, du plus récent au plus ancien. */
-	listDrafts: (account: number) => typedError<DraftSummaryDto[], IpcError_Serialize>(__TAURI_INVOKE("list_drafts", { account })),
+	listDrafts: (account: number) => typedError<DraftsDto, IpcError_Serialize>(__TAURI_INVOKE("list_drafts", { account })),
 	/**  Rouvre un brouillon enregistré. */
 	openDraft: (id: number) => typedError<DraftDto_Serialize, IpcError_Serialize>(__TAURI_INVOKE("open_draft", { id })),
 	/**  File d'envoi d'un compte. */
@@ -303,7 +303,9 @@ export type ComposeEventDto =
 { kind: "files_dropped"; token: number; count: number };
 
 /**  Nature d'une rédaction. */
-export type ComposeKindDto = "new" | "reply" | "reply_all" | "forward";
+export type ComposeKindDto = "new" | "reply" | "reply_all" | "forward" | 
+/**  Reprendre tel quel un brouillon du dossier « Brouillons ». */
+"resume";
 
 export type ConversationCursorDto = {
 	date: number,
@@ -450,6 +452,15 @@ export type DraftSummaryDto = {
 	/**  Adresses des destinataires (À). */
 	to: string[],
 	updated_at: number,
+};
+
+/**
+ *  Brouillons d'un compte : enregistrés par Norelly, et ceux du dossier
+ *  « Brouillons » qui n'en sont pas des copies.
+ */
+export type DraftsDto = {
+	local: DraftSummaryDto[],
+	remote: RemoteDraftDto[],
 };
 
 /**  Point de connexion (consentement au clair, exception de certificat). */
@@ -635,6 +646,13 @@ export type ReadingPreferencesDto = {
 export type RecipientDto = {
 	name: string,
 	address: string,
+};
+
+/**  Brouillon du dossier « Brouillons » écrit par un autre client. */
+export type RemoteDraftDto = {
+	message: number,
+	subject: string,
+	date: number,
 };
 
 /**  Brouillon enregistré. */

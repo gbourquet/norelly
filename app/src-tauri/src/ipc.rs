@@ -710,6 +710,22 @@ pub struct DraftSummaryDto {
     pub updated_at: u32,
 }
 
+/// Brouillon du dossier « Brouillons » écrit par un autre client.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
+pub struct RemoteDraftDto {
+    pub message: u32,
+    pub subject: String,
+    pub date: u32,
+}
+
+/// Brouillons d'un compte : enregistrés par Norelly, et ceux du dossier
+/// « Brouillons » qui n'en sont pas des copies.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
+pub struct DraftsDto {
+    pub local: Vec<DraftSummaryDto>,
+    pub remote: Vec<RemoteDraftDto>,
+}
+
 /// Brouillon échangé avec l'éditeur.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 pub struct DraftDto {
@@ -742,6 +758,8 @@ pub enum ComposeKindDto {
     Reply,
     ReplyAll,
     Forward,
+    /// Reprendre tel quel un brouillon du dossier « Brouillons ».
+    Resume,
 }
 
 /// Cause d'échec d'un envoi.

@@ -33,7 +33,7 @@ import {
   type SearchPageDto_Serialize,
   type SearchScopeDto,
   type SettingsDto,
-  type DraftSummaryDto,
+  type DraftsDto,
 } from "./bindings";
 import { IpcFailure } from "../errors";
 
@@ -72,6 +72,8 @@ export type {
   SegmentDto,
   SettingsDto,
   DraftSummaryDto,
+  DraftsDto,
+  RemoteDraftDto,
   LanguageDto,
   UpdateCheckDto,
 } from "./bindings";
@@ -209,7 +211,7 @@ export const api = {
   unscheduleSend: (account: number, id: number): Promise<Draft> =>
     unwrap(commands.unscheduleSend(account, id)),
 
-  listDrafts: (account: number): Promise<DraftSummaryDto[]> => unwrap(commands.listDrafts(account)),
+  listDrafts: (account: number): Promise<DraftsDto> => unwrap(commands.listDrafts(account)),
 
   openDraft: (id: number): Promise<Draft> => unwrap(commands.openDraft(id)),
 

@@ -579,6 +579,10 @@ impl MessageComposer for MimeComposer {
         })
     }
 
+    fn text_html(&self, text: &str) -> String {
+        crate::text_to_html(text)
+    }
+
     fn forwarded_attachments(&self, raw: &[u8]) -> Vec<ComposedAttachment> {
         if raw.len() > crate::mime::MAX_PARSE_LEN {
             return Vec::new();

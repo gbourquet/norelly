@@ -775,6 +775,70 @@ async fn forward_downloads_deferred_attachments() {
     assert_eq!(draft.attachments.len(), 1);
 }
 
+/// Phase 9 : un brouillon écrit par un autre client (dossier
+/// « Brouillons ») se reprend tel quel.
+#[tokio::test]
+async fn a_draft_from_another_client_is_resumed_as_is() {
+    let mut w = world(true).await;
+    let foreign: &[u8] = b"From: moi@example.com\r\nTo: Bob <bob@example.com>, pas-une-adresse\r\n\
+Subject: Pas fini\r\nIn-Reply-To: <parent@example.com>\r\nReferences: <parent@example.com>\r\n\
+Content-Type: multipart/mixed; boundary=b\r\n\r\n\
+--b\r\nContent-Type: text/plain\r\n\r\nTexte du brouillon <b>brut</b>\r\n\
+--b\r\nContent-Type: application/pdf\r\nContent-Disposition: attachment; filename=plan.pdf\r\n\
+Content-Transfer-Encoding: base64\r\n\r\nJVBERi0xLjQ=\r\n--b--\r\n";
+    w.imap.append(
+        "Brouillons",
+        foreign,
+        Flags::from_tokens(["\\Draft", "\\Seen"]),
+        300,
+    );
+    w.sync().await;
+    let drafts_box = w
+        .boxes
+        .iter()
+        .find(|m| m.mailbox.name.as_str() == "Brouillons")
+        .map(|m| m.id)
+        .unwrap_or_else(|| panic!("Brouillons"));
+    let message = w
+        .mail
+        .page(drafts_box, None, 10)
+        .await
+        .unwrap_or_else(|e| panic!("{e}"))
+        .items
+        .first()
+        .map(|i| i.id)
+        .unwrap_or_else(|| panic!("brouillon distant"));
+    let draft = PrepareReply {
+        locator: &w.mail,
+        blobs: &w.blobs,
+        composer: &MimeComposer,
+        fetcher: &NoFetch,
+    }
+    .resume(message)
+    .await
+    .unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(draft.subject, "Pas fini");
+    assert_eq!(
+        draft
+            .to
+            .iter()
+            .map(|r| r.address.to_string())
+            .collect::<Vec<_>>(),
+        ["bob@example.com"]
+    );
+    let html = draft.html.unwrap_or_default();
+    assert!(
+        html.contains("Texte du brouillon &lt;b&gt;brut&lt;/b&gt;"),
+        "{html}"
+    );
+    assert!(!html.contains("blockquote"), "pas de citation");
+    assert_eq!(
+        draft.threading.in_reply_to.as_deref(),
+        Some("parent@example.com")
+    );
+    assert_eq!(draft.attachments.len(), 1);
+}
+
 // --- Brouillons sur le serveur ---
 
 #[tokio::test]

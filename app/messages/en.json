@@ -348,5 +348,6 @@
   "drafts_empty": "No saved drafts.",
   "drafts_to": "To: {recipients}",
   "cmd_drafts": "Drafts…",
-  "cmd_drafts_keywords": "draft resume reopen"
+  "cmd_drafts_keywords": "draft resume reopen",
+  "drafts_server": "In the server's Drafts folder"
 }

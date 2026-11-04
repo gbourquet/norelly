@@ -6,7 +6,7 @@ import {
   api,
   type AccountDto,
   type ComposeKindDto,
-  type DraftSummaryDto,
+  type DraftsDto,
   type OutboxItemDto,
 } from "./ipc/api";
 import { ComposeState } from "./compose.svelte";
@@ -61,7 +61,9 @@ class AppState {
   outbox = $state<OutboxItemDto[]>([]);
   outboxAccount = $state<number | null>(null);
   /** Brouillons du compte sélectionné (liste des brouillons). */
-  drafts = $state<DraftSummaryDto[]>([]);
+  drafts = $state<DraftsDto>({ local: [], remote: [] });
+  /** Compte de la liste des brouillons affichée. */
+  draftsAccount = $state<number | null>(null);
   /** Préférence « texte brut », affichée dans les paramètres. */
   plainText = $state(false);
   /** Échecs déjà signalés (identifiants dans la file). */
@@ -131,6 +133,7 @@ class AppState {
   async showDrafts(account: number): Promise<void> {
     try {
       this.drafts = await api.listDrafts(account);
+      this.draftsAccount = account;
       this.dialog = "drafts";
     } catch (e) {
       mail.notice = { text: errorText(e), undoable: false };
@@ -141,6 +144,18 @@ class AppState {
   async openDraft(id: number): Promise<void> {
     try {
       const draft = await api.openDraft(id);
+      this.composeKind = "new";
+      compose.resume(draft);
+      this.dialog = "compose";
+    } catch (e) {
+      mail.notice = { text: errorText(e), undoable: false };
+    }
+  }
+
+  /** Reprend un brouillon du dossier « Brouillons » écrit ailleurs. */
+  async resumeRemoteDraft(account: number, message: number): Promise<void> {
+    try {
+      const draft = await api.prepareCompose(account, "resume", message, "");
       this.composeKind = "new";
       compose.resume(draft);
       this.dialog = "compose";

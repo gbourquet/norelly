@@ -20,15 +20,16 @@ use norelly_domain::compose::draft::{
 use norelly_domain::compose::outbox::{OutboxEntry, OutboxState, SendFailure, sent_copy_needed};
 use norelly_domain::compose::{
     ReplyKind, Threading, forward_subject, quote, reply_recipients, reply_subject, reply_threading,
+    resumed_threading,
 };
 use norelly_domain::connection::ConnectionError;
 use norelly_domain::fetch_policy::BodyFetch;
 use norelly_domain::mailbox::{Correspondent, MailboxName, MailboxRole};
 use norelly_domain::ports::{
     BlobStore, ComposeBuildError, ComposedAttachment, ComposedMessage, Composition, ConnectRequest,
-    DraftId, DraftStore, FetchedBody, MailSender, MessageComposer, MessageId, MessageLocator,
-    OutboxId, OutboxStore, PendingOpStore, RemoteBodyFetcher, RemoteMailboxSession, StoreError,
-    StoredBody, StoredDraft,
+    DraftId, DraftStore, FetchedBody, MailSender, MessageComposer, MessageId, MessageLocation,
+    MessageLocator, OutboxId, OutboxStore, PendingOpStore, RemoteBodyFetcher, RemoteMailboxSession,
+    StoreError, StoredBody, StoredDraft,
 };
 
 /// Échec d'un cas d'usage de rédaction.
@@ -182,10 +183,44 @@ where
             .locate(message)
             .await?
             .ok_or(ComposeFailure::NotFound)?;
-        // Transfert : le message entier (pièces jointes comprises),
-        // téléchargé s'il n'est pas complet localement.
+        // Transfert : le message entier (pièces jointes comprises).
         let forwarding = kind == ReplyKind::Forward;
-        let raw = if forwarding && !matches!(location.body, StoredBody::Full(_)) {
+        let raw = self.message_raw(&location, forwarding).await?;
+        let source = self
+            .composer
+            .reply_source(&raw)
+            .ok_or(ComposeFailure::NotFound)?;
+        let recipients = reply_recipients(&source, kind, own);
+        let (subject, threading) = match kind {
+            ReplyKind::Forward => (forward_subject(&source.subject), Threading::default()),
+            ReplyKind::Reply | ReplyKind::ReplyAll => {
+                (reply_subject(&source.subject), reply_threading(&source))
+            }
+        };
+        let mut draft = Draft::empty(location.account);
+        draft.to = valid_recipients(&recipients.to);
+        draft.cc = valid_recipients(&recipients.cc);
+        draft.subject = subject;
+        draft.text = format!("\n\n{}", quote(&source.body, attribution));
+        draft.html = Some(format!(
+            "<p></p>{}",
+            self.composer.quote_html(&source.body, attribution)
+        ));
+        draft.threading = threading;
+        if forwarding {
+            draft.attachments = self.forwarded_attachments(location.account, &raw).await?;
+        }
+        Ok(draft)
+    }
+
+    /// Message brut : complet (`full`, téléchargé s'il ne l'est pas
+    /// localement), sinon ce qui est stocké (en-têtes d'un corps partiel).
+    async fn message_raw(
+        &self,
+        location: &MessageLocation,
+        full: bool,
+    ) -> Result<Vec<u8>, ComposeFailure> {
+        Ok(if full && !matches!(location.body, StoredBody::Full(_)) {
             // Borne avant téléchargement : un message bien plus gros que la
             // limite des pièces jointes ne peut pas être transféré avec
             // elles (encodage base64 compris).
@@ -222,31 +257,31 @@ where
                 .get(location.account, blob)
                 .await?
                 .ok_or(ComposeFailure::NotFound)?
-        };
+        })
+    }
+
+    /// Reprend un brouillon du dossier « Brouillons » (écrit par un autre
+    /// client) : destinataires, sujet, fil, texte et pièces jointes, sans
+    /// citation.
+    pub async fn resume(&self, message: MessageId) -> Result<Draft, ComposeFailure> {
+        let location = self
+            .locator
+            .locate(message)
+            .await?
+            .ok_or(ComposeFailure::NotFound)?;
+        let raw = self.message_raw(&location, true).await?;
         let source = self
             .composer
             .reply_source(&raw)
             .ok_or(ComposeFailure::NotFound)?;
-        let recipients = reply_recipients(&source, kind, own);
-        let (subject, threading) = match kind {
-            ReplyKind::Forward => (forward_subject(&source.subject), Threading::default()),
-            ReplyKind::Reply | ReplyKind::ReplyAll => {
-                (reply_subject(&source.subject), reply_threading(&source))
-            }
-        };
         let mut draft = Draft::empty(location.account);
-        draft.to = valid_recipients(&recipients.to);
-        draft.cc = valid_recipients(&recipients.cc);
-        draft.subject = subject;
-        draft.text = format!("\n\n{}", quote(&source.body, attribution));
-        draft.html = Some(format!(
-            "<p></p>{}",
-            self.composer.quote_html(&source.body, attribution)
-        ));
-        draft.threading = threading;
-        if forwarding {
-            draft.attachments = self.forwarded_attachments(location.account, &raw).await?;
-        }
+        draft.to = valid_recipients(&source.to);
+        draft.cc = valid_recipients(&source.cc);
+        draft.subject = source.subject.clone();
+        draft.text = source.body.clone();
+        draft.html = Some(self.composer.text_html(&source.body));
+        draft.threading = resumed_threading(&source);
+        draft.attachments = self.forwarded_attachments(location.account, &raw).await?;
         Ok(draft)
     }
 

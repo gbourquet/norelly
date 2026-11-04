@@ -1,26 +1,37 @@
 <script lang="ts">
   // Brouillons enregistrés d'un compte : un clic les rouvre dans l'éditeur.
   import Modal from "./Modal.svelte";
-  import type { DraftSummaryDto } from "../lib/ipc/api";
+  import type { DraftsDto } from "../lib/ipc/api";
   import { shortDate } from "../lib/format";
   import { m } from "../lib/paraglide/messages.js";
 
   interface Props {
     open: boolean;
-    drafts: DraftSummaryDto[];
+    drafts: DraftsDto;
     onOpen: (id: number) => void;
+    /** Brouillon du dossier « Brouillons » écrit par un autre client. */
+    onResume: (message: number) => void;
     onClose: () => void;
   }
 
-  let { open, drafts, onOpen, onClose }: Props = $props();
+  let { open, drafts, onOpen, onResume, onClose }: Props = $props();
 </script>
 
 <Modal {open} title={m.drafts_title()} width="560px" {onClose}>
-  {#if drafts.length === 0}
+  {#if drafts.local.length === 0 && drafts.remote.length === 0}
     <p>{m.drafts_empty()}</p>
   {:else}
     <ul class="drafts">
-      {#each drafts as d (d.id)}
+      {#each drafts.remote as d (d.message)}
+        <li>
+          <button class="draft" type="button" onclick={() => onResume(d.message)}>
+            <strong>{d.subject || m.outbox_no_subject()}</strong>
+            <span class="muted">{m.drafts_server()}</span>
+            <span class="muted date">{shortDate(d.date)}</span>
+          </button>
+        </li>
+      {/each}
+      {#each drafts.local as d (d.id)}
         <li>
           <button class="draft" type="button" onclick={() => onOpen(d.id)}>
             <strong>{d.subject || m.outbox_no_subject()}</strong>

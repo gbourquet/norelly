@@ -1204,6 +1204,10 @@ pub trait MessageComposer: Send + Sync {
     /// est illisible.
     fn forwarded_attachments(&self, raw: &[u8]) -> Vec<ComposedAttachment>;
 
+    /// HTML d'un texte brut (échappé, paragraphes), pour reprendre un
+    /// brouillon dans l'éditeur.
+    fn text_html(&self, text: &str) -> String;
+
     /// HTML d'éditeur d'une citation : `attribution` puis `text` dans un
     /// `<blockquote>`, échappés.
     fn quote_html(&self, text: &str, attribution: &str) -> String;

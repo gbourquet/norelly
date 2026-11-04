@@ -256,3 +256,25 @@ fn invalid_received_identifiers_are_dropped_from_threading() {
     d.threading = t;
     assert_eq!(d.check_storable(), Ok(()));
 }
+
+#[test]
+fn a_resumed_draft_keeps_its_own_threading() {
+    let mut s = source();
+    s.in_reply_to = vec!["pas conforme".into(), "parent@example.com".into()];
+    s.references = (0..30).map(|i| format!("r{i}@example.com")).collect();
+    let t = resumed_threading(&s);
+    assert_eq!(t.in_reply_to.as_deref(), Some("parent@example.com"));
+    assert_eq!(t.references.len(), MAX_REFERENCES);
+    assert_eq!(
+        t.references.first().map(String::as_str),
+        Some("r0@example.com")
+    );
+    assert_eq!(
+        t.references.last().map(String::as_str),
+        Some("r29@example.com")
+    );
+    assert_eq!(
+        resumed_threading(&ReplySource::default()),
+        Threading::default()
+    );
+}

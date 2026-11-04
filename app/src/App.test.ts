@@ -79,9 +79,10 @@ vi.mock("./lib/ipc/api", () => ({
       ...savedDraft(account),
       subject: "Programmé",
     })),
-    listDrafts: vi.fn(async () => [
-      { id: 5, subject: "Repris", to: ["bob@example.com"], updated_at: 1_700_000_000 },
-    ]),
+    listDrafts: vi.fn(async () => ({
+      local: [{ id: 5, subject: "Repris", to: ["bob@example.com"], updated_at: 1_700_000_000 }],
+      remote: [{ message: 31, subject: "Écrit ailleurs", date: 1_700_000_000 }],
+    })),
     openDraft: vi.fn(async () => ({ ...savedDraft(7), subject: "Repris" })),
     discardDraft: vi.fn(),
     suggestContacts: vi.fn(async () => []),
@@ -469,5 +470,28 @@ describe("App", () => {
     const dialog = await screen.findByRole("dialog", { name: "Nouveau message" });
     expect(within(dialog).getByRole("textbox", { name: "Objet" })).toHaveValue("Programmé");
     vi.mocked(api.outbox).mockResolvedValue([]);
+  });
+
+  it("reprend un brouillon écrit par un autre client", async () => {
+    accounts.push({
+      id: 7,
+      address: "alice@example.com",
+      display_name: "Alice",
+      imap: server,
+      smtp: server,
+    } as AccountDto);
+    vi.mocked(api.prepareCompose).mockResolvedValueOnce({
+      ...savedDraft(7),
+      id: null,
+      subject: "Écrit ailleurs",
+    });
+    render(App);
+    await screen.findAllByText("alice@example.com");
+    await registry.execute("drafts.open", app.context());
+    const list = await screen.findByRole("dialog", { name: "Brouillons" });
+    await fireEvent.click(within(list).getByRole("button", { name: /Écrit ailleurs/ }));
+    await waitFor(() => expect(api.prepareCompose).toHaveBeenCalledWith(7, "resume", 31, ""));
+    const dialog = await screen.findByRole("dialog", { name: "Nouveau message" });
+    expect(within(dialog).getByRole("textbox", { name: "Objet" })).toHaveValue("Écrit ailleurs");
   });
 });

@@ -501,7 +501,8 @@ async fn drafts_are_listed_reopened_scheduled_and_taken_back() {
     draft.id = Some(saved.id);
     let listed = list_drafts(t.state(), account)
         .await
-        .unwrap_or_else(|e| panic!("{e:?}"));
+        .unwrap_or_else(|e| panic!("{e:?}"))
+        .local;
     assert_eq!(listed.len(), 1);
     assert_eq!(
         (listed[0].id, listed[0].subject.as_str()),
@@ -527,6 +528,7 @@ async fn drafts_are_listed_reopened_scheduled_and_taken_back() {
         list_drafts(t.state(), account)
             .await
             .unwrap_or_else(|e| panic!("{e:?}"))
+            .local
             .is_empty()
     );
     let items = outbox(t.state(), account)
@@ -557,4 +559,78 @@ async fn drafts_are_listed_reopened_scheduled_and_taken_back() {
         code(schedule_draft(t.state(), back, far).await).0,
         ErrorCodeDto::ScheduleTooFar
     );
+}
+
+#[tokio::test]
+async fn drafts_from_another_client_are_listed_and_resumed() {
+    use crate::compose::list_drafts;
+    use norelly_domain::mailbox::{MailboxName, MailboxRole, RemoteMailbox};
+    use norelly_domain::ports::{BlobStore, MailStore, StoredBody, SyncBatch};
+    let t = test_app().await;
+    let account = id32(t.account.get());
+    let store = &t.state().mail.store;
+    let mailbox = |name: &str, role| RemoteMailbox {
+        name: MailboxName::parse(name).unwrap_or_else(|_| panic!("{name}")),
+        delimiter: Some('/'),
+        role,
+        selectable: true,
+    };
+    let boxes = store
+        .replace_mailboxes(
+            t.account,
+            &[
+                mailbox("INBOX", MailboxRole::Inbox),
+                mailbox("Corbeille", MailboxRole::Trash),
+                mailbox("Envoyés", MailboxRole::Sent),
+                mailbox("Brouillons", MailboxRole::Drafts),
+            ],
+        )
+        .await
+        .unwrap_or_else(|e| panic!("{e}"));
+    let drafts_box = boxes
+        .iter()
+        .find(|m| m.mailbox.role == MailboxRole::Drafts)
+        .map(|m| m.id)
+        .unwrap_or_else(|| panic!("Brouillons"));
+    let mut foreign = norelly_test_support::mail_contracts::sample_message(1, 5_000, true);
+    foreign.meta.headers.subject = "Pas fini".into();
+    let raw = b"To: bob@example.com\r\nSubject: Pas fini\r\n\r\nTexte en cours\r\n".to_vec();
+    foreign.body = StoredBody::Full(
+        t.state()
+            .mail
+            .blobs
+            .put(t.account, raw)
+            .await
+            .unwrap_or_else(|e| panic!("{e}")),
+    );
+    store
+        .apply_sync(
+            drafts_box,
+            &SyncBatch {
+                new: vec![foreign],
+                ..SyncBatch::default()
+            },
+        )
+        .await
+        .unwrap_or_else(|e| panic!("{e}"));
+    let drafts = list_drafts(t.state(), account)
+        .await
+        .unwrap_or_else(|e| panic!("{e:?}"));
+    assert_eq!(drafts.remote.len(), 1);
+    assert_eq!(drafts.remote[0].subject, "Pas fini");
+    let resumed = prepare_compose(
+        t.state(),
+        account,
+        ComposeKindDto::Resume,
+        Some(drafts.remote[0].message),
+        String::new(),
+    )
+    .await
+    .unwrap_or_else(|e| panic!("{e:?}"));
+    assert_eq!(resumed.subject, "Pas fini");
+    assert_eq!(
+        resumed.to.first().map(|r| r.address.as_str()),
+        Some("bob@example.com")
+    );
+    assert!(resumed.html.contains("Texte en cours"));
 }

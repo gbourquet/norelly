@@ -285,6 +285,10 @@
   drafts={app.drafts}
   onClose={() => app.close()}
   onOpen={(id) => void app.openDraft(id)}
+  onResume={(message) => {
+    const account = app.draftsAccount;
+    if (account !== null) void app.resumeRemoteDraft(account, message);
+  }}
 />
 <OutboxDialog
   open={app.dialog === "outbox"}

@@ -4,11 +4,15 @@
 // `seed_perf` de norelly-sqlite), compte sur un domaine injoignable.
 //
 // - Démarrage : du chargement de la page au premier affichage d'une liste
-//   (repère `norelly:first-list` posé par l'interface), < 200 ms.
+//   (repère `norelly:first-list` posé par l'interface), < 400 ms.
 // - Changement de dossier : du clic à l'affichage de la nouvelle liste
 //   (repère `norelly:list-shown`), médiane de 11 changements, < 200 ms.
 import { $$, browser, expect } from "@wdio/globals";
 
+/** Seuil du démarrage, fixé par le mainteneur le 2026-11-04 (mesure sous
+ * Xvfb, WebKitGTK sans accélération graphique). */
+const STARTUP_THRESHOLD_MS = 400;
+/** Seuil du changement de dossier. */
 const THRESHOLD_MS = 200;
 
 /** Durée d'un changement vers le dossier de libellé `label`. */
@@ -40,12 +44,12 @@ async function switchTo(label) {
 }
 
 describe("performance sur une boîte de 50 000 messages", () => {
-  it("affiche la première liste en moins de 200 ms", async () => {
+  it("affiche la première liste en moins de 400 ms", async () => {
     await $$('[role="option"]')[0].waitForDisplayed({ timeout: 60000 });
     const started = await browser.execute(
       () => performance.getEntriesByName("norelly:first-list")[0]?.startTime ?? -1,
     );
-    console.log(`démarrage : ${started.toFixed(1)} ms (seuil ${THRESHOLD_MS} ms)`);
+    console.log(`démarrage : ${started.toFixed(1)} ms (seuil ${STARTUP_THRESHOLD_MS} ms)`);
     const detail = await browser.execute(() => {
       const nav = performance.getEntriesByType("navigation")[0];
       const marks = performance
@@ -80,7 +84,7 @@ describe("performance sur une boîte de 50 000 messages", () => {
     });
     console.log(`appels au repos (ms) : ${JSON.stringify(atRest)}`);
     expect(started).toBeGreaterThan(0);
-    expect(started).toBeLessThan(THRESHOLD_MS);
+    expect(started).toBeLessThan(STARTUP_THRESHOLD_MS);
   });
 
   it("change de dossier en moins de 200 ms (médiane)", async () => {

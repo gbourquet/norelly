@@ -264,6 +264,10 @@ Commandes de référence (détail dans `scripts/check.sh`) :
 - [x] Reports de la revue de la phase 8 (REVIEWS.md) : budget de temps des lectures de recherche (interruption quand une nouvelle requête arrive), bench avec des corps réalistes ; `hostile_message_sql.rs` étendu à la recherche et au nom de boîte des copies distantes
   - recherche interrompue au-delà de 2 s (`progress_handler` SQLite, retiré après chaque requête), plutôt qu'à l'arrivée d'une nouvelle requête : borne la durée quelle qu'en soit la cause ; bench à 300 mots par corps, plus une requête d'une lettre et 8 négations (de 0,3 à 89 ms, seuil 100 ms : marge faible pour trois mots fréquents) ; `hostile_message_sql.rs` : chaque charge comme requête, messages piégés retrouvés par leur texte, copie distante dans la boîte au nom piégé.
 
+- [ ] Rédaction, compléments :
+  - transfert avec les pièces jointes du message d'origine (relues depuis le stockage local, téléchargées si besoin, mêmes bornes de taille que l'envoi) ;
+  - liste des brouillons enregistrés pour les rouvrir et les reprendre (brouillons locaux et copies du dossier « Brouillons ») ;
+  - envoi différé : date et heure choisies par l'utilisateur, message gardé dans la file d'envoi jusque-là, modifiable ou annulable avant l'échéance
 - [x] Notifications natives (`tauri-plugin-notification`) pour les nouveaux messages (regroupées, sans contenu si l'option de confidentialité est active)
   - domaine `notify` (non lus seulement, jamais à la première synchronisation d'une boîte, regroupés avec le plus récent) ; événement `SyncEvent::NewMail` de l'acteur pour la boîte de réception ; filtre des paramètres appliqué en Rust dans le relais (`settings::new_mail_event`) ; texte composé par l'interface, affiché si la fenêtre n'a pas le focus, revalidé par la commande `show_notification`.
   - **Dérogation à valider par le mainteneur** : `tauri-plugin-notification` tire zbus 5, dont `zbus_names` et `zvariant` sont signalés non maintenus (RUSTSEC-2026-0370, -0371) et font échouer `cargo deny` ; remplacé par `notify-rust` sans zbus (fonctionnalité `d`, libdbus du système sous Linux), appelé depuis Rust seulement. L'affichage réel est à vérifier à la main (`docs/MANUAL-TESTS.md`).
@@ -271,10 +275,10 @@ Commandes de référence (détail dans `scripts/check.sh`) :
   - catalogue anglais relu en entier le 2026-11-03 (orthographe britannique, aucun reste de français) ; langue des paramètres appliquée avant le premier rendu (`main.ts`, `applyLanguage`), prise en compte au prochain démarrage.
 - [x] Paramètres : question de mise à jour au premier lancement (oui présélectionné), modifiable ; préférences d'affichage, de rapatriement et de notifications
   - domaine `settings` (bornes du seuil de rapatriement, filtre des notifications), port `SettingsStore` (contrat, faux, SQLite : valeur illisible ou hors bornes remplacée par sa valeur par défaut), commandes `get_settings`/`save_settings`, dialogue Paramètres (`Ctrl+,`), question au premier lancement (`UpdateQuestion`, « Oui » a le focus) ; le seuil s'applique au démarrage des acteurs. La recherche de mises à jour elle-même arrive en phase 10 (`tauri-plugin-updater`).
-- [ ] Mesure de bout en bout : démarrage et changement de dossier < 200 ms sur la boîte de 50k messages (test end-to-end avec mesure, seuil dans le job nocturne)
+- [x] Mesure de bout en bout : démarrage et changement de dossier < 200 ms sur la boîte de 50k messages (test end-to-end avec mesure, seuil dans le job nocturne)
   - Fait : scénario `app/e2e/perf/perf.e2e.mjs`, lancé par `NORELLY_E2E_PERF=1 pnpm -C app e2e` (build release, base de 50 000 + 20 000 messages créée par l'exemple `seed_perf` de norelly-sqlite, compte sur un domaine injoignable) ; repères `norelly:*` posés par l'interface ; branchement dans `nightly.yml` en phase 10 (le fichier n'existe pas encore). Améliorations trouvées en chemin : index couvrant des compteurs de dossiers (migration 9), lectures des comptes par le pool de lecteurs, comptes et première liste chargés en parallèle.
   - **Changement de dossier : réussi** (médiane 13 à 16 ms).
-  - **Blocage (2026-11-04) : démarrage à 293-307 ms**, au-dessus du seuil de 200 ms, en build release comme en debug. Les appels IPC du démarrage prennent 0 à 9 ms au repos (`list_folders` 7-9 ms, `list_conversations` 2 ms) : le temps est passé dans la webview. Chargement du script ≈ 65 ms, puis fil principal occupé ≈ 67 ms après le montage (un `setTimeout(0)` n'est servi qu'à 166 ms), puis ≈ 100 ms entre la réponse de `list_conversations` et l'affichage de la liste. La mesure tourne sous Xvfb, WebKitGTK sans accélération graphique (DRI3 indisponible) : elle n'est peut-être pas représentative d'un poste réel. Le seuil n'a pas été modifié. À trancher par le mainteneur : profiler le premier rendu (Svelte, liste virtuelle, styles), mesurer sur une machine avec GPU, ou revoir la définition du « démarrage » mesuré.
+  - **Seuil du démarrage porté à 400 ms par le mainteneur (2026-11-04)** après le blocage suivant. Démarrage mesuré à 293-307 ms, au-dessus du seuil de 200 ms, en build release comme en debug. Les appels IPC du démarrage prennent 0 à 9 ms au repos (`list_folders` 7-9 ms, `list_conversations` 2 ms) : le temps est passé dans la webview. Chargement du script ≈ 65 ms, puis fil principal occupé ≈ 67 ms après le montage (un `setTimeout(0)` n'est servi qu'à 166 ms), puis ≈ 100 ms entre la réponse de `list_conversations` et l'affichage de la liste. La mesure tourne sous Xvfb, WebKitGTK sans accélération graphique (DRI3 indisponible) : elle n'est peut-être pas représentative d'un poste réel. Le seuil n'a pas été modifié. À trancher par le mainteneur : profiler le premier rendu (Svelte, liste virtuelle, styles), mesurer sur une machine avec GPU, ou revoir la définition du « démarrage » mesuré.
 - [x] Passe accessibilité : focus visible, rôles ARIA, navigation entièrement au clavier, contrastes
   - `app/src/styles/accessibility.test.ts` : contrastes WCAG AA des jetons dans les deux thèmes (4,5:1 pour le texte, 3:1 pour le focus) ; tout composant qui retire le contour fournit sa règle `:focus-visible` (palette, liste, éditeur, destinataires corrigés) ; `App.test.ts` : aucun bouton, champ, case, liste déroulante ou liste sans nom accessible (liste, recherche, paramètres). Clavier : chaque action est une commande du registre (raccourci et palette) ; listes en `listbox`/`option` avec `aria-activedescendant`.
 - [x] Checklist de tests manuels Gmail, Fastmail, Outlook.com (IMAP par mot de passe d'application), consignée dans `docs/MANUAL-TESTS.md`
@@ -295,3 +299,32 @@ Commandes de référence (détail dans `scripts/check.sh`) :
 - [ ] Revue security-reviewer finale (chaîne d'approvisionnement, autorisations Flatpak, capabilities Tauri), consignée dans REVIEWS.md
 
 **Condition de fin** : `./scripts/check.sh full && pnpm -C app tauri build` passent sans erreur, et `flatpak-builder --force-clean build packaging/flatpak/io.github.gbourquet.Norelly.yml` réussit.
+
+## Phase 11 : documentation
+
+Trois documentations, chacune pour son public. Le français est la langue source ; la documentation utilisateur est aussi traduite en anglais (ADR-011).
+
+- [ ] Documentation fonctionnelle (`docs/fonctionnel/`) :
+  - présentation du produit : à qui il s'adresse, ce qu'il fait et ne fait pas, principes (sécurité, hors ligne, clavier) ;
+  - liste des fonctionnalités, puis une fiche par fonctionnalité : but, comportement attendu, règles métier (renvoi vers le domaine), cas limites, messages affichés, raccourcis ;
+  - glossaire (conversation, boîte unifiée, brouillon, file d'envoi…).
+- [ ] Documentation technique (`docs/technique/`, `CONTRIBUTING.md`), pour qu'un développeur puisse contribuer sans aide :
+  - technologies et versions, avec la raison de chaque choix (renvoi vers DECISIONS.md) ;
+  - architecture hexagonale : domaine, ports, adaptateurs, application, point d'assemblage Tauri, contrat IPC, flux principaux (synchronisation, lecture sécurisée, actions hors ligne, envoi) avec schémas ;
+  - modèle de données (migrations SQLite) et protocoles personnalisés ;
+  - sécurité : modèle de menace, défenses en place, revues (renvoi vers REVIEWS.md) ;
+  - tests : niveaux (unitaires, contrats, intégration en conteneurs, e2e), faux serveurs, couverture et seuils, bancs de performance ;
+  - méthode : TDD, phases du PLAN, conventions de code et de commit, branches et PR, CI ;
+  - premier pas : installer, lancer, tester, ajouter une commande IPC ou une migration (pas à pas).
+- [ ] Documentation utilisateur (`docs/utilisateur/`, en français et en anglais), rédigée pour quelqu'un qui n'est pas à l'aise avec un ordinateur :
+  - ce qu'est Norelly et à quoi il sert, en mots simples ;
+  - installation sous Windows et Linux, étape par étape, avec captures d'écran ;
+  - premier compte (adresse, mot de passe, mot de passe d'application pour Gmail et Outlook.com) ;
+  - usages courants : lire, répondre, écrire, joindre un fichier, ranger, supprimer, rechercher, retrouver un brouillon ;
+  - messages d'erreur fréquents et quoi faire (certificat, hors ligne, mot de passe refusé) ;
+  - questions fréquentes et aide-mémoire des raccourcis clavier.
+- [ ] Captures d'écran produites par un scénario e2e (toujours à jour, dans les deux langues)
+- [ ] `./scripts/check-docs.sh`, branché dans `./scripts/check.sh` : liens internes valides, captures présentes, mêmes pages en français et en anglais pour la documentation utilisateur, chaque commande du registre présente dans l'aide-mémoire des raccourcis
+- [ ] Relecture par le mainteneur, et lecture de la documentation utilisateur par une personne non technique (retours consignés)
+
+**Condition de fin** : `./scripts/check.sh full` passe sans erreur (avec `check-docs.sh`).

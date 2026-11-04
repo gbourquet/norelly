@@ -234,3 +234,16 @@ describe("conversation ouverte depuis la recherche", () => {
     expect(mail.targets().map((c) => c.id)).toEqual([9]);
   });
 });
+
+describe("mesure de performance", () => {
+  it("pose un repère à chaque liste affichée, et un premier repère au démarrage", async () => {
+    performance.clearMarks();
+    const mail = new MailState(fakeApi(3));
+    await mail.show(UNIFIED_INBOX);
+    expect(performance.getEntriesByName("norelly:first-list")).toHaveLength(1);
+    expect(performance.getEntriesByName("norelly:list-shown")).toHaveLength(1);
+    await mail.show({ kind: "mailbox", id: 10 });
+    expect(performance.getEntriesByName("norelly:first-list")).toHaveLength(1);
+    expect(performance.getEntriesByName("norelly:list-shown")).toHaveLength(2);
+  });
+});

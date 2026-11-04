@@ -128,6 +128,7 @@ class AppState {
   async refreshAccounts(): Promise<void> {
     try {
       this.accounts = await api.listAccounts();
+      performance.mark("norelly:accounts-listed");
       this.loadError = null;
       if (
         this.selectedAccountId !== null &&

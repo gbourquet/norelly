@@ -15,6 +15,20 @@ import type {
 } from "./ipc/api";
 import { errorText, failureText, withDetail } from "./errors";
 import { m } from "./paraglide/messages.js";
+import { tick } from "svelte";
+
+/**
+ * Repères de mesure (test end-to-end de performance) : `norelly:list-shown`
+ * quand une liste vient d'être affichée, `norelly:first-list` la première
+ * fois (démarrage).
+ */
+async function markListShown(): Promise<void> {
+  await tick();
+  if (performance.getEntriesByName("norelly:first-list").length === 0) {
+    performance.mark("norelly:first-list");
+  }
+  performance.mark("norelly:list-shown");
+}
 
 /** Fenêtre d'annulation d'une action (UNDO_WINDOW_SECS côté Rust). */
 export const UNDO_WINDOW_MS = 5000;
@@ -114,6 +128,7 @@ export class MailState {
     this.messages = [];
     this.selectedIndex = -1;
     await this.reload();
+    await markListShown();
   }
 
   /**

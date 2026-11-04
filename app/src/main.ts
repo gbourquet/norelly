@@ -11,11 +11,13 @@ if (!target) throw new Error("élément #app introuvable");
  * paramètres sont illisibles), appliquée avant le premier rendu
  * (ADR-011). */
 async function start(root: HTMLElement): Promise<ReturnType<typeof mount>> {
+  performance.mark("norelly:script-start");
   const language = await api
     .getSettings()
     .then((s) => s.language)
     .catch(() => "system" as const);
   applyLanguage(language, navigator);
+  performance.mark("norelly:settings-read");
   return mount(App, { target: root });
 }
 

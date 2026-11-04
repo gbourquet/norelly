@@ -37,14 +37,21 @@
   import { UNIFIED_INBOX } from "./lib/mail.svelte";
 
   onMount(() => {
+    performance.mark("norelly:mounted");
+    requestAnimationFrame(() => performance.mark("norelly:first-frame"));
+    setTimeout(() => performance.mark("norelly:first-task"), 0);
     const unregister = registerAppCommands();
     let unlisten: (() => void) | null = null;
     let unlistenCompose: (() => void) | null = null;
     let disposed = false;
     void settings.load();
     void (async () => {
-      await app.refreshAccounts();
-      await mail.show(UNIFIED_INBOX);
+      // Comptes et première liste en parallèle : la boîte unifiée ne
+      // dépend pas de la liste des comptes (démarrage plus court).
+      await Promise.all([
+        app.refreshAccounts().then(() => performance.mark("norelly:accounts-read")),
+        mail.show(UNIFIED_INBOX),
+      ]);
       try {
         const off = await api.onSyncEvent((event) => {
           void mail.onSyncEvent(event);

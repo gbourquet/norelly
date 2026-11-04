@@ -45,6 +45,7 @@ fn migrations() -> Migrations<'static> {
         M::up(include_str!("../migrations/0006_compose.sql")),
         M::up(include_str!("../migrations/0007_search.sql")),
         M::up(include_str!("../migrations/0008_remote_copy_mailbox.sql")),
+        M::up(include_str!("../migrations/0009_folder_counts.sql")),
     ])
 }
 
@@ -364,14 +365,15 @@ fn into_accounts(rows: Vec<AccountRow>) -> Result<Vec<Account>, AccountStoreErro
 
 impl AccountRepository for SqliteAccountRepository {
     async fn list(&self) -> Result<Vec<Account>, AccountStoreError> {
-        let rows = self.db.run(|c| select_accounts(c, "", None)).await?;
+        // Pool de lecteurs : pas d'attente derrière une écriture en cours.
+        let rows = self.db.read(|c| select_accounts(c, "", None)).await?;
         into_accounts(rows)
     }
 
     async fn get(&self, id: AccountId) -> Result<Option<Account>, AccountStoreError> {
         let rows = self
             .db
-            .run(move |c| select_accounts(c, "WHERE id = ?1", Some(&id.get())))
+            .read(move |c| select_accounts(c, "WHERE id = ?1", Some(&id.get())))
             .await?;
         Ok(into_accounts(rows)?.into_iter().next())
     }
@@ -579,6 +581,8 @@ mod tests {
         "UPDATE message_texts SET body = 'texte v7' WHERE message_id = 1;",
         // Version 8 : une copie distante rattachée à sa boîte.
         "UPDATE drafts SET remote_mailbox = 'INBOX' WHERE id = 1;",
+        // Version 9 : index seulement, un message marqué lu.
+        "UPDATE messages SET flags = 1 WHERE id = 1;",
     ];
 
     /// Montée de version depuis chaque version précédente, données
@@ -805,6 +809,35 @@ mod tests {
 
     /// Une ligne modifiée à la main (injection dans l'hôte) n'est pas
     /// acceptée silencieusement.
+    /// Phase 9 (mesure de démarrage) : la lecture des comptes n'attend pas
+    /// une écriture en cours (synchronisation qui démarre en même temps).
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn account_reads_do_not_wait_for_the_writer() -> Result<(), AccountStoreError> {
+        let dir = std::env::temp_dir().join(format!("norelly-readers-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).map_err(|e| StoreError(e.to_string()))?;
+        let db = Database::open(&dir.join("t.sqlite3")).map_err(|e| StoreError(e.to_string()))?;
+        let repo = SqliteAccountRepository::new(db.clone());
+        let stored = repo.insert(&sample_account("alice@example.com", false)).await?;
+        let busy = db.clone();
+        let writer = tokio::spawn(async move {
+            busy.run(|_| {
+                std::thread::sleep(std::time::Duration::from_millis(500));
+                Ok(())
+            })
+            .await
+        });
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        let started = std::time::Instant::now();
+        assert_eq!(repo.list().await?.len(), 1);
+        assert!(repo.get(stored.id()).await?.is_some());
+        let elapsed = started.elapsed();
+        assert!(elapsed < std::time::Duration::from_millis(200), "{elapsed:?}");
+        let _ = writer.await;
+        let _ = std::fs::remove_dir_all(&dir);
+        Ok(())
+    }
+
     #[tokio::test]
     async fn corrupted_rows_are_reported() -> Result<(), AccountStoreError> {
         let db = db();

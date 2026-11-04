@@ -48,6 +48,21 @@ export const config = {
     await waitForPort(4444, 20000);
   },
 
+  // Profil neuf : la question des mises à jour du premier lancement est
+  // posée (phase 9) ; on y répond « Non » avant les scénarios. Absente
+  // (déjà répondue dans ce profil) : rien à faire.
+  before: async () => {
+    const { $ } = await import("@wdio/globals");
+    const dialog = $('//*[@role="dialog"][.//*[normalize-space()="Mises à jour"]]');
+    try {
+      await dialog.waitForDisplayed({ timeout: 5000 });
+    } catch {
+      return;
+    }
+    await dialog.$("button=Non").click();
+    await dialog.waitForDisplayed({ reverse: true, timeout: 10000 });
+  },
+
   afterSession: () => {
     tauriDriver?.kill();
   },

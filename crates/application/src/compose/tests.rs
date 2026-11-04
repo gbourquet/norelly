@@ -853,7 +853,9 @@ async fn oversized_messages_are_refused_before_parsing() {
     let size = usize::try_from(2 * MAX_ATTACHMENTS_BYTES).unwrap_or(usize::MAX) + 1;
     let started = std::time::Instant::now();
     assert_eq!(
-        prepare.forwarded_attachments(account(), &vec![b'x'; size]).await,
+        prepare
+            .forwarded_attachments(account(), &vec![b'x'; size])
+            .await,
         Err(ComposeFailure::Invalid(ComposeError::AttachmentsTooLarge))
     );
     assert!(started.elapsed() < std::time::Duration::from_secs(1));

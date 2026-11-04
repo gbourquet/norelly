@@ -9,8 +9,8 @@
 use norelly_domain::mailbox::{MailboxName, MailboxRole, RemoteMailbox};
 use norelly_domain::ports::{AccountRepository, MailStore, SettingsStore, SyncBatch};
 use norelly_domain::settings::{Settings, UpdateCheck};
-use norelly_sqlite::preferences::SqliteSettingsStore;
 use norelly_sqlite::mail::SqliteMailStore;
+use norelly_sqlite::preferences::SqliteSettingsStore;
 use norelly_sqlite::{Database, SqliteAccountRepository};
 use norelly_test_support::contracts::sample_account;
 use norelly_test_support::synthetic::synthetic_messages;

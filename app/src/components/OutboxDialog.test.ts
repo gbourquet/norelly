@@ -24,6 +24,7 @@ describe("boîte d'envoi", () => {
         item(3, { state: "sending" }),
       ],
       onRetry,
+      onEdit: vi.fn(),
       onCancel,
       onClose: vi.fn(),
     });
@@ -46,6 +47,7 @@ describe("boîte d'envoi", () => {
       items: [],
       onRetry: vi.fn(),
       onCancel: vi.fn(),
+      onEdit: vi.fn(),
       onClose: vi.fn(),
     });
     expect(screen.getByText("Aucun message en attente.")).toBeInTheDocument();

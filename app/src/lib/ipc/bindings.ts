@@ -84,6 +84,17 @@ export const commands = {
 	setArchiveFolder: (account: number, mailbox: number | null) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("set_archive_folder", { account, mailbox })),
 	/**  Une page de messages trouvés, hors ligne (index local). */
 	searchMessages: (query: string, scope: SearchScopeDto, utcOffsetMinutes: number, offset: number, limit: number) => typedError<SearchPageDto_Serialize, IpcError_Serialize>(__TAURI_INVOKE("search_messages", { query, scope, utcOffsetMinutes, offset, limit })),
+	/**  Paramètres de l'application. */
+	getSettings: () => typedError<SettingsDto, IpcError_Serialize>(__TAURI_INVOKE("get_settings")),
+	/**  Enregistre les paramètres (revalidés par le domaine). */
+	saveSettings: (settings: SettingsDto) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("save_settings", { settings })),
+	/**
+	 *  Affiche une notification du système. Le texte, composé par
+	 *  l'interface dans la langue de l'utilisateur, est revalidé ; l'appel au
+	 *  système se fait hors du fil asynchrone. Une notification impossible
+	 *  (pas de service de notification) est seulement journalisée.
+	 */
+	showNotification: (title: string, body: string) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("show_notification", { title, body })),
 	/**
 	 *  Brouillon de départ : nouveau message, réponse, réponse à tous ou
 	 *  transfert de `message`. `attribution` : en-tête de citation construit
@@ -99,6 +110,21 @@ export const commands = {
 	sendDraft: (draft: DraftDto_Deserialize) => typedError<number, IpcError_Serialize>(__TAURI_INVOKE("send_draft", { draft })),
 	/**  Abandonne un brouillon (sa copie sur le serveur sera supprimée). */
 	discardDraft: (id: number) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("discard_draft", { id })),
+	/**
+	 *  Programme l'envoi d'un brouillon à `at` (secondes Unix) ; renvoie son
+	 *  identifiant dans la file. Le brouillon reste récupérable avant
+	 *  l'échéance (`unschedule_send`).
+	 */
+	scheduleDraft: (draft: DraftDto_Deserialize, at: number) => typedError<number, IpcError_Serialize>(__TAURI_INVOKE("schedule_draft", { draft, at })),
+	/**
+	 *  Reprend un message programmé pour le modifier : retiré de la file, son
+	 *  brouillon est recréé et renvoyé.
+	 */
+	unscheduleSend: (account: number, id: number) => typedError<DraftDto_Serialize, IpcError_Serialize>(__TAURI_INVOKE("unschedule_send", { account, id })),
+	/**  Brouillons enregistrés d'un compte, du plus récent au plus ancien. */
+	listDrafts: (account: number) => typedError<DraftsDto, IpcError_Serialize>(__TAURI_INVOKE("list_drafts", { account })),
+	/**  Rouvre un brouillon enregistré. */
+	openDraft: (id: number) => typedError<DraftDto_Serialize, IpcError_Serialize>(__TAURI_INVOKE("open_draft", { id })),
 	/**  File d'envoi d'un compte. */
 	outbox: (account: number) => typedError<OutboxItemDto[], IpcError_Serialize>(__TAURI_INVOKE("outbox", { account })),
 	/**
@@ -277,7 +303,9 @@ export type ComposeEventDto =
 { kind: "files_dropped"; token: number; count: number };
 
 /**  Nature d'une rédaction. */
-export type ComposeKindDto = "new" | "reply" | "reply_all" | "forward";
+export type ComposeKindDto = "new" | "reply" | "reply_all" | "forward" | 
+/**  Reprendre tel quel un brouillon du dossier « Brouillons ». */
+"resume";
 
 export type ConversationCursorDto = {
 	date: number,
@@ -417,6 +445,24 @@ export type DraftDto_Serialize = {
 	attachments: DraftAttachmentDto[],
 };
 
+/**  Brouillon enregistré, dans la liste des brouillons. */
+export type DraftSummaryDto = {
+	id: number,
+	subject: string,
+	/**  Adresses des destinataires (À). */
+	to: string[],
+	updated_at: number,
+};
+
+/**
+ *  Brouillons d'un compte : enregistrés par Norelly, et ceux du dossier
+ *  « Brouillons » qui n'en sont pas des copies.
+ */
+export type DraftsDto = {
+	local: DraftSummaryDto[],
+	remote: RemoteDraftDto[],
+};
+
 /**  Point de connexion (consentement au clair, exception de certificat). */
 export type EndpointDto = {
 	host: string,
@@ -475,6 +521,8 @@ export type ErrorCodeDto =
 "attachments_too_large" | 
 /**  Plus de pièces jointes que la limite. */
 "too_many_attachments" | 
+/**  Envoi différé à plus d'un an. */
+"schedule_too_far" | 
 /**  Envoi non annulable ou non relançable dans son état. */
 "outbox_busy" | 
 /**  Erreur interne (journalisée). */
@@ -493,7 +541,9 @@ export type FieldDto = "address" | "display_name" | "host" | "port" | "username"
 /**  Serveurs IMAP et SMTP fournis ensemble ou pas du tout. */
 "servers" | "account" | "message" | "part" | "mailbox" | "role" | "cursor" | "conversation" | "folder" | "certificate" | "draft" | "attachment" | "outbox" | 
 /**  Requête de recherche (trop longue, trop de clauses) ou fuseau. */
-"query";
+"query" | 
+/**  Paramètres hors bornes. */
+"settings";
 
 /**  Dossier d'un compte. */
 export type FolderDto = {
@@ -537,6 +587,9 @@ export type IpcError_Serialize = {
 	field: FieldDto | null,
 	detail: string | null,
 };
+
+/**  Langue de l'interface. */
+export type LanguageDto = "system" | "fr" | "en";
 
 /**
  *  Message ouvert : métadonnées du rendu (le document lui-même est servi
@@ -593,6 +646,13 @@ export type ReadingPreferencesDto = {
 export type RecipientDto = {
 	name: string,
 	address: string,
+};
+
+/**  Brouillon du dossier « Brouillons » écrit par un autre client. */
+export type RemoteDraftDto = {
+	message: number,
+	subject: string,
+	date: number,
 };
 
 /**  Brouillon enregistré. */
@@ -681,18 +741,43 @@ export type ServerDto = {
 	username: string,
 };
 
+/**  Paramètres de l'application. */
+export type SettingsDto = {
+	language: LanguageDto,
+	update_check: UpdateCheckDto,
+	notifications: boolean,
+	notification_privacy: boolean,
+	/**  Octets. */
+	attachment_threshold: number,
+};
+
 /**  Événement de synchronisation relayé à l'interface. */
 export type SyncEventDto = SyncEventDto_Serialize | SyncEventDto_Deserialize;
 
 /**  Événement de synchronisation relayé à l'interface. */
 export type SyncEventDto_Deserialize = { kind: "folder_changed"; account: number; mailbox: number } | { kind: "folders_changed"; account: number } | { kind: "online"; account: number } | 
+/**
+ *  Nouveaux messages non lus dans la boîte de réception : nombre et,
+ *  sauf option de confidentialité, le plus récent (texte composé par
+ *  l'interface, ADR-011).
+ */
+{ kind: "new_mail"; account: number; count: number; from?: CorrespondentDto | null; subject?: string | null } | 
 /**  Connexion perdue : catégorie et détail technique brut éventuel. */
 { kind: "offline"; account: number; failure: FailureKindDto; detail?: string | null };
 
 /**  Événement de synchronisation relayé à l'interface. */
 export type SyncEventDto_Serialize = { kind: "folder_changed"; account: number; mailbox: number } | { kind: "folders_changed"; account: number } | { kind: "online"; account: number } | 
+/**
+ *  Nouveaux messages non lus dans la boîte de réception : nombre et,
+ *  sauf option de confidentialité, le plus récent (texte composé par
+ *  l'interface, ADR-011).
+ */
+{ kind: "new_mail"; account: number; count: number; from: CorrespondentDto | null; subject: string | null } | 
 /**  Connexion perdue : catégorie et détail technique brut éventuel. */
 { kind: "offline"; account: number; failure: FailureKindDto; detail: string | null };
+
+/**  Recherche de mises à jour. */
+export type UpdateCheckDto = "not_asked" | "enabled" | "disabled";
 
 /* Tauri Specta runtime */
 async function typedError<T, E>(result: Promise<T>): Promise<{ status: "ok"; data: T } | { status: "error"; error: E }> {

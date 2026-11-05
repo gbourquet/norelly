@@ -42,6 +42,7 @@ function fakeApi(): ComposeApi & { saved: Draft[] } {
       return { id: 42, revision: saved.length };
     }),
     sendDraft: vi.fn(async () => 7),
+    scheduleDraft: vi.fn(async () => 8),
     discardDraft: vi.fn(async () => undefined),
     suggestContacts: vi.fn(async (_a: number, text: string) => [
       { name: "Alice", address: `${text}@example.com` },
@@ -203,5 +204,35 @@ describe("rédaction", () => {
     await c.discard();
     expect(api.discardDraft).toHaveBeenCalledWith(42);
     expect(c.draft).toBeNull();
+  });
+});
+
+describe("envoi différé et reprise d'un brouillon", () => {
+  it("programme l'envoi à l'échéance choisie", async () => {
+    const api = fakeApi();
+    const compose = new ComposeState(api);
+    await compose.open(1, "new", null);
+    compose.edit({ subject: "Plus tard" });
+    expect(await compose.send(1_900_000_000)).toBe(true);
+    expect(api.scheduleDraft).toHaveBeenCalledWith(
+      expect.objectContaining({ subject: "Plus tard" }),
+      1_900_000_000,
+    );
+    expect(api.sendDraft).not.toHaveBeenCalled();
+    expect(compose.draft).toBeNull();
+  });
+
+  it("rouvre un brouillon existant et l'enregistre sous le même identifiant", async () => {
+    vi.useFakeTimers();
+    const api = fakeApi();
+    const compose = new ComposeState(api);
+    compose.resume({ ...empty(), id: 5, subject: "Repris" });
+    expect(compose.draft?.subject).toBe("Repris");
+    compose.edit({ subject: "Repris et modifié" });
+    await vi.advanceTimersByTimeAsync(AUTOSAVE_MS);
+    expect(api.saved.at(-1)).toEqual(
+      expect.objectContaining({ id: 5, subject: "Repris et modifié" }),
+    );
+    vi.useRealTimers();
   });
 });

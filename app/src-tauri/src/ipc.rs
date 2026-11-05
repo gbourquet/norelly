@@ -69,6 +69,8 @@ pub enum ErrorCodeDto {
     AttachmentsTooLarge,
     /// Plus de pièces jointes que la limite.
     TooManyAttachments,
+    /// Envoi différé à plus d'un an.
+    ScheduleTooFar,
     /// Envoi non annulable ou non relançable dans son état.
     OutboxBusy,
     /// Erreur interne (journalisée).
@@ -100,6 +102,8 @@ pub enum FieldDto {
     Outbox,
     /// Requête de recherche (trop longue, trop de clauses) ou fuseau.
     Query,
+    /// Paramètres hors bornes.
+    Settings,
 }
 
 /// Erreur renvoyée à l'interface : un code, le champ concerné, et un détail
@@ -651,6 +655,15 @@ pub enum SyncEventDto {
     Online {
         account: u32,
     },
+    /// Nouveaux messages non lus dans la boîte de réception : nombre et,
+    /// sauf option de confidentialité, le plus récent (texte composé par
+    /// l'interface, ADR-011).
+    NewMail {
+        account: u32,
+        count: u32,
+        from: Option<CorrespondentDto>,
+        subject: Option<String>,
+    },
     /// Connexion perdue : catégorie et détail technique brut éventuel.
     Offline {
         account: u32,
@@ -687,6 +700,32 @@ pub struct DraftAttachmentDto {
     pub size: u32,
 }
 
+/// Brouillon enregistré, dans la liste des brouillons.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
+pub struct DraftSummaryDto {
+    pub id: u32,
+    pub subject: String,
+    /// Adresses des destinataires (À).
+    pub to: Vec<String>,
+    pub updated_at: u32,
+}
+
+/// Brouillon du dossier « Brouillons » écrit par un autre client.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
+pub struct RemoteDraftDto {
+    pub message: u32,
+    pub subject: String,
+    pub date: u32,
+}
+
+/// Brouillons d'un compte : enregistrés par Norelly, et ceux du dossier
+/// « Brouillons » qui n'en sont pas des copies.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
+pub struct DraftsDto {
+    pub local: Vec<DraftSummaryDto>,
+    pub remote: Vec<RemoteDraftDto>,
+}
+
 /// Brouillon échangé avec l'éditeur.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 pub struct DraftDto {
@@ -719,6 +758,8 @@ pub enum ComposeKindDto {
     Reply,
     ReplyAll,
     Forward,
+    /// Reprendre tel quel un brouillon du dossier « Brouillons ».
+    Resume,
 }
 
 /// Cause d'échec d'un envoi.
@@ -797,6 +838,35 @@ impl From<&norelly_domain::mailbox::Correspondent> for CorrespondentDto {
             address: c.address.clone(),
         }
     }
+}
+
+/// Langue de l'interface.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum LanguageDto {
+    System,
+    Fr,
+    En,
+}
+
+/// Recherche de mises à jour.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum UpdateCheckDto {
+    NotAsked,
+    Enabled,
+    Disabled,
+}
+
+/// Paramètres de l'application.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+pub struct SettingsDto {
+    pub language: LanguageDto,
+    pub update_check: UpdateCheckDto,
+    pub notifications: bool,
+    pub notification_privacy: bool,
+    /// Octets.
+    pub attachment_threshold: u32,
 }
 
 /// Où chercher.

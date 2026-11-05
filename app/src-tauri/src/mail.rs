@@ -22,7 +22,7 @@ use norelly_domain::endpoint::Protocol;
 use norelly_domain::fetch_policy::{BodyFetch, FetchPolicy, PartPath};
 use norelly_domain::mailbox::{MailboxName, Uid};
 use norelly_domain::ports::ConnectRequest;
-use norelly_domain::ports::{FetchedBody, MessageId, RemoteBodyFetcher};
+use norelly_domain::ports::{FetchedBody, MessageId, RemoteBodyFetcher, SettingsStore};
 use norelly_domain::reading::RemoteContent;
 use norelly_imap::ImapConnector;
 use norelly_render::compose::MimeComposer;
@@ -30,7 +30,7 @@ use norelly_render::{PartContent, Protocols, RenderNotice, RenderRequest, Render
 use norelly_smtp::SmtpSender;
 use norelly_sqlite::compose::SqliteComposeStore;
 use norelly_sqlite::mail::SqliteMailStore;
-use norelly_sqlite::preferences::SqliteReadingPreferences;
+use norelly_sqlite::preferences::{SqliteReadingPreferences, SqliteSettingsStore};
 use norelly_sqlite::{Database, SqliteCertificateExceptionStore};
 use tauri::{AppHandle, Runtime};
 use tauri_specta::Event;
@@ -67,6 +67,8 @@ pub struct MailServices {
     pub store: Arc<SqliteMailStore>,
     pub blobs: Arc<FsBlobStore>,
     pub prefs: SqliteReadingPreferences,
+    /// Paramètres de l'application.
+    pub settings: SqliteSettingsStore,
     pub protocols: Protocols,
     /// `None` si le client HTTPS n'a pas pu être construit (images
     /// distantes alors indisponibles).
@@ -102,6 +104,7 @@ impl MailServices {
             store: Arc::new(SqliteMailStore::new(db.clone())),
             blobs: Arc::new(blobs),
             prefs: SqliteReadingPreferences::new(db.clone()),
+            settings: SqliteSettingsStore::new(db.clone()),
             protocols: Protocols::for_platform(),
             proxy,
             open_dir,
@@ -133,6 +136,7 @@ impl MailServices {
         let request = connect_request(account, Protocol::Imap, secrets, exceptions)
             .await
             .map_err(|e| e.to_string())?;
+        let settings = self.settings.settings().await.unwrap_or_default();
         let handle = account_actor::spawn(
             account.id(),
             request.clone(),
@@ -140,13 +144,32 @@ impl MailServices {
             Arc::clone(&self.store),
             Arc::clone(&self.blobs),
             Arc::new(norelly_render::search_text::MimeTextExtractor),
-            ActorConfig::default(),
+            ActorConfig {
+                policy: settings.fetch_policy(),
+                ..ActorConfig::default()
+            },
         );
         let mut events = handle.subscribe();
         let relay = app.clone();
+        let settings_store = self.settings.clone();
         tauri::async_runtime::spawn(async move {
             loop {
                 match events.recv().await {
+                    // Arrivées : filtrées selon les paramètres du moment.
+                    Ok(SyncEvent::NewMail { account, mail, .. }) => {
+                        // Paramètres illisibles : notification sans
+                        // contenu (échec fermé sur la confidentialité).
+                        let current = settings_store.settings().await.unwrap_or(
+                            norelly_domain::settings::Settings {
+                                notification_privacy: true,
+                                ..norelly_domain::settings::Settings::default()
+                            },
+                        );
+                        if let Some(dto) = crate::settings::new_mail_event(account, mail, &current)
+                        {
+                            let _ = dto.emit(&relay);
+                        }
+                    }
                     Ok(event) => {
                         if let Some(dto) = SyncEventDto::from_event(&event) {
                             let _ = dto.emit(&relay);
@@ -488,6 +511,8 @@ impl SyncEventDto {
             SyncEvent::FoldersChanged { account } => Self::FoldersChanged {
                 account: id(*account)?,
             },
+            // Relayé à part, selon les paramètres de notification.
+            SyncEvent::NewMail { .. } => return None,
             SyncEvent::Online { account } => Self::Online {
                 account: id(*account)?,
             },

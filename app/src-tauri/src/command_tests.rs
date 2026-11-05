@@ -439,3 +439,221 @@ async fn search_inputs_are_revalidated() {
         (ErrorCodeDto::InvalidInput, Some(FieldDto::Mailbox))
     );
 }
+
+#[tokio::test]
+async fn settings_round_trip_and_are_revalidated() {
+    use crate::ipc::{LanguageDto, SettingsDto, UpdateCheckDto};
+    use crate::settings::{get_settings, save_settings};
+    let t = test_app().await;
+    let first = get_settings(t.state())
+        .await
+        .unwrap_or_else(|e| panic!("{e:?}"));
+    assert_eq!(first.language, LanguageDto::System);
+    assert_eq!(
+        first.update_check,
+        UpdateCheckDto::NotAsked,
+        "question pas encore posée"
+    );
+    assert!(first.notifications && !first.notification_privacy);
+    let chosen = SettingsDto {
+        language: LanguageDto::En,
+        update_check: UpdateCheckDto::Enabled,
+        notifications: true,
+        notification_privacy: true,
+        attachment_threshold: 4 * 1024 * 1024,
+    };
+    save_settings(t.state(), chosen)
+        .await
+        .unwrap_or_else(|e| panic!("{e:?}"));
+    assert_eq!(
+        get_settings(t.state())
+            .await
+            .unwrap_or_else(|e| panic!("{e:?}")),
+        chosen
+    );
+    let invalid = SettingsDto {
+        attachment_threshold: 1,
+        ..chosen
+    };
+    assert_eq!(
+        code(save_settings(t.state(), invalid).await),
+        (ErrorCodeDto::InvalidInput, Some(FieldDto::Settings))
+    );
+}
+
+#[tokio::test]
+async fn drafts_are_listed_reopened_scheduled_and_taken_back() {
+    use crate::compose::{list_drafts, open_draft, schedule_draft, unschedule_send};
+    let t = test_app().await;
+    let account = id32(t.account.get());
+    let mut draft = prepare_compose(t.state(), account, ComposeKindDto::New, None, String::new())
+        .await
+        .unwrap_or_else(|e| panic!("{e:?}"));
+    draft.subject = "Programmé".into();
+    draft.html = "<p>Plus tard</p>".into();
+    draft.to = vec![RecipientDto {
+        name: "Bob".into(),
+        address: "bob@example.com".into(),
+    }];
+    let saved = save_draft(t.state(), draft.clone())
+        .await
+        .unwrap_or_else(|e| panic!("{e:?}"));
+    draft.id = Some(saved.id);
+    let listed = list_drafts(t.state(), account)
+        .await
+        .unwrap_or_else(|e| panic!("{e:?}"))
+        .local;
+    assert_eq!(listed.len(), 1);
+    assert_eq!(
+        (listed[0].id, listed[0].subject.as_str()),
+        (saved.id, "Programmé")
+    );
+    assert_eq!(listed[0].to, ["bob@example.com"]);
+    let reopened = open_draft(t.state(), saved.id)
+        .await
+        .unwrap_or_else(|e| panic!("{e:?}"));
+    assert_eq!(reopened.subject, "Programmé");
+    assert_eq!(reopened.id, Some(saved.id));
+    assert_eq!(
+        code(open_draft(t.state(), 9999).await),
+        (ErrorCodeDto::NotFound, Some(FieldDto::Draft))
+    );
+
+    let in_an_hour =
+        u32::try_from(norelly_application::account_actor::unix_now() + 3600).unwrap_or(u32::MAX);
+    let queued = schedule_draft(t.state(), draft.clone(), in_an_hour)
+        .await
+        .unwrap_or_else(|e| panic!("{e:?}"));
+    assert!(
+        list_drafts(t.state(), account)
+            .await
+            .unwrap_or_else(|e| panic!("{e:?}"))
+            .local
+            .is_empty()
+    );
+    let items = outbox(t.state(), account)
+        .await
+        .unwrap_or_else(|e| panic!("{e:?}"));
+    assert!(matches!(
+        items.iter().find(|i| i.id == queued).map(|i| &i.state),
+        Some(OutboxStateDto::Queued { not_before }) if *not_before == in_an_hour
+    ));
+    let back = unschedule_send(t.state(), account, queued)
+        .await
+        .unwrap_or_else(|e| panic!("{e:?}"));
+    assert_eq!(back.subject, "Programmé");
+    assert!(back.id.is_some());
+    assert!(
+        outbox(t.state(), account)
+            .await
+            .unwrap_or_else(|e| panic!("{e:?}"))
+            .is_empty()
+    );
+    assert_eq!(
+        code(unschedule_send(t.state(), account, queued).await).0,
+        ErrorCodeDto::NotFound,
+        "déjà repris : plus dans la file"
+    );
+    let far = u32::MAX;
+    assert_eq!(
+        code(schedule_draft(t.state(), back, far).await).0,
+        ErrorCodeDto::ScheduleTooFar
+    );
+}
+
+#[tokio::test]
+async fn drafts_from_another_client_are_listed_and_resumed() {
+    use crate::compose::list_drafts;
+    use norelly_domain::mailbox::{MailboxName, MailboxRole, RemoteMailbox};
+    use norelly_domain::ports::{BlobStore, MailStore, StoredBody, SyncBatch};
+    let t = test_app().await;
+    let account = id32(t.account.get());
+    let store = &t.state().mail.store;
+    let mailbox = |name: &str, role| RemoteMailbox {
+        name: MailboxName::parse(name).unwrap_or_else(|_| panic!("{name}")),
+        delimiter: Some('/'),
+        role,
+        selectable: true,
+    };
+    let boxes = store
+        .replace_mailboxes(
+            t.account,
+            &[
+                mailbox("INBOX", MailboxRole::Inbox),
+                mailbox("Corbeille", MailboxRole::Trash),
+                mailbox("Envoyés", MailboxRole::Sent),
+                mailbox("Brouillons", MailboxRole::Drafts),
+            ],
+        )
+        .await
+        .unwrap_or_else(|e| panic!("{e}"));
+    let drafts_box = boxes
+        .iter()
+        .find(|m| m.mailbox.role == MailboxRole::Drafts)
+        .map(|m| m.id)
+        .unwrap_or_else(|| panic!("Brouillons"));
+    let mut foreign = norelly_test_support::mail_contracts::sample_message(1, 5_000, true);
+    foreign.meta.headers.subject = "Pas fini".into();
+    let raw = b"To: bob@example.com\r\nSubject: Pas fini\r\n\r\nTexte en cours\r\n".to_vec();
+    foreign.body = StoredBody::Full(
+        t.state()
+            .mail
+            .blobs
+            .put(t.account, raw)
+            .await
+            .unwrap_or_else(|e| panic!("{e}")),
+    );
+    store
+        .apply_sync(
+            drafts_box,
+            &SyncBatch {
+                new: vec![foreign],
+                ..SyncBatch::default()
+            },
+        )
+        .await
+        .unwrap_or_else(|e| panic!("{e}"));
+    let drafts = list_drafts(t.state(), account)
+        .await
+        .unwrap_or_else(|e| panic!("{e:?}"));
+    assert_eq!(drafts.remote.len(), 1);
+    assert_eq!(drafts.remote[0].subject, "Pas fini");
+    let resumed = prepare_compose(
+        t.state(),
+        account,
+        ComposeKindDto::Resume,
+        Some(drafts.remote[0].message),
+        String::new(),
+    )
+    .await
+    .unwrap_or_else(|e| panic!("{e:?}"));
+    assert_eq!(resumed.subject, "Pas fini");
+    assert_eq!(
+        resumed.to.first().map(|r| r.address.as_str()),
+        Some("bob@example.com")
+    );
+    assert!(resumed.html.contains("Texte en cours"));
+}
+
+/// Revue de la phase 9 (BASSE) : « reprendre » ne vise qu'un message du
+/// dossier « Brouillons » du compte, vérifié en Rust avant tout
+/// téléchargement.
+#[tokio::test]
+async fn only_drafts_folder_messages_can_be_resumed() {
+    let t = test_app().await;
+    let account = id32(t.account.get());
+    let inbox_message = id32(t.messages[0].get());
+    assert_eq!(
+        code(
+            prepare_compose(
+                t.state(),
+                account,
+                ComposeKindDto::Resume,
+                Some(inbox_message),
+                String::new()
+            )
+            .await
+        ),
+        (ErrorCodeDto::InvalidInput, Some(FieldDto::Message))
+    );
+}

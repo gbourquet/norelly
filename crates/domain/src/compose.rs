@@ -142,6 +142,35 @@ pub struct Threading {
     pub references: Vec<String>,
 }
 
+/// Fil d'un brouillon repris tel quel (brouillon d'un autre client, dans
+/// le dossier « Brouillons ») : son propre `In-Reply-To` et ses
+/// `References`, identifiants non conformes écartés, au plus
+/// [`MAX_REFERENCES`] (la racine et les plus récents).
+#[must_use]
+pub fn resumed_threading(source: &ReplySource) -> Threading {
+    let valid: Vec<String> = source
+        .references
+        .iter()
+        .filter(|id| draft::valid_message_id(id))
+        .cloned()
+        .collect();
+    let references = if valid.len() > MAX_REFERENCES {
+        let mut kept = valid[..1].to_vec();
+        kept.extend_from_slice(&valid[valid.len() - (MAX_REFERENCES - 1)..]);
+        kept
+    } else {
+        valid
+    };
+    Threading {
+        in_reply_to: source
+            .in_reply_to
+            .iter()
+            .find(|id| draft::valid_message_id(id))
+            .cloned(),
+        references,
+    }
+}
+
 /// `In-Reply-To` et `References` d'une réponse (RFC 5322 § 3.6.4).
 #[must_use]
 pub fn reply_threading(source: &ReplySource) -> Threading {

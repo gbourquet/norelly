@@ -308,3 +308,28 @@ async fn record_all_is_all_or_nothing() -> Result<(), StoreError> {
     assert!(store.pending(a).await?.is_empty(), "rien n'est enfilé");
     Ok(())
 }
+
+/// Phase 9 (mesure de démarrage) : les compteurs de l'arbre des dossiers
+/// se lisent dans un index couvrant, sans parcourir la table des messages.
+#[tokio::test]
+async fn folder_counts_use_a_covering_index() -> Result<(), StoreError> {
+    let db = Database::open_in_memory().map_err(|e| StoreError(e.to_string()))?;
+    let plan = db
+        .read_for_tests(|c| {
+            let mut stmt = c
+                .prepare(
+                    "EXPLAIN QUERY PLAN SELECT COUNT(*) FROM messages WHERE mailbox_id = 1 \
+                     AND hidden = 0 AND (flags & 9) = 0",
+                )
+                .map_err(crate::store_error)?;
+            let rows = stmt
+                .query_map([], |r| r.get::<_, String>(3))
+                .map_err(crate::store_error)?
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(crate::store_error)?;
+            Ok(rows.join(" | "))
+        })
+        .await?;
+    assert!(plan.contains("COVERING INDEX"), "{plan}");
+    Ok(())
+}

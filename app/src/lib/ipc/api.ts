@@ -32,6 +32,8 @@ import {
   type SearchHitDto_Serialize,
   type SearchPageDto_Serialize,
   type SearchScopeDto,
+  type SettingsDto,
+  type DraftsDto,
 } from "./bindings";
 import { IpcFailure } from "../errors";
 
@@ -68,6 +70,12 @@ export type {
   ServerDto,
   SearchScopeDto,
   SegmentDto,
+  SettingsDto,
+  DraftSummaryDto,
+  DraftsDto,
+  RemoteDraftDto,
+  LanguageDto,
+  UpdateCheckDto,
 } from "./bindings";
 export type AddAccountInput = AddAccountInput_Deserialize;
 export type AddAccountResult = AddAccountResultDto_Serialize;
@@ -160,6 +168,15 @@ export const api = {
   ): Promise<SearchPage> =>
     unwrap(commands.searchMessages(query, scope, utcOffsetMinutes, offset, limit)),
 
+  getSettings: (): Promise<SettingsDto> => unwrap(commands.getSettings()),
+
+  saveSettings: (settings: SettingsDto): Promise<void> =>
+    unwrap(commands.saveSettings(settings)).then(() => undefined),
+
+  /** Notification du système ; le texte est revalidé côté Rust. */
+  showNotification: (title: string, body: string): Promise<void> =>
+    unwrap(commands.showNotification(title, body)).then(() => undefined),
+
   /** Action sur des conversations de la portée affichée. */
   performAction: (
     conversations: number[],
@@ -185,6 +202,18 @@ export const api = {
 
   /** Met en file d'envoi ; renvoie l'identifiant dans la file. */
   sendDraft: (draft: Draft): Promise<number> => unwrap(commands.sendDraft(draft)),
+
+  /** Programme l'envoi à `at` (secondes Unix). */
+  scheduleDraft: (draft: Draft, at: number): Promise<number> =>
+    unwrap(commands.scheduleDraft(draft, at)),
+
+  /** Reprend un envoi programmé : son brouillon. */
+  unscheduleSend: (account: number, id: number): Promise<Draft> =>
+    unwrap(commands.unscheduleSend(account, id)),
+
+  listDrafts: (account: number): Promise<DraftsDto> => unwrap(commands.listDrafts(account)),
+
+  openDraft: (id: number): Promise<Draft> => unwrap(commands.openDraft(id)),
 
   discardDraft: (id: number): Promise<void> =>
     unwrap(commands.discardDraft(id)).then(() => undefined),

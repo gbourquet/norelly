@@ -3,7 +3,7 @@
   // avec « réessayer » et « annuler l'envoi ».
   import Modal from "./Modal.svelte";
   import type { OutboxItemDto } from "../lib/ipc/api";
-  import { stateLabel } from "../lib/outbox";
+  import { isScheduled, stateLabel } from "../lib/outbox";
   import { m } from "../lib/paraglide/messages.js";
 
   interface Props {
@@ -11,10 +11,12 @@
     items: OutboxItemDto[];
     onRetry: (id: number) => void;
     onCancel: (id: number) => void;
+    /** Reprend un envoi programmé pour le modifier. */
+    onEdit: (id: number) => void;
     onClose: () => void;
   }
 
-  let { open, items, onRetry, onCancel, onClose }: Props = $props();
+  let { open, items, onRetry, onCancel, onEdit, onClose }: Props = $props();
 </script>
 
 <Modal {open} title={m.outbox_title()} width="560px" {onClose}>
@@ -32,6 +34,11 @@
           {#if item.state.state === "failed"}
             <button class="btn" type="button" onclick={() => onRetry(item.id)}
               >{m.outbox_retry()}</button
+            >
+          {/if}
+          {#if isScheduled(item.state)}
+            <button class="btn" type="button" onclick={() => onEdit(item.id)}
+              >{m.outbox_edit()}</button
             >
           {/if}
           {#if item.state.state === "failed" || item.state.state === "queued"}

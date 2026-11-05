@@ -164,7 +164,7 @@
   }
 
   input:focus-visible {
-    outline: 2px solid var(--color-accent);
+    outline: 2px solid var(--color-focus);
     outline-offset: 1px;
   }
 
@@ -176,7 +176,7 @@
   }
 
   .scroller:focus-visible {
-    box-shadow: inset 0 0 0 2px var(--color-accent);
+    box-shadow: inset 0 0 0 2px var(--color-focus);
   }
 
   .row {

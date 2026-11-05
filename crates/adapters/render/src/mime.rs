@@ -93,7 +93,7 @@ fn normalize_cid(raw: &str) -> Option<String> {
     (!cid.is_empty() && cid.len() <= 256 && !cid.chars().any(char::is_control)).then_some(cid)
 }
 
-fn media_type(part: &MessagePart<'_>) -> String {
+pub(crate) fn media_type(part: &MessagePart<'_>) -> String {
     match part.content_type() {
         Some(ct) => format!(
             "{}/{}",

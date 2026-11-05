@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import fr from "../../messages/fr.json";
 import en from "../../messages/en.json";
-import { activeLocale, applySystemLocale, pickLocale } from "./i18n";
+import { activeLocale, applyLanguage, applySystemLocale, pickLocale } from "./i18n";
 
 // Test exécuté par ./scripts/check.sh (via `pnpm -C app test`) : une chaîne
 // d'interface = une clé dans chaque catalogue (ADR-011).
@@ -65,5 +65,16 @@ describe("langue du système", () => {
     expect(applySystemLocale({ languages: [], language: "fr-FR" })).toBe("fr");
     expect(activeLocale()).toBe("fr");
     expect(document.documentElement.lang).toBe("fr");
+  });
+});
+
+describe("langue choisie", () => {
+  it("impose la langue des paramètres, sinon celle du système", () => {
+    const nav = { languages: ["fr-FR"], language: "fr-FR" };
+    expect(applyLanguage("en", nav)).toBe("en");
+    expect(activeLocale()).toBe("en");
+    expect(document.documentElement.lang).toBe("en");
+    expect(applyLanguage("system", nav)).toBe("fr");
+    expect(applyLanguage("fr", { languages: ["en-US"], language: "en-US" })).toBe("fr");
   });
 });

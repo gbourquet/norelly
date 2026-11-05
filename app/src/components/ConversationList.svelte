@@ -228,6 +228,10 @@
     outline: none;
   }
 
+  .scroller:focus-visible {
+    box-shadow: inset 0 0 0 2px var(--color-focus);
+  }
+
   .spacer {
     position: relative;
     width: 100%;

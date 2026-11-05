@@ -29,3 +29,15 @@ export function applySystemLocale(nav: Pick<Navigator, "languages" | "language">
 export function activeLocale(): Locale {
   return getLocale();
 }
+
+/** Applique la langue choisie dans les paramètres (`system` : celle du
+ * système). */
+export function applyLanguage(
+  language: "system" | "fr" | "en",
+  nav: Pick<Navigator, "languages" | "language">,
+): Locale {
+  if (language === "system") return applySystemLocale(nav);
+  setLocale(language, { reload: false });
+  document.documentElement.lang = language;
+  return language;
+}

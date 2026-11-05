@@ -194,6 +194,10 @@
     padding: var(--space-2) var(--space-3);
   }
 
+  .surface :global(.editor-body:focus-visible) {
+    box-shadow: inset 0 0 0 2px var(--color-focus);
+  }
+
   .surface :global(.editor-body) {
     min-height: 200px;
     outline: none;

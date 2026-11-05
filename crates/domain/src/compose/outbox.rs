@@ -126,7 +126,28 @@ pub fn retry_delay(attempts: u32) -> i64 {
         .min(RETRY_MAX_SECS)
 }
 
+/// Échéance la plus lointaine d'un envoi différé (un an).
+pub const MAX_SCHEDULE_SECS: i64 = 366 * 24 * 3600;
+
+/// Échéance d'envoi refusée.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[error("échéance d'envoi trop lointaine")]
+pub struct ScheduleTooFar;
+
 impl OutboxEntry {
+    /// Message mis en file à `now`, à envoyer pas avant `at` : une
+    /// échéance passée vaut un envoi immédiat, une échéance à plus de
+    /// [`MAX_SCHEDULE_SECS`] est refusée.
+    ///
+    /// # Errors
+    /// [`ScheduleTooFar`] au-delà de [`MAX_SCHEDULE_SECS`].
+    pub fn scheduled(now: i64, at: i64) -> Result<Self, ScheduleTooFar> {
+        if at.saturating_sub(now) > MAX_SCHEDULE_SECS {
+            return Err(ScheduleTooFar);
+        }
+        Ok(Self::queued(now.max(at)))
+    }
+
     /// Message mis en file à l'instant `now`.
     #[must_use]
     pub fn queued(now: i64) -> Self {
@@ -223,6 +244,29 @@ mod tests {
         OutboxEntry::queued(NOW)
             .start()
             .unwrap_or_else(|e| panic!("{e}"))
+    }
+
+    #[test]
+    fn scheduled_sending_waits_for_its_time() {
+        let e = OutboxEntry::scheduled(NOW, NOW + 3600).unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(
+            e.state,
+            OutboxState::Queued {
+                not_before: NOW + 3600
+            }
+        );
+        assert!(!e.is_due(NOW + 3599));
+        assert!(e.is_due(NOW + 3600));
+        assert_eq!(
+            OutboxEntry::scheduled(NOW, NOW - 10),
+            Ok(OutboxEntry::queued(NOW)),
+            "échéance passée : tout de suite"
+        );
+        assert_eq!(
+            OutboxEntry::scheduled(NOW, NOW + MAX_SCHEDULE_SECS + 1),
+            Err(ScheduleTooFar)
+        );
+        assert!(OutboxEntry::scheduled(NOW, i64::MAX).is_err());
     }
 
     #[test]

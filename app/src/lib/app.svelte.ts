@@ -2,10 +2,17 @@
 // l'application.
 
 import { CommandRegistry } from "./commands/registry";
-import { api, type AccountDto, type ComposeKindDto, type OutboxItemDto } from "./ipc/api";
+import {
+  api,
+  type AccountDto,
+  type ComposeKindDto,
+  type DraftsDto,
+  type OutboxItemDto,
+} from "./ipc/api";
 import { ComposeState } from "./compose.svelte";
 import { MailState } from "./mail.svelte";
 import { SearchState } from "./search.svelte";
+import { SettingsState } from "./settings.svelte";
 import type { ConversationMessage } from "./ipc/api";
 import { failureLabel } from "./outbox";
 import { m } from "./paraglide/messages.js";
@@ -22,7 +29,9 @@ export type DialogName =
   | "move"
   | "archive-folder"
   | "compose"
-  | "outbox";
+  | "outbox"
+  | "settings"
+  | "drafts";
 
 export interface AppContext {
   selectedAccount: AccountDto | null;
@@ -51,6 +60,12 @@ class AppState {
   /** File d'envoi du compte affiché dans la boîte d'envoi. */
   outbox = $state<OutboxItemDto[]>([]);
   outboxAccount = $state<number | null>(null);
+  /** Brouillons du compte sélectionné (liste des brouillons). */
+  drafts = $state<DraftsDto>({ local: [], remote: [] });
+  /** Compte de la liste des brouillons affichée. */
+  draftsAccount = $state<number | null>(null);
+  /** Préférence « texte brut », affichée dans les paramètres. */
+  plainText = $state(false);
   /** Échecs déjà signalés (identifiants dans la file). */
   #reported = new Set<number>();
 
@@ -114,6 +129,53 @@ class AppState {
     }
   }
 
+  /** Liste des brouillons d'un compte. */
+  async showDrafts(account: number): Promise<void> {
+    try {
+      this.drafts = await api.listDrafts(account);
+      this.draftsAccount = account;
+      this.dialog = "drafts";
+    } catch (e) {
+      mail.notice = { text: errorText(e), undoable: false };
+    }
+  }
+
+  /** Rouvre un brouillon enregistré dans l'éditeur. */
+  async openDraft(id: number): Promise<void> {
+    try {
+      const draft = await api.openDraft(id);
+      this.composeKind = "new";
+      compose.resume(draft);
+      this.dialog = "compose";
+    } catch (e) {
+      mail.notice = { text: errorText(e), undoable: false };
+    }
+  }
+
+  /** Reprend un brouillon du dossier « Brouillons » écrit ailleurs. */
+  async resumeRemoteDraft(account: number, message: number): Promise<void> {
+    try {
+      const draft = await api.prepareCompose(account, "resume", message, "");
+      this.composeKind = "new";
+      compose.resume(draft);
+      this.dialog = "compose";
+    } catch (e) {
+      mail.notice = { text: errorText(e), undoable: false };
+    }
+  }
+
+  /** Reprend un envoi programmé pour le modifier. */
+  async editScheduled(account: number, id: number): Promise<void> {
+    try {
+      const draft = await api.unscheduleSend(account, id);
+      this.composeKind = "new";
+      compose.resume(draft);
+      this.dialog = "compose";
+    } catch (e) {
+      mail.notice = { text: errorText(e), undoable: false };
+    }
+  }
+
   async showOutbox(account: number): Promise<void> {
     this.outboxAccount = account;
     this.outbox = [];
@@ -124,6 +186,7 @@ class AppState {
   async refreshAccounts(): Promise<void> {
     try {
       this.accounts = await api.listAccounts();
+      performance.mark("norelly:accounts-listed");
       this.loadError = null;
       if (
         this.selectedAccountId !== null &&
@@ -144,6 +207,8 @@ class AppState {
 export const mail = new MailState(api);
 
 export const search = new SearchState(api);
+
+export const settings = new SettingsState(api);
 
 // Une action peut retirer un résultat (suppression, déplacement…).
 mail.onActed = () => void search.refresh();
@@ -196,6 +261,18 @@ export function registerAppCommands(): () => void {
       shortcut: "?",
       keywords: words(m.cmd_help_keywords()),
       run: () => app.open("help"),
+    }),
+    registry.register({
+      id: "settings.open",
+      title: m.cmd_settings(),
+      group: m.group_general(),
+      shortcut: "Ctrl+,",
+      keywords: words(m.cmd_settings_keywords()),
+      run: async () => {
+        const prefs = await api.readingPreferences().catch(() => null);
+        app.plainText = prefs?.prefer_plain_text ?? false;
+        app.open("settings");
+      },
     }),
     registry.register({
       id: "account.add",
@@ -376,6 +453,14 @@ export function registerAppCommands(): () => void {
         },
       }),
     ),
+    registry.register({
+      id: "drafts.open",
+      title: m.cmd_drafts(),
+      group: m.group_compose(),
+      keywords: words(m.cmd_drafts_keywords()),
+      when: (ctx) => ctx.selectedAccount !== null,
+      run: (ctx) => (ctx.selectedAccount ? app.showDrafts(ctx.selectedAccount.id) : undefined),
+    }),
     registry.register({
       id: "compose.outbox",
       title: m.cmd_outbox(),

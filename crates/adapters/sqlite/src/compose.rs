@@ -499,44 +499,83 @@ impl OutboxStore for SqliteComposeStore {
         draft: Option<DraftId>,
         now: i64,
     ) -> Result<OutboxId, StoreError> {
-        let recipients = serde_json::to_string(&message.recipients)
-            .map_err(|e| StoreError(format!("sérialisation : {e}")))?;
-        let from = message.from.clone();
-        let raw = message.raw.clone();
-        let sent_copy = sent_copy.to_vec();
-        let subject = subject.to_owned();
-        let (state, not_before, failure, attempts) = entry_columns(OutboxEntry::queued(now));
+        self.insert_outbox(
+            account,
+            message,
+            sent_copy,
+            subject,
+            draft,
+            OutboxEntry::queued(now),
+            None,
+            now,
+        )
+        .await
+    }
+
+    async fn schedule(
+        &self,
+        account: AccountId,
+        message: &OutgoingMessage,
+        sent_copy: &[u8],
+        subject: &str,
+        draft: Option<DraftId>,
+        content: &Draft,
+        entry: OutboxEntry,
+        now: i64,
+    ) -> Result<OutboxId, StoreError> {
+        let content = content_of(content)?;
+        self.insert_outbox(
+            account,
+            message,
+            sent_copy,
+            subject,
+            draft,
+            entry,
+            Some(content),
+            now,
+        )
+        .await
+    }
+
+    async fn unschedule(&self, id: OutboxId, now: i64) -> Result<Option<StoredDraft>, StoreError> {
         self.db
             .run(move |c| {
                 let tx = c
                     .transaction_with_behavior(TransactionBehavior::Immediate)
                     .map_err(store_error)?;
-                if let Some(draft) = draft {
-                    delete_draft_in(&tx, draft)?;
-                }
+                // Seulement en attente : un envoi en cours ne peut plus être
+                // repris.
+                let row: Option<(i64, String)> = tx
+                    .query_row(
+                        "SELECT account_id, draft_content FROM outbox \
+                         WHERE id = ?1 AND state = 'queued' AND draft_content IS NOT NULL",
+                        [id.get()],
+                        |r| Ok((r.get(0)?, r.get(1)?)),
+                    )
+                    .optional()
+                    .map_err(store_error)?;
+                let Some((account, content)) = row else {
+                    return Ok(None);
+                };
+                let account = AccountId::new(account).map_err(|_| corrupted("compte"))?;
+                let draft = draft_of(account, &content)?;
+                tx.execute("DELETE FROM outbox WHERE id = ?1", [id.get()])
+                    .map_err(store_error)?;
                 tx.execute(
-                    "INSERT INTO outbox (account_id, envelope_from, recipients, raw, sent_copy, \
-                     subject, state, not_before, failure, attempts, queued_at) \
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
-                    params![
-                        account.get(),
-                        from,
-                        recipients,
-                        raw,
-                        sent_copy,
-                        subject,
-                        state,
-                        not_before,
-                        failure,
-                        attempts,
-                        now
-                    ],
+                    "INSERT INTO drafts (account_id, content, revision, updated_at) \
+                     VALUES (?1, ?2, 1, ?3)",
+                    params![account.get(), content, now],
                 )
                 .map_err(store_error)?;
-                let id = OutboxId::new(tx.last_insert_rowid())
-                    .ok_or_else(|| corrupted("identifiant d'envoi"))?;
+                let draft_id = DraftId::new(tx.last_insert_rowid())
+                    .ok_or_else(|| corrupted("identifiant de brouillon"))?;
                 tx.commit().map_err(store_error)?;
-                Ok(id)
+                Ok(Some(StoredDraft {
+                    id: draft_id,
+                    draft,
+                    sync: DraftSync::default().edited(),
+                    updated_at: now,
+                }))
             })
             .await
     }
@@ -638,6 +677,65 @@ impl OutboxStore for SqliteComposeStore {
                     .execute("DELETE FROM outbox WHERE id = ?1", [id.get()])
                     .map_err(store_error)?;
                 Ok(n > 0)
+            })
+            .await
+    }
+}
+
+impl SqliteComposeStore {
+    /// Mise en file (immédiate ou programmée), d'un bloc : brouillon
+    /// d'origine retiré, état et brouillon gardé écrits ensemble.
+    #[allow(clippy::too_many_arguments)]
+    async fn insert_outbox(
+        &self,
+        account: AccountId,
+        message: &OutgoingMessage,
+        sent_copy: &[u8],
+        subject: &str,
+        draft: Option<DraftId>,
+        entry: OutboxEntry,
+        content: Option<String>,
+        now: i64,
+    ) -> Result<OutboxId, StoreError> {
+        let recipients = serde_json::to_string(&message.recipients)
+            .map_err(|e| StoreError(format!("sérialisation : {e}")))?;
+        let from = message.from.clone();
+        let raw = message.raw.clone();
+        let sent_copy = sent_copy.to_vec();
+        let subject = subject.to_owned();
+        let (state, not_before, failure, attempts) = entry_columns(entry);
+        self.db
+            .run(move |c| {
+                let tx = c
+                    .transaction_with_behavior(TransactionBehavior::Immediate)
+                    .map_err(store_error)?;
+                if let Some(draft) = draft {
+                    delete_draft_in(&tx, draft)?;
+                }
+                tx.execute(
+                    "INSERT INTO outbox (account_id, envelope_from, recipients, raw, sent_copy, \
+                     subject, state, not_before, failure, attempts, queued_at, draft_content) \
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+                    params![
+                        account.get(),
+                        from,
+                        recipients,
+                        raw,
+                        sent_copy,
+                        subject,
+                        state,
+                        not_before,
+                        failure,
+                        attempts,
+                        now,
+                        content
+                    ],
+                )
+                .map_err(store_error)?;
+                let id = OutboxId::new(tx.last_insert_rowid())
+                    .ok_or_else(|| corrupted("identifiant d'envoi"))?;
+                tx.commit().map_err(store_error)?;
+                Ok(id)
             })
             .await
     }

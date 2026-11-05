@@ -32,6 +32,7 @@ use crate::mailbox::{
 };
 use crate::search::Query;
 use crate::security::{CertificateException, PlaintextPolicy};
+use crate::settings::Settings;
 use crate::sync::{
     FlagUpdate, LocalMailbox, MailboxSyncState, SelectRequest, SelectedMailbox, ServerQuery,
     SyncExtensions,
@@ -1198,6 +1199,15 @@ pub trait MessageComposer: Send + Sync {
     /// assainis, `Reply-To`, texte). `None` s'il est illisible.
     fn reply_source(&self, raw: &[u8]) -> Option<ReplySource>;
 
+    /// Pièces jointes d'un message reçu, décodées, pour le transférer :
+    /// nom assaini, type, contenu ; corps texte et HTML exclus. Vide s'il
+    /// est illisible.
+    fn forwarded_attachments(&self, raw: &[u8]) -> Vec<ComposedAttachment>;
+
+    /// HTML d'un texte brut (échappé, paragraphes), pour reprendre un
+    /// brouillon dans l'éditeur.
+    fn text_html(&self, text: &str) -> String;
+
     /// HTML d'éditeur d'une citation : `attribution` puis `text` dans un
     /// `<blockquote>`, échappés.
     fn quote_html(&self, text: &str, attribution: &str) -> String;
@@ -1288,6 +1298,20 @@ pub struct SearchPage {
     pub next: Option<u32>,
 }
 
+/// Paramètres de l'application.
+pub trait SettingsStore: Send + Sync {
+    /// Paramètres enregistrés ; une valeur absente, illisible ou hors
+    /// bornes reprend sa valeur par défaut.
+    fn settings(&self) -> impl Future<Output = Result<Settings, StoreError>> + Send;
+
+    /// Enregistre des paramètres ; refusés s'ils sont hors bornes
+    /// ([`Settings::validate`]).
+    fn save_settings(
+        &self,
+        settings: &Settings,
+    ) -> impl Future<Output = Result<(), StoreError>> + Send;
+}
+
 /// Texte cherchable d'un corps téléchargé (adaptateur `render`). Appelé
 /// de façon synchrone par les cas d'usage, au moment d'enregistrer le
 /// corps ; le texte part avec lui dans [`MailStore::set_body`].
@@ -1358,6 +1382,33 @@ pub trait OutboxStore: Send + Sync {
         draft: Option<DraftId>,
         now: i64,
     ) -> impl Future<Output = Result<OutboxId, StoreError>> + Send;
+
+    /// Met en file un message programmé (`entry` : en attente jusqu'à son
+    /// échéance), en gardant son brouillon `content` pour pouvoir le
+    /// modifier avant l'échéance ; le brouillon `draft` éventuel est
+    /// supprimé dans la même transaction.
+    #[allow(clippy::too_many_arguments)]
+    fn schedule(
+        &self,
+        account: AccountId,
+        message: &OutgoingMessage,
+        sent_copy: &[u8],
+        subject: &str,
+        draft: Option<DraftId>,
+        content: &Draft,
+        entry: OutboxEntry,
+        now: i64,
+    ) -> impl Future<Output = Result<OutboxId, StoreError>> + Send;
+
+    /// Retire de la file un message programmé encore en attente et recrée
+    /// son brouillon, dans la même transaction. `None` s'il n'existe plus,
+    /// n'est plus en attente (envoi en cours, envoyé, en échec) ou n'a pas
+    /// de brouillon gardé (message mis en file sans échéance).
+    fn unschedule(
+        &self,
+        id: OutboxId,
+        now: i64,
+    ) -> impl Future<Output = Result<Option<StoredDraft>, StoreError>> + Send;
 
     /// Messages d'un compte, dans l'ordre de mise en file.
     fn outbox(

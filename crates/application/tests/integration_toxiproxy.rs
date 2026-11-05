@@ -199,7 +199,7 @@ async fn half_open_connection_times_out_then_converges() -> TestResult {
         policy: FetchPolicy::default(),
         text: std::sync::Arc::new(norelly_render::search_text::MimeTextExtractor),
     }
-    .sync_all(&mut session, ext, |_| {})
+    .sync_all(&mut session, ext, |_, _| {})
     .await;
     assert!(
         matches!(

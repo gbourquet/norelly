@@ -30,11 +30,15 @@ use norelly_domain::compose::draft::{
     ComposeError, Draft, DraftAttachment, MAX_RECIPIENTS, Recipient,
 };
 use norelly_domain::compose::outbox::{OutboxState, SendFailure};
-use norelly_domain::ports::{BlobId, DraftId, OutboxItem};
+use norelly_domain::mailbox::MailboxRole;
+use norelly_domain::ports::{
+    BlobId, DraftId, MessageListQuery, MessageLocator, OutboxItem, PendingOpStore,
+};
 
 use crate::ipc::{
-    ComposeKindDto, DraftAttachmentDto, DraftDto, ErrorCodeDto, FieldDto, IpcError, OutboxItemDto,
-    OutboxStateDto, RecipientDto, SavedDraftDto, SendFailureDto, date_dto, id32,
+    ComposeKindDto, DraftAttachmentDto, DraftDto, DraftSummaryDto, DraftsDto, ErrorCodeDto,
+    FieldDto, IpcError, OutboxItemDto, OutboxStateDto, RecipientDto, RemoteDraftDto, SavedDraftDto,
+    SendFailureDto, date_dto, id32,
 };
 
 fn recipients_of(list: &[RecipientDto]) -> Result<Vec<Recipient>, IpcError> {
@@ -168,11 +172,15 @@ impl From<ComposeFailure> for IpcError {
                 ComposeError::BodyTooLarge => Self::new(ErrorCodeDto::BodyTooLarge),
                 ComposeError::AttachmentsTooLarge => Self::new(ErrorCodeDto::AttachmentsTooLarge),
                 ComposeError::TooManyAttachments => Self::new(ErrorCodeDto::TooManyAttachments),
+                ComposeError::ScheduleTooFar => Self::new(ErrorCodeDto::ScheduleTooFar),
                 ComposeError::InvalidThreading => Self::invalid(FieldDto::Message),
             },
             ComposeFailure::Store(e) => Self::storage(e),
             ComposeFailure::Build(e) => Self::internal(e),
             ComposeFailure::NotFound => Self::not_found(FieldDto::Message),
+            ComposeFailure::Download(detail) => {
+                Self::new(ErrorCodeDto::DownloadFailed).with_detail(detail)
+            }
         }
     }
 }
@@ -246,6 +254,42 @@ pub async fn prepare_compose(
         ComposeKindDto::Reply => ReplyKind::Reply,
         ComposeKindDto::ReplyAll => ReplyKind::ReplyAll,
         ComposeKindDto::Forward => ReplyKind::Forward,
+        ComposeKindDto::Resume => {
+            let message = message
+                .and_then(|m| MessageId::new(i64::from(m)))
+                .ok_or_else(|| IpcError::invalid(FieldDto::Message))?;
+            // Avant tout téléchargement : message du compte demandé, dans
+            // son dossier « Brouillons ».
+            let account = account_of(account)?;
+            let location = state
+                .mail
+                .store
+                .locate(message)
+                .await
+                .map_err(IpcError::storage)?
+                .ok_or_else(|| IpcError::not_found(FieldDto::Message))?;
+            let drafts_folder = state
+                .mail
+                .store
+                .action_folders(account)
+                .await
+                .map_err(IpcError::storage)?
+                .into_iter()
+                .find(|f| f.role == MailboxRole::Drafts)
+                .map(|f| f.id);
+            if location.account != account || Some(location.mailbox) != drafts_folder {
+                return Err(IpcError::invalid(FieldDto::Message));
+            }
+            let draft = PrepareReply {
+                locator: &*state.mail.store,
+                blobs: &*state.mail.blobs,
+                composer: &MimeComposer,
+                fetcher: &state.mail,
+            }
+            .resume(message)
+            .await?;
+            return draft_dto(None, &draft);
+        }
     };
     let message = message
         .and_then(|m| MessageId::new(i64::from(m)))
@@ -255,6 +299,7 @@ pub async fn prepare_compose(
         locator: &*state.mail.store,
         blobs: &*state.mail.blobs,
         composer: &MimeComposer,
+        fetcher: &state.mail,
     }
     .execute(message, kind, &own, &server_text(attribution.as_bytes()))
     .await?;
@@ -303,6 +348,128 @@ pub async fn send_draft(state: State<'_, AppState>, draft: DraftDto) -> Result<u
     .await?;
     state.mail.compose_soon(draft.account).await;
     id32(queued.get())
+}
+
+/// Programme l'envoi d'un brouillon à `at` (secondes Unix) ; renvoie son
+/// identifiant dans la file. Le brouillon reste récupérable avant
+/// l'échéance (`unschedule_send`).
+#[tauri::command]
+#[specta::specta]
+pub async fn schedule_draft(
+    state: State<'_, AppState>,
+    draft: DraftDto,
+    at: u32,
+) -> Result<u32, IpcError> {
+    let (id, draft) = draft_of(&draft)?;
+    let account = state
+        .accounts
+        .get(draft.account)
+        .await
+        .map_err(IpcError::storage)?
+        .ok_or_else(|| IpcError::not_found(FieldDto::Account))?;
+    let from = Recipient::new(account.display_name().as_str(), account.address().clone());
+    let queued = QueueMessage {
+        store: &*state.mail.compose,
+        blobs: &*state.mail.blobs,
+        composer: &MimeComposer,
+    }
+    .schedule(id, &draft, &from, unix_now(), i64::from(at))
+    .await?;
+    state.mail.compose_soon(draft.account).await;
+    id32(queued.get())
+}
+
+/// Reprend un message programmé pour le modifier : retiré de la file, son
+/// brouillon est recréé et renvoyé.
+#[tauri::command]
+#[specta::specta]
+pub async fn unschedule_send(
+    state: State<'_, AppState>,
+    account: u32,
+    id: u32,
+) -> Result<DraftDto, IpcError> {
+    let account = account_of(account)?;
+    let item = outbox_item(&state, account, id).await?;
+    let back = state
+        .mail
+        .compose
+        .unschedule(item.id, unix_now())
+        .await
+        .map_err(IpcError::storage)?
+        // Envoi en cours ou déjà fait, ou message mis en file sans échéance.
+        .ok_or_else(|| IpcError::new(ErrorCodeDto::OutboxBusy))?;
+    state.mail.compose_soon(account).await;
+    draft_dto(Some(back.id), &back.draft)
+}
+
+/// Brouillons enregistrés d'un compte, du plus récent au plus ancien.
+#[tauri::command]
+#[specta::specta]
+pub async fn list_drafts(state: State<'_, AppState>, account: u32) -> Result<DraftsDto, IpcError> {
+    let account = account_of(account)?;
+    let drafts = state
+        .mail
+        .compose
+        .drafts(account)
+        .await
+        .map_err(IpcError::storage)?;
+    let local = drafts
+        .iter()
+        .map(|d| {
+            Ok(DraftSummaryDto {
+                id: id32(d.id.get())?,
+                subject: d.draft.subject.clone(),
+                to: d.draft.to.iter().map(|r| r.address.to_string()).collect(),
+                updated_at: date_dto(d.updated_at),
+            })
+        })
+        .collect::<Result<Vec<_>, IpcError>>()?;
+    // Copies distantes des brouillons locaux : déjà listées.
+    let copies: Vec<(String, u32)> = drafts
+        .iter()
+        .filter_map(|d| d.sync.remote.as_ref())
+        .map(|c| (c.mailbox.as_str().to_owned(), c.uid.get()))
+        .collect();
+    let mut remote = Vec::new();
+    let folders = state
+        .mail
+        .store
+        .action_folders(account)
+        .await
+        .map_err(IpcError::storage)?;
+    if let Some(folder) = folders.iter().find(|f| f.role == MailboxRole::Drafts) {
+        let page = state
+            .mail
+            .store
+            .page(folder.id, None, 100)
+            .await
+            .map_err(IpcError::storage)?;
+        for item in page.items {
+            if copies.contains(&(folder.name.as_str().to_owned(), item.uid.get())) {
+                continue;
+            }
+            remote.push(RemoteDraftDto {
+                message: id32(item.id.get())?,
+                subject: item.subject,
+                date: date_dto(item.date),
+            });
+        }
+    }
+    Ok(DraftsDto { local, remote })
+}
+
+/// Rouvre un brouillon enregistré.
+#[tauri::command]
+#[specta::specta]
+pub async fn open_draft(state: State<'_, AppState>, id: u32) -> Result<DraftDto, IpcError> {
+    let stored = state
+        .mail
+        .compose
+        .draft(draft_id_of(id)?)
+        .await
+        .map_err(IpcError::storage)?
+        .ok_or_else(|| IpcError::not_found(FieldDto::Draft))?;
+    draft_dto(Some(stored.id), &stored.draft)
 }
 
 /// Abandonne un brouillon (sa copie sur le serveur sera supprimée).

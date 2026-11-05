@@ -12,6 +12,7 @@ pub mod protocols;
 pub mod reading;
 pub mod remote_images;
 pub mod search;
+pub mod settings;
 pub mod state;
 #[cfg(test)]
 mod test_app;
@@ -48,10 +49,17 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             actions::undo_actions,
             actions::set_archive_folder,
             search::search_messages,
+            settings::get_settings,
+            settings::save_settings,
+            settings::show_notification,
             compose::prepare_compose,
             compose::save_draft,
             compose::send_draft,
             compose::discard_draft,
+            compose::schedule_draft,
+            compose::unschedule_send,
+            compose::list_drafts,
+            compose::open_draft,
             compose::outbox,
             compose::retry_send,
             compose::cancel_send,

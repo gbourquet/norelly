@@ -101,6 +101,10 @@
     color: var(--color-text-muted);
   }
 
+  :global(.palette-input:focus-visible) {
+    box-shadow: inset 0 -2px 0 var(--color-focus);
+  }
+
   :global(.palette-input) {
     flex: 1;
     border: none;

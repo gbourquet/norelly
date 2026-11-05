@@ -83,8 +83,8 @@ common=(
 )
 
 echo "==> Build de l'application (conteneur, réseau extérieur pour crates.io)"
-docker run "${common[@]}" ${CI:+-e CI=true} -v "$root:/work" \
-  "$image" bash app/e2e/in-container.sh build
+docker run "${common[@]}" ${CI:+-e CI=true} -e NORELLY_E2E_PERF="${NORELLY_E2E_PERF:-}" \
+  -v "$root:/work" "$image" bash app/e2e/in-container.sh build
 
 # Entrées passwd/group pour l'utilisateur courant : dbus-daemon refuse de
 # démarrer si l'UID est inconnu (UID 1001 des runners GitHub, par exemple).
@@ -109,5 +109,6 @@ docker run "${common[@]}" --network "$network" \
   -e NORELLY_E2E_PASSWORD="$password" \
   -e NORELLY_E2E_CANARY="http://canary.norelly.test:8080" \
   -e LANG=fr_FR.UTF-8 -e LANGUAGE=fr \
+  -e NORELLY_E2E_PERF="${NORELLY_E2E_PERF:-}" \
   -v "$root:/work:ro" \
   "$image" dbus-run-session -- bash app/e2e/in-container.sh scenarios

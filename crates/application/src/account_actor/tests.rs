@@ -401,3 +401,30 @@ async fn actions_wait_for_the_undo_window_then_replay_without_request() {
     .await;
     r.handle.shutdown().await;
 }
+
+/// Phase 9 : un message non lu arrivé par IDLE est signalé (notification),
+/// pas ceux de la première synchronisation.
+#[tokio::test]
+async fn unread_arrivals_in_the_inbox_are_signalled() {
+    let imap = FakeImap::new();
+    imap.append("INBOX", b"Subject: ancien\r\n\r\nx", Flags::default(), 1);
+    let mut r = start(&imap);
+    wait_for(&mut r.events, WAIT, online).await;
+    wait_inbox(&r, 1, WAIT).await;
+    r.imap.append(
+        "INBOX",
+        b"From: Bob <bob@example.com>\r\nSubject: nouveau\r\n\r\ny",
+        Flags::default(),
+        2,
+    );
+    let event = wait_for(&mut r.events, WAIT, |e| {
+        matches!(e, SyncEvent::NewMail { .. })
+    })
+    .await;
+    let SyncEvent::NewMail { mail, .. } = event else {
+        panic!("{event:?}");
+    };
+    assert_eq!(mail.count, 1);
+    assert_eq!(mail.latest.map(|l| l.subject), Some("nouveau".to_owned()));
+    r.handle.shutdown().await;
+}

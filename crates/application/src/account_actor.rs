@@ -26,7 +26,7 @@ use std::time::Duration;
 use norelly_domain::account::AccountId;
 use norelly_domain::connection::ConnectionError;
 use norelly_domain::fetch_policy::{BodyFetch, FetchPolicy};
-use norelly_domain::mailbox::{MailboxId, MailboxName, Uid};
+use norelly_domain::mailbox::{MailboxName, MailboxRole, Uid};
 use norelly_domain::ports::{
     BlobStore, ConnectRequest, FetchedBody, IdleOutcome, MailStore, PendingOpStore,
     RemoteMailboxConnector, RemoteMailboxSession, SearchTextExtractor, StoredMailbox,
@@ -320,9 +320,17 @@ where
         known: &mut Vec<StoredMailbox>,
     ) -> Result<(), SyncFailure> {
         let mut changed = Vec::new();
+        let mut arrivals = Vec::new();
         let mailboxes = self
             .use_case()
-            .sync_all(session, ext, |id| changed.push(id))
+            .sync_all(session, ext, |m, report| {
+                changed.push(m.id);
+                if m.mailbox.role == MailboxRole::Inbox
+                    && let Some(mail) = &report.arrivals
+                {
+                    arrivals.push((m.id, mail.clone()));
+                }
+            })
             .await?;
         // L'état du serveur vient d'être rapporté : les actions encore en
         // attente gardent leur effet local, et les copies provisoires des
@@ -339,6 +347,13 @@ where
             self.emit(SyncEvent::FolderChanged {
                 account: self.account,
                 mailbox,
+            });
+        }
+        for (mailbox, mail) in arrivals {
+            self.emit(SyncEvent::NewMail {
+                account: self.account,
+                mailbox,
+                mail,
             });
         }
         Ok(())
@@ -524,8 +539,10 @@ where
         names: impl Iterator<Item = MailboxName>,
     ) -> Result<(), SyncFailure> {
         for name in names {
-            let Some(id): Option<MailboxId> =
-                known.iter().find(|m| m.mailbox.name == name).map(|m| m.id)
+            let Some((id, role)) = known
+                .iter()
+                .find(|m| m.mailbox.name == name)
+                .map(|m| (m.id, m.mailbox.role))
             else {
                 // Boîte inconnue (liste pas encore lue) : synchronisation
                 // complète.
@@ -545,6 +562,15 @@ where
                 self.emit(SyncEvent::FolderChanged {
                     account: self.account,
                     mailbox: id,
+                });
+            }
+            if role == MailboxRole::Inbox
+                && let Some(mail) = report.arrivals
+            {
+                self.emit(SyncEvent::NewMail {
+                    account: self.account,
+                    mailbox: id,
+                    mail,
                 });
             }
         }

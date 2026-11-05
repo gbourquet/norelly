@@ -17,6 +17,10 @@
   import ComposeDialog from "./components/ComposeDialog.svelte";
   import OutboxDialog from "./components/OutboxDialog.svelte";
   import SearchPanel from "./components/SearchPanel.svelte";
+  import SettingsDialog from "./components/SettingsDialog.svelte";
+  import DraftsDialog from "./components/DraftsDialog.svelte";
+  import UpdateQuestion from "./components/UpdateQuestion.svelte";
+  import { notificationText } from "./lib/notifications";
   import { conversationActions } from "./lib/visible-actions";
   import {
     app,
@@ -27,24 +31,40 @@
     registerAppCommands,
     registry,
     search,
+    settings,
   } from "./lib/app.svelte";
   import { shortcutFromEvent, type Shortcut } from "./lib/commands/shortcut";
   import { api, type ScopeDto } from "./lib/ipc/api";
   import { UNIFIED_INBOX } from "./lib/mail.svelte";
 
   onMount(() => {
+    performance.mark("norelly:mounted");
+    requestAnimationFrame(() => performance.mark("norelly:first-frame"));
+    setTimeout(() => performance.mark("norelly:first-task"), 0);
     const unregister = registerAppCommands();
     let unlisten: (() => void) | null = null;
     let unlistenCompose: (() => void) | null = null;
     let disposed = false;
+    void settings.load();
     void (async () => {
-      await app.refreshAccounts();
-      await mail.show(UNIFIED_INBOX);
+      // Comptes et première liste en parallèle : la boîte unifiée ne
+      // dépend pas de la liste des comptes (démarrage plus court).
+      await Promise.all([
+        app.refreshAccounts().then(() => performance.mark("norelly:accounts-read")),
+        mail.show(UNIFIED_INBOX),
+      ]);
       try {
         const off = await api.onSyncEvent((event) => {
           void mail.onSyncEvent(event);
           // Résultats affichés tenus à jour (index local modifié).
           if (event.kind === "folder_changed") void search.refresh();
+          // Nouveaux messages : notification si la fenêtre n'a pas le
+          // focus (Rust a déjà appliqué les paramètres).
+          if (event.kind === "new_mail" && !document.hasFocus()) {
+            const account = app.accounts.find((a) => a.id === event.account);
+            const { title, body } = notificationText(event, account?.address ?? "");
+            void api.showNotification(title, body).catch(() => undefined);
+          }
         });
         if (disposed) off();
         else unlisten = off;
@@ -252,15 +272,32 @@
     void compose.close();
     app.close();
   }}
-  onSent={() => {
+  onSent={(scheduled) => {
     app.close();
-    mail.notice = { text: m.compose_queued(), undoable: false };
+    mail.notice = {
+      text: scheduled ? m.compose_scheduled() : m.compose_queued(),
+      undoable: false,
+    };
+  }}
+/>
+<DraftsDialog
+  open={app.dialog === "drafts"}
+  drafts={app.drafts}
+  onClose={() => app.close()}
+  onOpen={(id) => void app.openDraft(id)}
+  onResume={(message) => {
+    const account = app.draftsAccount;
+    if (account !== null) void app.resumeRemoteDraft(account, message);
   }}
 />
 <OutboxDialog
   open={app.dialog === "outbox"}
   items={app.outbox}
   onClose={() => app.close()}
+  onEdit={(id) => {
+    const account = app.outboxAccount;
+    if (account !== null) void app.editScheduled(account, id);
+  }}
   onRetry={(id) => {
     const account = app.outboxAccount;
     if (account === null) return;
@@ -283,6 +320,24 @@
   canUndo={mail.lastAction !== null}
   onUndo={() => void mail.undo()}
   onDismiss={() => (mail.notice = null)}
+/>
+<SettingsDialog
+  open={app.dialog === "settings"}
+  settings={settings.current}
+  plainText={app.plainText}
+  error={settings.error}
+  onClose={() => app.close()}
+  onSave={async (next, plain) => {
+    const saved = await settings.save(next);
+    if (!saved) return;
+    if (plain !== app.plainText) await api.setPreferPlainText(plain).catch(() => undefined);
+    app.close();
+  }}
+/>
+<UpdateQuestion
+  open={settings.askUpdate && app.dialog === null}
+  onAnswer={(yes) => void settings.answerUpdate(yes)}
+  onDismiss={() => settings.dismissUpdate()}
 />
 <RemoveAccountDialog
   open={app.dialog === "remove-account"}

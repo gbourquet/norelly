@@ -16,15 +16,18 @@ use norelly_application::actions::{PerformAction, ReplayActions};
 use norelly_application::sync::SyncAccount;
 use norelly_domain::actions::{MessageAction, OpKind};
 use norelly_domain::address::EmailAddress;
-use norelly_domain::compose::draft::{Draft, Recipient};
+use norelly_domain::compose::draft::{Draft, Recipient, RemoteCopy};
 use norelly_domain::conversation::ConversationScope;
 use norelly_domain::fetch_policy::FetchPolicy;
 use norelly_domain::mailbox::{Flags, Keyword, header_text};
+use norelly_domain::mailbox::{MailboxName, Uid, UidValidity};
 use norelly_domain::ports::{
     AccountRepository, BlobStore, ConversationQuery, DraftStore, FolderTreeQuery, MailStore,
     MessageListQuery, OutboxStore, OutgoingMessage, PendingOpStore, ReadingPreferences,
     RemoteMailboxSession, StoredBody,
 };
+use norelly_domain::ports::{SearchIndex, SearchRequest, SearchScope};
+use norelly_domain::search::parse_query;
 use norelly_sqlite::SqliteAccountRepository;
 use norelly_sqlite::compose::SqliteComposeStore;
 use norelly_sqlite::preferences::SqliteReadingPreferences;
@@ -119,7 +122,7 @@ async fn trapped_messages_cannot_alter_the_database() -> Result<(), Box<dyn std:
     for _ in 0..2 {
         let mut session = imap.session()?;
         let ext = session.enable_sync_extensions().await?;
-        sync.sync_all(&mut session, ext, |_| {}).await?;
+        sync.sync_all(&mut session, ext, |_, _| {}).await?;
     }
 
     // Base intègre, schéma identique, comptes intacts.
@@ -283,7 +286,7 @@ async fn trapped_messages_cannot_alter_the_database() -> Result<(), Box<dyn std:
     );
     let mut session = imap.session()?;
     let ext = session.enable_sync_extensions().await?;
-    sync.sync_all(&mut session, ext, |_| {}).await?;
+    sync.sync_all(&mut session, ext, |_, _| {}).await?;
     l.store.purge_placeholders(l.account, None).await?;
     let tree = l.store.tree(l.account).await?;
     let total = |pred: &dyn Fn(&str) -> bool| {
@@ -327,6 +330,57 @@ async fn trapped_messages_cannot_alter_the_database() -> Result<(), Box<dyn std:
     assert_eq!(queued[0].message, outgoing);
     assert_eq!(queued[0].subject, PAYLOADS[2]);
     assert!(compose.draft(saved.id).await?.is_none());
+
+    // Recherche (phase 8) : chaque charge comme requête, sans effet ; les
+    // messages piégés sont retrouvés par leur texte, relus comme données.
+    let search = |text: &str| SearchRequest {
+        query: parse_query(text).unwrap_or_default(),
+        scope: SearchScope::All,
+        utc_offset_seconds: 0,
+        offset: 0,
+        limit: 100,
+    };
+    for payload in PAYLOADS {
+        l.store.search(search(payload)).await?;
+    }
+    let found = l.store.search(search("\"DROP TABLE messages\"")).await?;
+    assert_eq!(
+        found.items.len(),
+        2 * PAYLOADS.len(),
+        "texte des corps indexé"
+    );
+    let all_subjects: Vec<String> = PAYLOADS.iter().map(|p| header_text(p, 998)).collect();
+    for hit in &found.items {
+        assert!(
+            all_subjects.contains(&hit.subject),
+            "sujet {:?}",
+            hit.subject
+        );
+    }
+
+    // Copie distante d'un brouillon dans la boîte au nom piégé (phase 8) :
+    // enregistrée, mise à la corbeille puis oubliée, comme une donnée.
+    let copy = RemoteCopy {
+        mailbox: MailboxName::parse(box_name)?,
+        validity: UidValidity::new(7).ok_or("validité")?,
+        uid: Uid::new(3).ok_or("uid")?,
+    };
+    let mut draft = Draft::empty(l.account);
+    draft.subject = "copie".into();
+    let saved = compose.save_draft(None, &draft, NOW).await?;
+    let (synced, _) = saved.sync.remote_saved(1, Some(copy.clone()), NOW);
+    assert!(
+        compose
+            .set_remote(l.account, saved.id, synced, None)
+            .await?
+    );
+    compose.delete_draft(saved.id).await?;
+    assert_eq!(
+        compose.remote_trash(l.account).await?,
+        std::slice::from_ref(&copy)
+    );
+    compose.forget_remote(l.account, copy).await?;
+    assert!(compose.remote_trash(l.account).await?.is_empty());
 
     assert_eq!(l.db.integrity_problems().await?, Vec::<String>::new());
     assert_eq!(l.db.schema().await?, schema_before, "schéma modifié");

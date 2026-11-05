@@ -7,6 +7,44 @@ accepté (justification) ou reporté (phase).
 
 ---
 
+# Revue sécurité : phase 9, notifications et finitions (2026-11-04)
+
+Périmètre : `439e28c..HEAD` sur `phase-9/finitions` (notifications,
+paramètres, traduction, accessibilité, mesure de bout en bout, envoi
+différé, liste des brouillons, transfert avec pièces jointes, reprise d'un
+brouillon distant, reports de la phase 8).
+
+Bilan : 0 critique, 1 haute, 1 moyenne, 4 basses, 4 points INFO. La haute
+et la moyenne sont corrigées, ainsi que trois basses ; la dernière est
+reportée. `cargo deny`, `pnpm audit --prod` et `check-sql.sh` sans constat.
+
+## [HAUTE] Texte des notifications envoyé au serveur D-Bus sans échappement du balisage
+- Le serveur `org.freedesktop.Notifications` interprète un balisage (`<a href>`, `<img>`) ; sujet et expéditeur d'un mail pouvaient produire un lien `file://` ou `smb://` cliquable, hors de la règle des liens validés en Rust, ou charger une image.
+- Statut : **corrigé** : `notification_text` échappe `&`, `<`, `>` après la troncature (aucune entité coupée), sous Linux et autres Unix (Windows et macOS affichent du texte brut) ; test `notification_markup_is_escaped`.
+
+## [MOYENNE] Fermer la question des mises à jour vaut « Oui »
+- Statut : **corrigé** : Échap ou un clic à côté masquent la question pour la session sans rien enregistrer (`SettingsState::dismissUpdate`) ; elle est reposée au lancement suivant ; tests `fermer la question sans répondre n'enregistre rien`, `Échap sur la question des mises à jour n'est pas un consentement`.
+
+## [BASSE] Option de confidentialité ignorée si les paramètres ne se lisent pas
+- Statut : **corrigé** : une valeur `notify.privacy` présente mais illisible vaut « masquer » (test `unreadable_privacy_fails_closed`) ; dans le relais, des paramètres illisibles donnent une notification sans contenu (repli non couvert par un test unitaire : tâche Tauri).
+
+## [BASSE] `Resume` : origine du message non vérifiée en Rust, compte vérifié trop tard
+- Statut : **corrigé** : `prepare_compose` (`Resume`) vérifie, avant tout téléchargement ou écriture, que le message appartient au compte et à son dossier « Brouillons » ; test `only_drafts_folder_messages_can_be_resumed`.
+
+## [BASSE] Pièces jointes transférées : analyse complète avant les bornes, sur le fil async
+- Statut : **corrigé en partie** : borne de taille (2 × 25 Mio) appliquée avant l'analyse, que le message soit local ou téléchargé (test `oversized_messages_are_refused_before_parsing`). **Reporté** (phase 10) : analyse dans `spawn_blocking` et arrêt au-delà de 100 pièces pendant l'itération.
+
+## [BASSE] `hostile_message_sql.rs` non étendu aux nouveaux champs stockés
+- Statut : **reporté** (phase 10) : envoi programmé (`outbox.draft_content`) et transfert depuis le message piégé, avec reprise.
+
+## [INFO] Points relevés sans action immédiate
+- `open_draft(id)` ne prend pas de compte (application mono-utilisateur) ; à aligner sur `unschedule_send`.
+- Envoi différé : l'en-tête `Date` est celui de la programmation, pas de l'envoi ; à décider (reconstruire à l'échéance).
+- Flatpak (phase 10) : `--talk-name=org.freedesktop.Notifications` ou portail pour notify-rust.
+- Dérogation `notify-rust` (à valider par le mainteneur) : 4 paquets ajoutés (`notify-rust`, `futures-lite`, `parking`, `mac-notification-sys`, `tauri-winrt-notification`), licences MIT/Apache-2.0, aucune permission accordée à l'interface.
+
+---
+
 # Revue sécurité : phase 8, recherche plein texte (2026-11-03)
 
 Périmètre : `git diff master...HEAD` sur `phase-8/recherche` :
@@ -40,10 +78,9 @@ HTML. `cargo deny`, `pnpm audit --prod` et `check-sql.sh` sans constat.
   les termes) ; 16 clauses de ce type, ou une frappe rapide, pouvaient
   occuper les lecteurs plusieurs secondes sur une grosse boîte.
 - Statut : **corrigé en partie** : un mot d'une lettre est cherché tel
-  quel, sans préfixe (contrat `search_index_contract`). **Reporté** (phase 9) :
-  budget de temps des lectures de recherche (`progress_handler` ou
-  interruption quand une nouvelle requête arrive) et bench avec des corps
-  réalistes.
+  quel, sans préfixe (contrat `search_index_contract`). Puis, en phase 9 :
+  recherche interrompue au-delà de 2 s (`progress_handler`, test
+  `a_search_past_its_deadline_is_interrupted`), bench à 300 mots par corps.
 
 ## [BASSE] Extrait sans retrait des caractères de format (bidi, largeur nulle)
 - Statut : **corrigé** : l'extrait est nettoyé par `header_text`, comme le
@@ -52,7 +89,8 @@ HTML. `cargo deny`, `pnpm audit --prod` et `check-sql.sh` sans constat.
 ## [BASSE] `hostile_message_sql.rs` non étendu à la phase 8
 - Le test de bout en bout ne cherche pas les charges piégées et ne couvre
   pas le nom de boîte des copies distantes.
-- Statut : **reporté** (phase 9).
+- Statut : **corrigé** (phase 9) : recherche des charges et copie distante
+  dans la boîte au nom piégé ajoutées au test.
 
 ## [INFO] Points relevés sans action immédiate
 - Migration 8 : copies existantes rattachées au dossier qui porte

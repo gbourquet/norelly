@@ -301,7 +301,7 @@ Commandes de référence (détail dans `scripts/check.sh`) :
 - [x] Dossier de candidature SignPath Foundation
 - [x] `nightly.yml` : fuzzing court, bench, Stalwart en second serveur
 - [x] Revue security-reviewer finale (chaîne d'approvisionnement, autorisations Flatpak, capabilities Tauri), consignée dans REVIEWS.md
-  - 0 critique, 0 haute ; 2 moyennes (clé de signature : corrigée en partie, reste au mainteneur ; trousseau Flatpak : acceptée par le mainteneur) ; 5 basses (4 corrigées, 1 acceptée).
+  - 0 critique, 0 haute ; 2 moyennes (clé de signature : corrigée, clé régénérée avec un mot de passe ; trousseau Flatpak : acceptée par le mainteneur) ; 5 basses (4 corrigées, 1 acceptée).
   - Décisions du mainteneur (2026-11-05), consignées dans `DECISIONS.md` : accès direct au trousseau, Téléchargements et Documents sous Flatpak (ADR-006), Stalwart figé en v0.11.8 (ADR-007). Environnement GitHub `release` créé (tags `v*`, relecture obligatoire) et tags `v*` protégés (ruleset « Tags de version », contournement réservé aux administrateurs).
 
 **Condition de fin** : `./scripts/check.sh full && pnpm -C app tauri build` passent sans erreur, et `flatpak-builder --force-clean build packaging/flatpak/io.github.gbourquet.Norelly.yml` réussit.

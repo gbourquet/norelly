@@ -24,6 +24,15 @@ fn registered_commands() -> Vec<&'static str> {
         .collect()
 }
 
+/// Origine des pages de l'application : `tauri://localhost`, sauf sous
+/// Windows où WebView2 sert le schéma personnalisé en
+/// `http://tauri.localhost`.
+const APP_ORIGIN: &str = if cfg!(windows) {
+    "http://tauri.localhost"
+} else {
+    "tauri://localhost"
+};
+
 fn invoke(webview: &tauri::WebviewWindow<MockRuntime>, cmd: &str, url: &str) -> Result<(), String> {
     let request = InvokeRequest {
         cmd: cmd.into(),
@@ -56,13 +65,13 @@ fn app_commands_are_granted_to_the_main_window_only() {
     for cmd in commands {
         // Accordée : l'ACL laisse passer, le gestionnaire (vide ici) ne
         // connaît pas la commande.
-        let from_main = invoke(&main, cmd, "tauri://localhost");
+        let from_main = invoke(&main, cmd, APP_ORIGIN);
         assert!(
             from_main.as_ref().is_err_and(|e| e.contains("not found")),
             "{cmd} depuis main : {from_main:?}"
         );
         for (webview, url) in [
-            (&other, "tauri://localhost"),
+            (&other, APP_ORIGIN),
             (&main, "https://example.com/"),
         ] {
             let refused = invoke(webview, cmd, url);

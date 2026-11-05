@@ -7,6 +7,66 @@ accepté (justification) ou reporté (phase).
 
 ---
 
+# Revue sécurité : phase 11, documentation (2026-11-05)
+
+Périmètre : commits `c1e4b58..d8e44a1` de `phase-11/documentation` (e2e des
+captures, documentation utilisateur, fonctionnelle et technique,
+`check-docs`), plus `docs/PLAN.md` et `docs/RELECTURE.md`.
+
+Synthèse : 0 critique, 0 haute, 0 moyenne, 4 basses (corrigées), 5 infos.
+
+## [BASSE] Copie des captures sur l'hôte : liens symboliques suivis depuis un montage du conteneur ouvert en écriture
+`app/e2e/run.sh` : le conteneur des scénarios a un dossier `/captures` en
+écriture, recopié dans le dépôt par un `cp` qui suivait les liens. Une
+dépendance compromise pouvait y placer un lien vers un fichier de l'hôte
+(clé SSH), copié ensuite dans `docs/`.
+**Corrigé** : seuls les fichiers ordinaires (`find -type f`), à signature
+PNG et de 5 Mio au plus, sont copiés (`cp --no-dereference`) ; sinon échec.
+En-tête de `run.sh` mis à jour.
+
+## [BASSE] Consigne SmartScreen : la vérification proposée ne protège de rien
+`docs/utilisateur/{fr,en}/install.md` demandait de vérifier l'éditeur ou le
+nom du fichier, que l'attaquant choisit (« Éditeur inconnu » tant que
+l'installateur n'est pas signé).
+**Corrigé** : la page dit que l'éditeur apparaît inconnu, que seule la
+provenance (adresse GitHub vérifiée) garantit le fichier, et oriente vers
+winget en cas de doute. À retirer quand la signature SignPath sera en place.
+
+## [BASSE] « Jamais dans un fichier de Norelly » : faux quand le repli fichier est accepté
+Documentation (`first-account.md`, `faq.md`) et libellé `add_password_hint`
+de l'interface.
+**Corrigé pour la documentation** : exception du fichier non chiffré
+signalée ; la FAQ cite `mots-de-passe.json` (ne pas partager, exclure des
+sauvegardes). **Reporté** pour le libellé de l'interface (`add_password_hint`,
+affiché avant de savoir si un trousseau répond) : à reformuler par le
+mainteneur ou à n'afficher qu'avec un trousseau (changement d'interface,
+hors périmètre de la phase de documentation) ; consigné dans
+`docs/RELECTURE.md` (R9).
+
+## [BASSE] Signalement des vulnérabilités : rien côté utilisateur, pas de SECURITY.md
+**Corrigé** : `SECURITY.md` à la racine (signalement privé, versions prises
+en charge), renvoyé par `CONTRIBUTING.md`, `docs/technique/securite.md` et
+la FAQ (fr, en). **Au mainteneur** : vérifier que « Private vulnerability
+reporting » est activé dans les réglages du dépôt GitHub.
+
+## [INFO] Points relevés
+- Certificat autosigné classé « refusé » (`Other`) : déjà R4 de
+  `docs/RELECTURE.md`, à traiter par un test rouge.
+- Scénarios e2e de sécurité hors service pendant la phase 10 (binaire
+  renommé) : corrigé (`c1e4b58`), passage complet vert constaté localement ;
+  à confirmer en CI. `pnpm -C app e2e` réécrit les captures suivies : mode
+  sans copie à envisager (R10 de `docs/RELECTURE.md`).
+- Autorisation des images par expéditeur : la documentation utilisateur dit
+  désormais que l'adresse peut être imitée.
+- Vérification des mises à jour : la FAQ nomme GitHub (adresse IP visible).
+- `check-docs.mjs` : contrôle d'inclusion lexical, `%` malformé fait échouer
+  la vérification ; sans impact, aucune action.
+
+Résultats outils : `cargo deny` ok ; `pnpm audit --prod` sans
+vulnérabilité ; `check-sql` ok ; `check-docs` ok.
+
+---
+
 # Revue sécurité : phase 10, distribution (2026-11-05)
 
 Périmètre : `git diff phase-9/finitions...HEAD` sur `phase-10/distribution`

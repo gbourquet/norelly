@@ -1,0 +1,107 @@
+# Méthode de travail
+
+[← Documentation technique](README.md)
+
+Les règles de référence sont dans [CLAUDE.md](../../CLAUDE.md) (pour les
+contributions assistées) et [CONTRIBUTING.md](../../CONTRIBUTING.md) ; cette
+page les explique.
+
+## TDD obligatoire
+
+Tout développement suit **rouge → vert → refactor** :
+
+1. **Rouge** : écrire d'abord le ou les tests du comportement attendu, les
+   lancer et constater qu'ils échouent **pour la bonne raison** (une
+   assertion, pas une erreur de compilation ou d'import).
+2. **Vert** : écrire le code minimal qui les fait passer.
+3. **Refactor** : nettoyer ; les tests restent verts.
+
+Règles :
+
+- pas de code de production sans test rouge préalable ;
+- un test qui passe dès sa première exécution est suspect : vérifier qu'il
+  teste vraiment quelque chose ;
+- correction de bug = d'abord un test qui reproduit le bug ;
+- TDD strict pour toute la logique (protocoles, MIME, synchronisation,
+  stockage, recherche, état de l'interface) ; le rendu visuel pur est couvert
+  par des tests e2e écrits après coup ;
+- tests réseau contre les serveurs de test en conteneur, jamais contre un
+  vrai serveur.
+
+**Interdit** : ramollir, désactiver ou contourner un test, affaiblir
+`scripts/check.sh`, `deny.toml` ou un seuil de couverture. Un blocage se
+documente dans [PLAN.md](../PLAN.md), sous la tâche concernée, et on
+s'arrête.
+
+## Phases
+
+Le développement avance par phases ([PLAN.md](../PLAN.md)) : on ne travaille
+que sur la phase en cours, on coche les cases au fur et à mesure. Une phase
+est terminée quand :
+
+1. sa **condition de fin** passe (en général `./scripts/check.sh full`, plus
+   les e2e ou les bancs) ;
+2. la revue `security-reviewer` est consignée dans
+   [REVIEWS.md](../REVIEWS.md), constats critiques et hauts corrigés ;
+3. un récapitulatif est fait (fait, reste, fichiers à relire en priorité).
+
+Les choix d'architecture font foi dans [DECISIONS.md](../DECISIONS.md) :
+toute dérogation est validée par le mainteneur **avant** d'être
+implémentée, puis consignée.
+
+## Conventions de code
+
+- **Langue** : code, commentaires, documentation et messages de commit en
+  **français** ; identifiants de code en **anglais**.
+- **Rust** : pas d'`unwrap`/`expect` sur des données externes (lint
+  `unwrap_used`) ; `unsafe` interdit ; `cargo fmt` (`rustfmt.toml`),
+  `cargo clippy -- -D warnings`. Le domaine reste sans E/S et ne dépend que
+  de `thiserror` et `serde`.
+- **SQL** : paramètres liés pour toute donnée ; une constante interpolée
+  porte le commentaire `sql-const`.
+- **Svelte 5** uniquement (runes) ; jamais de `{@html}` ni d'`innerHTML` ;
+  Prettier, ESLint, `svelte-check --fail-on-warnings`.
+- **i18n** (ADR-011) : toute chaîne d'interface est une clé de
+  `app/messages/{fr,en}.json` (mêmes clés, testé) ; Rust n'envoie que des
+  codes et un `detail` brut.
+- **IPC** : types dans `app/src-tauri/src/ipc.rs`, bindings générés et
+  commités ; toute entrée revalidée par le domaine.
+- **Ports** : chaque port a une suite de contrat jouée contre son faux et son
+  implémentation réelle.
+- **Documentation** : toute commande ajoutée au registre figure dans
+  l'aide-mémoire `docs/utilisateur/{fr,en}/shortcuts.md` (testé) ; toute
+  page utilisateur existe dans les deux langues (testé).
+
+Un hook Claude Code (`.claude/hooks/format-lint.sh`) formate et lint chaque
+fichier modifié par l'assistant.
+
+## Commits
+
+- **Atomiques** : un changement cohérent par commit.
+- Message : `<zone>: <résumé>` en français, par exemple
+  `imap: rejette STARTTLS absent`, `docs: aide-mémoire des raccourcis`.
+  Zones courantes : `domaine`, `imap`, `smtp`, `sqlite`, `render`, `ui`,
+  `ipc`, `e2e`, `tests`, `docs`, `ci`, `sécurité`, `paquets`.
+
+## Branches et PR
+
+- Branche principale : `master`, **protégée**. Ne jamais pousser dessus.
+- Travailler sur une branche `<zone>/<sujet>` (par exemple `phase-4/sync`),
+  la pousser, puis ouvrir une PR vers `master` (`gh pr create`).
+- **Seul le mainteneur valide et merge les PR.**
+
+## Intégration continue
+
+| Workflow | Déclencheur | Contenu |
+|---|---|---|
+| `ci.yml` | push sur `master`, PR | Linux : `./scripts/check.sh full` puis `pnpm -C app e2e` ; Windows : `./scripts/check.sh` puis `cargo build --workspace` |
+| `nightly.yml` | chaque nuit | fuzzing (5 min par cible), bancs (liste 50k, démarrage de bout en bout), Stalwart en second serveur |
+| `release.yml` | tag de version | NSIS (Windows, mise à jour signée minisign dans un environnement séparé), .deb et .rpm, sommes SHA-256, manifeste `latest.json`, manifestes winget, brouillon de version |
+
+`./scripts/check.sh` (rapide) enchaîne : build du front, format Rust,
+Clippy (avec et sans `updater`), tests unitaires avec couverture, tests du
+module de mise à jour, doctests, `cargo deny`, règle de dépendance du
+domaine, contrôle SQL, **documentation** (`check-docs.sh`), métadonnées de
+bureau (Linux), `svelte-check`, lint et tests du front avec couverture.
+`./scripts/check.sh full` ajoute le build du workspace et les tests
+d'intégration.

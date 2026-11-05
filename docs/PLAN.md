@@ -310,11 +310,12 @@ Commandes de référence (détail dans `scripts/check.sh`) :
 
 Trois documentations, chacune pour son public. Le français est la langue source ; la documentation utilisateur est aussi traduite en anglais (ADR-011).
 
-- [ ] Documentation fonctionnelle (`docs/fonctionnel/`) :
+- [x] Documentation fonctionnelle (`docs/fonctionnel/`) :
   - présentation du produit : à qui il s'adresse, ce qu'il fait et ne fait pas, principes (sécurité, hors ligne, clavier) ;
   - liste des fonctionnalités, puis une fiche par fonctionnalité : but, comportement attendu, règles métier (renvoi vers le domaine), cas limites, messages affichés, raccourcis ;
   - glossaire (conversation, boîte unifiée, brouillon, file d'envoi…).
-- [ ] Documentation technique (`docs/technique/`, `CONTRIBUTING.md`), pour qu'un développeur puisse contribuer sans aide :
+  - `docs/fonctionnel/README.md` (présentation, fonctionnalités), 12 fiches (comptes, synchronisation, conversations, lecture, actions, rédaction, brouillons, envoi, recherche, notifications, paramètres, clavier), `glossaire.md`. Constats faits en rédigeant (pas de bouton pour écrire ou répondre, ouverture sans marquage « lu »…) : `docs/RELECTURE.md`, à trancher par le mainteneur.
+- [x] Documentation technique (`docs/technique/`, `CONTRIBUTING.md`), pour qu'un développeur puisse contribuer sans aide :
   - technologies et versions, avec la raison de chaque choix (renvoi vers DECISIONS.md) ;
   - architecture hexagonale : domaine, ports, adaptateurs, application, point d'assemblage Tauri, contrat IPC, flux principaux (synchronisation, lecture sécurisée, actions hors ligne, envoi) avec schémas ;
   - modèle de données (migrations SQLite) et protocoles personnalisés ;
@@ -322,15 +323,21 @@ Trois documentations, chacune pour son public. Le français est la langue source
   - tests : niveaux (unitaires, contrats, intégration en conteneurs, e2e), faux serveurs, couverture et seuils, bancs de performance ;
   - méthode : TDD, phases du PLAN, conventions de code et de commit, branches et PR, CI ;
   - premier pas : installer, lancer, tester, ajouter une commande IPC ou une migration (pas à pas).
-- [ ] Documentation utilisateur (`docs/utilisateur/`, en français et en anglais), rédigée pour quelqu'un qui n'est pas à l'aise avec un ordinateur :
+  - `docs/technique/` : `technologies.md`, `architecture.md` (schémas Mermaid : vue d'ensemble, contrat IPC, synchronisation, lecture, actions hors ligne, envoi), `donnees.md`, `securite.md`, `tests.md`, `methode.md`, `premiers-pas.md` ; `CONTRIBUTING.md` ; `README.md` renvoie aux trois documentations.
+- [x] Documentation utilisateur (`docs/utilisateur/`, en français et en anglais), rédigée pour quelqu'un qui n'est pas à l'aise avec un ordinateur :
   - ce qu'est Norelly et à quoi il sert, en mots simples ;
   - installation sous Windows et Linux, étape par étape, avec captures d'écran ;
   - premier compte (adresse, mot de passe, mot de passe d'application pour Gmail et Outlook.com) ;
   - usages courants : lire, répondre, écrire, joindre un fichier, ranger, supprimer, rechercher, retrouver un brouillon ;
   - messages d'erreur fréquents et quoi faire (certificat, hors ligne, mot de passe refusé) ;
   - questions fréquentes et aide-mémoire des raccourcis clavier.
-- [ ] Captures d'écran produites par un scénario e2e (toujours à jour, dans les deux langues)
-- [ ] `./scripts/check-docs.sh`, branché dans `./scripts/check.sh` : liens internes valides, captures présentes, mêmes pages en français et en anglais pour la documentation utilisateur, chaque commande du registre présente dans l'aide-mémoire des raccourcis
+  - `docs/utilisateur/{fr,en}/` : `README.md`, `install.md`, `first-account.md`, `everyday.md`, `errors.md`, `faq.md`, `shortcuts.md` (mêmes pages dans les deux langues). Écrans d'installation propres au système (installateur NSIS, SmartScreen, logithèques) décrits pas à pas mais non capturés, et question des mises à jour (installateur Windows seulement) décrite en texte : **à valider par le mainteneur** (`docs/RELECTURE.md`, R5 et R6).
+- [x] Captures d'écran produites par un scénario e2e (toujours à jour, dans les deux langues)
+  - `app/e2e/captures/captures.e2e.mjs`, lancé par `pnpm -C app e2e` après les scénarios, une fois par langue sur un profil neuf (`LANGUAGE`, langue vérifiée dans le scénario), avec une boîte Dovecot dédiée remplie de messages lisibles ; textes ciblés lus dans les catalogues ; 13 captures par langue, recopiées dans `docs/utilisateur/<langue>/captures/` seulement si tous les scénarios ont réussi. En chemin : e2e réparés (binaire renommé `norelly` en phase 10, `in-container.sh` lançait encore `norelly-app`).
+- [x] `./scripts/check-docs.sh`, branché dans `./scripts/check.sh` : liens internes valides, captures présentes, mêmes pages en français et en anglais pour la documentation utilisateur, chaque commande du registre présente dans l'aide-mémoire des raccourcis
+  - `scripts/check-docs.mjs` (Node seul, aussi sous Windows) et ses tests `scripts/check-docs.test.mjs` : liens internes de tous les Markdown suivis (fichier existant, jamais hors du dépôt), mêmes pages et mêmes captures en fr et en en, captures PNG présentes et toutes utilisées ; `app/src/docs.test.ts` : chaque commande du registre réel (`registerAppCommands`), avec son libellé et son raccourci tels que l'aide les affiche, dans `shortcuts.md` des deux langues.
 - [ ] Relecture par le mainteneur, et lecture de la documentation utilisateur par une personne non technique (retours consignés)
+  - Revue security-reviewer consignée dans REVIEWS.md (0 critique, 0 haute, 0 moyenne ; 4 basses corrigées, dont une en partie : libellé d'interface reporté, R9).
+  - **Bloqué (2026-11-05) : tâche humaine**, que l'assistant ne peut pas faire ni simuler. Grille prête dans `docs/RELECTURE.md` (relecture du mainteneur, lecture par une personne non technique), avec les constats de la rédaction et de la revue (R1 à R10). À cocher par le mainteneur une fois les retours consignés et traités.
 
 **Condition de fin** : `./scripts/check.sh full` passe sans erreur (avec `check-docs.sh`).

@@ -28,10 +28,25 @@ case "${1:-}" in
     cd app
     xvfb-run -a --server-args="-screen 0 1280x900x24" \
       node_modules/.bin/wdio run e2e/wdio.conf.mjs
+    # Captures d'écran de la documentation utilisateur, une fois par
+    # langue, chacune sur un profil neuf (question du premier lancement
+    # comprise). Langue imposée par LANGUAGE (lue par WebKitGTK), vérifiée
+    # par le scénario. Sortie : /captures/<langue>, recopiée par run.sh.
+    data="$HOME/.local/share/io.github.gbourquet.Norelly"
+    for lang in fr en; do
+      rm -rf "$data" "$HOME/.config/io.github.gbourquet.Norelly" "$HOME/.cache/io.github.gbourquet.Norelly"
+      mkdir -p "/captures/$lang"
+      case "$lang" in
+        fr) locale_env=(LANG=fr_FR.UTF-8 LANGUAGE=fr) ;;
+        en) locale_env=(LANG=C.UTF-8 LANGUAGE=en_GB:en) ;;
+      esac
+      env "${locale_env[@]}" NORELLY_E2E_LANG="$lang" NORELLY_E2E_CAPTURES="/captures/$lang" \
+        xvfb-run -a --server-args="-screen 0 1280x900x24" \
+        node_modules/.bin/wdio run e2e/wdio.conf.mjs --spec e2e/captures/captures.e2e.mjs
+    done
     # Mesure de bout en bout (job nocturne) : profil neuf, base de 50 000
     # messages, scénario de performance seul.
     if [ "${NORELLY_E2E_PERF:-}" = "1" ]; then
-      data="$HOME/.local/share/io.github.gbourquet.Norelly"
       rm -rf "$data"
       "$CARGO_TARGET_DIR/debug/examples/seed_perf" "$data/norelly.sqlite3"
       NORELLY_APP_BINARY="$CARGO_TARGET_DIR/release/norelly" \

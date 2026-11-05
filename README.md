@@ -24,6 +24,12 @@ pnpm -C app tauri dev     # lancer l'application
 Documentation : `docs/DECISIONS.md` (choix d'architecture), `docs/PLAN.md`
 (phases), `docs/REVIEWS.md` (revues sécurité).
 
+## Distribution
+
+- Windows : installateur NSIS (versions GitHub), winget ; mises à jour
+  signées (minisign). Politique de signature : `docs/CODE_SIGNING.md`.
+- Linux : Flathub (`packaging/flatpak`), paquets .deb et .rpm.
+
 ## Licence
 
 Au choix : [MIT](LICENSE-MIT) ou [Apache-2.0](LICENSE-APACHE).

@@ -5,7 +5,8 @@
 #   - documentation utilisateur : mêmes pages et mêmes captures en français
 #     et en anglais, captures présentes (PNG) et toutes utilisées ;
 #   - chaque commande du registre présente dans l'aide-mémoire des
-#     raccourcis, dans les deux langues (app/src/docs.test.ts, registre réel).
+#     raccourcis, dans les deux langues (app/src/docs.test.ts, registre réel) ;
+#   - documentation fonctionnelle sans vocabulaire technique.
 # Les captures elles-mêmes sont produites par `pnpm -C app e2e`
 # (app/e2e/captures), jamais à la main.
 set -euo pipefail

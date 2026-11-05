@@ -48,8 +48,10 @@ export async function removeTestAccount() {
   await $("p=Aucun compte pour l'instant.").waitForDisplayed({ timeout: 20000 });
 }
 
-/** Dépose des messages bruts dans la boîte de réception (IMAP APPEND, TLS). */
-export async function appendMessages(messages) {
+/** Dépose des messages bruts dans la boîte de réception d'un utilisateur
+ * Dovecot (IMAP APPEND, TLS). Dovecot accepte tout utilisateur muni du mot
+ * de passe de test : chaque utilisateur a sa propre boîte. */
+export async function appendMessages(messages, user = "norelly") {
   const socket = tls.connect({
     host: "imap.norelly.test",
     port: 31993,
@@ -71,7 +73,7 @@ export async function appendMessages(messages) {
     return out;
   };
   await waitFor(/^\* OK/m);
-  socket.write(`a LOGIN norelly "${password}"\r\n`);
+  socket.write(`a LOGIN ${user} "${password}"\r\n`);
   await waitFor(/^a OK/m);
   for (const [i, raw] of messages.entries()) {
     const bytes = Buffer.from(raw.replace(/\r?\n/g, "\r\n"), "utf8");

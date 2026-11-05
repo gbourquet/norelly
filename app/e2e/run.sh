@@ -9,6 +9,8 @@
 #   certificats autosignés générés pour l'occasion.
 # - Lance les scénarios sur ce réseau interne (dépôt monté en lecture
 #   seule), avec Xvfb, D-Bus et GNOME Keyring.
+# - Produit les captures d'écran de la documentation utilisateur
+#   (e2e/captures), recopiées dans docs/utilisateur/<langue>/captures.
 # - Démarre aussi un serveur canari (canary.norelly.test, e2e/canary.mjs) :
 #   les scénarios de lecture vérifient qu'il ne reçoit aucune requête.
 set -euo pipefail
@@ -49,6 +51,7 @@ for name in imap smtp; do
     -keyout "$workdir/$name.key" -out "$workdir/$name.crt" 2>/dev/null
   chmod 644 "$workdir/$name.key" "$workdir/$name.crt"
 done
+mkdir -p "$workdir/captures"
 printf 'norelly:%s\n' "$password" > "$workdir/smtp-auth"
 chmod 644 "$workdir/smtp-auth"
 
@@ -110,5 +113,14 @@ docker run "${common[@]}" --network "$network" \
   -e NORELLY_E2E_CANARY="http://canary.norelly.test:8080" \
   -e LANG=fr_FR.UTF-8 -e LANGUAGE=fr \
   -e NORELLY_E2E_PERF="${NORELLY_E2E_PERF:-}" \
-  -v "$root:/work:ro" \
+  -v "$root:/work:ro" -v "$workdir/captures:/captures" \
   "$image" dbus-run-session -- bash app/e2e/in-container.sh scenarios
+
+# Captures d'écran de la documentation utilisateur (phase 11) : remplacées
+# seulement si tous les scénarios ont réussi (set -e), jamais à moitié.
+echo "==> Captures d'écran de la documentation"
+for lang in fr en; do
+  rm -rf "docs/utilisateur/$lang/captures"
+  mkdir -p "docs/utilisateur/$lang/captures"
+  cp "$workdir/captures/$lang/"*.png "docs/utilisateur/$lang/captures/"
+done

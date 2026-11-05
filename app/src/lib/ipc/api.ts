@@ -242,7 +242,7 @@ export const api = {
   onComposeEvent: async (listener: (event: ComposeEventDto) => void): Promise<() => void> =>
     events.composeEventDto.listen((e) => listener(e.payload)),
 
-  /** Mises à jour : canal pris en charge, version trouvée (signature vérifiée). */
+  /** Mises à jour : canal pris en charge, version annoncée (signature vérifiée au téléchargement). */
   updateStatus: (): Promise<UpdateStatusDto_Serialize> => commands.updateStatus(),
 
   /** Installe la mise à jour trouvée (l'installateur ferme l'application). */

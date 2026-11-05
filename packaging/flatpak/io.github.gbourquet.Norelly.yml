@@ -20,7 +20,11 @@ finish-args:
   - --device=dri
   # Serveurs IMAP et SMTP.
   - --share=network
-  # Mots de passe dans le trousseau du système (Secret Service).
+  # Mots de passe dans le trousseau du système (Secret Service). Donne
+  # accès à tout le trousseau de session (revue de la phase 10, MOYENNE) :
+  # accepté provisoirement ; le portail Secret (trousseau propre à
+  # l'application) demande oo7, donc zbus, écarté (deny.toml) : décision du
+  # mainteneur attendue.
   - --talk-name=org.freedesktop.secrets
   # Notifications des nouveaux messages (notify-rust, D-Bus).
   - --talk-name=org.freedesktop.Notifications

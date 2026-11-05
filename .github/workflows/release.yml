@@ -4,10 +4,13 @@
 # brouillon que le mainteneur relit puis publie. Le Flatpak passe par Flathub
 # (packaging/flatpak).
 #
-# Secrets : TAURI_SIGNING_PRIVATE_KEY (clé minisign, voir
-# app/src-tauri/tauri.updater.conf.json pour la clé publique) et
-# TAURI_SIGNING_PRIVATE_KEY_PASSWORD. Aucun cache entre les builds de
-# publication (empoisonnement de cache).
+# Secrets de l'environnement GitHub `release` (tags `v*` seulement, relecture
+# obligatoire du mainteneur) : TAURI_SIGNING_PRIVATE_KEY (clé minisign
+# chiffrée ; clé publique dans app/src-tauri/tauri.updater.conf.json) et
+# TAURI_SIGNING_PRIVATE_KEY_PASSWORD. La clé n'est présente que dans
+# l'étape de signature, jamais pendant la compilation (build.rs, macros,
+# plugins Vite). Aucun cache dans les builds de publication
+# (empoisonnement de cache).
 name: Release
 
 on:
@@ -62,8 +65,6 @@ jobs:
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           node-version: 24
-          cache: pnpm
-          cache-dependency-path: app/pnpm-lock.yaml
       - run: pnpm -C app install --frozen-lockfile
       - run: pnpm -C app tauri build --bundles deb,rpm -- --locked
       - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
@@ -78,6 +79,7 @@ jobs:
     name: Windows (NSIS, mise à jour signée)
     needs: version
     runs-on: windows-2025
+    environment: release
     defaults:
       run:
         shell: bash
@@ -92,17 +94,20 @@ jobs:
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           node-version: 24
-          cache: pnpm
-          cache-dependency-path: app/pnpm-lock.yaml
       - run: pnpm -C app install --frozen-lockfile
-      - name: Build NSIS avec le module de mise à jour
-        env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+      - name: Build NSIS avec le module de mise à jour (sans la clé)
         run: >
           pnpm -C app tauri build --bundles nsis
           --config src-tauri/tauri.updater.conf.json
           --features updater -- --locked
+      - name: Signature minisign de l'installateur
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          VERSION: ${{ needs.version.outputs.version }}
+        run: >
+          app/node_modules/.bin/tauri signer sign
+          "target/release/bundle/nsis/Norelly_${VERSION}_x64-setup.exe"
       - name: Manifeste latest.json
         env:
           VERSION: ${{ needs.version.outputs.version }}

@@ -300,12 +300,8 @@ Commandes de référence (détail dans `scripts/check.sh`) :
 - [x] Métadonnées AppStream, icônes, fichier `.desktop` (traduits en français et en anglais, ADR-011)
 - [x] Dossier de candidature SignPath Foundation
 - [x] `nightly.yml` : fuzzing court, bench, Stalwart en second serveur
-- [ ] Revue security-reviewer finale (chaîne d'approvisionnement, autorisations Flatpak, capabilities Tauri), consignée dans REVIEWS.md
-
-- État au 2026-11-04 (session interrompue, limite d'usage) :
-  - reports traités : pièces jointes transférées (spawn_blocking, bornes pendant l'itération), `hostile_message_sql.rs` (transfert, reprise, envoi programmé), ACL Tauri (manifeste applicatif, fenêtre `main` seule), image e2e en archives SHA-256 ;
-  - fait : updater (clé privée minisign hors dépôt : `~/.tauri/norelly-updater.key`, sans mot de passe, à mettre en secret `TAURI_SIGNING_PRIVATE_KEY`), Flatpak (build local réussi, `scripts/flatpak-sources.py`), AppStream/.desktop, cibles `fuzz/`, Stalwart (profil nextest `stalwart`, correctif QRESYNC trouvé) ;
-  - reste : `release.yml`, `nightly.yml` (fuzz, bench, perf e2e, `--profile stalwart`), actions CI figées par SHA, winget, dossier SignPath, statuts dans REVIEWS.md, revue security-reviewer finale, `./scripts/check.sh full`.
+- [x] Revue security-reviewer finale (chaîne d'approvisionnement, autorisations Flatpak, capabilities Tauri), consignée dans REVIEWS.md
+  - 0 critique, 0 haute ; 2 moyennes (clé de signature : corrigée en partie, reste au mainteneur ; trousseau Flatpak : acceptée provisoirement, décision du mainteneur) ; 5 basses (4 corrigées, 1 acceptée).
 
 **Condition de fin** : `./scripts/check.sh full && pnpm -C app tauri build` passent sans erreur, et `flatpak-builder --force-clean build packaging/flatpak/io.github.gbourquet.Norelly.yml` réussit.
 

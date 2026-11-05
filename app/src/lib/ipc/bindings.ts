@@ -803,22 +803,30 @@ export type UpdateStatusDto = UpdateStatusDto_Serialize | UpdateStatusDto_Deseri
 /**  Recherche de mises à jour (ADR-006). */
 export type UpdateStatusDto_Deserialize = {
 	/**
-	 *  Canal qui se met à jour lui-même (installateur NSIS) ; ailleurs, la
-	 *  question n'est pas posée (Flathub, paquets, winget).
+	 *  Canal qui se met à jour lui-même (installateur NSIS, aussi
+	 *  distribué par winget) ; ailleurs, la question n'est pas posée
+	 *  (Flathub, .deb, .rpm).
 	 */
 	supported: boolean,
-	/**  Version disponible, signature vérifiée, prête à installer. */
+	/**
+	 *  Version annoncée par le manifeste (revalidée) ; la signature de
+	 *  l'installateur est vérifiée au téléchargement.
+	 */
 	available?: string | null,
 };
 
 /**  Recherche de mises à jour (ADR-006). */
 export type UpdateStatusDto_Serialize = {
 	/**
-	 *  Canal qui se met à jour lui-même (installateur NSIS) ; ailleurs, la
-	 *  question n'est pas posée (Flathub, paquets, winget).
+	 *  Canal qui se met à jour lui-même (installateur NSIS, aussi
+	 *  distribué par winget) ; ailleurs, la question n'est pas posée
+	 *  (Flathub, .deb, .rpm).
 	 */
 	supported: boolean,
-	/**  Version disponible, signature vérifiée, prête à installer. */
+	/**
+	 *  Version annoncée par le manifeste (revalidée) ; la signature de
+	 *  l'installateur est vérifiée au téléchargement.
+	 */
 	available: string | null,
 };
 

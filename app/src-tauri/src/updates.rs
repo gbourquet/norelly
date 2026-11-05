@@ -4,6 +4,8 @@
 //!   `tauri-plugin-updater` n'est compilé qu'avec la fonctionnalité
 //!   `updater` (activée par `release.yml` pour Windows). Ailleurs, les
 //!   commandes répondent « non pris en charge » et rien n'est contacté.
+//!   winget distribue le même installateur NSIS : il se met donc à jour
+//!   lui-même aussi (avec le consentement de l'utilisateur).
 //! - Aucune recherche sans un « oui » explicite (`update_check_due`) ; la
 //!   requête vise une adresse fixe (manifeste `latest.json` des versions
 //!   GitHub), sans aucun identifiant.
@@ -75,13 +77,19 @@ pub async fn install_update(updates: State<'_, Updates>) -> Result<(), IpcError>
         let Some(update) = updates.pending.lock().await.take() else {
             return Err(IpcError::not_found(FieldDto::Update));
         };
-        update
-            .download_and_install(|_, _| {}, || {})
-            .await
-            .map_err(|e| IpcError {
-                detail: Some(e.to_string()),
-                ..IpcError::new(ErrorCodeDto::UpdateFailed)
-            })
+        let failed = |detail: String| IpcError {
+            detail: Some(detail),
+            ..IpcError::new(ErrorCodeDto::UpdateFailed)
+        };
+        // Délai par requête (`REQUEST_TIMEOUT`, gardé par l'`Update`) et
+        // délai global du téléchargement.
+        tokio::time::timeout(
+            DOWNLOAD_TIMEOUT,
+            update.download_and_install(|_, _| {}, || {}),
+        )
+        .await
+        .map_err(|_| failed("délai dépassé".into()))?
+        .map_err(|e| failed(e.to_string()))
     }
     #[cfg(not(feature = "updater"))]
     {
@@ -94,6 +102,17 @@ pub async fn install_update(updates: State<'_, Updates>) -> Result<(), IpcError>
 /// quotidienne, `update_check_due`).
 #[cfg(feature = "updater")]
 const POLL: std::time::Duration = std::time::Duration::from_secs(10 * 60);
+
+/// Délai de chaque requête du module (manifeste, installateur) : une
+/// connexion bloquée ne fige pas la recherche périodique.
+#[cfg(feature = "updater")]
+const REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+/// Délai global d'une recherche.
+#[cfg(feature = "updater")]
+const CHECK_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
+/// Délai global du téléchargement de l'installateur.
+#[cfg(feature = "updater")]
+const DOWNLOAD_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15 * 60);
 
 /// Lance la recherche périodique : au lancement si l'utilisateur a dit
 /// « oui », puis une fois par jour ; un « oui » donné en cours d'exécution
@@ -122,9 +141,13 @@ pub fn spawn_checks(app: &tauri::AppHandle) {
                 .map_or(UpdateCheck::NotAsked, |s| s.update_check);
             if update_check_due(check, last, now) {
                 last = Some(now);
-                let checked = match handle.updater() {
-                    Ok(updater) => updater.check().await,
-                    Err(e) => Err(e),
+                let updater = handle.updater_builder().timeout(REQUEST_TIMEOUT).build();
+                let checked = match updater {
+                    Ok(updater) => tokio::time::timeout(CHECK_TIMEOUT, updater.check())
+                        .await
+                        .map_err(|_| "délai dépassé".to_owned())
+                        .and_then(|r| r.map_err(|e| e.to_string())),
+                    Err(e) => Err(e.to_string()),
                 };
                 match checked {
                     Ok(Some(update)) => found(&handle, update).await,
@@ -179,7 +202,7 @@ mod tests {
         }
     }
 
-    /// Sans la fonctionnalité `updater` (Flathub, paquets, winget) : rien
+    /// Sans la fonctionnalité `updater` (Flathub, .deb, .rpm) : rien
     /// n'est proposé ; avec, rien à installer tant que rien n'est trouvé.
     #[tokio::test]
     async fn nothing_is_installed_without_a_verified_update() {

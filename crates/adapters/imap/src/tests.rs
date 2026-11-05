@@ -1198,3 +1198,73 @@ async fn idle_refusal_and_bye_are_errors() -> TestResult {
     let _ = server.finish().await;
     Ok(())
 }
+
+/// Revue de la phase 10 (BASSE) : une réponse indécodable pendant
+/// `EXAMINE … QRESYNC` (Stalwart : `VANISHED (EARLIER) 0:1`, UID 0
+/// interdit) rend la sélection incomplète ; le plan compare alors les UID.
+#[tokio::test]
+async fn undecodable_examine_response_marks_the_selection_incomplete() -> TestResult {
+    use norelly_domain::mailbox::{MailboxName, ModSeq, UidValidity};
+    use norelly_domain::sync::{QresyncParams, SelectRequest};
+
+    let f = fixture()?;
+    let cert = f.ca.issue(&["localhost"])?;
+    let examine = |vanished: &str| {
+        format!(
+            "* OK [UIDVALIDITY 7] ok\r\n\
+             * OK [HIGHESTMODSEQ 20] ok\r\n\
+             * 1 EXISTS\r\n\
+             {vanished}\
+             {{tag}} OK [READ-ONLY] termine\r\n"
+        )
+    };
+    let script = authenticated(
+        Script::new()
+            .expect("ENABLE")
+            .send("* ENABLED CONDSTORE QRESYNC\r\n{tag} OK active\r\n")
+            .expect("EXAMINE INBOX (QRESYNC (7 10))")
+            .send(examine("* VANISHED (EARLIER) 0:1\r\n"))
+            .expect("EXAMINE INBOX (QRESYNC (7 10))")
+            .send(examine("* VANISHED (EARLIER) 1\r\n"))
+            .expect("LOGOUT")
+            .send("* BYE au revoir\r\n{tag} OK termine\r\n")
+            .expect_eof(),
+    );
+    let server = ScriptedServer::start_tls(script, cert.server_config()?).await?;
+    let mut session = f
+        .connector
+        .connect(&request(
+            server.port(),
+            Security::Tls,
+            PlaintextPolicy::deny_all(),
+        ))
+        .await
+        .map_err(|e| format!("CONNECT : {e}"))?;
+    session
+        .enable_sync_extensions()
+        .await
+        .map_err(|e| format!("ENABLE : {e}"))?;
+    let request = SelectRequest {
+        condstore: false,
+        qresync: Some(QresyncParams {
+            uid_validity: UidValidity::new(7).ok_or("uidvalidity")?,
+            modseq: ModSeq::new(10).ok_or("modseq")?,
+        }),
+    };
+    let broken = session
+        .select(&MailboxName::inbox(), &request)
+        .await
+        .map_err(|e| format!("EXAMINE : {e}"))?;
+    assert!(broken.incomplete, "réponse écartée : sélection incomplète");
+    assert_eq!(broken.highest_modseq, ModSeq::new(20));
+    let sound = session
+        .select(&MailboxName::inbox(), &request)
+        .await
+        .map_err(|e| format!("EXAMINE : {e}"))?;
+    assert!(!sound.incomplete, "compteur remis à zéro à chaque commande");
+    session
+        .logout()
+        .await
+        .map_err(|e| format!("LOGOUT : {e}"))?;
+    Ok(())
+}

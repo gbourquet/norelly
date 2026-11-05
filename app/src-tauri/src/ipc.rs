@@ -649,10 +649,12 @@ pub fn date_from_dto(raw: u32) -> i64 {
 /// Recherche de mises à jour (ADR-006).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
 pub struct UpdateStatusDto {
-    /// Canal qui se met à jour lui-même (installateur NSIS) ; ailleurs, la
-    /// question n'est pas posée (Flathub, paquets, winget).
+    /// Canal qui se met à jour lui-même (installateur NSIS, aussi
+    /// distribué par winget) ; ailleurs, la question n'est pas posée
+    /// (Flathub, .deb, .rpm).
     pub supported: bool,
-    /// Version disponible, signature vérifiée, prête à installer.
+    /// Version annoncée par le manifeste (revalidée) ; la signature de
+    /// l'installateur est vérifiée au téléchargement.
     pub available: Option<String>,
 }
 

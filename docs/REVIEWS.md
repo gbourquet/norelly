@@ -28,7 +28,7 @@ et `check-sql.sh` sans constat.
 
 ## [MOYENNE] Flatpak : `--talk-name=org.freedesktop.secrets` ouvre tout le trousseau de session
 - Une exécution de code dans le processus (faille WebKitGTK ou MIME) lirait tous les secrets de l'utilisateur, pas seulement ceux de Norelly.
-- Statut : **accepté provisoirement**, justifié dans le manifeste : le portail Secret (trousseau propre à l'application) passe par `oo7`, donc zbus, écarté par `deny.toml`. **Décision du mainteneur attendue** (dérogation zbus ou maintien).
+- Statut : **accepté** par le mainteneur (2026-11-05, dérogation consignée dans l'ADR-006) : le portail Secret (trousseau propre à l'application) passe par `oo7`, donc zbus, écarté par `deny.toml` ; l'accès direct au Secret Service est maintenu.
 
 ## [BASSE] Cache pnpm restauré dans les builds de publication
 - Statut : **corrigé** : `cache: pnpm` retiré de `release.yml`.

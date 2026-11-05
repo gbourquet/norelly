@@ -307,6 +307,20 @@ est majoritairement écrit par Claude et relu par le mainteneur.
   - Binaires Windows non signés tant que SignPath n'a pas validé le
     projet.
   - Build Flathub hors ligne (dépendances cargo et npm vendorisées).
+- **Dérogations validées par le mainteneur (2026-11-05)**, autorisations
+  du Flatpak :
+  - `--talk-name=org.freedesktop.secrets` : accès direct au Secret
+    Service, donc à tout le trousseau de session (revue de la phase 10,
+    MOYENNE). Le portail Secret, qui donne un trousseau propre à
+    l'application, passe par `oo7` et donc par zbus, écarté par
+    `deny.toml`. On garde l'accès direct, comme les autres clients mail
+    sous Flatpak. À réexaminer si zbus redevient acceptable.
+  - `--filesystem=xdg-download` (lecture et écriture) et
+    `--filesystem=xdg-documents:ro` : le sélecteur de fichiers GTK3 de
+    `tauri-plugin-dialog` ne passe pas par le portail. Les pièces jointes
+    s'enregistrent dans Téléchargements et se joignent depuis
+    Téléchargements ou Documents. À retirer quand le sélecteur passera par
+    le portail.
 
 ## ADR-007 : stratégie de tests
 
@@ -327,6 +341,12 @@ est majoritairement écrit par Claude et relu par le mainteneur.
     - Stalwart dans le job nocturne, après le MVP ;
   - **tests de contrat** : chaque port est testé contre son faux en
     mémoire et contre son implémentation réelle.
+- **Dérogation validée par le mainteneur (2026-11-05)** : l'image Stalwart
+  du job nocturne est figée en v0.11.8 (par empreinte,
+  `crates/test-support/src/containers.rs`). C'est la dernière version
+  configurable par un seul `config.toml` ; les suivantes demandent une
+  configuration par l'API au démarrage. À réexaminer si une version
+  récente permet de nouveau une configuration déclarative simple.
 - **Mise en œuvre de l'end-to-end (phase 3, 2026-11-02)** : WebKitWebDriver
   n'est pas fourni par toutes les distributions (absent d'Arch, par
   exemple). `pnpm -C app e2e` (`app/e2e/run.sh`) exécute donc tauri-driver

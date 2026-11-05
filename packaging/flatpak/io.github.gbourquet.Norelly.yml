@@ -22,15 +22,15 @@ finish-args:
   - --share=network
   # Mots de passe dans le trousseau du système (Secret Service). Donne
   # accès à tout le trousseau de session (revue de la phase 10, MOYENNE) :
-  # accepté provisoirement ; le portail Secret (trousseau propre à
-  # l'application) demande oo7, donc zbus, écarté (deny.toml) : décision du
-  # mainteneur attendue.
+  # dérogation validée (ADR-006) ; le portail Secret (trousseau propre à
+  # l'application) demande oo7, donc zbus, écarté (deny.toml).
   - --talk-name=org.freedesktop.secrets
   # Notifications des nouveaux messages (notify-rust, D-Bus).
   - --talk-name=org.freedesktop.Notifications
   # Pièces jointes : enregistrées dans Téléchargements, ou jointes depuis
   # Téléchargements et Documents (le sélecteur GTK3 de tauri-plugin-dialog
-  # ne passe pas par le portail ; le glisser-déposer, si).
+  # ne passe pas par le portail ; le glisser-déposer, si). Dérogation
+  # validée (ADR-006).
   - --filesystem=xdg-download
   - --filesystem=xdg-documents:ro
 

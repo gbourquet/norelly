@@ -22,8 +22,13 @@ that matches your computer.
    browser's download list, or find it in your **Downloads** folder.
 4. Windows may show a blue window saying **"Windows protected your PC"**.
    This is expected: Norelly does not yet have a digital signature
-   recognised by Microsoft (it has been requested). Click **More info**,
-   check that the file name is Norelly's, then click **Run anyway**.
+   recognised by Microsoft (it has been requested): the publisher shows as
+   **"Unknown publisher"**. This window therefore cannot tell you whether
+   the file is genuine: the only guarantee is that you downloaded it
+   yourself from the address above (check that it starts with
+   `https://github.com/gbourquet/norelly` in the address bar). If so,
+   click **More info**, then **Run anyway**. If in doubt, prefer the winget
+   method below, which checks the file for you.
 5. The installer opens. Click **Next**, then **Install**. No administrator
    password is needed: Norelly is installed for you only.
 6. Click **Finish**. Norelly is now in the **Start** menu: type "Norelly"

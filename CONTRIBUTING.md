@@ -9,9 +9,9 @@ Merci de votre intérêt ! Ce fichier résume l'essentiel ; le détail est dans
   [DECISIONS.md](docs/DECISIONS.md) : les décisions d'architecture font foi.
   Une dérogation se discute (issue) **avant** d'être codée.
 - Le travail avance par phases ([PLAN.md](docs/PLAN.md)).
-- Une question, un bogue : ouvrez une issue. **Une vulnérabilité** : avis de
-  sécurité privé GitHub (onglet Security, « Report a vulnerability »),
-  jamais une issue publique.
+- Une question, un bogue : ouvrez une issue. **Une vulnérabilité** : voir
+  [SECURITY.md](SECURITY.md) (signalement privé), jamais une issue
+  publique.
 
 ## Installer, lancer, tester
 

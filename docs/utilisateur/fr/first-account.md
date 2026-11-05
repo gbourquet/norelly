@@ -32,8 +32,10 @@ adresse pour une association).
    premiers arrivés.
 
 Votre mot de passe est rangé dans le **trousseau** de votre système (le
-coffre-fort à mots de passe de Windows ou de Linux), jamais dans un
-fichier de Norelly.
+coffre-fort à mots de passe de Windows ou de Linux). Seule exception : sous
+Linux, si aucun trousseau ne répond, Norelly peut vous proposer de
+l'enregistrer dans un fichier **non chiffré** ; il ne le fait que si vous
+l'acceptez (voir [les messages d'erreur](errors.md#autres-messages)).
 
 ### Si Norelly vous montre les réglages des serveurs
 

@@ -53,6 +53,10 @@ In Norelly's data folder, which belongs to your session only:
 - on Linux: `~/.local/share/io.github.gbourquet.Norelly` (or
   `~/.var/app/io.github.gbourquet.Norelly` with Flathub).
 
+If you agreed to store your passwords in an unencrypted file (Linux
+without a keyring), this folder also contains `mots-de-passe.json`: never
+share this folder, and exclude that file from online backups.
+
 Norelly does not encrypt this folder: protect your session with a password
 and, if possible, turn on disk encryption on your computer (BitLocker on
 Windows, the encryption offered during installation on Linux).
@@ -62,7 +66,8 @@ Windows, the encryption offered during installation on Linux).
 No. Norelly contains no statistics or advertising tools. It only connects
 to your email providers, to settings lookups when an account is added, to
 the images you have allowed and, if you accepted it on Windows, to
-Norelly's website to check for updates (without any identifier).
+GitHub (which hosts Norelly) to check for updates: GitHub then sees your IP
+address, but no identifier is sent.
 
 ## Outlook.com refuses my app password
 
@@ -88,3 +93,8 @@ also shows the list of shortcuts.
 At <https://github.com/gbourquet/norelly/issues> (in English or French).
 Describe what you were doing, what happened and the message shown. **Never
 send your password**, nor the content of private messages.
+
+If the problem is about **security** (a message that runs something,
+blocked images that show anyway, a visible password…), do not publish it:
+follow <https://github.com/gbourquet/norelly/security/policy>, which
+explains how to report it privately.

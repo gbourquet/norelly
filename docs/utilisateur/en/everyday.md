@@ -40,7 +40,8 @@ to find out whether, and when, you opened the message. Norelly blocks them
 and shows a banner: **Remote images blocked**.
 
 If you trust the sender, click **Show images from this sender**: Norelly
-will remember it for their next messages.
+will remember it for their next messages. Beware: a sender's address can be
+imitated, so only allow senders whose images you really need.
 
 ### Attachments
 

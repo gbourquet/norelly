@@ -45,6 +45,8 @@ les bloque et affiche un bandeau : **Images distantes bloquées**.
 
 Si vous faites confiance à l'expéditeur, cliquez sur **Afficher les images
 de cet expéditeur** : Norelly s'en souviendra pour ses prochains messages.
+Attention, l'adresse d'un expéditeur peut être imitée : n'autorisez que les
+expéditeurs dont les images vous sont vraiment utiles.
 
 ### Les pièces jointes
 

@@ -141,6 +141,5 @@ Constats hauts trouvés, tous corrigés :
 Aucun constat critique à ce jour. Les phases 2, 6, 8 et 10 n'ont pas eu de
 constat haut.
 
-Signaler une vulnérabilité : par un avis de sécurité privé GitHub
-(« Report a vulnerability » dans l'onglet Security du dépôt), jamais dans
-une issue publique.
+Signaler une vulnérabilité : voir [SECURITY.md](../../SECURITY.md)
+(signalement privé GitHub), jamais dans une issue publique.

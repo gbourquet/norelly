@@ -23,9 +23,15 @@ la partie qui correspond à votre ordinateur.
    dans le dossier **Téléchargements**.
 4. Windows peut afficher une fenêtre bleue **« Windows a protégé votre
    ordinateur »**. C'est normal : Norelly n'a pas encore de signature
-   numérique reconnue par Microsoft (elle est demandée). Cliquez sur
-   **Informations complémentaires**, vérifiez que l'éditeur ou le nom du
-   fichier est bien celui de Norelly, puis sur **Exécuter quand même**.
+   numérique reconnue par Microsoft (elle est demandée) : l'éditeur
+   apparaît comme **« Éditeur inconnu »**. Cette fenêtre ne peut donc pas
+   vous dire si le fichier est authentique : la seule garantie est de
+   l'avoir téléchargé vous-même depuis l'adresse ci-dessus (vérifiez
+   qu'elle commence bien par `https://github.com/gbourquet/norelly` dans
+   la barre d'adresse). Si c'est le cas, cliquez sur **Informations
+   complémentaires**, puis sur **Exécuter quand même**. Dans le doute,
+   préférez la méthode winget ci-dessous, qui vérifie le fichier pour
+   vous.
 5. L'installateur s'ouvre. Cliquez sur **Suivant**, puis sur
    **Installer**. Aucun mot de passe administrateur n'est demandé : Norelly
    s'installe pour vous seul.

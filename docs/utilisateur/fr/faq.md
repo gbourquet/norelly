@@ -60,6 +60,11 @@ session :
 - sous Linux : `~/.local/share/io.github.gbourquet.Norelly` (ou
   `~/.var/app/io.github.gbourquet.Norelly` avec Flathub).
 
+Si vous avez accepté d'enregistrer vos mots de passe dans un fichier non
+chiffré (Linux sans trousseau), ce dossier contient aussi
+`mots-de-passe.json` : ne partagez jamais ce dossier et excluez ce fichier
+de vos sauvegardes en ligne.
+
 Ce dossier n'est pas chiffré par Norelly : protégez votre session par un
 mot de passe et, si possible, activez le chiffrement du disque de votre
 ordinateur (BitLocker sous Windows, chiffrement proposé à l'installation
@@ -70,8 +75,9 @@ sous Linux).
 Non. Norelly ne contient aucun outil de statistiques ni de publicité. Il
 se connecte uniquement à vos fournisseurs de messagerie, à la recherche de
 réglages lors de l'ajout d'un compte, aux images que vous avez acceptées et,
-si vous l'avez accepté sous Windows, au site de Norelly pour vérifier les
-mises à jour (sans aucun identifiant).
+si vous l'avez accepté sous Windows, à GitHub (qui héberge Norelly) pour
+vérifier les mises à jour : GitHub voit alors votre adresse IP, mais aucun
+identifiant n'est envoyé.
 
 ## Outlook.com refuse mon mot de passe d'application
 
@@ -99,3 +105,9 @@ Sur <https://github.com/gbourquet/norelly/issues> (en français ou en
 anglais). Décrivez ce que vous faisiez, ce qui s'est passé et le message
 affiché. **N'envoyez jamais votre mot de passe**, ni le contenu de messages
 privés.
+
+Si le problème touche à la **sécurité** (un message qui exécute quelque
+chose, des images bloquées qui s'affichent quand même, un mot de passe
+visible…), ne le publiez pas : suivez la page
+<https://github.com/gbourquet/norelly/security/policy>, qui explique comment
+le signaler en privé.

@@ -21,8 +21,18 @@ pnpm -C app tauri dev     # lancer l'application
 ./scripts/check.sh full   # tout, y compris les tests d'intégration (Docker)
 ```
 
-Documentation : `docs/DECISIONS.md` (choix d'architecture), `docs/PLAN.md`
-(phases), `docs/REVIEWS.md` (revues sécurité).
+## Documentation
+
+- [Guide d'utilisation](docs/utilisateur/fr/README.md) (en français) et
+  [user guide](docs/utilisateur/en/README.md) (in English) ;
+- [documentation fonctionnelle](docs/fonctionnel/README.md) : ce que fait
+  chaque fonctionnalité, ses règles et ses messages ;
+- [documentation technique](docs/technique/README.md) et
+  [CONTRIBUTING.md](CONTRIBUTING.md) : architecture, données, sécurité,
+  tests, méthode, premiers pas ;
+- [DECISIONS.md](docs/DECISIONS.md) (choix d'architecture),
+  [PLAN.md](docs/PLAN.md) (phases), [REVIEWS.md](docs/REVIEWS.md) (revues
+  sécurité).
 
 ## Distribution
 

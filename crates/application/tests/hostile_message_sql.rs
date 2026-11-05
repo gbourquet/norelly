@@ -447,7 +447,7 @@ async fn trapped_messages_cannot_alter_the_database() -> Result<(), Box<dyn std:
         .execute(
             source.id,
             ReplyKind::Forward,
-            &[me.address.clone()],
+            std::slice::from_ref(&me.address),
             PAYLOADS[7],
         )
         .await?;

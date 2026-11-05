@@ -70,10 +70,7 @@ fn app_commands_are_granted_to_the_main_window_only() {
             from_main.as_ref().is_err_and(|e| e.contains("not found")),
             "{cmd} depuis main : {from_main:?}"
         );
-        for (webview, url) in [
-            (&other, APP_ORIGIN),
-            (&main, "https://example.com/"),
-        ] {
+        for (webview, url) in [(&other, APP_ORIGIN), (&main, "https://example.com/")] {
             let refused = invoke(webview, cmd, url);
             assert!(
                 refused.as_ref().is_err_and(|e| e.contains("not allowed")),

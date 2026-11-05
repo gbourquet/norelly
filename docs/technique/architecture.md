@@ -273,5 +273,5 @@ sequenceDiagram
 ## Pour aller plus loin
 
 - Choix et alternatives écartées : [DECISIONS.md](../DECISIONS.md).
-- Règles métier par fonctionnalité : [documentation fonctionnelle](../fonctionnel/README.md).
+- Règles par fonctionnalité : [documentation fonctionnelle](../fonctionnel/README.md), reliée au code par [la traçabilité](tracabilite.md).
 - Données et protocoles : [donnees.md](donnees.md).

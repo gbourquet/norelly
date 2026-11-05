@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Métadonnées AppStream (Flathub, logithèques) ; anglais par défaut,
+     traduction française (ADR-011). Vérifié par scripts/check-packaging.sh. -->
+<component type="desktop-application">
+  <id>io.github.gbourquet.Norelly</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT OR Apache-2.0</project_license>
+
+  <name>Norelly</name>
+
+  <summary>Fast email client you can drive from the keyboard</summary>
+  <summary xml:lang="fr">Client mail rapide, pilotable au clavier</summary>
+
+  <developer id="io.github.gbourquet">
+    <name>Guillaume Bourquet</name>
+  </developer>
+
+  <description>
+    <p>
+      Norelly is an IMAP and SMTP email client for people who want their mail to be quick,
+      clear and safe. Accounts are set up almost automatically from the email address.
+    </p>
+    <p xml:lang="fr">
+      Norelly est un client mail IMAP et SMTP pour qui veut un courrier rapide, clair et sûr.
+      Les comptes se configurent presque automatiquement à partir de l’adresse.
+    </p>
+    <ul>
+      <li>Unified inbox and conversations</li>
+      <li xml:lang="fr">Boîte de réception unifiée et conversations</li>
+      <li>Works offline: actions are replayed when the server is back</li>
+      <li xml:lang="fr">Fonctionne hors ligne : les actions sont rejouées au retour du serveur</li>
+      <li>Fast full-text search across all accounts</li>
+      <li xml:lang="fr">Recherche plein texte rapide dans tous les comptes</li>
+      <li>Messages shown safely: no scripts, remote images blocked until you allow them</li>
+      <li xml:lang="fr">Messages affichés sans risque : aucun script, images distantes bloquées tant que vous ne les autorisez pas</li>
+      <li>Every action reachable from the keyboard</li>
+      <li xml:lang="fr">Toutes les actions accessibles au clavier</li>
+      <li>No telemetry</li>
+      <li xml:lang="fr">Aucune télémétrie</li>
+    </ul>
+  </description>
+
+  <launchable type="desktop-id">io.github.gbourquet.Norelly.desktop</launchable>
+  <icon type="stock">io.github.gbourquet.Norelly</icon>
+
+  <url type="homepage">https://github.com/gbourquet/norelly</url>
+  <url type="bugtracker">https://github.com/gbourquet/norelly/issues</url>
+  <url type="vcs-browser">https://github.com/gbourquet/norelly</url>
+
+  <categories>
+    <category>Network</category>
+    <category>Email</category>
+  </categories>
+
+  <keywords>
+    <keyword>email</keyword>
+    <keyword>IMAP</keyword>
+    <keyword>SMTP</keyword>
+    <keyword xml:lang="fr">courriel</keyword>
+    <keyword xml:lang="fr">messagerie</keyword>
+  </keywords>
+
+  <provides>
+    <binary>norelly</binary>
+  </provides>
+
+  <requires>
+    <display_length compare="ge">768</display_length>
+  </requires>
+  <supports>
+    <control>keyboard</control>
+    <control>pointing</control>
+  </supports>
+
+  <content_rating type="oars-1.1" />
+
+  <releases>
+    <release version="0.1.0" date="2026-11-04">
+      <description>
+        <p>First release.</p>
+        <p xml:lang="fr">Première version.</p>
+      </description>
+    </release>
+  </releases>
+</component>

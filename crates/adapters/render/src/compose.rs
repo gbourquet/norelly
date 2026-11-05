@@ -23,7 +23,9 @@ use lettre::message::{Attachment, Mailbox, Mailboxes, Message, MultiPart, Single
 use mail_parser::{HeaderValue, MessageParser, MimeHeaders};
 use norelly_domain::address::EmailAddress;
 use norelly_domain::compose::ReplySource;
-use norelly_domain::compose::draft::Recipient;
+use norelly_domain::compose::draft::{
+    ComposeError, MAX_ATTACHMENTS, MAX_ATTACHMENTS_BYTES, Recipient,
+};
 use norelly_domain::mailbox::{Correspondent, MAX_ADDRESSES, MessageHeaders, RawHeaders};
 use norelly_domain::ports::{
     ComposeBuildError, ComposedAttachment, ComposedMessage, Composition, MessageComposer,
@@ -583,16 +585,26 @@ impl MessageComposer for MimeComposer {
         crate::text_to_html(text)
     }
 
-    fn forwarded_attachments(&self, raw: &[u8]) -> Vec<ComposedAttachment> {
+    fn forwarded_attachments(&self, raw: &[u8]) -> Result<Vec<ComposedAttachment>, ComposeError> {
         if raw.len() > crate::mime::MAX_PARSE_LEN {
-            return Vec::new();
+            return Ok(Vec::new());
         }
         let Some(message) = MessageParser::default().parse(raw) else {
-            return Vec::new();
+            return Ok(Vec::new());
         };
-        message
-            .attachments()
-            .map(|part| ComposedAttachment {
+        let mut found = Vec::new();
+        let mut total = 0_u64;
+        for part in message.attachments() {
+            // Bornes vérifiées avant de copier la pièce suivante.
+            if found.len() == MAX_ATTACHMENTS {
+                return Err(ComposeError::TooManyAttachments);
+            }
+            let contents = part.contents();
+            total = total.saturating_add(u64::try_from(contents.len()).unwrap_or(u64::MAX));
+            if total > MAX_ATTACHMENTS_BYTES {
+                return Err(ComposeError::AttachmentsTooLarge);
+            }
+            found.push(ComposedAttachment {
                 // Nom d'affichage, puis sans chemin ni caractère réservé.
                 file_name: safe_file_name(
                     &part
@@ -601,9 +613,10 @@ impl MessageComposer for MimeComposer {
                         .unwrap_or_default(),
                 ),
                 content_type: crate::mime::media_type(part),
-                bytes: part.contents().to_vec(),
-            })
-            .collect()
+                bytes: contents.to_vec(),
+            });
+        }
+        Ok(found)
     }
 
     fn reply_source(&self, raw: &[u8]) -> Option<ReplySource> {

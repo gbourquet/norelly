@@ -16,6 +16,9 @@ step() { printf '\n==> %s\n' "$*"; }
 step "Front : build";          pnpm -C app build
 step "Format Rust";            cargo fmt --all --check
 step "Clippy";                 cargo clippy --workspace --all-targets --locked -- -D warnings
+# Module de mise à jour (installateur NSIS seulement, ADR-006) : compilé et
+# testé aussi avec sa fonctionnalité.
+step "Clippy (updater)";       cargo clippy -p norelly-app --all-targets --features updater --locked -- -D warnings
 # Couverture (cargo-llvm-cov) : seuil de lignes des tests unitaires, mesuré
 # le 2026-11-03, à relever, jamais à baisser. Avec rustup, les outils de
 # `llvm-tools-preview` ; sans rustup seulement (Rust du système), ceux du
@@ -26,10 +29,13 @@ if ! command -v rustup >/dev/null; then
 fi
 step "Tests Rust (unitaires, couverture)"
 cargo llvm-cov nextest --workspace --locked --no-tests=warn --summary-only --fail-under-lines 86
+step "Tests du shell (updater)"; cargo nextest run -p norelly-app --features updater --locked
 step "Doctests";               cargo test --workspace --doc --locked
 step "cargo deny";             cargo deny --locked check
 step "Règle de dépendance du domaine"; ./scripts/check-domain-deps.sh
 step "SQL : requêtes paramétrées"; ./scripts/check-sql.sh
+# Paquets Linux (desktop-file-utils, appstream) : vérifiés sous Linux.
+if [ "$(uname -s)" = Linux ]; then step "Métadonnées de bureau"; ./scripts/check-packaging.sh; fi
 step "Front : svelte-check";   pnpm -C app check
 step "Front : lint";           pnpm -C app lint
 step "Front : tests (couverture)"; pnpm -C app coverage

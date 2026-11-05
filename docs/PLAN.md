@@ -293,14 +293,16 @@ Commandes de référence (détail dans `scripts/check.sh`) :
 
 ## Phase 10 : distribution
 
-- [ ] `release.yml` : build NSIS (Windows), .deb et .rpm (Linux) sur tag, artefacts publiés sur GitHub Releases
-- [ ] `tauri-plugin-updater` (NSIS uniquement, feature `updater`), signature minisign, manifeste JSON sur GitHub Releases
-- [ ] Manifeste Flatpak `io.github.gbourquet.Norelly` (runtime GNOME, sources cargo et npm vendorisées, autorisations minimales), avec un build local qui passe
-- [ ] Manifeste winget
-- [ ] Métadonnées AppStream, icônes, fichier `.desktop` (traduits en français et en anglais, ADR-011)
-- [ ] Dossier de candidature SignPath Foundation
-- [ ] `nightly.yml` : fuzzing court, bench, Stalwart en second serveur
-- [ ] Revue security-reviewer finale (chaîne d'approvisionnement, autorisations Flatpak, capabilities Tauri), consignée dans REVIEWS.md
+- [x] `release.yml` : build NSIS (Windows), .deb et .rpm (Linux) sur tag, artefacts publiés sur GitHub Releases
+- [x] `tauri-plugin-updater` (NSIS uniquement, feature `updater`), signature minisign, manifeste JSON sur GitHub Releases
+- [x] Manifeste Flatpak `io.github.gbourquet.Norelly` (runtime GNOME, sources cargo et npm vendorisées, autorisations minimales), avec un build local qui passe
+- [x] Manifeste winget
+- [x] Métadonnées AppStream, icônes, fichier `.desktop` (traduits en français et en anglais, ADR-011)
+- [x] Dossier de candidature SignPath Foundation
+- [x] `nightly.yml` : fuzzing court, bench, Stalwart en second serveur
+- [x] Revue security-reviewer finale (chaîne d'approvisionnement, autorisations Flatpak, capabilities Tauri), consignée dans REVIEWS.md
+  - 0 critique, 0 haute ; 2 moyennes (clé de signature : corrigée, clé régénérée avec un mot de passe ; trousseau Flatpak : acceptée par le mainteneur) ; 5 basses (4 corrigées, 1 acceptée).
+  - Décisions du mainteneur (2026-11-05), consignées dans `DECISIONS.md` : accès direct au trousseau, Téléchargements et Documents sous Flatpak (ADR-006), Stalwart figé en v0.11.8 (ADR-007). Environnement GitHub `release` créé (tags `v*`, relecture obligatoire) et tags `v*` protégés (ruleset « Tags de version », contournement réservé aux administrateurs).
 
 **Condition de fin** : `./scripts/check.sh full && pnpm -C app tauri build` passent sans erreur, et `flatpak-builder --force-clean build packaging/flatpak/io.github.gbourquet.Norelly.yml` réussit.
 

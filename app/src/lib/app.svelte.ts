@@ -13,6 +13,7 @@ import { ComposeState } from "./compose.svelte";
 import { MailState } from "./mail.svelte";
 import { SearchState } from "./search.svelte";
 import { SettingsState } from "./settings.svelte";
+import { UpdatesState } from "./updates.svelte";
 import type { ConversationMessage } from "./ipc/api";
 import { failureLabel } from "./outbox";
 import { m } from "./paraglide/messages.js";
@@ -209,6 +210,8 @@ export const mail = new MailState(api);
 export const search = new SearchState(api);
 
 export const settings = new SettingsState(api);
+
+export const updates = new UpdatesState(api);
 
 // Une action peut retirer un résultat (suppression, déplacement…).
 mail.onActed = () => void search.refresh();

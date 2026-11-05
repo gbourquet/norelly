@@ -4,6 +4,12 @@ default-filter = "not binary(/^integration/)"
 
 # Tests d'intégration (conteneurs Dovecot, Mailpit…). Nécessite Docker.
 [profile.integration]
-default-filter = "binary(/^integration/)"
+default-filter = "binary(/^integration/) and not binary(integration_stalwart)"
 slow-timeout = { period = "60s", terminate-after = 4 }
 test-threads = 4
+
+# Second serveur IMAP (Stalwart), job nocturne (nightly.yml). Nécessite Docker.
+[profile.stalwart]
+default-filter = "binary(integration_stalwart)"
+slow-timeout = { period = "60s", terminate-after = 4 }
+test-threads = 2

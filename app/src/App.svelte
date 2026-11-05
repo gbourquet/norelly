@@ -20,6 +20,7 @@
   import SettingsDialog from "./components/SettingsDialog.svelte";
   import DraftsDialog from "./components/DraftsDialog.svelte";
   import UpdateQuestion from "./components/UpdateQuestion.svelte";
+  import UpdateBanner from "./components/UpdateBanner.svelte";
   import { notificationText } from "./lib/notifications";
   import { conversationActions } from "./lib/visible-actions";
   import {
@@ -32,6 +33,7 @@
     registry,
     search,
     settings,
+    updates,
   } from "./lib/app.svelte";
   import { shortcutFromEvent, type Shortcut } from "./lib/commands/shortcut";
   import { api, type ScopeDto } from "./lib/ipc/api";
@@ -44,8 +46,10 @@
     const unregister = registerAppCommands();
     let unlisten: (() => void) | null = null;
     let unlistenCompose: (() => void) | null = null;
+    let unlistenUpdate: (() => void) | null = null;
     let disposed = false;
     void settings.load();
+    void updates.load().catch(() => undefined);
     void (async () => {
       // Comptes et première liste en parallèle : la boîte unifiée ne
       // dépend pas de la liste des comptes (démarrage plus court).
@@ -74,6 +78,9 @@
         });
         if (disposed) offCompose();
         else unlistenCompose = offCompose;
+        const offUpdate = await api.onUpdateEvent((event) => updates.handle(event));
+        if (disposed) offUpdate();
+        else unlistenUpdate = offUpdate;
       } catch {
         // Hors de Tauri (tests) : pas d'événements.
       }
@@ -82,6 +89,7 @@
       disposed = true;
       unlisten?.();
       unlistenCompose?.();
+      unlistenUpdate?.();
       unregister();
     };
   });
@@ -325,6 +333,7 @@
   open={app.dialog === "settings"}
   settings={settings.current}
   plainText={app.plainText}
+  updatesSupported={updates.supported}
   error={settings.error}
   onClose={() => app.close()}
   onSave={async (next, plain) => {
@@ -334,8 +343,15 @@
     app.close();
   }}
 />
+<UpdateBanner
+  version={updates.available}
+  installing={updates.installing}
+  error={updates.error}
+  onInstall={() => void updates.install()}
+  onDismiss={() => updates.dismiss()}
+/>
 <UpdateQuestion
-  open={settings.askUpdate && app.dialog === null}
+  open={settings.askUpdate && updates.supported && app.dialog === null}
   onAnswer={(yes) => void settings.answerUpdate(yes)}
   onDismiss={() => settings.dismissUpdate()}
 />

@@ -349,5 +349,11 @@
   "drafts_to": "To: {recipients}",
   "cmd_drafts": "Drafts…",
   "cmd_drafts_keywords": "draft resume reopen",
-  "drafts_server": "In the server's Drafts folder"
+  "drafts_server": "In the server's Drafts folder",
+  "err_update_failed": "The update could not be installed.",
+  "field_update": "update",
+  "update_available": "Norelly {version} is available.",
+  "update_install": "Install and restart",
+  "update_installing": "Installing…",
+  "update_later": "Later"
 }

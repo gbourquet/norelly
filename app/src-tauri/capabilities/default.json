@@ -3,5 +3,5 @@
   "identifier": "default",
   "description": "Capabilities minimales de la fenêtre principale (ADR-004 : aucune capability pour mailview://).",
   "windows": ["main"],
-  "permissions": ["core:default"]
+  "permissions": ["core:default", "main-window"]
 }

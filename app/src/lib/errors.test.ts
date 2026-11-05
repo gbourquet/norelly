@@ -84,6 +84,7 @@ describe("traduction des erreurs IPC", () => {
       too_many_attachments: true,
       schedule_too_far: true,
       outbox_busy: true,
+      update_failed: true,
       internal: true,
     } satisfies Record<ErrorCodeDto, true>;
     const fields = {
@@ -107,6 +108,7 @@ describe("traduction des erreurs IPC", () => {
       outbox: true,
       query: true,
       settings: true,
+      update: true,
     } satisfies Record<FieldDto, true>;
     const kinds = {
       network: true,

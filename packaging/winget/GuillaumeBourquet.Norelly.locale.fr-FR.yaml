@@ -1,0 +1,14 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.locale.1.10.0.schema.json
+PackageIdentifier: GuillaumeBourquet.Norelly
+PackageVersion: "{{version}}"
+PackageLocale: fr-FR
+Publisher: Guillaume Bourquet
+PackageName: Norelly
+License: MIT OR Apache-2.0
+ShortDescription: Client mail rapide, pilotable au clavier
+Description: >-
+  Norelly est un client mail IMAP et SMTP : boîte unifiée, conversations,
+  actions hors ligne, recherche plein texte, affichage sûr des messages et
+  aucune télémétrie.
+ManifestType: locale
+ManifestVersion: 1.10.0

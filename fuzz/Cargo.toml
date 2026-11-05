@@ -1,0 +1,56 @@
+# Cibles cargo-fuzz (ADR-007), lancées par le job nocturne (nightly.yml) :
+#   cargo +nightly fuzz run <cible> -- -max_total_time=300
+# Hors du workspace : jamais distribué, Rust nightly requis par cargo-fuzz.
+[package]
+name = "norelly-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+license = "MIT OR Apache-2.0"
+
+[package.metadata]
+cargo-fuzz = true
+
+[workspace]
+members = ["."]
+
+[dependencies]
+libfuzzer-sys = "0.4"
+norelly-domain = { path = "../crates/domain" }
+norelly-render = { path = "../crates/adapters/render" }
+norelly-discovery = { path = "../crates/adapters/discovery" }
+
+[[bin]]
+name = "mime_message"
+path = "fuzz_targets/mime_message.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "sanitize_html"
+path = "fuzz_targets/sanitize_html.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "sanitize_css"
+path = "fuzz_targets/sanitize_css.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "autoconfig_xml"
+path = "fuzz_targets/autoconfig_xml.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "search_query"
+path = "fuzz_targets/search_query.rs"
+test = false
+doc = false
+bench = false

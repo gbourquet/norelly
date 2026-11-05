@@ -34,6 +34,8 @@ import {
   type SearchScopeDto,
   type SettingsDto,
   type DraftsDto,
+  type UpdateEventDto,
+  type UpdateStatusDto_Serialize,
 } from "./bindings";
 import { IpcFailure } from "../errors";
 
@@ -76,6 +78,7 @@ export type {
   RemoteDraftDto,
   LanguageDto,
   UpdateCheckDto,
+  UpdateEventDto,
 } from "./bindings";
 export type AddAccountInput = AddAccountInput_Deserialize;
 export type AddAccountResult = AddAccountResultDto_Serialize;
@@ -238,6 +241,15 @@ export const api = {
 
   onComposeEvent: async (listener: (event: ComposeEventDto) => void): Promise<() => void> =>
     events.composeEventDto.listen((e) => listener(e.payload)),
+
+  /** Mises à jour : canal pris en charge, version annoncée (signature vérifiée au téléchargement). */
+  updateStatus: (): Promise<UpdateStatusDto_Serialize> => commands.updateStatus(),
+
+  /** Installe la mise à jour trouvée (l'installateur ferme l'application). */
+  installUpdate: (): Promise<void> => unwrap(commands.installUpdate()).then(() => undefined),
+
+  onUpdateEvent: async (listener: (event: UpdateEventDto) => void): Promise<() => void> =>
+    events.updateEventDto.listen((e) => listener(e.payload)),
 
   /** Abonnement aux événements de synchronisation ; renvoie le retrait. */
   onSyncEvent: async (listener: (event: SyncEventDto) => void): Promise<() => void> =>

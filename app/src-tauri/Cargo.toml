@@ -41,6 +41,9 @@ tauri-plugin-dialog = "2.6"
 # zbus (fonctionnalité `d` : libdbus du système sous Linux) :
 # tauri-plugin-notification tire zbus 5, dont des dépendances sont
 # signalées non maintenues (voir deny.toml).
+# Mises à jour (ADR-006) : installateur NSIS seulement, fonctionnalité
+# `updater` activée par release.yml pour Windows ; absent des autres canaux.
+tauri-plugin-updater = { version = "2", optional = true }
 notify-rust = { version = "4", default-features = false, features = ["d"] }
 norelly-domain.workspace = true
 norelly-application.workspace = true
@@ -52,6 +55,9 @@ norelly-discovery.workspace = true
 norelly-sqlite.workspace = true
 norelly-blobs.workspace = true
 norelly-render.workspace = true
+
+[features]
+updater = ["dep:tauri-plugin-updater"]
 
 [dev-dependencies]
 norelly-test-support.workspace = true

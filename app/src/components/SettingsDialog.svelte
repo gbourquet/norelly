@@ -9,12 +9,14 @@
     open: boolean;
     settings: SettingsDto | null;
     plainText: boolean;
+    /** Canal qui se met à jour lui-même (installateur NSIS). */
+    updatesSupported: boolean;
     error: string | null;
     onSave: (next: SettingsDto, plainText: boolean) => void;
     onClose: () => void;
   }
 
-  let { open, settings, plainText, error, onSave, onClose }: Props = $props();
+  let { open, settings, plainText, updatesSupported, error, onSave, onClose }: Props = $props();
 
   const MIB = 1024 * 1024;
   const THRESHOLDS = [1, 2, 5, 10, 25];
@@ -48,17 +50,19 @@
           <option value="en">{m.settings_language_en()}</option>
         </select>
       </label>
-      <label class="check">
-        <input
-          type="checkbox"
-          checked={draft.update_check === "enabled"}
-          onchange={(e) => {
-            if (draft !== null)
-              draft.update_check = e.currentTarget.checked ? "enabled" : "disabled";
-          }}
-        />
-        {m.settings_updates()}
-      </label>
+      {#if updatesSupported}
+        <label class="check">
+          <input
+            type="checkbox"
+            checked={draft.update_check === "enabled"}
+            onchange={(e) => {
+              if (draft !== null)
+                draft.update_check = e.currentTarget.checked ? "enabled" : "disabled";
+            }}
+          />
+          {m.settings_updates()}
+        </label>
+      {/if}
       <label class="check">
         <input type="checkbox" bind:checked={draft.notifications} />
         {m.settings_notifications()}

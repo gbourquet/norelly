@@ -349,5 +349,11 @@
   "drafts_to": "À : {recipients}",
   "cmd_drafts": "Brouillons…",
   "cmd_drafts_keywords": "brouillon reprendre rouvrir",
-  "drafts_server": "Dans le dossier Brouillons du serveur"
+  "drafts_server": "Dans le dossier Brouillons du serveur",
+  "err_update_failed": "Mise à jour impossible.",
+  "field_update": "mise à jour",
+  "update_available": "La version {version} de Norelly est disponible.",
+  "update_install": "Installer et redémarrer",
+  "update_installing": "Installation…",
+  "update_later": "Plus tard"
 }

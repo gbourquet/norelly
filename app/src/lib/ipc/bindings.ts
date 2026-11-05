@@ -149,12 +149,20 @@ export const commands = {
 	 *  (événement `files_dropped`).
 	 */
 	attachDropped: (account: number, token: number) => typedError<DraftAttachmentDto[], IpcError_Serialize>(__TAURI_INVOKE("attach_dropped", { account, token })),
+	/**  État de la recherche de mises à jour. */
+	updateStatus: () => __TAURI_INVOKE<UpdateStatusDto_Serialize>("update_status"),
+	/**
+	 *  Télécharge et installe la mise à jour en attente (l'installateur ferme
+	 *  l'application).
+	 */
+	installUpdate: () => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("install_update")),
 };
 
 /** Events */
 export const events = {
 	composeEventDto: makeEvent<ComposeEventDto, ComposeEventDto>("compose-event-dto"),
 	syncEventDto: makeEvent<SyncEventDto_Serialize, SyncEventDto_Deserialize>("sync-event-dto"),
+	updateEventDto: makeEvent<UpdateEventDto, UpdateEventDto>("update-event-dto"),
 };
 
 /* Types */
@@ -525,6 +533,11 @@ export type ErrorCodeDto =
 "schedule_too_far" | 
 /**  Envoi non annulable ou non relançable dans son état. */
 "outbox_busy" | 
+/**
+ *  Téléchargement ou installation d'une mise à jour impossible
+ *  (`detail` : erreur brute).
+ */
+"update_failed" | 
 /**  Erreur interne (journalisée). */
 "internal";
 
@@ -543,7 +556,9 @@ export type FieldDto = "address" | "display_name" | "host" | "port" | "username"
 /**  Requête de recherche (trop longue, trop de clauses) ou fuseau. */
 "query" | 
 /**  Paramètres hors bornes. */
-"settings";
+"settings" | 
+/**  Mise à jour de l'application. */
+"update";
 
 /**  Dossier d'un compte. */
 export type FolderDto = {
@@ -778,6 +793,42 @@ export type SyncEventDto_Serialize = { kind: "folder_changed"; account: number; 
 
 /**  Recherche de mises à jour. */
 export type UpdateCheckDto = "not_asked" | "enabled" | "disabled";
+
+/**  Mise à jour trouvée par la recherche périodique. */
+export type UpdateEventDto = { kind: "available"; version: string };
+
+/**  Recherche de mises à jour (ADR-006). */
+export type UpdateStatusDto = UpdateStatusDto_Serialize | UpdateStatusDto_Deserialize;
+
+/**  Recherche de mises à jour (ADR-006). */
+export type UpdateStatusDto_Deserialize = {
+	/**
+	 *  Canal qui se met à jour lui-même (installateur NSIS, aussi
+	 *  distribué par winget) ; ailleurs, la question n'est pas posée
+	 *  (Flathub, .deb, .rpm).
+	 */
+	supported: boolean,
+	/**
+	 *  Version annoncée par le manifeste (revalidée) ; la signature de
+	 *  l'installateur est vérifiée au téléchargement.
+	 */
+	available?: string | null,
+};
+
+/**  Recherche de mises à jour (ADR-006). */
+export type UpdateStatusDto_Serialize = {
+	/**
+	 *  Canal qui se met à jour lui-même (installateur NSIS, aussi
+	 *  distribué par winget) ; ailleurs, la question n'est pas posée
+	 *  (Flathub, .deb, .rpm).
+	 */
+	supported: boolean,
+	/**
+	 *  Version annoncée par le manifeste (revalidée) ; la signature de
+	 *  l'installateur est vérifiée au téléchargement.
+	 */
+	available: string | null,
+};
 
 /* Tauri Specta runtime */
 async function typedError<T, E>(result: Promise<T>): Promise<{ status: "ok"; data: T } | { status: "error"; error: E }> {

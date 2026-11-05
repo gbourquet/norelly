@@ -24,7 +24,7 @@ case "${1:-}" in
     eval "$(printf 'norelly-e2e' | gnome-keyring-daemon --unlock --components=secrets)"
     NORELLY_SECRET_SERVICE_TEST=1 cargo test -p norelly-keyring \
       --test integration_secret_service --offline --locked
-    export NORELLY_APP_BINARY="$CARGO_TARGET_DIR/debug/norelly-app"
+    export NORELLY_APP_BINARY="$CARGO_TARGET_DIR/debug/norelly"
     cd app
     xvfb-run -a --server-args="-screen 0 1280x900x24" \
       node_modules/.bin/wdio run e2e/wdio.conf.mjs
@@ -34,7 +34,7 @@ case "${1:-}" in
       data="$HOME/.local/share/io.github.gbourquet.Norelly"
       rm -rf "$data"
       "$CARGO_TARGET_DIR/debug/examples/seed_perf" "$data/norelly.sqlite3"
-      NORELLY_APP_BINARY="$CARGO_TARGET_DIR/release/norelly-app" \
+      NORELLY_APP_BINARY="$CARGO_TARGET_DIR/release/norelly" \
         xvfb-run -a --server-args="-screen 0 1280x900x24" \
         node_modules/.bin/wdio run e2e/wdio.conf.mjs --spec e2e/perf/perf.e2e.mjs
     fi

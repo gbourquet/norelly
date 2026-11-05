@@ -2,6 +2,8 @@
 
 #![allow(dead_code)]
 
+pub mod scenarios;
+
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::Arc;

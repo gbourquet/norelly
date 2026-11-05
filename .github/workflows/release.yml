@@ -1,0 +1,173 @@
+# Publication sur tag `v*` (ADR-006) : installateur NSIS (Windows, avec mise
+# à jour signée minisign), .deb et .rpm (Linux), sommes SHA-256 et manifeste
+# `latest.json` du module de mise à jour, dans une version GitHub en
+# brouillon que le mainteneur relit puis publie. Le Flatpak passe par Flathub
+# (packaging/flatpak).
+#
+# Secrets de l'environnement GitHub `release` (tags `v*` seulement, relecture
+# obligatoire du mainteneur) : TAURI_SIGNING_PRIVATE_KEY (clé minisign
+# chiffrée ; clé publique dans app/src-tauri/tauri.updater.conf.json) et
+# TAURI_SIGNING_PRIVATE_KEY_PASSWORD. La clé n'est présente que dans
+# l'étape de signature, jamais pendant la compilation (build.rs, macros,
+# plugins Vite). Aucun cache dans les builds de publication
+# (empoisonnement de cache).
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  version:
+    name: Version du tag
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.check.outputs.version }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - id: check
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          version="$(python3 -c 'import json; print(json.load(open("app/src-tauri/tauri.conf.json"))["version"])')"
+          test "v$version" = "$TAG" || { echo "tag $TAG ≠ version $version" >&2; exit 1; }
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+  linux:
+    name: Linux (.deb, .rpm)
+    needs: version
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Dépendances système Tauri
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libsoup-3.0-dev \
+            libayatana-appindicator3-dev librsvg2-dev patchelf libdbus-1-dev
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6
+        with:
+          version: 10
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 24
+      - run: pnpm -C app install --frozen-lockfile
+      - run: pnpm -C app tauri build --bundles deb,rpm -- --locked
+      - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        with:
+          name: linux
+          path: |
+            target/release/bundle/deb/*.deb
+            target/release/bundle/rpm/*.rpm
+          if-no-files-found: error
+
+  windows:
+    name: Windows (NSIS, mise à jour signée)
+    needs: version
+    runs-on: windows-2025
+    environment: release
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6
+        with:
+          version: 10
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 24
+      - run: pnpm -C app install --frozen-lockfile
+      - name: Build NSIS avec le module de mise à jour (sans la clé)
+        run: >
+          pnpm -C app tauri build --bundles nsis
+          --config src-tauri/tauri.updater.conf.json
+          --features updater -- --locked
+      - name: Signature minisign de l'installateur
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          VERSION: ${{ needs.version.outputs.version }}
+        run: >
+          app/node_modules/.bin/tauri signer sign
+          "target/release/bundle/nsis/Norelly_${VERSION}_x64-setup.exe"
+      - name: Manifeste latest.json
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+          REPO: ${{ github.repository }}
+        run: |
+          cd target/release/bundle/nsis
+          installer="Norelly_${VERSION}_x64-setup.exe"
+          test -f "$installer" && test -f "$installer.sig"
+          python - "$installer" <<'PY'
+          import datetime, json, os, sys
+          installer = sys.argv[1]
+          version, repo = os.environ["VERSION"], os.environ["REPO"]
+          manifest = {
+              "version": version,
+              "pub_date": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+              "platforms": {
+                  "windows-x86_64": {
+                      "signature": open(installer + ".sig", encoding="utf-8").read().strip(),
+                      "url": f"https://github.com/{repo}/releases/download/v{version}/{installer}",
+                  }
+              },
+          }
+          json.dump(manifest, open("latest.json", "w", encoding="utf-8"), indent=2)
+          PY
+      - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        with:
+          name: windows
+          path: |
+            target/release/bundle/nsis/*-setup.exe
+            target/release/bundle/nsis/*-setup.exe.sig
+            target/release/bundle/nsis/latest.json
+          if-no-files-found: error
+
+  publish:
+    name: Version GitHub (brouillon)
+    needs: [version, linux, windows]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Manifestes winget (à proposer à microsoft/winget-pkgs)
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          ./scripts/winget-manifests.sh "$VERSION" "dist/Norelly_${VERSION}_x64-setup.exe" winget
+          (cd winget && zip -q "../dist/winget-manifests-${VERSION}.zip" ./*.yaml)
+      - name: Sommes SHA-256
+        run: cd dist && sha256sum -- * > SHA256SUMS && cat SHA256SUMS
+      - name: Brouillon de version
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: >
+          gh release create "$TAG" dist/*
+          --repo "$GITHUB_REPOSITORY" --draft --verify-tag
+          --title "Norelly $TAG" --generate-notes

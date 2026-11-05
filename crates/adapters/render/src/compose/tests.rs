@@ -470,7 +470,9 @@ fn forwarded_attachments_are_decoded_with_safe_names() {
         --b\r\nContent-Type: image/png\r\nContent-Disposition: attachment; filename=logo.png\r\n\
         Content-Transfer-Encoding: base64\r\n\r\niVBORw0K\r\n\
         --b--\r\n";
-    let found = MimeComposer.forwarded_attachments(raw);
+    let found = MimeComposer
+        .forwarded_attachments(raw)
+        .unwrap_or_else(|e| panic!("{e}"));
     assert_eq!(found.len(), 2, "{found:?}");
     let pdf = &found[0];
     assert_eq!(pdf.bytes, b"%PDF-1.4");
@@ -490,7 +492,59 @@ fn messages_without_attachments_forward_nothing() {
     assert!(
         MimeComposer
             .forwarded_attachments(b"Subject: x\r\nContent-Type: text/plain\r\n\r\ncorps\r\n")
-            .is_empty()
+            .is_ok_and(|found| found.is_empty())
     );
-    assert!(MimeComposer.forwarded_attachments(b"\xff\x00").is_empty());
+    assert!(
+        MimeComposer
+            .forwarded_attachments(b"\xff\x00")
+            .is_ok_and(|found| found.is_empty())
+    );
+}
+
+/// Message `multipart/mixed` de `count` pièces jointes de `size` octets
+/// (non encodées : `Content-Transfer-Encoding: 8bit`).
+fn many_attachments(count: usize, size: usize) -> Vec<u8> {
+    let mut raw = b"Subject: x\r\nContent-Type: multipart/mixed; boundary=b\r\n\r\n".to_vec();
+    let body = vec![b'a'; size];
+    for i in 0..count {
+        raw.extend_from_slice(
+            format!(
+                "--b\r\nContent-Type: application/octet-stream\r\n\
+                 Content-Disposition: attachment; filename=p{i}.bin\r\n\r\n"
+            )
+            .as_bytes(),
+        );
+        raw.extend_from_slice(&body);
+        raw.extend_from_slice(b"\r\n");
+    }
+    raw.extend_from_slice(b"--b--\r\n");
+    raw
+}
+
+/// Revue de la phase 9 (BASSE, report) : l'analyse s'arrête dès que les
+/// bornes de l'envoi sont dépassées.
+#[test]
+fn forwarded_attachments_stop_beyond_the_count_limit() {
+    let at_limit = many_attachments(MAX_ATTACHMENTS, 4);
+    assert_eq!(
+        MimeComposer
+            .forwarded_attachments(&at_limit)
+            .map(|found| found.len()),
+        Ok(MAX_ATTACHMENTS)
+    );
+    let beyond = many_attachments(MAX_ATTACHMENTS + 1, 4);
+    assert_eq!(
+        MimeComposer.forwarded_attachments(&beyond),
+        Err(ComposeError::TooManyAttachments)
+    );
+}
+
+#[test]
+fn forwarded_attachments_stop_beyond_the_size_limit() {
+    let size = usize::try_from(MAX_ATTACHMENTS_BYTES / 2).unwrap_or(usize::MAX) + 1;
+    let raw = many_attachments(2, size);
+    assert_eq!(
+        MimeComposer.forwarded_attachments(&raw),
+        Err(ComposeError::AttachmentsTooLarge)
+    );
 }

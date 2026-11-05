@@ -39,6 +39,32 @@ pub enum UpdateCheck {
 impl UpdateCheck {
     /// Réponse présélectionnée au premier lancement.
     pub const PROPOSED: Self = Self::Enabled;
+
+    /// Une recherche de mises à jour est permise : seulement après un
+    /// « oui » explicite (jamais avant que la question soit répondue).
+    #[must_use]
+    pub const fn allows_check(self) -> bool {
+        matches!(self, Self::Enabled)
+    }
+}
+
+/// Intervalle entre deux recherches de mises à jour pendant que
+/// l'application tourne (une au lancement, puis une par jour).
+pub const UPDATE_CHECK_INTERVAL_SECS: u64 = 24 * 60 * 60;
+
+/// Une recherche de mises à jour est due : permise, et jamais faite pendant
+/// cette exécution (`last` : secondes Unix de la dernière) ou faite il y a
+/// au moins [`UPDATE_CHECK_INTERVAL_SECS`]. Une horloge revenue en arrière
+/// ne déclenche rien.
+#[must_use]
+pub const fn update_check_due(check: UpdateCheck, last: Option<u64>, now: u64) -> bool {
+    if !check.allows_check() {
+        return false;
+    }
+    match last {
+        None => true,
+        Some(last) => now >= last && now - last >= UPDATE_CHECK_INTERVAL_SECS,
+    }
 }
 
 /// Paramètres de l'application.
@@ -176,6 +202,35 @@ mod tests {
         );
         assert!(s.notifications && !s.notification_privacy);
         assert_eq!(s.validate(), Ok(()));
+    }
+
+    #[test]
+    fn updates_are_checked_only_after_an_explicit_yes() {
+        assert!(UpdateCheck::Enabled.allows_check());
+        assert!(!UpdateCheck::NotAsked.allows_check(), "pas de consentement");
+        assert!(!UpdateCheck::Disabled.allows_check());
+    }
+
+    #[test]
+    fn update_checks_are_due_at_start_then_daily() {
+        let day = UPDATE_CHECK_INTERVAL_SECS;
+        assert!(update_check_due(UpdateCheck::Enabled, None, 1_000));
+        assert!(!update_check_due(
+            UpdateCheck::Enabled,
+            Some(1_000),
+            1_000 + day - 1
+        ));
+        assert!(update_check_due(
+            UpdateCheck::Enabled,
+            Some(1_000),
+            1_000 + day
+        ));
+        assert!(
+            !update_check_due(UpdateCheck::Enabled, Some(5_000), 1_000),
+            "horloge en arrière"
+        );
+        assert!(!update_check_due(UpdateCheck::NotAsked, None, 1_000));
+        assert!(!update_check_due(UpdateCheck::Disabled, Some(0), day * 10));
     }
 
     #[test]

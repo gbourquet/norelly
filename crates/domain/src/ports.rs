@@ -16,7 +16,7 @@ use crate::address::EmailAddress;
 use crate::auth::{AuthError, AuthMechanism};
 use crate::capabilities::ServerCapabilities;
 use crate::compose::ReplySource;
-use crate::compose::draft::{Draft, DraftSync, Recipient, RemoteCopy};
+use crate::compose::draft::{ComposeError, Draft, DraftSync, Recipient, RemoteCopy};
 use crate::compose::outbox::OutboxEntry;
 use crate::connection::ConnectionError;
 use crate::conversation::ConversationScope;
@@ -1201,8 +1201,11 @@ pub trait MessageComposer: Send + Sync {
 
     /// Pièces jointes d'un message reçu, décodées, pour le transférer :
     /// nom assaini, type, contenu ; corps texte et HTML exclus. Vide s'il
-    /// est illisible.
-    fn forwarded_attachments(&self, raw: &[u8]) -> Vec<ComposedAttachment>;
+    /// est illisible. Mêmes bornes que l'envoi, vérifiées pendant
+    /// l'itération : au-delà de `MAX_ATTACHMENTS` pièces ou de
+    /// `MAX_ATTACHMENTS_BYTES` octets décodés, l'analyse s'arrête sur
+    /// `TooManyAttachments` ou `AttachmentsTooLarge`.
+    fn forwarded_attachments(&self, raw: &[u8]) -> Result<Vec<ComposedAttachment>, ComposeError>;
 
     /// HTML d'un texte brut (échappé, paragraphes), pour reprendre un
     /// brouillon dans l'éditeur.

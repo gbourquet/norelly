@@ -165,7 +165,7 @@ impl<L, B, M, F> PrepareReply<'_, L, B, M, F>
 where
     L: MessageLocator,
     B: BlobStore,
-    M: MessageComposer,
+    M: MessageComposer + Clone + 'static,
     F: RemoteBodyFetcher,
 {
     /// `own` : adresses de l'utilisateur ; `attribution` : en-tête de
@@ -297,7 +297,12 @@ where
         if u64::try_from(raw.len()).unwrap_or(u64::MAX) > 2 * MAX_ATTACHMENTS_BYTES {
             return Err(ComposeError::AttachmentsTooLarge.into());
         }
-        let found = self.composer.forwarded_attachments(raw);
+        // Analyse MIME complète : hors du fil asynchrone.
+        let composer = self.composer.clone();
+        let raw = raw.to_vec();
+        let found = tokio::task::spawn_blocking(move || composer.forwarded_attachments(&raw))
+            .await
+            .map_err(|e| ComposeBuildError::Mime(format!("analyse interrompue : {e}")))??;
         if found.len() > MAX_ATTACHMENTS {
             return Err(ComposeError::TooManyAttachments.into());
         }

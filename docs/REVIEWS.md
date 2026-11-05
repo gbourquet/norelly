@@ -7,6 +7,54 @@ accepté (justification) ou reporté (phase).
 
 ---
 
+# Revue sécurité : phase 10, distribution (2026-11-05)
+
+Périmètre : `git diff phase-9/finitions...HEAD` sur `phase-10/distribution`
+(workflows `ci`, `release`, `nightly` ; image e2e ; Flatpak et sources
+vendorisées ; métadonnées Linux ; winget ; ACL Tauri ; mises à jour ;
+correctifs de la synchronisation et de la rédaction ; fuzzing ; Stalwart).
+Code de Tauri 2.12.5, tauri-plugin-updater 2.14.1 et reqwest 0.13.5 relu
+pour les points en suspens.
+
+Bilan : 0 critique, 0 haute, 2 moyennes, 5 basses, points INFO. Corrigés :
+une moyenne (en partie : le reste relève du mainteneur), quatre basses ; la
+seconde moyenne et une basse sont acceptées provisoirement. `cargo deny`
+(toutes fonctionnalités, `tauri-plugin-updater` compris), `pnpm audit --prod`
+et `check-sql.sh` sans constat.
+
+## [MOYENNE] Clé minisign exposée à toute la compilation, sans environnement protégé, sans mot de passe
+- La clé était dans l'environnement de `tauri build` (build.rs, macros, plugins Vite des ~640 crates et paquets) ; secret de dépôt lisible par un workflow poussé sur n'importe quelle branche ; clé locale sans mot de passe. Une clé fuitée signe des installateurs acceptés par tous les clients déjà installés.
+- Statut : **corrigé** : compilation sans la clé puis étape de signature séparée (`tauri signer sign` sur le seul installateur) ; job dans l'environnement GitHub `release` ; aucun cache. Fait par le mainteneur (2026-11-05) : environnement `release` créé (tags `v*`, relecteur obligatoire) avec les deux secrets, tags `v*` protégés (ruleset), clé régénérée avec un mot de passe (clé publique `112E2BD55AB163D2` dans `tauri.updater.conf.json`), copie hors ligne de la clé et du mot de passe. Rotation : une nouvelle clé exige une version de transition signée par l'ancienne qui embarque la nouvelle clé publique.
+
+## [MOYENNE] Flatpak : `--talk-name=org.freedesktop.secrets` ouvre tout le trousseau de session
+- Une exécution de code dans le processus (faille WebKitGTK ou MIME) lirait tous les secrets de l'utilisateur, pas seulement ceux de Norelly.
+- Statut : **accepté** par le mainteneur (2026-11-05, dérogation consignée dans l'ADR-006) : le portail Secret (trousseau propre à l'application) passe par `oo7`, donc zbus, écarté par `deny.toml` ; l'accès direct au Secret Service est maintenu.
+
+## [BASSE] Cache pnpm restauré dans les builds de publication
+- Statut : **corrigé** : `cache: pnpm` retiré de `release.yml`.
+
+## [BASSE] ACL : `mailview://` et `remote-img://` sont des origines locales pour Tauri, non testé
+- La capability ne distingue pas l'iframe de lecture ; ce qui protège réellement : l'invoke key injectée dans le seul cadre principal, l'`Origin` « null » de l'iframe opaque rejeté, la sandbox et la CSP de `mailview://`.
+- Statut : **accepté** : l'application factice de `tauri::test` n'enregistre pas les protocoles (une origine `mailview://` y serait « distante ») ; le garde-fou reste le test e2e de la phase 5 (aucun accès à l'IPC depuis l'iframe), exigé à chaque montée de version de Tauri.
+
+## [BASSE] Repli « réponse SELECT incomplète » sans test rapide de l'adaptateur
+- Statut : **corrigé** : test `undecodable_examine_response_marks_the_selection_incomplete` (faux serveur : `* VANISHED (EARLIER) 0:1` pendant `EXAMINE … QRESYNC`, puis réponse saine : compteur remis à zéro) ; suppression de la ligne vérifiée détectée.
+
+## [BASSE] Recherche et téléchargement de mise à jour sans délai
+- Statut : **corrigé** : 30 s par requête (`updater_builder().timeout`), 60 s par recherche, 15 min pour le téléchargement.
+
+## [BASSE] winget distribue l'installateur qui se met à jour lui-même
+- Statut : **corrigé** (documentation) : commentaires de `updates.rs` et `ipc.rs` alignés (winget = même installateur NSIS, mise à jour propre avec consentement).
+
+## [INFO] Points relevés
+- Corrigés : formulation « signature vérifiée » (`ipc.rs`, `api.ts`) : `check()` ne lit que `latest.json`, la signature est vérifiée au téléchargement ; `persist-credentials: false` dans `ci.yml` ; autorisation de licence `Unicode-DFS-2016` inutile retirée de `deny.toml`.
+- Rétrogradation : la signature porte sur le fichier, pas sur la version ; exige l'écriture sur le dépôt (comparateur strict et URL fixe en HTTPS corrects, aucun identifiant envoyé).
+- TLS de l'updater : rustls, vérificateur de la plateforme, aucun `dangerous_*` (ADR-002).
+- À suivre : chaîne `stable` et outils de `install-action` flottants ; pas d'attestation de provenance ni de `SHA256SUMS` signé ; paquets apt de l'image e2e non figés ; `fuzz/Cargo.lock` hors `cargo deny` ; oracle de `sanitize_html` limité à `<script` (à enrichir : `on*`, `javascript:` en attribut, `<iframe>`, `<base>`, `<meta>`, `<form>`) ; Flathub demandera une source `git` (tag et commit) au lieu de `type: dir` ; `--filesystem=xdg-download` à revoir si le sélecteur passe par le portail ; installateur non signé (Authenticode) tant que SignPath n'a pas accepté le projet ; `core:default` réductible.
+- Sans constat : interpolations `${{ }}` (aucune donnée contrôlable dans un `run:`), permissions des workflows, vérification tag = version, regex de version de `winget-manifests.sh`, `flatpak-sources.py` (crates.io et SHA-512 seulement, `--check`), registre npm local hors réseau doublement vérifié, finish-args sans `home` ni `session-bus`, ACL des 40 commandes, consentement et revalidation des mises à jour, repli `UidCompare`, Stalwart figé par empreinte, métadonnées de bureau.
+
+---
+
 # Revue sécurité : phase 9, notifications et finitions (2026-11-04)
 
 Périmètre : `439e28c..HEAD` sur `phase-9/finitions` (notifications,
@@ -32,10 +80,10 @@ reportée. `cargo deny`, `pnpm audit --prod` et `check-sql.sh` sans constat.
 - Statut : **corrigé** : `prepare_compose` (`Resume`) vérifie, avant tout téléchargement ou écriture, que le message appartient au compte et à son dossier « Brouillons » ; test `only_drafts_folder_messages_can_be_resumed`.
 
 ## [BASSE] Pièces jointes transférées : analyse complète avant les bornes, sur le fil async
-- Statut : **corrigé en partie** : borne de taille (2 × 25 Mio) appliquée avant l'analyse, que le message soit local ou téléchargé (test `oversized_messages_are_refused_before_parsing`). **Reporté** (phase 10) : analyse dans `spawn_blocking` et arrêt au-delà de 100 pièces pendant l'itération.
+- Statut : **corrigé en partie** : borne de taille (2 × 25 Mio) appliquée avant l'analyse, que le message soit local ou téléchargé (test `oversized_messages_are_refused_before_parsing`). **Corrigé** (phase 10) : analyse dans `spawn_blocking` (test `forwarded_attachments_are_parsed_off_the_async_thread`), arrêt dès 100 pièces ou 25 Mio pendant l'itération (`forwarded_attachments_stop_beyond_the_count_limit`, `…_size_limit`).
 
 ## [BASSE] `hostile_message_sql.rs` non étendu aux nouveaux champs stockés
-- Statut : **reporté** (phase 10) : envoi programmé (`outbox.draft_content`) et transfert depuis le message piégé, avec reprise.
+- Statut : **corrigé** (phase 10) : transfert et reprise d'un message piégé à pièce jointe au nom piégé, envoi programmé (`outbox.draft_content`) puis repris, relus à l'identique (mutation du stockage vérifiée détectée).
 
 ## [INFO] Points relevés sans action immédiate
 - `open_draft(id)` ne prend pas de compte (application mono-utilisateur) ; à aligner sur `unschedule_send`.
@@ -293,8 +341,11 @@ ni SQL ; aucun secret dans `detail` ; `cargo deny`, `pnpm audit --prod` et
   destructrices et ne sont pas restreintes à la fenêtre `main`.
   Aujourd'hui, la sandbox opaque de `mailview://` et la CSP empêchent tout
   accès à l'IPC (test e2e de la phase 5).
-- Statut : **reporté** (constat de la phase 3, phase 10 : revue des
-  capabilities Tauri).
+- Statut : **corrigé** (phase 10) : manifeste applicatif (`build.rs`,
+  `ipc-commands.rs`), permissions accordées à la seule fenêtre `main` par
+  la capability `default` (`permissions/main-window.toml`) ; test
+  `acl_tests::app_commands_are_granted_to_the_main_window_only` (autre
+  fenêtre et origine distante refusées, avec la configuration réelle).
 
 ## [BASSE] File `pending_ops` non bornée, fusion quadratique, application partielle
 - La file est relue pour chaque opération planifiée ; chaque `record` est
@@ -648,6 +699,8 @@ reporté ci-dessous.
   par script (image de test uniquement, jamais distribuée, reconstruite
   seulement quand le Dockerfile change) ; à remplacer par des archives
   vérifiées par SHA-256 avec le durcissement de la CI (phase 10).
+  **Corrigé (phase 10)** : rustup-init, Node.js et pnpm téléchargés en
+  archives figées vérifiées par SHA-256 ; actions GitHub figées par SHA.
 
 ## [BASSE] Infrastructure e2e : réseau non isolé, dépôt en écriture, `PATH` préfixé par le cache
 - **Statut : corrigé.** Compilation et scénarios dans deux conteneurs : les

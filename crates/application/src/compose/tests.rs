@@ -1151,3 +1151,53 @@ async fn delivery_stops_on_authentication_or_security_failure() {
         assert_eq!(w.entries().await[1], OutboxEntry::queued(NOW));
     }
 }
+
+/// Composeur qui note le fil où l'analyse des pièces jointes s'exécute.
+#[derive(Debug, Clone, Default)]
+struct ThreadRecorder(std::sync::Arc<std::sync::Mutex<Option<std::thread::ThreadId>>>);
+
+impl MessageComposer for ThreadRecorder {
+    fn new_message_id(&self, from: &EmailAddress) -> Result<String, ComposeBuildError> {
+        MimeComposer.new_message_id(from)
+    }
+    fn compose(&self, composition: &Composition) -> Result<ComposedMessage, ComposeBuildError> {
+        MimeComposer.compose(composition)
+    }
+    fn reply_source(&self, raw: &[u8]) -> Option<norelly_domain::compose::ReplySource> {
+        MimeComposer.reply_source(raw)
+    }
+    fn forwarded_attachments(&self, raw: &[u8]) -> Result<Vec<ComposedAttachment>, ComposeError> {
+        if let Ok(mut seen) = self.0.lock() {
+            *seen = Some(std::thread::current().id());
+        }
+        MimeComposer.forwarded_attachments(raw)
+    }
+    fn text_html(&self, text: &str) -> String {
+        MimeComposer.text_html(text)
+    }
+    fn quote_html(&self, text: &str, attribution: &str) -> String {
+        MimeComposer.quote_html(text, attribution)
+    }
+}
+
+/// Revue de la phase 9 (BASSE, report) : l'analyse des pièces jointes
+/// transférées ne bloque pas le fil asynchrone.
+#[tokio::test]
+async fn forwarded_attachments_are_parsed_off_the_async_thread() {
+    let w = world(true).await;
+    let recorder = ThreadRecorder::default();
+    let prepare = PrepareReply {
+        locator: &w.mail,
+        blobs: &w.blobs,
+        composer: &recorder,
+        fetcher: &NoFetch,
+    };
+    let found = prepare
+        .forwarded_attachments(account(), WITH_ATTACHMENT)
+        .await
+        .unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(found.len(), 1);
+    let seen = recorder.0.lock().ok().and_then(|seen| *seen);
+    assert!(seen.is_some());
+    assert_ne!(seen, Some(std::thread::current().id()));
+}

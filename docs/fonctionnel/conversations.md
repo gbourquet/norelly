@@ -5,7 +5,8 @@
 ## But
 
 Présenter les messages d'un dossier, ou de toutes les boîtes de réception,
-regroupés par conversation, instantanément même sur 50 000 messages.
+regroupés par conversation, sans attente même sur des dizaines de milliers
+de messages.
 
 ## Comportement attendu
 
@@ -17,48 +18,52 @@ regroupés par conversation, instantanément même sur 50 000 messages.
   de tous les comptes, mêlées par date.
 - Ouvrir une conversation affiche ses messages empilés, du plus ancien au
   plus récent ; un clic sur l'en-tête d'un message le replie ou le déplie.
-- La liste est **virtualisée** : seules les lignes visibles sont rendues ;
-  les pages sont demandées à Rust au fil du défilement.
+- Le défilement reste fluide quelle que soit la taille du dossier : la
+  liste se complète au fil du défilement.
 - La largeur des panneaux se règle (souris ou clavier) et est mémorisée.
 
-## Règles métier
+## Règles
 
-| Règle | Où |
-|---|---|
-| Regroupement JWZ : `References`, puis `In-Reply-To`, puis sujet en dernier recours | `crates/domain/src/conversation.rs` (`thread`) |
-| Version incrémentale (`assign`) : un message rejoint toute conversation dont il connaît un identifiant ; fusion si besoin ; converge vers JWZ quel que soit l'ordre d'arrivée (propriété testée) | `conversation.rs` |
-| Regroupement par sujet seulement pour une **réponse** (préfixe `Re:`, `Fwd:`… ou références sans correspondance), dans une fenêtre de 31 jours | `conversation.rs` (`SUBJECT_WINDOW_SECS`) |
-| Préfixes reconnus : `Re`, `RE`, `Fwd`, `Fw`, `TR`, `AW`, `WG`, `SV`, `VS`, `Antw`, `RIF`, `R`, `RE :`… (liste fixe) | `conversation.rs` (`strip_prefix`) |
-| Une conversation n'est jamais scindée quand un message qui la reliait disparaît | ADR-003, `crates/adapters/sqlite/src/conversations.rs` |
-| Pages de 500 au plus ; 500 messages au plus par conversation affichée | `crates/domain/src/ports.rs` (`MAX_PAGE_SIZE`, `MAX_CONVERSATION_MESSAGES`) |
-| Lecture paginée par curseur (CQRS léger, ADR-008) | ports `ConversationQuery`, `MessageListQuery` |
+- **Regroupement** : un message rejoint la conversation du message auquel
+  il répond, d'après les références que portent les messages ; le sujet ne
+  sert qu'en dernier recours.
+- Le regroupement est le même quel que soit l'ordre d'arrivée des
+  messages : deux conversations se réunissent quand arrive le message qui
+  les relie.
+- **Regroupement par sujet** : seulement pour une **réponse** (sujet
+  commençant par `Re:`, `Fwd:`… ou réponse dont l'original est inconnu),
+  et dans une fenêtre de 31 jours.
+- Préfixes de réponse reconnus, dans plusieurs langues : `Re`, `RE`, `Fwd`,
+  `Fw`, `TR`, `AW`, `WG`, `SV`, `VS`, `Antw`, `RIF`, `R`, `RE :`…
+- Une conversation n'est jamais scindée quand un message qui la reliait
+  disparaît.
+- Une conversation affiche au plus ses 500 messages.
 
 ## Cas limites
 
-- Deux messages « Bonjour » sans rapport : jamais réunis (pas une réponse).
+- Deux messages « Bonjour » sans rapport : jamais réunis (ce ne sont pas
+  des réponses).
 - Une réponse arrivée avant le message d'origine : rattachée à l'arrivée de
-  l'original (fusion).
+  l'original.
 - Dans la boîte unifiée, les actions visent chaque conversation dans son
   compte ; « déplacer » exige des conversations d'un seul compte.
-- Mesures (bench, 50 000 messages) : première page ≈ 0,3 ms ; changement de
-  dossier de bout en bout 13 à 16 ms (PLAN, phase 9).
 
 ## Messages affichés
 
-| Clé | Texte (fr) |
+| Situation | Texte |
 |---|---|
-| `list_empty` | Aucune conversation. |
-| `mailbox_unified_inbox` | Boîte de réception unifiée |
-| `common_no_subject` | (sans objet) |
-| `common_unknown_sender` | (expéditeur inconnu) |
-| `list_marked` | {count} sélectionnée(s) |
+| Dossier vide | Aucune conversation. |
+| Boîte unifiée | Boîte de réception unifiée |
+| Message sans sujet | (sans objet) |
+| Expéditeur absent | (expéditeur inconnu) |
+| Sélection | {count} sélectionnée(s) |
 
 ## Raccourcis
 
 | Commande | Raccourci |
 |---|---|
-| `conversation.next` (Conversation suivante) | `j` |
-| `conversation.previous` (Conversation précédente) | `k` |
-| `conversation.open` (Ouvrir la conversation) | `Entrée` |
-| `conversation.back` (Retour à la liste) | `Échap` |
-| `mailbox.unified` (Boîte de réception unifiée) | palette |
+| Conversation suivante | `j` |
+| Conversation précédente | `k` |
+| Ouvrir la conversation | `Entrée` |
+| Retour à la liste | `Échap` |
+| Boîte de réception unifiée | palette |

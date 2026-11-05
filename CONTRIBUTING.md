@@ -43,10 +43,13 @@ Prérequis et pas à pas (ajouter une commande IPC, une migration) :
 6. **Documentation à jour** : une nouvelle commande du registre figure dans
    l'aide-mémoire `docs/utilisateur/{fr,en}/shortcuts.md` ; une nouvelle
    page utilisateur existe dans les deux langues ; une fonctionnalité
-   modifiée met à jour sa fiche dans `docs/fonctionnel/`. Les captures
+   modifiée met à jour sa fiche dans `docs/fonctionnel/` (comportement
+   seulement, sans vocabulaire technique) et sa correspondance avec le code
+   dans `docs/technique/tracabilite.md`. Les captures
    d'écran sont régénérées par `pnpm -C app e2e`, jamais retouchées à la
-   main. `./scripts/check-docs.sh` vérifie liens, pages, captures et
-   aide-mémoire.
+   main. `./scripts/check-docs.sh` vérifie liens, pages, captures,
+   aide-mémoire et l'absence de vocabulaire technique dans
+   `docs/fonctionnel/`.
 7. **Langue** : code, commentaires, documentation et commits en français ;
    identifiants en anglais.
 

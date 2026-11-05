@@ -312,9 +312,9 @@ Trois documentations, chacune pour son public. Le français est la langue source
 
 - [x] Documentation fonctionnelle (`docs/fonctionnel/`) :
   - présentation du produit : à qui il s'adresse, ce qu'il fait et ne fait pas, principes (sécurité, hors ligne, clavier) ;
-  - liste des fonctionnalités, puis une fiche par fonctionnalité : but, comportement attendu, règles métier (renvoi vers le domaine), cas limites, messages affichés, raccourcis ;
+  - liste des fonctionnalités, puis une fiche par fonctionnalité : but, comportement attendu, règles, cas limites, messages affichés, raccourcis ;
   - glossaire (conversation, boîte unifiée, brouillon, file d'envoi…).
-  - `docs/fonctionnel/README.md` (présentation, fonctionnalités), 12 fiches (comptes, synchronisation, conversations, lecture, actions, rédaction, brouillons, envoi, recherche, notifications, paramètres, clavier), `glossaire.md`. Constats faits en rédigeant (pas de bouton pour écrire ou répondre, ouverture sans marquage « lu »…) : `docs/RELECTURE.md`, à trancher par le mainteneur.
+  - `docs/fonctionnel/README.md` (présentation, fonctionnalités), 12 fiches (comptes, synchronisation, conversations, lecture, actions, rédaction, brouillons, envoi, recherche, notifications, paramètres, clavier), `glossaire.md`. Correspondance avec le code dans `docs/technique/tracabilite.md` (relecture du mainteneur : aucun vocabulaire technique dans les fiches, vérifié par `check-docs.sh`). Constats faits en rédigeant (pas de bouton pour écrire ou répondre, ouverture sans marquage « lu »…) : `docs/RELECTURE.md`, à trancher par le mainteneur.
 - [x] Documentation technique (`docs/technique/`, `CONTRIBUTING.md`), pour qu'un développeur puisse contribuer sans aide :
   - technologies et versions, avec la raison de chaque choix (renvoi vers DECISIONS.md) ;
   - architecture hexagonale : domaine, ports, adaptateurs, application, point d'assemblage Tauri, contrat IPC, flux principaux (synchronisation, lecture sécurisée, actions hors ligne, envoi) avec schémas ;

@@ -16,55 +16,58 @@ hors ligne, avec quelques filtres simples.
 - `j`/`k` parcourent les résultats ; Entrée ouvre la conversation **dans le
   dossier du message** (les actions s'y appliquent) ; Échap revient aux
   résultats, puis ferme la recherche.
-- Portée : tous les comptes (ou un compte, un dossier, selon l'appelant).
-- Fonctionne **hors ligne** : l'index est local.
+- Portée : tous les comptes.
+- Fonctionne **hors ligne** : la recherche porte sur la copie locale.
 
-## Règles métier
+## Règles
 
-Syntaxe (`crates/domain/src/search.rs`, `parse_query`) :
+Syntaxe :
 
 | Syntaxe | Effet |
 |---|---|
-| mots libres | cherchés partout (sujet, expéditeur, destinataires, texte), **en préfixe** à partir de deux lettres (`fact` trouve « facture ») |
+| mots libres | cherchés partout (sujet, expéditeur, destinataires, texte), **en début de mot** à partir de deux lettres (`fact` trouve « facture ») |
 | `"phrase exacte"` | expression ; guillemet final facultatif |
 | `from:`, `to:` (À et Cc), `subject:` | sur un champ, suivis d'un mot ou d'une phrase |
-| `has:attachment`, `is:unread`, `is:read`, `is:flagged` | filtres |
-| `before:AAAA-MM-JJ`, `after:AAAA-MM-JJ` | `before` exclut le jour, `after` l'inclut ; début du jour selon le fuseau de l'utilisateur |
-| `-clause` | exclusion |
+| `has:attachment`, `is:unread`, `is:read`, `is:flagged` | filtres : avec pièce jointe, non lu, lu, suivi |
+| `before:AAAA-MM-JJ`, `after:AAAA-MM-JJ` | `before` exclut le jour, `after` l'inclut ; la journée commence à minuit, heure de l'utilisateur |
+| `-critère` | exclusion |
 
-| Règle | Où |
-|---|---|
-| Clauses combinées par « et » ; opérateur inconnu ou valeur invalide (`is:bleu`, `before:hier`) cherchés comme du texte : une faute de frappe ne fait jamais échouer | `search.rs` |
-| Requête bornée : 512 caractères, 16 clauses | `search.rs` (`MAX_QUERY_CHARS`, `MAX_CLAUSES`) |
-| Casse et diacritiques ignorés (pliage aligné sur `unicode61 remove_diacritics 2`) ; surlignage en segments de texte, jamais en HTML | `search.rs` |
-| Chaque clause devient une chaîne FTS5 entre guillemets, en paramètre lié : aucun mot de l'utilisateur n'est lu comme un opérateur | `crates/adapters/sqlite/src/search.rs` |
-| Classement BM25 pondéré (sujet 10, expéditeur 5, destinataires 3, texte 1) ; 1 000 résultats au plus ; doublons de `\All` (Gmail) écartés | `search.rs` (sqlite), ADR-003 |
-| Texte indexé : partie texte, sinon HTML réassaini réduit au texte, pièces jointes exclues, 100 000 caractères au plus | `crates/adapters/render/src/search_text.rs` |
-| Une recherche est interrompue au-delà de 2 s | `crates/adapters/sqlite/src/search.rs` |
+- Les critères se cumulent (tous doivent être vérifiés).
+- **Une faute de frappe ne fait jamais échouer la recherche** : un filtre
+  inconnu ou une valeur invalide (`is:bleu`, `before:hier`) sont cherchés
+  comme du texte.
+- Requête de 512 caractères et 16 critères au plus.
+- Majuscules et accents ignorés : `ecole` trouve « École ».
+- Pertinence : un mot trouvé dans le sujet compte plus que dans
+  l'expéditeur, puis les destinataires, puis le texte.
+- 1 000 résultats au plus ; un même message présent dans plusieurs
+  dossiers (Gmail) n'apparaît qu'une fois.
+- Texte cherché : le texte du message (ou, à défaut, sa version mise en
+  forme réduite au texte), sans les pièces jointes, jusqu'à 100 000
+  caractères par message.
+- Une recherche trop longue est interrompue au-delà de 2 secondes.
 
 ## Cas limites
 
-- Pas de racinisation ni de tolérance aux fautes (ADR-003) : « cheval » ne
-  trouve pas « chevaux ».
-- Requête trop longue ou trop de critères : `err_invalid_input` avec le
-  champ `field_query`.
-- Requêtes hostiles (`OR`, `NEAR`, `col:`, `^`, `*`, parenthèses…) :
-  cherchées comme du texte (tests de contrat).
-- Mesure (bench, 50 000 messages de 300 mots) : 0,3 à 89 ms selon la
-  requête, seuil 100 ms.
+- Pas de recherche des formes voisines d'un mot ni de tolérance aux fautes
+  : « cheval » ne trouve pas « chevaux ».
+- Requête trop longue ou trop de critères : refusée, avec un message sur le
+  champ de recherche.
+- Mots ou symboles qu'un moteur de recherche pourrait lire comme des
+  opérateurs (`OR`, `NEAR`, `*`, parenthèses…) : cherchés comme du texte.
 
 ## Messages affichés
 
-| Clé | Texte (fr) |
+| Situation | Texte |
 |---|---|
-| `search_placeholder` | Rechercher… (from:, subject:, has:attachment, "phrase") |
-| `search_none` | Aucun message trouvé. |
-| `search_close` | Fermer la recherche |
+| Champ de recherche | Rechercher… (from:, subject:, has:attachment, "phrase") |
+| Aucun résultat | Aucun message trouvé. |
+| Fermeture | Fermer la recherche |
 
 ## Raccourcis
 
 | Commande | Raccourci |
 |---|---|
-| `search.open` (Rechercher dans les messages) | `/` |
-| `conversation.next`, `conversation.previous` (dans les résultats) | `j`, `k` |
-| `conversation.open`, `conversation.back` | `Entrée`, `Échap` |
+| Rechercher dans les messages | `/` |
+| Résultat suivant, précédent | `j`, `k` |
+| Ouvrir, revenir | `Entrée`, `Échap` |

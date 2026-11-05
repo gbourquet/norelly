@@ -293,13 +293,13 @@ Commandes de référence (détail dans `scripts/check.sh`) :
 
 ## Phase 10 : distribution
 
-- [ ] `release.yml` : build NSIS (Windows), .deb et .rpm (Linux) sur tag, artefacts publiés sur GitHub Releases
+- [x] `release.yml` : build NSIS (Windows), .deb et .rpm (Linux) sur tag, artefacts publiés sur GitHub Releases
 - [x] `tauri-plugin-updater` (NSIS uniquement, feature `updater`), signature minisign, manifeste JSON sur GitHub Releases
 - [x] Manifeste Flatpak `io.github.gbourquet.Norelly` (runtime GNOME, sources cargo et npm vendorisées, autorisations minimales), avec un build local qui passe
-- [ ] Manifeste winget
+- [x] Manifeste winget
 - [x] Métadonnées AppStream, icônes, fichier `.desktop` (traduits en français et en anglais, ADR-011)
-- [ ] Dossier de candidature SignPath Foundation
-- [ ] `nightly.yml` : fuzzing court, bench, Stalwart en second serveur
+- [x] Dossier de candidature SignPath Foundation
+- [x] `nightly.yml` : fuzzing court, bench, Stalwart en second serveur
 - [ ] Revue security-reviewer finale (chaîne d'approvisionnement, autorisations Flatpak, capabilities Tauri), consignée dans REVIEWS.md
 
 - État au 2026-11-04 (session interrompue, limite d'usage) :

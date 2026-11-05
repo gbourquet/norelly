@@ -32,10 +32,10 @@ reportée. `cargo deny`, `pnpm audit --prod` et `check-sql.sh` sans constat.
 - Statut : **corrigé** : `prepare_compose` (`Resume`) vérifie, avant tout téléchargement ou écriture, que le message appartient au compte et à son dossier « Brouillons » ; test `only_drafts_folder_messages_can_be_resumed`.
 
 ## [BASSE] Pièces jointes transférées : analyse complète avant les bornes, sur le fil async
-- Statut : **corrigé en partie** : borne de taille (2 × 25 Mio) appliquée avant l'analyse, que le message soit local ou téléchargé (test `oversized_messages_are_refused_before_parsing`). **Reporté** (phase 10) : analyse dans `spawn_blocking` et arrêt au-delà de 100 pièces pendant l'itération.
+- Statut : **corrigé en partie** : borne de taille (2 × 25 Mio) appliquée avant l'analyse, que le message soit local ou téléchargé (test `oversized_messages_are_refused_before_parsing`). **Corrigé** (phase 10) : analyse dans `spawn_blocking` (test `forwarded_attachments_are_parsed_off_the_async_thread`), arrêt dès 100 pièces ou 25 Mio pendant l'itération (`forwarded_attachments_stop_beyond_the_count_limit`, `…_size_limit`).
 
 ## [BASSE] `hostile_message_sql.rs` non étendu aux nouveaux champs stockés
-- Statut : **reporté** (phase 10) : envoi programmé (`outbox.draft_content`) et transfert depuis le message piégé, avec reprise.
+- Statut : **corrigé** (phase 10) : transfert et reprise d'un message piégé à pièce jointe au nom piégé, envoi programmé (`outbox.draft_content`) puis repris, relus à l'identique (mutation du stockage vérifiée détectée).
 
 ## [INFO] Points relevés sans action immédiate
 - `open_draft(id)` ne prend pas de compte (application mono-utilisateur) ; à aligner sur `unschedule_send`.
@@ -293,8 +293,11 @@ ni SQL ; aucun secret dans `detail` ; `cargo deny`, `pnpm audit --prod` et
   destructrices et ne sont pas restreintes à la fenêtre `main`.
   Aujourd'hui, la sandbox opaque de `mailview://` et la CSP empêchent tout
   accès à l'IPC (test e2e de la phase 5).
-- Statut : **reporté** (constat de la phase 3, phase 10 : revue des
-  capabilities Tauri).
+- Statut : **corrigé** (phase 10) : manifeste applicatif (`build.rs`,
+  `ipc-commands.rs`), permissions accordées à la seule fenêtre `main` par
+  la capability `default` (`permissions/main-window.toml`) ; test
+  `acl_tests::app_commands_are_granted_to_the_main_window_only` (autre
+  fenêtre et origine distante refusées, avec la configuration réelle).
 
 ## [BASSE] File `pending_ops` non bornée, fusion quadratique, application partielle
 - La file est relue pour chaque opération planifiée ; chaque `record` est
@@ -648,6 +651,8 @@ reporté ci-dessous.
   par script (image de test uniquement, jamais distribuée, reconstruite
   seulement quand le Dockerfile change) ; à remplacer par des archives
   vérifiées par SHA-256 avec le durcissement de la CI (phase 10).
+  **Corrigé (phase 10)** : rustup-init, Node.js et pnpm téléchargés en
+  archives figées vérifiées par SHA-256 ; actions GitHub figées par SHA.
 
 ## [BASSE] Infrastructure e2e : réseau non isolé, dépôt en écriture, `PATH` préfixé par le cache
 - **Statut : corrigé.** Compilation et scénarios dans deux conteneurs : les

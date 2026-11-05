@@ -1,0 +1,8 @@
+# Manifeste winget (version), modèle rempli par release.yml
+# (scripts/winget-manifests.sh) puis proposé à microsoft/winget-pkgs.
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.version.1.10.0.schema.json
+PackageIdentifier: GuillaumeBourquet.Norelly
+PackageVersion: "{{version}}"
+DefaultLocale: en-US
+ManifestType: version
+ManifestVersion: 1.10.0

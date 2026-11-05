@@ -143,10 +143,19 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
       - uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
         with:
           path: dist
           merge-multiple: true
+      - name: Manifestes winget (à proposer à microsoft/winget-pkgs)
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          ./scripts/winget-manifests.sh "$VERSION" "dist/Norelly_${VERSION}_x64-setup.exe" winget
+          (cd winget && zip -q "../dist/winget-manifests-${VERSION}.zip" ./*.yaml)
       - name: Sommes SHA-256
         run: cd dist && sha256sum -- * > SHA256SUMS && cat SHA256SUMS
       - name: Brouillon de version

@@ -1,0 +1,21 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.10.0.schema.json
+PackageIdentifier: GuillaumeBourquet.Norelly
+PackageVersion: "{{version}}"
+PackageLocale: en-US
+Publisher: Guillaume Bourquet
+PublisherUrl: https://github.com/gbourquet
+PackageName: Norelly
+PackageUrl: https://github.com/gbourquet/norelly
+License: MIT OR Apache-2.0
+LicenseUrl: https://github.com/gbourquet/norelly/blob/master/LICENSE-MIT
+ShortDescription: Fast email client you can drive from the keyboard
+Description: >-
+  Norelly is an IMAP and SMTP email client: unified inbox, conversations,
+  offline actions, full-text search, safe message display and no telemetry.
+Tags:
+  - email
+  - imap
+  - smtp
+  - mail-client
+ManifestType: defaultLocale
+ManifestVersion: 1.10.0

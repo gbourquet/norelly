@@ -1,4 +1,4 @@
-// Documentation utilisateur (phase 11) : chaque commande du registre figure
+// Documentation utilisateur : chaque commande du registre figure
 // dans l'aide-mémoire des raccourcis, dans les deux langues, avec son
 // libellé de l'interface et, si elle en a un, son raccourci tel que l'aide
 // (« ? ») l'affiche. Lancé aussi par scripts/check-docs.sh.

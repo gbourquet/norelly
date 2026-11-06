@@ -49,7 +49,7 @@ export const config = {
   },
 
   // Profil neuf : la question des mises à jour du premier lancement est
-  // posée (phase 9) ; on y répond « Non » avant les scénarios. Absente
+  // posée ; on y répond « Non » avant les scénarios. Absente
   // (déjà répondue dans ce profil) : rien à faire.
   before: async () => {
     const { $ } = await import("@wdio/globals");

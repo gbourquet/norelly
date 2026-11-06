@@ -1,4 +1,4 @@
-// Recherche plein texte de bout en bout (phase 8), contre Dovecot :
+// Recherche plein texte de bout en bout, contre Dovecot :
 // - « / » ouvre la barre ; un mot présent seulement dans le texte du
 //   message le trouve (texte indexé à la synchronisation), surligné dans
 //   l'extrait ;

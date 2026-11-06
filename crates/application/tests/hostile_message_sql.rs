@@ -212,7 +212,7 @@ async fn trapped_messages_cannot_alter_the_database() -> Result<(), Box<dyn std:
         );
     }
 
-    // Conversations (phase 5) : identifiants et clés de sujet piégés
+    // Conversations : identifiants et clés de sujet piégés
     // stockés comme données, relus par les requêtes d'écran.
     let conversations = l
         .store
@@ -252,7 +252,7 @@ async fn trapped_messages_cannot_alter_the_database() -> Result<(), Box<dyn std:
     prefs.set_prefer_plain_text(true).await?;
     assert!(prefs.prefer_plain_text().await?);
 
-    // Actions (phase 6) : le nom de boîte piégé est copié dans la file
+    // Actions : le nom de boîte piégé est copié dans la file
     // (`pending_ops.mailbox`/`target`), les mots-clés piégés sont relus par
     // `action_target`, puis tout est rejoué sur le serveur.
     let ids: Vec<_> = page.items.iter().map(|i| i.id).collect();
@@ -320,7 +320,7 @@ async fn trapped_messages_cannot_alter_the_database() -> Result<(), Box<dyn std:
     assert_eq!(total(&|n| n == "INBOX"), 0);
     assert_eq!(total(&|n| n == box_name) as usize, 2 * PAYLOADS.len());
 
-    // Rédaction (phase 7) : brouillon et file d'envoi aux champs piégés,
+    // Rédaction : brouillon et file d'envoi aux champs piégés,
     // relus à l'identique, sans effet sur la base.
     let compose = SqliteComposeStore::new(l.db.clone());
     let mut draft = Draft::empty(l.account);
@@ -353,7 +353,7 @@ async fn trapped_messages_cannot_alter_the_database() -> Result<(), Box<dyn std:
     assert_eq!(queued[0].subject, PAYLOADS[2]);
     assert!(compose.draft(saved.id).await?.is_none());
 
-    // Recherche (phase 8) : chaque charge comme requête, sans effet ; les
+    // Recherche : chaque charge comme requête, sans effet ; les
     // messages piégés sont retrouvés par leur texte, relus comme données.
     let search = |text: &str| SearchRequest {
         query: parse_query(text).unwrap_or_default(),
@@ -380,7 +380,7 @@ async fn trapped_messages_cannot_alter_the_database() -> Result<(), Box<dyn std:
         );
     }
 
-    // Copie distante d'un brouillon dans la boîte au nom piégé (phase 8) :
+    // Copie distante d'un brouillon dans la boîte au nom piégé :
     // enregistrée, mise à la corbeille puis oubliée, comme une donnée.
     let copy = RemoteCopy {
         mailbox: MailboxName::parse(box_name)?,
@@ -404,7 +404,7 @@ async fn trapped_messages_cannot_alter_the_database() -> Result<(), Box<dyn std:
     compose.forget_remote(l.account, copy).await?;
     assert!(compose.remote_trash(l.account).await?.is_empty());
 
-    // Transfert et reprise (phase 9) : pièce jointe au nom piégé, rangée
+    // Transfert et reprise : pièce jointe au nom piégé, rangée
     // dans les blobs et relue avec le brouillon ; envoi programmé
     // (`outbox.draft_content`) puis repris, à l'identique.
     let attachment_body = PAYLOADS.join("\n");

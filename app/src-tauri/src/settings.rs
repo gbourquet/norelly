@@ -1,4 +1,4 @@
-//! Paramètres de l'application et notifications natives (phase 9).
+//! Paramètres de l'application et notifications natives.
 //!
 //! - Les paramètres reçus de l'interface sont revalidés par le domaine
 //!   (`Settings::validate`).
@@ -219,7 +219,7 @@ mod tests {
         assert!(new_mail_event(account(), mail(), &settings).is_none());
     }
 
-    /// Revue de la phase 9 (HAUTE) : le serveur de notifications
+    /// Le serveur de notifications
     /// freedesktop interprète un balisage (liens, images) ; le texte reçu
     /// d'un mail est échappé.
     #[test]

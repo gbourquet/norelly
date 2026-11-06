@@ -624,7 +624,7 @@ fn connection_failure(protocol: Protocol, outcome: &TestConnectionOutcome) -> Ad
 }
 
 // ---------------------------------------------------------------------------
-// Lecture (phase 5)
+// Lecture
 // ---------------------------------------------------------------------------
 
 /// Identifiant local exposé à l'interface (entier positif de 32 bits).

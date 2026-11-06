@@ -117,7 +117,7 @@ docker run "${common[@]}" --network "$network" \
   -v "$root:/work:ro" -v "$workdir/captures:/captures" \
   "$image" dbus-run-session -- bash app/e2e/in-container.sh scenarios
 
-# Captures d'écran de la documentation utilisateur (phase 11) : remplacées
+# Captures d'écran de la documentation utilisateur : remplacées
 # seulement si tous les scénarios ont réussi (set -e), jamais à moitié.
 echo "==> Captures d'écran de la documentation"
 # Le dossier vient d'un conteneur : seuls des fichiers ordinaires (jamais

@@ -1199,7 +1199,7 @@ async fn idle_refusal_and_bye_are_errors() -> TestResult {
     Ok(())
 }
 
-/// Revue de la phase 10 (BASSE) : une réponse indécodable pendant
+/// Une réponse indécodable pendant
 /// `EXAMINE … QRESYNC` (Stalwart : `VANISHED (EARLIER) 0:1`, UID 0
 /// interdit) rend la sélection incomplète ; le plan compare alors les UID.
 #[tokio::test]

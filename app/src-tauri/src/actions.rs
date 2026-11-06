@@ -1,4 +1,4 @@
-//! Commandes IPC des actions sur les messages (phase 6).
+//! Commandes IPC des actions sur les messages.
 //!
 //! L'interface désigne des conversations et la portée affichée ; les
 //! messages visés sont choisis ici par le domaine

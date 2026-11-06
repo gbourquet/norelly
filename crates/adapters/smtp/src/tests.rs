@@ -358,7 +358,7 @@ async fn smtp_refusals_distinguish_temporary_from_permanent() -> TestResult {
 }
 
 /// Connexion coupée après la fin du DATA, sans réponse : le message est
-/// peut-être parti, l'issue est incertaine (revue de la phase 7).
+/// peut-être parti, l'issue est incertaine.
 #[tokio::test]
 async fn cut_after_data_is_an_uncertain_outcome() -> TestResult {
     let ca = TestCa::new()?;

@@ -1,4 +1,4 @@
-//! Messages rédigés (phase 7, ADR-010) : réassainissement du HTML de
+//! Messages rédigés (ADR-010) : réassainissement du HTML de
 //! l'éditeur, version texte, construction MIME avec `lettre`.
 //!
 //! Le HTML produit par l'éditeur (Tiptap) est traité comme non fiable : il

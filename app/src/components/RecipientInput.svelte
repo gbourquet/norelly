@@ -34,8 +34,7 @@
   }
 
   /** « Nom <adresse> » ; un nom qui imite une adresse (`@`, `<`, `>`) est
-   * écarté : seule l'adresse réelle est montrée (revue de sécurité de la
-   * phase 7). */
+   * écarté : seule l'adresse réelle est montrée. */
   const format = (r: RecipientDto): string =>
     r.name && !/[@<>]/.test(r.name) ? `${r.name} <${r.address}>` : r.address;
 

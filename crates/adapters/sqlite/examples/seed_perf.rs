@@ -1,4 +1,4 @@
-//! Base de mesure pour le test end-to-end de performance (phase 9) : un
+//! Base de mesure pour le test end-to-end de performance : un
 //! compte (serveurs sur un domaine `.invalid`, jamais joignables : aucune
 //! synchronisation ne modifie la base pendant la mesure), une boîte de
 //! réception de 50 000 messages synthétiques et des Archives de 20 000 ;

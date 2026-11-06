@@ -29,7 +29,7 @@ const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3
 
 test("extrait les liens et les images, hors blocs de code", () => {
   const md = [
-    "Voir [le plan](../PLAN.md#phase-11) et ![accueil](captures/welcome.png).",
+    "Voir [le plan](../BACKLOG.md#bogues) et ![accueil](captures/welcome.png).",
     "Externe : [site](https://example.com), [courriel](mailto:a@b.c), [ancre](#haut).",
     "```",
     "[pas un lien](absent.md)",
@@ -39,7 +39,7 @@ test("extrait les liens et les images, hors blocs de code", () => {
   assert.deepEqual(
     markdownLinks(md).map((l) => [l.target, l.image]),
     [
-      ["../PLAN.md#phase-11", false],
+      ["../BACKLOG.md#bogues", false],
       ["captures/welcome.png", true],
       ["https://example.com", false],
       ["mailto:a@b.c", false],

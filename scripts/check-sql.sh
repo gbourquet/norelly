@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Garde contre l'injection SQL (constat de la revue de sécurité de la phase 4) :
+# Garde contre l'injection SQL :
 # aucune donnée reçue (message, serveur, interface) ne doit entrer dans le
 # texte d'une requête ; les valeurs passent toujours par des paramètres
 # liés (?1, params![]).
@@ -17,7 +17,7 @@
 #      - pas de push_str ni de concaténation (+) sur du texte SQL.
 #
 # Ce script fait partie de scripts/check.sh : il est interdit de le
-# ramollir pour faire passer une phase.
+# ramollir pour faire passer une modification.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 

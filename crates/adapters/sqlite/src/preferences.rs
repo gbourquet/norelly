@@ -250,7 +250,7 @@ mod tests {
         Ok(())
     }
 
-    /// Revue de la phase 9 (BASSE) : une option de confidentialité
+    /// Une option de confidentialité
     /// illisible s'applique (échec fermé), les autres réglages illisibles
     /// reprennent leur valeur par défaut.
     #[tokio::test]

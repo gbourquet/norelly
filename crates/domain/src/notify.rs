@@ -1,4 +1,4 @@
-//! Nouveaux messages à signaler (notifications natives, phase 9).
+//! Nouveaux messages à signaler (notifications natives).
 //!
 //! - Seuls les messages **non lus** comptent : un message déjà lu ailleurs
 //!   (autre client) n'est pas signalé.

@@ -1,4 +1,4 @@
-//! Cas d'usage de la rédaction (phase 7) : brouillons, préparation d'une
+//! Cas d'usage de la rédaction : brouillons, préparation d'une
 //! réponse, mise en file, envoi SMTP, copies dans « Envoyés » et
 //! « Brouillons ».
 //!

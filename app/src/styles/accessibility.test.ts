@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
-// Passe d'accessibilité (phase 9) : contrastes des jetons de couleur
+// Passe d'accessibilité : contrastes des jetons de couleur
 // (WCAG 2.1 AA) dans les deux thèmes, et focus visible partout.
 
 const css = readFileSync(join(__dirname, "tokens.css"), "utf8");

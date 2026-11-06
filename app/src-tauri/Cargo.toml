@@ -35,7 +35,7 @@ open = "5.3"
 # Sélecteur de dossier, appelé depuis Rust seulement (aucune permission
 # accordée à l'interface).
 tauri-plugin-dialog = "2.6"
-# Notifications natives (phase 9), appelées depuis Rust seulement : le
+# Notifications natives, appelées depuis Rust seulement : le
 # texte composé par l'interface passe par une commande IPC qui le
 # revalide ; aucune permission accordée à l'interface. notify-rust sans
 # zbus (fonctionnalité `d` : libdbus du système sous Linux) :

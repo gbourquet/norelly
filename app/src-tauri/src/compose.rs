@@ -1,4 +1,4 @@
-//! Commandes IPC de la rédaction (phase 7).
+//! Commandes IPC de la rédaction.
 //!
 //! Toute entrée de l'interface est revalidée ici par le domaine (adresses,
 //! identifiants de contenus, sujet, tailles) ; le HTML de l'éditeur est

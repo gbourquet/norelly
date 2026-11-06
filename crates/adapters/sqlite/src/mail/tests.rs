@@ -309,7 +309,7 @@ async fn record_all_is_all_or_nothing() -> Result<(), StoreError> {
     Ok(())
 }
 
-/// Phase 9 (mesure de démarrage) : les compteurs de l'arbre des dossiers
+/// Les compteurs de l'arbre des dossiers
 /// se lisent dans un index couvrant, sans parcourir la table des messages.
 #[tokio::test]
 async fn folder_counts_use_a_covering_index() -> Result<(), StoreError> {

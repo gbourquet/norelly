@@ -338,7 +338,7 @@ impl norelly_domain::ports::SearchTextExtractor for Stuck {
     }
 }
 
-/// Revue de la phase 8 (MOYENNE) : l'extraction du texte d'un message
+/// L'extraction du texte d'un message
 /// hostile ne bloque pas le fil asynchrone et s'arrête au délai maximal.
 #[tokio::test]
 async fn text_extraction_is_bounded_in_time() {

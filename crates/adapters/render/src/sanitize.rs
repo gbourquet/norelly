@@ -290,7 +290,7 @@ pub const MAX_NESTING: usize = 512;
 /// (éléments vides ignorés). Une balise fermante ne réduit la profondeur
 /// que si elle ferme un élément ouvert : une fermante orpheline (`</q>`)
 /// est ignorée par l'analyseur HTML, qui imbrique alors bien les éléments
-/// suivants (revue de sécurité de la phase 7). L'estimation s'arrête dès
+/// suivants. L'estimation s'arrête dès
 /// [`DEPTH_SCAN_LIMIT`] niveaux : le coût reste linéaire.
 #[must_use]
 pub fn nesting_depth(html: &str) -> usize {
@@ -429,7 +429,7 @@ mod tests {
         }
     }
 
-    /// Revue de sécurité de la phase 7 : une balise fermante orpheline ne
+    /// Une balise fermante orpheline ne
     /// ferme rien et ne doit pas réduire l'estimation.
     #[test]
     fn orphan_closing_tags_do_not_hide_depth() {

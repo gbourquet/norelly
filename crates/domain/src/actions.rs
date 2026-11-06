@@ -1,4 +1,4 @@
-//! Actions sur les messages (phase 6) : sémantique, application optimiste,
+//! Actions sur les messages : sémantique, application optimiste,
 //! file d'opérations durable (`pending_ops`) et règles de rejeu.
 //!
 //! Déroulé, piloté par le cas d'usage `PerformAction` :

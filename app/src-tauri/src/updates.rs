@@ -1,4 +1,4 @@
-//! Mises à jour de l'application (ADR-006, phase 10).
+//! Mises à jour de l'application (ADR-006).
 //!
 //! - Seul l'installateur NSIS se met à jour lui-même : le module
 //!   `tauri-plugin-updater` n'est compilé qu'avec la fonctionnalité

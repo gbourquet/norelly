@@ -11,7 +11,7 @@ sdk-extensions:
   - org.freedesktop.Sdk.Extension.node24
 command: norelly
 
-# Autorisations minimales (relues par la revue de sécurité de la phase 10) :
+# Autorisations minimales :
 finish-args:
   # Affichage (Wayland, X11 en repli) et rendu accéléré de WebKitGTK.
   - --socket=wayland
@@ -21,9 +21,9 @@ finish-args:
   # Serveurs IMAP et SMTP.
   - --share=network
   # Mots de passe dans le trousseau du système (Secret Service). Donne
-  # accès à tout le trousseau de session (revue de la phase 10, MOYENNE) :
-  # dérogation validée (ADR-006) ; le portail Secret (trousseau propre à
-  # l'application) demande oo7, donc zbus, écarté (deny.toml).
+  # accès à tout le trousseau de session : dérogation validée (ADR-006) ;
+  # le portail Secret (trousseau propre à l'application) demande oo7, donc
+  # zbus, écarté (deny.toml).
   - --talk-name=org.freedesktop.secrets
   # Notifications des nouveaux messages (notify-rust, D-Bus).
   - --talk-name=org.freedesktop.Notifications

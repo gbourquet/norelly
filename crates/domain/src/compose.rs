@@ -1,4 +1,4 @@
-//! Rédaction (phase 7) : réponses, transferts, citation, brouillons et
+//! Rédaction : réponses, transferts, citation, brouillons et
 //! file d'envoi.
 //!
 //! - [`reply_subject`] et [`forward_subject`] produisent toujours `Re:` et

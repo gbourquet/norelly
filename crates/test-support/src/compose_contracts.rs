@@ -421,7 +421,7 @@ pub async fn contact_query_contract<S: ContactQuery + MailStore>(
         )
         .await?;
     // Indésirables et Corbeille : un inconnu ne peut pas s'y inviter dans
-    // les suggestions (revue de sécurité de la phase 7).
+    // les suggestions.
     for (name, validity) in [("Indésirables", 4), ("Corbeille", 5)] {
         store
             .apply_sync(

@@ -20,7 +20,7 @@ describe("compte de messagerie", () => {
   });
 
   it("ajoute un compte Dovecot après confiance explicite dans les certificats", async () => {
-    await $("button=Ajouter un compte").click();
+    await $("main").$("button=Ajouter un compte").click();
     await $("#account-address").setValue(address);
     await $("#account-password").setValue(password);
     await $("button=Continuer").click();
@@ -60,7 +60,7 @@ describe("compte de messagerie", () => {
   });
 
   it("refuse un second compte pour la même adresse", async () => {
-    await $("aria/Ajouter un compte").click();
+    await $("nav").$("button=Ajouter un compte").click();
     await $("#account-address").setValue(address);
     await $("#account-password").setValue(password);
     await $("button=Continuer").click();

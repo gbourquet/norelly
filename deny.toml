@@ -16,6 +16,13 @@ ignore = [
     # par ADR-005 pour générer le contrat IPC. Exception validée par le
     # mainteneur le 2026-11-02. À réévaluer à chaque montée de specta.
     { id = "RUSTSEC-2024-0436", reason = "transitif via specta/tauri-specta (ADR-005), proc-macro non maintenue, pas de vulnérabilité ; validé par le mainteneur" },
+    # Non maintenu depuis le 2026-11-03 (pas une vulnérabilité).
+    # `astral-tokio-tar` est tiré par testcontainers 0.28.0, dernière
+    # version, pour les tests d'intégration seulement : absent de
+    # l'application livrée. Un correctif est en cours chez testcontainers-rs.
+    # Exception temporaire validée par le mainteneur le 2026-11-06 : à
+    # retirer à la prochaine version de testcontainers.
+    { id = "RUSTSEC-2026-0440", reason = "transitif via testcontainers (tests seulement), non maintenu, pas de vulnérabilité ; temporaire, validé par le mainteneur" },
 ]
 
 [licenses]

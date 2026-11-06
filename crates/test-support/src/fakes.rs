@@ -196,6 +196,12 @@ impl RemoteMailboxSession for FakeSession {
     ) -> impl Future<Output = Result<(), ConnectionError>> + Send {
         self.inner.copy_to(uid, to)
     }
+    fn create_mailbox(
+        &mut self,
+        mailbox: &MailboxName,
+    ) -> impl Future<Output = Result<(), ConnectionError>> + Send {
+        self.inner.create_mailbox(mailbox)
+    }
     fn expunge_uid(
         &mut self,
         uid: Uid,

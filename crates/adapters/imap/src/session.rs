@@ -871,6 +871,15 @@ impl Connection {
         })
     }
 
+    /// `CREATE` ; refus (`NO`) : [`ConnectionError::Rejected`].
+    pub(crate) async fn create(&mut self, name: &MailboxName) -> Result<(), ConnectionError> {
+        let body = CommandBody::Create {
+            mailbox: mailbox_arg(name)?,
+        };
+        let reply = self.execute(body, false).await?;
+        ensure_ok(&reply.status)
+    }
+
     /// `UID MOVE` ou `UID COPY`.
     pub(crate) async fn transfer(
         &mut self,

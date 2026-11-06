@@ -353,6 +353,13 @@ pub trait RemoteMailboxSession: Send {
         draft: bool,
     ) -> impl Future<Output = Result<Option<RemoteCopy>, ConnectionError>> + Send;
 
+    /// Crée une boîte (`CREATE`). Nom refusé par le serveur (déjà pris,
+    /// interdit, quota) : [`ConnectionError::Rejected`].
+    fn create_mailbox(
+        &mut self,
+        mailbox: &MailboxName,
+    ) -> impl Future<Output = Result<(), ConnectionError>> + Send;
+
     /// `UID COPY`.
     fn copy_to(
         &mut self,

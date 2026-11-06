@@ -788,6 +788,18 @@ impl RemoteMailboxSession for FakeImapSession {
         self.transfer(target, to, false).await
     }
 
+    async fn create_mailbox(&mut self, mailbox: &MailboxName) -> Result<(), ConnectionError> {
+        self.throttle().await;
+        let exists = self.step()?.mailbox(mailbox.as_str()).is_some();
+        if exists {
+            return Err(ConnectionError::Rejected(
+                "NO [ALREADYEXISTS] boîte existante".into(),
+            ));
+        }
+        self.server.create_mailbox(mailbox.as_str(), &[]);
+        Ok(())
+    }
+
     async fn copy_to(&mut self, target: Uid, to: &MailboxName) -> Result<(), ConnectionError> {
         self.transfer(target, to, true).await
     }

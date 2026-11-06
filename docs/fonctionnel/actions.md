@@ -14,74 +14,77 @@ rattraper.
   sinon la conversation ouverte, sinon celle pointée dans la liste. Une
   action sur une conversation vise tous ses messages du dossier affiché.
 - Accès : raccourcis, palette, barre d'outils de la vue de lecture, boutons
-  au survol d'une ligne, menu contextuel (clic droit) ; tous exécutent la
-  même commande du registre.
-- **Application optimiste** : l'effet est visible tout de suite (drapeau
-  changé, conversation retirée de la liste, copie provisoire dans le
-  dossier de destination), puis envoyé au serveur.
+  au survol d'une ligne, menu contextuel (clic droit) ; tous font la même
+  chose.
+- **Effet immédiat** : le résultat est visible tout de suite (état changé,
+  conversation retirée de la liste, message déjà présent dans le dossier de
+  destination), puis l'action est envoyée au serveur.
 - Un bandeau confirme l'action, avec **Annuler** pendant **5 secondes**
-  (aussi `z`). Passé ce délai, l'opération part au serveur.
-- **Hors ligne**, les opérations s'accumulent dans une file durable et sont
-  rejouées à la reconnexion, dans l'ordre.
+  (aussi `z`). Passé ce délai, l'action part au serveur.
+- **Hors ligne**, les actions attendent et sont envoyées à la reconnexion,
+  dans l'ordre, même si l'application a été fermée entre-temps.
 - « Suivre » est une bascule : si toutes les cibles sont suivies, le suivi
   est retiré, sinon il est ajouté.
 
-## Règles métier
+## Règles
 
-| Règle | Où |
-|---|---|
-| « Supprimer » = déplacer vers la Corbeille ; **depuis la Corbeille**, suppression définitive | `crates/domain/src/actions.rs` (`resolve`) |
-| « Archiver » = déplacer vers le dossier `\Archive`, sinon vers le dossier de repli choisi par l'utilisateur | `actions.rs` |
-| Opération durable (`PendingOp`) enregistrée avec l'état local nécessaire à son annulation ; effet local immédiat (`local_effect`) | `actions.rs` |
-| Fenêtre d'annulation : 5 s (`UNDO_WINDOW_SECS`) ; au-delà, « trop tard » | `actions.rs` |
-| Conflits au rejeu (`decide`) : UIDVALIDITY changée, message disparu, dossier de destination supprimé → opération abandonnée, état local rétabli (`revert_effect`) ; la synchronisation suivante fait foi | `actions.rs` |
-| Stratégie serveur : `MOVE` ; sinon `COPY` + `STORE \Deleted` + `UID EXPUNGE` (UIDPLUS) ; sinon `EXPUNGE` seulement si aucun autre message de la boîte n'est marqué `\Deleted` (`expunge_is_safe`) | `actions.rs` |
-| Drapeaux posés avec `UNCHANGEDSINCE` (CONDSTORE) | `crates/adapters/imap/src/session.rs` |
-| Bornes : 1 000 messages par action, 5 essais de rejeu, 10 000 opérations en attente par compte | `actions.rs` (`MAX_ACTION_TARGETS`, `MAX_REPLAY_ATTEMPTS`, `MAX_PENDING_OPS`) |
-| Copie provisoire d'un message déplacé : visible dans la destination, retirée à l'annulation ou à l'abandon, remplacée sans trou ni doublon par le vrai message à la synchronisation, ignorée par la synchronisation et les actions | migration 5, `crates/adapters/sqlite/src/actions.rs` |
-
-Cas d'usage : `PerformAction`, `UndoActions`, `ReplayActions`
-(`crates/application/src/actions.rs`).
+- **Supprimer** = déplacer vers la Corbeille ; **depuis la Corbeille**,
+  suppression définitive.
+- **Archiver** = déplacer vers le dossier d'archives du compte, sinon vers
+  le dossier choisi par l'utilisateur (« Choisir le dossier
+  d'archives… »).
+- **Annulation** possible pendant 5 secondes ; au-delà, « trop tard ».
+- **Conflit avec le serveur** à l'envoi d'une action (message disparu,
+  dossier de destination supprimé, dossier réinitialisé) : l'action est
+  abandonnée, l'affichage revient à l'état d'avant, puis la
+  synchronisation suivante montre l'état du serveur.
+- Une suppression ne fait jamais disparaître un message qu'un autre client
+  a marqué pour suppression sans le supprimer.
+- Un changement d'état (lu, suivi) ne remplace pas un changement fait
+  entre-temps par un autre client, quand le serveur permet de le
+  détecter.
+- **Bornes** : 1 000 messages par action ; 5 essais d'envoi au serveur ;
+  10 000 actions en attente par compte.
+- **Message déplacé** : visible tout de suite dans le dossier de
+  destination ; retiré si l'action est annulée ou abandonnée ; remplacé par
+  le vrai message à la synchronisation suivante, sans trou ni doublon.
 
 ## Cas limites
 
-- Compte sans Corbeille : suppression refusée (`err_no_trash`).
-- Compte sans `\Archive` ni dossier de repli : `err_no_archive`, qui invite à
-  choisir le dossier (« Choisir le dossier d'archives… »).
-- Déplacer vers le dossier courant : `err_same_folder` ; vers un dossier non
-  sélectionnable : `err_folder_not_selectable`.
-- Déplacer des conversations de plusieurs comptes : refusé
-  (`action_one_account`), un dossier n'appartenant qu'à un compte.
-- Suppressions faites par un autre client pendant un `EXPUNGE` sans
-  UIDPLUS : comptées et signalées (`ReplayReport::foreign_expunges`), la
-  boîte est resynchronisée.
-- File pleine : `err_pending_queue_full`.
+- Compte sans Corbeille : suppression refusée.
+- Compte sans dossier d'archives et sans dossier choisi : l'application
+  invite à en choisir un (« Choisir le dossier d'archives… »).
+- Déplacer vers le dossier courant, ou vers un dossier qui ne peut pas
+  contenir de messages : refusé.
+- Déplacer des conversations de plusieurs comptes : refusé, un dossier
+  n'appartenant qu'à un compte.
+- Trop d'actions en attente : refusé jusqu'à la reconnexion.
 
 ## Messages affichés
 
-| Clé | Texte (fr) |
+| Situation | Texte |
 |---|---|
-| `action_archived`, `action_deleted` | Archivé., Supprimé. |
-| `action_moved` | Déplacé vers « {folder} ». |
-| `action_flagged`, `action_unflagged` | Suivi activé., Suivi retiré. |
-| `action_marked_read`, `action_marked_unread` | Marqué comme lu., Marqué comme non lu. |
-| `action_undo`, `action_undone` | Annuler, Action annulée. |
-| `action_too_late` | Trop tard pour annuler : l'action a déjà été envoyée au serveur. |
-| `action_nothing` | Rien à changer. |
-| `err_no_trash`, `err_no_archive` | Aucun dossier Corbeille sur ce compte., Aucun dossier d'archives sur ce compte : choisissez-en un … |
-| `err_pending_queue_full` | Trop d'actions attendent le serveur sur ce compte : réessayez une fois reconnecté. |
-| `action_archive_folder_set` | Dossier d'archives : « {folder} ». |
+| Archivage, suppression | Archivé., Supprimé. |
+| Déplacement | Déplacé vers « {folder} ». |
+| Suivi | Suivi activé., Suivi retiré. |
+| Lu, non lu | Marqué comme lu., Marqué comme non lu. |
+| Annulation | Annuler, Action annulée. |
+| Annulation tardive | Trop tard pour annuler : l'action a déjà été envoyée au serveur. |
+| Rien à faire | Rien à changer. |
+| Corbeille, archives absentes | Aucun dossier Corbeille sur ce compte., Aucun dossier d'archives sur ce compte : choisissez-en un … |
+| Trop d'actions en attente | Trop d'actions attendent le serveur sur ce compte : réessayez une fois reconnecté. |
+| Dossier d'archives choisi | Dossier d'archives : « {folder} ». |
 
 ## Raccourcis
 
 | Commande | Raccourci |
 |---|---|
-| `action.archive` (Archiver) | `e` |
-| `action.delete` (Supprimer) | `#` |
-| `action.flag` (Suivre (ou ne plus suivre)) | `s` |
-| `action.mark-read` (Marquer comme lu) | `Maj+I` |
-| `action.mark-unread` (Marquer comme non lu) | `Maj+U` |
-| `action.move` (Déplacer vers…) | `v` |
-| `action.toggle-mark` (Sélectionner la conversation) | `x` |
-| `action.undo` (Annuler la dernière action) | `z` |
-| `account.archive-folder` (Choisir le dossier d'archives…) | palette |
+| Archiver | `e` |
+| Supprimer | `#` |
+| Suivre (ou ne plus suivre) | `s` |
+| Marquer comme lu | `Maj+I` |
+| Marquer comme non lu | `Maj+U` |
+| Déplacer vers… | `v` |
+| Sélectionner la conversation | `x` |
+| Annuler la dernière action | `z` |
+| Choisir le dossier d'archives… | palette |

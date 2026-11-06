@@ -2,7 +2,9 @@
 //   - liens internes valides dans tous les fichiers Markdown suivis par git ;
 //   - documentation utilisateur : mêmes pages et mêmes captures en
 //     français et en anglais ;
-//   - captures présentes, au format PNG, toutes utilisées.
+//   - captures présentes, au format PNG, toutes utilisées ;
+//   - documentation fonctionnelle sans vocabulaire technique (code,
+//     langage, ADR).
 // La présence de chaque commande du registre dans l'aide-mémoire des
 // raccourcis est vérifiée par app/src/docs.test.ts (registre réel).
 //
@@ -123,6 +125,34 @@ export function captureProblems(dir) {
   return problems;
 }
 
+/**
+ * Vocabulaire de la conception, hors de propos dans la documentation
+ * fonctionnelle : langage et briques techniques, ADR, chemins et fichiers
+ * du code. Leur place est la documentation technique
+ * (docs/technique/tracabilite.md).
+ */
+const TECHNICAL_TERMS = [
+  /\b(?:Rust|Tauri|Svelte|SQLite|FTS5|IPC|proptest|Toxiproxy)\b/g,
+  /\bADR-\d+/g,
+  /\b(?:crates|app\/src|src-tauri|scripts)\//g,
+  /[\w-]+\.(?:rs|ts|mjs|svelte|sql)\b/g,
+];
+
+/** Termes techniques des pages d'une documentation fonctionnelle. */
+export function technicalProblems(dir) {
+  const problems = [];
+  for (const page of listFiles(dir).filter(isPage)) {
+    const lines = readFileSync(path.join(dir, page), "utf8").split("\n");
+    lines.forEach((line, i) => {
+      const found = TECHNICAL_TERMS.flatMap((re) => [...line.matchAll(re)]).sort(
+        (a, b) => a.index - b.index,
+      );
+      for (const m of found) problems.push(`${page}:${i + 1} : « ${m[0]} »`);
+    });
+  }
+  return problems;
+}
+
 /** Vérification du dépôt ; renvoie la liste des problèmes. */
 export function checkRepository(root) {
   const tracked = execFileSync("git", ["ls-files", "--cached", "--others", "--exclude-standard"], {
@@ -134,6 +164,9 @@ export function checkRepository(root) {
   const user = path.join(root, "docs", "utilisateur");
   const problems = [...brokenLinks(root, tracked)];
   problems.push(...parityProblems(path.join(user, "fr"), path.join(user, "en")));
+  problems.push(
+    ...technicalProblems(path.join(root, "docs", "fonctionnel")).map((p) => `fonctionnel/${p}`),
+  );
   for (const lang of ["fr", "en"]) {
     problems.push(...captureProblems(path.join(user, lang)).map((p) => `utilisateur/${lang} : ${p}`));
   }

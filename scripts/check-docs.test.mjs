@@ -6,7 +6,13 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { brokenLinks, captureProblems, parityProblems, markdownLinks } from "./check-docs.mjs";
+import {
+  brokenLinks,
+  captureProblems,
+  parityProblems,
+  markdownLinks,
+  technicalProblems,
+} from "./check-docs.mjs";
 
 /** Arborescence temporaire : { "chemin/relatif": contenu }. */
 function tree(files) {
@@ -94,4 +100,27 @@ test("exige des captures présentes, au format PNG, et toutes utilisées", () =>
 test("exige au moins une capture par documentation utilisateur", () => {
   const root = tree({ "fr/README.md": "Pas d'image." });
   assert.deepEqual(captureProblems(path.join(root, "fr")), ["aucune capture d'écran"]);
+});
+
+test("refuse le vocabulaire technique dans la documentation fonctionnelle", () => {
+  const root = tree({
+    "fonctionnel/a.md": [
+      "# Comptes",
+      "Le serveur est trouvé à partir du domaine de l'adresse, en TLS ou STARTTLS.",
+      "Sécurité d'abord, décidée en Rust (ADR-001).",
+      "Règle portée par `crates/domain/src/address.rs`.",
+      "Liste blanche dans app/src/lib/agent.ts, revalidée par l'IPC.",
+      "Voir [la traçabilité](../technique/tracabilite.md).",
+    ].join("\n"),
+    "fonctionnel/b.md": "Recherche hors ligne, tolérante à la casse.",
+  });
+  assert.deepEqual(technicalProblems(path.join(root, "fonctionnel")), [
+    "a.md:3 : « Rust »",
+    "a.md:3 : « ADR-001 »",
+    "a.md:4 : « crates/ »",
+    "a.md:4 : « address.rs »",
+    "a.md:5 : « app/src/ »",
+    "a.md:5 : « agent.ts »",
+    "a.md:5 : « IPC »",
+  ]);
 });

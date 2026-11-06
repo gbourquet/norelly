@@ -32,7 +32,10 @@ remarque) et leur suite.
 
 | Date | Page | Retour | Suite |
 |---|---|---|---|
-| | | | |
+| 2026-11-05 | `docs/fonctionnel/README.md` | Les cibles chiffrées (200 ms…) sont des indicateurs à la discrétion du mainteneur, pas des exigences utilisateur : l'exigence à exposer est « une application performante ». | Corrigé : objectifs formulés en besoins ; mesures et seuils dans la documentation technique |
+| 2026-11-05 | `docs/fonctionnel/` | Le domaine n'a rien à faire dans la documentation fonctionnelle (« `XOAUTH2` prévu dans le domaine mais renvoie `Unsupported` »). | Corrigé : modules, cas d'usage, clés de messages et identifiants de commandes déplacés dans [la traçabilité](technique/tracabilite.md) |
+| 2026-11-05 | `docs/fonctionnel/README.md` | « Décidée en Rust » n'apporte aucune information fonctionnelle. | Corrigé : plus aucune mention du langage ni des briques techniques |
+| 2026-11-05 | `docs/fonctionnel/` | Les ADR sont des documents de conception, sans place dans la documentation fonctionnelle. | Corrigé : plus aucun renvoi aux ADR ; `check-docs.sh` refuse désormais ce vocabulaire dans `docs/fonctionnel/` |
 
 ## Lecture par une personne non technique
 

@@ -5,9 +5,9 @@
 ## But
 
 Écrire, répondre et transférer avec une mise en forme simple et des pièces
-jointes, en produisant des messages corrects pour tous les clients
-(fils de discussion, sujets, citations), sans que l'éditeur devienne une
-surface d'attaque.
+jointes, en produisant des messages corrects pour tous les logiciels de
+messagerie (conversations, sujets, citations), sans que ce qui est saisi
+puisse devenir dangereux.
 
 ## Comportement attendu
 
@@ -17,59 +17,74 @@ surface d'attaque.
   sujet et citation sont préremplis ; le transfert reprend les pièces
   jointes d'origine.
 - Champs : À, Cc et Cci (affichés à la demande), Objet, corps.
-  Destinataires en jetons, avec **autocomplétion** depuis les adresses
+  Destinataires en étiquettes, avec **suggestions** parmi les adresses
   connues (flèches, Entrée, virgule ou Tab pour valider).
-- Éditeur (Tiptap) : gras, italique, barré, lien, listes à puces et
+- Mise en forme : gras, italique, barré, lien, listes à puces et
   numérotées, citation.
-- **Pièces jointes** : bouton « Joindre des fichiers » (sélecteur ouvert par
-  Rust) ou glisser-déposer ; taille affichée ; retrait par la croix.
+- **Pièces jointes** : bouton « Joindre des fichiers » ou glisser-déposer ;
+  taille affichée ; retrait par la croix.
 - **Ctrl+Entrée** envoie ; **Échap** ferme en gardant le brouillon
   ([brouillons](brouillons.md)) ; « Supprimer le brouillon » l'abandonne.
 - Envoi immédiat, ou « Envoyer plus tard » ([envoi](envoi.md)).
 
-## Règles métier
+## Règles
 
-| Règle | Où |
-|---|---|
-| Destinataires de « répondre » : `Reply-To` prioritaire, sinon `From` ; « répondre à tous » ajoute À et Cc ; ses propres adresses exclues, doublons retirés, adresses invalides ignorées ; répondre à son propre message vise ses destinataires | `crates/domain/src/compose.rs` (`reply_recipients`) |
-| Sujet : toujours `Re:` / `Fwd:`, sans empilement (préfixes étrangers reconnus puis retirés : `RE :`, `AW:`, `TR:`, `SV:`, `Antw:`…) | `compose.rs` (`reply_subject`, `forward_subject`), ADR-011 |
-| `In-Reply-To` et `References` (bornées à 20 : racine et plus récents) | `compose.rs` (`reply_threading`, `MAX_REFERENCES`) |
-| Citation : en-tête « Le … a écrit : » construit par l'interface dans la langue de l'utilisateur, inséré tel quel par le domaine | `compose.rs` (`quote`), ADR-011 |
-| Validation avant envoi : au moins un destinataire, 100 au plus ; sujet sans caractère de contrôle, 998 caractères au plus ; corps ≤ 5 Mio ; pièces jointes ≤ 25 Mio au total et 100 au plus | `crates/domain/src/compose/draft.rs` (`check_sendable`) |
-| HTML de l'éditeur réassaini en Rust (liste blanche minimale : p, br, gras, italique, barré, liens http/https/mailto, listes, citations) ; version texte dérivée du HTML assaini ; envoi en `multipart/alternative` | `crates/adapters/render/src/compose.rs`, ADR-010 |
-| `Bcc` seulement dans les copies locales, jamais dans les octets transmis ; `Message-ID` aléatoire de 128 bits, sans nom de machine | `render/src/compose.rs` |
-| Type MIME des pièces jointes recalculé en Rust d'après le nom ; taille réelle revérifiée ; chemins des fichiers jamais transmis par l'interface (jeton de dépôt) | `crates/application/src/compose.rs` (`QueueMessage`) |
-| Transfert : pièces relues depuis le stockage local, message entier téléchargé si le corps est partiel ; mêmes bornes que l'envoi | `compose.rs` (`PrepareReply`), port `RemoteBodyFetcher` |
+- **Destinataires d'une réponse** : l'adresse de réponse indiquée par
+  l'expéditeur si elle existe, sinon l'expéditeur. « Répondre à tous »
+  ajoute les destinataires (À et Cc) du message. Ses propres adresses sont
+  exclues, les doublons retirés, les adresses invalides ignorées. Répondre
+  à son propre message s'adresse à ses destinataires.
+- **Sujet** : toujours `Re:` (réponse) ou `Fwd:` (transfert), sans
+  empilement : les préfixes déjà présents, y compris ceux d'autres langues
+  (`RE :`, `AW:`, `TR:`, `SV:`, `Antw:`…), sont reconnus puis remplacés.
+- La réponse est rattachée à la **conversation** d'origine chez tous les
+  destinataires.
+- **Citation** : introduite par « Le {date}, {name} a écrit : », dans la
+  langue de l'utilisateur.
+- **Avant l'envoi** :
+  - au moins un destinataire, 100 au plus ;
+  - sujet sans caractère invisible, 998 caractères au plus ;
+  - texte de 5 Mio au plus ;
+  - pièces jointes : 100 au plus, 25 Mio au total.
+- **Mise en forme envoyée** : uniquement celle que propose l'éditeur (gras,
+  italique, barré, liens web et `mailto`, listes, citations) ; une version
+  en texte simple accompagne toujours la version mise en forme.
+- Les destinataires en **Cci** ne sont jamais visibles des autres
+  destinataires. L'identifiant technique du message ne révèle rien de
+  l'ordinateur de l'expéditeur.
+- **Pièces jointes** : le type et la taille sont déterminés par
+  l'application d'après le fichier lui-même.
+- **Transfert** : les pièces jointes d'origine sont reprises, y compris
+  celles pas encore téléchargées ; mêmes limites qu'à l'envoi.
 
 ## Cas limites
 
-- HTML saisi littéralement dans l'éditeur (`<b>…</b>`) : envoyé comme du
-  texte, jamais interprété (test e2e `compose.e2e.mjs`).
-- Imbrication au-delà de 64 niveaux : réduite au texte.
-- Pièces jointes du transfert au-delà de 100 ou de 25 Mio : refus.
-- Brouillon relu depuis la base : revalidé (`check_storable`).
+- Balisage saisi littéralement (`<b>…</b>`) : envoyé comme du texte, jamais
+  interprété.
+- Mise en forme imbriquée sur plus de 64 niveaux : réduite au texte.
+- Transfert de plus de 100 pièces jointes ou de plus de 25 Mio : refusé.
 
 ## Messages affichés
 
-| Clé | Texte (fr) |
+| Situation | Texte |
 |---|---|
-| `compose_title_new`, `compose_title_reply`, `compose_title_forward` | Nouveau message, Répondre, Transférer |
-| `compose_attribution` | Le {date}, {name} a écrit : |
-| `compose_forward_intro` | Message transféré de {name}, le {date} : |
-| `err_no_recipient` | Ajoutez au moins un destinataire. |
-| `err_too_many_recipients` | Trop de destinataires. |
-| `err_invalid_subject` | Le sujet contient un caractère interdit ou est trop long. |
-| `err_body_too_large` | Le message est trop long. |
-| `err_attachments_too_large` | Les pièces jointes dépassent 25 Mio. |
-| `err_too_many_attachments` | Trop de pièces jointes (100 au plus). |
-| `compose_queued` | Message en cours d'envoi. |
+| Titre de la fenêtre | Nouveau message, Répondre, Transférer |
+| Citation | Le {date}, {name} a écrit : |
+| Transfert | Message transféré de {name}, le {date} : |
+| Aucun destinataire | Ajoutez au moins un destinataire. |
+| Trop de destinataires | Trop de destinataires. |
+| Sujet invalide | Le sujet contient un caractère interdit ou est trop long. |
+| Texte trop long | Le message est trop long. |
+| Pièces trop lourdes | Les pièces jointes dépassent 25 Mio. |
+| Trop de pièces | Trop de pièces jointes (100 au plus). |
+| Message confié à la boîte d'envoi | Message en cours d'envoi. |
 
 ## Raccourcis
 
 | Commande | Raccourci |
 |---|---|
-| `compose.new` (Nouveau message) | `c` |
-| `compose.reply` (Répondre) | `r` |
-| `compose.reply-all` (Répondre à tous) | `a` |
-| `compose.forward` (Transférer) | `f` |
-| Envoyer (dans l'éditeur, hors registre) | `Ctrl+Entrée` |
+| Nouveau message | `c` |
+| Répondre | `r` |
+| Répondre à tous | `a` |
+| Transférer | `f` |
+| Envoyer (dans la fenêtre de rédaction) | `Ctrl+Entrée` |

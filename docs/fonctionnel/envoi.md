@@ -1,71 +1,78 @@
-# Envoi : file d'envoi, nouvelles tentatives, envoi différé
+# Envoi : boîte d'envoi, nouvelles tentatives, envoi différé
 
 [← Fonctionnalités](README.md)
 
 ## But
 
-Qu'un message envoyé parte, même hors ligne, sans jamais le dupliquer chez
-les destinataires, et pouvoir programmer un envoi.
+Qu'un message envoyé parte, même hors ligne, sans jamais arriver en double
+chez les destinataires, et pouvoir programmer un envoi.
 
 ## Comportement attendu
 
-- « Envoyer » place le message dans la **file d'envoi** du compte, durable ;
-  l'éditeur se ferme (`compose_queued`).
-- Le travailleur de rédaction du compte envoie en SMTP, puis dépose la
-  copie dans « Envoyés » (sauf Gmail, qui le fait lui-même).
+- « Envoyer » place le message dans la **boîte d'envoi** du compte, qui
+  survit à la fermeture de l'application ; la fenêtre de rédaction se
+  ferme.
+- Le message est envoyé, puis une copie est rangée dans « Envoyés » (sauf
+  chez Gmail, qui le fait lui-même).
 - Hors ligne, le message attend et part au retour du réseau.
 - En cas d'échec définitif, un bandeau le signale une fois ; la **boîte
   d'envoi** (palette) montre chaque message et son état, avec **Réessayer**
   et **Annuler l'envoi**.
 - **Envoyer plus tard** : date et heure choisies ; le message reste dans la
-  file jusque-là, avec **Modifier** (retour dans l'éditeur) et **Annuler**.
+  boîte d'envoi jusque-là, avec **Modifier** (retour dans la fenêtre de
+  rédaction) et **Annuler**.
 
-## Règles métier
+## Règles
 
-États (`crates/domain/src/compose/outbox.rs`) :
+États d'un message de la boîte d'envoi :
 
 ```text
-Queued ──start──▶ Sending ──succeeded──▶ Sent
-  ▲                  │
-  └──failed (temporaire, injoignable)
-                     └──failed (refus, authentification, trop d'essais)──▶ Failed
+En attente ──▶ Envoi en cours ──▶ Envoyé
+     ▲               │
+     └── échec temporaire (serveur injoignable, refus temporaire)
+                     └── échec définitif (refus, identifiants, trop d'essais) ──▶ Échec
 ```
 
-| Règle | Où |
-|---|---|
-| Serveur injoignable : essai **non compté**, envoi différé | `outbox.rs` |
-| Échec temporaire (SMTP 4xx, coupure) : nouvel essai avec attente croissante (30 s à 1 h), **8 essais** au plus | `outbox.rs` (`MAX_SEND_ATTEMPTS`, `RETRY_BASE_SECS`, `RETRY_MAX_SECS`) |
-| Refus définitif (5xx), authentification, sécurité : échec immédiat | `outbox.rs` |
-| Envoi interrompu par l'arrêt de l'application (`Sending` au démarrage) ou transmission interrompue sans réponse : **incertain**, jamais renvoyé automatiquement ; l'utilisateur décide | `outbox.rs` (`SendFailure::Uncertain`), `crates/application/src/compose_worker.rs` (`RecoverOutbox`) |
-| Envoi différé : un an au plus ; brouillon gardé avec le message ; repris d'un bloc seulement s'il est encore en attente | `outbox.rs` (`MAX_SCHEDULE_SECS`), migration 10 |
-| Annuler : seulement si le message n'est pas en cours d'envoi | `app/src-tauri/src/compose.rs` (`cancel_send`) |
-| Connexion SMTP : TLS implicite (465) ou STARTTLS exigé (587), TLS négocié par `norelly-tls` | ADR-002, `crates/adapters/smtp` |
-| Copie dans Envoyés : APPEND, sauf serveurs qui la font eux-mêmes (Gmail, `X-GM-EXT-1`) | `crates/application/src/compose.rs` (`FileSentCopies`) |
+- **Serveur injoignable** : l'envoi attend le retour du réseau, sans que
+  l'essai compte.
+- **Refus temporaire** du serveur ou coupure : nouvel essai, avec une
+  attente croissante (30 secondes à 1 heure), **8 essais** au plus.
+- **Refus définitif**, identifiants refusés, connexion non sûre : échec
+  immédiat.
+- **Envoi incertain** : si l'application s'arrête pendant un envoi, ou si
+  la connexion se coupe avant la réponse du serveur, le message est peut-être
+  parti. Il n'est **jamais renvoyé automatiquement** : l'utilisateur décide.
+- **Envoi différé** : un an au plus ; le brouillon reste attaché au
+  message ; « Modifier » n'est possible que tant que le message attend.
+- **Annuler** : seulement si le message n'est pas en cours d'envoi.
+- **Connexion au serveur d'envoi** : toujours chiffrée (TLS dès la
+  connexion, ou STARTTLS exigé), sauf consentement explicite à une
+  connexion non chiffrée (voir [comptes](comptes.md)).
 
 ## Cas limites
 
-- Message en cours d'envoi : « Réessayer », « Annuler » ou « Modifier »
-  refusés (`err_outbox_busy`).
-- Envoi programmé à plus d'un an : `err_schedule_too_far`.
-- Échec « peut-être parti » : vérifier Envoyés ou le destinataire avant de
-  réessayer.
+- Message en cours d'envoi : « Réessayer », « Annuler » et « Modifier »
+  refusés.
+- Envoi programmé à plus d'un an : refusé.
+- Échec « peut-être parti » : vérifier « Envoyés » ou demander au
+  destinataire avant de réessayer.
 
 ## Messages affichés
 
-| Clé | Texte (fr) |
+| Situation | Texte |
 |---|---|
-| `outbox_title`, `outbox_empty` | Boîte d'envoi, Aucun message en attente. |
-| `outbox_state_queued`, `outbox_state_sending`, `outbox_state_sent` | En attente, Envoi en cours, Envoyé |
-| `outbox_state_scheduled` | Programmé pour le {date} |
-| `compose_send_failed` | Envoi impossible : « {subject} » ({reason}). |
-| `send_failure_*` | serveur injoignable, refus temporaire, refusé par le serveur, identifiants refusés, connexion non sûre, envoi interrompu, peut-être parti, trop d'essais |
-| `outbox_retry`, `outbox_cancel`, `outbox_edit` | Réessayer, Annuler l'envoi, Modifier |
-| `compose_later`, `compose_schedule`, `compose_scheduled` | Envoyer plus tard, Programmer, Envoi programmé. |
-| `err_schedule_too_far` | L'envoi ne peut pas être programmé à plus d'un an. |
-| `err_outbox_busy` | Ce message est en cours d'envoi : réessayez dans un instant. |
+| Boîte d'envoi | Boîte d'envoi, Aucun message en attente. |
+| États | En attente, Envoi en cours, Envoyé |
+| Envoi programmé | Programmé pour le {date} |
+| Échec | Envoi impossible : « {subject} » ({reason}). |
+| Raison de l'échec | serveur injoignable, refus temporaire, refusé par le serveur, identifiants refusés, connexion non sûre, envoi interrompu, peut-être parti, trop d'essais |
+| Boutons | Réessayer, Annuler l'envoi, Modifier |
+| Envoi différé | Envoyer plus tard, Programmer, Envoi programmé. |
+| Date trop lointaine | L'envoi ne peut pas être programmé à plus d'un an. |
+| Message occupé | Ce message est en cours d'envoi : réessayez dans un instant. |
 
 ## Raccourcis
 
 | Commande | Raccourci |
 |---|---|
-| `compose.outbox` (Boîte d'envoi) | palette |
+| Boîte d'envoi | palette |

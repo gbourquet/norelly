@@ -13,6 +13,9 @@
     onClose: () => void;
     /** Empêche la fermeture (opération en cours). */
     locked?: boolean;
+    /** Focus sur la fenêtre elle-même à l'ouverture, plutôt que sur son
+     * premier élément (contenu à lire, premier bouton tout en bas). */
+    focusContent?: boolean;
     children: Snippet;
   }
 
@@ -23,8 +26,17 @@
     width = "480px",
     onClose,
     locked = false,
+    focusContent = false,
     children,
   }: Props = $props();
+
+  let content: HTMLElement | null = $state(null);
+
+  function onOpenAutoFocus(e: Event): void {
+    if (!focusContent) return;
+    e.preventDefault();
+    content?.focus();
+  }
 </script>
 
 <Dialog.Root
@@ -40,6 +52,8 @@
       style="--modal-width: {width}"
       escapeKeydownBehavior={locked ? "ignore" : "close"}
       interactOutsideBehavior={locked ? "ignore" : "close"}
+      bind:ref={content}
+      {onOpenAutoFocus}
     >
       <Dialog.Title class="modal-title">{title}</Dialog.Title>
       {#if description}

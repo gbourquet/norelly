@@ -32,7 +32,7 @@
   const groups = $derived(open ? groupCommands(registry.all().filter(hasShortcut)) : []);
 </script>
 
-<Modal {open} title={m.help_title()} {onClose} width="520px">
+<Modal {open} title={m.help_title()} {onClose} width="520px" focusContent>
   {#each groups as [group, commands] (group)}
     <h3>{group}</h3>
     <dl>

@@ -498,3 +498,38 @@ async fn folder_created_is_reported_even_if_the_list_cannot_be_reread() {
     .await;
     r.handle.shutdown().await;
 }
+
+#[tokio::test]
+async fn abandoned_folder_request_is_not_sent() {
+    let imap = FakeImap::new();
+    let mut r = start(&imap);
+    wait_for(&mut r.events, WAIT, online).await;
+    // Synchronisation lente : la demande attend son tour, puis l'appelant
+    // abandonne (délai de l'interface dépassé).
+    imap.set_delay(Duration::from_millis(100));
+    r.handle.sync_now();
+    // La synchronisation a commencé : la demande attend dans la file.
+    tokio::time::sleep(Duration::from_millis(30)).await;
+    let abandoned = tokio::time::timeout(
+        Duration::from_millis(50),
+        r.handle.client().create_folder("Factures".into(), None),
+    )
+    .await;
+    assert!(abandoned.is_err(), "demande abandonnée");
+    imap.set_delay(Duration::ZERO);
+    // Une demande suivante est servie : la précédente a été écartée.
+    let next = tokio::time::timeout(WAIT, r.handle.client().create_folder("Notes".into(), None))
+        .await
+        .unwrap_or_else(|_| panic!("délai"));
+    assert!(next.is_ok(), "{next:?}");
+    let mut session = imap.session().unwrap_or_else(|e| panic!("{e}"));
+    let names: Vec<String> = session
+        .list_mailboxes()
+        .await
+        .unwrap_or_else(|e| panic!("{e}"))
+        .into_iter()
+        .map(|m| m.name.as_str().to_owned())
+        .collect();
+    assert!(!names.contains(&"Factures".to_owned()), "{names:?}");
+    r.handle.shutdown().await;
+}

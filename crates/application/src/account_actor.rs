@@ -528,6 +528,11 @@ where
                 }
             }
             for (label, parent, reply) in creates {
+                // Demande abandonnée (délai de l'interface dépassé) : rien
+                // n'est créé, l'utilisateur a déjà vu l'échec.
+                if reply.is_closed() {
+                    continue;
+                }
                 let (result, failure) = tokio::select! {
                     _ = stop.changed() => return None,
                     r = self.create_folder(session, known, &label, parent.as_ref()) => r,

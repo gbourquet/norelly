@@ -428,3 +428,73 @@ async fn unread_arrivals_in_the_inbox_are_signalled() {
     assert_eq!(mail.latest.map(|l| l.subject), Some("nouveau".to_owned()));
     r.handle.shutdown().await;
 }
+
+#[tokio::test]
+async fn folders_are_created_then_listed() {
+    use crate::folders::FolderFailure;
+    use norelly_domain::mailbox::NewFolderError;
+
+    let imap = FakeImap::new();
+    let mut r = start(&imap);
+    wait_for(&mut r.events, WAIT, online).await;
+    let client = r.handle.client();
+    let created = tokio::time::timeout(WAIT, client.create_folder("Factures".into(), None))
+        .await
+        .unwrap_or_else(|_| panic!("délai"));
+    let factures = MailboxName::parse("Factures").unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(created, Ok(factures.clone()));
+    wait_for(&mut r.events, WAIT, |e| {
+        matches!(e, SyncEvent::FoldersChanged { .. })
+    })
+    .await;
+    let tree = r
+        .store
+        .tree(account())
+        .await
+        .unwrap_or_else(|e| panic!("{e}"));
+    assert!(
+        tree.iter().any(|n| n.name == factures),
+        "dossier enregistré localement"
+    );
+
+    // Refus : l'acteur reste en ligne et sert la demande suivante.
+    let again = client.create_folder("factures".into(), None).await;
+    assert_eq!(
+        again,
+        Err(FolderFailure::Invalid(NewFolderError::AlreadyExists))
+    );
+    let child = client
+        .create_folder("2027".into(), Some(factures.clone()))
+        .await;
+    assert_eq!(
+        child,
+        Ok(MailboxName::parse("Factures/2027").unwrap_or_else(|e| panic!("{e}")))
+    );
+    r.handle.shutdown().await;
+}
+
+#[tokio::test]
+async fn folder_created_is_reported_even_if_the_list_cannot_be_reread() {
+    let imap = FakeImap::new();
+    let mut r = start(&imap);
+    wait_for(&mut r.events, WAIT, online).await;
+    // LIST et CREATE passent, la relecture de la liste échoue.
+    imap.cut_after(Some(2));
+    let created = tokio::time::timeout(
+        WAIT,
+        r.handle.client().create_folder("Factures".into(), None),
+    )
+    .await
+    .unwrap_or_else(|_| panic!("délai"));
+    assert_eq!(
+        created,
+        Ok(MailboxName::parse("Factures").unwrap_or_else(|e| panic!("{e}")))
+    );
+    imap.cut_after(None);
+    // Reconnexion, puis la liste est relue.
+    wait_for(&mut r.events, WAIT, |e| {
+        matches!(e, SyncEvent::FoldersChanged { .. })
+    })
+    .await;
+    r.handle.shutdown().await;
+}

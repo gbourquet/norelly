@@ -1,13 +1,34 @@
 # Norelly : client mail desktop (Tauri 2 + Rust + Svelte 5)
 
-Client IMAP/SMTP pour Windows et Linux : rapide, pilotable au clavier,
-sans télémétrie. Le projet est en **maintenance** : nouvelles
+Client IMAP/SMTP pour Windows et Linux : rapide, utilisable entièrement
+à la souris par un débutant, raccourcis clavier en accélérateurs, sans
+télémétrie. Le projet est en **maintenance** : nouvelles
 fonctionnalités, interface, corrections, durcissement. Les sujets ouverts
 sont dans `docs/BACKLOG.md`.
 
 Les choix d'architecture font foi dans `docs/DECISIONS.md` (ADR) : toute
 dérogation est validée par le mainteneur **avant** d'être implémentée, puis
 consignée dans l'ADR concerné.
+
+## Utilisateur cible et interface
+Utilisateur cible : une personne grand public, habituée à Gmail ou
+Outlook, qui utilise la souris pour tout, ne connaît aucun raccourci
+clavier et ne lira jamais de documentation. Elle doit comprendre comment
+faire chaque action simplement en regardant l'écran. Les raccourcis
+clavier restent, comme accélérateurs pour ceux qui les connaissent.
+
+- **Aucune fonctionnalité ne doit être accessible uniquement par raccourci
+  clavier. Toute action doit avoir un équivalent visible à la souris.**
+  (bouton libellé, menu « Plus… », menu d'un compte, menu contextuel ;
+  `app/src/lib/visible-actions.ts`). Si l'écran est trop chargé, déplacer
+  les actions les moins fréquentes dans « Plus… », ne pas en retirer.
+- **Après toute modification d'interface, prendre une capture d'écran et
+  la vérifier avant de considérer le travail terminé.** (alignement,
+  encombrement, libellés tronqués, thème sombre, survol, menus ;
+  `pnpm -C app tauri dev`, ou les captures de `pnpm -C app e2e`).
+- Nouveaux éléments : jetons du design system seulement
+  (`app/src/styles/tokens.css`), libellé accessible, focus visible,
+  infobulle « Libellé — Touche » (`describeCommand`).
 
 ## Architecture hexagonale dosée (ADR-008)
 Description complète, modules et flux : `docs/technique/architecture.md`.
@@ -133,7 +154,10 @@ Règles :
   `docs/technique/donnees.md`.
 - **Action utilisateur** : une commande du registre (`registerAppCommands`,
   `app/src/lib/app.svelte.ts`), libellés dans les deux catalogues, ligne
-  dans `docs/utilisateur/{fr,en}/shortcuts.md` (testé).
+  dans `docs/utilisateur/{fr,en}/shortcuts.md` (testé), **et** son élément
+  visible à la souris : `app/src/lib/visible-actions.ts` (barre, « Plus… »,
+  survol, menu contextuel, barre de sélection) ou menu « ⋯ » d'un compte
+  (`Sidebar.svelte`) ; capture vérifiée.
 - **Code d'erreur** : variante de `ErrorCodeDto` (`ipc.rs`), texte dans
   `app/src/lib/errors.ts` et les catalogues.
 

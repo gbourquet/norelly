@@ -4,14 +4,16 @@
   // dans le DOM, quelle que soit la taille de la boîte.
   import PaperclipIcon from "@lucide/svelte/icons/paperclip";
   import FlagIcon from "@lucide/svelte/icons/flag";
-  import CheckIcon from "@lucide/svelte/icons/check";
+  import XIcon from "@lucide/svelte/icons/x";
   import SearchIcon from "@lucide/svelte/icons/search";
   import { ContextMenu } from "bits-ui";
   import type { MailState } from "../lib/mail.svelte";
   import type { CommandRegistry } from "../lib/commands/registry";
-  import { formatShortcut } from "../lib/commands/shortcut";
-  import { conversationActions } from "../lib/visible-actions";
+  import { RegistryWatch } from "../lib/commands/watch.svelte";
+  import { describeCommand } from "../lib/commands/describe";
+  import { bulkActions, menuActions, rowActions, subjectOf } from "../lib/visible-actions";
   import ActionButtons from "./ActionButtons.svelte";
+  import ActionBar from "./ActionBar.svelte";
   import { VirtualList } from "../lib/virtual-list.svelte";
   import { personName, shortDate } from "../lib/format";
 
@@ -26,27 +28,19 @@
 
   let { mail, title, registry, context, onSearch }: Props = $props();
 
-  /** Entrées du menu contextuel : ouvrir, puis les actions de la
-   * conversation visée. */
-  const menu = $derived([
-    "conversation.open",
-    ...conversationActions(mail.selected).map((a) => a.command),
-  ]);
+  /** Entrées du menu contextuel : ouvrir, puis les actions de la barre
+   * du mail ouvert, pour la conversation visée. */
+  const menu = $derived(menuActions(subjectOf(mail.targets())));
 
   // Le registre n'est pas réactif : relecture à chaque modification.
-  let version = $state(0);
-  $effect(() => registry.subscribe(() => (version += 1)));
+  const watch = new RegistryWatch(() => registry);
 
-  function entry(id: string): { title: string; keys: string; enabled: boolean } | null {
-    void version;
-    const command = registry.get(id);
-    if (command === undefined) return null;
-    return {
-      title: command.title,
-      keys: command.parsedShortcut ? formatShortcut(command.parsedShortcut).join("+") : "",
-      enabled: registry.isEnabled(command, context),
-    };
+  function describe(id: string, label?: string) {
+    void watch.version;
+    return describeCommand(registry, id, context, label);
   }
+
+  const bulk = bulkActions();
 
   const ROW_HEIGHT = 60;
   let scroller: HTMLElement | null = $state(null);
@@ -77,21 +71,45 @@
 <div class="conversations">
   <header>
     <h2>{title}</h2>
-    {#if mail.marked.length > 0}
-      <span class="marked-count">{m.list_marked({ count: mail.marked.length })}</span>
-    {/if}
     {#if onSearch}
       <button
-        class="btn-icon search-button"
+        class="btn search-button"
         type="button"
         aria-label={m.search_label()}
-        title={m.search_label()}
+        title={describe("search.open", m.search_label())?.tooltip ?? m.search_label()}
         onclick={onSearch}
       >
         <SearchIcon size={16} aria-hidden="true" />
+        <span>{m.search_button()}</span>
       </button>
     {/if}
   </header>
+  {#if mail.marked.length > 0}
+    {@const clear = describe("selection.clear")}
+    <section class="bulk" aria-label={m.list_selection()}>
+      <div class="bulk-head">
+        <span class="marked-count" role="status"
+          >{m.list_marked({ count: mail.marked.length })}</span
+        >
+        <button
+          class="btn btn-ghost"
+          type="button"
+          title={clear?.tooltip}
+          onclick={() => void registry.execute("selection.clear", context)}
+        >
+          <XIcon size={16} aria-hidden="true" />
+          <span>{clear?.label}</span>
+        </button>
+      </div>
+      <ActionBar
+        primary={bulk.primary}
+        more={bulk.more}
+        {registry}
+        {context}
+        label={m.list_bulk_actions()}
+      />
+    </section>
+  {/if}
   {#if mail.error}
     <p class="error" role="alert">{mail.error}</p>
   {/if}
@@ -137,34 +155,47 @@
                     }
                   }}
                 >
-                  <div class="line">
-                    {#if mail.marked.includes(c.id)}<CheckIcon
-                        size={14}
-                        aria-label={m.list_mark()}
-                      />{/if}
-                    <span class="senders">{senders(row.index)}</span>
-                    {#if c.messages > 1}<span class="count">{c.messages}</span>{/if}
-                    <span class="date">{shortDate(c.date)}</span>
-                  </div>
-                  <div class="row-actions">
-                    <ActionButtons
-                      actions={conversationActions(c)}
-                      {registry}
-                      {context}
-                      label={m.list_row_actions()}
-                      compact
-                      onBefore={() => mail.pointAt(row.index)}
-                    />
-                  </div>
-                  <div class="line">
-                    <span class="subject"
-                      >{c.subject !== "" ? c.subject : m.common_no_subject()}</span
-                    >
-                    {#if c.has_attachments}<PaperclipIcon
-                        size={14}
-                        aria-label={m.list_attachment()}
-                      />{/if}
-                    {#if c.flagged}<FlagIcon size={14} aria-label={m.list_flagged()} />{/if}
+                  <input
+                    class="check"
+                    type="checkbox"
+                    tabindex="-1"
+                    checked={mail.marked.includes(c.id)}
+                    aria-label={m.list_select_row({
+                      subject: c.subject !== "" ? c.subject : m.common_no_subject(),
+                    })}
+                    title={m.list_mark()}
+                    onclick={(e) => {
+                      // Cocher n'ouvre pas la conversation.
+                      e.stopPropagation();
+                      mail.toggleMarkAt(row.index);
+                    }}
+                  />
+                  <div class="content">
+                    <div class="line">
+                      <span class="senders">{senders(row.index)}</span>
+                      {#if c.messages > 1}<span class="count">{c.messages}</span>{/if}
+                      <span class="date">{shortDate(c.date)}</span>
+                    </div>
+                    <div class="row-actions">
+                      <ActionButtons
+                        actions={rowActions(c)}
+                        {registry}
+                        {context}
+                        label={m.list_row_actions()}
+                        compact
+                        onBefore={() => mail.pointAt(row.index)}
+                      />
+                    </div>
+                    <div class="line">
+                      <span class="subject"
+                        >{c.subject !== "" ? c.subject : m.common_no_subject()}</span
+                      >
+                      {#if c.has_attachments}<PaperclipIcon
+                          size={14}
+                          aria-label={m.list_attachment()}
+                        />{/if}
+                      {#if c.flagged}<FlagIcon size={14} aria-label={m.list_flagged()} />{/if}
+                    </div>
                   </div>
                 </div>
               {/if}
@@ -174,16 +205,21 @@
       {/snippet}
     </ContextMenu.Trigger>
     <ContextMenu.Portal>
-      <ContextMenu.Content class="context-menu" aria-label={m.list_context_menu()}>
-        {#each menu as id (id)}
-          {@const e = entry(id)}
+      <ContextMenu.Content class="menu" aria-label={m.list_context_menu()}>
+        {#each menu as action, i (action.command)}
+          {@const e = describe(action.command, action.label?.())}
+          {@const Icon = action.icon}
+          {#if i > 0 && (menu[i - 1]?.section ?? 0) !== (action.section ?? 0)}
+            <ContextMenu.Separator class="menu-separator" />
+          {/if}
           {#if e !== null}
             <ContextMenu.Item
-              class="context-item"
+              class="menu-item"
               disabled={!e.enabled}
-              onSelect={() => void registry.execute(id, context)}
+              onSelect={() => void registry.execute(action.command, context)}
             >
-              <span>{e.title}</span>
+              <Icon size={16} aria-hidden="true" />
+              <span class="menu-label">{e.label}</span>
               {#if e.keys}<kbd>{e.keys}</kbd>{/if}
             </ContextMenu.Item>
           {/if}
@@ -203,7 +239,7 @@
 
   header {
     display: flex;
-    align-items: baseline;
+    align-items: center;
     justify-content: space-between;
     gap: var(--space-2);
     padding: var(--space-3) var(--space-4);
@@ -213,6 +249,22 @@
   .search-button {
     margin-left: auto;
     align-self: center;
+  }
+
+  .bulk {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-4);
+    border-bottom: var(--border-width) solid var(--color-border);
+    background: var(--color-surface);
+  }
+
+  .bulk-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
   }
 
   h2 {
@@ -243,13 +295,28 @@
     left: 0;
     right: 0;
     display: flex;
-    flex-direction: column;
-    justify-content: center;
-    gap: 2px;
-    padding: 0 var(--space-4);
+    align-items: center;
+    gap: var(--space-3);
+    padding: 0 var(--space-4) 0 var(--space-3);
     border-bottom: var(--border-width) solid var(--color-border);
     cursor: pointer;
     box-sizing: border-box;
+  }
+
+  .check {
+    flex: none;
+    margin: 0;
+    accent-color: var(--color-accent);
+    cursor: pointer;
+  }
+
+  .content {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    justify-content: center;
+    gap: var(--space-1);
+    min-width: 0;
   }
 
   .row:hover {
@@ -274,41 +341,12 @@
     display: block;
   }
 
-  :global(.context-menu) {
-    z-index: 51;
-    min-width: 220px;
-    padding: var(--space-1);
-    border: var(--border-width) solid var(--color-border);
-    border-radius: var(--radius-lg);
-    background: var(--color-surface-raised);
-    box-shadow: var(--shadow-dialog);
-  }
-
-  :global(.context-item) {
-    display: flex;
-    justify-content: space-between;
-    gap: var(--space-4);
-    padding: var(--space-2);
-    border-radius: var(--radius);
-    cursor: pointer;
-  }
-
-  :global(.context-item[data-highlighted]) {
-    background: var(--color-selected);
-  }
-
-  :global(.context-item[data-disabled]) {
-    color: var(--color-text-muted);
-    cursor: default;
-  }
-
   .row.marked {
     box-shadow: inset 3px 0 0 var(--color-accent);
   }
 
   .marked-count {
-    color: var(--color-text-muted);
-    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-medium);
   }
 
   .line {

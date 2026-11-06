@@ -2,18 +2,11 @@
 
 [← Retour au sommaire](README.md)
 
-Cette page explique les gestes de tous les jours. Pour chaque geste, il y
-a une façon de faire **à la souris** et, pour aller plus vite, une
-**touche du clavier** (toutes sont rappelées dans
-[l'aide-mémoire](shortcuts.md)).
-
-> **Une seule chose à retenir** : **Ctrl** + **K** (appuyez sur la touche
-> **Ctrl**, gardez-la enfoncée, puis appuyez sur **K**) ouvre la
-> **palette de commandes**. Tapez quelques lettres de ce que vous voulez
-> faire (« répondre », « brouillon », « déplacer »…), puis appuyez sur
-> **Entrée**. Toutes les actions de Norelly s'y trouvent.
->
-> ![La palette de commandes : une zone de recherche et la liste des actions, rangées par thème](captures/palette.png)
+Cette page explique les gestes de tous les jours. Tout se fait **à la
+souris**, avec des boutons écrits en toutes lettres. Le clavier est
+facultatif : chaque bouton montre sa touche quand vous laissez la souris
+dessus un instant, et le bouton **?** en haut à gauche affiche
+[l'aide-mémoire](shortcuts.md) des raccourcis.
 
 ## Lire un message
 
@@ -22,9 +15,8 @@ a une façon de faire **à la souris** et, pour aller plus vite, une
    adresses, cliquez sur **Boîte de réception unifiée**.
 2. Dans la liste du milieu, cliquez sur un message. Il s'affiche à droite.
    Les messages non lus sont écrits en gras. Ouvrir un message ne le marque
-   pas comme lu : quand vous l'avez lu, cliquez sur le bouton
-   **Marquer comme lu** (enveloppe ouverte) de la barre d'actions, ou
-   appuyez sur **Maj** + **I**.
+   pas comme lu : quand vous l'avez lu, cliquez sur **Plus…** dans la barre
+   d'actions, puis sur **Marquer comme lu** (ou appuyez sur **Maj** + **I**).
 3. Pour revenir à la liste, cliquez sur la flèche **Retour à la liste**
    ou appuyez sur **Échap**.
 
@@ -34,8 +26,9 @@ Quand plusieurs messages se répondent, ils forment une **conversation** :
 ils sont empilés du plus ancien au plus récent. Cliquez sur l'en-tête d'un
 message pour le déplier ou le replier.
 
-Au clavier : **J** passe à la conversation suivante, **K** à la
-précédente, **Entrée** ouvre.
+Pour passer à la conversation suivante ou précédente sans revenir à la
+liste : **Plus…**, puis **Conversation suivante** ou **Conversation
+précédente** (au clavier : **J** et **K**).
 
 ### Les images bloquées
 
@@ -66,10 +59,11 @@ l'attendiez.
 
 ## Répondre
 
-1. Ouvrez le message.
-2. Appuyez sur la touche **R** (comme « répondre »). Pour répondre à tout
-   le monde (l'expéditeur et les autres destinataires), appuyez sur **A**.
-   À la souris : **Ctrl** + **K**, tapez « répondre », puis **Entrée**.
+1. Ouvrez le message, ou faites un **clic droit** dessus dans la liste.
+2. Cliquez sur **Répondre**. Pour répondre à tout le monde (l'expéditeur et
+   les autres destinataires), cliquez sur **Répondre à tous**. Si la
+   fenêtre est étroite, ce bouton se range dans **Plus…**. Au clavier :
+   **R** et **A**.
 3. La fenêtre de rédaction s'ouvre : le destinataire et l'objet
    (« Re: … ») sont déjà remplis, et le message d'origine est cité en
    dessous. Écrivez votre réponse.
@@ -78,13 +72,13 @@ l'attendiez.
 ![La fenêtre de rédaction d'une réponse : destinataire, objet, barre de mise en forme et texte](captures/compose.png)
 
 Pour **transférer** un message à quelqu'un d'autre, avec ses pièces
-jointes, appuyez sur **F** (ou palette, « transférer »).
+jointes, cliquez sur **Transférer** (au clavier : **F**).
 
 ## Écrire un nouveau message
 
-1. Appuyez sur la touche **C** (ou **Ctrl** + **K**, tapez « nouveau
-   message », puis **Entrée**). Le message part de l'adresse sélectionnée
-   dans le panneau de gauche.
+1. Cliquez sur le bouton bleu **Nouveau message**, en haut à gauche (au
+   clavier : **C**). Le message part de l'adresse sélectionnée dans le
+   panneau de gauche.
 2. Dans **À**, tapez l'adresse du destinataire. Norelly propose les
    adresses que vous connaissez déjà : choisissez avec les flèches du
    clavier puis **Entrée**, ou cliquez dessus. Vous pouvez mettre
@@ -94,7 +88,8 @@ jointes, appuyez sur **F** (ou palette, « transférer »).
    **Cc et Cci**.
 4. Remplissez l'**Objet** (le sujet du message), puis écrivez votre texte.
    Les boutons au-dessus du texte mettent en **gras**, en *italique*,
-   ajoutent une liste ou un lien.
+   ajoutent une liste ou un lien : laissez la souris sur un bouton pour
+   voir son nom.
 5. Cliquez sur **Envoyer** (ou **Ctrl** + **Entrée**).
 
 Si vous n'êtes pas connecté à Internet, ce n'est pas grave : le message
@@ -105,7 +100,8 @@ connexion.
 
 Dans la fenêtre de rédaction, cliquez sur **Envoyer plus tard**, choisissez
 la date et l'heure, puis **Programmer**. Jusque-là, vous pouvez modifier ou
-annuler l'envoi depuis la **boîte d'envoi** (palette, « boîte d'envoi »).
+annuler l'envoi depuis la **boîte d'envoi** : bouton **⋯** à côté de
+l'adresse du compte, dans le panneau de gauche, puis **Boîte d'envoi**.
 
 ## Joindre un fichier
 
@@ -123,9 +119,16 @@ des fournisseurs refuseraient le message.
 
 ## Ranger : archiver, déplacer, suivre
 
-Quand un message est ouvert, la barre d'actions en haut à droite propose
-des boutons. Dans la liste, les mêmes boutons apparaissent quand la souris
-passe sur une ligne, et un **clic droit** sur une ligne ouvre un menu.
+Quand un message est ouvert, la barre d'actions au-dessus du message
+propose **Archiver** et **Supprimer** ; les autres actions sont dans
+**Plus…**. Dans la liste :
+
+- quand la souris passe sur une ligne, trois petits boutons apparaissent :
+  archiver, supprimer, marquer comme lu ou non lu ;
+- un **clic droit** sur une ligne ouvre un menu avec toutes les actions,
+  et la touche de chacune à droite.
+
+![Le menu du clic droit sur un message : ouvrir, répondre, transférer, archiver, supprimer, marquer, suivre, déplacer](captures/context-menu.png)
 
 | Action | À quoi ça sert | Touche |
 |---|---|---|
@@ -134,23 +137,26 @@ passe sur une ligne, et un **clic droit** sur une ligne ouvre un menu.
 | **Suivre** | Marque le message d'un drapeau, pour ne pas l'oublier. | **S** |
 | **Marquer comme lu / non lu** | Le message redevient gras (non lu), ou non. | **Maj** + **U** / **Maj** + **I** |
 
-Pour **déplacer**, une liste de vos dossiers s'ouvre : tapez quelques
-lettres du nom du dossier, puis **Entrée**.
+Pour **déplacer**, une liste de vos dossiers s'ouvre : cliquez sur le
+dossier voulu, ou tapez quelques lettres de son nom puis **Entrée**.
 
 ![Le choix du dossier de destination, avec une zone de recherche](captures/move.png)
 
-Pour agir sur **plusieurs messages d'un coup**, utilisez le clavier : dans
-la liste, placez-vous sur chaque message voulu (**J** et **K**) et appuyez
-sur **X** ; une coche apparaît devant lui. Choisissez ensuite l'action : elle
-s'applique à tous les messages cochés.
+Pour agir sur **plusieurs messages d'un coup**, cochez la case au début de
+chaque ligne voulue. Une barre apparaît au-dessus de la liste : elle
+indique combien de messages sont sélectionnés et propose les actions, qui
+s'appliquent à tous. **Tout désélectionner** retire toutes les coches. Au
+clavier, **X** coche ou décoche le message choisi.
+
+![Trois messages cochés et la barre d'actions au-dessus de la liste](captures/selection.png)
 
 **Annuler** : après chaque action, un bandeau apparaît en bas avec un
 bouton **Annuler** (ou la touche **Z**).
 
 ## Supprimer
 
-Cliquez sur **Supprimer** (icône de corbeille) dans la barre d'actions, ou
-appuyez sur **#** (**Maj** + **3** sur un clavier français, selon le
+Cliquez sur **Supprimer** dans la barre d'actions, sur la petite corbeille
+qui apparaît au survol d'une ligne, ou appuyez sur **#** (**Maj** + **3** sur un clavier français, selon le
 modèle).
 
 Le message va dans la **Corbeille** : il n'est pas perdu. Pour le
@@ -159,11 +165,11 @@ Supprimer un message **depuis la Corbeille** l'efface définitivement.
 
 ## Rechercher un message
 
-1. Cliquez sur la loupe en haut de la liste, ou appuyez sur **/**.
+1. Cliquez sur **Rechercher**, en haut de la liste (au clavier : **/**).
 2. Tapez un mot : un nom, un mot du sujet ou du texte. Les résultats
    s'affichent au fur et à mesure, le mot trouvé surligné.
-3. Cliquez sur un résultat (ou **Entrée**) pour l'ouvrir. **Échap** ferme
-   la recherche.
+3. Cliquez sur un résultat (ou **Entrée**) pour l'ouvrir. La croix (ou
+   **Échap**) ferme la recherche.
 
 ![Les résultats d'une recherche, avec le mot cherché surligné](captures/search.png)
 
@@ -190,9 +196,9 @@ Norelly enregistre tout seul ce que vous écrivez. Si vous fermez la
 fenêtre de rédaction (**Échap** ou la croix), votre message devient un
 **brouillon** : rien n'est perdu.
 
-Pour le reprendre : **Ctrl** + **K**, tapez « brouillons », puis
-**Entrée**. Cliquez sur le brouillon voulu : il se rouvre, prêt à être
-terminé et envoyé.
+Pour le reprendre : dans le panneau de gauche, cliquez sur le bouton **⋯**
+à côté de l'adresse du compte, puis sur **Brouillons…**. Cliquez sur le
+brouillon voulu : il se rouvre, prêt à être terminé et envoyé.
 
 ![La liste des brouillons enregistrés, avec leur destinataire et leur objet](captures/drafts.png)
 
@@ -202,3 +208,13 @@ serveur**.
 
 Pour jeter un brouillon, ouvrez-le puis cliquez sur **Supprimer le
 brouillon**.
+
+## Aller plus vite avec le clavier
+
+Les raccourcis sont facultatifs. Le bouton **?**, en haut à gauche, les
+affiche tous, rangés par thème. La **palette de commandes** (**Ctrl** +
+**K**, ou le bouton **Palette de commandes** de cette aide) retrouve
+n'importe quelle action en tapant quelques lettres de son nom
+(« répondre », « brouillon », « déplacer »…), puis **Entrée**.
+
+![La palette de commandes : une zone de recherche et la liste des actions, rangées par thème](captures/palette.png)

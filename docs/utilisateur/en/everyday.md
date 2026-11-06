@@ -2,16 +2,11 @@
 
 [← Back to contents](README.md)
 
-This page explains everyday tasks. For each one there is a way to do it
-**with the mouse** and, to go faster, a **keyboard key** (all of them are
-listed in the [cheat sheet](shortcuts.md)).
-
-> **The one thing to remember**: **Ctrl** + **K** (press the **Ctrl** key,
-> hold it down, then press **K**) opens the **command palette**. Type a few
-> letters of what you want to do ("reply", "draft", "move"…), then press
-> **Enter**. Every Norelly action is in there.
->
-> ![The command palette: a search box and the list of actions, grouped by topic](captures/palette.png)
+This page explains everyday tasks. Everything can be done **with the
+mouse**, with buttons spelled out in words. The keyboard is optional: each
+button shows its key when you rest the mouse on it for a moment, and the
+**?** button at the top left shows the [cheat sheet](shortcuts.md) of
+shortcuts.
 
 ## Reading a message
 
@@ -19,8 +14,8 @@ listed in the [cheat sheet](shortcuts.md)).
    messages of all your addresses together, click **Unified inbox**.
 2. In the middle list, click a message. It is shown on the right. Unread
    messages are in bold. Opening a message does not mark it as read: once
-   you have read it, click the **Mark as read** button (open envelope) in
-   the action bar, or press **Shift** + **I**.
+   you have read it, click **More…** in the action bar, then **Mark as
+   read** (or press **Shift** + **I**).
 3. To go back to the list, click the **Back to list** arrow or press
    **Esc**.
 
@@ -30,8 +25,9 @@ When several messages answer each other, they form a **conversation**: they
 are stacked from oldest to newest. Click a message's header to unfold or
 fold it.
 
-From the keyboard: **J** moves to the next conversation, **K** to the
-previous one, **Enter** opens it.
+To move to the next or previous conversation without going back to the
+list: **More…**, then **Next conversation** or **Previous conversation**
+(from the keyboard: **J** and **K**).
 
 ### Blocked images
 
@@ -59,10 +55,10 @@ were expecting it.
 
 ## Replying
 
-1. Open the message.
-2. Press the **R** key (as in "reply"). To reply to everyone (the sender
-   and the other recipients), press **A**. With the mouse: **Ctrl** + **K**,
-   type "reply", then **Enter**.
+1. Open the message, or **right-click** it in the list.
+2. Click **Reply**. To reply to everyone (the sender and the other
+   recipients), click **Reply all**. If the window is narrow, this button
+   moves into **More…**. From the keyboard: **R** and **A**.
 3. The writing window opens: the recipient and the subject ("Re: …") are
    already filled in, and the original message is quoted below. Write your
    reply.
@@ -70,21 +66,22 @@ were expecting it.
 
 ![The window for writing a reply: recipient, subject, formatting bar and text](captures/compose.png)
 
-To **forward** a message to someone else, with its attachments, press
-**F** (or palette, "forward").
+To **forward** a message to someone else, with its attachments, click
+**Forward** (from the keyboard: **F**).
 
 ## Writing a new message
 
-1. Press the **C** key (or **Ctrl** + **K**, type "new message", then
-   **Enter**). The message is sent from the address selected in the left
-   panel.
+1. Click the blue **New message** button at the top left (from the
+   keyboard: **C**). The message is sent from the address selected in the
+   left panel.
 2. In **To**, type the recipient's address. Norelly suggests addresses you
    already know: pick one with the arrow keys and **Enter**, or click it.
    You can add several recipients.
 3. To send a **copy** (**Cc**) or a **blind copy** (**Bcc**: the other
    recipients do not see it) to someone, click **Cc and Bcc**.
 4. Fill in the **Subject**, then write your text. The buttons above the
-   text make it **bold** or *italic*, or add a list or a link.
+   text make it **bold** or *italic*, or add a list or a link: rest the
+   mouse on a button to see its name.
 5. Click **Send** (or **Ctrl** + **Enter**).
 
 If you are not connected to the Internet, don't worry: the message waits in
@@ -94,7 +91,8 @@ the **outbox** and goes out by itself as soon as the connection is back.
 
 In the writing window, click **Send later**, choose the date and time, then
 **Schedule**. Until then, you can edit or cancel the message from the
-**outbox** (palette, "outbox").
+**outbox**: **⋯** button next to the account's address in the left panel,
+then **Outbox**.
 
 ## Attaching a file
 
@@ -110,9 +108,15 @@ refuse the message.
 
 ## Tidying up: archive, move, flag
 
-When a message is open, the action bar at the top right offers buttons. In
-the list, the same buttons appear when the mouse is over a line, and a
-**right click** on a line opens a menu.
+When a message is open, the action bar above it offers **Archive** and
+**Delete**; the other actions are in **More…**. In the list:
+
+- when the mouse is over a line, three small buttons appear: archive,
+  delete, mark as read or unread;
+- a **right click** on a line opens a menu with every action, each with its
+  key on the right.
+
+![The right-click menu on a message: open, reply, forward, archive, delete, mark, flag, move](captures/context-menu.png)
 
 | Action | What it does | Key |
 |---|---|---|
@@ -121,21 +125,26 @@ the list, the same buttons appear when the mouse is over a line, and a
 | **Flag** | Marks the message with a flag, so you don't forget it. | **S** |
 | **Mark as read / unread** | The message becomes bold (unread) again, or not. | **Shift** + **U** / **Shift** + **I** |
 
-To **move**, a list of your folders opens: type a few letters of the
-folder's name, then **Enter**.
+To **move**, a list of your folders opens: click the folder you want, or
+type a few letters of its name, then **Enter**.
 
 ![Choosing the destination folder, with a search box](captures/move.png)
 
-To act on **several messages at once**, use the keyboard: in the list, go
-to each message you want (**J** and **K**) and press **X**; a tick appears
-in front of it. Then choose the action: it applies to every ticked message.
+To act on **several messages at once**, tick the box at the start of each
+line you want. A bar appears above the list: it shows how many messages are
+selected and offers the actions, which apply to all of them. **Clear
+selection** removes every tick. From the keyboard, **X** ticks or unticks
+the chosen message.
+
+![Three ticked messages and the action bar above the list](captures/selection.png)
 
 **Undo**: after each action, a banner appears at the bottom with an
 **Undo** button (or the **Z** key).
 
 ## Deleting
 
-Click **Delete** (bin icon) in the action bar, or press **#** (**Shift** +
+Click **Delete** in the action bar, the small bin that appears when the
+mouse is over a line, or press **#** (**Shift** +
 **3** on a UK keyboard).
 
 The message goes to the **Trash**: it is not lost. To get it back, open the
@@ -144,10 +153,11 @@ Trash** erases it permanently.
 
 ## Searching for a message
 
-1. Click the magnifying glass at the top of the list, or press **/**.
+1. Click **Search** at the top of the list (from the keyboard: **/**).
 2. Type a word: a name, a word from the subject or the text. Results appear
    as you type, with the word highlighted.
-3. Click a result (or **Enter**) to open it. **Esc** closes the search.
+3. Click a result (or **Enter**) to open it. The cross (or **Esc**) closes
+   the search.
 
 ![Search results, with the searched word highlighted](captures/search.png)
 
@@ -172,8 +182,9 @@ To narrow it down, you can add:
 Norelly saves what you write automatically. If you close the writing window
 (**Esc** or the cross), your message becomes a **draft**: nothing is lost.
 
-To pick it up again: **Ctrl** + **K**, type "drafts", then **Enter**. Click
-the draft you want: it opens again, ready to be finished and sent.
+To pick it up again: in the left panel, click the **⋯** button next to the
+account's address, then **Drafts…**. Click the draft you want: it opens
+again, ready to be finished and sent.
 
 ![The list of saved drafts, with their recipient and subject](captures/drafts.png)
 
@@ -181,3 +192,12 @@ Drafts started on another device (phone, provider's website) also appear,
 under **In the server's Drafts folder**.
 
 To throw a draft away, open it and click **Delete draft**.
+
+## Going faster with the keyboard
+
+Shortcuts are optional. The **?** button at the top left shows them all,
+grouped by topic. The **command palette** (**Ctrl** + **K**, or the
+**Command palette** button in that help) finds any action when you type a
+few letters of its name ("reply", "draft", "move"…), then **Enter**.
+
+![The command palette: a search box and the list of actions, grouped by topic](captures/palette.png)

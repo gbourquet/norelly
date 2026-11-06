@@ -163,6 +163,24 @@ describe("état de la lecture", () => {
     expect(mail.marked).toEqual([]);
   });
 
+  it("case à cocher d'une ligne : coche sans changer la sélection, puis tout décocher", async () => {
+    const api = fakeApi(5);
+    const mail = new MailState(api);
+    await mail.show(UNIFIED_INBOX);
+    mail.select(1);
+    mail.toggleMarkAt(0);
+    mail.toggleMarkAt(3);
+    expect(mail.marked).toEqual([1, 4]);
+    expect(mail.selectedIndex).toBe(1);
+    mail.toggleMarkAt(0);
+    expect(mail.marked).toEqual([4]);
+    // Ligne inexistante : rien.
+    mail.toggleMarkAt(42);
+    expect(mail.marked).toEqual([4]);
+    mail.clearMarks();
+    expect(mail.marked).toEqual([]);
+  });
+
   it("annulation trop tardive et erreur d'action", async () => {
     const api = fakeApi(3);
     const mail = new MailState(api);

@@ -65,8 +65,17 @@ certificats autosignés neufs, puis lance les scénarios avec un `HOME`
 | `reading-security.e2e.mjs` | Zéro requête vers le canari, aucun script du mail exécuté, IPC inaccessible depuis `mailview://`, `javascript:` jamais ouvert, touches relayées |
 | `compose.e2e.mjs` | Réponse `r` + Ctrl+Entrée reçue par Mailpit (In-Reply-To, texte et HTML), copie dans Envoyés, Cci hors des en-têtes, HTML saisi jamais interprété |
 | `search.e2e.mjs` | Mot du texte trouvé et surligné, échappement, filtre `from:` |
-| `captures/captures.e2e.mjs` | Produit les captures de `docs/utilisateur/{fr,en}/captures/` sur un profil neuf par langue (boîte Dovecot dédiée) ; vérifie la langue de l'interface |
+| `captures/captures.e2e.mjs` | Produit les captures de `docs/utilisateur/{fr,en}/captures/` sur un profil neuf par langue (boîte Dovecot dédiée), en passant par la souris comme un utilisateur débutant (boutons, cases à cocher, clic droit, menus « Plus… » et « ⋯ ») ; vérifie la langue de l'interface |
 | `perf/perf.e2e.mjs` | Démarrage et changement de dossier sur 50 000 + 20 000 messages (`NORELLY_E2E_PERF=1`, build release) |
+
+Menus sous WebKitWebDriver : il ne synthétise que `mousedown`, `mouseup`
+et `click`, sans `pointerdown`, qui ouvre les menus déroulants (« Plus… »,
+menu d'un compte) ; et son clic droit émet aussi un clic, qui ouvrirait la
+conversation. Les scénarios passent donc par `openMenu` et
+`openContextMenu` (`app/e2e/specs/helpers.mjs`), qui envoient ces
+événements tels que la souris les produit. Viser les boutons par leur nom
+exact, hors de la copie invisible de mesure des barres d'actions
+(`aria-hidden`).
 
 Les captures ne sont recopiées dans `docs/` que si tous les scénarios ont
 réussi. Elles ne se modifient jamais à la main : relancer
@@ -79,7 +88,7 @@ Vérifiés par `./scripts/check.sh`, **à relever, jamais à baisser** :
 | Mesure | Outil | Seuil |
 |---|---|---|
 | Rust, lignes (tests unitaires) | `cargo llvm-cov nextest --fail-under-lines` | 86 % |
-| Front, lignes / instructions / branches / fonctions | `vitest --coverage` (`app/vite.config.ts`) | 81 / 77 / 71 / 74 % |
+| Front, lignes / instructions / branches / fonctions | `vitest --coverage` (`app/vite.config.ts`) | 84 / 81 / 74 / 79 % |
 
 Le code d'adaptateur entrant couvert surtout par l'intégration et l'e2e
 (`app/src-tauri/src/mail.rs`, chemin Secret Service) reste plus faible en

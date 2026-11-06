@@ -18,9 +18,10 @@ without opening a web browser:
 - Norelly **protects you**: it blocks the images used to find out whether
   you opened a message, and it does not spy on you (no statistics are sent
   anywhere);
-- it is driven **from the keyboard**: a few keys are enough to write,
-  reply or tidy up (they are all explained in this guide). Tidying actions
-  also have buttons you can click.
+- everything can be done **with the mouse**, with buttons spelled out in
+  words: **New message**, **Reply**, **Archive**, **Delete**… If you like
+  the keyboard, shortcuts let you go faster (the **?** button shows
+  them).
 
 Norelly is free and open source.
 

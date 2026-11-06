@@ -112,9 +112,8 @@ Norelly's access, you just delete this app password.
 
 ## Removing an account
 
-In the left panel, click the bin icon next to the account's address (or
-search for "Remove account" with **Ctrl** + **K**). Norelly asks you to
-confirm.
+In the left panel, click the **⋯** button next to the account's address,
+then **Remove this account…**. Norelly asks you to confirm.
 
 Removing an account erases from your computer its copy of the messages and
 its password. **Your messages stay with your provider**: you will find them

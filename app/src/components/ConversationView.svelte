@@ -16,11 +16,13 @@
     api: Api;
     onBack: () => void;
     onKey: (shortcut: Shortcut) => void;
-    /** Barre d'outils des actions (à droite du titre). */
+    /** Infobulle du bouton retour (avec son raccourci). */
+    backTitle: string;
+    /** Barre d'actions (sous le titre). */
     toolbar?: Snippet;
   }
 
-  let { conversation, messages, api, onBack, onKey, toolbar }: Props = $props();
+  let { conversation, messages, api, onBack, onKey, backTitle, toolbar }: Props = $props();
 
   let expanded = $state<number[]>([]);
 
@@ -43,7 +45,7 @@
     <button
       class="btn btn-ghost icon"
       type="button"
-      title={m.conversation_back_title()}
+      title={backTitle}
       aria-label={m.conversation_back()}
       onclick={onBack}
     >
@@ -85,6 +87,7 @@
 
   header {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: var(--space-2);
     padding: var(--space-3) var(--space-4);
@@ -92,8 +95,8 @@
   }
 
   .toolbar {
-    flex: none;
-    margin-left: auto;
+    flex: 1 0 100%;
+    min-width: 0;
   }
 
   h1 {

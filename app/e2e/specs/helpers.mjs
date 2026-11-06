@@ -10,8 +10,9 @@ const canary = process.env.NORELLY_E2E_CANARY ?? "http://canary.norelly.test:808
 
 /** Ajoute le compte de test (saisie manuelle, confiance dans les certificats si demandée). */
 export async function addTestAccount() {
-  // Sans compte, le bouton de l'accueil (l'icône du panneau porte le même nom).
-  await $("button=Ajouter un compte").click();
+  // Bouton du panneau de navigation, toujours visible (l'accueil sans
+  // compte en propose un second).
+  await $("nav").$("button=Ajouter un compte").click();
   await $("#account-address").setValue(address);
   await $("#account-password").setValue(password);
   await $("button=Continuer").click();
@@ -39,9 +40,56 @@ export async function addTestAccount() {
   await expect($("#imap-host")).not.toBeDisplayed();
 }
 
+/**
+ * Ouvre un menu déroulant (« Plus… », menu d'un compte). Les menus
+ * s'ouvrent sur `pointerdown`, que la souris émet ; WebKitWebDriver ne
+ * synthétise que `mousedown`, `mouseup` et `click` : le `pointerdown` est
+ * donc envoyé tel que la souris le produit.
+ */
+export async function openMenu(trigger) {
+  const element = await trigger;
+  await element.waitForDisplayed({ timeout: 10000 });
+  await browser.execute((el) => {
+    el.dispatchEvent(
+      new PointerEvent("pointerdown", { bubbles: true, button: 0, pointerType: "mouse" }),
+    );
+  }, element);
+}
+
+/**
+ * Clic droit sur un élément : seul l'événement `contextmenu` est envoyé,
+ * au centre de l'élément, comme le produit la souris (le clic droit de
+ * WebKitWebDriver émet aussi un clic, qui ouvrirait la conversation).
+ */
+export async function openContextMenu(target) {
+  const element = await target;
+  await element.waitForDisplayed({ timeout: 10000 });
+  await browser.execute((el) => {
+    const r = el.getBoundingClientRect();
+    el.dispatchEvent(
+      new MouseEvent("contextmenu", {
+        bubbles: true,
+        cancelable: true,
+        button: 2,
+        clientX: r.left + r.width / 2,
+        clientY: r.top + r.height / 2,
+      }),
+    );
+  }, element);
+}
+
+/** Ouvre le menu « ⋯ » d'un compte et choisit une entrée ; `menu` : nom
+ * du bouton du menu (français par défaut, celui des scénarios). */
+export async function accountMenu(account, entry, menu = `Actions du compte ${account}`) {
+  await openMenu($(`aria/${menu}`));
+  const item = $(`//*[@role="menuitem"][normalize-space()="${entry}"]`);
+  await item.waitForDisplayed({ timeout: 10000 });
+  await item.click();
+}
+
 /** Supprime le compte de test. */
 export async function removeTestAccount() {
-  await $(`aria/Supprimer le compte ${address}`).click();
+  await accountMenu(address, "Supprimer ce compte…");
   const confirm = $("button=Supprimer le compte");
   await confirm.waitForDisplayed();
   await confirm.click();

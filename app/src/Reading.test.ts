@@ -106,6 +106,20 @@ vi.mock("./lib/ipc/api", () => ({
     })),
     undoActions: vi.fn(async (ops: number[]) => ops.length),
     setArchiveFolder: vi.fn(async () => undefined),
+    prepareCompose: vi.fn(async (account: number, kind: string) => ({
+      id: null,
+      account,
+      to: [{ name: "", address: "e1@example.com" }],
+      cc: [],
+      bcc: [],
+      subject: kind === "forward" ? "Tr: Sujet 1" : "Re: Sujet 1",
+      html: "<p></p>",
+      in_reply_to: null,
+      references: [],
+      attachments: [],
+    })),
+    discardDraft: vi.fn(async () => undefined),
+    saveDraft: vi.fn(async () => ({ id: 1 })),
   },
 }));
 
@@ -267,12 +281,19 @@ describe("lecture", () => {
     await within(list).findByText("Sujet 1");
     await fireEvent.keyDown(window, { key: "v" });
     const picker = await screen.findByRole("dialog", { name: "Déplacer vers…" });
+    // Fermeture à la souris, puis réouverture.
+    await fireEvent.click(within(picker).getByRole("button", { name: "Fermer" }));
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "Déplacer vers…" })).toBeNull(),
+    );
+    await fireEvent.keyDown(window, { key: "v" });
+    const reopened = await screen.findByRole("dialog", { name: "Déplacer vers…" });
     // Saisie au clavier, flèche puis Entrée (le dossier où se trouve déjà
     // la conversation est exclu).
-    expect(within(picker).queryByText("INBOX")).toBeNull();
-    const input = within(picker).getByPlaceholderText("Rechercher un dossier…");
+    expect(within(reopened).queryByText("INBOX")).toBeNull();
+    const input = within(reopened).getByPlaceholderText("Rechercher un dossier…");
     await fireEvent.input(input, { target: { value: "proj" } });
-    await within(picker).findByText("Projets");
+    await within(reopened).findByText("Projets");
     await fireEvent.keyDown(input, { key: "ArrowDown" });
     await fireEvent.keyDown(input, { key: "Enter" });
     await waitFor(() =>
@@ -320,18 +341,150 @@ describe("lecture", () => {
       }),
     );
 
-    // Barre d'outils de la vue de lecture.
+    // Barre d'actions de la vue de lecture.
     await fireEvent.click(within(row1).getByText("Sujet 1"));
     const reader = await screen.findByRole("article", { name: "Conversation" });
     const toolbar = within(reader).getByRole("toolbar", { name: "Actions sur la conversation" });
-    const flag = within(toolbar).getByRole("button", { name: "Suivre (ou ne plus suivre)" });
-    expect(flag).toHaveAttribute("title", "Suivre (ou ne plus suivre) (S)");
-    await fireEvent.click(flag);
+    await fireEvent.click(within(toolbar).getByRole("button", { name: "Archiver" }));
+    await waitFor(() =>
+      expect(api.performAction).toHaveBeenLastCalledWith([1], expect.anything(), {
+        kind: "archive",
+      }),
+    );
+  });
+
+  it("barre d'actions du mail ouvert : boutons libellés, infobulles et menu « Plus… »", async () => {
+    render(App);
+    const list = await screen.findByRole("listbox", { name: "Conversations" });
+    await fireEvent.click(await within(list).findByText("Sujet 1"));
+    const reader = await screen.findByRole("article", { name: "Conversation" });
+    const toolbar = within(reader).getByRole("toolbar", { name: "Actions sur la conversation" });
+    const expected = [
+      ["Répondre", "Répondre — R"],
+      ["Répondre à tous", "Répondre à tous — A"],
+      ["Transférer", "Transférer — F"],
+      ["Archiver", "Archiver — E"],
+      ["Supprimer", "Supprimer — #"],
+    ] as const;
+    for (const [name, tooltip] of expected) {
+      const button = await within(toolbar).findByRole("button", { name });
+      // Libellé écrit à côté de l'icône, pas seulement une infobulle.
+      expect(button).toHaveTextContent(name);
+      expect(button).toHaveAttribute("title", tooltip);
+    }
+
+    expect(within(reader).getByRole("button", { name: "Retour à la liste" })).toHaveAttribute(
+      "title",
+      "Retour à la liste — Échap",
+    );
+
+    // Actions secondaires dans « Plus… », raccourci affiché à droite.
+    const more = within(toolbar).getByRole("button", { name: "Plus…" });
+    expect(more).toHaveAttribute("aria-haspopup", "menu");
+    await fireEvent.pointerDown(more, { button: 0, pointerType: "mouse" });
+    const menu = await screen.findByRole("menu", { name: "Plus…" });
+    expect(within(menu).getByRole("menuitem", { name: /^Marquer comme lu/ })).toHaveTextContent(
+      "Maj+I",
+    );
+    expect(within(menu).getByRole("menuitem", { name: /^Déplacer vers…/ })).toBeInTheDocument();
+    expect(
+      within(menu).getByRole("menuitem", { name: /^Conversation suivante/ }),
+    ).toBeInTheDocument();
+    await fireEvent.click(within(menu).getByRole("menuitem", { name: /^Suivre/ }));
     await waitFor(() =>
       expect(api.performAction).toHaveBeenLastCalledWith([1], expect.anything(), {
         kind: "mark_flagged",
         value: true,
       }),
     );
+
+    // Répondre ouvre l'éditeur sur le dernier message.
+    await fireEvent.click(within(toolbar).getByRole("button", { name: "Répondre" }));
+    expect(await screen.findByRole("dialog", { name: "Répondre" })).toBeInTheDocument();
+    expect(api.prepareCompose).toHaveBeenCalledWith(1, "reply", 10, expect.any(String));
+  });
+
+  it("liste : cases à cocher, barre d'actions groupées et actions au survol", async () => {
+    render(App);
+    const list = await screen.findByRole("listbox", { name: "Conversations" });
+    await within(list).findByText("Sujet 1");
+    const row = (n: number) =>
+      within(list).getByText(`Sujet ${n}`).closest("[role=option]") as HTMLElement;
+
+    // Survol : archiver, supprimer, lu / non lu (rien d'autre).
+    const quick = within(row(2)).getByRole("toolbar", { hidden: true });
+    expect(
+      within(quick)
+        .getAllByRole("button", { hidden: true })
+        .map((b) => b.getAttribute("aria-label")),
+    ).toEqual(["Archiver", "Supprimer", "Marquer comme non lu"]);
+    expect(within(quick).getByRole("button", { name: "Archiver", hidden: true })).toHaveAttribute(
+      "title",
+      "Archiver — E",
+    );
+
+    // Cocher deux lignes n'ouvre aucune conversation.
+    expect(screen.queryByRole("toolbar", { name: "Actions sur la sélection" })).toBeNull();
+    await fireEvent.click(
+      within(row(1)).getByRole("checkbox", { name: "Sélectionner « Sujet 1 »" }),
+    );
+    await fireEvent.click(
+      within(row(3)).getByRole("checkbox", { name: "Sélectionner « Sujet 3 »" }),
+    );
+    expect(screen.queryByRole("article", { name: "Conversation" })).toBeNull();
+    expect(within(row(1)).getByRole("checkbox")).toBeChecked();
+    expect(within(row(2)).getByRole("checkbox")).not.toBeChecked();
+
+    // Barre groupée : nombre de sélectionnées, actions libellées.
+    const bulk = await screen.findByRole("region", { name: "Sélection" });
+    expect(bulk).toHaveTextContent("2 sélectionnée(s)");
+    const bar = within(bulk).getByRole("toolbar", { name: "Actions sur la sélection" });
+    expect(within(bar).getByRole("button", { name: "Marquer comme lu" })).toHaveAttribute(
+      "title",
+      "Marquer comme lu — Maj+I",
+    );
+    await fireEvent.click(within(bar).getByRole("button", { name: "Archiver" }));
+    await waitFor(() =>
+      expect(api.performAction).toHaveBeenLastCalledWith([1, 3], expect.anything(), {
+        kind: "archive",
+      }),
+    );
+    await waitFor(() => expect(screen.queryByRole("region", { name: "Sélection" })).toBeNull());
+
+    // Tout désélectionner.
+    await fireEvent.click(within(row(2)).getByRole("checkbox"));
+    const again = await screen.findByRole("region", { name: "Sélection" });
+    await fireEvent.click(within(again).getByRole("button", { name: "Tout désélectionner" }));
+    expect(within(row(2)).getByRole("checkbox")).not.toBeChecked();
+    expect(screen.queryByRole("region", { name: "Sélection" })).toBeNull();
+  });
+
+  it("menu contextuel : actions de la barre, raccourci à droite, répondre depuis la liste", async () => {
+    render(App);
+    const list = await screen.findByRole("listbox", { name: "Conversations" });
+    await within(list).findByText("Sujet 2");
+    const row2 = within(list).getByText("Sujet 2").closest("[role=option]") as HTMLElement;
+    await fireEvent.contextMenu(row2);
+    const menu = await screen.findByRole("menu", { name: "Actions sur la conversation" });
+    const items = within(menu).getAllByRole("menuitem");
+    expect(items.map((i) => i.textContent?.replace(/\s+/g, " ").trim())).toEqual([
+      "Ouvrir la conversation Entrée",
+      "Répondre R",
+      "Répondre à tous A",
+      "Transférer F",
+      "Archiver E",
+      "Supprimer #",
+      "Marquer comme non lu Maj+U",
+      "Suivre S",
+      "Déplacer vers… V",
+    ]);
+    // Groupes séparés comme dans la barre.
+    expect(within(menu).getAllByRole("separator")).toHaveLength(3);
+
+    // Répondre depuis la liste : ouvre la conversation, puis l'éditeur.
+    await fireEvent.click(within(menu).getByRole("menuitem", { name: /^Répondre R/ }));
+    expect(await screen.findByRole("dialog", { name: "Répondre" })).toBeInTheDocument();
+    expect(api.prepareCompose).toHaveBeenCalledWith(1, "reply", 20, expect.any(String));
+    expect(screen.getByRole("article", { name: "Conversation" })).toBeInTheDocument();
   });
 });

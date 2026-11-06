@@ -13,7 +13,7 @@
   import ConversationView from "./components/ConversationView.svelte";
   import FolderPicker from "./components/FolderPicker.svelte";
   import ActionNotice from "./components/ActionNotice.svelte";
-  import ActionButtons from "./components/ActionButtons.svelte";
+  import ActionBar from "./components/ActionBar.svelte";
   import ComposeDialog from "./components/ComposeDialog.svelte";
   import OutboxDialog from "./components/OutboxDialog.svelte";
   import SearchPanel from "./components/SearchPanel.svelte";
@@ -22,7 +22,8 @@
   import UpdateQuestion from "./components/UpdateQuestion.svelte";
   import UpdateBanner from "./components/UpdateBanner.svelte";
   import { notificationText } from "./lib/notifications";
-  import { conversationActions } from "./lib/visible-actions";
+  import { readerActions } from "./lib/visible-actions";
+  import { describeCommand } from "./lib/commands/describe";
   import {
     app,
     compose,
@@ -168,9 +169,11 @@
       selectedId={app.selectedAccountId}
       onScope={selectScope}
       onAdd={() => app.open("add-account")}
-      onRemove={(id) => {
+      {registry}
+      context={app.context()}
+      onAccount={(id) => {
         app.selectedAccountId = id;
-        app.open("remove-account");
+        return app.context();
       }}
     />
   {/snippet}
@@ -194,11 +197,19 @@
         messages={mail.messages}
         {api}
         onBack={() => mail.back()}
+        backTitle={describeCommand(
+          registry,
+          "conversation.back",
+          app.context(),
+          m.conversation_back(),
+        )?.tooltip ?? m.conversation_back()}
         onKey={onFrameKey}
       >
         {#snippet toolbar()}
-          <ActionButtons
-            actions={conversationActions(mail.opened)}
+          {@const actions = readerActions(mail.opened)}
+          <ActionBar
+            primary={actions.primary}
+            more={actions.more}
             {registry}
             context={app.context()}
             label={m.conversation_toolbar()}
@@ -232,7 +243,13 @@
   context={app.context()}
   onClose={() => app.close()}
 />
-<ShortcutHelp open={app.dialog === "help"} {registry} onClose={() => app.close()} />
+<ShortcutHelp
+  open={app.dialog === "help"}
+  {registry}
+  context={app.context()}
+  onClose={() => app.close()}
+  onPalette={() => app.open("palette")}
+/>
 <AddAccountDialog
   open={app.dialog === "add-account"}
   {api}

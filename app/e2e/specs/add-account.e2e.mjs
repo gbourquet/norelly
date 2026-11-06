@@ -3,6 +3,7 @@
 // avertissements de certificat (autosignés), confiance explicite, compte
 // enregistré (base SQLite et trousseau GNOME Keyring), puis suppression.
 import { $, browser, expect } from "@wdio/globals";
+import { accountMenu } from "./helpers.mjs";
 
 const password = process.env.NORELLY_E2E_PASSWORD ?? "";
 const address = "norelly@norelly.test";
@@ -19,7 +20,7 @@ describe("compte de messagerie", () => {
   });
 
   it("ajoute un compte Dovecot après confiance explicite dans les certificats", async () => {
-    await $("button=Ajouter un compte").click();
+    await $("main").$("button=Ajouter un compte").click();
     await $("#account-address").setValue(address);
     await $("#account-password").setValue(password);
     await $("button=Continuer").click();
@@ -59,7 +60,7 @@ describe("compte de messagerie", () => {
   });
 
   it("refuse un second compte pour la même adresse", async () => {
-    await $("aria/Ajouter un compte").click();
+    await $("nav").$("button=Ajouter un compte").click();
     await $("#account-address").setValue(address);
     await $("#account-password").setValue(password);
     await $("button=Continuer").click();
@@ -75,7 +76,7 @@ describe("compte de messagerie", () => {
   });
 
   it("supprime le compte après confirmation", async () => {
-    await $(`aria/Supprimer le compte ${address}`).click();
+    await accountMenu(address, "Supprimer ce compte…");
     const confirm = $("button=Supprimer le compte");
     await confirm.waitForDisplayed();
     await confirm.click();

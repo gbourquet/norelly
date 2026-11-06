@@ -71,6 +71,8 @@ une conversation de trois messages.
 - [ ] `Ctrl+,` ouvre les paramètres ; chaque réglage est gardé au redémarrage.
 - [ ] Langue « English » : l'interface et les notifications sont en anglais au redémarrage ; « Celle du système » revient à la langue du système.
 - [ ] Navigation entièrement au clavier : chaque action est atteignable sans souris (raccourcis, palette `Ctrl+K`), le focus est toujours visible.
+- [ ] Entièrement à la souris, sans aucun raccourci : écrire, répondre, répondre à tous, transférer, archiver, supprimer, déplacer, marquer lu / non lu, suivre, cocher plusieurs messages puis agir dessus, rechercher, ouvrir les brouillons, la boîte d'envoi, les paramètres et l'aide, synchroniser, ajouter puis supprimer un compte, fermer chaque fenêtre.
+- [ ] Chaque bouton affiche une infobulle « Libellé — Touche » ; le clic droit sur un message ouvre le menu des actions, raccourcis à droite.
 
 ## Résultats
 

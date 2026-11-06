@@ -11,14 +11,19 @@ puisse devenir dangereux.
 
 ## Comportement attendu
 
-- **Nouveau message** (`c`) : depuis le compte sélectionné.
-- **Répondre** (`r`), **Répondre à tous** (`a`), **Transférer** (`f`) :
-  depuis le dernier message de la conversation ouverte. Destinataires,
+- **Nouveau message** : bouton toujours visible en haut du panneau de
+  navigation (ou `c`), depuis le compte sélectionné.
+- **Répondre**, **Répondre à tous**, **Transférer** : boutons de la barre
+  d'actions du message ouvert, entrées du menu contextuel d'une ligne (ou
+  `r`, `a`, `f`), depuis le dernier message de la conversation. Depuis la
+  liste, la conversation s'ouvre d'abord. Destinataires,
   sujet et citation sont préremplis ; le transfert reprend les pièces
   jointes d'origine.
 - Champs : À, Cc et Cci (affichés à la demande), Objet, corps.
   Destinataires en étiquettes, avec **suggestions** parmi les adresses
   connues (flèches, Entrée, virgule ou Tab pour valider).
+- La fenêtre se ferme par son bouton **Fermer**, Échap ou un clic à
+  l'extérieur, en gardant le brouillon.
 - Mise en forme : gras, italique, barré, lien, listes à puces et
   numérotées, citation.
 - **Pièces jointes** : bouton « Joindre des fichiers » ou glisser-déposer ;

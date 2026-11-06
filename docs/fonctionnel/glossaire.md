@@ -29,8 +29,21 @@ copié dans le dossier « Brouillons » du serveur. Voir
 **Cible** : conversations visées par une action (cochées, ouverte, ou
 pointée).
 
+**Barre de sélection** : barre affichée au-dessus de la liste dès qu'une
+conversation est cochée : nombre de conversations cochées, « Tout
+désélectionner » et actions groupées. Voir [actions](actions.md).
+
 **Commande** : action de l'interface, avec un libellé et éventuellement un
-raccourci, accessible par la palette. Voir [clavier](clavier.md).
+raccourci, accessible à la souris par un élément visible et par la
+palette. Voir [clavier](clavier.md).
+
+**Menu du compte** : menu « ⋯ » à côté de l'adresse d'un compte, dans le
+panneau de navigation : synchroniser, brouillons, boîte d'envoi, dossier
+d'archives, suppression du compte. Voir [comptes](comptes.md).
+
+**Plus…** : menu de la barre d'actions qui regroupe les actions
+secondaires et celles qui ne tiennent pas dans la largeur. Voir
+[actions](actions.md).
 
 **Compte** : une adresse électronique, son nom affiché et ses serveurs de
 réception (IMAP) et d'envoi (SMTP).

@@ -2,6 +2,7 @@
   import { m } from "../lib/paraglide/messages.js";
   // Palette Ctrl+K (bits-ui Command), alimentée par le registre central.
   import { Command, Dialog } from "bits-ui";
+  import XIcon from "@lucide/svelte/icons/x";
   import SearchIcon from "@lucide/svelte/icons/search";
   import { formatShortcut } from "../lib/commands/shortcut";
   import { groupCommands, type CommandRegistry } from "../lib/commands/registry";
@@ -47,6 +48,13 @@
             placeholder={m.palette_placeholder()}
             bind:value={query}
           />
+          <Dialog.Close
+            class="btn btn-ghost palette-close"
+            aria-label={m.common_close()}
+            title={m.common_close()}
+          >
+            <XIcon size={16} aria-hidden="true" />
+          </Dialog.Close>
         </div>
         <Command.List class="palette-list">
           <Command.Empty class="palette-empty">{m.palette_empty()}</Command.Empty>
@@ -92,13 +100,20 @@
     box-shadow: var(--shadow-dialog);
   }
 
-  .palette-search {
+  /* Partagé avec le choix de dossier (FolderPicker). */
+  :global(.palette-search) {
     display: flex;
     align-items: center;
     gap: var(--space-2);
     padding: var(--space-3) var(--space-4);
     border-bottom: var(--border-width) solid var(--color-border);
     color: var(--color-text-muted);
+  }
+
+  :global(.palette-close) {
+    flex: none;
+    padding: var(--space-1);
+    min-height: 0;
   }
 
   :global(.palette-input:focus-visible) {

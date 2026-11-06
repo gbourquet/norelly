@@ -18,9 +18,10 @@ une fenêtre de votre ordinateur, sans ouvrir de navigateur :
 - Norelly **vous protège** : il bloque les images qui servent à savoir si
   vous avez ouvert un message, et il ne vous espionne pas (aucune
   statistique n'est envoyée) ;
-- il se pilote **au clavier** : quelques touches suffisent pour écrire,
-  répondre ou ranger (elles sont toutes expliquées dans ce guide). Les
-  actions de rangement ont aussi leurs boutons, à la souris.
+- tout se fait **à la souris**, avec des boutons écrits en toutes lettres :
+  **Nouveau message**, **Répondre**, **Archiver**, **Supprimer**… Si vous
+  aimez le clavier, des raccourcis permettent d'aller plus vite (le bouton
+  **?** les affiche).
 
 Norelly est gratuit et libre.
 

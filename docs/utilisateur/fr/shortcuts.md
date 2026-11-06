@@ -15,7 +15,9 @@ Les raccourcis à une seule touche ne fonctionnent pas pendant que vous
 écrivez dans un champ (sinon taper un « r » dans un message lancerait une
 réponse). Appuyez d'abord sur **Échap** pour sortir du champ.
 
-Dans Norelly, la touche `?` affiche ce tableau à tout moment.
+Dans Norelly, la touche `?` ou le bouton **?** en haut à gauche affiche ce
+tableau à tout moment. Chaque bouton montre aussi sa touche quand vous
+laissez la souris dessus un instant.
 
 ![L'aide des raccourcis clavier affichée par Norelly](captures/shortcuts.png)
 
@@ -33,7 +35,7 @@ Dans Norelly, la touche `?` affiche ce tableau à tout moment.
 |---|---|
 | Conversation suivante | `J` |
 | Conversation précédente | `K` |
-| Ouvrir la conversation | `Enter` |
+| Ouvrir la conversation | `Entrée` |
 | Retour à la liste | `Échap` |
 | Rechercher dans les messages | `/` |
 | Boîte de réception unifiée | palette |
@@ -53,6 +55,7 @@ passent d'un résultat à l'autre et `Échap` ferme la recherche.
 | Marquer comme non lu | `Maj+U` |
 | Déplacer vers… | `V` |
 | Sélectionner la conversation | `X` |
+| Tout désélectionner | palette |
 | Annuler la dernière action | `Z` |
 
 Les actions visent la conversation ouverte, celle choisie dans la liste, ou

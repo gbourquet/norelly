@@ -16,7 +16,8 @@ redevient identique au serveur après toute interruption.
   secondes, sans action de l'utilisateur : le serveur les signale dès leur
   arrivée.
 - Les autres dossiers sont resynchronisés **toutes les 10 minutes**, et à
-  la demande (commande « Synchroniser le compte sélectionné »).
+  la demande (entrée « Synchroniser » du menu « ⋯ » du compte, ou commande
+  « Synchroniser le compte sélectionné »).
 - Les en-têtes et le texte de tous les messages sont téléchargés ; les
   pièces jointes seulement sous un **seuil** (2 Mio par défaut, réglable) :
   au-delà, elles sont téléchargées à l'ouverture.

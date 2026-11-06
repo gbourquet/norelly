@@ -12,6 +12,9 @@ parvenir ; retirer un compte proprement.
 
 ### Ajout
 
+Depuis « Ajouter un compte », toujours visible en bas du panneau de
+navigation, ou depuis l'accueil quand il n'y a aucun compte.
+
 1. L'utilisateur saisit l'**adresse**, le **mot de passe** et,
    facultativement, un **nom affiché**, puis **Continuer**.
 2. Norelly cherche les serveurs (progression affichée, source par source).
@@ -36,8 +39,9 @@ parvenir ; retirer un compte proprement.
 
 ### Retrait
 
-Depuis l'icône de corbeille du compte (panneau de gauche) ou la commande
-« Supprimer le compte sélectionné… », après confirmation : le compte cesse
+Depuis le menu « ⋯ » du compte (panneau de gauche, entrée « Supprimer ce
+compte… ») ou la commande « Supprimer le compte sélectionné… », après
+confirmation : le compte cesse
 de se synchroniser, son mot de passe est effacé du trousseau, ses données
 locales (messages, actions et envois en attente, brouillons, certificats
 acceptés) sont supprimées. **Rien n'est supprimé sur le serveur.**

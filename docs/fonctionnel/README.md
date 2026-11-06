@@ -27,8 +27,11 @@ Norelly est un client de messagerie **IMAP/SMTP** de bureau, pour
   veulent les lire au même endroit ;
 - les personnes attentives à leur vie privée, qui ne veulent ni pistage à
   la lecture ni télémétrie ;
+- le grand public habitué à Gmail ou Outlook, qui fait tout à la souris,
+  ne connaît aucun raccourci et ne lit pas de documentation : chaque action
+  se comprend en regardant l'écran ;
 - les utilisateurs qui préfèrent le clavier (raccourcis à la Gmail, palette
-  de commandes) ;
+  de commandes), pour qui les raccourcis sont des accélérateurs ;
 - les personnes qui gardent beaucoup de messages : plusieurs comptes de
   plusieurs dizaines de milliers de messages chacun.
 
@@ -41,7 +44,8 @@ Norelly est un client de messagerie **IMAP/SMTP** de bureau, pour
   ni pister sa lecture, ni affaiblir la sécurité de la connexion.
 - **Une application qui fonctionne hors ligne** : lire, chercher, ranger et
   écrire restent possibles sans réseau.
-- **Une application pilotable au clavier**, et accessible.
+- **Une application utilisable entièrement à la souris**, par des boutons
+  et des menus visibles et libellés, **et rapide au clavier** ; accessible.
 - **Une application sobre** : légère, sans superflu.
 
 ### Ce que fait Norelly
@@ -92,9 +96,11 @@ Norelly est un client de messagerie **IMAP/SMTP** de bureau, pour
    chercher, ranger et écrire fonctionnent sans réseau ; les actions et les
    envois attendent le retour du réseau, sans se perdre, même si
    l'application est fermée entre-temps.
-4. **Clavier.** Toute action a une commande, accessible par la palette et,
-   pour les plus courantes, par un raccourci ; la souris n'est pas
-   indispensable, le clavier non plus pour les actions de rangement.
+4. **Souris d'abord, clavier en accélérateur.** Aucune action n'est
+   réservée au clavier : chacune a un élément visible et libellé (bouton,
+   menu « Plus… », menu d'un compte, menu contextuel, case à cocher). Toute
+   action est aussi une commande, accessible par la palette et, pour les
+   plus courantes, par un raccourci, rappelé dans l'infobulle du bouton.
 5. **Sobriété.** Application légère, qui ne charge que ce qu'elle affiche,
    sans fonctions superflues.
 
@@ -113,7 +119,7 @@ Norelly est un client de messagerie **IMAP/SMTP** de bureau, pour
 | Rechercher en plein texte | [recherche.md](recherche.md) |
 | Notifier les nouveaux messages | [notifications.md](notifications.md) |
 | Paramètres, langue et mises à jour | [parametres.md](parametres.md) |
-| Clavier : commandes, palette, raccourcis, accessibilité | [clavier.md](clavier.md) |
+| Commandes : souris, clavier, palette, accessibilité | [clavier.md](clavier.md) |
 
 Vocabulaire : voir le [glossaire](glossaire.md).
 

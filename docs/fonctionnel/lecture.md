@@ -24,7 +24,8 @@ sur l'application ; ouvrir liens et pièces jointes sans danger.
   l'est à la demande.
 - **Texte brut** : bouton par message, et préférence globale.
 - Ouvrir un message **ne le marque pas comme lu** : l'utilisateur le marque
-  lu avec `Maj+I` ou le bouton de la barre d'actions.
+  lu par le menu « Plus… » de la barre d'actions, le bouton au survol de
+  la ligne ou `Maj+I`.
 
 ## Règles
 

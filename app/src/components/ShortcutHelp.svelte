@@ -9,14 +9,21 @@
     type RegisteredCommand,
   } from "../lib/commands/registry";
   import type { Shortcut } from "../lib/commands/shortcut";
+  import { composeWindowShortcuts } from "../lib/fixed-shortcuts";
+  import { describeCommand } from "../lib/commands/describe";
 
   interface Props {
     open: boolean;
     registry: CommandRegistry<C>;
+    context: C;
     onClose: () => void;
+    /** Ouvre la palette de commandes (bouton de l'aide). */
+    onPalette: () => void;
   }
 
-  let { open, registry, onClose }: Props = $props();
+  let { open, registry, context, onClose, onPalette }: Props = $props();
+
+  const palette = $derived(open ? describeCommand(registry, "palette.open", context) : null);
 
   type WithShortcut = RegisteredCommand<C> & { parsedShortcut: Shortcut };
   const hasShortcut = (c: RegisteredCommand<C>): c is WithShortcut =>
@@ -25,7 +32,7 @@
   const groups = $derived(open ? groupCommands(registry.all().filter(hasShortcut)) : []);
 </script>
 
-<Modal {open} title={m.help_title()} {onClose} width="520px">
+<Modal {open} title={m.help_title()} {onClose} width="520px" focusContent>
   {#each groups as [group, commands] (group)}
     <h3>{group}</h3>
     <dl>
@@ -39,8 +46,22 @@
       {/each}
     </dl>
   {/each}
+  <h3>{m.help_group_compose_window()}</h3>
+  <dl>
+    {#each composeWindowShortcuts() as shortcut (shortcut.label)}
+      <div class="row">
+        <dt>{shortcut.label}</dt>
+        <dd>
+          {#each shortcut.keys as k (k)}<kbd>{k}</kbd>{/each}
+        </dd>
+      </div>
+    {/each}
+  </dl>
   <p class="hint">
-    {m.help_palette_hint()} <kbd>Ctrl</kbd> <kbd>K</kbd>
+    {m.help_palette_hint()}
+    <button class="btn" type="button" title={palette?.tooltip} onclick={onPalette}>
+      {palette?.label}
+    </button>
   </p>
 </Modal>
 
@@ -74,7 +95,15 @@
   }
 
   .hint {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2);
     margin-top: var(--space-4);
     color: var(--color-text-muted);
+  }
+
+  .hint .btn {
+    color: var(--color-text);
   }
 </style>

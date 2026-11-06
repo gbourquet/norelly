@@ -172,13 +172,22 @@ Fiche : [actions.md](../fonctionnel/actions.md).
 Cas d'usage : `PerformAction`, `UndoActions`, `ReplayActions`
 (`crates/application/src/actions.rs`).
 
+Accès à la souris (interface) :
+
+| Règle | Où |
+|---|---|
+| Actions de chaque zone : barre du message ouvert et menu « Plus… » (`readerActions`), survol d'une ligne (`rowActions`), menu contextuel (`menuActions`), barre de sélection (`bulkActions`) ; chaque élément exécute une commande du registre | `app/src/lib/visible-actions.ts` |
+| Quand la place manque, les boutons passent dans « Plus… » par priorité (`fitByPriority`) | `visible-actions.ts`, `app/src/components/ActionBar.svelte` |
+| Libellés des bascules selon l'état de toutes les cibles (`subjectOf`) | `visible-actions.ts` |
+| Case à cocher d'une ligne sans changer la sélection (`toggleMarkAt`), tout décocher (`clearMarks`) | `app/src/lib/mail.svelte.ts` |
+
 ### Clés des messages
 
-`action_archived`, `action_deleted`, `action_moved`, `action_flagged`, `action_unflagged`, `action_marked_read`, `action_marked_unread`, `action_undo`, `action_undone`, `action_too_late`, `action_nothing`, `err_no_trash`, `err_no_archive`, `err_pending_queue_full`, `action_archive_folder_set`.
+`action_archived`, `action_deleted`, `action_moved`, `action_flagged`, `action_unflagged`, `action_marked_read`, `action_marked_unread`, `action_undo`, `action_undone`, `action_too_late`, `action_nothing`, `err_no_trash`, `err_no_archive`, `err_pending_queue_full`, `action_archive_folder_set`, `action_more`, `action_follow`, `action_unfollow`, `list_marked`, `list_select_row`, `list_selection`, `list_bulk_actions`, `cmd_clear_selection`.
 
 ### Commandes
 
-`action.archive`, `action.delete`, `action.flag`, `action.mark-read`, `action.mark-unread`, `action.move`, `action.toggle-mark`, `action.undo`, `account.archive-folder`.
+`action.archive`, `action.delete`, `action.flag`, `action.mark-read`, `action.mark-unread`, `action.move`, `action.toggle-mark`, `selection.clear`, `action.undo`, `account.archive-folder`.
 
 ### Vérifications et compléments
 
@@ -371,7 +380,7 @@ Fiche : [parametres.md](../fonctionnel/parametres.md).
 
 `settings.open`.
 
-## Clavier : registre de commandes, palette, raccourcis, accessibilité
+## Commandes : souris, clavier, palette, accessibilité
 
 Fiche : [clavier.md](../fonctionnel/clavier.md).
 
@@ -384,10 +393,15 @@ Fiche : [clavier.md](../fonctionnel/clavier.md).
 | Le registre ne prend aucune décision de sécurité : une commande appelle l'interface ou une commande IPC revalidée en Rust | `registry.ts` |
 | Messages `postMessage` de l'agent validés (source, schéma, taille) | `app/src/lib/agent.ts`, ADR-004 |
 | Chaque commande figure dans l'aide-mémoire de la documentation utilisateur, dans les deux langues | `app/src/docs.test.ts` (via `scripts/check-docs.sh`) |
+| Infobulle « Libellé — Touches » et état d'un élément visible, tirés du registre | `app/src/lib/commands/describe.ts` |
+| Les composants relisent le registre à l'abonnement (commandes enregistrées avant) | `app/src/lib/commands/watch.svelte.ts` |
+| Touches de la fenêtre de rédaction et de l'éditeur, affichées dans les infobulles et l'aide | `app/src/lib/fixed-shortcuts.ts` |
+| Bouton Fermer de chaque fenêtre, dernier dans l'ordre de tabulation | `app/src/components/Modal.svelte` |
+| Bouton « ? », « Nouveau message », menu « ⋯ » des comptes, « Ajouter un compte » et « Paramètres » toujours visibles | `app/src/components/Sidebar.svelte` |
 
 ### Clés des messages
 
-`palette_placeholder`, `palette_empty`, `help_title`, `help_palette_hint`, `key_shift`, `key_escape`, `key_space`.
+`palette_placeholder`, `palette_empty`, `help_title`, `help_palette_hint`, `help_group_compose_window`, `help_send`, `help_close_compose`, `tooltip_shortcut`, `common_close`, `key_shift`, `key_escape`, `key_space`, `key_enter`, `sidebar_account_menu`, `sidebar_sync`, `sidebar_remove`, `sidebar_settings`, `search_button`.
 
 
 ### Commandes
@@ -396,7 +410,7 @@ Fiche : [clavier.md](../fonctionnel/clavier.md).
 |---|---|
 | Général | `palette.open` (`Ctrl+K`), `help.shortcuts` (`?`), `settings.open` (`Ctrl+,`) |
 | Lecture | `conversation.next` (`j`), `conversation.previous` (`k`), `conversation.open` (`Entrée`), `conversation.back` (`Échap`), `search.open` (`/`), `mailbox.unified`, `reading.plain-text` |
-| Actions | `action.archive` (`e`), `action.delete` (`#`), `action.flag` (`s`), `action.mark-read` (`Maj+I`), `action.mark-unread` (`Maj+U`), `action.move` (`v`), `action.toggle-mark` (`x`), `action.undo` (`z`) |
+| Actions | `action.archive` (`e`), `action.delete` (`#`), `action.flag` (`s`), `action.mark-read` (`Maj+I`), `action.mark-unread` (`Maj+U`), `action.move` (`v`), `action.toggle-mark` (`x`), `selection.clear`, `action.undo` (`z`) |
 | Rédaction | `compose.new` (`c`), `compose.reply` (`r`), `compose.reply-all` (`a`), `compose.forward` (`f`), `drafts.open`, `compose.outbox` |
 | Comptes | `account.add`, `account.archive-folder`, `account.sync`, `account.remove` |
 

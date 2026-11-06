@@ -124,9 +124,9 @@ passe d'application.
 
 ## Retirer un compte
 
-Sélectionnez le compte dans le panneau de gauche, puis cliquez sur
-l'icône de corbeille à côté de son adresse (ou cherchez « Supprimer le
-compte » avec **Ctrl** + **K**). Norelly vous demande de confirmer.
+Dans le panneau de gauche, cliquez sur le bouton **⋯** à côté de
+l'adresse du compte, puis sur **Supprimer ce compte…**. Norelly vous
+demande de confirmer.
 
 Retirer un compte efface de votre ordinateur sa copie des messages et son
 mot de passe. **Vos messages restent chez votre fournisseur** : vous les

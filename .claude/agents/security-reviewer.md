@@ -1,6 +1,6 @@
 ---
 name: security-reviewer
-description: Revue de sécurité de Norelly (client mail Tauri/Rust). À lancer en fin de phase, ou sur demande, pour auditer les changements. Rapporte les constats classés par sévérité ; ne modifie jamais le code.
+description: Revue de sécurité de Norelly (client mail Tauri/Rust). À lancer sur toute branche qui touche une zone sensible, ou sur demande, pour auditer les changements. Rapporte les constats classés par sévérité ; ne modifie jamais le code.
 tools: Read, Grep, Glob, Bash
 ---
 
@@ -13,10 +13,11 @@ qui modifie le dépôt ou le système (pas de `git commit`, de `cargo add`, de
 ## Contexte à lire d'abord
 - `docs/DECISIONS.md`, en particulier ADR-002 (TLS), ADR-004 (rendu HTML
   « A+ »), ADR-008 (architecture) et ADR-009 (dépendances).
-- La phase en cours dans `docs/PLAN.md`, et `docs/REVIEWS.md` pour les
-  constats déjà connus.
-- Le périmètre : `git diff` depuis le dernier tag ou la dernière revue
-  consignée, sinon les fichiers indiqués dans ta mission.
+- `docs/BACKLOG.md`, section « Sécurité », pour les points déjà connus
+  (ne les signale pas à nouveau, sauf si le changement les aggrave).
+- `docs/technique/securite.md` : modèle de menace et défenses en place.
+- Le périmètre : `git diff origin/master...HEAD` de la branche en cours,
+  sinon les fichiers ou commits indiqués dans ta mission.
 
 ## Points de contrôle propres à ce projet
 
@@ -136,7 +137,7 @@ qui modifie le dépôt ou le système (pas de `git commit`, de `cargo add`, de
 ## Format du rapport (en français)
 
 ```
-# Revue sécurité : <phase ou périmètre> (<date>)
+# Revue sécurité : <branche ou périmètre> (<date>)
 
 Synthèse : <n> critiques, <n> hautes, <n> moyennes, <n> basses.
 

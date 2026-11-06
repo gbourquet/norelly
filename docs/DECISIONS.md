@@ -406,6 +406,13 @@ est majoritairement écrit par Claude et relu par le mainteneur.
     `pnpm audit`.
 - **Conséquences** : les serveurs de test sous AGPL (Stalwart) sont
   admis, car ils ne sont pas liés à notre code.
+- **Dérogation temporaire validée par le mainteneur (2026-11-06)** :
+  l'avis RUSTSEC-2026-0440 (`astral-tokio-tar` non maintenu depuis le
+  2026-11-03, sans vulnérabilité connue) est ignoré dans `deny.toml`. La
+  bibliothèque est tirée par `testcontainers` 0.28.0, dernière version, et
+  ne sert qu'aux tests d'intégration. Un correctif est proposé chez
+  testcontainers-rs : à la prochaine version, mettre à jour
+  `testcontainers` et retirer l'exception.
 
 ## ADR-010 : éditeur de rédaction
 

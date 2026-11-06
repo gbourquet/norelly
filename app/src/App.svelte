@@ -13,7 +13,7 @@
   import ConversationView from "./components/ConversationView.svelte";
   import FolderPicker from "./components/FolderPicker.svelte";
   import ActionNotice from "./components/ActionNotice.svelte";
-  import ActionButtons from "./components/ActionButtons.svelte";
+  import ActionBar from "./components/ActionBar.svelte";
   import ComposeDialog from "./components/ComposeDialog.svelte";
   import OutboxDialog from "./components/OutboxDialog.svelte";
   import SearchPanel from "./components/SearchPanel.svelte";
@@ -22,7 +22,7 @@
   import UpdateQuestion from "./components/UpdateQuestion.svelte";
   import UpdateBanner from "./components/UpdateBanner.svelte";
   import { notificationText } from "./lib/notifications";
-  import { conversationActions } from "./lib/visible-actions";
+  import { readerActions } from "./lib/visible-actions";
   import {
     app,
     compose,
@@ -197,8 +197,10 @@
         onKey={onFrameKey}
       >
         {#snippet toolbar()}
-          <ActionButtons
-            actions={conversationActions(mail.opened)}
+          {@const actions = readerActions(mail.opened)}
+          <ActionBar
+            primary={actions.primary}
+            more={actions.more}
             {registry}
             context={app.context()}
             label={m.conversation_toolbar()}

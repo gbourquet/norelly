@@ -9,3 +9,13 @@ afterEach(() => cleanup());
 if (typeof Element.prototype.scrollIntoView !== "function") {
   Element.prototype.scrollIntoView = function scrollIntoView(): void {};
 }
+
+// jsdom n'implémente pas ResizeObserver (liaisons de largeur Svelte) : les
+// largeurs restent nulles, les barres d'actions affichent tout.
+if (typeof globalThis.ResizeObserver !== "function") {
+  globalThis.ResizeObserver = class ResizeObserver {
+    observe(): void {}
+    unobserve(): void {}
+    disconnect(): void {}
+  };
+}

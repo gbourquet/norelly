@@ -16,7 +16,7 @@
     api: Api;
     onBack: () => void;
     onKey: (shortcut: Shortcut) => void;
-    /** Barre d'outils des actions (à droite du titre). */
+    /** Barre d'actions (sous le titre). */
     toolbar?: Snippet;
   }
 
@@ -85,6 +85,7 @@
 
   header {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: var(--space-2);
     padding: var(--space-3) var(--space-4);
@@ -92,8 +93,8 @@
   }
 
   .toolbar {
-    flex: none;
-    margin-left: auto;
+    flex: 1 0 100%;
+    min-width: 0;
   }
 
   h1 {

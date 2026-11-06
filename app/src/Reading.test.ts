@@ -106,6 +106,20 @@ vi.mock("./lib/ipc/api", () => ({
     })),
     undoActions: vi.fn(async (ops: number[]) => ops.length),
     setArchiveFolder: vi.fn(async () => undefined),
+    prepareCompose: vi.fn(async (account: number, kind: string) => ({
+      id: null,
+      account,
+      to: [{ name: "", address: "e1@example.com" }],
+      cc: [],
+      bcc: [],
+      subject: kind === "forward" ? "Tr: Sujet 1" : "Re: Sujet 1",
+      html: "<p></p>",
+      in_reply_to: null,
+      references: [],
+      attachments: [],
+    })),
+    discardDraft: vi.fn(async () => undefined),
+    saveDraft: vi.fn(async () => ({ id: 1 })),
   },
 }));
 
@@ -320,18 +334,61 @@ describe("lecture", () => {
       }),
     );
 
-    // Barre d'outils de la vue de lecture.
+    // Barre d'actions de la vue de lecture.
     await fireEvent.click(within(row1).getByText("Sujet 1"));
     const reader = await screen.findByRole("article", { name: "Conversation" });
     const toolbar = within(reader).getByRole("toolbar", { name: "Actions sur la conversation" });
-    const flag = within(toolbar).getByRole("button", { name: "Suivre (ou ne plus suivre)" });
-    expect(flag).toHaveAttribute("title", "Suivre (ou ne plus suivre) (S)");
-    await fireEvent.click(flag);
+    await fireEvent.click(within(toolbar).getByRole("button", { name: "Archiver" }));
+    await waitFor(() =>
+      expect(api.performAction).toHaveBeenLastCalledWith([1], expect.anything(), {
+        kind: "archive",
+      }),
+    );
+  });
+
+  it("barre d'actions du mail ouvert : boutons libellés, infobulles et menu « Plus… »", async () => {
+    render(App);
+    const list = await screen.findByRole("listbox", { name: "Conversations" });
+    await fireEvent.click(await within(list).findByText("Sujet 1"));
+    const reader = await screen.findByRole("article", { name: "Conversation" });
+    const toolbar = within(reader).getByRole("toolbar", { name: "Actions sur la conversation" });
+    const expected = [
+      ["Répondre", "Répondre — R"],
+      ["Répondre à tous", "Répondre à tous — A"],
+      ["Transférer", "Transférer — F"],
+      ["Archiver", "Archiver — E"],
+      ["Supprimer", "Supprimer — #"],
+    ] as const;
+    for (const [name, tooltip] of expected) {
+      const button = await within(toolbar).findByRole("button", { name });
+      // Libellé écrit à côté de l'icône, pas seulement une infobulle.
+      expect(button).toHaveTextContent(name);
+      expect(button).toHaveAttribute("title", tooltip);
+    }
+
+    // Actions secondaires dans « Plus… », raccourci affiché à droite.
+    const more = within(toolbar).getByRole("button", { name: "Plus…" });
+    expect(more).toHaveAttribute("aria-haspopup", "menu");
+    await fireEvent.pointerDown(more, { button: 0, pointerType: "mouse" });
+    const menu = await screen.findByRole("menu", { name: "Plus…" });
+    expect(within(menu).getByRole("menuitem", { name: /^Marquer comme lu/ })).toHaveTextContent(
+      "Maj+I",
+    );
+    expect(within(menu).getByRole("menuitem", { name: /^Déplacer vers…/ })).toBeInTheDocument();
+    expect(
+      within(menu).getByRole("menuitem", { name: /^Conversation suivante/ }),
+    ).toBeInTheDocument();
+    await fireEvent.click(within(menu).getByRole("menuitem", { name: /^Suivre/ }));
     await waitFor(() =>
       expect(api.performAction).toHaveBeenLastCalledWith([1], expect.anything(), {
         kind: "mark_flagged",
         value: true,
       }),
     );
+
+    // Répondre ouvre l'éditeur sur le dernier message.
+    await fireEvent.click(within(toolbar).getByRole("button", { name: "Répondre" }));
+    expect(await screen.findByRole("dialog", { name: "Répondre" })).toBeInTheDocument();
+    expect(api.prepareCompose).toHaveBeenCalledWith(1, "reply", 10, expect.any(String));
   });
 });

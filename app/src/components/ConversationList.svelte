@@ -9,6 +9,7 @@
   import { ContextMenu } from "bits-ui";
   import type { MailState } from "../lib/mail.svelte";
   import type { CommandRegistry } from "../lib/commands/registry";
+  import { RegistryWatch } from "../lib/commands/watch.svelte";
   import { formatShortcut } from "../lib/commands/shortcut";
   import { conversationActions } from "../lib/visible-actions";
   import ActionButtons from "./ActionButtons.svelte";
@@ -34,11 +35,11 @@
   ]);
 
   // Le registre n'est pas réactif : relecture à chaque modification.
-  let version = $state(0);
-  $effect(() => registry.subscribe(() => (version += 1)));
+  // Le registre n'est pas réactif : relecture à chaque modification.
+  const watch = new RegistryWatch(() => registry);
 
   function entry(id: string): { title: string; keys: string; enabled: boolean } | null {
-    void version;
+    void watch.version;
     const command = registry.get(id);
     if (command === undefined) return null;
     return {
@@ -174,16 +175,16 @@
       {/snippet}
     </ContextMenu.Trigger>
     <ContextMenu.Portal>
-      <ContextMenu.Content class="context-menu" aria-label={m.list_context_menu()}>
+      <ContextMenu.Content class="menu" aria-label={m.list_context_menu()}>
         {#each menu as id (id)}
           {@const e = entry(id)}
           {#if e !== null}
             <ContextMenu.Item
-              class="context-item"
+              class="menu-item"
               disabled={!e.enabled}
               onSelect={() => void registry.execute(id, context)}
             >
-              <span>{e.title}</span>
+              <span class="menu-label">{e.title}</span>
               {#if e.keys}<kbd>{e.keys}</kbd>{/if}
             </ContextMenu.Item>
           {/if}
@@ -272,34 +273,6 @@
 
   .row:hover .row-actions {
     display: block;
-  }
-
-  :global(.context-menu) {
-    z-index: 51;
-    min-width: 220px;
-    padding: var(--space-1);
-    border: var(--border-width) solid var(--color-border);
-    border-radius: var(--radius-lg);
-    background: var(--color-surface-raised);
-    box-shadow: var(--shadow-dialog);
-  }
-
-  :global(.context-item) {
-    display: flex;
-    justify-content: space-between;
-    gap: var(--space-4);
-    padding: var(--space-2);
-    border-radius: var(--radius);
-    cursor: pointer;
-  }
-
-  :global(.context-item[data-highlighted]) {
-    background: var(--color-selected);
-  }
-
-  :global(.context-item[data-disabled]) {
-    color: var(--color-text-muted);
-    cursor: default;
   }
 
   .row.marked {

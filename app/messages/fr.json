@@ -355,5 +355,9 @@
   "update_available": "La version {version} de Norelly est disponible.",
   "update_install": "Installer et redémarrer",
   "update_installing": "Installation…",
-  "update_later": "Plus tard"
+  "update_later": "Plus tard",
+  "tooltip_shortcut": "{label} — {keys}",
+  "action_more": "Plus…",
+  "action_follow": "Suivre",
+  "action_unfollow": "Ne plus suivre"
 }

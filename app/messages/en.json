@@ -355,5 +355,9 @@
   "update_available": "Norelly {version} is available.",
   "update_install": "Install and restart",
   "update_installing": "Installing…",
-  "update_later": "Later"
+  "update_later": "Later",
+  "tooltip_shortcut": "{label} — {keys}",
+  "action_more": "More…",
+  "action_follow": "Flag",
+  "action_unfollow": "Unflag"
 }

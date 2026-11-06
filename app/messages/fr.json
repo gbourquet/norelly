@@ -365,5 +365,6 @@
   "list_bulk_actions": "Actions sur la sélection",
   "cmd_clear_selection": "Tout désélectionner",
   "cmd_clear_selection_keywords": "décocher annuler sélection aucune",
-  "search_button": "Rechercher"
+  "search_button": "Rechercher",
+  "key_enter": "Entrée"
 }

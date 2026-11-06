@@ -10,9 +10,8 @@
   import type { MailState } from "../lib/mail.svelte";
   import type { CommandRegistry } from "../lib/commands/registry";
   import { RegistryWatch } from "../lib/commands/watch.svelte";
-  import { formatShortcut } from "../lib/commands/shortcut";
   import { describeCommand } from "../lib/commands/describe";
-  import { bulkActions, conversationActions, rowActions } from "../lib/visible-actions";
+  import { bulkActions, menuActions, rowActions, subjectOf } from "../lib/visible-actions";
   import ActionButtons from "./ActionButtons.svelte";
   import ActionBar from "./ActionBar.svelte";
   import { VirtualList } from "../lib/virtual-list.svelte";
@@ -29,26 +28,12 @@
 
   let { mail, title, registry, context, onSearch }: Props = $props();
 
-  /** Entrées du menu contextuel : ouvrir, puis les actions de la
-   * conversation visée. */
-  const menu = $derived([
-    "conversation.open",
-    ...conversationActions(mail.selected).map((a) => a.command),
-  ]);
+  /** Entrées du menu contextuel : ouvrir, puis les actions de la barre
+   * du mail ouvert, pour la conversation visée. */
+  const menu = $derived(menuActions(subjectOf(mail.targets())));
 
   // Le registre n'est pas réactif : relecture à chaque modification.
   const watch = new RegistryWatch(() => registry);
-
-  function entry(id: string): { title: string; keys: string; enabled: boolean } | null {
-    void watch.version;
-    const command = registry.get(id);
-    if (command === undefined) return null;
-    return {
-      title: command.title,
-      keys: command.parsedShortcut ? formatShortcut(command.parsedShortcut).join("+") : "",
-      enabled: registry.isEnabled(command, context),
-    };
-  }
 
   function describe(id: string, label?: string) {
     void watch.version;
@@ -221,15 +206,20 @@
     </ContextMenu.Trigger>
     <ContextMenu.Portal>
       <ContextMenu.Content class="menu" aria-label={m.list_context_menu()}>
-        {#each menu as id (id)}
-          {@const e = entry(id)}
+        {#each menu as action, i (action.command)}
+          {@const e = describe(action.command, action.label?.())}
+          {@const Icon = action.icon}
+          {#if i > 0 && (menu[i - 1]?.section ?? 0) !== (action.section ?? 0)}
+            <ContextMenu.Separator class="menu-separator" />
+          {/if}
           {#if e !== null}
             <ContextMenu.Item
               class="menu-item"
               disabled={!e.enabled}
-              onSelect={() => void registry.execute(id, context)}
+              onSelect={() => void registry.execute(action.command, context)}
             >
-              <span class="menu-label">{e.title}</span>
+              <Icon size={16} aria-hidden="true" />
+              <span class="menu-label">{e.label}</span>
               {#if e.keys}<kbd>{e.keys}</kbd>{/if}
             </ContextMenu.Item>
           {/if}

@@ -16,6 +16,7 @@ import ForwardIcon from "@lucide/svelte/icons/forward";
 import FileTextIcon from "@lucide/svelte/icons/file-text";
 import ChevronUpIcon from "@lucide/svelte/icons/chevron-up";
 import ChevronDownIcon from "@lucide/svelte/icons/chevron-down";
+import EyeIcon from "@lucide/svelte/icons/eye";
 import { m } from "./paraglide/messages.js";
 
 export interface VisibleAction {
@@ -57,12 +58,6 @@ function flagToggle(subject: ActionSubject | null): VisibleAction {
   };
 }
 
-/** Actions d'une conversation : archiver, supprimer, déplacer, puis les
- * bascules suivi et lu / non lu selon son état. */
-export function conversationActions(subject: ActionSubject | null): VisibleAction[] {
-  return [archive, remove, move, flagToggle(subject), readToggle(subject)];
-}
-
 /** Barre du mail ouvert : actions principales, libellées, et actions
  * secondaires du menu « Plus… ». */
 export function readerActions(subject: ActionSubject | null): {
@@ -101,6 +96,32 @@ export function bulkActions(): { primary: VisibleAction[]; more: VisibleAction[]
     ],
     more: [{ command: "action.flag", icon: FlagIcon }],
   };
+}
+
+/** État résumé des conversations visées, tel que les commandes le
+ * traitent : suivies si toutes le sont, non lues si une l'est. */
+export function subjectOf(targets: ActionSubject[]): ActionSubject | null {
+  if (targets.length === 0) return null;
+  return {
+    unread: targets.some((t) => t.unread > 0) ? 1 : 0,
+    flagged: targets.every((t) => t.flagged),
+  };
+}
+
+/** Menu contextuel d'une ligne : ouvrir, puis les actions de la barre du
+ * mail ouvert, en groupes. */
+export function menuActions(subject: ActionSubject | null): VisibleAction[] {
+  return [
+    { command: "conversation.open", icon: EyeIcon, section: 0 },
+    { command: "compose.reply", icon: ReplyIcon, section: 1 },
+    { command: "compose.reply-all", icon: ReplyAllIcon, section: 1 },
+    { command: "compose.forward", icon: ForwardIcon, section: 1 },
+    { ...archive, section: 2 },
+    { ...remove, section: 2 },
+    { ...readToggle(subject), section: 3 },
+    { ...flagToggle(subject), section: 3 },
+    { ...move, section: 3 },
+  ];
 }
 
 /** Actions rapides au survol d'une ligne de la liste. */

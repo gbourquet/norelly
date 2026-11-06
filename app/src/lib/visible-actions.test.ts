@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { bulkActions, fitByPriority, readerActions, rowActions } from "./visible-actions";
+import {
+  bulkActions,
+  fitByPriority,
+  menuActions,
+  readerActions,
+  rowActions,
+  subjectOf,
+} from "./visible-actions";
 
 const ids = (actions: { command: string }[]): string[] => actions.map((a) => a.command);
 
@@ -63,6 +70,23 @@ describe("actions visibles", () => {
     expect(ids(more)).toEqual(["action.flag"]);
   });
 
+  it("menu contextuel : ouvrir, puis les actions de la barre, en groupes", () => {
+    const actions = menuActions({ unread: 1, flagged: true });
+    expect(ids(actions)).toEqual([
+      "conversation.open",
+      "compose.reply",
+      "compose.reply-all",
+      "compose.forward",
+      "action.archive",
+      "action.delete",
+      "action.mark-read",
+      "action.flag",
+      "action.move",
+    ]);
+    expect(actions.map((a) => a.section ?? 0)).toEqual([0, 1, 1, 1, 2, 2, 3, 3, 3]);
+    expect(actions.find((a) => a.command === "action.flag")?.label?.()).toBe("Ne plus suivre");
+  });
+
   it("le reste des boutons primaires a une priorité : répondre d'abord", () => {
     const { primary } = readerActions(null);
     const byPriority = [...primary].sort((a, b) => (a.priority ?? 0) - (b.priority ?? 0));
@@ -73,6 +97,22 @@ describe("actions visibles", () => {
       "compose.forward",
       "compose.reply-all",
     ]);
+  });
+});
+
+describe("subjectOf", () => {
+  it("résume plusieurs conversations comme les commandes les traitent", () => {
+    const c = (unread: number, flagged: boolean) => ({ unread, flagged });
+    // Suivi : « ne plus suivre » seulement si toutes sont suivies.
+    expect(subjectOf([c(0, true), c(0, false)])?.flagged).toBe(false);
+    expect(subjectOf([c(0, true), c(0, true)])?.flagged).toBe(true);
+    // Lu : « marquer comme lu » dès qu'une n'est pas lue.
+    expect(subjectOf([c(0, false), c(2, false)])?.unread).toBeGreaterThan(0);
+    expect(subjectOf([c(0, false), c(0, false)])?.unread).toBe(0);
+  });
+
+  it("sans conversation : rien à résumer", () => {
+    expect(subjectOf([])).toBeNull();
   });
 });
 

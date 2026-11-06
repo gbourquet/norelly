@@ -446,4 +446,33 @@ describe("lecture", () => {
     expect(within(row(2)).getByRole("checkbox")).not.toBeChecked();
     expect(screen.queryByRole("region", { name: "Sélection" })).toBeNull();
   });
+
+  it("menu contextuel : actions de la barre, raccourci à droite, répondre depuis la liste", async () => {
+    render(App);
+    const list = await screen.findByRole("listbox", { name: "Conversations" });
+    await within(list).findByText("Sujet 2");
+    const row2 = within(list).getByText("Sujet 2").closest("[role=option]") as HTMLElement;
+    await fireEvent.contextMenu(row2);
+    const menu = await screen.findByRole("menu", { name: "Actions sur la conversation" });
+    const items = within(menu).getAllByRole("menuitem");
+    expect(items.map((i) => i.textContent?.replace(/\s+/g, " ").trim())).toEqual([
+      "Ouvrir la conversation Entrée",
+      "Répondre R",
+      "Répondre à tous A",
+      "Transférer F",
+      "Archiver E",
+      "Supprimer #",
+      "Marquer comme non lu Maj+U",
+      "Suivre S",
+      "Déplacer vers… V",
+    ]);
+    // Groupes séparés comme dans la barre.
+    expect(within(menu).getAllByRole("separator")).toHaveLength(3);
+
+    // Répondre depuis la liste : ouvre la conversation, puis l'éditeur.
+    await fireEvent.click(within(menu).getByRole("menuitem", { name: /^Répondre R/ }));
+    expect(await screen.findByRole("dialog", { name: "Répondre" })).toBeInTheDocument();
+    expect(api.prepareCompose).toHaveBeenCalledWith(1, "reply", 20, expect.any(String));
+    expect(screen.getByRole("article", { name: "Conversation" })).toBeInTheDocument();
+  });
 });

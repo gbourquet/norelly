@@ -460,8 +460,12 @@ export function registerAppCommands(): () => void {
         title,
         group: m.group_compose(),
         shortcut,
-        when: (ctx) => ctx.reading && mail.messages.length > 0,
-        run: () => {
+        // Conversation ouverte, ou une seule visée dans la liste (menu
+        // contextuel, raccourci) : elle est ouverte d'abord.
+        when: (ctx) =>
+          ctx.reading ? mail.messages.length > 0 : ctx.hasTargets && ctx.marked === 0,
+        run: async () => {
+          if (mail.opened === null) await mail.open();
           const message = mail.messages.at(-1);
           return message ? app.compose(kind, message.account, message) : undefined;
         },

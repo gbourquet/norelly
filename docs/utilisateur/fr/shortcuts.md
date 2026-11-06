@@ -33,7 +33,7 @@ Dans Norelly, la touche `?` affiche ce tableau à tout moment.
 |---|---|
 | Conversation suivante | `J` |
 | Conversation précédente | `K` |
-| Ouvrir la conversation | `Enter` |
+| Ouvrir la conversation | `Entrée` |
 | Retour à la liste | `Échap` |
 | Rechercher dans les messages | `/` |
 | Boîte de réception unifiée | palette |

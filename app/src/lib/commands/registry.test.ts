@@ -63,6 +63,7 @@ describe("raccourcis", () => {
     expect(formatShortcut(parseShortcut("Ctrl+Shift+K"))).toEqual(["Ctrl", "Maj", "K"]);
     expect(formatShortcut(parseShortcut("?"))).toEqual(["?"]);
     expect(formatShortcut(parseShortcut("Esc"))).toEqual(["Échap"]);
+    expect(formatShortcut(parseShortcut("Enter"))).toEqual(["Entrée"]);
   });
 });
 

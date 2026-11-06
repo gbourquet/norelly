@@ -3,7 +3,7 @@
 Client mail IMAP/SMTP desktop pour Windows et Linux : rapide, sobre,
 pilotable au clavier, configuration quasi automatique. Aucune télémétrie.
 
-> Projet en cours de développement (pré-alpha). Voir `docs/PLAN.md`.
+> Projet en pré-alpha. Sujets ouverts : [BACKLOG.md](docs/BACKLOG.md).
 
 ## Développement
 
@@ -31,8 +31,7 @@ pnpm -C app tauri dev     # lancer l'application
   [CONTRIBUTING.md](CONTRIBUTING.md) : architecture, données, sécurité,
   tests, méthode, premiers pas ;
 - [DECISIONS.md](docs/DECISIONS.md) (choix d'architecture),
-  [PLAN.md](docs/PLAN.md) (phases), [REVIEWS.md](docs/REVIEWS.md) (revues
-  sécurité).
+  [BACKLOG.md](docs/BACKLOG.md) (sujets ouverts).
 
 ## Distribution
 

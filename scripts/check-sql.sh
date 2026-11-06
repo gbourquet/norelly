@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Garde contre l'injection SQL (voir docs/REVIEWS.md, revue de la phase 4) :
+# Garde contre l'injection SQL (constat de la revue de sécurité de la phase 4) :
 # aucune donnée reçue (message, serveur, interface) ne doit entrer dans le
 # texte d'une requête ; les valeurs passent toujours par des paramètres
 # liés (?1, params![]).

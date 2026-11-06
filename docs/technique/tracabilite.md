@@ -114,7 +114,7 @@ Fiche : [conversations.md](../fonctionnel/conversations.md).
 - Liste virtualisée : pages demandées au fil du défilement
   (`list_conversations`).
 - Mesures (bench, 50 000 messages) : première page ≈ 0,3 ms ; changement
-  de dossier de bout en bout 13 à 16 ms (PLAN, phase 9).
+  de dossier de bout en bout 13 à 16 ms.
 
 ## Lecture sécurisée
 
@@ -229,8 +229,8 @@ Fiche : [brouillons.md](../fonctionnel/brouillons.md).
 |---|---|
 | Chaque enregistrement local incrémente la révision (`DraftSync::edited`) | `crates/domain/src/compose/draft.rs` |
 | Copie sur le serveur seulement si la révision a changé, **au plus toutes les 30 s** (`REMOTE_SAVE_INTERVAL_SECS`) ; elle remplace l'ancienne | `draft.rs` (`remote_save_due`) |
-| Sans UIDPLUS, les brouillons restent locaux (pas de remplacement fiable) | `crates/adapters/imap/src/session.rs`, PLAN phase 7 |
-| Une ancienne copie n'est supprimée que si la boîte a la même UIDVALIDITY et que le message porte `\Draft` | ADR-002, PLAN phase 7 |
+| Sans UIDPLUS, les brouillons restent locaux (pas de remplacement fiable) | `crates/adapters/imap/src/session.rs` |
+| Une ancienne copie n'est supprimée que si la boîte a la même UIDVALIDITY et que le message porte `\Draft` | ADR-002 |
 | Copie refusée par le serveur (`NO`) ou impossible à construire : journalisée, nouvel essai une heure plus tard ; les brouillons suivants continuent | `draft.rs` (`remote_refused`, `REMOTE_REFUSED_RETRY_SECS`) |
 | Brouillon d'un autre client repris avec son fil (`resumed_threading`) | `crates/domain/src/compose.rs`, `crates/application/src/compose.rs` (`PrepareReply::resume`) |
 
@@ -338,7 +338,7 @@ Fiche : [notifications.md](../fonctionnel/notifications.md).
 | Arrivées d'une synchronisation **regroupées** : un nombre et, au plus, le message le plus récent | `notify.rs` |
 | Confidentialité : contenu retiré **en Rust** (`NewMail::without_content`) avant d'atteindre l'interface | `notify.rs`, `app/src-tauri/src/settings.rs` (`new_mail_event`) |
 | Texte composé par l'interface dans la langue de l'utilisateur, revalidé par la commande `show_notification` (balisage freedesktop neutralisé) | ADR-011, `app/src-tauri/src/settings.rs` |
-| Affichage par `notify-rust` (sans zbus) depuis Rust seulement | PLAN phase 9 (dérogation) |
+| Affichage par `notify-rust` (sans zbus) depuis Rust seulement | dérogation à consigner ([BACKLOG](../BACKLOG.md)) |
 
 ### Clés des messages
 

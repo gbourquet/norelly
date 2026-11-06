@@ -124,10 +124,11 @@ Signalés au mainteneur à chaque fin de phase (ADR-008) :
 
 ## Revues
 
-Chaque phase se termine par une revue de l'agent `security-reviewer`
-(`.claude/agents/security-reviewer.md`), consignée dans
-[REVIEWS.md](../REVIEWS.md) ; les constats critiques et hauts sont corrigés
-avant de clore la phase, les autres corrigés ou reportés explicitement.
+Toute modification d'une zone sensible passe par une revue de l'agent
+`security-reviewer` (`.claude/agents/security-reviewer.md`) ; les constats
+critiques et hauts sont corrigés avant la PR, les autres reportés dans
+[BACKLOG.md](../BACKLOG.md). Pendant le développement initial, une revue
+close chaque phase (rapports dans l'historique git, `docs/REVIEWS.md`).
 Constats hauts trouvés, tous corrigés :
 
 | Phase | Constat |

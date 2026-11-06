@@ -30,20 +30,24 @@ Règles :
 
 **Interdit** : ramollir, désactiver ou contourner un test, affaiblir
 `scripts/check.sh`, `deny.toml` ou un seuil de couverture. Un blocage se
-documente dans [PLAN.md](../PLAN.md), sous la tâche concernée, et on
-s'arrête.
+documente dans la PR (ou dans [BACKLOG.md](../BACKLOG.md)), et on s'arrête.
 
-## Phases
+## Maintenance
 
-Le développement avance par phases ([PLAN.md](../PLAN.md)) : on ne travaille
-que sur la phase en cours, on coche les cases au fur et à mesure. Une phase
-est terminée quand :
+Le développement initial s'est fait par phases (1 à 11), jusqu'à la
+documentation. Le projet est désormais en maintenance : nouvelles
+fonctionnalités, interface, corrections, durcissement. Les sujets ouverts
+sont dans [BACKLOG.md](../BACKLOG.md). Une modification est prête pour une
+PR quand :
 
-1. sa **condition de fin** passe (en général `./scripts/check.sh full`, plus
-   les e2e ou les bancs) ;
-2. la revue `security-reviewer` est consignée dans
-   [REVIEWS.md](../REVIEWS.md), constats critiques et hauts corrigés ;
-3. un récapitulatif est fait (fait, reste, fichiers à relire en priorité).
+1. `./scripts/check.sh full` passe, ainsi que les e2e ou les bancs si elle
+   les concerne ;
+2. la documentation fonctionnelle, utilisateur et technique décrit le
+   nouveau comportement ;
+3. si elle touche une zone sensible, la revue `security-reviewer` est faite,
+   constats critiques et hauts corrigés, rapport résumé dans la PR et autres
+   constats reportés dans [BACKLOG.md](../BACKLOG.md) ;
+4. l'élément traité est retiré de [BACKLOG.md](../BACKLOG.md).
 
 Les choix d'architecture font foi dans [DECISIONS.md](../DECISIONS.md) :
 toute dérogation est validée par le mainteneur **avant** d'être
@@ -86,7 +90,7 @@ fichier modifié par l'assistant.
 ## Branches et PR
 
 - Branche principale : `master`, **protégée**. Ne jamais pousser dessus.
-- Travailler sur une branche `<zone>/<sujet>` (par exemple `phase-4/sync`),
+- Travailler sur une branche `<zone>/<sujet>` (par exemple `ui/bouton-repondre`),
   la pousser, puis ouvrir une PR vers `master` (`gh pr create`).
 - **Seul le mainteneur valide et merge les PR.**
 

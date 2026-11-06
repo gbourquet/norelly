@@ -53,8 +53,7 @@ est majoritairement écrit par Claude et relu par le mainteneur.
   - L'interopérabilité est sous notre responsabilité : on la vérifie contre
     Dovecot et un faux serveur scripté (ADR-007).
   - TLS 1.0 et 1.1 ne sont pas supportés : message d'erreur explicite.
-  - Couverture effective des extensions à confirmer en phase 2 (voir
-    PLAN.md). Si une extension manque, on le signale avant de la
+  - Couverture effective des extensions à confirmer en phase 2. Si une extension manque, on le signale avant de la
     contourner.
 - **Vérification de la phase 2** (2026-11-01, `imap-next` 0.3.4,
   `imap-codec` 2.0.0-alpha.9, `imap-types` 2.0.0-alpha.7, `lettre`
@@ -256,7 +255,9 @@ est majoritairement écrit par Claude et relu par le mainteneur.
     et d'extraire une pièce jointe sans le message complet ; les parties
     différées sont téléchargées à la demande par la connexion de
     commandes de l'acteur du compte.
-  - Résultats des tests end-to-end sous WebKitGTK : voir PLAN.md, phase 5.
+  - Résultats des tests end-to-end sous WebKitGTK (phase 5) :
+    `app/e2e/specs/reading-security.e2e.mjs` (serveur canari
+    `app/e2e/canary.mjs`) : A+ tient tel que décrit, sans repli vers A.
 
 ## ADR-005 : interface utilisateur
 

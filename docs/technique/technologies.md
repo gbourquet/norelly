@@ -35,7 +35,7 @@ Les versions exactes font foi dans `Cargo.toml` (workspace),
 | `tokio` | 1.54 | Asynchrone | — |
 | `tracing` | 0.1 (plafonné à DEBUG à la compilation) | Journaux ; TRACE supprimé car `imap-next` y journaliserait les mots de passe | ADR-002 |
 | `tauri-specta`, `specta` | =2.0.0-rc.26 (figées) | Génération des types TypeScript du contrat IPC | ADR-005 |
-| `notify-rust` | — | Notifications natives sans zbus (zbus 5 a des avis RUSTSEC) | PLAN phase 9 |
+| `notify-rust` | — | Notifications natives sans zbus (zbus 5 a des avis RUSTSEC) | [BACKLOG](../BACKLOG.md) (dérogation à consigner) |
 | `tauri-plugin-dialog`, `tauri-plugin-updater` | 2.6 / 2 | Sélecteurs de fichiers (appelés depuis Rust) ; mises à jour signées minisign (NSIS seulement) | ADR-004, ADR-006 |
 
 ## Interface
@@ -60,7 +60,7 @@ et CSS scopé (ADR-005).
 | `cargo-fuzz` | Fuzzing nocturne (MIME, HTML, CSS, autoconfig, requêtes) | ADR-007 |
 | `testcontainers` | Dovecot, Mailpit, Toxiproxy, Stalwart en conteneurs | ADR-007 |
 | `criterion` | Bancs de performance (liste et recherche sur 50 000 messages) | ADR-007 |
-| `cargo-llvm-cov`, `@vitest/coverage-v8` | Couverture avec seuils | PLAN phase 7 |
+| `cargo-llvm-cov`, `@vitest/coverage-v8` | Couverture avec seuils | — |
 | `cargo-deny` | Licences (ADR-009) et avis de sécurité | ADR-009 |
 | Vitest + Testing Library | Tests du front | ADR-007 |
 | tauri-driver + WebdriverIO | End-to-end sous Linux (conteneur Ubuntu 24.04) | ADR-007 |

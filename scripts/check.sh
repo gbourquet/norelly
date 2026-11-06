@@ -3,9 +3,8 @@
 #   ./scripts/check.sh        rapide, sans Docker
 #   ./scripts/check.sh full   + build du front et du workspace + tests d'intégration (Docker)
 #
-# Ce script fait partie des conditions de fin des phases (docs/PLAN.md) :
-# il est interdit de le ramollir (retirer une étape, ignorer un échec) pour
-# faire passer une phase.
+# Ce script conditionne toute PR : il est interdit de le ramollir (retirer
+# une étape, ignorer un échec) pour faire passer une modification.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 

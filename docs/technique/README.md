@@ -21,7 +21,6 @@ Voir aussi :
   modification ;
 - [DECISIONS.md](../DECISIONS.md) : décisions d'architecture (ADR), qui
   font foi ;
-- [PLAN.md](../PLAN.md) : phases de développement et blocages consignés ;
-- [REVIEWS.md](../REVIEWS.md) : revues de sécurité ;
+- [BACKLOG.md](../BACKLOG.md) : sujets ouverts ;
 - [la documentation fonctionnelle](../fonctionnel/README.md) : ce que fait
   chaque fonctionnalité et ses règles métier.

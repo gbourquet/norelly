@@ -2,6 +2,7 @@
   // Choix d'un dossier (déplacer, dossier d'archives), au clavier :
   // palette filtrée par le nom (bits-ui Command).
   import { Command, Dialog } from "bits-ui";
+  import XIcon from "@lucide/svelte/icons/x";
   import FolderIcon from "@lucide/svelte/icons/folder";
   import type { FolderDto } from "../lib/ipc/api";
   import { m } from "../lib/paraglide/messages.js";
@@ -49,6 +50,13 @@
             placeholder={m.picker_placeholder()}
             bind:value={query}
           />
+          <Dialog.Close
+            class="btn btn-ghost palette-close"
+            aria-label={m.common_close()}
+            title={m.common_close()}
+          >
+            <XIcon size={16} aria-hidden="true" />
+          </Dialog.Close>
         </div>
         <Command.List class="palette-list">
           <Command.Empty class="palette-empty">{m.picker_empty()}</Command.Empty>

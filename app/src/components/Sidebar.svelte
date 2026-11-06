@@ -300,11 +300,16 @@
   }
 
   .name,
-  .address,
-  .label {
+  .address {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  /* Noms de dossiers jamais tronqués : ils passent à la ligne. */
+  .label {
+    min-width: 0;
+    overflow-wrap: anywhere;
   }
 
   .name {

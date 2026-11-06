@@ -606,5 +606,10 @@ describe("App", () => {
     expect(palette).toHaveAttribute("title", "Palette de commandes — Ctrl+K");
     await fireEvent.click(palette);
     expect(await screen.findByPlaceholderText("Rechercher une commande…")).toBeInTheDocument();
+    const paletteDialog = screen.getByRole("dialog", { name: "Palette de commandes" });
+    await fireEvent.click(within(paletteDialog).getByRole("button", { name: "Fermer" }));
+    await waitFor(() =>
+      expect(screen.queryByPlaceholderText("Rechercher une commande…")).toBeNull(),
+    );
   });
 });

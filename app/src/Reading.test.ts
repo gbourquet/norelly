@@ -281,12 +281,19 @@ describe("lecture", () => {
     await within(list).findByText("Sujet 1");
     await fireEvent.keyDown(window, { key: "v" });
     const picker = await screen.findByRole("dialog", { name: "Déplacer vers…" });
+    // Fermeture à la souris, puis réouverture.
+    await fireEvent.click(within(picker).getByRole("button", { name: "Fermer" }));
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "Déplacer vers…" })).toBeNull(),
+    );
+    await fireEvent.keyDown(window, { key: "v" });
+    const reopened = await screen.findByRole("dialog", { name: "Déplacer vers…" });
     // Saisie au clavier, flèche puis Entrée (le dossier où se trouve déjà
     // la conversation est exclu).
-    expect(within(picker).queryByText("INBOX")).toBeNull();
-    const input = within(picker).getByPlaceholderText("Rechercher un dossier…");
+    expect(within(reopened).queryByText("INBOX")).toBeNull();
+    const input = within(reopened).getByPlaceholderText("Rechercher un dossier…");
     await fireEvent.input(input, { target: { value: "proj" } });
-    await within(picker).findByText("Projets");
+    await within(reopened).findByText("Projets");
     await fireEvent.keyDown(input, { key: "ArrowDown" });
     await fireEvent.keyDown(input, { key: "Enter" });
     await waitFor(() =>

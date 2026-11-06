@@ -10,6 +10,7 @@ use std::time::Duration;
 use norelly_application::account_actor::{self, AccountHandle, ActorClient, ActorConfig};
 use norelly_application::accounts::connect_request;
 use norelly_application::compose_worker::{self, ComposeEvent, ComposeHandle, ComposeWorker};
+use norelly_application::folders::FolderFailure;
 use norelly_application::reading::{
     DownloadBody, DownloadPart, LoadedBody, LoadedMessage, ReadError, ReadMessage,
 };
@@ -41,6 +42,8 @@ use crate::state::AppSecretStore;
 
 /// Délai maximal d'un téléchargement à la demande.
 pub const FETCH_TIMEOUT: Duration = Duration::from_secs(120);
+/// Délai maximal d'une création de dossier (reconnexion comprise).
+pub const CREATE_FOLDER_TIMEOUT: Duration = Duration::from_secs(30);
 /// Nombre de rendus gardés en cache.
 const RENDER_CACHE: usize = 32;
 /// Durée maximale d'un rendu.
@@ -287,6 +290,28 @@ impl MailServices {
         if let Some(handle) = self.actors.lock().await.get(&account) {
             handle.sync_now();
         }
+    }
+
+    /// Crée un dossier par la connexion de commandes du compte (au plus
+    /// [`CREATE_FOLDER_TIMEOUT`]).
+    pub async fn create_folder(
+        &self,
+        account: AccountId,
+        label: String,
+        parent: Option<MailboxName>,
+    ) -> Result<MailboxName, FolderFailure> {
+        let client = self
+            .clients
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(&account)
+            .cloned()
+            .ok_or(FolderFailure::Connection(ConnectionError::Closed))?;
+        tokio::time::timeout(CREATE_FOLDER_TIMEOUT, client.create_folder(label, parent))
+            .await
+            .map_err(|_| {
+                FolderFailure::Connection(ConnectionError::Timeout(TimeoutStage::Response))
+            })?
     }
 
     /// Signale de nouvelles opérations dans la file d'un compte.

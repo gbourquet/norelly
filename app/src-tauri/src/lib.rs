@@ -8,6 +8,7 @@ pub mod actions;
 mod command_tests;
 pub mod commands;
 pub mod compose;
+pub mod folders;
 pub mod ipc;
 pub mod mail;
 pub mod protocols;
@@ -51,6 +52,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             actions::perform_action,
             actions::undo_actions,
             actions::set_archive_folder,
+            folders::create_folder,
             search::search_messages,
             settings::get_settings,
             settings::save_settings,

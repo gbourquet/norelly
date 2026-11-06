@@ -657,3 +657,34 @@ async fn only_drafts_folder_messages_can_be_resumed() {
         (ErrorCodeDto::InvalidInput, Some(FieldDto::Message))
     );
 }
+
+#[tokio::test]
+async fn folder_creation_revalidates_its_inputs() {
+    use crate::folders::create_folder;
+
+    let t = test_app().await;
+    let account = id32(t.account.get());
+    assert_eq!(
+        code(create_folder(t.state(), 0, "Factures".into(), None).await),
+        (ErrorCodeDto::InvalidInput, Some(FieldDto::Account))
+    );
+    assert_eq!(
+        code(create_folder(t.state(), account, "Factures".into(), Some(0)).await),
+        (ErrorCodeDto::InvalidInput, Some(FieldDto::Mailbox))
+    );
+    // Parent d'un autre compte (ou inconnu) : refusé avant tout envoi.
+    assert_eq!(
+        code(create_folder(t.state(), account, "Factures".into(), Some(999_999)).await),
+        (ErrorCodeDto::InvalidInput, Some(FieldDto::Mailbox))
+    );
+    // Nom démesuré : refusé sans passer par le serveur.
+    assert_eq!(
+        code(create_folder(t.state(), account, "x".repeat(10_000), None).await).0,
+        ErrorCodeDto::FolderNameTooLong
+    );
+    // Compte sans connexion en cours : échec explicite.
+    assert_eq!(
+        code(create_folder(t.state(), account, "Factures".into(), None).await).0,
+        ErrorCodeDto::FolderCreateFailed
+    );
+}

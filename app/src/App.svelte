@@ -243,7 +243,13 @@
   context={app.context()}
   onClose={() => app.close()}
 />
-<ShortcutHelp open={app.dialog === "help"} {registry} onClose={() => app.close()} />
+<ShortcutHelp
+  open={app.dialog === "help"}
+  {registry}
+  context={app.context()}
+  onClose={() => app.close()}
+  onPalette={() => app.open("palette")}
+/>
 <AddAccountDialog
   open={app.dialog === "add-account"}
   {api}

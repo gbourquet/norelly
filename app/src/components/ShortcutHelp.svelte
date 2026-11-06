@@ -10,14 +10,20 @@
   } from "../lib/commands/registry";
   import type { Shortcut } from "../lib/commands/shortcut";
   import { composeWindowShortcuts } from "../lib/fixed-shortcuts";
+  import { describeCommand } from "../lib/commands/describe";
 
   interface Props {
     open: boolean;
     registry: CommandRegistry<C>;
+    context: C;
     onClose: () => void;
+    /** Ouvre la palette de commandes (bouton de l'aide). */
+    onPalette: () => void;
   }
 
-  let { open, registry, onClose }: Props = $props();
+  let { open, registry, context, onClose, onPalette }: Props = $props();
+
+  const palette = $derived(open ? describeCommand(registry, "palette.open", context) : null);
 
   type WithShortcut = RegisteredCommand<C> & { parsedShortcut: Shortcut };
   const hasShortcut = (c: RegisteredCommand<C>): c is WithShortcut =>
@@ -52,7 +58,10 @@
     {/each}
   </dl>
   <p class="hint">
-    {m.help_palette_hint()} <kbd>Ctrl</kbd> <kbd>K</kbd>
+    {m.help_palette_hint()}
+    <button class="btn" type="button" title={palette?.tooltip} onclick={onPalette}>
+      {palette?.label}
+    </button>
   </p>
 </Modal>
 
@@ -86,7 +95,15 @@
   }
 
   .hint {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2);
     margin-top: var(--space-4);
     color: var(--color-text-muted);
+  }
+
+  .hint .btn {
+    color: var(--color-text);
   }
 </style>

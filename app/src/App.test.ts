@@ -150,7 +150,7 @@ describe("App", () => {
 
     await fireEvent.keyDown(window, { key: "?", shiftKey: true });
     const help = await screen.findByRole("dialog", { name: "Raccourcis clavier" });
-    expect(within(help).getByText("Palette de commandes")).toBeInTheDocument();
+    expect(within(help).getByText("Palette de commandes", { selector: "dt" })).toBeInTheDocument();
   });
 
   it("liste les comptes et supprime après confirmation", async () => {
@@ -598,5 +598,13 @@ describe("App", () => {
     await waitFor(() =>
       expect(screen.queryByRole("dialog", { name: "Raccourcis clavier" })).toBeNull(),
     );
+
+    // La palette s'ouvre aussi à la souris, depuis l'aide.
+    await fireEvent.click(help);
+    const again = await screen.findByRole("dialog", { name: "Raccourcis clavier" });
+    const palette = within(again).getByRole("button", { name: "Palette de commandes" });
+    expect(palette).toHaveAttribute("title", "Palette de commandes — Ctrl+K");
+    await fireEvent.click(palette);
+    expect(await screen.findByPlaceholderText("Rechercher une commande…")).toBeInTheDocument();
   });
 });

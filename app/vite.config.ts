@@ -36,9 +36,9 @@ export default defineConfig({
       // Code généré (catalogues, bindings IPC), point d'entrée et types.
       exclude: ["src/lib/paraglide/**", "src/lib/ipc/bindings.ts", "src/main.ts", "src/**/*.d.ts"],
       reporter: ["text-summary", "text"],
-      // Seuils vérifiés par ./scripts/check.sh (mesure du 2026-11-03) : à
+      // Seuils vérifiés par ./scripts/check.sh (mesure du 2026-11-06) : à
       // relever, jamais à baisser.
-      thresholds: { lines: 81, statements: 77, branches: 71, functions: 74 },
+      thresholds: { lines: 84, statements: 81, branches: 74, functions: 79 },
     },
   },
 });

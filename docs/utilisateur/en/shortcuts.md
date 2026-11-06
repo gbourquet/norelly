@@ -80,6 +80,7 @@ suggested address, `Enter` or `,` confirms it.
 | Action | Shortcut |
 |---|---|
 | Add an account… | palette |
+| New folder… | palette |
 | Choose archive folder… | palette |
 | Synchronise selected account | palette |
 | Remove selected account… | palette |

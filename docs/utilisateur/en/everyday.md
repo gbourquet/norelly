@@ -130,6 +130,20 @@ type a few letters of its name, then **Enter**.
 
 ![Choosing the destination folder, with a search box](captures/move.png)
 
+To **create a folder**:
+
+1. In the left panel, click **⋯** next to your account, then **New
+   folder…**.
+2. Type its name. To put it inside an existing folder, choose that folder
+   under **Location**; otherwise leave "Top level".
+3. Click **Create**.
+
+The folder appears in the left panel and in the **Move to…** list. It is
+created at your provider: you also find it on their website and in your
+other apps.
+
+![The "New folder" window: folder name and location](captures/new-folder.png)
+
 To act on **several messages at once**, tick the box at the start of each
 line you want. A bar appears above the list: it shows how many messages are
 selected and offers the actions, which apply to all of them. **Clear

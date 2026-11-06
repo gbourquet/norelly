@@ -142,6 +142,20 @@ dossier voulu, ou tapez quelques lettres de son nom puis **Entrée**.
 
 ![Le choix du dossier de destination, avec une zone de recherche](captures/move.png)
 
+Pour **créer un dossier** :
+
+1. Dans le panneau de gauche, cliquez sur **⋯** à côté de votre compte,
+   puis sur **Nouveau dossier…**.
+2. Tapez son nom. Pour le ranger dans un dossier existant, choisissez-le
+   dans **Emplacement** ; sinon, laissez « Au premier niveau ».
+3. Cliquez sur **Créer**.
+
+Le dossier apparaît dans le panneau de gauche et dans la liste **Déplacer
+vers…**. Il est créé chez votre fournisseur : vous le retrouvez aussi sur
+son site et dans vos autres applications.
+
+![La fenêtre « Nouveau dossier » : nom du dossier et emplacement](captures/new-folder.png)
+
 Pour agir sur **plusieurs messages d'un coup**, cochez la case au début de
 chaque ligne voulue. Une barre apparaît au-dessus de la liste : elle
 indique combien de messages sont sélectionnés et propose les actions, qui

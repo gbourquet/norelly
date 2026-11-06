@@ -204,12 +204,12 @@ Fiche : [dossiers.md](../fonctionnel/dossiers.md).
 | Règle | Où |
 |---|---|
 | Nom saisi : espaces de bord retirés, non vide, 100 caractères au plus, ni contrôle, ni caractère de mise en forme, ni `*` / `%` (`folder_label`, `MAX_FOLDER_LABEL_CHARS`) | `crates/domain/src/mailbox.rs` |
-| Nom complet (`new_folder_name`) : parent + séparateur du parent ; au premier niveau, préfixe `INBOX<séparateur>` si tous les autres dossiers sont sous INBOX (Courier, Cyrus) ; séparateur interdit dans le nom ; doublon refusé à la casse près ; parent inconnu ou sans hiérarchie refusé | `mailbox.rs` |
+| Nom complet (`new_folder_name`) : parent + séparateur du parent ; au premier niveau, préfixe `INBOX<séparateur>` si tous les autres dossiers sont sous INBOX (Courier, Cyrus) ; séparateur interdit dans le nom ; doublon refusé à la casse près ; parent inconnu, sans hiérarchie ou virtuel (`\All`, `\Flagged`) refusé | `mailbox.rs` |
 | Décision prise sur la liste relue par `LIST` juste avant `CREATE`, pas sur la copie locale | `crates/application/src/folders.rs` (`CreateFolder`) |
-| `CREATE` sur la connexion de commandes de l'acteur ; relecture de la liste (`sync_folders`) puis `FoldersChanged` ; un dossier créé reste annoncé comme créé si la relecture échoue (reconnexion ensuite) | `crates/application/src/account_actor.rs` |
+| `CREATE` sur la connexion de commandes de l'acteur ; relecture de la liste (`sync_folders`) puis `FoldersChanged` ; un dossier créé reste annoncé comme créé si la relecture échoue (reconnexion ensuite) ; une demande abandonnée par l'interface (délai dépassé) avant d'être servie n'est pas envoyée | `crates/application/src/account_actor.rs` |
 | Nom envoyé en UTF-7 modifié ; refus `NO` → `ConnectionError::Rejected` | `crates/adapters/imap/src/session.rs` (`create`) |
 | Commande IPC : compte et parent revalidés (le parent doit être un dossier du compte), nom vérifié seul avant l'envoi, 30 s au plus (`CREATE_FOLDER_TIMEOUT`), erreurs traduites en codes | `app/src-tauri/src/folders.rs`, `app/src-tauri/src/mail.rs` |
-| Emplacements proposés : premier niveau puis dossiers du compte, sans les dossiers virtuels `\All` et `\Flagged` (`parentChoices`) | `app/src/lib/new-folder.svelte.ts` |
+| Emplacements proposés : premier niveau puis dossiers du compte, sans les dossiers virtuels `\All` et `\Flagged` (`parentChoices`, affichage seulement : la règle est dans le domaine) | `app/src/lib/new-folder.svelte.ts` |
 
 Port : `RemoteMailboxSession::create_mailbox` ; contrat
 `folders_session_contract` (`crates/test-support/src/session_contract.rs`),

@@ -47,7 +47,8 @@ existant, depuis l'application.
 ## Cas limites
 
 - **Hors ligne** : la création attend la reconnexion au plus 30 secondes,
-  puis échoue avec un message ; rien n'est mis en attente.
+  puis échoue avec un message ; rien n'est mis en attente, et le dossier ne
+  sera pas créé plus tard à l'insu de l'utilisateur.
 - **Serveur sans sous-dossiers** : un emplacement autre que le premier
   niveau est refusé.
 - **Refus du serveur** (droits, quota, nom interdit) : le message cite la

@@ -49,6 +49,13 @@ quand le mainteneur l'abandonne (avec la raison).
   (`new_folder_name` pour le nouveau nom, dossiers spéciaux protégés),
   `RENAME` / `DELETE` sur le port de session, contrat Dovecot, entrées dans
   le menu d'un dossier. (`crates/domain/src/mailbox.rs`, `Sidebar.svelte`)
+- **Noms de dossier particuliers** (revue de sécurité, info) : un nom
+  commençant par `~` ou `#`, ou les segments `.` / `..`, sont envoyés tels
+  quels ; certains serveurs (UW-IMAP) les interprètent (répertoire
+  personnel, espaces de noms). Sans vecteur tiers (l'utilisateur agit sur
+  son propre compte) ; les refuser dans `folder_label` en défense en
+  profondeur. Idem si le serveur n'annonce aucun séparateur.
+  (`crates/domain/src/mailbox.rs`)
 - **Menu d'un dossier dans le panneau de gauche** : pas de clic droit ni
   de « ⋯ » sur un dossier ; « Nouveau sous-dossier… » y présélectionnerait
   l'emplacement (aujourd'hui choisi dans la fenêtre). (`Sidebar.svelte`)

@@ -96,6 +96,7 @@ vi.mock("./lib/ipc/api", () => ({
     retrySend: vi.fn(),
     cancelSend: vi.fn(),
     searchMessages: vi.fn(async () => ({ items: [], next: null })),
+    createFolder: vi.fn(async () => undefined),
   },
 }));
 
@@ -169,6 +170,59 @@ describe("App", () => {
     await fireEvent.click(within(dialog).getByRole("button", { name: "Supprimer le compte" }));
     await waitFor(() => expect(api.removeAccount).toHaveBeenCalledWith(7));
     expect(await screen.findByText("Aucun compte pour l'instant.")).toBeInTheDocument();
+  });
+
+  it("crée un dossier depuis le menu du compte", async () => {
+    accounts.push({
+      id: 3,
+      address: "bob@example.org",
+      display_name: "Bob",
+      imap: server,
+      smtp: server,
+    });
+    vi.mocked(api.listFolders).mockResolvedValue([
+      {
+        id: 11,
+        name: "INBOX",
+        leaf: "INBOX",
+        depth: 0,
+        role: "inbox",
+        selectable: true,
+        total: 0,
+        unread: 0,
+      },
+      {
+        id: 12,
+        name: "Projets",
+        leaf: "Projets",
+        depth: 0,
+        role: "normal",
+        selectable: true,
+        total: 0,
+        unread: 0,
+      },
+    ]);
+    render(App);
+    await openAccountMenu("bob@example.org");
+    await fireEvent.click(await screen.findByRole("menuitem", { name: "Nouveau dossier…" }));
+    const dialog = await screen.findByRole("dialog", { name: "Nouveau dossier" });
+    const create = within(dialog).getByRole("button", { name: "Créer" });
+    expect(create).toBeDisabled();
+    await fireEvent.input(within(dialog).getByLabelText("Nom du dossier"), {
+      target: { value: "2027" },
+    });
+    const location = within(dialog).getByLabelText("Emplacement");
+    expect(
+      within(location)
+        .getAllByRole("option")
+        .map((o) => o.textContent?.trim()),
+    ).toEqual(["Au premier niveau", "Boîte de réception", "Projets"]);
+    await fireEvent.change(location, { target: { value: "12" } });
+    await fireEvent.click(create);
+    await waitFor(() => expect(api.createFolder).toHaveBeenCalledWith(3, "2027", 12));
+    expect(await screen.findByText("Dossier « 2027 » créé.")).toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "Nouveau dossier" })).toBeNull();
+    vi.mocked(api.listFolders).mockResolvedValue([]);
   });
 
   it("annuler la suppression ne supprime rien", async () => {
@@ -555,6 +609,7 @@ describe("App", () => {
       "Synchroniser",
       "Brouillons…",
       "Boîte d'envoi",
+      "Nouveau dossier…",
       "Choisir le dossier d'archives…",
       "Supprimer ce compte…",
     ]);

@@ -29,6 +29,7 @@ export type DialogName =
   | "remove-account"
   | "move"
   | "archive-folder"
+  | "new-folder"
   | "compose"
   | "outbox"
   | "settings"
@@ -494,6 +495,14 @@ export function registerAppCommands(): () => void {
       keywords: words(m.cmd_archive_folder_keywords()),
       when: (ctx) => ctx.selectedAccount !== null,
       run: () => app.open("archive-folder"),
+    }),
+    registry.register({
+      id: "account.new-folder",
+      title: m.cmd_new_folder(),
+      group: m.group_accounts(),
+      keywords: words(m.cmd_new_folder_keywords()),
+      when: (ctx) => ctx.selectedAccount !== null,
+      run: () => app.open("new-folder"),
     }),
     registry.register({
       id: "account.sync",

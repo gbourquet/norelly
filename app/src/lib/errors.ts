@@ -125,6 +125,20 @@ function codeText(code: ErrorCodeDto, field: FieldDto | null): string {
       return m.err_schedule_too_far();
     case "outbox_busy":
       return m.err_outbox_busy();
+    case "folder_name_empty":
+      return m.err_folder_name_empty();
+    case "folder_name_too_long":
+      return m.err_folder_name_too_long();
+    case "folder_name_invalid":
+      return m.err_folder_name_invalid();
+    case "folder_name_delimiter":
+      return m.err_folder_name_delimiter();
+    case "folder_exists":
+      return m.err_folder_exists();
+    case "no_subfolders":
+      return m.err_no_subfolders();
+    case "folder_create_failed":
+      return m.err_folder_create_failed();
     case "update_failed":
       return m.err_update_failed();
     case "internal":

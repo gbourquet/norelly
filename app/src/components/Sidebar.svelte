@@ -18,6 +18,7 @@
   import RefreshIcon from "@lucide/svelte/icons/refresh-cw";
   import OutboxIcon from "@lucide/svelte/icons/send-horizontal";
   import EllipsisIcon from "@lucide/svelte/icons/ellipsis";
+  import FolderPlusIcon from "@lucide/svelte/icons/folder-plus";
   import type { AccountDto, FolderDto, ScopeDto } from "../lib/ipc/api";
   import type { CommandRegistry } from "../lib/commands/registry";
   import { RegistryWatch } from "../lib/commands/watch.svelte";
@@ -69,6 +70,7 @@
     { command: "account.sync", icon: RefreshIcon, label: m.sidebar_sync, section: 0 },
     { command: "drafts.open", icon: FileIcon, section: 0 },
     { command: "compose.outbox", icon: OutboxIcon, section: 0 },
+    { command: "account.new-folder", icon: FolderPlusIcon, section: 1 },
     { command: "account.archive-folder", icon: ArchiveIcon, section: 1 },
     { command: "account.remove", icon: TrashIcon, label: m.sidebar_remove, section: 2 },
   ];

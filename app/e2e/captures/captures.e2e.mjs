@@ -14,7 +14,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { $, browser, expect } from "@wdio/globals";
-import { appendMessages, password } from "../specs/helpers.mjs";
+import { accountMenu, appendMessages, password } from "../specs/helpers.mjs";
 
 const lang = process.env.NORELLY_E2E_LANG ?? "fr";
 const out = process.env.NORELLY_E2E_CAPTURES;
@@ -115,6 +115,12 @@ async function capture(name) {
   await browser.saveScreenshot(path.join(out, `${name}.png`));
 }
 
+/** Bouton dont le nom accessible est `name`. */
+const button = (name) => $(`aria/${name}`);
+
+/** Entrée de menu dont le texte commence par `label` (raccourci à droite). */
+const menuItem = (label) => $(`//*[@role="menuitem"][starts-with(normalize-space(), "${label}")]`);
+
 /** Fenêtre modale dont le titre est `title`. */
 const dialogTitled = (title) => $(`//*[@role="dialog"][.//*[normalize-space()="${title}"]]`);
 
@@ -172,13 +178,28 @@ describe(`captures d'écran (${lang})`, () => {
     await first.waitForDisplayed({ timeout: 90000 });
     await $(`span=${content.messages.at(-1)[1]}`).waitForDisplayed({ timeout: 60000 });
     await capture("inbox");
+
+    // Sélection multiple à la souris : cases à cocher et barre groupée.
+    for (const [, subject] of content.messages.slice(0, 3)) {
+      await button(msg("list_select_row", { subject })).click();
+    }
+    await $(`[aria-label="${msg("list_selection")}"]`).waitForDisplayed({ timeout: 10000 });
+    await capture("selection");
+    await button(msg("cmd_clear_selection")).click();
+
+    // Menu du clic droit sur une ligne.
+    await $(`span=${content.messages[2][1]}`).click({ button: "right" });
+    await menuItem(msg("cmd_reply")).waitForDisplayed({ timeout: 10000 });
+    await capture("context-menu");
+    await browser.keys("Escape");
+
     await first.click();
     await expect($(`h1=${content.messages[0][1]}`)).toBeDisplayed({ wait: 30000 });
     await capture("reading");
   });
 
   it("réponse, puis brouillon gardé", async () => {
-    await browser.keys("r");
+    await button(msg("cmd_reply")).click();
     const dialog = dialogTitled(msg("compose_title_reply"));
     await dialog.waitForDisplayed({ timeout: 20000 });
     await dialog.$(`[aria-label="${msg("compose_body")}"]`).click();
@@ -193,38 +214,39 @@ describe(`captures d'écran (${lang})`, () => {
     await browser.keys("Escape");
   });
 
-  it("palette, brouillons, raccourcis, paramètres", async () => {
-    await browser.keys(["Control", "k"]);
-    const palette = $(`[placeholder="${msg("palette_placeholder")}"]`);
-    await palette.waitForDisplayed({ timeout: 10000 });
-    await capture("palette");
-    await palette.setValue(msg("cmd_drafts").replace("…", ""));
-    await browser.keys("Enter");
+  it("brouillons, raccourcis, palette, paramètres (à la souris)", async () => {
+    await accountMenu(address, msg("cmd_drafts"));
     const drafts = dialogTitled(msg("drafts_title"));
     await drafts.waitForDisplayed({ timeout: 20000 });
     await capture("drafts");
-    await browser.keys("Escape");
+    await drafts.$(`aria/${msg("common_close")}`).click();
     await drafts.waitForDisplayed({ reverse: true, timeout: 10000 });
 
-    await browser.keys("?");
+    await button(msg("cmd_help")).click();
     const help = dialogTitled(msg("help_title"));
     await help.waitForDisplayed({ timeout: 10000 });
     await capture("shortcuts");
+    // La palette s'ouvre depuis l'aide.
+    await help.$(`button=${msg("cmd_palette")}`).click();
+    const palette = $(`[placeholder="${msg("palette_placeholder")}"]`);
+    await palette.waitForDisplayed({ timeout: 10000 });
+    await capture("palette");
     await browser.keys("Escape");
-    await help.waitForDisplayed({ reverse: true, timeout: 10000 });
+    await palette.waitForDisplayed({ reverse: true, timeout: 10000 });
 
-    await browser.keys(["Control", ","]);
+    await button(msg("sidebar_settings")).click();
     const settings = dialogTitled(msg("settings_title"));
     await settings.waitForDisplayed({ timeout: 10000 });
     await capture("settings");
-    await browser.keys("Escape");
+    await settings.$(`aria/${msg("common_close")}`).click();
     await settings.waitForDisplayed({ reverse: true, timeout: 10000 });
   });
 
   it("déplacement vers un dossier", async () => {
     await $(`span=${content.messages[1][1]}`).click();
     await expect($(`h1=${content.messages[1][1]}`)).toBeDisplayed({ wait: 30000 });
-    await browser.keys("v");
+    await button(msg("action_more")).click();
+    await menuItem(msg("cmd_move")).click();
     const picker = $(`[placeholder="${msg("picker_placeholder")}"]`);
     await picker.waitForDisplayed({ timeout: 10000 });
     await capture("move");
@@ -234,7 +256,7 @@ describe(`captures d'écran (${lang})`, () => {
   });
 
   it("recherche", async () => {
-    await browser.keys("/");
+    await button(msg("search_label")).click();
     const box = $('input[type="search"]');
     await box.waitForDisplayed({ timeout: 10000 });
     const results = $(`[role="listbox"][aria-label="${msg("search_results")}"]`);

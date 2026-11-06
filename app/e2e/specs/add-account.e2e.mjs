@@ -3,6 +3,7 @@
 // avertissements de certificat (autosignés), confiance explicite, compte
 // enregistré (base SQLite et trousseau GNOME Keyring), puis suppression.
 import { $, browser, expect } from "@wdio/globals";
+import { accountMenu } from "./helpers.mjs";
 
 const password = process.env.NORELLY_E2E_PASSWORD ?? "";
 const address = "norelly@norelly.test";
@@ -75,7 +76,7 @@ describe("compte de messagerie", () => {
   });
 
   it("supprime le compte après confirmation", async () => {
-    await $(`aria/Supprimer le compte ${address}`).click();
+    await accountMenu(address, "Supprimer ce compte…");
     const confirm = $("button=Supprimer le compte");
     await confirm.waitForDisplayed();
     await confirm.click();

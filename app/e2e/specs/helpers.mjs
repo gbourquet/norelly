@@ -10,7 +10,7 @@ const canary = process.env.NORELLY_E2E_CANARY ?? "http://canary.norelly.test:808
 
 /** Ajoute le compte de test (saisie manuelle, confiance dans les certificats si demandée). */
 export async function addTestAccount() {
-  // Sans compte, le bouton de l'accueil (l'icône du panneau porte le même nom).
+  // Le bouton de l'accueil ou celui du panneau : même fenêtre.
   await $("button=Ajouter un compte").click();
   await $("#account-address").setValue(address);
   await $("#account-password").setValue(password);
@@ -39,9 +39,17 @@ export async function addTestAccount() {
   await expect($("#imap-host")).not.toBeDisplayed();
 }
 
+/** Ouvre le menu « ⋯ » d'un compte et choisit une entrée. */
+export async function accountMenu(account, entry) {
+  await $(`aria/Actions du compte ${account}`).click();
+  const item = $(`//*[@role="menuitem"][normalize-space()="${entry}"]`);
+  await item.waitForDisplayed({ timeout: 10000 });
+  await item.click();
+}
+
 /** Supprime le compte de test. */
 export async function removeTestAccount() {
-  await $(`aria/Supprimer le compte ${address}`).click();
+  await accountMenu(address, "Supprimer ce compte…");
   const confirm = $("button=Supprimer le compte");
   await confirm.waitForDisplayed();
   await confirm.click();

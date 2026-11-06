@@ -9,26 +9,38 @@ Les choix d'architecture font foi dans `docs/DECISIONS.md` (ADR) : toute
 dérogation est validée par le mainteneur **avant** d'être implémentée, puis
 consignée dans l'ADR concerné.
 
-## Carte du dépôt (hexagonale dosée, ADR-008)
-- `crates/domain` : règles métier pures et ports (traits). **Aucune E/S.**
-  Dépendances limitées à `thiserror` et `serde` (`scripts/check-domain-deps.sh`).
-  Zone de relecture prioritaire du mainteneur.
-- `crates/application` : cas d'usage async qui orchestrent les ports
-  (acteur par compte, synchronisation, rédaction, actions).
-- `crates/adapters/*` : `tls`, `imap`, `smtp`, `sqlite` (seul à dépendre de
-  `rusqlite`), `blobs`, `keyring`, `discovery`, `render` (assainissement
-  HTML, `ammonia`).
-- `crates/test-support` : conteneurs, faux serveurs IMAP/SMTP, certificats,
-  suites de contrat des ports.
-- `app/src-tauri` : adaptateur entrant (commandes IPC, protocoles
-  `mailview://`, `mailpart://`, `remote-img://`) et point d'assemblage.
-- `app/src` : interface Svelte 5. Présentation seulement : **toute décision
-  de sécurité est prise en Rust**.
-- CQRS léger : écritures via le domaine ; lectures d'écran via des ports de
-  requête SQL paginés.
-- Documentation : `docs/technique/` (architecture, données, sécurité,
-  tests, pas à pas dans `premiers-pas.md`), `docs/fonctionnel/` (une fiche
-  par fonctionnalité), `docs/utilisateur/{fr,en}/`.
+## Architecture hexagonale dosée (ADR-008)
+Description complète, modules et flux : `docs/technique/architecture.md`.
+
+| Couche | Rôle | Dépend de |
+|---|---|---|
+| `crates/domain` | Règles métier pures, valeurs validées, ports (traits). **Aucune E/S**, ni async runtime, ni horloge, ni aléa : ce qui en a besoin le reçoit en paramètre. Zone de relecture prioritaire du mainteneur. | `thiserror`, `serde` seulement (`scripts/check-domain-deps.sh`) |
+| `crates/application` | Cas d'usage async qui orchestrent les ports (acteur par compte, synchronisation, rédaction, actions). **Aucune règle métier propre.** | `domain` (+ `tokio`, `tracing`) |
+| `crates/adapters/*` | Implémentations des ports : `tls`, `imap`, `smtp`, `sqlite` (seul à dépendre de `rusqlite`), `blobs`, `keyring`, `discovery`, `render`. Traduisent entre le monde extérieur et les types du domaine, sans décider. | `domain` ; `tls` pour `imap`, `smtp`, `discovery` ; jamais un autre adaptateur |
+| `app/src-tauri` | Adaptateur entrant (commandes IPC, protocoles `mailview://`, `mailpart://`, `remote-img://`) et point d'assemblage : `state.rs` est le **seul** endroit qui choisit les implémentations. | tout |
+| `app/src` | Interface Svelte 5. Présentation seulement : **toute décision de sécurité est prise en Rust.** | IPC seulement |
+| `crates/test-support` | Conteneurs, faux serveurs IMAP/SMTP, faux des ports, suites de contrat. | dev-dependency uniquement |
+
+Où mettre quoi :
+- Une règle (validation, décision, calcul, politique de sécurité) va dans
+  le domaine, testée sans E/S. Si elle apparaît dans un cas d'usage, une
+  commande Tauri, un adaptateur ou l'interface, la remonter dans le domaine.
+- Un besoin d'E/S nouveau = un port (trait) dans `crates/domain/src/ports.rs`,
+  son implémentation dans un adaptateur, son faux et sa suite de contrat
+  dans `test-support`, jouée contre les deux.
+- Une commande Tauri revalide les entrées par les constructeurs du domaine,
+  appelle un cas d'usage, traduit les erreurs en codes. Les DTO vivent dans
+  `ipc.rs` : jamais de `specta` ni de type Tauri dans le domaine.
+- CQRS léger : les écritures passent par le domaine ; les lectures d'écran
+  passent par des ports de requête taillés pour l'écran (pagination par
+  curseur), implémentés en SQL.
+- Ports async en `impl Future + Send` (dispatch statique dans les chemins
+  chauds) ; `dyn` seulement au point d'assemblage.
+- Une entorse à ces règles est une dérogation : à faire valider avant.
+
+Documentation : `docs/technique/` (architecture, données, sécurité, tests,
+pas à pas dans `premiers-pas.md`), `docs/fonctionnel/` (une fiche par
+fonctionnalité), `docs/utilisateur/{fr,en}/`.
 
 ## Commandes
 | Action | Commande |

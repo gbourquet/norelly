@@ -44,6 +44,17 @@ quand le mainteneur l'abandonne (avec la raison).
   message. À faire comme une fonctionnalité complète (domaine, IMAP
   `STORE` des mots-clés, port, IPC), puis l'ajouter au menu « Plus… » et
   au menu contextuel. (`crates/domain/src/mailbox.rs`, `visible-actions.ts`)
+- **Renommer et supprimer un dossier** : seule la création existe
+  (« Nouveau dossier… »). Même chemin : règle dans le domaine
+  (`new_folder_name` pour le nouveau nom, dossiers spéciaux protégés),
+  `RENAME` / `DELETE` sur le port de session, contrat Dovecot, entrées dans
+  le menu d'un dossier. (`crates/domain/src/mailbox.rs`, `Sidebar.svelte`)
+- **Menu d'un dossier dans le panneau de gauche** : pas de clic droit ni
+  de « ⋯ » sur un dossier ; « Nouveau sous-dossier… » y présélectionnerait
+  l'emplacement (aujourd'hui choisi dans la fenêtre). (`Sidebar.svelte`)
+- **« Nouveau dossier… » depuis « Déplacer vers… »** : le sélecteur ne
+  propose que les dossiers existants ; créer puis déplacer en un geste.
+  (`FolderPicker.svelte`)
 - **Imprimer un message** : n'existe pas. À prévoir dans « Plus… » ;
   impression du rendu assaini, depuis Rust ou la webview, à étudier avec la
   revue de sécurité (rendu HTML). (`visible-actions.ts`)

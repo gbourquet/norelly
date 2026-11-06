@@ -392,3 +392,19 @@ fn folder_label_is_checked_alone() {
     );
     assert_eq!(folder_label("a%b"), Err(NewFolderError::InvalidCharacter));
 }
+
+#[test]
+fn new_folder_rejects_virtual_parents() {
+    let mut all = remote("[Gmail]/Tous", Some('/'));
+    all.role = MailboxRole::All;
+    let mut flagged = remote("[Gmail]/Suivis", Some('/'));
+    flagged.role = MailboxRole::Flagged;
+    let existing = vec![remote("INBOX", Some('/')), all, flagged];
+    for parent in ["[Gmail]/Tous", "[Gmail]/Suivis"] {
+        assert_eq!(
+            new_folder_name("x", Some(&name(parent)), &existing),
+            Err(NewFolderError::VirtualParent),
+            "{parent}"
+        );
+    }
+}

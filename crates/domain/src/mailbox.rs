@@ -579,6 +579,8 @@ pub enum NewFolderError {
     UnknownParent,
     #[error("le serveur n'accepte pas de sous-dossiers")]
     NoHierarchy,
+    #[error("dossier virtuel : rien ne peut y être rangé")]
+    VirtualParent,
 }
 
 /// Nom complet d'un nouveau dossier `label`, sous `parent` (ou au premier
@@ -590,7 +592,8 @@ pub enum NewFolderError {
 /// niveau). Au premier niveau, si tous les dossiers du compte sont rangés
 /// sous la boîte de réception (Courier, Cyrus : « INBOX.Envoyés »), le
 /// nouveau dossier l'est aussi. Un nom déjà pris, à la casse près, est
-/// refusé : certains serveurs ne distinguent pas la casse.
+/// refusé : certains serveurs ne distinguent pas la casse. Un dossier
+/// virtuel (`\All`, `\Flagged`) ne peut pas servir d'emplacement.
 pub fn new_folder_name(
     label: &str,
     parent: Option<&MailboxName>,
@@ -603,6 +606,9 @@ pub fn new_folder_name(
                 .iter()
                 .find(|m| m.name == *parent)
                 .ok_or(NewFolderError::UnknownParent)?;
+            if matches!(mailbox.role, MailboxRole::All | MailboxRole::Flagged) {
+                return Err(NewFolderError::VirtualParent);
+            }
             let delimiter = mailbox.delimiter.ok_or(NewFolderError::NoHierarchy)?;
             (format!("{}{delimiter}", parent.as_str()), Some(delimiter))
         }

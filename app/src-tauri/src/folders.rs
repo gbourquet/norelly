@@ -25,7 +25,9 @@ impl From<NewFolderError> for IpcError {
             }
             NewFolderError::AlreadyExists => Self::new(ErrorCodeDto::FolderExists),
             NewFolderError::NoHierarchy => Self::new(ErrorCodeDto::NoSubfolders),
-            NewFolderError::UnknownParent => Self::invalid(FieldDto::Mailbox),
+            NewFolderError::UnknownParent | NewFolderError::VirtualParent => {
+                Self::invalid(FieldDto::Mailbox)
+            }
         }
     }
 }
@@ -111,10 +113,9 @@ mod tests {
         ] {
             assert_eq!(code(failure.into()), (expected, None), "{failure:?}");
         }
-        assert_eq!(
-            code(NewFolderError::UnknownParent.into()).0,
-            ErrorCodeDto::InvalidInput
-        );
+        for failure in [NewFolderError::UnknownParent, NewFolderError::VirtualParent] {
+            assert_eq!(code(failure.into()).0, ErrorCodeDto::InvalidInput);
+        }
         assert_eq!(
             code(NewFolderError::ContainsDelimiter('/').into()),
             (ErrorCodeDto::FolderNameDelimiter, Some("/".to_owned()))

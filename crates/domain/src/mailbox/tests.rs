@@ -231,3 +231,153 @@ fn sort_date_rejects_future_header_dates() {
     meta.headers.date = Some(-5);
     assert_eq!(meta.sort_date(), 1_000_000);
 }
+
+// ---------------------------------------------------------------------------
+// Nouveau dossier
+// ---------------------------------------------------------------------------
+
+fn remote(raw: &str, delimiter: Option<char>) -> RemoteMailbox {
+    RemoteMailbox {
+        name: name(raw),
+        delimiter,
+        role: MailboxRole::Normal,
+        selectable: true,
+    }
+}
+
+fn plain_account() -> Vec<RemoteMailbox> {
+    vec![
+        remote("INBOX", Some('/')),
+        remote("Sent", Some('/')),
+        remote("Projets", Some('/')),
+        remote("Projets/2026", Some('/')),
+    ]
+}
+
+#[test]
+fn new_folder_at_top_level() {
+    let existing = plain_account();
+    assert_eq!(
+        new_folder_name("Factures", None, &existing),
+        Ok(name("Factures"))
+    );
+}
+
+#[test]
+fn new_folder_label_is_trimmed() {
+    let existing = plain_account();
+    assert_eq!(
+        new_folder_name("  Voyages été  ", None, &existing),
+        Ok(name("Voyages été"))
+    );
+}
+
+#[test]
+fn new_folder_under_parent_uses_its_delimiter() {
+    let existing = vec![remote("INBOX", Some('.')), remote("Projets", Some('.'))];
+    assert_eq!(
+        new_folder_name("2027", Some(&name("Projets")), &existing),
+        Ok(name("Projets.2027"))
+    );
+}
+
+#[test]
+fn new_folder_follows_inbox_prefix_of_the_server() {
+    // Courier, Cyrus : tous les dossiers personnels sont sous « INBOX. ».
+    let existing = vec![
+        remote("INBOX", Some('.')),
+        remote("INBOX.Sent", Some('.')),
+        remote("INBOX.Trash", Some('.')),
+    ];
+    assert_eq!(
+        new_folder_name("Factures", None, &existing),
+        Ok(name("INBOX.Factures"))
+    );
+}
+
+#[test]
+fn new_folder_without_prefix_when_only_inbox_exists() {
+    let existing = vec![remote("INBOX", Some('/'))];
+    assert_eq!(
+        new_folder_name("Factures", None, &existing),
+        Ok(name("Factures"))
+    );
+}
+
+#[test]
+fn new_folder_rejects_empty_label() {
+    let existing = plain_account();
+    assert_eq!(
+        new_folder_name("   ", None, &existing),
+        Err(NewFolderError::Empty)
+    );
+}
+
+#[test]
+fn new_folder_rejects_too_long_label() {
+    let existing = plain_account();
+    let long = "é".repeat(MAX_FOLDER_LABEL_CHARS + 1);
+    assert_eq!(
+        new_folder_name(&long, None, &existing),
+        Err(NewFolderError::TooLong)
+    );
+    let max = "é".repeat(MAX_FOLDER_LABEL_CHARS);
+    assert!(new_folder_name(&max, None, &existing).is_ok());
+}
+
+#[test]
+fn new_folder_rejects_forbidden_characters() {
+    let existing = plain_account();
+    for label in ["a*b", "a%b", "a\tb", "a\u{202e}b", "a\u{0}b"] {
+        assert_eq!(
+            new_folder_name(label, None, &existing),
+            Err(NewFolderError::InvalidCharacter),
+            "{label:?}"
+        );
+    }
+}
+
+#[test]
+fn new_folder_rejects_the_hierarchy_delimiter() {
+    let existing = plain_account();
+    assert_eq!(
+        new_folder_name("Clients/Dupont", None, &existing),
+        Err(NewFolderError::ContainsDelimiter('/'))
+    );
+}
+
+#[test]
+fn new_folder_rejects_existing_name_ignoring_case() {
+    let existing = plain_account();
+    for label in ["Projets", "projets", "inbox", "INBOX"] {
+        assert_eq!(
+            new_folder_name(label, None, &existing),
+            Err(NewFolderError::AlreadyExists),
+            "{label}"
+        );
+    }
+    assert_eq!(
+        new_folder_name("2026", Some(&name("Projets")), &existing),
+        Err(NewFolderError::AlreadyExists)
+    );
+}
+
+#[test]
+fn new_folder_rejects_unknown_parent() {
+    let existing = plain_account();
+    assert_eq!(
+        new_folder_name("x", Some(&name("Absent")), &existing),
+        Err(NewFolderError::UnknownParent)
+    );
+}
+
+#[test]
+fn new_folder_under_parent_needs_a_hierarchy() {
+    let existing = vec![remote("INBOX", None), remote("Projets", None)];
+    assert_eq!(
+        new_folder_name("x", Some(&name("Projets")), &existing),
+        Err(NewFolderError::NoHierarchy)
+    );
+    // Au premier niveau, un serveur sans hiérarchie convient.
+    assert_eq!(new_folder_name("x", None, &existing), Ok(name("x")));
+}

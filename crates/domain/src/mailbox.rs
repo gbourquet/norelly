@@ -559,6 +559,112 @@ pub fn classify_mailboxes(listed: Vec<ListedMailbox>) -> Vec<RemoteMailbox> {
     out
 }
 
+/// Longueur maximale du nom saisi pour un nouveau dossier, en caractères.
+pub const MAX_FOLDER_LABEL_CHARS: usize = 100;
+
+/// Nom de nouveau dossier refusé.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum NewFolderError {
+    #[error("nom de dossier vide")]
+    Empty,
+    #[error("nom de dossier trop long")]
+    TooLong,
+    #[error("nom de dossier avec un caractère interdit")]
+    InvalidCharacter,
+    #[error("nom de dossier avec le séparateur de hiérarchie « {0} »")]
+    ContainsDelimiter(char),
+    #[error("un dossier de ce nom existe déjà")]
+    AlreadyExists,
+    #[error("dossier parent inconnu")]
+    UnknownParent,
+    #[error("le serveur n'accepte pas de sous-dossiers")]
+    NoHierarchy,
+}
+
+/// Nom complet d'un nouveau dossier `label`, sous `parent` (ou au premier
+/// niveau), d'après les boîtes `existing` du compte.
+///
+/// Le nom saisi est débarrassé de ses espaces de bord ; il ne peut
+/// contenir ni caractère de contrôle ou de mise en forme, ni joker IMAP
+/// (`*`, `%`), ni le séparateur de hiérarchie (un nom ne crée qu'un seul
+/// niveau). Au premier niveau, si tous les dossiers du compte sont rangés
+/// sous la boîte de réception (Courier, Cyrus : « INBOX.Envoyés »), le
+/// nouveau dossier l'est aussi. Un nom déjà pris, à la casse près, est
+/// refusé : certains serveurs ne distinguent pas la casse.
+pub fn new_folder_name(
+    label: &str,
+    parent: Option<&MailboxName>,
+    existing: &[RemoteMailbox],
+) -> Result<MailboxName, NewFolderError> {
+    let label = label.trim();
+    if label.is_empty() {
+        return Err(NewFolderError::Empty);
+    }
+    if label.chars().count() > MAX_FOLDER_LABEL_CHARS {
+        return Err(NewFolderError::TooLong);
+    }
+    if label
+        .chars()
+        .any(|c| c.is_control() || is_format_char(c) || c == '*' || c == '%')
+    {
+        return Err(NewFolderError::InvalidCharacter);
+    }
+    let (prefix, delimiter) = match parent {
+        Some(parent) => {
+            let mailbox = existing
+                .iter()
+                .find(|m| m.name == *parent)
+                .ok_or(NewFolderError::UnknownParent)?;
+            let delimiter = mailbox.delimiter.ok_or(NewFolderError::NoHierarchy)?;
+            (format!("{}{delimiter}", parent.as_str()), Some(delimiter))
+        }
+        None => {
+            let delimiter = existing
+                .iter()
+                .find(|m| m.name.is_inbox())
+                .and_then(|m| m.delimiter)
+                .or_else(|| existing.iter().find_map(|m| m.delimiter));
+            (root_prefix(existing, delimiter), delimiter)
+        }
+    };
+    if let Some(d) = delimiter
+        && label.contains(d)
+    {
+        return Err(NewFolderError::ContainsDelimiter(d));
+    }
+    let full = MailboxName::parse(&format!("{prefix}{label}")).map_err(|e| match e {
+        MailboxNameError::Empty => NewFolderError::Empty,
+        MailboxNameError::TooLong => NewFolderError::TooLong,
+        MailboxNameError::InvalidCharacter => NewFolderError::InvalidCharacter,
+    })?;
+    let wanted = full.as_str().to_lowercase();
+    if existing
+        .iter()
+        .any(|m| m.name.as_str().to_lowercase() == wanted)
+    {
+        return Err(NewFolderError::AlreadyExists);
+    }
+    Ok(full)
+}
+
+/// Préfixe des dossiers de premier niveau : « INBOX » suivi du séparateur
+/// si tous les autres dossiers du compte sont rangés dessous, rien sinon.
+fn root_prefix(existing: &[RemoteMailbox], delimiter: Option<char>) -> String {
+    let Some(d) = delimiter else {
+        return String::new();
+    };
+    let prefix = format!("INBOX{d}");
+    let mut others = existing.iter().filter(|m| !m.name.is_inbox()).peekable();
+    let nested = others.peek().is_some()
+        && others.all(|m| {
+            m.name
+                .as_str()
+                .get(..prefix.len())
+                .is_some_and(|p| p.eq_ignore_ascii_case(&prefix))
+        });
+    if nested { prefix } else { String::new() }
+}
+
 /// Identifiant local d'une boîte (attribué par le stockage).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct MailboxId(i64);

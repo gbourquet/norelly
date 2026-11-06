@@ -1,4 +1,4 @@
-//! Recherche plein texte (phase 8) : analyse de la requête saisie par
+//! Recherche plein texte : analyse de la requête saisie par
 //! l'utilisateur et surlignage des résultats.
 //!
 //! Syntaxe reconnue par [`parse_query`] :

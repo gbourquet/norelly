@@ -42,7 +42,7 @@ pub fn mime_token(raw: &str) -> String {
 
 /// Nom de fichier annoncé, assaini pour l'affichage (contrôles et
 /// caractères de mise en forme retirés, borné). Il reste à assainir pour
-/// l'écriture sur disque (séparateurs, noms réservés : phase 5).
+/// l'écriture sur disque (séparateurs, noms réservés : [`crate::reading::safe_file_name`]).
 #[must_use]
 pub fn attachment_name(raw: &str) -> String {
     header_text(raw, MAX_FILENAME_CHARS)

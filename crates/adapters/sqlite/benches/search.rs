@@ -1,4 +1,4 @@
-//! Bench de la recherche plein texte (ADR-003, phase 8) sur 50 000
+//! Bench de la recherche plein texte (ADR-003) sur 50 000
 //! messages synthétiques avec leur texte (environ 300 mots chacun) :
 //! première page de résultats, requête seule. Seuil exigé : 100 ms
 //! (médiane) pour chaque requête type, vérifié avant les mesures

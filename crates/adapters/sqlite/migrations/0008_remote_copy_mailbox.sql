@@ -1,5 +1,4 @@
--- Version 8 : boîte des copies distantes des brouillons (revue de la
--- phase 7).
+-- Version 8 : boîte des copies distantes des brouillons.
 --
 -- Une copie distante (UIDVALIDITY, UID) n'a de sens que dans la boîte où
 -- elle a été déposée. Jusqu'ici, la corbeille supprimait les anciennes

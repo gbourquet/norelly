@@ -1,5 +1,4 @@
-//! Liste de contrôle d'accès de l'IPC (revue de la phase 3, reportée en
-//! phase 10) : les commandes de l'application ne sont accordées qu'à la
+//! Liste de contrôle d'accès de l'IPC : les commandes de l'application ne sont accordées qu'à la
 //! fenêtre principale, depuis l'origine de l'application. Vérifié avec la
 //! configuration réelle (`generate_context!` : capabilities et manifeste
 //! applicatif de `build.rs`).

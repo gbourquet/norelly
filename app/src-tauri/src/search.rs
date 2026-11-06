@@ -1,4 +1,4 @@
-//! Commande IPC de recherche plein texte (phase 8).
+//! Commande IPC de recherche plein texte.
 //!
 //! La requête saisie est analysée par le domaine (`search::parse_query`) ;
 //! la portée et le fuseau sont revalidés ici. Le surlignage est calculé en

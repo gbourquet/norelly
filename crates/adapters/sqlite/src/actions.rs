@@ -1,6 +1,6 @@
 //! Actions sur les messages : file durable `pending_ops` et effets locaux
 //! (drapeau changé, message masqué), appliqués dans la même transaction
-//! que la modification de la file (ADR-003, phase 6).
+//! que la modification de la file (ADR-003).
 
 use norelly_domain::account::AccountId;
 use norelly_domain::actions::{

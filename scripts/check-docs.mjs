@@ -1,4 +1,4 @@
-// Vérificateur de documentation (phase 11), lancé par scripts/check-docs.sh :
+// Vérificateur de documentation, lancé par scripts/check-docs.sh :
 //   - liens internes valides dans tous les fichiers Markdown suivis par git ;
 //   - documentation utilisateur : mêmes pages et mêmes captures en
 //     français et en anglais ;

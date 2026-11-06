@@ -82,7 +82,7 @@ async fn one_message() -> Result<(Database, SqliteMailStore), StoreError> {
     Ok((db, store))
 }
 
-/// Revue de la phase 8 (BASSE) : une recherche qui dépasse son budget est
+/// Une recherche qui dépasse son budget est
 /// interrompue, et la connexion reste utilisable ensuite.
 #[tokio::test]
 async fn a_search_past_its_deadline_is_interrupted() -> Result<(), StoreError> {

@@ -402,7 +402,7 @@ async fn actions_wait_for_the_undo_window_then_replay_without_request() {
     r.handle.shutdown().await;
 }
 
-/// Phase 9 : un message non lu arrivé par IDLE est signalé (notification),
+/// Un message non lu arrivé par IDLE est signalé (notification),
 /// pas ceux de la première synchronisation.
 #[tokio::test]
 async fn unread_arrivals_in_the_inbox_are_signalled() {

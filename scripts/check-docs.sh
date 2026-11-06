@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Vérification de la documentation (phase 11), lancée par ./scripts/check.sh :
+# Vérification de la documentation, lancée par ./scripts/check.sh :
 #   - tests du vérificateur lui-même (scripts/check-docs.test.mjs) ;
 #   - liens internes valides dans tous les fichiers Markdown du dépôt ;
 #   - documentation utilisateur : mêmes pages et mêmes captures en français

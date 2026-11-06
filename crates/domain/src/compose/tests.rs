@@ -242,7 +242,7 @@ fn quote_prefixes_every_line_under_the_attribution() {
     assert_eq!(quote("", "X :"), "X :\n>\n");
 }
 
-/// Revue de la phase 7 (BASSE) : un identifiant reçu non conforme (non
+/// Un identifiant reçu non conforme (non
 /// ASCII, trop long) est ignoré, il n'empêche pas de répondre.
 #[test]
 fn invalid_received_identifiers_are_dropped_from_threading() {

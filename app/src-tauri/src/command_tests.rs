@@ -635,7 +635,7 @@ async fn drafts_from_another_client_are_listed_and_resumed() {
     assert!(resumed.html.contains("Texte en cours"));
 }
 
-/// Revue de la phase 9 (BASSE) : « reprendre » ne vise qu'un message du
+/// « Reprendre » ne vise qu'un message du
 /// dossier « Brouillons » du compte, vérifié en Rust avant tout
 /// téléchargement.
 #[tokio::test]

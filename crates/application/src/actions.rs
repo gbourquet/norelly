@@ -1,4 +1,4 @@
-//! Cas d'usage des actions sur les messages (phase 6) : application
+//! Cas d'usage des actions sur les messages : application
 //! optimiste et file durable ([`PerformAction`]), annulation
 //! ([`UndoActions`]), rejeu sur le serveur ([`ReplayActions`]).
 //!

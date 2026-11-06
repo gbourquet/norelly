@@ -939,7 +939,7 @@ pub trait RemoteBodyFetcher: Send + Sync {
 }
 
 // ---------------------------------------------------------------------------
-// Actions et file d'opérations (phase 6)
+// Actions et file d'opérations
 // ---------------------------------------------------------------------------
 
 /// Identifiant d'une opération en attente.
@@ -1237,7 +1237,7 @@ pub trait ContactQuery: Send + Sync {
 }
 
 // ---------------------------------------------------------------------------
-// Recherche plein texte (phase 8)
+// Recherche plein texte
 // ---------------------------------------------------------------------------
 
 /// Où chercher.

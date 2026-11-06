@@ -108,7 +108,7 @@ reçus de l'interface ; types MIME recalculés.
 
 ## Fichiers sensibles
 
-Signalés au mainteneur à chaque fin de phase (ADR-008) :
+Signalés au mainteneur dans chaque PR qui les touche (ADR-008) :
 
 - `crates/domain/src/security.rs`, `discovery.rs`, `reading.rs`,
   `credentials.rs` ;
@@ -124,22 +124,10 @@ Signalés au mainteneur à chaque fin de phase (ADR-008) :
 
 ## Revues
 
-Chaque phase se termine par une revue de l'agent `security-reviewer`
-(`.claude/agents/security-reviewer.md`), consignée dans
-[REVIEWS.md](../REVIEWS.md) ; les constats critiques et hauts sont corrigés
-avant de clore la phase, les autres corrigés ou reportés explicitement.
-Constats hauts trouvés, tous corrigés :
-
-| Phase | Constat |
-|---|---|
-| 3 | Serveur SRV hors domaine non signalé si la découverte est partielle ; confirmation non imposée par Rust |
-| 4 | Débordement de pile dans `imap-codec` (`message/rfc822` imbriqué sans limite), y compris avant STARTTLS |
-| 5 | Pièces jointes écrites sans Mark-of-the-Web (Windows) |
-| 7 | « Répondre » à un mail HTML piégé faisait planter l'application (débordement de pile) |
-| 9 | Texte des notifications envoyé au serveur D-Bus sans échappement du balisage |
-
-Aucun constat critique à ce jour. Les phases 2, 6, 8 et 10 n'ont pas eu de
-constat haut.
+Toute modification d'une zone sensible passe par une revue de l'agent
+`security-reviewer` (`.claude/agents/security-reviewer.md`) ; les constats
+critiques et hauts sont corrigés avant la PR, les autres reportés dans
+[BACKLOG.md](../BACKLOG.md).
 
 Signaler une vulnérabilité : voir [SECURITY.md](../../SECURITY.md)
 (signalement privé GitHub), jamais dans une issue publique.

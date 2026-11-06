@@ -1,4 +1,4 @@
-// Mesure de bout en bout (phase 9), lancée seulement avec
+// Mesure de bout en bout, lancée seulement avec
 // NORELLY_E2E_PERF=1 (job nocturne) : base pré-remplie de 50 000 messages
 // dans la boîte de réception et 20 000 dans Archives (exemple
 // `seed_perf` de norelly-sqlite), compte sur un domaine injoignable.

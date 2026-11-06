@@ -1,4 +1,4 @@
-// Rédaction et envoi de bout en bout (phase 7), contre Dovecot et Mailpit :
+// Rédaction et envoi de bout en bout, contre Dovecot et Mailpit :
 // - « r » prépare une réponse (destinataire, sujet Re:, citation) ;
 // - Ctrl+Entrée envoie : Mailpit reçoit le message (In-Reply-To, version
 //   texte et HTML), et la copie arrive dans Envoyés sur Dovecot ;

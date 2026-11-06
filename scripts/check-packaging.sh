@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Métadonnées de bureau (phase 10) : fichier .desktop et AppStream valides,
+# Métadonnées de bureau : fichier .desktop et AppStream valides,
 # chaque texte présenté traduit en français (ADR-011), icônes aux bonnes
 # tailles. Outils : desktop-file-validate (desktop-file-utils) et
 # appstreamcli (appstream).

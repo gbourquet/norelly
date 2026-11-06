@@ -1,4 +1,4 @@
-//! Paramètres de l'application (phase 9), revalidés par le domaine.
+//! Paramètres de l'application, revalidés par le domaine.
 //!
 //! - langue de l'interface : celle du système par défaut (ADR-011) ;
 //! - recherche de mises à jour : demandée au premier lancement, « oui »

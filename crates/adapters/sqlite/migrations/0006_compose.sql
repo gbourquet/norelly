@@ -1,4 +1,4 @@
--- Version 6 : rédaction (phase 7).
+-- Version 6 : rédaction.
 --
 -- - drafts : brouillons locaux. Le contenu (destinataires, sujet, corps,
 --   fil, pièces jointes) est un document JSON, revalidé à la relecture

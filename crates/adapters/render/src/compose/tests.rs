@@ -426,7 +426,7 @@ fn quote_html_escapes_and_wraps_in_blockquote() {
 }
 
 /// Balises fermantes orphelines : `</q>` ne ferme rien pour html5ever, qui
-/// imbrique donc 20 000 `<b>`. Revue de sécurité de la phase 7 (HAUTE).
+/// imbrique donc 20 000 `<b>`.
 fn orphan_closings(n: usize) -> String {
     format!("{}profond", "<b></q>".repeat(n))
 }
@@ -458,7 +458,7 @@ fn orphan_closing_tags_stay_fast() {
     );
 }
 
-/// Phase 9 : transfert avec les pièces jointes du message d'origine.
+/// Transfert avec les pièces jointes du message d'origine.
 #[test]
 fn forwarded_attachments_are_decoded_with_safe_names() {
     let raw = b"From: Alice <alice@example.com>\r\nSubject: Devis\r\n\
@@ -521,7 +521,7 @@ fn many_attachments(count: usize, size: usize) -> Vec<u8> {
     raw
 }
 
-/// Revue de la phase 9 (BASSE, report) : l'analyse s'arrête dès que les
+/// L'analyse s'arrête dès que les
 /// bornes de l'envoi sont dépassées.
 #[test]
 fn forwarded_attachments_stop_beyond_the_count_limit() {

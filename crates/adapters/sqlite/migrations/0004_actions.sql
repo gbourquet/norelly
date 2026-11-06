@@ -1,4 +1,4 @@
--- Version 4 : actions sur les messages (phase 6).
+-- Version 4 : actions sur les messages.
 --
 -- - messages.hidden : message déplacé ou supprimé localement, en attente
 --   du serveur (application optimiste) ; il reste en base pour que la

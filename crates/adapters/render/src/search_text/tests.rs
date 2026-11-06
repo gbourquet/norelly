@@ -105,7 +105,7 @@ fn arbitrary_bytes_do_not_panic() {
     }
 }
 
-/// Revue de la phase 8 (MOYENNE) : un HTML dense de 2 Mio est réduit au
+/// Un HTML dense de 2 Mio est réduit au
 /// texte en temps raisonnable (le délai maximal du cas d'usage reste le
 /// filet de sécurité).
 #[test]

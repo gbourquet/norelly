@@ -283,7 +283,7 @@ async fn queue_message_composes_and_retires_the_draft() {
     assert!(String::from_utf8_lossy(&item.sent_copy).contains("cache@example.com"));
 }
 
-/// Phase 9 : envoi différé, en file jusqu'à l'échéance, repris pour être
+/// Envoi différé, en file jusqu'à l'échéance, repris pour être
 /// modifié tant qu'il n'est pas parti.
 #[tokio::test]
 async fn scheduled_messages_wait_and_can_be_taken_back() {
@@ -670,7 +670,7 @@ impl norelly_domain::ports::RemoteBodyFetcher for FullFetch {
     }
 }
 
-/// Phase 9 : le transfert reprend les pièces jointes du message d'origine.
+/// Le transfert reprend les pièces jointes du message d'origine.
 #[tokio::test]
 async fn forward_carries_the_original_attachments() {
     let mut w = world(true).await;
@@ -775,7 +775,7 @@ async fn forward_downloads_deferred_attachments() {
     assert_eq!(draft.attachments.len(), 1);
 }
 
-/// Phase 9 : un brouillon écrit par un autre client (dossier
+/// Un brouillon écrit par un autre client (dossier
 /// « Brouillons ») se reprend tel quel.
 #[tokio::test]
 async fn a_draft_from_another_client_is_resumed_as_is() {
@@ -839,7 +839,7 @@ Content-Transfer-Encoding: base64\r\n\r\nJVBERi0xLjQ=\r\n--b--\r\n";
     assert_eq!(draft.attachments.len(), 1);
 }
 
-/// Revue de la phase 9 (BASSE) : un message trop gros est refusé avant
+/// Un message trop gros est refusé avant
 /// l'analyse de ses pièces jointes, même complet localement.
 #[tokio::test]
 async fn oversized_messages_are_refused_before_parsing() {
@@ -1017,7 +1017,7 @@ async fn stale_or_foreign_copies_are_never_deleted() {
     );
 }
 
-/// Revue de la phase 7 (BASSE) : une ancienne copie est supprimée dans le
+/// Une ancienne copie est supprimée dans le
 /// dossier où elle a été déposée, même si le rôle `\Drafts` est passé à un
 /// autre dossier entre-temps.
 #[tokio::test]
@@ -1054,7 +1054,7 @@ async fn old_copies_are_removed_from_their_own_mailbox() {
     );
 }
 
-/// Revue de la phase 7 (BASSE) : un brouillon refusé par le serveur
+/// Un brouillon refusé par le serveur
 /// (quota) ne bloque ni les autres brouillons ni la corbeille, et n'est
 /// retenté qu'après une longue attente.
 #[tokio::test]
@@ -1111,7 +1111,7 @@ async fn a_refused_draft_does_not_block_the_others() {
     assert_eq!(report.saved, 1);
 }
 
-/// Revue de la phase 7 (BASSE) : mot de passe ou certificat refusé, même
+/// Mot de passe ou certificat refusé, même
 /// cause pour tous les messages : la tournée s'arrête (pas de rafale
 /// d'échecs d'authentification).
 #[tokio::test]
@@ -1180,7 +1180,7 @@ impl MessageComposer for ThreadRecorder {
     }
 }
 
-/// Revue de la phase 9 (BASSE, report) : l'analyse des pièces jointes
+/// L'analyse des pièces jointes
 /// transférées ne bloque pas le fil asynchrone.
 #[tokio::test]
 async fn forwarded_attachments_are_parsed_off_the_async_thread() {

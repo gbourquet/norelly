@@ -1,4 +1,4 @@
-// Captures d'écran de la documentation utilisateur (phase 11), produites à
+// Captures d'écran de la documentation utilisateur, produites à
 // chaque `pnpm -C app e2e`, une fois par langue (in-container.sh) :
 //   NORELLY_E2E_LANG      fr ou en (langue attendue de l'interface) ;
 //   NORELLY_E2E_CAPTURES  dossier de sortie (monté en écriture par run.sh,

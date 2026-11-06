@@ -15,8 +15,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && sed -i 's/^# *fr_FR.UTF-8 UTF-8/fr_FR.UTF-8 UTF-8/' /etc/locale.gen \
     && locale-gen
 
-# Outils téléchargés en archives figées, vérifiées par SHA-256 (revue de la
-# phase 5, durcissement de la phase 10) : aucun script exécuté depuis le
+# Outils téléchargés en archives figées, vérifiées par SHA-256 : aucun script exécuté depuis le
 # réseau. Mise à jour : changer la version et l'empreinte ensemble (empreintes
 # publiées : `rustup-init.sha256`, `SHASUMS256.txt` de Node.js, champ
 # `dist.integrity` du registre npm pour pnpm).

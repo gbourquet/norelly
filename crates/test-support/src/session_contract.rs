@@ -356,7 +356,7 @@ where
     Ok(())
 }
 
-/// Contrat des actions de la session (phase 6) : `SELECT` en écriture,
+/// Contrat des actions de la session : `SELECT` en écriture,
 /// `STORE` (avec `UNCHANGEDSINCE`), `COPY`, `MOVE` s'il est annoncé,
 /// `\Deleted`, `UID EXPUNGE` s'il est annoncé, sinon `EXPUNGE`.
 /// `box_name` et `box_name-Dest` sont créées puis supprimées.

@@ -1,4 +1,4 @@
--- Version 9 : compteurs de l'arbre des dossiers (phase 9, mesure de
+-- Version 9 : compteurs de l'arbre des dossiers (mesure de
 -- démarrage).
 --
 -- Le total et le nombre de non lus de chaque dossier se comptent sur

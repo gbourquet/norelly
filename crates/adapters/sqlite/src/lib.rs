@@ -812,7 +812,7 @@ mod tests {
 
     /// Une ligne modifiée à la main (injection dans l'hôte) n'est pas
     /// acceptée silencieusement.
-    /// Phase 9 (mesure de démarrage) : la lecture des comptes n'attend pas
+    /// La lecture des comptes n'attend pas
     /// une écriture en cours (synchronisation qui démarre en même temps).
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn account_reads_do_not_wait_for_the_writer() -> Result<(), AccountStoreError> {

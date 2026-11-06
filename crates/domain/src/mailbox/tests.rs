@@ -381,3 +381,14 @@ fn new_folder_under_parent_needs_a_hierarchy() {
     // Au premier niveau, un serveur sans hiérarchie convient.
     assert_eq!(new_folder_name("x", None, &existing), Ok(name("x")));
 }
+
+#[test]
+fn folder_label_is_checked_alone() {
+    assert_eq!(folder_label("  Factures "), Ok("Factures"));
+    assert_eq!(folder_label(""), Err(NewFolderError::Empty));
+    assert_eq!(
+        folder_label(&"x".repeat(MAX_FOLDER_LABEL_CHARS + 1)),
+        Err(NewFolderError::TooLong)
+    );
+    assert_eq!(folder_label("a%b"), Err(NewFolderError::InvalidCharacter));
+}

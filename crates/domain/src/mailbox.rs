@@ -596,19 +596,7 @@ pub fn new_folder_name(
     parent: Option<&MailboxName>,
     existing: &[RemoteMailbox],
 ) -> Result<MailboxName, NewFolderError> {
-    let label = label.trim();
-    if label.is_empty() {
-        return Err(NewFolderError::Empty);
-    }
-    if label.chars().count() > MAX_FOLDER_LABEL_CHARS {
-        return Err(NewFolderError::TooLong);
-    }
-    if label
-        .chars()
-        .any(|c| c.is_control() || is_format_char(c) || c == '*' || c == '%')
-    {
-        return Err(NewFolderError::InvalidCharacter);
-    }
+    let label = folder_label(label)?;
     let (prefix, delimiter) = match parent {
         Some(parent) => {
             let mailbox = existing
@@ -645,6 +633,26 @@ pub fn new_folder_name(
         return Err(NewFolderError::AlreadyExists);
     }
     Ok(full)
+}
+
+/// Nom saisi pour un nouveau dossier, sans ses espaces de bord, vérifié
+/// seul (sans la liste des dossiers) : non vide, borné, sans caractère de
+/// contrôle ou de mise en forme ni joker IMAP. Voir [`new_folder_name`].
+pub fn folder_label(label: &str) -> Result<&str, NewFolderError> {
+    let label = label.trim();
+    if label.is_empty() {
+        return Err(NewFolderError::Empty);
+    }
+    if label.chars().count() > MAX_FOLDER_LABEL_CHARS {
+        return Err(NewFolderError::TooLong);
+    }
+    if label
+        .chars()
+        .any(|c| c.is_control() || is_format_char(c) || c == '*' || c == '%')
+    {
+        return Err(NewFolderError::InvalidCharacter);
+    }
+    Ok(label)
 }
 
 /// Préfixe des dossiers de premier niveau : « INBOX » suivi du séparateur

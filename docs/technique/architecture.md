@@ -119,7 +119,14 @@ Présentation seulement, Svelte 5 en runes. **Aucune décision de sécurité.**
 
 - `lib/app.svelte.ts` : état global et **registre de commandes**
   (`registerAppCommands`), qui alimente raccourcis, palette, aide, barres
-  d'outils et menu contextuel ;
+  d'actions, menus « Plus… », menus des comptes et menu contextuel ;
+- `lib/visible-actions.ts` : actions proposées à la souris dans chaque
+  zone (barre du message ouvert et « Plus… », survol d'une ligne, menu
+  contextuel, barre de sélection), priorité de repli dans « Plus… »
+  (`fitByPriority`) ; `lib/commands/describe.ts` (libellé, infobulle
+  « Libellé — Touches », disponibilité), `lib/commands/watch.svelte.ts`
+  (relecture du registre par les composants), `lib/fixed-shortcuts.ts`
+  (touches de la fenêtre de rédaction) ;
 - `lib/mail.svelte.ts`, `compose.svelte.ts`, `search.svelte.ts`,
   `settings.svelte.ts`, `updates.svelte.ts` : états par domaine d'écran ;
 - `lib/ipc/bindings.ts` (généré, commité) et `lib/ipc/api.ts` (enveloppe :

@@ -288,6 +288,11 @@ est majoritairement écrit par Claude et relu par le mainteneur.
   - `specta` dépend de `paste`, signalé non maintenu (RUSTSEC-2024-0436,
     sans vulnérabilité) : exception ajoutée dans `deny.toml`, validée par
     le mainteneur le 2026-11-02, à réévaluer à chaque montée de specta.
+- **Mise en œuvre (2026-11-06)** : le registre alimente aussi les
+  éléments visibles à la souris (barres d'actions libellées, menus
+  « Plus… » et « ⋯ » des comptes, boutons au survol, barre de sélection),
+  décrits par zone dans `app/src/lib/visible-actions.ts` : aucune action
+  n'est réservée au clavier.
 
 ## ADR-006 : packaging et mises à jour
 

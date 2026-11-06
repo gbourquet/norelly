@@ -1,7 +1,8 @@
 # Norelly
 
 Client mail IMAP/SMTP desktop pour Windows et Linux : rapide, sobre,
-pilotable au clavier, configuration quasi automatique. Aucune télémétrie.
+utilisable entièrement à la souris (et plus vite encore au clavier),
+configuration quasi automatique. Aucune télémétrie.
 
 > Projet en pré-alpha. Sujets ouverts : [BACKLOG.md](docs/BACKLOG.md).
 

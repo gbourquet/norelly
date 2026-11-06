@@ -121,9 +121,16 @@ Exemple : une commande `mark_all_read(account, mailbox)`.
    (`registerAppCommands`, `app/src/lib/app.svelte.ts`) avec libellé et
    mots-clés dans `app/messages/fr.json` **et** `en.json`, et une ligne dans
    `docs/utilisateur/{fr,en}/shortcuts.md` (vérifié par
-   `app/src/docs.test.ts`). Nouveau code d'erreur : son texte dans
-   `app/src/lib/errors.ts` et les catalogues.
-9. **Vérifier** : `./scripts/check.sh`.
+   `app/src/docs.test.ts`). Elle doit aussi avoir un **élément visible à la
+   souris** (aucune action réservée au clavier) : l'ajouter à la zone qui
+   convient dans `app/src/lib/visible-actions.ts` (barre du message ouvert
+   ou « Plus… », survol d'une ligne, menu contextuel, barre de sélection),
+   ou au menu « ⋯ » des comptes (`Sidebar.svelte`). Libellé et infobulle
+   « Libellé — Touche » viennent du registre (`describeCommand`). Nouveau
+   code d'erreur : son texte dans `app/src/lib/errors.ts` et les catalogues.
+9. **Vérifier** : `./scripts/check.sh`, puis l'écran lui-même
+   (`pnpm -C app tauri dev`) : capture d'écran relue (alignement,
+   encombrement, libellés tronqués, survol, menus, thème sombre).
 
 ## 5. Ajouter une migration SQLite, pas à pas
 

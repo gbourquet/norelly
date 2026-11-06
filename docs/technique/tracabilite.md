@@ -346,8 +346,7 @@ Fiche : [notifications.md](../fonctionnel/notifications.md).
 
 ### Vérifications et compléments
 
-- Balisage dans le sujet ou l'expéditeur : neutralisé (constat haut de la
-  revue de la phase 9, corrigé).
+- Balisage dans le sujet ou l'expéditeur : neutralisé.
 - Affichage réel vérifié à la main (`docs/MANUAL-TESTS.md`).
 
 ## Paramètres, langue et mises à jour

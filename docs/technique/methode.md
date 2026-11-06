@@ -34,8 +34,7 @@ documente dans la PR (ou dans [BACKLOG.md](../BACKLOG.md)), et on s'arrête.
 
 ## Maintenance
 
-Le développement initial s'est fait par phases (1 à 11), jusqu'à la
-documentation. Le projet est désormais en maintenance : nouvelles
+Le projet est en maintenance : nouvelles
 fonctionnalités, interface, corrections, durcissement. Les sujets ouverts
 sont dans [BACKLOG.md](../BACKLOG.md). Une modification est prête pour une
 PR quand :

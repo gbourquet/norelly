@@ -53,9 +53,10 @@ est majoritairement écrit par Claude et relu par le mainteneur.
   - L'interopérabilité est sous notre responsabilité : on la vérifie contre
     Dovecot et un faux serveur scripté (ADR-007).
   - TLS 1.0 et 1.1 ne sont pas supportés : message d'erreur explicite.
-  - Couverture effective des extensions à confirmer en phase 2. Si une extension manque, on le signale avant de la
+  - Couverture effective des extensions : voir la vérification
+    ci-dessous. Si une extension manque, on le signale avant de la
     contourner.
-- **Vérification de la phase 2** (2026-11-01, `imap-next` 0.3.4,
+- **Vérification** (2026-11-01, `imap-next` 0.3.4,
   `imap-codec` 2.0.0-alpha.9, `imap-types` 2.0.0-alpha.7, `lettre`
   0.11.23), faite dans le code source :
 
@@ -71,7 +72,7 @@ est majoritairement écrit par Claude et relu par le mainteneur.
 
   Manques signalés au mainteneur, **sans contournement** :
   - SPECIAL-USE : on s'appuiera sur les attributs renvoyés par un `LIST`
-    ordinaire (à vérifier contre Dovecot en phase 4) et sur l'heuristique
+    ordinaire (vérifié contre Dovecot, voir plus bas) et sur l'heuristique
     de nom déjà prévue ; `RETURN (SPECIAL-USE)` à demander en amont si
     nécessaire.
   - COMPRESS=DEFLATE : optimisation non indispensable au MVP, reportée.
@@ -98,8 +99,8 @@ est majoritairement écrit par Claude et relu par le mainteneur.
   - `imap-next` 0.3.4 ne libère une commande à littéral synchrone
     (`APPEND`) que si le serveur la refuse par `BAD` avant la
     continuation ; sur un `NO` (`[TRYCREATE]`…), le littéral reste en
-    attente et toutes les commandes suivantes sont bloquées. Constaté en
-    phase 7 (test `append_sends_a_literal_and_reads_appenduid`).
+    attente et toutes les commandes suivantes sont bloquées. Constaté par le test
+    `append_sends_a_literal_and_reads_appenduid`.
     Contournement : une réponse étiquetée reçue avant `CommandSent`
     renvoie bien `Rejected`, mais la session est ensuite déclarée
     inutilisable (`literal_pending`) et seulement fermée ; l'appelant se
@@ -114,7 +115,7 @@ est majoritairement écrit par Claude et relu par le mainteneur.
     est compilé sans backend TLS. À proposer en amont : un constructeur
     `TlsParameters` à partir d'un `ClientConfig`.
 
-- **Vérifications de la phase 4** (2026-11-02, Dovecot 2.4.5) :
+- **Vérifications contre Dovecot** (2026-11-02, Dovecot 2.4.5) :
   - SPECIAL-USE : un `LIST "" "*"` ordinaire renvoie bien les attributs
     `\Sent`, `\Drafts`, `\Trash`, `\Junk` (test
     `dovecot_special_use_attributes_are_read_from_plain_list`) ; le rôle
@@ -160,7 +161,7 @@ est majoritairement écrit par Claude et relu par le mainteneur.
   - L'objectif des 200 ms repose sur des index composites et des
     conversations précalculées.
 
-- **Mise en œuvre (phase 5, 2026-11-02)** : conversations précalculées
+- **Mise en œuvre (2026-11-02)** : conversations précalculées
   (migration 3). Le rattachement d'un message est décidé à l'insertion
   par le domaine (`conversation::assign`, version incrémentale de JWZ :
   identifiants connus par conversation, fusion, sujet en dernier recours
@@ -173,7 +174,7 @@ est majoritairement écrit par Claude et relu par le mainteneur.
   disparaît. Mesure (bench, 50k messages) : première page de
   conversations ≈ 0,3 ms, boîte unifiée ≈ 0,3 ms.
 
-- **Mise en œuvre (phase 8, 2026-11-03)** : recherche derrière le port
+- **Mise en œuvre (2026-11-03)** : recherche derrière le port
   `SearchIndex`, requête analysée par le domaine (`search::parse_query`,
   arbre sans syntaxe de moteur). Migration 7 : table de contenu
   `message_texts` et index FTS5 `message_search` (préfixes 2 et 3 indexés),
@@ -217,7 +218,7 @@ est majoritairement écrit par Claude et relu par le mainteneur.
     `mailview://`. Si WebKitGTK se comporte différemment : repli
     documenté vers A, après validation du mainteneur.
 
-- **Mise en œuvre (phase 5, 2026-11-02)** :
+- **Mise en œuvre (2026-11-02)** :
   - Adresses des protocoles selon la plateforme : `scheme://localhost/`
     sous Linux (WebKitGTK), `http://scheme.localhost/` sous Windows
     (WebView2) ; la CSP du document et celle de la fenêtre principale
@@ -250,12 +251,12 @@ est majoritairement écrit par Claude et relu par le mainteneur.
     domaine ; les types exécutables ou à macros ne s'ouvrent pas, ils
     s'enregistrent seulement. Les pièces ouvertes sont écrites dans un
     dossier privé du cache de l'application.
-  - Messages partiels (phase 4) : chaque partie est téléchargée avec ses
+  - Messages partiels : chaque partie est téléchargée avec ses
     en-têtes MIME (`BODY.PEEK[n.MIME]`), ce qui permet de rendre le corps
     et d'extraire une pièce jointe sans le message complet ; les parties
     différées sont téléchargées à la demande par la connexion de
     commandes de l'acteur du compte.
-  - Résultats des tests end-to-end sous WebKitGTK (phase 5) :
+  - Résultats des tests end-to-end sous WebKitGTK :
     `app/e2e/specs/reading-security.e2e.mjs` (serveur canari
     `app/e2e/canary.mjs`) : A+ tient tel que décrit, sans repli vers A.
 
@@ -277,7 +278,7 @@ est majoritairement écrit par Claude et relu par le mainteneur.
 - **Conséquences** :
   - Le mainteneur relit le contrat côté Rust.
   - Pas de syntaxe Svelte 4.
-- **Mise en œuvre (phase 3, 2026-11-02)** :
+- **Mise en œuvre (2026-11-02)** :
   - `tauri-specta` 2.0.0-rc.26, `specta` 2.0.0-rc.26 et
     `specta-typescript` 0.0.13, versions figées (RC). Le contrat est dans
     `app/src-tauri/src/ipc.rs` (vues, sans dépendance de `specta` dans le
@@ -311,8 +312,7 @@ est majoritairement écrit par Claude et relu par le mainteneur.
 - **Dérogations validées par le mainteneur (2026-11-05)**, autorisations
   du Flatpak :
   - `--talk-name=org.freedesktop.secrets` : accès direct au Secret
-    Service, donc à tout le trousseau de session (revue de la phase 10,
-    MOYENNE). Le portail Secret, qui donne un trousseau propre à
+    Service, donc à tout le trousseau de session. Le portail Secret, qui donne un trousseau propre à
     l'application, passe par `oo7` et donc par zbus, écarté par
     `deny.toml`. On garde l'accès direct, comme les autres clients mail
     sous Flatpak. À réexaminer si zbus redevient acceptable.
@@ -335,11 +335,11 @@ est majoritairement écrit par Claude et relu par le mainteneur.
   - **performance** : `criterion` + générateur de boîte de 50k messages ;
   - **intégration** via `testcontainers`, dans des fichiers de test nommés
     `tests/integration*.rs`, exclus du profil nextest par défaut et lancés
-    par `--profile integration`. Les briques sont ajoutées progressivement :
-    - Dovecot et Mailpit dès la phase 1 ;
-    - faux serveur scripté et certificats `rcgen` en phase 2 ;
-    - Toxiproxy en phase 4 ;
-    - Stalwart dans le job nocturne, après le MVP ;
+    par `--profile integration`. Les briques :
+    - Dovecot et Mailpit ;
+    - faux serveur scripté et certificats `rcgen` ;
+    - Toxiproxy ;
+    - Stalwart dans le job nocturne ;
   - **tests de contrat** : chaque port est testé contre son faux en
     mémoire et contre son implémentation réelle.
 - **Dérogation validée par le mainteneur (2026-11-05)** : l'image Stalwart
@@ -348,7 +348,7 @@ est majoritairement écrit par Claude et relu par le mainteneur.
   configurable par un seul `config.toml` ; les suivantes demandent une
   configuration par l'API au démarrage. À réexaminer si une version
   récente permet de nouveau une configuration déclarative simple.
-- **Mise en œuvre de l'end-to-end (phase 3, 2026-11-02)** : WebKitWebDriver
+- **Mise en œuvre de l'end-to-end (2026-11-02)** : WebKitWebDriver
   n'est pas fourni par toutes les distributions (absent d'Arch, par
   exemple). `pnpm -C app e2e` (`app/e2e/run.sh`) exécute donc tauri-driver
   et WebdriverIO dans une image Ubuntu 24.04 (`app/e2e/Dockerfile`), avec
@@ -394,7 +394,8 @@ est majoritairement écrit par Claude et relu par le mainteneur.
   - Environ 10 à 15 % de code en plus.
   - Le code de sécurité vit aussi dans l'infra : TLS, STARTTLS,
     assainisseur, protocoles personnalisés, écriture des pièces jointes.
-    Ces fichiers sont signalés au mainteneur à chaque fin de phase.
+    Ces fichiers sont signalés au mainteneur dans chaque PR qui les
+    touche.
 
 ## ADR-009 : licence et politique de dépendances
 
@@ -430,11 +431,11 @@ est majoritairement écrit par Claude et relu par le mainteneur.
 ## ADR-011 : internationalisation
 
 - **Statut** : Acceptée (2026-11-02)
-- **Contexte** : jusqu'à la phase 5, l'interface est écrite en dur en
+- **Contexte** : au moment de la décision, l'interface est écrite en dur en
   français. `app/src/lib/format.ts` impose `"fr-FR"`, et les erreurs
   passent à l'interface sous forme de texte français produit par le
   `Display` des erreurs Rust (`ErrorDto.message`, `Failed.message`). Le
-  coût d'une reprise augmente à chaque écran. La phase 7 fait aussi
+  coût d'une reprise augmente à chaque écran. La rédaction fait aussi
   entrer la langue dans le domaine : préfixes de réponse étrangers et
   en-tête de citation.
 - **Options** : Paraglide JS (catalogues compilés, typés) ; `svelte-i18n`
@@ -455,8 +456,8 @@ est majoritairement écrit par Claude et relu par le mainteneur.
   - Catalogues dans `app/messages/{fr,en}.json`. **Le français est la
     langue source** ; l'anglais sert de repli pour toute autre locale.
   - **Choix de la langue** : la langue du système (`navigator.language`
-    dans la webview) par défaut, puis une préférence enregistrée en
-    phase 9. Dates, heures, tailles et nombres passent par `Intl` avec
+    dans la webview) par défaut, puis une préférence enregistrée dans les
+    paramètres. Dates, heures, tailles et nombres passent par `Intl` avec
     la locale active, jamais une locale écrite en dur.
   - **Contrat IPC** : Rust n'envoie **aucun texte destiné à
     l'utilisateur**.
@@ -480,8 +481,7 @@ est majoritairement écrit par Claude et relu par le mainteneur.
       construit avec la langue et le format de date de l'utilisateur, et
       le transmet au domaine comme une donnée de rédaction ; le domaine
       ne fait que l'insérer.
-  - **Textes émis hors de la fenêtre** (notifications natives,
-    phase 9) : ils sont produits par l'interface à partir d'un événement
+  - **Textes émis hors de la fenêtre** (notifications natives) : ils sont produits par l'interface à partir d'un événement
     Rust, car la webview tourne encore quand la fenêtre est masquée. Si
     ce n'est pas possible, on reviendra devant le mainteneur avant
     d'introduire un catalogue côté Rust.
@@ -495,5 +495,4 @@ est majoritairement écrit par Claude et relu par le mainteneur.
     mêmes clés, et `./scripts/check.sh` l'exécute.
   - Les tests end-to-end tournent avec la locale `fr` imposée et ciblent
     de préférence les rôles ARIA plutôt que les textes.
-  - Les métadonnées AppStream et le fichier `.desktop` sont traduits
-    (phase 10).
+  - Les métadonnées AppStream et le fichier `.desktop` sont traduits.

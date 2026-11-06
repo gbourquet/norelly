@@ -1,8 +1,7 @@
 # Backlog
 
-Sujets ouverts à la fin du développement initial (phases 1 à 11), repris de
-l'ancien plan, des relectures de la documentation et des revues de
-sécurité. On retire un élément quand il est traité (lien vers la PR), ou
+Sujets ouverts : décisions à prendre, fonctionnalités, corrections,
+durcissement et tâches humaines. On retire un élément quand il est traité (lien vers la PR), ou
 quand le mainteneur l'abandonne (avec la raison).
 
 ## À trancher par le mainteneur

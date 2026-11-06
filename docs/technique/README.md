@@ -11,7 +11,7 @@ Commencez par [premiers pas](premiers-pas.md), puis lisez
 | [donnees.md](donnees.md) | Modèle de données (migrations SQLite), stockage des messages, protocoles personnalisés |
 | [securite.md](securite.md) | Modèle de menace, défenses en place, revues |
 | [tests.md](tests.md) | Niveaux de tests, faux serveurs, couverture, bancs de performance |
-| [methode.md](methode.md) | TDD, phases, conventions de code et de commit, branches, PR, CI |
+| [methode.md](methode.md) | TDD, maintenance, conventions de code et de commit, branches, PR, CI |
 | [tracabilite.md](tracabilite.md) | Des fonctionnalités au code : modules, cas d'usage, clés de messages, commandes |
 | [premiers-pas.md](premiers-pas.md) | Installer, lancer, tester ; ajouter une commande IPC ou une migration, pas à pas |
 

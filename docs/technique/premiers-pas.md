@@ -134,10 +134,10 @@ Exemple : une colonne `mailboxes.color`.
    données existantes doivent être transformées, un test de montée de
    version qui part de la version précédente avec des données.
 2. **Nouveau fichier** `crates/adapters/sqlite/migrations/0011_mailbox_color.sql`,
-   commenté en tête (version, raison, phase) :
+   commenté en tête (version, raison) :
 
    ```sql
-   -- Version 11 : couleur des dossiers (phase N).
+   -- Version 11 : couleur des dossiers.
    ALTER TABLE mailboxes ADD COLUMN color TEXT;
    ```
 

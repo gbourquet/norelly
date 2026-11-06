@@ -359,5 +359,11 @@
   "tooltip_shortcut": "{label} — {keys}",
   "action_more": "Plus…",
   "action_follow": "Suivre",
-  "action_unfollow": "Ne plus suivre"
+  "action_unfollow": "Ne plus suivre",
+  "list_select_row": "Sélectionner « {subject} »",
+  "list_selection": "Sélection",
+  "list_bulk_actions": "Actions sur la sélection",
+  "cmd_clear_selection": "Tout désélectionner",
+  "cmd_clear_selection_keywords": "décocher annuler sélection aucune",
+  "search_button": "Rechercher"
 }

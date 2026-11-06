@@ -88,6 +88,21 @@ export function readerActions(subject: ActionSubject | null): {
   };
 }
 
+/** Barre des conversations cochées : les deux bascules lu / non lu sont
+ * proposées (sélection mêlée). */
+export function bulkActions(): { primary: VisibleAction[]; more: VisibleAction[] } {
+  return {
+    primary: [
+      { ...archive, priority: 1 },
+      { ...remove, priority: 2 },
+      { command: "action.mark-read", icon: MailOpenIcon, priority: 3 },
+      { command: "action.mark-unread", icon: MailIcon, priority: 4 },
+      { ...move, priority: 5 },
+    ],
+    more: [{ command: "action.flag", icon: FlagIcon }],
+  };
+}
+
 /** Actions rapides au survol d'une ligne de la liste. */
 export function rowActions(subject: ActionSubject | null): VisibleAction[] {
   return [archive, remove, readToggle(subject)];

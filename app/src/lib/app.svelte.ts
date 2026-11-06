@@ -43,6 +43,8 @@ export interface AppContext {
   reading: boolean;
   /** Une action peut viser au moins une conversation. */
   hasTargets: boolean;
+  /** Nombre de conversations cochées. */
+  marked: number;
   /** La dernière action peut être annulée. */
   canUndo: boolean;
   /** La recherche est affichée à la place de la liste. */
@@ -83,6 +85,7 @@ class AppState {
       // Liste des résultats sans conversation ouverte : rien à viser (la
       // liste des conversations est masquée).
       hasTargets: search.active && mail.opened === null ? false : mail.targets().length > 0,
+      marked: mail.marked.length,
       canUndo: mail.lastAction !== null,
       searching: search.active,
       results: search.hits.length,
@@ -417,6 +420,14 @@ export function registerAppCommands(): () => void {
       keywords: words(m.cmd_toggle_mark_keywords()),
       when: (ctx) => ctx.conversations > 0 && !ctx.reading,
       run: () => mail.toggleMark(),
+    }),
+    registry.register({
+      id: "selection.clear",
+      title: m.cmd_clear_selection(),
+      group: m.group_actions(),
+      keywords: words(m.cmd_clear_selection_keywords()),
+      when: (ctx) => ctx.marked > 0,
+      run: () => mail.clearMarks(),
     }),
     registry.register({
       id: "action.undo",

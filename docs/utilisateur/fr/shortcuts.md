@@ -53,6 +53,7 @@ passent d'un résultat à l'autre et `Échap` ferme la recherche.
 | Marquer comme non lu | `Maj+U` |
 | Déplacer vers… | `V` |
 | Sélectionner la conversation | `X` |
+| Tout désélectionner | palette |
 | Annuler la dernière action | `Z` |
 
 Les actions visent la conversation ouverte, celle choisie dans la liste, ou

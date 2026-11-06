@@ -359,5 +359,11 @@
   "tooltip_shortcut": "{label} — {keys}",
   "action_more": "More…",
   "action_follow": "Flag",
-  "action_unfollow": "Unflag"
+  "action_unfollow": "Unflag",
+  "list_select_row": "Select “{subject}”",
+  "list_selection": "Selection",
+  "list_bulk_actions": "Selection actions",
+  "cmd_clear_selection": "Clear selection",
+  "cmd_clear_selection_keywords": "uncheck deselect none",
+  "search_button": "Search"
 }

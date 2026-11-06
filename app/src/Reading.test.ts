@@ -391,4 +391,59 @@ describe("lecture", () => {
     expect(await screen.findByRole("dialog", { name: "Répondre" })).toBeInTheDocument();
     expect(api.prepareCompose).toHaveBeenCalledWith(1, "reply", 10, expect.any(String));
   });
+
+  it("liste : cases à cocher, barre d'actions groupées et actions au survol", async () => {
+    render(App);
+    const list = await screen.findByRole("listbox", { name: "Conversations" });
+    await within(list).findByText("Sujet 1");
+    const row = (n: number) =>
+      within(list).getByText(`Sujet ${n}`).closest("[role=option]") as HTMLElement;
+
+    // Survol : archiver, supprimer, lu / non lu (rien d'autre).
+    const quick = within(row(2)).getByRole("toolbar", { hidden: true });
+    expect(
+      within(quick)
+        .getAllByRole("button", { hidden: true })
+        .map((b) => b.getAttribute("aria-label")),
+    ).toEqual(["Archiver", "Supprimer", "Marquer comme non lu"]);
+    expect(within(quick).getByRole("button", { name: "Archiver", hidden: true })).toHaveAttribute(
+      "title",
+      "Archiver — E",
+    );
+
+    // Cocher deux lignes n'ouvre aucune conversation.
+    expect(screen.queryByRole("toolbar", { name: "Actions sur la sélection" })).toBeNull();
+    await fireEvent.click(
+      within(row(1)).getByRole("checkbox", { name: "Sélectionner « Sujet 1 »" }),
+    );
+    await fireEvent.click(
+      within(row(3)).getByRole("checkbox", { name: "Sélectionner « Sujet 3 »" }),
+    );
+    expect(screen.queryByRole("article", { name: "Conversation" })).toBeNull();
+    expect(within(row(1)).getByRole("checkbox")).toBeChecked();
+    expect(within(row(2)).getByRole("checkbox")).not.toBeChecked();
+
+    // Barre groupée : nombre de sélectionnées, actions libellées.
+    const bulk = await screen.findByRole("region", { name: "Sélection" });
+    expect(bulk).toHaveTextContent("2 sélectionnée(s)");
+    const bar = within(bulk).getByRole("toolbar", { name: "Actions sur la sélection" });
+    expect(within(bar).getByRole("button", { name: "Marquer comme lu" })).toHaveAttribute(
+      "title",
+      "Marquer comme lu — Maj+I",
+    );
+    await fireEvent.click(within(bar).getByRole("button", { name: "Archiver" }));
+    await waitFor(() =>
+      expect(api.performAction).toHaveBeenLastCalledWith([1, 3], expect.anything(), {
+        kind: "archive",
+      }),
+    );
+    await waitFor(() => expect(screen.queryByRole("region", { name: "Sélection" })).toBeNull());
+
+    // Tout désélectionner.
+    await fireEvent.click(within(row(2)).getByRole("checkbox"));
+    const again = await screen.findByRole("region", { name: "Sélection" });
+    await fireEvent.click(within(again).getByRole("button", { name: "Tout désélectionner" }));
+    expect(within(row(2)).getByRole("checkbox")).not.toBeChecked();
+    expect(screen.queryByRole("region", { name: "Sélection" })).toBeNull();
+  });
 });

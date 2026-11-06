@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fitByPriority, readerActions, rowActions } from "./visible-actions";
+import { bulkActions, fitByPriority, readerActions, rowActions } from "./visible-actions";
 
 const ids = (actions: { command: string }[]): string[] => actions.map((a) => a.command);
 
@@ -49,6 +49,18 @@ describe("actions visibles", () => {
       "action.mark-read",
     ]);
     expect(ids(rowActions({ unread: 0, flagged: false }))[2]).toBe("action.mark-unread");
+  });
+
+  it("barre groupée : archiver, supprimer, lu, non lu, déplacer ; suivi dans « Plus… »", () => {
+    const { primary, more } = bulkActions();
+    expect(ids(primary)).toEqual([
+      "action.archive",
+      "action.delete",
+      "action.mark-read",
+      "action.mark-unread",
+      "action.move",
+    ]);
+    expect(ids(more)).toEqual(["action.flag"]);
   });
 
   it("le reste des boutons primaires a une priorité : répondre d'abord", () => {

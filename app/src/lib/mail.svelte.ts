@@ -250,11 +250,22 @@ export class MailState {
 
   /** Coche ou décoche la conversation sélectionnée. */
   toggleMark(): void {
-    const id = this.selected?.id;
+    this.toggleMarkAt(this.selectedIndex);
+  }
+
+  /** Coche ou décoche une ligne (case à cocher), sans changer la
+   * sélection. */
+  toggleMarkAt(index: number): void {
+    const id = this.conversations[index]?.id;
     if (id === undefined) return;
     this.marked = this.marked.includes(id)
       ? this.marked.filter((x) => x !== id)
       : [...this.marked, id];
+  }
+
+  /** Décoche tout. */
+  clearMarks(): void {
+    this.marked = [];
   }
 
   /** Rappel après chaque action (rafraîchir une recherche affichée). */

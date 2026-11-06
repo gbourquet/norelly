@@ -52,6 +52,7 @@ closes the search.
 | Mark as unread | `Shift+U` |
 | Move to… | `V` |
 | Select conversation | `X` |
+| Clear selection | palette |
 | Undo last action | `Z` |
 
 Actions apply to the open conversation, the one chosen in the list, or all

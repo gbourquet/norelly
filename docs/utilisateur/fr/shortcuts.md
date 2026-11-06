@@ -15,7 +15,9 @@ Les raccourcis à une seule touche ne fonctionnent pas pendant que vous
 écrivez dans un champ (sinon taper un « r » dans un message lancerait une
 réponse). Appuyez d'abord sur **Échap** pour sortir du champ.
 
-Dans Norelly, la touche `?` affiche ce tableau à tout moment.
+Dans Norelly, la touche `?` ou le bouton **?** en haut à gauche affiche ce
+tableau à tout moment. Chaque bouton montre aussi sa touche quand vous
+laissez la souris dessus un instant.
 
 ![L'aide des raccourcis clavier affichée par Norelly](captures/shortcuts.png)
 

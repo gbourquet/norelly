@@ -24,7 +24,7 @@ If the Norelly window is hidden behind another one, a system
 
 ## I don't want people near me to read my notifications
 
-In the **Settings** (**Ctrl** + **,**), tick **Hide sender and subject in
+In the **Settings** (at the bottom of the left panel, or **Ctrl** + **,**), tick **Hide sender and subject in
 notifications**: the notification will only say that a message has arrived.
 You can also untick **Notify about new messages**.
 

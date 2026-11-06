@@ -9,7 +9,8 @@ connaissance de cause de la recherche de mises à jour.
 
 ## Comportement attendu
 
-Dialogue **Paramètres** (`Ctrl+,`) :
+Dialogue **Paramètres**, ouvert par l'entrée « Paramètres » toujours
+visible en bas du panneau de navigation (ou `Ctrl+,`) :
 
 | Réglage | Valeurs | Effet |
 |---|---|---|

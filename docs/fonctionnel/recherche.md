@@ -9,8 +9,8 @@ hors ligne, avec quelques filtres simples.
 
 ## Comportement attendu
 
-- `/` ou la loupe de l'en-tête de la liste remplace la liste par le panneau
-  de recherche ; la recherche se fait **pendant la frappe**.
+- Le bouton **Rechercher** de l'en-tête de la liste (ou `/`) remplace la
+  liste par le panneau de recherche ; la recherche se fait **pendant la frappe**.
 - Résultats triés par pertinence (sinon par date), avec le sujet,
   l'expéditeur et un extrait où les termes trouvés sont **surlignés**.
 - `j`/`k` parcourent les résultats ; Entrée ouvre la conversation **dans le

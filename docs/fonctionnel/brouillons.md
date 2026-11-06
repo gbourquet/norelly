@@ -13,7 +13,7 @@ et reprendre ceux commencés sur un autre logiciel de messagerie.
   frappe** ; une copie est déposée sur le serveur, dans le dossier
   « Brouillons ».
 - Fermer la fenêtre de rédaction (Échap, croix) garde le brouillon.
-- « Brouillons… » (palette) liste les brouillons du compte sélectionné :
+- « Brouillons… » (menu « ⋯ » du compte, ou palette) liste les brouillons du compte sélectionné :
   - les **brouillons écrits dans Norelly** (sujet, destinataires, date) ;
   - sous « Dans le dossier Brouillons du serveur », les brouillons écrits
     avec **un autre logiciel** (sans les copies de ceux de Norelly).

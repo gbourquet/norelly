@@ -16,7 +16,7 @@ chez les destinataires, et pouvoir programmer un envoi.
   chez Gmail, qui le fait lui-même).
 - Hors ligne, le message attend et part au retour du réseau.
 - En cas d'échec définitif, un bandeau le signale une fois ; la **boîte
-  d'envoi** (palette) montre chaque message et son état, avec **Réessayer**
+  d'envoi** (menu « ⋯ » du compte, ou palette) montre chaque message et son état, avec **Réessayer**
   et **Annuler l'envoi**.
 - **Envoyer plus tard** : date et heure choisies ; le message reste dans la
   boîte d'envoi jusque-là, avec **Modifier** (retour dans la fenêtre de

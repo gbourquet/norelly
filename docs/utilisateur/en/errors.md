@@ -52,8 +52,8 @@ Meanwhile:
   by itself later.
 
 If the icon stays while the Internet works (you can open a website in your
-browser), ask for a synchronisation: **Ctrl** + **K**, type "synchronise",
-then **Enter**. If that is not enough, your provider may have a temporary
+browser), ask for a synchronisation: click the **⋯** button next to the
+account's address, then **Synchronise**. If that is not enough, your provider may have a temporary
 problem: try again later.
 
 ## Credentials rejected (password refused)
@@ -89,7 +89,8 @@ single wrong letter is enough to prevent the connection.
 **What you see**: at the bottom of the window, "Could not send "message
 subject" (reason)".
 
-**What to do**: open the **outbox** (**Ctrl** + **K**, "outbox"). The
+**What to do**: open the **outbox** (**⋯** button next to the account's
+address, then **Outbox**). The
 message is there:
 
 - **Retry** sends it again;
@@ -106,7 +107,7 @@ recipient, before clicking **Retry**, so as not to send it twice.
 |---|---|
 | "No keyring" | Your Linux has no active password safe. Install or start GNOME Keyring or KWallet (ask for help if needed). Otherwise, Norelly offers to store the password in an **unencrypted** file: only accept if nobody else uses your session. |
 | "Unencrypted connection" | The server offers no protected connection. Only click **Allow** for a server you know, on your own network; otherwise click **Edit settings** and choose **TLS**. |
-| "This account has no archive folder" | Choose once and for all the folder to archive into: **Ctrl** + **K**, "archive folder". |
+| "This account has no archive folder" | Choose once and for all the folder to archive into: **⋯** button next to the account's address, then **Choose archive folder…**. |
 | "Attachments exceed 25 MiB." | Remove some files, or send them in several messages. For very large files, use a file-sharing service. |
 | "Too late to undo" | The action has already been done on the server. Do the opposite action (for example, move the message from the Trash back to the Inbox). |
 | "Executable file type" | Norelly refuses to open a program received by email directly. Use **Save…** if you really were expecting it. |

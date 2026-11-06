@@ -56,8 +56,8 @@ en plus espacé, et reprend dès que la connexion revient. En attendant :
   d'envoi et part tout seul plus tard.
 
 Si l'icône reste affichée alors qu'Internet fonctionne (vous pouvez ouvrir
-un site dans votre navigateur), demandez une synchronisation :
-**Ctrl** + **K**, tapez « synchroniser », puis **Entrée**. Si cela ne suffit
+un site dans votre navigateur), demandez une synchronisation : cliquez sur
+le bouton **⋯** à côté de l'adresse du compte, puis sur **Synchroniser**. Si cela ne suffit
 pas, votre fournisseur a peut-être un problème passager : réessayez plus
 tard.
 
@@ -100,8 +100,8 @@ suffit à empêcher la connexion.
 **Ce que vous voyez** : en bas de la fenêtre, « Envoi impossible : « sujet
 du message » (raison) ».
 
-**Quoi faire** : ouvrez la **boîte d'envoi** (**Ctrl** + **K**, « boîte
-d'envoi »). Vous y retrouvez le message :
+**Quoi faire** : ouvrez la **boîte d'envoi** (bouton **⋯** à côté de
+l'adresse du compte, puis **Boîte d'envoi**). Vous y retrouvez le message :
 
 - **Réessayer** le renvoie ;
 - **Annuler l'envoi** le retire de la file : il ne partira pas.
@@ -118,7 +118,7 @@ fournisseur, ou demandez au destinataire, avant de cliquer sur
 |---|---|
 | « Aucun trousseau » | Votre Linux n'a pas de coffre-fort à mots de passe actif. Installez ou démarrez GNOME Keyring ou KWallet (demandez de l'aide si besoin). Sinon, Norelly propose d'enregistrer le mot de passe dans un fichier **non chiffré** : acceptez seulement si personne d'autre n'utilise votre session. |
 | « Connexion non chiffrée » | Le serveur ne propose pas de connexion protégée. Ne cliquez sur **Autoriser** que pour un serveur que vous connaissez, sur votre propre réseau ; sinon, cliquez sur **Modifier les paramètres** et choisissez **TLS**. |
-| « Aucun dossier d'archives sur ce compte » | Choisissez une fois pour toutes le dossier où archiver : **Ctrl** + **K**, « dossier d'archives ». |
+| « Aucun dossier d'archives sur ce compte » | Choisissez une fois pour toutes le dossier où archiver : bouton **⋯** à côté de l'adresse du compte, puis **Choisir le dossier d'archives…**. |
 | « Les pièces jointes dépassent 25 Mio. » | Retirez des fichiers, ou envoyez-les en plusieurs messages. Pour de très gros fichiers, utilisez un service de partage de fichiers. |
 | « Trop tard pour annuler » | L'action a déjà été faite sur le serveur. Faites l'action inverse (par exemple, déplacez le message de la Corbeille vers la Boîte de réception). |
 | « Type de fichier exécutable » | Norelly refuse d'ouvrir directement un programme reçu par courriel. Utilisez **Enregistrer…** si vous l'attendiez vraiment. |

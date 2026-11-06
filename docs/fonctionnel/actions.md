@@ -10,12 +10,29 @@ rattraper.
 
 ## Comportement attendu
 
-- Les actions portent sur la **cible** : les conversations cochées (`x`),
-  sinon la conversation ouverte, sinon celle pointée dans la liste. Une
+- Les actions portent sur la **cible** : les conversations cochées (case à
+  cocher de la ligne, ou `x`), sinon la conversation ouverte, sinon celle
+  pointée dans la liste. Une
   action sur une conversation vise tous ses messages du dossier affiché.
-- Accès : raccourcis, palette, barre d'outils de la vue de lecture, boutons
-  au survol d'une ligne, menu contextuel (clic droit) ; tous font la même
-  chose.
+- Accès, qui font tous la même chose :
+  - **barre d'actions** du message ouvert : Répondre, Répondre à tous,
+    Transférer, Archiver, Supprimer, avec icône et libellé ; les autres
+    actions (lu / non lu, suivre, déplacer, texte brut, conversation
+    suivante ou précédente) dans **Plus…** ;
+  - **boutons au survol** d'une ligne : archiver, supprimer, lu / non lu ;
+  - **menu contextuel** (clic droit sur une ligne) : ouvrir, puis les
+    actions de la barre, raccourci à droite ;
+  - **barre de sélection**, au-dessus de la liste dès qu'une conversation
+    est cochée : nombre de conversations cochées, **Tout désélectionner**
+    et les actions groupées ;
+  - raccourcis et palette.
+- Quand la place manque, les boutons les moins utilisés passent dans
+  **Plus…** plutôt que de disparaître (Répondre, Archiver et Supprimer
+  restent visibles le plus longtemps).
+- Cocher une case n'ouvre pas la conversation.
+- Les libellés qui basculent (« Suivre » ou « Ne plus suivre », « Marquer
+  comme lu » ou « non lu ») suivent l'état de toutes les conversations
+  visées.
 - **Effet immédiat** : le résultat est visible tout de suite (état changé,
   conversation retirée de la liste, message déjà présent dans le dossier de
   destination), puis l'action est envoyée au serveur.
@@ -74,6 +91,9 @@ rattraper.
 | Corbeille, archives absentes | Aucun dossier Corbeille sur ce compte., Aucun dossier d'archives sur ce compte : choisissez-en un … |
 | Trop d'actions en attente | Trop d'actions attendent le serveur sur ce compte : réessayez une fois reconnecté. |
 | Dossier d'archives choisi | Dossier d'archives : « {folder} ». |
+| Barre de sélection | {count} sélectionnée(s), Tout désélectionner, Sélection, Actions sur la sélection |
+| Case d'une ligne | Sélectionner « {subject} » |
+| Menu des actions secondaires | Plus…, Suivre, Ne plus suivre |
 
 ## Raccourcis
 

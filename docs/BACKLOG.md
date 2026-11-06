@@ -30,24 +30,28 @@ quand le mainteneur l'abandonne (avec la raison).
 
 ## Interface et fonctionnalités
 
-- **Boutons pour écrire et répondre** : aucun bouton pour écrire, répondre,
-  répondre à tous ou transférer, seulement `c`, `r`, `a`, `f` et la palette ;
-  bloquant pour un public non technique. Ajouter « Nouveau message » en tête
-  de liste et « Répondre », « Répondre à tous », « Transférer » dans la barre
-  de lecture (commandes existantes du registre). (`app/src/lib/visible-actions.ts`,
-  `ConversationList.svelte`, `ConversationView.svelte`)
 - **Ouvrir un message ne le marque pas comme lu** : corps lus en
   `BODY.PEEK`, aucun marquage automatique ; la ligne reste en gras et le
   compteur ne baisse pas. Marquer lu à l'ouverture (éventuellement après un
   délai réglable), par une action du domaine. (`app/src/lib/mail.svelte.ts`,
   `app/src-tauri/src/reading.rs`)
-- **Pied de l'éditeur qui déborde en français** : le bouton « Envoyer » sort
-  du cadre (capture `docs/utilisateur/fr/captures/compose.png`). Pied sur
-  deux lignes, ou envoi différé replié. (`ComposeDialog.svelte`)
 - **Noms de dossiers non traduits** : « Drafts », « Sent », « Trash »
   viennent du serveur alors que la boîte de réception est traduite. Libellé
   traduit d'après le rôle SPECIAL-USE, nom du serveur en info-bulle.
   (`Sidebar.svelte`, `folderLabel`)
+- **Étiquettes** : le domaine a un type `Keyword` (mots-clés IMAP), mais
+  aucun cas d'usage, commande IPC ni interface ne permet d'étiqueter un
+  message. À faire comme une fonctionnalité complète (domaine, IMAP
+  `STORE` des mots-clés, port, IPC), puis l'ajouter au menu « Plus… » et
+  au menu contextuel. (`crates/domain/src/mailbox.rs`, `visible-actions.ts`)
+- **Imprimer un message** : n'existe pas. À prévoir dans « Plus… » ;
+  impression du rendu assaini, depuis Rust ou la webview, à étudier avec la
+  revue de sécurité (rendu HTML). (`visible-actions.ts`)
+- **« Répondre à tous » replié dans « Plus… » à 1 280 px** : les cinq
+  boutons libellés ne tiennent pas dans le volet de lecture avec les
+  largeurs par défaut des panneaux. Pistes : volet de liste plus étroit par
+  défaut, ou barre sur deux rangées au-delà d'une certaine largeur.
+  (`ActionBar.svelte`, `--pane-list`)
 - **Libellé `add_password_hint` faux** (« … jamais dans les fichiers de
   Norelly ») si l'utilisateur accepte le fichier de secrets non chiffré.
   Reformuler, ou n'afficher qu'avec un trousseau. (`app/messages/{fr,en}.json`,

@@ -26,7 +26,7 @@ l'écran).
 
 ## Je ne veux pas que mes voisins de bureau lisent mes notifications
 
-Dans les **Paramètres** (**Ctrl** + **,**), cochez **Masquer l'expéditeur
+Dans les **Paramètres** (en bas du panneau de gauche, ou **Ctrl** + **,**), cochez **Masquer l'expéditeur
 et le sujet dans les notifications** : la notification dira seulement
 qu'un message est arrivé. Vous pouvez aussi décocher **Notifier les
 nouveaux messages**.

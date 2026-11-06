@@ -14,7 +14,9 @@ Single-key shortcuts do not work while you are typing in a field (otherwise
 typing an "r" in a message would start a reply). Press **Esc** first to
 leave the field.
 
-In Norelly, the `?` key shows this table at any time.
+In Norelly, the `?` key or the **?** button at the top left shows this table
+at any time. Each button also shows its key when you rest the mouse on it
+for a moment.
 
 ![The keyboard shortcuts help shown by Norelly](captures/shortcuts.png)
 

@@ -1284,6 +1284,10 @@ async fn create_mailbox_encodes_the_name_and_reports_refusal() -> TestResult {
             .send("{tag} OK CREATE termine\r\n")
             .expect("CREATE Projets")
             .send("{tag} NO [ALREADYEXISTS] existe deja\r\n")
+            // Guillemet, barre oblique inverse, espace, accolade : chaîne
+            // entre guillemets échappée, jamais d'argument supplémentaire.
+            .expect("CREATE \"a\\\" b\\\\c{d}\"")
+            .send("{tag} OK CREATE termine\r\n")
             .expect("EXPUNGE")
             .send("{tag} OK EXPUNGE termine\r\n"),
     );
@@ -1306,6 +1310,9 @@ async fn create_mailbox_encodes_the_name_and_reports_refusal() -> TestResult {
         matches!(refused, Err(ConnectionError::Rejected(_))),
         "{refused:?}"
     );
+    session
+        .create_mailbox(&MailboxName::parse("a\" b\\c{d}")?)
+        .await?;
     assert_eq!(session.expunge_all().await?, 0, "session utilisable");
     session.logout().await?;
     server.finish().await.result?;

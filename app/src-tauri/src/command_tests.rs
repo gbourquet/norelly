@@ -661,6 +661,7 @@ async fn only_drafts_folder_messages_can_be_resumed() {
 #[tokio::test]
 async fn folder_creation_revalidates_its_inputs() {
     use crate::folders::create_folder;
+    use norelly_domain::ports::{AccountRepository, MailStore};
 
     let t = test_app().await;
     let account = id32(t.account.get());
@@ -672,9 +673,43 @@ async fn folder_creation_revalidates_its_inputs() {
         code(create_folder(t.state(), account, "Factures".into(), Some(0)).await),
         (ErrorCodeDto::InvalidInput, Some(FieldDto::Mailbox))
     );
-    // Parent d'un autre compte (ou inconnu) : refusé avant tout envoi.
+    // Parent inconnu : refusé avant tout envoi.
     assert_eq!(
         code(create_folder(t.state(), account, "Factures".into(), Some(999_999)).await),
+        (ErrorCodeDto::InvalidInput, Some(FieldDto::Mailbox))
+    );
+    // Parent qui existe, mais dans un autre compte : refusé aussi.
+    let other = t
+        .state()
+        .accounts
+        .insert(&norelly_test_support::contracts::sample_account(
+            "bob@example.com",
+            false,
+        ))
+        .await
+        .unwrap_or_else(|e| panic!("{e}"))
+        .id();
+    let others = t
+        .state()
+        .mail
+        .store
+        .replace_mailboxes(
+            other,
+            &[norelly_domain::mailbox::RemoteMailbox {
+                name: norelly_domain::mailbox::MailboxName::inbox(),
+                delimiter: Some('/'),
+                role: norelly_domain::mailbox::MailboxRole::Inbox,
+                selectable: true,
+            }],
+        )
+        .await
+        .unwrap_or_else(|e| panic!("{e}"));
+    let foreign = others
+        .first()
+        .map(|m| id32(m.id.get()))
+        .unwrap_or_else(|| panic!("dossier de bob"));
+    assert_eq!(
+        code(create_folder(t.state(), account, "Factures".into(), Some(foreign)).await),
         (ErrorCodeDto::InvalidInput, Some(FieldDto::Mailbox))
     );
     // Nom démesuré : refusé sans passer par le serveur.

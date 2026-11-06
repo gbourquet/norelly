@@ -366,6 +366,11 @@ describe("lecture", () => {
       expect(button).toHaveAttribute("title", tooltip);
     }
 
+    expect(within(reader).getByRole("button", { name: "Retour à la liste" })).toHaveAttribute(
+      "title",
+      "Retour à la liste — Échap",
+    );
+
     // Actions secondaires dans « Plus… », raccourci affiché à droite.
     const more = within(toolbar).getByRole("button", { name: "Plus…" });
     expect(more).toHaveAttribute("aria-haspopup", "menu");

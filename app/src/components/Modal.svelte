@@ -1,6 +1,8 @@
 <script lang="ts">
   // Fenêtre modale accessible (bits-ui Dialog) : focus piégé, Échap, titre.
   import { Dialog } from "bits-ui";
+  import XIcon from "@lucide/svelte/icons/x";
+  import { m } from "../lib/paraglide/messages.js";
   import type { Snippet } from "svelte";
 
   interface Props {
@@ -44,6 +46,17 @@
         <Dialog.Description class="modal-description">{description}</Dialog.Description>
       {/if}
       {@render children()}
+      <!-- Fermeture à la souris (Échap et clic à l'extérieur aussi) : en
+           haut à droite, mais dernier dans l'ordre de tabulation pour que
+           le premier champ reçoive le focus à l'ouverture. -->
+      <Dialog.Close
+        class="btn btn-ghost modal-close"
+        disabled={locked}
+        aria-label={m.common_close()}
+        title={m.common_close()}
+      >
+        <XIcon size={16} aria-hidden="true" />
+      </Dialog.Close>
     </Dialog.Content>
   </Dialog.Portal>
 </Dialog.Root>
@@ -72,8 +85,17 @@
     box-shadow: var(--shadow-dialog);
   }
 
+  :global(.modal-close) {
+    position: absolute;
+    top: var(--space-4);
+    right: var(--space-4);
+    padding: var(--space-1);
+    min-height: 0;
+  }
+
   :global(.modal-title) {
     margin: 0 0 var(--space-2);
+    padding-right: var(--space-8);
     font-size: var(--font-size-lg);
     font-weight: var(--font-weight-bold);
   }

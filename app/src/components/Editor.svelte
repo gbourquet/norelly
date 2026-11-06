@@ -13,6 +13,7 @@
   import ListIcon from "@lucide/svelte/icons/list";
   import ListOrderedIcon from "@lucide/svelte/icons/list-ordered";
   import QuoteIcon from "@lucide/svelte/icons/text-quote";
+  import { formatTooltip } from "../lib/fixed-shortcuts";
   import { m } from "../lib/paraglide/messages.js";
 
   interface Props {
@@ -90,24 +91,28 @@
     <button
       type="button"
       aria-label={m.fmt_bold()}
+      title={formatTooltip("bold")}
       aria-pressed={active("bold")}
       onclick={() => editor?.chain().focus().toggleBold().run()}><BoldIcon size={16} /></button
     >
     <button
       type="button"
       aria-label={m.fmt_italic()}
+      title={formatTooltip("italic")}
       aria-pressed={active("italic")}
       onclick={() => editor?.chain().focus().toggleItalic().run()}><ItalicIcon size={16} /></button
     >
     <button
       type="button"
       aria-label={m.fmt_strike()}
+      title={formatTooltip("strike")}
       aria-pressed={active("strike")}
       onclick={() => editor?.chain().focus().toggleStrike().run()}><StrikeIcon size={16} /></button
     >
     <button
       type="button"
       aria-label={m.fmt_link()}
+      title={formatTooltip("link")}
       aria-pressed={active("link")}
       onclick={() => {
         linkUrl = (editor?.getAttributes("link").href as string | undefined) ?? "";
@@ -117,6 +122,7 @@
     <button
       type="button"
       aria-label={m.fmt_bullet()}
+      title={formatTooltip("bullet")}
       aria-pressed={active("bulletList")}
       onclick={() => editor?.chain().focus().toggleBulletList().run()}
       ><ListIcon size={16} /></button
@@ -124,6 +130,7 @@
     <button
       type="button"
       aria-label={m.fmt_ordered()}
+      title={formatTooltip("ordered")}
       aria-pressed={active("orderedList")}
       onclick={() => editor?.chain().focus().toggleOrderedList().run()}
       ><ListOrderedIcon size={16} /></button
@@ -131,6 +138,7 @@
     <button
       type="button"
       aria-label={m.fmt_quote()}
+      title={formatTooltip("quote")}
       aria-pressed={active("blockquote")}
       onclick={() => editor?.chain().focus().toggleBlockquote().run()}
       ><QuoteIcon size={16} /></button

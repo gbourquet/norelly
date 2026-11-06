@@ -61,6 +61,7 @@
   }
 
   const write = $derived(describe("compose.new"));
+  const help = $derived(describe("help.shortcuts"));
   const settings = $derived(describe("settings.open", m.sidebar_settings()));
 
   /** Menu d'un compte : actions qui visent le compte sélectionné. */
@@ -101,6 +102,15 @@
 <div class="sidebar">
   <header>
     <span class="brand">{m.app_name()}</span>
+    <button
+      class="btn help"
+      type="button"
+      aria-label={help?.label}
+      title={help?.tooltip}
+      onclick={() => void registry.execute("help.shortcuts", context)}
+    >
+      <span aria-hidden="true">?</span>
+    </button>
   </header>
   <button
     class="btn btn-primary write"
@@ -243,6 +253,15 @@
     justify-content: space-between;
     align-items: center;
     padding: 0 var(--space-2);
+  }
+
+  .help {
+    justify-content: center;
+    min-width: var(--space-8);
+    min-height: var(--space-8);
+    padding: 0;
+    border-radius: 50%;
+    font-weight: var(--font-weight-bold);
   }
 
   .brand {

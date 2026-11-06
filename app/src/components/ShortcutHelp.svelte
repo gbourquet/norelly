@@ -9,6 +9,7 @@
     type RegisteredCommand,
   } from "../lib/commands/registry";
   import type { Shortcut } from "../lib/commands/shortcut";
+  import { composeWindowShortcuts } from "../lib/fixed-shortcuts";
 
   interface Props {
     open: boolean;
@@ -39,6 +40,17 @@
       {/each}
     </dl>
   {/each}
+  <h3>{m.help_group_compose_window()}</h3>
+  <dl>
+    {#each composeWindowShortcuts() as shortcut (shortcut.label)}
+      <div class="row">
+        <dt>{shortcut.label}</dt>
+        <dd>
+          {#each shortcut.keys as k (k)}<kbd>{k}</kbd>{/each}
+        </dd>
+      </div>
+    {/each}
+  </dl>
   <p class="hint">
     {m.help_palette_hint()} <kbd>Ctrl</kbd> <kbd>K</kbd>
   </p>

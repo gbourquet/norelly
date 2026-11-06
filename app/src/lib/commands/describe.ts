@@ -14,6 +14,11 @@ export interface CommandDescription {
   enabled: boolean;
 }
 
+/** Infobulle « Libellé — Touches » ; le libellé seul sans raccourci. */
+export function tooltip(label: string, keys: string): string {
+  return keys === "" ? label : m.tooltip_shortcut({ label, keys });
+}
+
 /** `label` remplace le titre de la commande (bascule selon l'état). */
 export function describeCommand<C>(
   registry: CommandRegistry<C>,
@@ -28,7 +33,7 @@ export function describeCommand<C>(
   return {
     label: text,
     keys,
-    tooltip: keys === "" ? text : m.tooltip_shortcut({ label: text, keys }),
+    tooltip: tooltip(text, keys),
     enabled: registry.isEnabled(command, ctx),
   };
 }

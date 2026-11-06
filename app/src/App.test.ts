@@ -211,6 +211,9 @@ describe("App", () => {
     const dialog = await screen.findByRole("dialog", { name: "Nouveau message" });
     expect(api.prepareCompose).toHaveBeenCalledWith(7, "new", null, "");
     const to = within(dialog).getByRole("combobox", { name: "À" });
+    // Bouton Fermer en dernier dans l'ordre de tabulation : le premier
+    // champ reçoit le focus à l'ouverture.
+    expect(within(dialog).getAllByRole("button").at(-1)).toHaveAccessibleName("Fermer");
     await fireEvent.input(to, { target: { value: "bob@example.com" } });
     await fireEvent.keyDown(to, { key: "Enter" });
     expect(within(dialog).getByText("bob@example.com")).toBeInTheDocument();
@@ -566,5 +569,34 @@ describe("App", () => {
     expect(settingsButton).toHaveAttribute("title", "Paramètres — Ctrl+,");
     await fireEvent.click(settingsButton);
     expect(await screen.findByRole("dialog", { name: "Paramètres" })).toBeInTheDocument();
+  });
+
+  it("bouton « ? » visible : aide des raccourcis par catégorie, fermée par un bouton", async () => {
+    render(App);
+    const nav = await screen.findByRole("navigation", { name: "Comptes et dossiers" });
+    const help = within(nav).getByRole("button", { name: "Aide des raccourcis clavier" });
+    expect(help).toHaveTextContent("?");
+    expect(help).toHaveAttribute("title", "Aide des raccourcis clavier — ?");
+    await fireEvent.click(help);
+    const dialog = await screen.findByRole("dialog", { name: "Raccourcis clavier" });
+    const groups = within(dialog)
+      .getAllByRole("heading", { level: 3 })
+      .map((h) => h.textContent);
+    expect(groups).toEqual(
+      expect.arrayContaining([
+        "Général",
+        "Lecture",
+        "Actions",
+        "Rédaction",
+        "Dans la fenêtre de rédaction",
+      ]),
+    );
+    expect(within(dialog).getByText("Envoyer le message")).toBeInTheDocument();
+
+    // Fermeture à la souris.
+    await fireEvent.click(within(dialog).getByRole("button", { name: "Fermer" }));
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "Raccourcis clavier" })).toBeNull(),
+    );
   });
 });

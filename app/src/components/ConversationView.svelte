@@ -16,11 +16,13 @@
     api: Api;
     onBack: () => void;
     onKey: (shortcut: Shortcut) => void;
+    /** Infobulle du bouton retour (avec son raccourci). */
+    backTitle: string;
     /** Barre d'actions (sous le titre). */
     toolbar?: Snippet;
   }
 
-  let { conversation, messages, api, onBack, onKey, toolbar }: Props = $props();
+  let { conversation, messages, api, onBack, onKey, backTitle, toolbar }: Props = $props();
 
   let expanded = $state<number[]>([]);
 
@@ -43,7 +45,7 @@
     <button
       class="btn btn-ghost icon"
       type="button"
-      title={m.conversation_back_title()}
+      title={backTitle}
       aria-label={m.conversation_back()}
       onclick={onBack}
     >

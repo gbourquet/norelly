@@ -23,6 +23,7 @@
   import UpdateBanner from "./components/UpdateBanner.svelte";
   import { notificationText } from "./lib/notifications";
   import { readerActions } from "./lib/visible-actions";
+  import { describeCommand } from "./lib/commands/describe";
   import {
     app,
     compose,
@@ -196,6 +197,12 @@
         messages={mail.messages}
         {api}
         onBack={() => mail.back()}
+        backTitle={describeCommand(
+          registry,
+          "conversation.back",
+          app.context(),
+          m.conversation_back(),
+        )?.tooltip ?? m.conversation_back()}
         onKey={onFrameKey}
       >
         {#snippet toolbar()}

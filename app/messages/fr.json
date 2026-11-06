@@ -32,7 +32,6 @@
   "list_flagged": "Suivi",
   "conversation_label": "Conversation",
   "conversation_back": "Retour à la liste",
-  "conversation_back_title": "Retour à la liste (Échap)",
   "conversation_to": "À : {recipients}",
   "message_unreadable": "Message illisible : {error}",
   "message_link_failed": "Lien non ouvert : {error}",
@@ -369,5 +368,9 @@
   "sidebar_account_menu": "Actions du compte {address}",
   "sidebar_sync": "Synchroniser",
   "sidebar_remove": "Supprimer ce compte…",
-  "sidebar_settings": "Paramètres"
+  "sidebar_settings": "Paramètres",
+  "help_send": "Envoyer le message",
+  "help_close_compose": "Fermer en gardant le brouillon",
+  "help_group_compose_window": "Dans la fenêtre de rédaction",
+  "common_close": "Fermer"
 }

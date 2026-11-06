@@ -32,7 +32,6 @@
   "list_flagged": "Flagged",
   "conversation_label": "Conversation",
   "conversation_back": "Back to list",
-  "conversation_back_title": "Back to list (Esc)",
   "conversation_to": "To: {recipients}",
   "message_unreadable": "Unreadable message: {error}",
   "message_link_failed": "Link not opened: {error}",
@@ -369,5 +368,9 @@
   "sidebar_account_menu": "Actions for account {address}",
   "sidebar_sync": "Synchronise",
   "sidebar_remove": "Remove this account…",
-  "sidebar_settings": "Settings"
+  "sidebar_settings": "Settings",
+  "help_send": "Send the message",
+  "help_close_compose": "Close and keep the draft",
+  "help_group_compose_window": "In the writing window",
+  "common_close": "Close"
 }

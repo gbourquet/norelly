@@ -121,6 +121,13 @@ beforeEach(() => {
   vi.clearAllMocks();
 });
 
+/** Ouvre le menu « ⋯ » d'un compte dans la barre latérale. */
+async function openAccountMenu(address: string): Promise<HTMLElement> {
+  const button = await screen.findByRole("button", { name: `Actions du compte ${address}` });
+  await fireEvent.pointerDown(button, { button: 0, pointerType: "mouse" });
+  return screen.findByRole("menu", { name: `Actions du compte ${address}` });
+}
+
 describe("App", () => {
   it("affiche l'état vide et propose l'ajout d'un compte", async () => {
     render(App);
@@ -156,9 +163,8 @@ describe("App", () => {
     });
     render(App);
     expect(await screen.findByText("Alice")).toBeInTheDocument();
-    await fireEvent.click(
-      screen.getByRole("button", { name: "Supprimer le compte alice@example.com" }),
-    );
+    await openAccountMenu("alice@example.com");
+    await fireEvent.click(await screen.findByRole("menuitem", { name: "Supprimer ce compte…" }));
     const dialog = await screen.findByRole("dialog", { name: "Supprimer le compte ?" });
     await fireEvent.click(within(dialog).getByRole("button", { name: "Supprimer le compte" }));
     await waitFor(() => expect(api.removeAccount).toHaveBeenCalledWith(7));
@@ -174,9 +180,8 @@ describe("App", () => {
       smtp: server,
     });
     render(App);
-    await fireEvent.click(
-      await screen.findByRole("button", { name: "Supprimer le compte bob@example.org" }),
-    );
+    await openAccountMenu("bob@example.org");
+    await fireEvent.click(await screen.findByRole("menuitem", { name: "Supprimer ce compte…" }));
     const dialog = await screen.findByRole("dialog", { name: "Supprimer le compte ?" });
     await fireEvent.click(within(dialog).getByRole("button", { name: "Annuler" }));
     expect(api.removeAccount).not.toHaveBeenCalled();
@@ -517,5 +522,49 @@ describe("App", () => {
     await fireEvent.keyDown(dialog, { key: "Escape" });
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Mises à jour" })).toBeNull());
     expect(api.saveSettings).not.toHaveBeenCalled();
+  });
+
+  it("barre latérale : nouveau message, menu du compte, paramètres", async () => {
+    accounts.push(
+      { id: 7, address: "alice@example.com", display_name: "Alice", imap: server, smtp: server },
+      { id: 8, address: "bob@example.org", display_name: "Bob", imap: server, smtp: server },
+    );
+    render(App);
+    const nav = await screen.findByRole("navigation", { name: "Comptes et dossiers" });
+
+    // Nouveau message : bouton libellé en haut, raccourci dans l'infobulle.
+    const write = within(nav).getByRole("button", { name: "Nouveau message" });
+    expect(write).toHaveTextContent("Nouveau message");
+    expect(write).toHaveAttribute("title", "Nouveau message — C");
+    await waitFor(() => expect(write).toBeEnabled());
+    await fireEvent.click(write);
+    expect(await screen.findByRole("dialog", { name: "Nouveau message" })).toBeInTheDocument();
+    expect(api.prepareCompose).toHaveBeenCalledWith(7, "new", null, "");
+    app.close();
+
+    // Menu du compte : actions visibles, appliquées à ce compte.
+    const menu = await openAccountMenu("bob@example.org");
+    expect(
+      within(menu)
+        .getAllByRole("menuitem")
+        .map((i) => i.textContent?.replace(/\s+/g, " ").trim()),
+    ).toEqual([
+      "Synchroniser",
+      "Brouillons…",
+      "Boîte d'envoi",
+      "Choisir le dossier d'archives…",
+      "Supprimer ce compte…",
+    ]);
+    await fireEvent.click(within(menu).getByRole("menuitem", { name: "Synchroniser" }));
+    await waitFor(() => expect(api.syncAccount).toHaveBeenCalledWith(8));
+
+    // Paramètres et ajout de compte en bas de la barre.
+    expect(within(nav).getByRole("button", { name: "Ajouter un compte" })).toHaveTextContent(
+      "Ajouter un compte",
+    );
+    const settingsButton = within(nav).getByRole("button", { name: "Paramètres" });
+    expect(settingsButton).toHaveAttribute("title", "Paramètres — Ctrl+,");
+    await fireEvent.click(settingsButton);
+    expect(await screen.findByRole("dialog", { name: "Paramètres" })).toBeInTheDocument();
   });
 });

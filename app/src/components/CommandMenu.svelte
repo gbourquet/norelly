@@ -15,9 +15,18 @@
     label: string;
     /** Bouton d'ouverture ; reçoit les attributs du déclencheur. */
     trigger: Snippet<[{ props: Record<string, unknown> }]>;
+    /** Exécution d'une entrée ; par défaut, la commande dans `context`. */
+    run?: (id: string) => void;
+    /** Alignement du menu sur son bouton. */
+    align?: "start" | "end";
   }
 
-  let { actions, registry, context, label, trigger }: Props = $props();
+  let { actions, registry, context, label, trigger, run, align = "end" }: Props = $props();
+
+  function select(id: string): void {
+    if (run) run(id);
+    else void registry.execute(id, context);
+  }
 
   // Le registre n'est pas réactif : relecture à chaque modification.
   const watch = new RegistryWatch(() => registry);
@@ -35,7 +44,7 @@
     {/snippet}
   </DropdownMenu.Trigger>
   <DropdownMenu.Portal>
-    <DropdownMenu.Content class="menu" aria-label={label} align="end" sideOffset={4}>
+    <DropdownMenu.Content class="menu" aria-label={label} {align} sideOffset={4}>
       {#each actions as action, i (action.command)}
         {@const info = describe(action)}
         {@const Icon = action.icon}
@@ -46,7 +55,7 @@
           <DropdownMenu.Item
             class="menu-item"
             disabled={!info.enabled}
-            onSelect={() => void registry.execute(action.command, context)}
+            onSelect={() => select(action.command)}
           >
             <Icon size={16} aria-hidden="true" />
             <span class="menu-label">{info.label}</span>

@@ -206,6 +206,11 @@ kbd {
   box-shadow: var(--shadow-dialog);
 }
 
+/* Le focus d'un menu se voit sur l'entrée en surbrillance. */
+.menu:focus-visible {
+  outline: none;
+}
+
 .menu-item {
   display: flex;
   align-items: center;

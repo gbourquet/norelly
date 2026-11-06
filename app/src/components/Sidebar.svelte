@@ -1,7 +1,8 @@
-<script lang="ts">
+<script lang="ts" generics="C">
   import { m } from "../lib/paraglide/messages.js";
-  // Panneau de navigation : boîte de réception unifiée, puis comptes et
-  // leurs dossiers.
+  // Panneau de navigation : « Nouveau message », boîte de réception
+  // unifiée, comptes et leurs dossiers (chacun avec son menu d'actions),
+  // puis ajout de compte et paramètres en bas.
   import InboxIcon from "@lucide/svelte/icons/inbox";
   import FolderIcon from "@lucide/svelte/icons/folder";
   import SendIcon from "@lucide/svelte/icons/send";
@@ -12,7 +13,17 @@
   import MailIcon from "@lucide/svelte/icons/mail";
   import PlusIcon from "@lucide/svelte/icons/plus";
   import WifiOffIcon from "@lucide/svelte/icons/wifi-off";
+  import SquarePenIcon from "@lucide/svelte/icons/square-pen";
+  import SettingsIcon from "@lucide/svelte/icons/settings";
+  import RefreshIcon from "@lucide/svelte/icons/refresh-cw";
+  import OutboxIcon from "@lucide/svelte/icons/send-horizontal";
+  import EllipsisIcon from "@lucide/svelte/icons/ellipsis";
   import type { AccountDto, FolderDto, ScopeDto } from "../lib/ipc/api";
+  import type { CommandRegistry } from "../lib/commands/registry";
+  import { RegistryWatch } from "../lib/commands/watch.svelte";
+  import { describeCommand } from "../lib/commands/describe";
+  import type { VisibleAction } from "../lib/visible-actions";
+  import CommandMenu from "./CommandMenu.svelte";
 
   interface Props {
     accounts: AccountDto[];
@@ -22,10 +33,44 @@
     selectedId: number | null;
     onScope: (scope: ScopeDto, account: number | null) => void;
     onAdd: () => void;
-    onRemove: (id: number) => void;
+    registry: CommandRegistry<C>;
+    context: C;
+    /** Sélectionne un compte ; renvoie le contexte des commandes à jour. */
+    onAccount: (id: number) => C;
   }
 
-  let { accounts, folders, offline, scope, selectedId, onScope, onAdd, onRemove }: Props = $props();
+  let {
+    accounts,
+    folders,
+    offline,
+    scope,
+    selectedId,
+    onScope,
+    onAdd,
+    registry,
+    context,
+    onAccount,
+  }: Props = $props();
+
+  // Le registre n'est pas réactif : relecture à chaque modification.
+  const watch = new RegistryWatch(() => registry);
+
+  function describe(id: string, label?: string) {
+    void watch.version;
+    return describeCommand(registry, id, context, label);
+  }
+
+  const write = $derived(describe("compose.new"));
+  const settings = $derived(describe("settings.open", m.sidebar_settings()));
+
+  /** Menu d'un compte : actions qui visent le compte sélectionné. */
+  const accountActions: VisibleAction[] = [
+    { command: "account.sync", icon: RefreshIcon, label: m.sidebar_sync, section: 0 },
+    { command: "drafts.open", icon: FileIcon, section: 0 },
+    { command: "compose.outbox", icon: OutboxIcon, section: 0 },
+    { command: "account.archive-folder", icon: ArchiveIcon, section: 1 },
+    { command: "account.remove", icon: TrashIcon, label: m.sidebar_remove, section: 2 },
+  ];
 
   const ICONS = {
     inbox: InboxIcon,
@@ -56,16 +101,17 @@
 <div class="sidebar">
   <header>
     <span class="brand">{m.app_name()}</span>
-    <button
-      class="btn btn-ghost icon"
-      type="button"
-      title={m.sidebar_add_account()}
-      aria-label={m.sidebar_add_account()}
-      onclick={onAdd}
-    >
-      <PlusIcon size={16} aria-hidden="true" />
-    </button>
   </header>
+  <button
+    class="btn btn-primary write"
+    type="button"
+    title={write?.tooltip}
+    disabled={!write?.enabled}
+    onclick={() => void registry.execute("compose.new", context)}
+  >
+    <SquarePenIcon size={16} aria-hidden="true" />
+    <span>{write?.label}</span>
+  </button>
 
   {#if accounts.length === 0}
     <p class="empty">{m.sidebar_no_account()}</p>
@@ -101,15 +147,26 @@
                 <WifiOffIcon size={14} aria-label={m.common_offline()} />
               </span>
             {/if}
-            <button
-              class="btn btn-ghost icon remove"
-              type="button"
-              title={m.sidebar_remove_account({ address: account.address })}
-              aria-label={m.sidebar_remove_account({ address: account.address })}
-              onclick={() => onRemove(account.id)}
+            <CommandMenu
+              actions={accountActions}
+              {registry}
+              {context}
+              label={m.sidebar_account_menu({ address: account.address })}
+              run={(id) => void registry.execute(id, onAccount(account.id))}
+              align="start"
             >
-              <TrashIcon size={14} aria-hidden="true" />
-            </button>
+              {#snippet trigger({ props })}
+                <button
+                  {...props}
+                  class="btn btn-ghost icon"
+                  type="button"
+                  title={m.sidebar_account_menu({ address: account.address })}
+                  aria-label={m.sidebar_account_menu({ address: account.address })}
+                >
+                  <EllipsisIcon size={16} aria-hidden="true" />
+                </button>
+              {/snippet}
+            </CommandMenu>
           </div>
           <ul class="folders" aria-label={m.sidebar_folders_of({ address: account.address })}>
             {#each folders[account.id] ?? [] as f (f.id)}
@@ -135,6 +192,26 @@
       {/each}
     </ul>
   {/if}
+
+  <ul class="folders footer">
+    <li>
+      <button class="folder" type="button" title={m.sidebar_add_account()} onclick={onAdd}>
+        <PlusIcon size={16} aria-hidden="true" />
+        <span class="label">{m.sidebar_add_account()}</span>
+      </button>
+    </li>
+    <li>
+      <button
+        class="folder"
+        type="button"
+        title={settings?.tooltip}
+        onclick={() => void registry.execute("settings.open", context)}
+      >
+        <SettingsIcon size={16} aria-hidden="true" />
+        <span class="label">{settings?.label}</span>
+      </button>
+    </li>
+  </ul>
 </div>
 
 <style>
@@ -142,7 +219,23 @@
     display: flex;
     flex-direction: column;
     gap: var(--space-2);
-    padding: var(--space-3) var(--space-2);
+    min-height: 100%;
+    padding: var(--space-3) var(--space-2) 0;
+  }
+
+  .write {
+    justify-content: center;
+    margin: 0 var(--space-2) var(--space-2);
+  }
+
+  /* En bas du panneau, toujours visible. */
+  .footer {
+    position: sticky;
+    bottom: 0;
+    margin-top: auto;
+    padding: var(--space-2) 0;
+    border-top: var(--border-width) solid var(--color-border);
+    background: var(--color-surface);
   }
 
   header {
@@ -206,16 +299,6 @@
 
   .offline {
     color: var(--color-warning);
-  }
-
-  .remove {
-    opacity: 0;
-  }
-
-  .account:hover .remove,
-  .account.current .remove,
-  .remove:focus-visible {
-    opacity: 1;
   }
 
   .folders li {

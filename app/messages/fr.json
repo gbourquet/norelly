@@ -25,7 +25,6 @@
   "sidebar_unified": "Boîtes unifiées",
   "sidebar_accounts": "Comptes",
   "sidebar_offline_reason": "Hors ligne : {reason}",
-  "sidebar_remove_account": "Supprimer le compte {address}",
   "sidebar_folders_of": "Dossiers de {address}",
   "list_conversations": "Conversations",
   "list_empty": "Aucune conversation.",
@@ -366,5 +365,9 @@
   "cmd_clear_selection": "Tout désélectionner",
   "cmd_clear_selection_keywords": "décocher annuler sélection aucune",
   "search_button": "Rechercher",
-  "key_enter": "Entrée"
+  "key_enter": "Entrée",
+  "sidebar_account_menu": "Actions du compte {address}",
+  "sidebar_sync": "Synchroniser",
+  "sidebar_remove": "Supprimer ce compte…",
+  "sidebar_settings": "Paramètres"
 }

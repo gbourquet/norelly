@@ -168,9 +168,11 @@
       selectedId={app.selectedAccountId}
       onScope={selectScope}
       onAdd={() => app.open("add-account")}
-      onRemove={(id) => {
+      {registry}
+      context={app.context()}
+      onAccount={(id) => {
         app.selectedAccountId = id;
-        app.open("remove-account");
+        return app.context();
       }}
     />
   {/snippet}

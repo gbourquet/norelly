@@ -25,7 +25,6 @@
   "sidebar_unified": "Unified mailboxes",
   "sidebar_accounts": "Accounts",
   "sidebar_offline_reason": "Offline: {reason}",
-  "sidebar_remove_account": "Remove account {address}",
   "sidebar_folders_of": "Folders of {address}",
   "list_conversations": "Conversations",
   "list_empty": "No conversations.",
@@ -366,5 +365,9 @@
   "cmd_clear_selection": "Clear selection",
   "cmd_clear_selection_keywords": "uncheck deselect none",
   "search_button": "Search",
-  "key_enter": "Enter"
+  "key_enter": "Enter",
+  "sidebar_account_menu": "Actions for account {address}",
+  "sidebar_sync": "Synchronise",
+  "sidebar_remove": "Remove this account…",
+  "sidebar_settings": "Settings"
 }

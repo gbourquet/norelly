@@ -126,16 +126,18 @@
           onClose();
         }}><TrashIcon size={16} aria-hidden="true" /> {m.compose_discard()}</button
       >
-      <label class="later">
-        <span>{m.compose_later()}</span>
-        <input type="datetime-local" bind:value={later} disabled={draft === null} />
-      </label>
-      <button
-        class="btn"
-        type="button"
-        disabled={draft === null || compose.busy || unixOfLocal(later) === null}
-        onclick={() => void send(unixOfLocal(later))}>{m.compose_schedule()}</button
-      >
+      <div class="schedule">
+        <label class="later">
+          <span>{m.compose_later()}</span>
+          <input type="datetime-local" bind:value={later} disabled={draft === null} />
+        </label>
+        <button
+          class="btn"
+          type="button"
+          disabled={draft === null || compose.busy || unixOfLocal(later) === null}
+          onclick={() => void send(unixOfLocal(later))}>{m.compose_schedule()}</button
+        >
+      </div>
       <span class="hint">{m.compose_send_hint()}</span>
       <button
         class="btn btn-primary"
@@ -149,6 +151,13 @@
 </Modal>
 
 <style>
+  .schedule {
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: var(--space-2);
+  }
+
   .later {
     display: flex;
     align-items: center;
@@ -228,8 +237,18 @@
 
   .actions {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: var(--space-2);
+  }
+
+  /* Libellés sur une ligne : la rangée passe à la ligne entre deux
+     éléments plutôt qu'au milieu d'un bouton. */
+  .actions .btn,
+  .actions .hint,
+  .later span {
+    flex: none;
+    white-space: nowrap;
   }
 
   .actions .hint {

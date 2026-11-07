@@ -358,7 +358,7 @@
         context={app.context()}
         onSearch={() => search.open()}
         {drag}
-        person={mail.selected?.senders[0] ?? null}
+        person={mail.targetSender()}
         personContext={(p) => app.contextForPerson(p)}
         onPerson={(id, p) => void runForPerson(id, p)}
       />

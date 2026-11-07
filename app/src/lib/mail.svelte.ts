@@ -4,6 +4,7 @@
 // ici.
 
 import type {
+  CorrespondentDto,
   ActionDto,
   Api,
   ConversationCursorDto,
@@ -336,6 +337,14 @@ export class MailState {
   async openConversation(conversation: ConversationDto, scope: ScopeDto): Promise<void> {
     this.marked = [];
     await this.#openWith(conversation, scope);
+  }
+
+  /** Dernier expéditeur de la conversation visée par le menu d'une ligne
+   * (même source que [`targets`]) ; aucun si des conversations sont
+   * cochées. */
+  targetSender(): CorrespondentDto | null {
+    if (this.marked.length > 0) return null;
+    return (this.opened ?? this.selected)?.senders[0] ?? null;
   }
 
   /** Conversations visées : cochées, sinon ouverte, sinon sélectionnée. */

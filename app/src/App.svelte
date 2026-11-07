@@ -364,17 +364,9 @@
       {#if contacts.selected !== null}
         <ContactCard contact={contacts.selected} {registry} context={app.context()} />
       {:else}
-        {@const create = describeCommand(registry, "contacts.new", app.context())}
         <div class="placeholder">
           <BookUserIcon size={40} aria-hidden="true" />
           <p>{m.contacts_pick()}</p>
-          <button
-            class="btn btn-primary"
-            type="button"
-            title={create?.tooltip}
-            onclick={() => void registry.execute("contacts.new", app.context())}
-            >{create?.label}</button
-          >
         </div>
       {/if}
     {:else if mail.opened !== null}

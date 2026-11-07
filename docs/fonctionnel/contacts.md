@@ -37,8 +37,8 @@ l'ordinateur** : rien n'est envoyé à un serveur.
 
 ### Ajouter un contact
 
-- Accès : bouton **Nouveau contact** en haut de la liste, bouton du même
-  nom sur la fiche vide, palette de commandes ou raccourci. Depuis le
+- Accès : bouton **Nouveau contact** en haut de la liste, palette de
+  commandes ou raccourci. Depuis le
   courrier, le raccourci et la palette ouvrent d'abord le carnet.
 - Une fenêtre demande **Prénom**, **Nom**, **Nom affiché** (facultatif),
   **Surnom**, une ou plusieurs **adresses électroniques**, des

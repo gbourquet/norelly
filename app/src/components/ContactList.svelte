@@ -219,8 +219,7 @@
                     </div>
                     <div class="line">
                       <span class="detail"
-                        >{c.address}{#if c.organization}
-                          · {c.organization}{/if}</span
+                        >{c.organization ? `${c.address} · ${c.organization}` : c.address}</span
                       >
                     </div>
                   </div>

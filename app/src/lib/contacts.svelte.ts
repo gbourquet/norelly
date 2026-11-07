@@ -178,7 +178,7 @@ export class ContactsState {
   async toggleFavorite(): Promise<boolean | null> {
     const current = this.selected;
     if (current === null) return null;
-    const fields = { ...current.fields, favorite: !current.fields.favorite };
+    const fields = { ...$state.snapshot(current.fields), favorite: !current.fields.favorite };
     try {
       const updated = await this.#api.updateContact(current.id, fields);
       await this.saved(updated);

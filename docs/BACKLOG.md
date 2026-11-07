@@ -70,17 +70,12 @@ quand le mainteneur l'abandonne (avec la raison).
   qu'on peut déplacer un dossier dans la boîte de réception. Trier en
   arbre (chaque dossier suivi de ses sous-dossiers, rôles spéciaux d'abord
   au premier niveau). (`crates/adapters/sqlite/src/mail.rs`, `Sidebar.svelte`)
-- **Glisser-déposer un dossier** : un dossier se déplace par son menu
-  « ⋯ » ou la palette ; le glisser sur un autre dossier du panneau de
-  gauche (comme Outlook) serait plus direct. Réutiliser
-  `drag-move.svelte.ts` (cibles déjà en place), en refusant visuellement
-  le dossier lui-même et ses sous-dossiers. (`Sidebar.svelte`)
 - **« Nouveau dossier… » depuis « Déplacer vers… »** : le sélecteur ne
   propose que les dossiers existants ; créer puis déplacer en un geste.
   (`FolderPicker.svelte`)
 - **Glisser-déposer, suites** : seules les lignes de la liste des
-  conversations se glissent (pas les résultats de recherche ni le message
-  ouvert) ; pas de défilement automatique du panneau de gauche quand le
+  conversations et les dossiers du panneau de gauche se glissent (pas les
+  résultats de recherche ni le message ouvert) ; pas de défilement automatique du panneau de gauche quand le
   pointeur approche de son bord (dossiers hors de vue inaccessibles par ce
   geste) ; rien au toucher. (`app/src/lib/drag-move.svelte.ts`,
   `SearchPanel.svelte`, `Sidebar.svelte`)

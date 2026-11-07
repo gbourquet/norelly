@@ -51,7 +51,8 @@ supprimer, depuis l'application.
   - menu **⋯** d'un dossier, dans le panneau de gauche : **Déplacer le
     dossier…** ;
   - palette de commandes (« Déplacer le dossier… »), pour le dossier
-    affiché.
+    affiché ;
+  - **glisser-déposer** dans le panneau de gauche (voir plus bas).
 - Une fenêtre rappelle le nom du dossier et demande son **nouvel
   emplacement** : « Au premier niveau » ou l'un des dossiers du compte,
   présentés dans l'ordre et avec le retrait de l'arborescence. Le dossier
@@ -66,6 +67,23 @@ supprimer, depuis l'application.
 
 Exemple : avec deux dossiers « Bla » et « Bli » au premier niveau,
 déplacer « Bli » dans « Bla » en fait un sous-dossier de « Bla ».
+
+**Glisser-déposer**, à la souris, sans fenêtre :
+
+- saisir un dossier dans le panneau de gauche et le lâcher **sur un autre
+  dossier** pour l'y ranger, ou **sur la ligne du compte** (nom et
+  adresse) pour le remettre au premier niveau ;
+- seuls les dossiers qui ont un menu **⋯** se saisissent : ni la boîte de
+  réception, ni les dossiers spéciaux ;
+- le glisser ne commence qu'après un petit déplacement bouton enfoncé :
+  un simple clic affiche toujours le dossier ;
+- pendant le glisser, le nom du dossier suit le pointeur, le dossier
+  saisi est estompé et la cible survolée est encadrée ; ne sont pas des
+  cibles : le dossier lui-même, ses sous-dossiers, les dossiers virtuels,
+  les dossiers d'un autre compte, et l'endroit où il est déjà ;
+- relâcher ailleurs, ou appuyer sur **Échap**, annule sans rien changer ;
+- le déplacement suit les mêmes règles que par la fenêtre ; un refus est
+  annoncé par un message en bas de l'écran.
 
 ### Supprimer un dossier
 
@@ -152,6 +170,7 @@ déplacer « Bli » dans « Bla » en fait un sous-dossier de « Bla ».
 | Menu d'un dossier | Actions du dossier {folder} : Renommer le dossier…, Déplacer le dossier…, Supprimer le dossier… |
 | Fenêtre de renommage | Renommer le dossier, Nouveau nom, Renommer, Renommage…, Annuler |
 | Dossier renommé | Dossier renommé en « {folder} ». |
+| Glisser un dossier | Nom du dossier |
 | Fenêtre de déplacement | Déplacer le dossier ; « Où ranger le dossier « {folder} » ? Ses sous-dossiers et ses messages le suivent. » ; Nouvel emplacement, Au premier niveau, Déplacer, Déplacement…, Annuler |
 | Dossier déplacé | Dossier « {folder} » déplacé. |
 | Dans lui-même | Un dossier ne peut pas être rangé dans lui-même ni dans un de ses sous-dossiers. |

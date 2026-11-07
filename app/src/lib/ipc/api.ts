@@ -202,6 +202,12 @@ export const api = {
   renameFolder: (account: number, mailbox: number, name: string): Promise<number | null> =>
     unwrap(commands.renameFolder(account, mailbox, name)),
 
+  /** Déplace un dossier (sous `parent`, ou au premier niveau), avec ses
+   * sous-dossiers ; renvoie son identifiant à sa nouvelle place (`null` si
+   * la liste n'est pas encore relue). */
+  moveFolder: (account: number, mailbox: number, parent: number | null): Promise<number | null> =>
+    unwrap(commands.moveFolder(account, mailbox, parent)),
+
   /** Supprime un dossier et ses messages, sur le serveur. */
   deleteFolder: (account: number, mailbox: number): Promise<void> =>
     unwrap(commands.deleteFolder(account, mailbox)).then(() => undefined),

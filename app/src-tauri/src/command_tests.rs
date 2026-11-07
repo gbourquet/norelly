@@ -726,7 +726,7 @@ async fn folder_creation_revalidates_its_inputs() {
 
 #[tokio::test]
 async fn folder_rename_and_delete_revalidate_their_inputs() {
-    use crate::folders::{delete_folder, rename_folder};
+    use crate::folders::{delete_folder, move_folder, rename_folder};
     use norelly_domain::mailbox::{MailboxName, MailboxRole, RemoteMailbox};
     use norelly_domain::ports::{AccountRepository, MailStore};
 
@@ -794,6 +794,20 @@ async fn folder_rename_and_delete_revalidate_their_inputs() {
             (ErrorCodeDto::InvalidInput, Some(field)),
             "supprimer {account}/{mailbox}"
         );
+        assert_eq!(
+            code(move_folder(t.state(), account, mailbox, None).await),
+            (ErrorCodeDto::InvalidInput, Some(field)),
+            "déplacer {account}/{mailbox}"
+        );
+    }
+    // Destination nulle, inconnue ou d'un autre compte : refusée avant tout
+    // envoi.
+    for parent in [0, 999_999, foreign] {
+        assert_eq!(
+            code(move_folder(t.state(), account, projets, Some(parent)).await),
+            (ErrorCodeDto::InvalidInput, Some(FieldDto::Mailbox)),
+            "déplacer sous {parent}"
+        );
     }
     // Nom démesuré : refusé sans passer par le serveur.
     assert_eq!(
@@ -808,5 +822,9 @@ async fn folder_rename_and_delete_revalidate_their_inputs() {
     assert_eq!(
         code(delete_folder(t.state(), account, projets).await).0,
         ErrorCodeDto::FolderDeleteFailed
+    );
+    assert_eq!(
+        code(move_folder(t.state(), account, projets, None).await).0,
+        ErrorCodeDto::FolderMoveFailed
     );
 }

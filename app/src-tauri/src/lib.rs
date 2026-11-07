@@ -54,6 +54,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             actions::set_archive_folder,
             folders::create_folder,
             folders::rename_folder,
+            folders::move_folder,
             folders::delete_folder,
             search::search_messages,
             settings::get_settings,

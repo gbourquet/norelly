@@ -292,9 +292,9 @@ impl MailServices {
         }
     }
 
-    /// Crée, renomme ou supprime un dossier par la connexion de commandes
-    /// du compte (au plus [`FOLDER_CHANGE_TIMEOUT`]) ; renvoie le nom du
-    /// dossier créé, renommé (nouveau nom) ou supprimé.
+    /// Crée, renomme, déplace ou supprime un dossier par la connexion de
+    /// commandes du compte (au plus [`FOLDER_CHANGE_TIMEOUT`]) ; renvoie le
+    /// nom du dossier créé, renommé ou déplacé (nouveau nom), ou supprimé.
     pub async fn change_folder(
         &self,
         account: AccountId,

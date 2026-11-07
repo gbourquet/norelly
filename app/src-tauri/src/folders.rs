@@ -1,11 +1,12 @@
-//! Commandes IPC des dossiers : création, renommage et suppression d'un
-//! dossier sur le serveur.
+//! Commandes IPC des dossiers : création, renommage, déplacement et
+//! suppression d'un dossier sur le serveur.
 //!
 //! L'interface envoie le nom saisi et l'identifiant local du dossier visé
-//! (parent d'un nouveau dossier, dossier à renommer ou à supprimer) ;
-//! l'identifiant est rapporté à un dossier du compte, puis le domaine
-//! décide (`new_folder_name`, `renamed_folder_name`, `deletable_folder`)
-//! d'après la liste relue sur le serveur.
+//! (parent d'un nouveau dossier, dossier à renommer, à déplacer et sa
+//! destination, dossier à supprimer) ; l'identifiant est rapporté à un
+//! dossier du compte, puis le domaine décide (`new_folder_name`,
+//! `renamed_folder_name`, `moved_folder_name`, `deletable_folder`) d'après
+//! la liste relue sur le serveur.
 
 use norelly_application::folders::{FolderChange, FolderFailure};
 use norelly_domain::account::AccountId;
@@ -43,6 +44,7 @@ impl From<FolderChangeError> for IpcError {
             FolderChangeError::UnknownFolder => Self::invalid(FieldDto::Mailbox),
             FolderChangeError::Protected => Self::new(ErrorCodeDto::FolderProtected),
             FolderChangeError::HasSubfolders => Self::new(ErrorCodeDto::FolderHasSubfolders),
+            FolderChangeError::IntoItself => Self::new(ErrorCodeDto::FolderIntoItself),
             FolderChangeError::Name(e) => e.into(),
         }
     }
@@ -146,7 +148,16 @@ pub async fn rename_folder(
         .change_folder(account, change)
         .await
         .map_err(|e| folder_error(e, ErrorCodeDto::FolderRenameFailed))?;
-    // Liste relue par l'acteur : le dossier y figure sous son nouveau nom.
+    local_id(&state, account, &renamed).await
+}
+
+/// Identifiant local du dossier `name` du compte, d'après la liste relue
+/// par l'acteur après la modification (`None` si elle ne l'est pas encore).
+async fn local_id(
+    state: &AppState,
+    account: AccountId,
+    name: &MailboxName,
+) -> Result<Option<u32>, IpcError> {
     let folders = state
         .mail
         .store
@@ -155,8 +166,36 @@ pub async fn rename_folder(
         .map_err(IpcError::storage)?;
     Ok(folders
         .into_iter()
-        .find(|f| f.name == renamed)
+        .find(|f| f.name == *name)
         .and_then(|f| u32::try_from(f.id.get()).ok()))
+}
+
+/// Déplace le dossier `mailbox` du compte `account` sous `parent` (ou au
+/// premier niveau), avec ses sous-dossiers ; renvoie l'identifiant local du
+/// dossier à sa nouvelle place (`null` si la liste n'a pas encore été
+/// relue).
+#[tauri::command]
+#[specta::specta]
+pub async fn move_folder(
+    state: State<'_, AppState>,
+    account: u32,
+    mailbox: u32,
+    parent: Option<u32>,
+) -> Result<Option<u32>, IpcError> {
+    let account = account_id(account)?;
+    let id = mailbox_id(mailbox)?;
+    let parent = parent.map(mailbox_id).transpose()?;
+    let folder = folder_of(&state, account, id).await?;
+    let parent = match parent {
+        None => None,
+        Some(id) => Some(folder_of(&state, account, id).await?),
+    };
+    let moved = state
+        .mail
+        .change_folder(account, FolderChange::Move { folder, parent })
+        .await
+        .map_err(|e| folder_error(e, ErrorCodeDto::FolderMoveFailed))?;
+    local_id(&state, account, &moved).await
 }
 
 /// Supprime le dossier `mailbox` du compte `account` et ses messages, sur
@@ -237,6 +276,10 @@ mod tests {
             (ErrorCodeDto::FolderHasSubfolders, None)
         );
         assert_eq!(
+            change(FolderChangeError::IntoItself),
+            (ErrorCodeDto::FolderIntoItself, None)
+        );
+        assert_eq!(
             change(FolderChangeError::UnknownFolder).0,
             ErrorCodeDto::InvalidInput
         );
@@ -247,6 +290,7 @@ mod tests {
         // Refus du serveur : code propre à l'opération, réponse citée.
         for failed in [
             ErrorCodeDto::FolderRenameFailed,
+            ErrorCodeDto::FolderMoveFailed,
             ErrorCodeDto::FolderDeleteFailed,
         ] {
             let e = folder_error(

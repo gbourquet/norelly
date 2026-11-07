@@ -155,7 +155,8 @@
                   class:selected={row.index === mail.selectedIndex}
                   class:marked={mail.marked.includes(c.id)}
                   class:unread={c.unread > 0}
-                  class:dragged={drag?.payload?.ids.includes(c.id) ?? false}
+                  class:dragged={drag?.payload?.kind === "conversations" &&
+                    drag.payload.ids.includes(c.id)}
                   role="option"
                   aria-selected={mail.marked.length > 0
                     ? mail.marked.includes(c.id)

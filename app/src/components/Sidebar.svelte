@@ -23,6 +23,7 @@
   import FolderXIcon from "@lucide/svelte/icons/folder-x";
   import FolderInputIcon from "@lucide/svelte/icons/folder-input";
   import { isEditableFolder } from "../lib/folder-edit.svelte";
+  import { folderPayload, type DragMove } from "../lib/drag-move.svelte";
   import type { AccountDto, FolderDto, ScopeDto } from "../lib/ipc/api";
   import type { CommandRegistry } from "../lib/commands/registry";
   import { RegistryWatch } from "../lib/commands/watch.svelte";
@@ -46,8 +47,9 @@
      * `account` ; `target` : le dossier devient la cible des commandes
      * (menu du dossier choisi). */
     onFolder: (account: number, folder: FolderDto, target: boolean) => C;
-    /** Dossier survolé où déposer les conversations glissées. */
-    dropOver?: number | null;
+    /** Glisser-déposer en cours : dossier ou premier niveau survolés ;
+     * un dossier ordinaire peut lui-même être glissé. */
+    drag?: DragMove;
   }
 
   let {
@@ -62,8 +64,21 @@
     context,
     onAccount,
     onFolder,
-    dropOver = null,
+    drag,
   }: Props = $props();
+
+  /** Bouton de la souris enfoncé sur un dossier : début possible d'un
+   * glisser (dossiers ordinaires seulement). */
+  function press(e: PointerEvent, account: number, folder: FolderDto): void {
+    if (drag === undefined || e.button !== 0) return;
+    if (e.pointerType !== "mouse" && e.pointerType !== "pen") return;
+    const payload = folderPayload(account, folder);
+    if (payload !== null) drag.press(payload, e.clientX, e.clientY);
+  }
+
+  function dragged(folder: FolderDto): boolean {
+    return drag?.payload?.kind === "folder" && drag.payload.folder.id === folder.id;
+  }
 
   // Le registre n'est pas réactif : relecture à chaque modification.
   const watch = new RegistryWatch(() => registry);
@@ -164,7 +179,12 @@
     <ul class="accounts" aria-label={m.sidebar_accounts()}>
       {#each accounts as account (account.id)}
         <li>
-          <div class="account" class:current={account.id === selectedId}>
+          <div
+            class="account"
+            class:current={account.id === selectedId}
+            class:drop-over={drag?.overRoot === account.id}
+            data-drop-account={account.id}
+          >
             <MailIcon size={16} aria-hidden="true" />
             <span class="labels">
               <span class="name">{account.display_name}</span>
@@ -206,7 +226,8 @@
               <li
                 class:selected={current}
                 class:editable={isEditableFolder(f)}
-                class:drop-over={dropOver === f.id}
+                class:drop-over={drag?.over === f.id}
+                class:dragged={dragged(f)}
               >
                 <button
                   class="folder"
@@ -216,7 +237,12 @@
                   disabled={!f.selectable}
                   aria-current={current ? "true" : undefined}
                   style:padding-left="calc(var(--space-2) + {Math.min(f.depth, 6) * 12}px)"
-                  onclick={() => onScope({ kind: "mailbox", id: f.id }, account.id)}
+                  onpointerdown={(e) => press(e, account.id, f)}
+                  onclick={() => {
+                    // Clic qui termine un glisser : le dossier n'est pas affiché.
+                    if (drag?.suppressClick()) return;
+                    onScope({ kind: "mailbox", id: f.id }, account.id);
+                  }}
                 >
                   <Icon size={16} aria-hidden="true" />
                   <span class="label">{folderLabel(f)}</span>
@@ -407,10 +433,16 @@
     background: var(--color-selected);
   }
 
-  /* Dossier où les conversations glissées seront déposées. */
-  .folders li.drop-over {
+  /* Dossier (ou premier niveau d'un compte) où ce qui est glissé sera
+     déposé. */
+  .folders li.drop-over,
+  .account.drop-over {
     background: var(--color-selected);
     outline: var(--border-width) solid var(--color-accent);
+  }
+
+  .folders li.dragged {
+    opacity: 0.5;
   }
 
   .folder {

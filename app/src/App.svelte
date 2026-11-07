@@ -203,14 +203,34 @@
 
   const drag = new DragMove();
 
-  /** Dossier du panneau de gauche sous le pointeur. */
+  /** Cible du panneau de gauche sous le pointeur : un dossier, ou la ligne
+   * d'un compte (premier niveau). */
   function dropTargetAt(x: number, y: number): DropTarget | null {
-    const element = document.elementFromPoint(x, y)?.closest<HTMLElement>("[data-drop-folder]");
+    const element = document
+      .elementFromPoint(x, y)
+      ?.closest<HTMLElement>("[data-drop-folder], [data-drop-account]");
     if (!element) return null;
     const account = Number(element.dataset.dropAccount);
+    if (element.dataset.dropFolder === undefined) return { account, folder: null };
     const id = Number(element.dataset.dropFolder);
     const folder = (mail.folders[account] ?? []).find((f) => f.id === id);
     return folder === undefined ? null : { account, folder };
+  }
+
+  /** Dossier déposé sur un autre (ou au premier niveau) : même
+   * déplacement que « Déplacer le dossier… ». */
+  async function dropFolder(
+    account: number,
+    folder: FolderDto,
+    parent: FolderDto | null,
+  ): Promise<void> {
+    try {
+      const id = await api.moveFolder(account, folder.id, parent?.id ?? null);
+      mail.notice = { text: m.action_folder_moved({ folder: folder.leaf }), undoable: false };
+      await afterFolderChange(account, folder, id);
+    } catch (e) {
+      mail.notice = { text: errorText(e), undoable: false };
+    }
   }
 
   function onPointerMove(e: PointerEvent): void {
@@ -220,6 +240,11 @@
   function onPointerUp(): void {
     const drop = drag.release();
     if (drop === null) return;
+    if (drop.payload.kind === "folder") {
+      void dropFolder(drop.account, drop.payload.folder, drop.folder);
+      return;
+    }
+    if (drop.folder === null) return;
     void mail.act(
       { kind: "move", mailbox: drop.folder.id },
       m.action_moved({ folder: drop.folder.name }),
@@ -262,7 +287,9 @@
     style:left="{drag.x + 14}px"
     style:top="{drag.y + 14}px"
   >
-    {drag.payload.label ?? m.drag_conversations({ count: drag.payload.ids.length })}
+    {drag.payload.kind === "folder"
+      ? drag.payload.label
+      : (drag.payload.label ?? m.drag_conversations({ count: drag.payload.ids.length }))}
   </div>
 {/if}
 
@@ -282,7 +309,7 @@
         app.selectedAccountId = id;
         return app.context();
       }}
-      dropOver={drag.over}
+      {drag}
       onFolder={(account, folder, target) => {
         if (!target) {
           return { ...app.context(), selectedAccount: app.accountById(account), folder };

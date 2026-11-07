@@ -64,14 +64,14 @@ export class RenameFolderState {
 
 /** Nom complet du dossier qui contient `folder` (`null` : premier
  * niveau) : son nom sans le séparateur ni le dernier segment. */
-function parentName(folder: FolderDto): string | null {
+export function parentName(folder: FolderDto): string | null {
   if (folder.depth === 0) return null;
   return folder.name.slice(0, folder.name.length - folder.leaf.length - 1);
 }
 
 /** Vrai si `f` est `folder` ou l'un de ses sous-dossiers, d'après les noms
  * (la liste suit l'ordre des rôles, pas celui de l'arborescence). */
-function isSameOrUnder(f: FolderDto, folder: FolderDto): boolean {
+export function isSameOrUnder(f: FolderDto, folder: FolderDto): boolean {
   if (f.id === folder.id) return true;
   if (f.depth <= folder.depth || !f.name.startsWith(folder.name)) return false;
   // Séparateur du serveur : le caractère qui précède le dernier segment.

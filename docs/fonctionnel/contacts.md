@@ -6,7 +6,9 @@
 
 Garder les personnes à qui l'on écrit souvent dans un carnet à soi :
 enregistrer un contact avec son nom, ses adresses et ses téléphones, le
-corriger, le marquer comme favori, lui écrire en un clic et le supprimer.
+corriger, le marquer comme favori, lui écrire en un clic et le supprimer ;
+voir ses contacts sous le nom qu'on leur a donné dans le courrier, et
+ajouter au carnet une personne rencontrée dans un message.
 Le carnet est **unique** pour tous les comptes et reste **sur
 l'ordinateur** : rien n'est envoyé à un serveur.
 
@@ -105,6 +107,37 @@ l'ordinateur** : rien n'est envoyé à un serveur.
 - Après la suppression : avis « N contact(s) supprimé(s). », liste relue ;
   la fiche affichée se ferme si elle a été supprimée.
 
+### Nom des contacts dans le courrier
+
+- Dans la liste des conversations, les messages ouverts (expéditeur et
+  destinataires) et les résultats de recherche, une personne dont
+  l'adresse est dans le carnet s'affiche sous le **nom du carnet**, quel
+  que soit le nom choisi par l'expéditeur. L'adresse est reconnue sans
+  tenir compte des majuscules ; une autre adresse de la même fiche nomme
+  aussi le contact. Une fiche sans nom laisse l'adresse affichée.
+- Dans un message ouvert, une petite **pastille** à côté du nom signale
+  une personne du carnet (« Dans vos contacts » au survol).
+- Une personne absente du carnet garde le nom donné par le message, sauf
+  si ce nom ressemble à une adresse (il contient « @ », « < » ou « > ») :
+  seule l'adresse réelle s'affiche alors, pour qu'un message ne puisse pas
+  se faire passer pour une autre adresse.
+- Après un ajout, une modification ou une suppression dans le carnet, les
+  noms se mettent à jour au retour dans le courrier.
+
+### Ajouter au carnet, voir le contact
+
+- Dans un message ouvert, un clic sur le **nom** de l'expéditeur ou d'un
+  destinataire ouvre son menu :
+  - **Ajouter au carnet d'adresses** pour une personne absente du carnet :
+    la fenêtre d'un nouveau contact s'ouvre, préremplie avec son nom et son
+    adresse, sans quitter le courrier ;
+  - **Voir le contact** pour une personne du carnet : le carnet s'ouvre
+    sur sa fiche.
+- La même entrée est proposée pour le dernier expéditeur d'une
+  conversation dans le menu du **clic droit** sur une ligne de la liste,
+  et dans **Plus…** du message ouvert. Palette de commandes : elle vise
+  l'expéditeur du dernier message de la conversation ouverte.
+
 ## Sécurité
 
 - Tout ce qui est saisi est affiché comme du **texte**, jamais interprété.
@@ -112,11 +145,14 @@ l'ordinateur** : rien n'est envoyé à un serveur.
   quelle que soit la saisie de l'écran.
 - Le carnet est stocké dans la base locale de l'application, avec les
   messages ; il n'est envoyé à aucun serveur.
+- Le nom du carnet s'affiche d'après l'adresse annoncée par le message,
+  que l'expéditeur peut falsifier : il ne prouve pas que le message vient
+  bien de ce contact.
 
 ## Limites actuelles
 
-- Les noms du carnet ne remplacent pas encore les noms affichés pour les
-  expéditeurs, et les suggestions de destinataires ne proposent pas encore
-  les contacts du carnet.
+- Les suggestions de destinataires ne proposent pas encore les contacts
+  du carnet, et les notifications de nouveaux messages gardent le nom
+  donné par le message.
 - Pas encore de listes de diffusion, d'import ni d'export (vCard, CSV,
   LDIF), ni de recherche des doublons.

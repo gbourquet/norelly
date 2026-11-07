@@ -392,7 +392,7 @@ Syntaxe (`crates/domain/src/search.rs`, `parse_query`) :
 - Mesure (bench, 50 000 messages de 300 mots) : 0,3 à 89 ms selon la
   requête, seuil 100 ms.
 
-## Carnet d'adresses : contacts, favoris, écrire à un contact
+## Carnet d'adresses : contacts, favoris, écrire à un contact, nom des expéditeurs
 
 Fiche : [contacts.md](../fonctionnel/contacts.md). Décision : ADR-012.
 
@@ -412,18 +412,25 @@ Fiche : [contacts.md](../fonctionnel/contacts.md). Décision : ADR-012.
 | Vue Contacts : commandes du courrier neutralisées (`AppContext` sans conversation visée), retour au courrier par la boîte unifiée ou un dossier | `app/src/lib/app.svelte.ts`, `App.svelte` |
 | Actions visibles : barre de la fiche, « Plus… », menu contextuel d'une ligne, barre des contacts cochés, bouton du pied du panneau de gauche | `app/src/lib/visible-actions.ts`, `ContactList.svelte`, `ContactCard.svelte`, `Sidebar.svelte` |
 | Saisie affichée en texte, jamais interprétée | `ContactCard.svelte`, `ContactList.svelte` |
+| Nom affiché d'un correspondant (`sender_label`) : nom du contact qui porte l'adresse (même `AddressKey`), vide pour une fiche sans nom ; sinon nom de l'en-tête, vide s'il imite une adresse (`imitates_address` : `@`, `<`, `>`) | `crates/domain/src/sender.rs` |
+| Adresses cherchées dans le carnet (`sender_keys`) : valides, dédoublonnées dans l'ordre (expéditeurs d'abord), `MAX_CONTACT_LOOKUP` au plus ; carnet non interrogé sans adresse valide | `sender.rs`, `crates/application/src/contacts.rs` (`NameSenders`) |
+| Liste des conversations, messages d'une conversation (expéditeur, destinataires) et résultats de recherche nommés d'après le carnet ; DTO `CorrespondentDto.contact` ; sans carnet (notification), nom imitant une adresse écarté | `app/src-tauri/src/reading.rs`, `app/src-tauri/src/search.rs`, `app/src-tauri/src/ipc.rs` |
+| Personne visée par « Ajouter au carnet » / « Voir le contact » : celle du menu, sinon l'expéditeur du dernier message ouvert ; fiche préremplie (`ContactFormState.prefill`) ; courrier relu au retour du carnet et après un ajout | `app/src/lib/app.svelte.ts`, `app/src/lib/contacts.svelte.ts`, `App.svelte` |
+| Actions visibles : nom cliquable de l'expéditeur et des destinataires, pastille du carnet, menu contextuel d'une ligne, « Plus… » du message ouvert | `PersonMenu.svelte`, `ConversationView.svelte`, `ConversationList.svelte`, `visible-actions.ts` (`personActions`) |
 
 ### Clés des messages
 
 `contacts_*`, `contact_*`, `delete_contacts_*`, `err_contact_*`,
 `field_contact*`, `field_given_name`, `field_family_name`,
 `field_nickname`, `field_organization`, `field_notes`, `sidebar_contacts`,
-`key_delete`.
+`key_delete`, `cmd_person_*`, `person_menu`, `person_in_contacts`,
+`conversation_to_label`, `conversation_message_toggle`.
 
 ### Commandes
 
 `contacts.open`, `contacts.new`, `contacts.edit`, `contacts.write`,
-`contacts.favorite`, `contacts.delete`, `contacts.clear-selection`.
+`contacts.favorite`, `contacts.delete`, `contacts.clear-selection`,
+`contacts.add-person`, `contacts.show-person`.
 
 ### Vérifications et compléments
 
@@ -431,7 +438,12 @@ Fiche : [contacts.md](../fonctionnel/contacts.md). Décision : ADR-012.
   (`crates/test-support/src/contacts_contracts.rs`).
 - Commandes IPC sur l'application factice : aller-retour complet et
   entrées refusées (`app/src-tauri/src/command_tests.rs`).
-- Scénario de bout en bout à la souris (`app/e2e/specs/contacts.e2e.mjs`).
+- Scénario de bout en bout à la souris (`app/e2e/specs/contacts.e2e.mjs`),
+  dont le nom du carnet dans la liste et le message, un nom d'en-tête qui
+  imite une adresse, « Voir le contact » et « Ajouter au carnet
+  d'adresses ».
+- Nom des correspondants sur l'application factice : liste, conversation,
+  recherche (`command_tests.rs`, `senders_in_the_book_are_named_from_their_card`).
 
 ## Notifications des nouveaux messages
 

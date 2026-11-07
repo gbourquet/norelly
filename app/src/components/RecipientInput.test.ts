@@ -45,6 +45,16 @@ describe("destinataires", () => {
     expect(collected).not.toHaveTextContent("Dans vos contacts");
   });
 
+  it("montre l'adresse d'une suggestion à part du nom, pour qu'un nom long ne la cache pas", async () => {
+    const long = `Alice Martin - Direction financière ${"x".repeat(200)}`;
+    const { input } = setup([{ name: long, address: "pirate@exemple.net", contact: null }]);
+    await fireEvent.focus(input);
+    await fireEvent.input(input, { target: { value: "ali" } });
+    const address = screen.getByText("<pirate@exemple.net>");
+    expect(address).toHaveClass("address");
+    expect(screen.getByText(long)).not.toContainElement(address);
+  });
+
   it("ajoute la suggestion choisie et vide la saisie une fois acceptée", async () => {
     const { input, onAdd, onQuery } = setup([
       { name: "Alice Martin", address: "alice@example.com", contact: 3 },

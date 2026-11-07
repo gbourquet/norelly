@@ -102,7 +102,9 @@
             onmousedown={(e) => e.preventDefault()}
             onclick={() => void commit(format(s))}
           >
-            <span class="who">{format(s)}</span>
+            <!-- Nom seul tronqué : l'adresse reste toujours entière. -->
+            {#if s.name}<span class="who">{s.name}</span>{/if}
+            <span class="address">{s.name ? `<${s.address}>` : s.address}</span>
             {#if s.contact != null}
               <span class="in-contacts">
                 <BookUserIcon size={12} aria-hidden="true" />
@@ -193,16 +195,21 @@
   }
 
   .who {
-    flex: 1;
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
 
+  .address {
+    flex-shrink: 0;
+    color: var(--color-text-muted);
+  }
+
   .in-contacts {
     display: inline-flex;
     flex-shrink: 0;
+    margin-left: auto;
     align-items: center;
     gap: var(--space-1);
     color: var(--color-text-muted);

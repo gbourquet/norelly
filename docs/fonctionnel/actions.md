@@ -25,11 +25,27 @@ rattraper.
   - **barre de sélection**, au-dessus de la liste dès qu'une conversation
     est cochée : nombre de conversations cochées, **Tout désélectionner**
     et les actions groupées ;
+  - **glisser-déposer** (déplacer seulement) : une conversation de la liste,
+    tirée à la souris et lâchée sur un dossier du panneau de gauche ;
   - raccourcis et palette.
 - Quand la place manque, les boutons les moins utilisés passent dans
   **Plus…** plutôt que de disparaître (Répondre, Archiver et Supprimer
   restent visibles le plus longtemps).
 - Cocher une case n'ouvre pas la conversation.
+- **Glisser-déposer** :
+  - la conversation saisie est emportée seule ; si elle est cochée, toutes
+    les conversations cochées sont emportées ;
+  - le glisser ne commence qu'après un petit déplacement bouton enfoncé :
+    un simple clic ouvre toujours la conversation ;
+  - pendant le glisser, une étiquette suit le pointeur (sujet, ou nombre de
+    conversations), les conversations emportées sont atténuées et le dossier
+    survolé est encadré s'il peut les recevoir ;
+  - lâcher ailleurs que sur un tel dossier, ou appuyer sur **Échap**,
+    annule le glisser sans rien changer ;
+  - le dépôt fait exactement « Déplacer vers… » : même bandeau, même
+    **Annuler**, mêmes règles ;
+  - à la souris (ou au stylet) seulement ; au clavier, « Déplacer vers… »
+    (`v`) fait la même chose.
 - Les libellés qui basculent (« Suivre » ou « Ne plus suivre », « Marquer
   comme lu » ou « non lu ») suivent l'état de toutes les conversations
   visées.
@@ -74,7 +90,9 @@ rattraper.
 - Déplacer vers le dossier courant, ou vers un dossier qui ne peut pas
   contenir de messages : refusé.
 - Déplacer des conversations de plusieurs comptes : refusé, un dossier
-  n'appartenant qu'à un compte.
+  n'appartenant qu'à un compte. Au glisser-déposer, seuls les dossiers du compte
+  des conversations emportées sont proposés ; des conversations cochées de
+  plusieurs comptes ne peuvent pas être glissées.
 - Trop d'actions en attente : refusé jusqu'à la reconnexion.
 
 ## Messages affichés
@@ -83,6 +101,7 @@ rattraper.
 |---|---|
 | Archivage, suppression | Archivé., Supprimé. |
 | Déplacement | Déplacé vers « {folder} ». |
+| Glisser-déposer | Sujet de la conversation, ou « {count} conversations » |
 | Suivi | Suivi activé., Suivi retiré. |
 | Lu, non lu | Marqué comme lu., Marqué comme non lu. |
 | Annulation | Annuler, Action annulée. |

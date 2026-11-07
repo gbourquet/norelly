@@ -142,6 +142,16 @@ dossier voulu, ou tapez quelques lettres de son nom puis **Entrée**.
 
 ![Le choix du dossier de destination, avec une zone de recherche](captures/move.png)
 
+Vous pouvez aussi **glisser** un message dans un dossier : cliquez sur le
+message dans la liste, gardez le bouton de la souris enfoncé, amenez-le sur
+un dossier du panneau de gauche, puis relâchez. Le dossier qui va recevoir
+le message est encadré. Si vous avez coché plusieurs messages, glissez l'un
+d'eux : ils partent tous ensemble. Pour renoncer, relâchez ailleurs ou
+appuyez sur **Échap**. Comme pour **Déplacer vers…**, vous pouvez annuler
+juste après.
+
+![Un message glissé sur le dossier « Jardin »](captures/drag-to-folder.png)
+
 Pour **créer un dossier** :
 
 1. Dans le panneau de gauche, cliquez sur **⋯** à côté de votre compte,

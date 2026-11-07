@@ -97,6 +97,8 @@ vi.mock("./lib/ipc/api", () => ({
     cancelSend: vi.fn(),
     searchMessages: vi.fn(async () => ({ items: [], next: null })),
     createFolder: vi.fn(async () => undefined),
+    renameFolder: vi.fn(async () => 13),
+    deleteFolder: vi.fn(async () => undefined),
   },
 }));
 
@@ -127,6 +129,46 @@ async function openAccountMenu(address: string): Promise<HTMLElement> {
   const button = await screen.findByRole("button", { name: `Actions du compte ${address}` });
   await fireEvent.pointerDown(button, { button: 0, pointerType: "mouse" });
   return screen.findByRole("menu", { name: `Actions du compte ${address}` });
+}
+
+/** Ouvre le menu « ⋯ » d'un dossier dans la barre latérale. */
+async function openFolderMenu(folder: string): Promise<HTMLElement> {
+  const button = await screen.findByRole("button", { name: `Actions du dossier ${folder}` });
+  await fireEvent.pointerDown(button, { button: 0, pointerType: "mouse" });
+  return screen.findByRole("menu", { name: `Actions du dossier ${folder}` });
+}
+
+/** Compte de Bob avec sa boîte de réception (11) et « Projets » (12). */
+function bobWithProjets(): void {
+  accounts.push({
+    id: 3,
+    address: "bob@example.org",
+    display_name: "Bob",
+    imap: server,
+    smtp: server,
+  });
+  vi.mocked(api.listFolders).mockResolvedValue([
+    {
+      id: 11,
+      name: "INBOX",
+      leaf: "INBOX",
+      depth: 0,
+      role: "inbox",
+      selectable: true,
+      total: 0,
+      unread: 0,
+    },
+    {
+      id: 12,
+      name: "Projets",
+      leaf: "Projets",
+      depth: 0,
+      role: "normal",
+      selectable: true,
+      total: 4,
+      unread: 0,
+    },
+  ]);
 }
 
 describe("App", () => {
@@ -222,6 +264,45 @@ describe("App", () => {
     await waitFor(() => expect(api.createFolder).toHaveBeenCalledWith(3, "2027", 12));
     expect(await screen.findByText("Dossier « 2027 » créé.")).toBeInTheDocument();
     expect(screen.queryByRole("dialog", { name: "Nouveau dossier" })).toBeNull();
+    vi.mocked(api.listFolders).mockResolvedValue([]);
+  });
+
+  it("renomme un dossier depuis son menu", async () => {
+    bobWithProjets();
+    render(App);
+    // Boîte de réception : ni renommage ni suppression, donc pas de menu.
+    await screen.findByRole("button", { name: "Actions du dossier Projets" });
+    expect(
+      screen.queryByRole("button", { name: "Actions du dossier Boîte de réception" }),
+    ).toBeNull();
+    const menu = await openFolderMenu("Projets");
+    await fireEvent.click(within(menu).getByRole("menuitem", { name: "Renommer le dossier…" }));
+    const dialog = await screen.findByRole("dialog", { name: "Renommer le dossier" });
+    const input = within(dialog).getByLabelText("Nouveau nom");
+    expect(input).toHaveValue("Projets");
+    const rename = within(dialog).getByRole("button", { name: "Renommer" });
+    expect(rename).toBeDisabled();
+    await fireEvent.input(input, { target: { value: "Chantiers" } });
+    await fireEvent.click(rename);
+    await waitFor(() => expect(api.renameFolder).toHaveBeenCalledWith(3, 12, "Chantiers"));
+    expect(await screen.findByText("Dossier renommé en « Chantiers ».")).toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "Renommer le dossier" })).toBeNull();
+    vi.mocked(api.listFolders).mockResolvedValue([]);
+  });
+
+  it("supprime un dossier depuis son menu, après confirmation", async () => {
+    bobWithProjets();
+    render(App);
+    const menu = await openFolderMenu("Projets");
+    await fireEvent.click(within(menu).getByRole("menuitem", { name: "Supprimer le dossier…" }));
+    const dialog = await screen.findByRole("dialog", { name: "Supprimer le dossier" });
+    expect(dialog).toHaveTextContent("« Projets »");
+    expect(dialog).toHaveTextContent("(4)");
+    expect(api.deleteFolder).not.toHaveBeenCalled();
+    await fireEvent.click(within(dialog).getByRole("button", { name: "Supprimer le dossier" }));
+    await waitFor(() => expect(api.deleteFolder).toHaveBeenCalledWith(3, 12));
+    expect(await screen.findByText("Dossier « Projets » supprimé.")).toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "Supprimer le dossier" })).toBeNull();
     vi.mocked(api.listFolders).mockResolvedValue([]);
   });
 

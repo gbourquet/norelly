@@ -1,7 +1,7 @@
 <script lang="ts">
   import { m } from "./lib/paraglide/messages.js";
   import { errorText } from "./lib/errors";
-  import { onMount } from "svelte";
+  import { onMount, untrack } from "svelte";
   import InboxIcon from "@lucide/svelte/icons/inbox";
   import ThreePaneLayout from "./components/ThreePaneLayout.svelte";
   import Sidebar from "./components/Sidebar.svelte";
@@ -14,6 +14,9 @@
   import FolderPicker from "./components/FolderPicker.svelte";
   import NewFolderDialog from "./components/NewFolderDialog.svelte";
   import { NewFolderState } from "./lib/new-folder.svelte";
+  import RenameFolderDialog from "./components/RenameFolderDialog.svelte";
+  import DeleteFolderDialog from "./components/DeleteFolderDialog.svelte";
+  import { DeleteFolderState, RenameFolderState } from "./lib/folder-edit.svelte";
   import ActionNotice from "./components/ActionNotice.svelte";
   import ActionBar from "./components/ActionBar.svelte";
   import ComposeDialog from "./components/ComposeDialog.svelte";
@@ -39,7 +42,7 @@
     updates,
   } from "./lib/app.svelte";
   import { shortcutFromEvent, type Shortcut } from "./lib/commands/shortcut";
-  import { api, type ScopeDto } from "./lib/ipc/api";
+  import { api, type FolderDto, type ScopeDto } from "./lib/ipc/api";
   import { UNIFIED_INBOX } from "./lib/mail.svelte";
 
   onMount(() => {
@@ -133,6 +136,41 @@
     if (app.dialog === "new-folder") newFolder.reset();
   });
 
+  const renameFolder = new RenameFolderState(api);
+  const deleteFolder = new DeleteFolderState(api);
+  /** Dossier visé par le renommage ou la suppression ouverts. */
+  const editedFolder = $derived(
+    app.dialog === "rename-folder" || app.dialog === "delete-folder" ? app.targetFolder() : null,
+  );
+
+  // Formulaire prérempli (ou sans erreur) à chaque ouverture seulement :
+  // une liste des dossiers relue pendant la saisie ne l'efface pas.
+  $effect(() => {
+    const dialog = app.dialog;
+    untrack(() => {
+      const folder = app.targetFolder();
+      if (dialog === "rename-folder" && folder !== null) renameFolder.reset(folder);
+      if (dialog === "delete-folder") deleteFolder.reset();
+    });
+  });
+
+  /** Après un renommage ou une suppression : liste des dossiers relue ;
+   * dossier affiché renommé (suivi sous son nouveau nom) ou supprimé
+   * (retour à la boîte de réception du compte). */
+  async function afterFolderChange(
+    account: number,
+    folder: FolderDto,
+    renamedId: number | null,
+  ): Promise<void> {
+    const shown = mail.scope.kind === "mailbox" && mail.scope.id === folder.id;
+    await mail.loadFolders(account);
+    if (!shown) return;
+    const inbox = (mail.folders[account] ?? []).find((f) => f.role === "inbox");
+    if (renamedId !== null) selectScope({ kind: "mailbox", id: renamedId }, account);
+    else if (inbox) selectScope({ kind: "mailbox", id: inbox.id }, account);
+    else selectScope({ kind: "unified", role: "inbox" }, null);
+  }
+
   const archiveFolders = $derived(
     app.selectedAccountId === null ? [] : (mail.folders[app.selectedAccountId] ?? []),
   );
@@ -182,6 +220,14 @@
       context={app.context()}
       onAccount={(id) => {
         app.selectedAccountId = id;
+        return app.context();
+      }}
+      onFolder={(account, folder, target) => {
+        if (!target) {
+          return { ...app.context(), selectedAccount: app.accountById(account), folder };
+        }
+        app.selectedAccountId = account;
+        app.folderTarget = folder;
         return app.context();
       }}
     />
@@ -309,6 +355,33 @@
     mail.notice = { text: m.action_folder_created({ folder: name }), undoable: false };
     const account = app.selectedAccountId;
     if (account !== null) void mail.loadFolders(account);
+  }}
+/>
+<RenameFolderDialog
+  open={app.dialog === "rename-folder"}
+  account={app.selectedAccount}
+  folder={editedFolder}
+  form={renameFolder}
+  onClose={() => app.close()}
+  onRenamed={(renamed) => {
+    const account = app.selectedAccountId;
+    const folder = editedFolder;
+    app.close();
+    mail.notice = { text: m.action_folder_renamed({ folder: renamed.name }), undoable: false };
+    if (account !== null && folder !== null) void afterFolderChange(account, folder, renamed.id);
+  }}
+/>
+<DeleteFolderDialog
+  open={app.dialog === "delete-folder"}
+  account={app.selectedAccount}
+  folder={editedFolder}
+  form={deleteFolder}
+  onClose={() => app.close()}
+  onDeleted={(folder) => {
+    const account = app.selectedAccountId;
+    app.close();
+    mail.notice = { text: m.action_folder_deleted({ folder: folder.leaf }), undoable: false };
+    if (account !== null) void afterFolderChange(account, folder, null);
   }}
 />
 <ComposeDialog

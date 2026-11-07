@@ -82,6 +82,8 @@ choisissent une adresse proposée, `Entrée` ou `,` la valide.
 |---|---|
 | Ajouter un compte… | palette |
 | Nouveau dossier… | palette |
+| Renommer le dossier… | palette |
+| Supprimer le dossier… | palette |
 | Choisir le dossier d'archives… | palette |
 | Synchroniser le compte sélectionné | palette |
 | Supprimer le compte sélectionné… | palette |

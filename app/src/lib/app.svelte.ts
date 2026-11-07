@@ -7,8 +7,10 @@ import {
   type AccountDto,
   type ComposeKindDto,
   type DraftsDto,
+  type FolderDto,
   type OutboxItemDto,
 } from "./ipc/api";
+import { isEditableFolder } from "./folder-edit.svelte";
 import { ComposeState } from "./compose.svelte";
 import { MailState } from "./mail.svelte";
 import { SearchState } from "./search.svelte";
@@ -30,6 +32,8 @@ export type DialogName =
   | "move"
   | "archive-folder"
   | "new-folder"
+  | "rename-folder"
+  | "delete-folder"
   | "compose"
   | "outbox"
   | "settings"
@@ -37,6 +41,9 @@ export type DialogName =
 
 export interface AppContext {
   selectedAccount: AccountDto | null;
+  /** Dossier visé par les commandes de dossier : celui dont le menu est
+   * ouvert, sinon le dossier affiché. */
+  folder: FolderDto | null;
   dialog: DialogName | null;
   /** Nombre de conversations affichées. */
   conversations: number;
@@ -70,6 +77,8 @@ class AppState {
   draftsAccount = $state<number | null>(null);
   /** Préférence « texte brut », affichée dans les paramètres. */
   plainText = $state(false);
+  /** Dossier dont le menu a été ouvert (sinon : le dossier affiché). */
+  folderTarget = $state<FolderDto | null>(null);
   /** Échecs déjà signalés (identifiants dans la file). */
   #reported = new Set<number>();
 
@@ -77,9 +86,22 @@ class AppState {
     this.accounts.find((a) => a.id === this.selectedAccountId) ?? null,
   );
 
+  accountById(id: number): AccountDto | null {
+    return this.accounts.find((a) => a.id === id) ?? null;
+  }
+
+  /** Dossier visé par les commandes de dossier ([`AppContext.folder`]). */
+  targetFolder(): FolderDto | null {
+    if (this.folderTarget !== null) return this.folderTarget;
+    const scope = mail.scope;
+    if (scope.kind !== "mailbox" || this.selectedAccountId === null) return null;
+    return (mail.folders[this.selectedAccountId] ?? []).find((f) => f.id === scope.id) ?? null;
+  }
+
   context(): AppContext {
     return {
       selectedAccount: this.selectedAccount,
+      folder: this.targetFolder(),
       dialog: this.dialog,
       conversations: mail.conversations.length,
       reading: mail.opened !== null,
@@ -99,6 +121,7 @@ class AppState {
 
   close(): void {
     this.dialog = null;
+    this.folderTarget = null;
   }
 
   /** Ouvre l'éditeur : nouveau message, réponse ou transfert. */
@@ -503,6 +526,24 @@ export function registerAppCommands(): () => void {
       keywords: words(m.cmd_new_folder_keywords()),
       when: (ctx) => ctx.selectedAccount !== null,
       run: () => app.open("new-folder"),
+    }),
+    registry.register({
+      id: "folder.rename",
+      title: m.cmd_rename_folder(),
+      group: m.group_accounts(),
+      keywords: words(m.cmd_rename_folder_keywords()),
+      when: (ctx) =>
+        ctx.selectedAccount !== null && ctx.folder !== null && isEditableFolder(ctx.folder),
+      run: () => app.open("rename-folder"),
+    }),
+    registry.register({
+      id: "folder.delete",
+      title: m.cmd_delete_folder(),
+      group: m.group_accounts(),
+      keywords: words(m.cmd_delete_folder_keywords()),
+      when: (ctx) =>
+        ctx.selectedAccount !== null && ctx.folder !== null && isEditableFolder(ctx.folder),
+      run: () => app.open("delete-folder"),
     }),
     registry.register({
       id: "account.sync",

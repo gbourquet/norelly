@@ -501,3 +501,41 @@ est majoritairement écrit par Claude et relu par le mainteneur.
   - Les tests end-to-end tournent avec la locale `fr` imposée et ciblent
     de préférence les rôles ARIA plutôt que les textes.
   - Les métadonnées AppStream et le fichier `.desktop` sont traduits.
+
+## ADR-012 : carnet d'adresses
+
+- **Statut** : Proposée (2026-11-07), à valider par le mainteneur avant
+  l'implémentation ([plan de l'epic](plans/carnet-adresses.md)).
+- **Contexte** : les seules adresses connues sont calculées à la volée à
+  partir des messages (expéditeurs reçus, destinataires envoyés), pour
+  l'autocomplétion. Il manque un carnet que l'utilisateur alimente,
+  importe depuis son ancien client (Gmail, Outlook, Thunderbird, Apple) et
+  exporte, ainsi que des listes de diffusion.
+- **Options** :
+  - stockage : local (SQLite) ; local et synchronisé en CardDAV ;
+  - portée : un carnet unique ; un carnet par compte ;
+  - formats : bibliothèque vCard existante ; analyseur écrit pour le
+    projet.
+- **Décision** :
+  - **Carnet local** dans la base SQLite, modèle calqué sur vCard
+    (nom affiché, prénom, nom, surnom, plusieurs adresses dont une
+    préférée, téléphones, organisation, notes, favori) pour qu'une
+    synchronisation **CardDAV** puisse s'ajouter plus tard sans reprise
+    du schéma ;
+  - **un carnet unique** pour tous les comptes (la boîte unifiée affiche
+    le même nom quel que soit le compte) ;
+  - règles (validation, nom affiché, plan d'import, doublons, listes) dans
+    le domaine ; lectures d'écran par un port de requête paginé ;
+  - formats dans un adaptateur `contacts-io` derrière un port
+    `ContactCodec` : vCard 2.1/3.0/4.0 et LDIF **écrits pour le projet**
+    (formats simples, limites et fuzzing maîtrisés), CSV Google, Outlook
+    et Thunderbird par la crate **`csv`** (MIT ou Unlicense) ;
+  - le fichier est choisi par le sélecteur natif et lu en Rust ;
+    l'interface ne reçoit qu'un aperçu chiffré.
+- **Conséquences** :
+  - deux migrations (contacts, listes) et des jointures sur l'adresse
+    normalisée dans les listes d'écran : à surveiller avec les bancs 50k ;
+  - le nom du carnet s'affiche pour une adresse `From` qui peut être
+    falsifiée : il ne vaut pas preuve d'identité (constat à porter par la
+    revue de sécurité) ;
+  - photos de contact et CardDAV restent au backlog.

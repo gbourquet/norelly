@@ -45,6 +45,7 @@ export type MailApi = Pick<
   | "conversationMessages"
   | "syncAccount"
   | "performAction"
+  | "markOpenedSeen"
   | "undoActions"
 >;
 
@@ -104,6 +105,12 @@ export class MailState {
   #actionGeneration = 0;
   /** Marquage comme lu en attente de la conversation ouverte. */
   #autoSeen: ReturnType<typeof setTimeout> | null = null;
+  /** Ouverture courante : un chargement de messages d'une ouverture
+   * précédente ne programme rien. */
+  #openGeneration = 0;
+  /** Marquage automatique en cours d'envoi : une action de l'utilisateur
+   * l'attend, pour être enregistrée après lui et l'emporter. */
+  #autoSeenInFlight: Promise<void> | null = null;
   notice = $state<Notice | null>(null);
 
   readonly selected = $derived(this.conversations[this.selectedIndex] ?? null);
@@ -228,42 +235,48 @@ export class MailState {
   async open(): Promise<void> {
     const conversation = this.selected;
     if (conversation === null) return;
-    this.#openWith(conversation, null);
-    await this.#loadMessages(conversation.id);
+    await this.#openWith(conversation, null);
   }
 
-  /** Affiche une conversation ; si elle a des messages non lus, la
-   * marque comme lue si elle est encore ouverte au bout du délai des
-   * réglages. */
-  #openWith(conversation: ConversationDto, scope: ScopeDto | null): void {
+  /**
+   * Affiche une conversation et charge ses messages. Ceux qui s'affichent
+   * non lus seront marqués comme lus si la conversation est encore
+   * ouverte au bout du délai des réglages ; un message arrivé entre-temps
+   * n'a pas été vu et n'est pas compté (Rust choisit les messages visés).
+   */
+  async #openWith(conversation: ConversationDto, scope: ScopeDto | null): Promise<void> {
     this.#cancelAutoSeen();
+    const generation = ++this.#openGeneration;
     this.opened = conversation;
     this.#openedScope = scope;
     this.messages = [];
+    await this.#loadMessages(conversation.id);
+    if (generation !== this.#openGeneration) return;
+    const shown = this.messages.filter((x) => x.unread).map((x) => x.id);
     const delay = this.#markSeenDelay();
-    if (conversation.unread === 0 || delay === null) return;
+    if (shown.length === 0 || delay === null) return;
     this.#autoSeen = setTimeout(() => {
       this.#autoSeen = null;
-      void this.#markOpenedSeen(conversation);
+      this.#autoSeenInFlight = this.#markOpenedSeen(conversation, shown);
     }, delay);
   }
 
   #cancelAutoSeen(): void {
+    this.#openGeneration++;
     if (this.#autoSeen !== null) clearTimeout(this.#autoSeen);
     this.#autoSeen = null;
   }
 
   /** Marquage automatique : ni message de confirmation ni annulation,
    * qui restent ceux de la dernière action de l'utilisateur. */
-  async #markOpenedSeen(conversation: ConversationDto): Promise<void> {
+  async #markOpenedSeen(conversation: ConversationDto, shown: number[]): Promise<void> {
     try {
-      await this.#api.performAction([conversation.id], this.#openedScope ?? this.scope, {
-        kind: "mark_seen",
-        value: true,
-      });
+      await this.#api.markOpenedSeen(conversation.id, shown);
       await this.refreshAfterAction([conversation.account]);
     } catch (e) {
       this.notice = { text: errorText(e), undoable: false };
+    } finally {
+      this.#autoSeenInFlight = null;
     }
   }
 
@@ -322,8 +335,7 @@ export class MailState {
    * du message trouvé, où s'appliquent les actions. */
   async openConversation(conversation: ConversationDto, scope: ScopeDto): Promise<void> {
     this.marked = [];
-    this.#openWith(conversation, scope);
-    await this.#loadMessages(conversation.id);
+    await this.#openWith(conversation, scope);
   }
 
   /** Conversations visées : cochées, sinon ouverte, sinon sélectionnée. */
@@ -346,6 +358,7 @@ export class MailState {
       ids === undefined ? this.targets() : this.conversations.filter((c) => ids.includes(c.id));
     if (targets.length === 0) return;
     if (targets.some((t) => t.id === this.opened?.id)) this.#cancelAutoSeen();
+    await this.#autoSeenInFlight;
     try {
       const scope =
         ids === undefined && this.marked.length === 0

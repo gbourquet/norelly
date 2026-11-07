@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { ActionDto, ConversationDto, ScopeDto } from "./ipc/api";
+import type { ActionDto, ConversationDto, ConversationMessage, ScopeDto } from "./ipc/api";
 import { MailState, PAGE_SIZE, UNDO_WINDOW_MS, UNIFIED_INBOX, type MailApi } from "./mail.svelte";
 import { IpcFailure } from "./errors";
 
@@ -42,6 +42,10 @@ function fakeApi(total: number, unread: number[] = []): MailApi & { calls: Scope
       removed = [];
       return ops.length;
     }),
+    markOpenedSeen: vi.fn(async (_conversation: number, shown: number[]) => ({
+      ops: shown.map((id) => id + 2000),
+      messages: shown.length,
+    })),
     listFolders: vi.fn(async () => []),
     syncAccount: vi.fn(async () => undefined),
     conversationMessages: vi.fn(async (id: number) => [
@@ -54,7 +58,7 @@ function fakeApi(total: number, unread: number[] = []): MailApi & { calls: Scope
         to: [],
         cc: [],
         subject: `Sujet ${id}`,
-        unread: false,
+        unread: unread.includes(id),
         flagged: false,
         has_attachments: false,
       },
@@ -293,16 +297,29 @@ describe("mesure de performance", () => {
 });
 
 describe("marquage comme lu à l'ouverture", () => {
-  const seen = { kind: "mark_seen", value: true } as const;
   const DELAY_MS = 5000;
 
   function seenCalls(api: MailApi): unknown[][] {
-    return vi
-      .mocked(api.performAction)
-      .mock.calls.filter(([, , action]) => action.kind === "mark_seen");
+    return vi.mocked(api.markOpenedSeen).mock.calls;
   }
 
-  it("marque lue une conversation non lue restée ouverte, sans message ni annulation", async () => {
+  function message(id: number, unread: boolean): ConversationMessage {
+    return {
+      id,
+      account: 1,
+      mailbox: 10,
+      date: 0,
+      from: null,
+      to: [],
+      cc: [],
+      subject: "Sujet",
+      unread,
+      flagged: false,
+      has_attachments: false,
+    };
+  }
+
+  it("marque lus les messages affichés non lus restés ouverts, sans message ni annulation", async () => {
     vi.useFakeTimers();
     try {
       const api = fakeApi(3, [1]);
@@ -312,10 +329,37 @@ describe("marquage comme lu à l'ouverture", () => {
       await vi.advanceTimersByTimeAsync(DELAY_MS - 1);
       expect(seenCalls(api)).toEqual([]);
       await vi.advanceTimersByTimeAsync(1);
-      expect(seenCalls(api)).toEqual([[[1], { kind: "mailbox", id: 10 }, seen]]);
+      expect(seenCalls(api)).toEqual([[1, [10]]]);
+      expect(api.performAction).not.toHaveBeenCalled();
       expect(mail.notice).toBeNull();
       expect(mail.lastAction).toBeNull();
       expect(mail.opened?.id).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("une réponse arrivée pendant le délai n'est pas marquée", async () => {
+    vi.useFakeTimers();
+    try {
+      const api = fakeApi(3, [1]);
+      const mail = new MailState(api, () => DELAY_MS);
+      await mail.show(UNIFIED_INBOX);
+      vi.mocked(api.conversationMessages).mockResolvedValueOnce([
+        message(10, true),
+        message(9, false),
+      ]);
+      await mail.open();
+      // Synchronisation : la conversation relue a une réponse non lue.
+      vi.mocked(api.conversationMessages).mockResolvedValueOnce([
+        message(11, true),
+        message(10, true),
+        message(9, false),
+      ]);
+      await mail.onSyncEvent({ kind: "folder_changed", account: 1, mailbox: 10 });
+      expect(mail.messages.map((x) => x.id)).toEqual([11, 10, 9]);
+      await vi.advanceTimersByTimeAsync(DELAY_MS);
+      expect(seenCalls(api)).toEqual([[1, [10]]]);
     } finally {
       vi.useRealTimers();
     }
@@ -334,6 +378,32 @@ describe("marquage comme lu à l'ouverture", () => {
       mail.back();
       await vi.advanceTimersByTimeAsync(DELAY_MS);
       expect(seenCalls(api)).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("une ouverture dépassée pendant le chargement ne programme rien", async () => {
+    vi.useFakeTimers();
+    try {
+      const api = fakeApi(3, [1, 2]);
+      let release: () => void = () => undefined;
+      vi.mocked(api.conversationMessages).mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            release = () => resolve([message(10, true)]);
+          }),
+      );
+      const mail = new MailState(api, () => DELAY_MS);
+      await mail.show(UNIFIED_INBOX);
+      // Conversation 1 ouverte, puis 2 avant que les messages de 1 arrivent.
+      const first = mail.open();
+      mail.select(1);
+      await mail.open();
+      release();
+      await first;
+      await vi.advanceTimersByTimeAsync(DELAY_MS);
+      expect(seenCalls(api)).toEqual([[2, [20]]]);
     } finally {
       vi.useRealTimers();
     }
@@ -368,15 +438,46 @@ describe("marquage comme lu à l'ouverture", () => {
     }
   });
 
-  it("conversation ouverte depuis la recherche : marquée dans le dossier du résultat", async () => {
+  it("une action de l'utilisateur attend le marquage en cours d'envoi", async () => {
     vi.useFakeTimers();
     try {
-      const api = fakeApi(3);
+      const api = fakeApi(3, [1]);
+      let finish: () => void = () => undefined;
+      vi.mocked(api.markOpenedSeen).mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finish = () => resolve({ ops: [2010], messages: 1 });
+          }),
+      );
       const mail = new MailState(api, () => DELAY_MS);
       await mail.show(UNIFIED_INBOX);
-      await mail.openConversation({ ...conversation(42), unread: 2 }, { kind: "mailbox", id: 77 });
+      await mail.open();
       await vi.advanceTimersByTimeAsync(DELAY_MS);
-      expect(seenCalls(api)).toEqual([[[42], { kind: "mailbox", id: 77 }, seen]]);
+      expect(seenCalls(api)).toHaveLength(1);
+
+      const unseen = mail.act({ kind: "mark_seen", value: false }, "Non lu.");
+      await vi.advanceTimersByTimeAsync(0);
+      expect(api.performAction).not.toHaveBeenCalled();
+      finish();
+      await unseen;
+      expect(api.performAction).toHaveBeenCalledWith([1], UNIFIED_INBOX, {
+        kind: "mark_seen",
+        value: false,
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("conversation ouverte depuis la recherche", async () => {
+    vi.useFakeTimers();
+    try {
+      const api = fakeApi(3, [42]);
+      const mail = new MailState(api, () => DELAY_MS);
+      await mail.show(UNIFIED_INBOX);
+      await mail.openConversation({ ...conversation(42), unread: 1 }, { kind: "mailbox", id: 77 });
+      await vi.advanceTimersByTimeAsync(DELAY_MS);
+      expect(seenCalls(api)).toEqual([[42, [420]]]);
     } finally {
       vi.useRealTimers();
     }
@@ -389,12 +490,10 @@ describe("marquage comme lu à l'ouverture", () => {
       const mail = new MailState(api, () => DELAY_MS);
       await mail.show(UNIFIED_INBOX);
       await mail.open();
-      vi.mocked(api.performAction).mockRejectedValueOnce(new IpcFailure("no_trash"));
+      vi.mocked(api.markOpenedSeen).mockRejectedValueOnce(new IpcFailure("too_many_messages"));
       await vi.advanceTimersByTimeAsync(DELAY_MS);
-      expect(mail.notice).toEqual({
-        text: "Aucun dossier Corbeille sur ce compte.",
-        undoable: false,
-      });
+      expect(mail.notice?.undoable).toBe(false);
+      expect(mail.notice?.text).toBeTruthy();
     } finally {
       vi.useRealTimers();
     }

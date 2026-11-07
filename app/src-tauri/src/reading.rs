@@ -118,8 +118,7 @@ pub async fn list_conversations(
         directory: &state.contacts,
     }
     .execute(page.items.iter().flat_map(|c| &c.senders))
-    .await
-    .map_err(IpcError::storage)?;
+    .await;
     let items = page
         .items
         .iter()
@@ -134,7 +133,7 @@ pub async fn list_conversations(
                     .senders
                     .iter()
                     .map(|s| CorrespondentDto::named(&names, s))
-                    .collect::<Result<_, _>>()?,
+                    .collect(),
                 messages: c.messages,
                 unread: c.unread,
                 flagged: c.flagged,
@@ -179,12 +178,11 @@ pub async fn conversation_messages(
         directory: &state.contacts,
     }
     .execute(people)
-    .await
-    .map_err(IpcError::storage)?;
+    .await;
     let named = |list: &[norelly_domain::mailbox::Correspondent]| {
         list.iter()
             .map(|p| CorrespondentDto::named(&names, p))
-            .collect::<Result<Vec<_>, _>>()
+            .collect::<Vec<_>>()
     };
     messages
         .iter()
@@ -194,13 +192,9 @@ pub async fn conversation_messages(
                 account: id32(m.account.get())?,
                 mailbox: id32(m.mailbox.get())?,
                 date: date_dto(m.date),
-                from: m
-                    .from
-                    .as_ref()
-                    .map(|f| CorrespondentDto::named(&names, f))
-                    .transpose()?,
-                to: named(&m.to)?,
-                cc: named(&m.cc)?,
+                from: m.from.as_ref().map(|f| CorrespondentDto::named(&names, f)),
+                to: named(&m.to),
+                cc: named(&m.cc),
                 subject: m.subject.clone(),
                 unread: !m.flags.seen,
                 flagged: m.flags.flagged,

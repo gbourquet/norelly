@@ -930,17 +930,19 @@ impl From<&norelly_domain::mailbox::Correspondent> for CorrespondentDto {
 }
 
 impl CorrespondentDto {
-    /// Correspondant nommé d'après le carnet (`names`).
+    /// Correspondant nommé d'après le carnet (`names`). Une fiche
+    /// d'identifiant hors des 32 bits de l'interface est ignorée : elle ne
+    /// fait pas échouer la page du courrier.
     pub fn named(
         names: &norelly_domain::sender::SenderNames,
         c: &norelly_domain::mailbox::Correspondent,
-    ) -> Result<Self, IpcError> {
+    ) -> Self {
         let label = names.label(c);
-        Ok(Self {
+        Self {
             name: label.name,
             address: label.address,
-            contact: label.contact.map(|id| id32(id.get())).transpose()?,
-        })
+            contact: label.contact.and_then(|id| id32(id.get()).ok()),
+        }
     }
 }
 

@@ -75,8 +75,7 @@ pub async fn search_messages(
         directory: &state.contacts,
     }
     .execute(page.items.iter().filter_map(|h| h.from.as_ref()))
-    .await
-    .map_err(IpcError::storage)?;
+    .await;
     let items = page
         .items
         .into_iter()
@@ -87,11 +86,7 @@ pub async fn search_messages(
                 account: id32(h.account.get())?,
                 mailbox: id32(h.mailbox.get())?,
                 date: date_dto(h.date),
-                from: h
-                    .from
-                    .as_ref()
-                    .map(|f| CorrespondentDto::named(&names, f))
-                    .transpose()?,
+                from: h.from.as_ref().map(|f| CorrespondentDto::named(&names, f)),
                 subject: segments(highlight(&h.subject, &terms)),
                 snippet: segments(highlight(&h.snippet, &terms)),
                 unread: !h.flags.seen,

@@ -115,7 +115,9 @@ impl<D: ContactDirectory> GetContact<'_, D> {
 
 /// Cas d'usage : contacts du carnet qui portent les adresses de ces
 /// correspondants, pour les nommer ([`SenderNames::label`]). Sans adresse
-/// valide, le carnet n'est pas interrogé.
+/// valide, le carnet n'est pas interrogé. Nommer enrichit l'affichage :
+/// un carnet illisible laisse les noms des en-têtes (avertissement
+/// journalisé, sans adresse) au lieu d'empêcher la lecture du courrier.
 #[derive(Debug)]
 pub struct NameSenders<'a, D> {
     pub directory: &'a D,
@@ -127,13 +129,19 @@ impl<D: ContactDirectory> NameSenders<'_, D> {
     pub fn execute<'p>(
         &self,
         people: impl IntoIterator<Item = &'p Correspondent>,
-    ) -> impl Future<Output = Result<SenderNames, StoreError>> + Send + '_ {
+    ) -> impl Future<Output = SenderNames> + Send + '_ {
         let keys = sender_keys(people);
         async move {
             if keys.is_empty() {
-                return Ok(SenderNames::default());
+                return SenderNames::default();
             }
-            Ok(SenderNames::new(self.directory.by_addresses(&keys).await?))
+            match self.directory.by_addresses(&keys).await {
+                Ok(contacts) => SenderNames::new(contacts),
+                Err(e) => {
+                    tracing::warn!(error = %e, "carnet illisible : noms des en-têtes gardés");
+                    SenderNames::default()
+                }
+            }
         }
     }
 }

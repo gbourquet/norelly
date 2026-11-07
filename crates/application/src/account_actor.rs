@@ -26,7 +26,7 @@ use std::time::Duration;
 use norelly_domain::account::AccountId;
 use norelly_domain::connection::ConnectionError;
 use norelly_domain::fetch_policy::{BodyFetch, FetchPolicy};
-use norelly_domain::mailbox::{MailboxName, MailboxRole, Uid};
+use norelly_domain::mailbox::{MailboxName, MailboxRole, RemoteMailbox, Uid};
 use norelly_domain::ports::{
     BlobStore, ConnectRequest, FetchedBody, IdleOutcome, MailStore, PendingOpStore,
     RemoteMailboxConnector, RemoteMailboxSession, SearchTextExtractor, StoredMailbox,
@@ -36,7 +36,7 @@ use tokio::sync::{broadcast, mpsc, oneshot, watch};
 use tokio::task::JoinHandle;
 
 use crate::actions::{ReplayActions, ReplayFailure};
-use crate::folders::{CreateFolder, FolderFailure};
+use crate::folders::{FolderChange, FolderFailure};
 use crate::sync::{SyncAccount, SyncEvent, SyncFailure};
 
 /// Réglages de l'acteur.
@@ -71,8 +71,8 @@ pub const SHUTDOWN_GRACE: Duration = Duration::from_secs(5);
 /// Réponse à une demande de corps.
 type FetchReply = oneshot::Sender<Result<Option<FetchedBody>, ConnectionError>>;
 
-/// Réponse à une création de dossier.
-type CreateReply = oneshot::Sender<Result<MailboxName, FolderFailure>>;
+/// Réponse à une modification de dossier.
+type FolderReply = oneshot::Sender<Result<MailboxName, FolderFailure>>;
 
 #[derive(Debug)]
 enum Command {
@@ -87,11 +87,10 @@ enum Command {
         fetch: BodyFetch,
         reply: FetchReply,
     },
-    /// Création d'un dossier, à la demande.
-    CreateFolder {
-        label: String,
-        parent: Option<MailboxName>,
-        reply: CreateReply,
+    /// Création, renommage ou suppression d'un dossier, à la demande.
+    Folder {
+        change: FolderChange,
+        reply: FolderReply,
     },
 }
 
@@ -193,27 +192,58 @@ impl ActorClient {
         answer.await.map_err(|_| ConnectionError::Closed)?
     }
 
-    /// Crée le dossier `label` (sous `parent`, ou au premier niveau) par la
-    /// connexion de commandes, puis relit la liste des dossiers (événement
-    /// [`SyncEvent::FoldersChanged`]). Attend la reconnexion si elle est
-    /// coupée ; à borner par l'appelant.
+    /// Crée le dossier `label` (sous `parent`, ou au premier niveau) ;
+    /// voir [`Self::change_folder`].
     pub async fn create_folder(
         &self,
         label: String,
         parent: Option<MailboxName>,
     ) -> Result<MailboxName, FolderFailure> {
+        self.change_folder(FolderChange::Create { label, parent })
+            .await
+    }
+
+    /// Renomme le dossier `folder` en `label`, à la même place ; renvoie
+    /// son nouveau nom. Le dossier et ses sous-dossiers sont aussitôt
+    /// resynchronisés sous leur nouveau nom.
+    pub async fn rename_folder(
+        &self,
+        folder: MailboxName,
+        label: String,
+    ) -> Result<MailboxName, FolderFailure> {
+        self.change_folder(FolderChange::Rename { folder, label })
+            .await
+    }
+
+    /// Supprime le dossier `folder` et ses messages.
+    pub async fn delete_folder(&self, folder: MailboxName) -> Result<MailboxName, FolderFailure> {
+        self.change_folder(FolderChange::Delete { folder }).await
+    }
+
+    /// Modifie un dossier par la connexion de commandes, puis relit la
+    /// liste des dossiers (événement [`SyncEvent::FoldersChanged`]).
+    /// Attend la reconnexion si elle est coupée ; à borner par l'appelant.
+    async fn change_folder(&self, change: FolderChange) -> Result<MailboxName, FolderFailure> {
         let closed = || FolderFailure::Connection(ConnectionError::Closed);
         let (reply, answer) = oneshot::channel();
         self.commands
-            .send(Command::CreateFolder {
-                label,
-                parent,
-                reply,
-            })
+            .send(Command::Folder { change, reply })
             .await
             .map_err(|_| closed())?;
         answer.await.map_err(|_| closed())?
     }
+}
+
+/// `mailbox` est le dossier `folder` ou l'un de ses sous-dossiers.
+fn within(mailbox: &RemoteMailbox, folder: &MailboxName) -> bool {
+    mailbox.name == *folder
+        || mailbox.delimiter.is_some_and(|d| {
+            mailbox
+                .name
+                .as_str()
+                .strip_prefix(folder.as_str())
+                .is_some_and(|rest| rest.starts_with(d))
+        })
 }
 
 /// Gigue dans `[0, 1]`, tirée de l'horloge (pas besoin d'aléa
@@ -490,7 +520,7 @@ where
             let mut replay = false;
             let mut names = BTreeMap::new();
             let mut fetches = Vec::new();
-            let mut creates = Vec::new();
+            let mut folders = Vec::new();
             for command in
                 std::iter::once(command).chain(std::iter::from_fn(|| commands.try_recv().ok()))
             {
@@ -506,11 +536,7 @@ where
                         fetch,
                         reply,
                     } => fetches.push((mailbox, uid, fetch, reply)),
-                    Command::CreateFolder {
-                        label,
-                        parent,
-                        reply,
-                    } => creates.push((label, parent, reply)),
+                    Command::Folder { change, reply } => folders.push((change, reply)),
                 }
             }
             for (mailbox, uid, fetch, reply) in fetches {
@@ -527,16 +553,24 @@ where
                     return Some(e.into());
                 }
             }
-            for (label, parent, reply) in creates {
+            for (change, reply) in folders {
                 // Demande abandonnée (délai de l'interface dépassé) : rien
-                // n'est créé, l'utilisateur a déjà vu l'échec.
+                // n'est modifié, l'utilisateur a déjà vu l'échec.
                 if reply.is_closed() {
                     continue;
                 }
                 let (result, failure) = tokio::select! {
                     _ = stop.changed() => return None,
-                    r = self.create_folder(session, known, &label, parent.as_ref()) => r,
+                    r = self.change_folder(session, known, &change) => r,
                 };
+                // Dossier renommé : relu aussitôt sous son nouveau nom, avec
+                // ses sous-dossiers (le cache local de l'ancien nom est
+                // oublié avec la liste).
+                if let (FolderChange::Rename { .. }, Ok(renamed)) = (&change, &result) {
+                    for m in known.iter().filter(|m| within(&m.mailbox, renamed)) {
+                        names.insert(m.mailbox.name.clone(), ());
+                    }
+                }
                 let _ = reply.send(result);
                 if let Some(e) = failure {
                     return Some(e);
@@ -584,27 +618,26 @@ where
         }
     }
 
-    /// Crée un dossier puis relit la liste des dossiers. Renvoie la
+    /// Modifie un dossier puis relit la liste des dossiers. Renvoie la
     /// réponse à transmettre et, si la connexion est perdue, l'échec qui
-    /// impose de la rouvrir : un dossier créé reste annoncé comme créé même
-    /// si la relecture échoue. Une erreur de stockage pendant la relecture
-    /// est seulement journalisée (la prochaine synchronisation enregistrera
-    /// le dossier).
-    async fn create_folder(
+    /// impose de la rouvrir : un dossier modifié reste annoncé comme tel
+    /// même si la relecture échoue. Une erreur de stockage pendant la
+    /// relecture est seulement journalisée (la prochaine synchronisation
+    /// rattrapera la liste).
+    async fn change_folder(
         &self,
         session: &mut C::Session,
         known: &mut Vec<StoredMailbox>,
-        label: &str,
-        parent: Option<&MailboxName>,
+        change: &FolderChange,
     ) -> (Result<MailboxName, FolderFailure>, Option<SyncFailure>) {
-        let created = match (CreateFolder { label, parent }).execute(session).await {
-            Ok(created) => created,
+        let changed = match change.execute(session).await {
+            Ok(changed) => changed,
             Err(FolderFailure::Connection(e)) if !matches!(e, ConnectionError::Rejected(_)) => {
                 return (Err(FolderFailure::Connection(e.clone())), Some(e.into()));
             }
             Err(e) => return (Err(e), None),
         };
-        tracing::info!(account = %self.account, "dossier créé");
+        tracing::info!(account = %self.account, "{}", change.kind());
         let failure = match self.use_case().sync_folders(session).await {
             Ok(mailboxes) => {
                 if *known != mailboxes {
@@ -621,7 +654,7 @@ where
                 None
             }
         };
-        (Ok(created), failure)
+        (Ok(changed), failure)
     }
 
     async fn sync_named(

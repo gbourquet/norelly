@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use norelly_domain::credentials::{Credentials, Secret, Username};
 use norelly_domain::endpoint::{Host, Security, ServerEndpoint};
-use norelly_domain::mailbox::Flags;
+use norelly_domain::mailbox::{Flags, FolderChangeError};
 use norelly_domain::ports::{FolderTreeQuery, MailStore};
 use norelly_domain::security::PlaintextPolicy;
 use norelly_test_support::fake_imap::FakeImap;
@@ -531,5 +531,95 @@ async fn abandoned_folder_request_is_not_sent() {
         .map(|m| m.name.as_str().to_owned())
         .collect();
     assert!(!names.contains(&"Factures".to_owned()), "{names:?}");
+    r.handle.shutdown().await;
+}
+
+/// Total local du dossier `raw`, s'il est connu.
+async fn local_total(r: &Running, raw: &str) -> Option<u32> {
+    r.store
+        .tree(account())
+        .await
+        .unwrap_or_else(|e| panic!("{e}"))
+        .into_iter()
+        .find(|n| n.name.as_str() == raw)
+        .map(|n| n.total)
+}
+
+#[tokio::test]
+async fn renamed_folder_is_listed_and_synchronised_at_once() {
+    use crate::folders::FolderFailure;
+
+    let imap = FakeImap::new();
+    imap.create_mailbox("Projets", &[]);
+    imap.create_mailbox("Projets/2026", &[]);
+    imap.append("Projets", b"Subject: un\r\n\r\nx", Flags::default(), 1);
+    imap.append(
+        "Projets/2026",
+        b"Subject: deux\r\n\r\ny",
+        Flags::default(),
+        2,
+    );
+    let mut r = start(&imap);
+    wait_for(&mut r.events, WAIT, online).await;
+    let client = r.handle.client();
+    let renamed = tokio::time::timeout(
+        WAIT,
+        client.rename_folder(
+            MailboxName::parse("Projets").unwrap_or_else(|e| panic!("{e}")),
+            "Chantiers".into(),
+        ),
+    )
+    .await
+    .unwrap_or_else(|_| panic!("délai"));
+    assert_eq!(
+        renamed,
+        Ok(MailboxName::parse("Chantiers").unwrap_or_else(|e| panic!("{e}")))
+    );
+    // Sans attendre la synchronisation complète (une heure) : le dossier
+    // renommé et son sous-dossier sont relus aussitôt.
+    let deadline = tokio::time::Instant::now() + WAIT;
+    while (
+        local_total(&r, "Chantiers").await,
+        local_total(&r, "Chantiers/2026").await,
+    ) != (Some(1), Some(1))
+    {
+        assert!(tokio::time::Instant::now() < deadline, "dossiers relus");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert_eq!(local_total(&r, "Projets").await, None, "ancien nom oublié");
+
+    // Refus du domaine : l'acteur reste en ligne et sert la suite.
+    let inbox = client
+        .rename_folder(MailboxName::inbox(), "Reçus".into())
+        .await;
+    assert_eq!(
+        inbox,
+        Err(FolderFailure::Change(FolderChangeError::Protected))
+    );
+    r.handle.shutdown().await;
+}
+
+#[tokio::test]
+async fn deleted_folder_disappears_locally() {
+    let imap = FakeImap::new();
+    imap.create_mailbox("Projets", &[]);
+    imap.append("Projets", b"Subject: un\r\n\r\nx", Flags::default(), 1);
+    let mut r = start(&imap);
+    wait_for(&mut r.events, WAIT, online).await;
+    let projets = MailboxName::parse("Projets").unwrap_or_else(|e| panic!("{e}"));
+    let deadline = tokio::time::Instant::now() + WAIT;
+    while local_total(&r, "Projets").await != Some(1) {
+        assert!(tokio::time::Instant::now() < deadline, "synchronisé");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    let deleted = tokio::time::timeout(WAIT, r.handle.client().delete_folder(projets.clone()))
+        .await
+        .unwrap_or_else(|_| panic!("délai"));
+    assert_eq!(deleted, Ok(projets));
+    wait_for(&mut r.events, WAIT, |e| {
+        matches!(e, SyncEvent::FoldersChanged { .. })
+    })
+    .await;
+    assert_eq!(local_total(&r, "Projets").await, None);
     r.handle.shutdown().await;
 }

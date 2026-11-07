@@ -144,6 +144,27 @@ other apps.
 
 ![The "New folder" window: folder name and location](captures/new-folder.png)
 
+To **rename** or **delete** one of your folders, move the mouse over its
+name in the left panel, click the **⋯** that appears on the right, then
+**Rename folder…** or **Delete folder…**.
+
+![The menu of a folder: rename or delete](captures/folder-menu.png)
+
+- **Rename**: type the new name, then click **Rename**. The folder keeps
+  its place, its messages and its subfolders.
+
+  ![The "Rename folder" window, with the new name](captures/rename-folder.png)
+
+- **Delete**: a window asks you to confirm. Careful: the folder's messages
+  are **permanently deleted**, without going to the trash, so move the
+  ones you want to keep first. A folder that contains subfolders cannot be
+  deleted: delete its subfolders first.
+
+![The confirmation before deleting a folder](captures/delete-folder.png)
+
+The inbox and special folders (Sent, Drafts, Trash…) cannot be renamed or
+deleted.
+
 To act on **several messages at once**, tick the box at the start of each
 line you want. A bar appears above the list: it shows how many messages are
 selected and offers the actions, which apply to all of them. **Clear

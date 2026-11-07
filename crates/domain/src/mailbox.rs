@@ -293,6 +293,19 @@ impl MailboxName {
         Self("INBOX".to_owned())
     }
 
+    /// Ce nom après le renommage du dossier `from` en `to` : `to` s'il est
+    /// `from`, `to` suivi du reste s'il est un de ses sous-dossiers (selon
+    /// `delimiter`) ; `None` s'il n'est pas concerné.
+    #[must_use]
+    pub fn relocated(&self, from: &Self, to: &Self, delimiter: Option<char>) -> Option<Self> {
+        if self == from {
+            return Some(to.clone());
+        }
+        let d = delimiter?;
+        let rest = self.0.strip_prefix(from.as_str())?.strip_prefix(d)?;
+        Self::parse(&format!("{}{d}{rest}", to.as_str())).ok()
+    }
+
     #[must_use]
     pub fn is_inbox(&self) -> bool {
         self.0 == "INBOX"

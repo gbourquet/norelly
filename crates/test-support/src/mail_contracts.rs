@@ -1144,6 +1144,23 @@ impl PendingOpStore for InMemoryMailStore {
             .collect())
     }
 
+    async fn relocate(
+        &self,
+        id: PendingOpId,
+        mailbox: &MailboxName,
+        target: Option<&MailboxName>,
+    ) -> Result<bool, StoreError> {
+        let mut s = lock(&self.state);
+        let Some(op) = s.ops.get_mut(&id) else {
+            return Ok(false);
+        };
+        op.mailbox = mailbox.clone();
+        if let (OpKind::Move { to }, Some(target)) = (&mut op.kind, target) {
+            *to = target.clone();
+        }
+        Ok(true)
+    }
+
     async fn complete(&self, id: PendingOpId) -> Result<bool, StoreError> {
         let mut s = lock(&self.state);
         s.claimed.remove(&id);

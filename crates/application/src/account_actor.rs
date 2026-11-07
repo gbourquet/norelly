@@ -35,7 +35,7 @@ use norelly_domain::sync::{Backoff, IDLE_RENEWAL_SECS, SelectRequest, SyncExtens
 use tokio::sync::{broadcast, mpsc, oneshot, watch};
 use tokio::task::JoinHandle;
 
-use crate::actions::{ReplayActions, ReplayFailure};
+use crate::actions::{FollowFolder, ReplayActions, ReplayFailure};
 use crate::folders::{FolderChange, FolderFailure};
 use crate::sync::{SyncAccount, SyncEvent, SyncFailure};
 
@@ -652,6 +652,24 @@ where
             Err(e) => return (Err(e), None),
         };
         tracing::info!(account = %self.account, "{}", change.kind());
+        // Dossier renommé ou déplacé : les actions en attente qui le visent
+        // suivent son nouveau nom (séparateur de la liste d'avant).
+        if let FolderChange::Rename { folder, .. } | FolderChange::Move { folder, .. } = change {
+            let delimiter = known
+                .iter()
+                .find(|m| m.mailbox.name == *folder)
+                .and_then(|m| m.mailbox.delimiter);
+            let follow = FollowFolder {
+                account: self.account,
+                store: &*self.store,
+            };
+            if let Err(e) = follow.execute(folder, &changed, delimiter).await {
+                // Le dossier est bien changé sur le serveur : l'échec du
+                // stockage est journalisé, les actions concernées seront
+                // abandonnées au rejeu (état local rétabli).
+                tracing::error!(account = %self.account, error = %e, "actions en attente non suivies");
+            }
+        }
         let failure = match self.use_case().sync_folders(session).await {
             Ok(mailboxes) => {
                 if *known != mailboxes {

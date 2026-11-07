@@ -134,6 +134,11 @@ déplacer « Bli » dans « Bla » en fait un sous-dossier de « Bla ».
   sens.
 - Les messages d'un dossier renommé ou déplacé sont téléchargés à nouveau
   sous son nouveau nom.
+- Un message rangé dans un dossier (ou sorti d'un dossier) juste avant que
+  ce dossier soit renommé ou déplacé, alors que l'action n'est pas encore
+  faite sur le serveur (délai d'annulation, hors ligne), arrive bien dans
+  le dossier à sa nouvelle place : l'action suit le dossier, ses
+  sous-dossiers compris.
 
 ## Messages affichés
 

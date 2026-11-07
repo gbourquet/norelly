@@ -143,6 +143,21 @@ quand le mainteneur l'abandonne (avec la raison).
   et le `RENAME` part (Dovecot et Cyrus refusent). Comparer sans la casse,
   comme pour les doublons, et avec le séparateur du parent aussi.
   (`crates/domain/src/mailbox.rs`)
+- **Action enfilée pendant le renommage d'un dossier** (revue de sécurité,
+  basse) : les actions en attente suivent un dossier renommé ou déplacé
+  (`FollowFolder`), mais une action enregistrée par l'interface entre le
+  `RENAME` et la relecture de la liste garde l'ancien nom, tout comme
+  celles d'une réécriture interrompue par l'arrêt de l'acteur ; elles sont
+  abandonnées au rejeu (état local rétabli, aucun autre message touché).
+  Rappeler `FollowFolder` après `sync_folders`, ou renommer la boîte locale
+  dans la même transaction. (`crates/application/src/account_actor.rs`,
+  `change_folder`)
+- **`PendingOpStore::relocate` sans filtre de compte** (revue de sécurité,
+  info) : `WHERE id = ?1` seulement, comme `complete`, `revert`, `cancel` ;
+  les identifiants viennent aujourd'hui de `pending(account)`. Ajouter le
+  compte au port et `AND account_id = ?`, avec au contrat : opérations de
+  l'autre compte intactes, déplacement avec `target = None`.
+  (`crates/adapters/sqlite/src/actions.rs`, `actions_contracts.rs`)
 - **Sous-dossiers ignorés au contrôle avant suppression** (revue de
   sécurité, basse) : un sous-dossier au nom indécodable ou refusé par
   `MailboxName::parse`, ou au-delà de `MAX_MAILBOXES`, n'est pas vu par

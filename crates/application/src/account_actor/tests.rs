@@ -402,6 +402,72 @@ async fn actions_wait_for_the_undo_window_then_replay_without_request() {
     r.handle.shutdown().await;
 }
 
+/// Message déplacé vers un dossier, puis ce dossier déplacé avant que
+/// l'action soit rejouée : le message arrive dans le dossier à sa nouvelle
+/// place, il ne reste pas dans son dossier d'origine.
+#[tokio::test]
+async fn pending_move_follows_a_folder_moved_before_replay() {
+    use crate::actions::PerformAction;
+    use norelly_domain::actions::MessageAction;
+    use norelly_domain::ports::MessageListQuery;
+
+    let imap = FakeImap::new();
+    imap.create_mailbox("Bla", &[]);
+    imap.create_mailbox("Bli", &[]);
+    imap.append("INBOX", b"Subject: a\r\n\r\nx", Flags::default(), 1);
+    let mut r = start(&imap);
+    wait_for(&mut r.events, WAIT, online).await;
+    wait_inbox(&r, 1, WAIT).await;
+    let tree = r
+        .store
+        .tree(account())
+        .await
+        .unwrap_or_else(|e| panic!("{e}"));
+    let id_of = |name: &str| {
+        tree.iter()
+            .find(|n| n.name.as_str() == name)
+            .map(|n| n.id)
+            .unwrap_or_else(|| panic!("{name}"))
+    };
+    let (inbox, bli) = (id_of("INBOX"), id_of("Bli"));
+    let id = r
+        .store
+        .page(inbox, None, 10)
+        .await
+        .unwrap_or_else(|e| panic!("{e}"))
+        .items
+        .first()
+        .map(|i| i.id)
+        .unwrap_or_else(|| panic!("message"));
+    // Vers « Bli », rejoué dans deux secondes (fenêtre d'annulation).
+    let now = super::unix_now() - norelly_domain::actions::UNDO_WINDOW_SECS + 2;
+    PerformAction { store: &*r.store }
+        .execute(&[id], MessageAction::Move(bli), now)
+        .await
+        .unwrap_or_else(|e| panic!("{e}"));
+    // « Bli » rangé dans « Bla » avant l'échéance.
+    let name = |raw: &str| MailboxName::parse(raw).unwrap_or_else(|e| panic!("{e}"));
+    let moved = tokio::time::timeout(
+        WAIT,
+        r.handle
+            .client()
+            .move_folder(name("Bli"), Some(name("Bla"))),
+    )
+    .await
+    .unwrap_or_else(|_| panic!("délai"));
+    assert_eq!(moved, Ok(name("Bla/Bli")));
+    r.handle.replay_soon();
+    let imap = r.imap.clone();
+    eventually(
+        Duration::from_secs(8),
+        "message arrivé dans Bla/Bli",
+        || imap.flags_of("Bla/Bli").len() == 1,
+    )
+    .await;
+    assert!(r.imap.flags_of("INBOX").is_empty(), "plus dans INBOX");
+    r.handle.shutdown().await;
+}
+
 /// Un message non lu arrivé par IDLE est signalé (notification),
 /// pas ceux de la première synchronisation.
 #[tokio::test]

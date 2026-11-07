@@ -402,6 +402,75 @@ describe("App", () => {
     vi.mocked(api.listConversations).mockResolvedValue({ items: [], next: null });
   });
 
+  it("glisse un dossier dans un autre, puis au premier niveau", async () => {
+    bobWithProjets();
+    const extra = (id: number, name: string) => ({
+      id,
+      name,
+      leaf: name.split("/").at(-1) ?? name,
+      depth: name.split("/").length - 1,
+      role: "normal",
+      selectable: true,
+      total: 0,
+      unread: 0,
+    });
+    const listed = await api.listFolders(3);
+    vi.mocked(api.listFolders).mockResolvedValue([
+      ...listed,
+      extra(13, "Factures"),
+      extra(14, "Factures/2026"),
+    ]);
+    render(App);
+    const button = async (text: string) =>
+      must((await screen.findByText(text)).closest<HTMLElement>("button"));
+    const projets = await button("Projets");
+    const factures = await button("Factures");
+    const year = await button("2026");
+    const root = must(
+      screen.getByText("bob@example.org").closest<HTMLElement>("[data-drop-account]"),
+    );
+    let under: Element = projets;
+    document.elementFromPoint = vi.fn(() => under);
+    const drag = async (from: HTMLElement, to: Element) => {
+      under = from;
+      await fireEvent.pointerDown(from, {
+        button: 0,
+        pointerType: "mouse",
+        clientX: 10,
+        clientY: 10,
+      });
+      await fireEvent.pointerMove(window, { pointerType: "mouse", clientX: 60, clientY: 40 });
+      under = to;
+      await fireEvent.pointerMove(window, { pointerType: "mouse", clientX: 20, clientY: 200 });
+    };
+
+    // Dans lui-même : pas une cible.
+    await drag(projets, projets);
+    expect(document.querySelector(".drag-ghost")).toHaveTextContent("Projets");
+    expect(projets.closest("li")).not.toHaveClass("drop-over");
+    // Dans un autre dossier.
+    under = factures;
+    await fireEvent.pointerMove(window, { pointerType: "mouse", clientX: 20, clientY: 220 });
+    expect(factures.closest("li")).toHaveClass("drop-over");
+    await fireEvent.pointerUp(window, { pointerType: "mouse", clientX: 20, clientY: 220 });
+    await waitFor(() => expect(api.moveFolder).toHaveBeenCalledWith(3, 12, 13));
+    expect(await screen.findByText("Dossier « Projets » déplacé.")).toBeInTheDocument();
+    // Le clic qui termine le glisser n'affiche pas le dossier.
+    await fireEvent.click(projets);
+    expect(api.listConversations).not.toHaveBeenCalledWith(
+      { kind: "mailbox", id: 12 },
+      expect.anything(),
+      expect.anything(),
+    );
+
+    // Un sous-dossier, au premier niveau : sur la ligne du compte.
+    await drag(year, root);
+    expect(root).toHaveClass("drop-over");
+    await fireEvent.pointerUp(window, { pointerType: "mouse", clientX: 20, clientY: 200 });
+    await waitFor(() => expect(api.moveFolder).toHaveBeenCalledWith(3, 14, null));
+    vi.mocked(api.listFolders).mockResolvedValue([]);
+  });
+
   it("Échap annule un glisser en cours", async () => {
     bobWithProjets();
     vi.mocked(api.listConversations).mockResolvedValue({

@@ -52,6 +52,18 @@ quand le mainteneur l'abandonne (avec la raison).
   - plafond global du nombre de fiches, à fixer avec les bancs (lot 6) ;
   - un lien `tel:` éventuel exigera un jeu de caractères restreint décidé
     en Rust.
+- **Carnet : constats de la revue de sécurité du lot 2** (bas et infos) :
+  - une fiche d'identifiant supérieur à `u32::MAX` fait échouer toute la
+    page de la liste (`id32` dans `app/src-tauri/src/contacts.rs`) :
+    écarter et journaliser la ligne, ou garantir des identifiants sur
+    32 bits côté stockage (rejoint « une fiche relue invalide ») ;
+  - taille de page bornée seulement dans l'adaptateur SQLite
+    (`MAX_PAGE_SIZE`) : borner dans le domaine (type `PageSize` ou plafond
+    du cas d'usage) et l'ajouter à la suite de contrat ;
+  - cases cochées non plafonnées dans l'interface : au-delà de 1 000, la
+    suppression échoue sur un « valeur refusée » générique ; « Écrire au
+    contact » relit une à une les fiches hors de la liste affichée :
+    message clair et borne côté interface (`app/src/lib/contacts.svelte.ts`).
 - **Synchronisation CardDAV du carnet** (après l'epic carnet) : adaptateur
   WebDAV sur `tls`, synchronisation bidirectionnelle, conflits, sans
   reprise du schéma (modèle déjà calqué sur vCard, ADR-012).

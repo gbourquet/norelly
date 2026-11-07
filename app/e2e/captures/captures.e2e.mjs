@@ -491,6 +491,9 @@ describe(`captures d'écran (${lang})`, () => {
     await menuItem(msg("cmd_person_show")).waitForDisplayed({ timeout: 10000 });
     await capture("person-menu");
     await browser.keys("Escape");
+    // Retour à la liste : le menu d'une ligne vise la conversation ouverte.
+    await button(msg("conversation_back")).click();
+    await $(`h1=${subject}`).waitForDisplayed({ reverse: true, timeout: 10000 });
 
     // Expéditeur inconnu : « Ajouter au carnet d'adresses », fiche
     // pré-remplie.

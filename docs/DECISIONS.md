@@ -532,8 +532,13 @@ est majoritairement écrit par Claude et relu par le mainteneur.
   - le fichier est choisi par le sélecteur natif et lu en Rust ;
     l'interface ne reçoit qu'un aperçu chiffré.
 - **Conséquences** :
-  - deux migrations (contacts, listes) et des jointures sur l'adresse
-    normalisée dans les listes d'écran : à surveiller avec les bancs 50k ;
+  - deux migrations (contacts, listes) ; nom du carnet dans les listes
+    d'écran du courrier : **dérogation validée par le mainteneur le
+    2026-11-07 (lot 3)**, pas de jointure SQL sur l'adresse normalisée
+    mais une requête par page par `ContactDirectory::by_addresses` (index
+    unique sur `address_key`), pour que la comparaison des adresses reste
+    celle du domaine (`AddressKey`) ; requêtes du courrier et bancs 50k
+    inchangés ;
   - le nom du carnet s'affiche pour une adresse `From` qui peut être
     falsifiée : il ne vaut pas preuve d'identité (constat à porter par la
     revue de sécurité) ;

@@ -111,7 +111,8 @@ sensible (SQL, IPC, fichiers, rendu).
 - Lectures d'écran : liste des conversations, messages d'une conversation
   et résultats de recherche ; le DTO indique le contact du carnet
   (pastille discrète, pas de texte Rust).
-  *Réalisé* : plutôt qu'une jointure SQL (qui aurait recopié en SQL la
+  *Réalisé* (dérogation validée par le mainteneur, consignée dans
+  l'ADR-012) : plutôt qu'une jointure SQL (qui aurait recopié en SQL la
   normalisation de `AddressKey`), les commandes cherchent en une requête
   les contacts des adresses de la page par `ContactDirectory::by_addresses`
   (index unique sur `address_key`, cas d'usage `NameSenders`) ; le DTO

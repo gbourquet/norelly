@@ -610,27 +610,7 @@ pub fn new_folder_name(
     existing: &[RemoteMailbox],
 ) -> Result<MailboxName, NewFolderError> {
     let label = folder_label(label)?;
-    let (prefix, delimiter) = match parent {
-        Some(parent) => {
-            let mailbox = existing
-                .iter()
-                .find(|m| m.name == *parent)
-                .ok_or(NewFolderError::UnknownParent)?;
-            if matches!(mailbox.role, MailboxRole::All | MailboxRole::Flagged) {
-                return Err(NewFolderError::VirtualParent);
-            }
-            let delimiter = mailbox.delimiter.ok_or(NewFolderError::NoHierarchy)?;
-            (format!("{}{delimiter}", parent.as_str()), Some(delimiter))
-        }
-        None => {
-            let delimiter = existing
-                .iter()
-                .find(|m| m.name.is_inbox())
-                .and_then(|m| m.delimiter)
-                .or_else(|| existing.iter().find_map(|m| m.delimiter));
-            (root_prefix(existing, delimiter), delimiter)
-        }
-    };
+    let (prefix, delimiter) = destination(parent, existing)?;
     if let Some(d) = delimiter
         && label.contains(d)
     {
@@ -676,6 +656,8 @@ pub enum FolderChangeError {
     Protected,
     #[error("le dossier contient des sous-dossiers")]
     HasSubfolders,
+    #[error("un dossier ne peut pas aller dans lui-même ni dans un de ses sous-dossiers")]
+    IntoItself,
     #[error(transparent)]
     Name(#[from] NewFolderError),
 }
@@ -714,6 +696,85 @@ pub fn renamed_folder_name(
         return Err(NewFolderError::AlreadyExists.into());
     }
     Ok(renamed)
+}
+
+/// Nouveau nom complet du dossier `folder` déplacé sous `parent` (ou au
+/// premier niveau), avec son nom actuel, d'après les boîtes `existing` du
+/// compte. Ses sous-dossiers le suivent (`RENAME` IMAP).
+///
+/// L'emplacement suit les règles d'un nouveau dossier ([`new_folder_name`] :
+/// parent connu, non virtuel, serveur avec hiérarchie, préfixe « INBOX »
+/// au premier niveau s'il y a lieu). Un dossier ne va ni dans lui-même ni
+/// dans un de ses sous-dossiers ; un dossier du même nom à l'arrivée, à la
+/// casse près, est refusé. Déjà à cet endroit : son nom est renvoyé tel
+/// quel. Les dossiers protégés (voir [`renamed_folder_name`]) ne se
+/// déplacent pas.
+pub fn moved_folder_name(
+    folder: &MailboxName,
+    parent: Option<&MailboxName>,
+    existing: &[RemoteMailbox],
+) -> Result<MailboxName, FolderChangeError> {
+    let mailbox = changeable(folder, existing)?;
+    if let Some(parent) = parent
+        && is_same_or_under(parent, folder, mailbox.delimiter)
+    {
+        return Err(FolderChangeError::IntoItself);
+    }
+    let (prefix, delimiter) = destination(parent, existing)?;
+    let leaf = folder.leaf(mailbox.delimiter);
+    if let Some(d) = delimiter
+        && leaf.contains(d)
+    {
+        return Err(NewFolderError::ContainsDelimiter(d).into());
+    }
+    let moved = MailboxName::parse(&format!("{prefix}{leaf}")).map_err(NewFolderError::from)?;
+    let wanted = moved.as_str().to_lowercase();
+    if existing
+        .iter()
+        .any(|m| m.name != *folder && m.name.as_str().to_lowercase() == wanted)
+    {
+        return Err(NewFolderError::AlreadyExists.into());
+    }
+    Ok(moved)
+}
+
+/// Vrai si `name` est `folder` ou l'un de ses sous-dossiers.
+fn is_same_or_under(name: &MailboxName, folder: &MailboxName, delimiter: Option<char>) -> bool {
+    name == folder
+        || delimiter.is_some_and(|d| {
+            name.as_str()
+                .strip_prefix(folder.as_str())
+                .is_some_and(|rest| rest.starts_with(d))
+        })
+}
+
+/// Préfixe du nom complet d'un dossier rangé sous `parent` (ou au premier
+/// niveau) et séparateur de hiérarchie qui s'y applique.
+fn destination(
+    parent: Option<&MailboxName>,
+    existing: &[RemoteMailbox],
+) -> Result<(String, Option<char>), NewFolderError> {
+    match parent {
+        Some(parent) => {
+            let mailbox = existing
+                .iter()
+                .find(|m| m.name == *parent)
+                .ok_or(NewFolderError::UnknownParent)?;
+            if matches!(mailbox.role, MailboxRole::All | MailboxRole::Flagged) {
+                return Err(NewFolderError::VirtualParent);
+            }
+            let delimiter = mailbox.delimiter.ok_or(NewFolderError::NoHierarchy)?;
+            Ok((format!("{}{delimiter}", parent.as_str()), Some(delimiter)))
+        }
+        None => {
+            let delimiter = existing
+                .iter()
+                .find(|m| m.name.is_inbox())
+                .and_then(|m| m.delimiter)
+                .or_else(|| existing.iter().find_map(|m| m.delimiter));
+            Ok((root_prefix(existing, delimiter), delimiter))
+        }
+    }
 }
 
 /// Vérifie que le dossier `folder` peut être supprimé : il existe, n'est

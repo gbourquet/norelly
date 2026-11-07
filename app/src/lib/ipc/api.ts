@@ -29,6 +29,7 @@ import {
   type DraftDto_Serialize,
   type OutboxItemDto,
   type RecipientDto,
+  type RecipientSuggestionDto_Serialize,
   type SavedDraftDto,
   type SearchHitDto_Serialize,
   type SearchPageDto_Serialize,
@@ -100,6 +101,9 @@ export type ConversationDto = ConversationDto_Serialize;
  * l'adresse. */
 export type CorrespondentDto = CorrespondentDto_Serialize;
 export type ConversationMessage = ConversationMessageDto_Serialize;
+/** Destinataire proposé pendant la saisie : `contact`, la fiche du carnet
+ * qui porte l'adresse ; absent : adresse déjà utilisée dans le courrier. */
+export type RecipientSuggestion = RecipientSuggestionDto_Serialize;
 export type SearchHit = SearchHitDto_Serialize;
 export type SearchPage = SearchPageDto_Serialize;
 /** Brouillon échangé avec l'éditeur (même forme dans les deux sens). */
@@ -268,7 +272,7 @@ export const api = {
   cancelSend: (account: number, id: number): Promise<void> =>
     unwrap(commands.cancelSend(account, id)).then(() => undefined),
 
-  suggestContacts: (account: number, text: string): Promise<RecipientDto[]> =>
+  suggestContacts: (account: number, text: string): Promise<RecipientSuggestion[]> =>
     unwrap(commands.suggestContacts(account, text)),
 
   /** `title` : titre du sélecteur de fichiers, localisé. */

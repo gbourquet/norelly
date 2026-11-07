@@ -203,6 +203,33 @@ async fn contacts_come_from_received_messages() {
 }
 
 #[tokio::test]
+async fn suggestions_name_contacts_from_the_book_first() {
+    use crate::contacts::create_contact;
+    let t = test_app().await;
+    let account = id32(t.account.get());
+    let eve = create_contact(t.state(), card("Ève", "Un", &["E1@example.com"]))
+        .await
+        .unwrap_or_else(fail);
+    let found = suggest_contacts(t.state(), account, "e1@".into())
+        .await
+        .unwrap_or_else(|e| panic!("{e:?}"));
+    assert_eq!(
+        found,
+        [crate::ipc::RecipientSuggestionDto {
+            name: "Ève Un".into(),
+            address: "E1@example.com".into(),
+            contact: Some(eve.id),
+        }],
+        "adresse du carnet et adresse collectée : une seule suggestion, celle du carnet"
+    );
+    // Recherche par nom du carnet, absent des messages.
+    let by_name = suggest_contacts(t.state(), account, "ève".into())
+        .await
+        .unwrap_or_else(|e| panic!("{e:?}"));
+    assert_eq!(by_name.first().and_then(|s| s.contact), Some(eve.id));
+}
+
+#[tokio::test]
 async fn accounts_are_listed_and_removed() {
     use crate::commands::{list_accounts, remove_account, trust_certificate};
     let t = test_app().await;

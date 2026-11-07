@@ -55,6 +55,35 @@ une ligne de la liste.
 
 ![Le menu du clic droit sur un contact](captures/contact-menu.png)
 
+## Vos contacts dans vos messages
+
+Quand une personne de votre carnet vous écrit, Norelly l'affiche sous le
+nom que vous lui avez donné, dans la liste des messages comme dans le
+message ouvert. Une petite pastille à côté de son nom rappelle qu'elle est
+dans vos contacts.
+
+Pour ajouter quelqu'un qui vous a écrit :
+
+1. Ouvrez son message et cliquez sur son **nom** (ou faites un **clic
+   droit** sur le message dans la liste).
+2. Choisissez **Ajouter au carnet d'adresses** : la fenêtre d'un nouveau
+   contact s'ouvre, déjà remplie avec son nom et son adresse.
+3. Complétez si vous le souhaitez, puis cliquez sur **Enregistrer**.
+
+![Le menu du clic droit, avec « Ajouter au carnet d'adresses »](captures/person-add-menu.png)
+
+![La fenêtre du nouveau contact, déjà remplie](captures/person-add-dialog.png)
+
+Pour une personne déjà dans votre carnet, un clic sur son nom propose
+**Voir le contact**, qui ouvre sa fiche.
+
+![Le menu d'un expéditeur déjà dans les contacts](captures/person-menu.png)
+
+Attention : le nom de votre contact s'affiche d'après l'adresse indiquée
+par le message, qu'un fraudeur peut imiter. Il ne garantit pas que le
+message vient vraiment de cette personne : en cas de doute (demande
+d'argent, de mot de passe), vérifiez par un autre moyen.
+
 ## Supprimer des contacts
 
 - Un contact : sur sa fiche, cliquez sur **Supprimer le contact**, puis

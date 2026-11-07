@@ -6,6 +6,7 @@ import {
   api,
   type AccountDto,
   type ComposeKindDto,
+  type CorrespondentDto,
   type DraftsDto,
   type FolderDto,
   type OutboxItemDto,
@@ -19,6 +20,7 @@ import { SettingsState } from "./settings.svelte";
 import { UpdatesState } from "./updates.svelte";
 import type { ConversationMessage } from "./ipc/api";
 import { failureLabel } from "./outbox";
+import type { PersonKind } from "./visible-actions";
 import { m } from "./paraglide/messages.js";
 import { errorText } from "./errors";
 
@@ -69,6 +71,15 @@ export interface AppContext {
   contactTargets: number;
   /** Nombre de contacts cochés. */
   contactsMarked: number;
+  /** Personne d'un message visée ([`AppState.targetPerson`]) : déjà dans
+   * le carnet, inconnue du carnet, ou aucune. */
+  person: PersonKind;
+}
+
+/** Nature d'une personne pour les commandes du carnet. */
+function personKind(person: CorrespondentDto | null): PersonKind {
+  if (person === null || person.address === "") return null;
+  return person.contact !== null ? "contact" : "stranger";
 }
 
 /** Vue affichée dans les panneaux de liste et de lecture. */
@@ -80,6 +91,9 @@ class AppState {
   /** Contact dont le menu contextuel est ouvert (sinon : les cochés, ou
    * la fiche ouverte). */
   contactTarget = $state<number | null>(null);
+  /** Personne d'un message dont le menu est ouvert (expéditeur,
+   * destinataire, ligne de la liste). */
+  personTarget = $state<CorrespondentDto | null>(null);
   selectedAccountId = $state<number | null>(null);
   dialog = $state<DialogName | null>(null);
   loadError = $state<string | null>(null);
@@ -132,6 +146,7 @@ class AppState {
         contactsView: true,
         contactTargets: this.contactTargets().length,
         contactsMarked: contacts.marked.length,
+        person: null,
       };
     }
     return {
@@ -150,7 +165,30 @@ class AppState {
       contactsView: false,
       contactTargets: 0,
       contactsMarked: 0,
+      person: personKind(this.targetPerson()),
     };
+  }
+
+  /** Personne visée par « Ajouter au carnet » et « Voir le contact » :
+   * celle dont le menu est ouvert, sinon l'expéditeur du dernier message
+   * de la conversation ouverte. */
+  targetPerson(): CorrespondentDto | null {
+    if (this.view !== "mail") return null;
+    if (this.personTarget !== null) return this.personTarget;
+    if (mail.opened === null) return null;
+    return mail.messages.at(-1)?.from ?? null;
+  }
+
+  /** Personne visée, puis menu oublié (la commande l'a prise en charge). */
+  takePerson(): CorrespondentDto | null {
+    const person = this.targetPerson();
+    this.personTarget = null;
+    return person;
+  }
+
+  /** Contexte des commandes qui visent `person` (menu d'une personne). */
+  contextForPerson(person: CorrespondentDto): AppContext {
+    return { ...this.context(), person: personKind(person) };
   }
 
   /** Contacts visés par les commandes du carnet : celui dont le menu est
@@ -177,10 +215,13 @@ class AppState {
     await contacts.load();
   }
 
-  /** Revient au courrier. */
+  /** Revient au courrier, relu : les noms tiennent compte des fiches
+   * modifiées dans le carnet. */
   showMail(): void {
+    const fromContacts = this.view === "contacts";
     this.view = "mail";
     this.contactTarget = null;
+    if (fromContacts) void mail.reload();
   }
 
   /** Contexte des commandes qui visent le contact `id` (menu d'une
@@ -197,6 +238,7 @@ class AppState {
     this.dialog = null;
     this.folderTarget = null;
     this.contactTarget = null;
+    this.personTarget = null;
   }
 
   /** Ouvre l'éditeur : nouveau message, réponse ou transfert. */
@@ -304,6 +346,18 @@ class AppState {
     } catch (e) {
       this.loadError = errorText(e);
     }
+  }
+}
+
+/** Exécute la commande `id` pour `person` (menu d'une personne d'un
+ * message, d'une ligne de la liste). */
+export async function runForPerson(id: string, person: CorrespondentDto): Promise<void> {
+  const context = app.contextForPerson(person);
+  app.personTarget = person;
+  try {
+    await registry.execute(id, context);
+  } finally {
+    app.personTarget = null;
   }
 }
 
@@ -736,6 +790,32 @@ export function registerAppCommands(): () => void {
         app.contactsToDelete = app.takeContactTargets();
         contactDeletion.reset();
         app.open("delete-contacts");
+      },
+    }),
+    registry.register({
+      id: "contacts.add-person",
+      title: m.cmd_person_add(),
+      group: m.group_contacts(),
+      keywords: words(m.cmd_person_add_keywords()),
+      when: (ctx) => ctx.person === "stranger",
+      run: () => {
+        const person = app.takePerson();
+        if (person === null) return;
+        contactForm.prefill(person);
+        app.open("contact");
+      },
+    }),
+    registry.register({
+      id: "contacts.show-person",
+      title: m.cmd_person_show(),
+      group: m.group_contacts(),
+      keywords: words(m.cmd_person_show_keywords()),
+      when: (ctx) => ctx.person === "contact",
+      run: async () => {
+        const id = app.takePerson()?.contact ?? null;
+        if (id === null) return;
+        await app.showContacts();
+        await contacts.select(id);
       },
     }),
     registry.register({

@@ -1,7 +1,8 @@
 //! Cas d'usage du carnet d'adresses (ADR-012) : créer
 //! ([`CreateContact`]), modifier ([`UpdateContact`]), supprimer
 //! ([`DeleteContacts`]), lister ([`ListContacts`]) et lire
-//! ([`GetContact`]) une fiche.
+//! ([`GetContact`]) une fiche ; nommer des correspondants d'après le
+//! carnet ([`NameSenders`]).
 //!
 //! Les règles (validation de la fiche, nom affiché, filtre, ordre) sont
 //! dans `norelly_domain::contacts` ; ce module valide la saisie par le
@@ -10,9 +11,11 @@
 use norelly_domain::contacts::{
     Contact, ContactDraft, ContactError, ContactFilter, ContactId, ContactInput,
 };
+use norelly_domain::mailbox::Correspondent;
 use norelly_domain::ports::{
     ContactBook, ContactCursor, ContactDirectory, ContactPage, ContactStoreError, StoreError,
 };
+use norelly_domain::sender::{SenderNames, sender_keys};
 
 /// Échec d'un cas d'usage du carnet.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -107,6 +110,39 @@ impl<D: ContactDirectory> GetContact<'_, D> {
             .get(id)
             .await?
             .ok_or(ContactFailure::Store(ContactStoreError::NotFound))
+    }
+}
+
+/// Cas d'usage : contacts du carnet qui portent les adresses de ces
+/// correspondants, pour les nommer ([`SenderNames::label`]). Sans adresse
+/// valide, le carnet n'est pas interrogé. Nommer enrichit l'affichage :
+/// un carnet illisible laisse les noms des en-têtes (avertissement
+/// journalisé, sans adresse) au lieu d'empêcher la lecture du courrier.
+#[derive(Debug)]
+pub struct NameSenders<'a, D> {
+    pub directory: &'a D,
+}
+
+impl<D: ContactDirectory> NameSenders<'_, D> {
+    /// Les clés sont calculées avant l'attente : le futur ne garde pas
+    /// les correspondants.
+    pub fn execute<'p>(
+        &self,
+        people: impl IntoIterator<Item = &'p Correspondent>,
+    ) -> impl Future<Output = SenderNames> + Send + '_ {
+        let keys = sender_keys(people);
+        async move {
+            if keys.is_empty() {
+                return SenderNames::default();
+            }
+            match self.directory.by_addresses(&keys).await {
+                Ok(contacts) => SenderNames::new(contacts),
+                Err(e) => {
+                    tracing::warn!(error = %e, "carnet illisible : noms des en-têtes gardés");
+                    SenderNames::default()
+                }
+            }
+        }
     }
 }
 

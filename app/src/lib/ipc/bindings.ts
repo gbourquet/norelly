@@ -450,13 +450,30 @@ export type ConversationCursorDto = {
 };
 
 /**  Ligne de la liste des conversations. */
-export type ConversationDto = {
+export type ConversationDto = ConversationDto_Serialize | ConversationDto_Deserialize;
+
+/**  Ligne de la liste des conversations. */
+export type ConversationDto_Deserialize = {
 	id: number,
 	account: number,
 	mailbox: number,
 	date: number,
 	subject: string,
-	senders: CorrespondentDto[],
+	senders: CorrespondentDto_Deserialize[],
+	messages: number,
+	unread: number,
+	flagged: boolean,
+	has_attachments: boolean,
+};
+
+/**  Ligne de la liste des conversations. */
+export type ConversationDto_Serialize = {
+	id: number,
+	account: number,
+	mailbox: number,
+	date: number,
+	subject: string,
+	senders: CorrespondentDto_Serialize[],
 	messages: number,
 	unread: number,
 	flagged: boolean,
@@ -472,9 +489,9 @@ export type ConversationMessageDto_Deserialize = {
 	account: number,
 	mailbox: number,
 	date: number,
-	from?: CorrespondentDto | null,
-	to: CorrespondentDto[],
-	cc: CorrespondentDto[],
+	from?: CorrespondentDto_Deserialize | null,
+	to: CorrespondentDto_Deserialize[],
+	cc: CorrespondentDto_Deserialize[],
 	subject: string,
 	unread: boolean,
 	flagged: boolean,
@@ -487,9 +504,9 @@ export type ConversationMessageDto_Serialize = {
 	account: number,
 	mailbox: number,
 	date: number,
-	from: CorrespondentDto | null,
-	to: CorrespondentDto[],
-	cc: CorrespondentDto[],
+	from: CorrespondentDto_Serialize | null,
+	to: CorrespondentDto_Serialize[],
+	cc: CorrespondentDto_Serialize[],
 	subject: string,
 	unread: boolean,
 	flagged: boolean,
@@ -499,18 +516,41 @@ export type ConversationMessageDto_Serialize = {
 export type ConversationPageDto = ConversationPageDto_Serialize | ConversationPageDto_Deserialize;
 
 export type ConversationPageDto_Deserialize = {
-	items: ConversationDto[],
+	items: ConversationDto_Deserialize[],
 	next?: ConversationCursorDto | null,
 };
 
 export type ConversationPageDto_Serialize = {
-	items: ConversationDto[],
+	items: ConversationDto_Serialize[],
 	next: ConversationCursorDto | null,
 };
 
-export type CorrespondentDto = {
+/**
+ *  Correspondant affiché : nom retenu par le domaine (celui du carnet si
+ *  l'adresse y figure ; vide : afficher l'adresse) et contact du carnet.
+ */
+export type CorrespondentDto = CorrespondentDto_Serialize | CorrespondentDto_Deserialize;
+
+/**
+ *  Correspondant affiché : nom retenu par le domaine (celui du carnet si
+ *  l'adresse y figure ; vide : afficher l'adresse) et contact du carnet.
+ */
+export type CorrespondentDto_Deserialize = {
 	name: string,
 	address: string,
+	/**  Contact du carnet qui porte l'adresse. */
+	contact?: number | null,
+};
+
+/**
+ *  Correspondant affiché : nom retenu par le domaine (celui du carnet si
+ *  l'adresse y figure ; vide : afficher l'adresse) et contact du carnet.
+ */
+export type CorrespondentDto_Serialize = {
+	name: string,
+	address: string,
+	/**  Contact du carnet qui porte l'adresse. */
+	contact: number | null,
 };
 
 /**  Serveur découvert. */
@@ -890,7 +930,7 @@ export type SearchHitDto_Deserialize = {
 	account: number,
 	mailbox: number,
 	date: number,
-	from?: CorrespondentDto | null,
+	from?: CorrespondentDto_Deserialize | null,
 	subject: SegmentDto[],
 	snippet: SegmentDto[],
 	unread: boolean,
@@ -906,7 +946,7 @@ export type SearchHitDto_Serialize = {
 	account: number,
 	mailbox: number,
 	date: number,
-	from: CorrespondentDto | null,
+	from: CorrespondentDto_Serialize | null,
 	subject: SegmentDto[],
 	snippet: SegmentDto[],
 	unread: boolean,
@@ -981,7 +1021,7 @@ export type SyncEventDto_Deserialize = { kind: "folder_changed"; account: number
  *  sauf option de confidentialité, le plus récent (texte composé par
  *  l'interface, ADR-011).
  */
-{ kind: "new_mail"; account: number; count: number; from?: CorrespondentDto | null; subject?: string | null } | 
+{ kind: "new_mail"; account: number; count: number; from?: CorrespondentDto_Deserialize | null; subject?: string | null } | 
 /**  Connexion perdue : catégorie et détail technique brut éventuel. */
 { kind: "offline"; account: number; failure: FailureKindDto; detail?: string | null };
 
@@ -992,7 +1032,7 @@ export type SyncEventDto_Serialize = { kind: "folder_changed"; account: number; 
  *  sauf option de confidentialité, le plus récent (texte composé par
  *  l'interface, ADR-011).
  */
-{ kind: "new_mail"; account: number; count: number; from: CorrespondentDto | null; subject: string | null } | 
+{ kind: "new_mail"; account: number; count: number; from: CorrespondentDto_Serialize | null; subject: string | null } | 
 /**  Connexion perdue : catégorie et détail technique brut éventuel. */
 { kind: "offline"; account: number; failure: FailureKindDto; detail: string | null };
 

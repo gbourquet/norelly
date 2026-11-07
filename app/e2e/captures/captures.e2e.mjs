@@ -476,4 +476,39 @@ describe(`captures d'écran (${lang})`, () => {
     await capture("contact-menu");
     await browser.keys("Escape");
   });
+
+  it("personnes d'un message et carnet (à la souris)", async () => {
+    await $("nav")
+      .$(`button*=${msg("mailbox_unified_inbox")}`)
+      .click();
+    // Expéditeur déjà dans le carnet : pastille et « Voir le contact ».
+    const [from, subject] = content.messages[0];
+    const name = from.replace(/ <.*$/, "");
+    await $(`span=${subject}`).click();
+    await expect($(`h1=${subject}`)).toBeDisplayed({ wait: 30000 });
+    const known = `${msg("person_menu", { name })} (${msg("person_in_contacts")})`;
+    await openMenu(button(known));
+    await menuItem(msg("cmd_person_show")).waitForDisplayed({ timeout: 10000 });
+    await capture("person-menu");
+    await browser.keys("Escape");
+    // Retour à la liste : le menu d'une ligne vise la conversation ouverte.
+    await button(msg("conversation_back")).click();
+    await $(`h1=${subject}`).waitForDisplayed({ reverse: true, timeout: 10000 });
+
+    // Expéditeur inconnu : « Ajouter au carnet d'adresses », fiche
+    // pré-remplie.
+    const [stranger, other] = content.messages.at(-1);
+    await openContextMenu($(`span=${other}`));
+    await menuItem(msg("cmd_person_add")).waitForDisplayed({ timeout: 10000 });
+    await capture("person-add-menu");
+    await menuItem(msg("cmd_person_add")).click();
+    const form = dialogTitled(msg("contact_dialog_new"));
+    await form.waitForDisplayed();
+    await expect($(`[aria-label="${msg("contact_email_n", { n: 1 })}"]`)).toHaveValue(
+      stranger.replace(/^.*<(.*)>$/, "$1"),
+    );
+    await capture("person-add-dialog");
+    await button(msg("common_cancel")).click();
+    await form.waitForDisplayed({ reverse: true, timeout: 10000 });
+  });
 });

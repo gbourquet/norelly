@@ -57,7 +57,7 @@ const message: ConversationMessage = {
   account: 1,
   mailbox: 10,
   date: 1_793_613_600,
-  from: { name: "Alice", address: "alice@example.com" },
+  from: { name: "Alice", address: "alice@example.com", contact: null },
   to: [],
   cc: [],
   subject: "Réunion",

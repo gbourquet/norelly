@@ -108,10 +108,15 @@ sensible (SQL, IPC, fichiers, rendu).
   Option<&Contact>)` — le nom du carnet l'emporte si l'adresse correspond
   exactement (clé normalisée) ; sinon le nom de l'en-tête, avec la règle
   existante qui écarte un nom imitant une adresse.
-- Lectures d'écran : `conversations.rs` (senders, `:268`, `:431`, `:504`),
-  messages d'une conversation et résultats de recherche (`search.rs`)
-  joignent `contact_emails` sur la clé d'adresse (LEFT JOIN indexé) ; le DTO
-  indique `in_contacts: bool` (pastille discrète, pas de texte Rust).
+- Lectures d'écran : liste des conversations, messages d'une conversation
+  et résultats de recherche ; le DTO indique le contact du carnet
+  (pastille discrète, pas de texte Rust).
+  *Réalisé* (dérogation validée par le mainteneur, consignée dans
+  l'ADR-012) : plutôt qu'une jointure SQL (qui aurait recopié en SQL la
+  normalisation de `AddressKey`), les commandes cherchent en une requête
+  les contacts des adresses de la page par `ContactDirectory::by_addresses`
+  (index unique sur `address_key`, cas d'usage `NameSenders`) ; le DTO
+  porte `contact: Option<u32>` (identifiant pour « Voir le contact »).
 - Bancs 50k (`cargo bench -p norelly-sqlite -- --test`) : pas de
   régression de la liste ni de la recherche.
 - « Ajouter au carnet » / « Voir le contact » : menu sur l'expéditeur

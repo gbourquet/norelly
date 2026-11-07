@@ -87,10 +87,15 @@ choisissent une adresse proposée, `Entrée` ou `,` la valide.
 | Favori (ajouter ou retirer) | `Maj+S` |
 | Supprimer le contact | `Suppr` |
 | Désélectionner les contacts | palette |
+| Ajouter au carnet d'adresses | palette |
+| Voir le contact | palette |
 
 Dans la vue **Contacts**, ces actions visent le contact ouvert à droite, ou
 tous les contacts cochés. `N` fonctionne partout : il ouvre les contacts et
-la fiche d'un nouveau contact.
+la fiche d'un nouveau contact. **Ajouter au carnet d'adresses** et **Voir le
+contact** visent la personne dont le menu est ouvert (clic sur un nom dans
+un message, clic droit sur une conversation), sinon l'expéditeur du dernier
+message de la conversation ouverte.
 
 ## Comptes
 

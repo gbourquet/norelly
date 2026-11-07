@@ -13,7 +13,7 @@ function conversation(id: number, account = 1): ConversationDto {
     mailbox: 10,
     date: 1_700_000_000 - id,
     subject: `Sujet ${id}`,
-    senders: [{ name: "Alice", address: "alice@example.com" }],
+    senders: [{ name: "Alice", address: "alice@example.com", contact: null }],
     messages: 1,
     unread: 0,
     flagged: false,
@@ -534,5 +534,32 @@ describe("marquage comme lu à l'ouverture", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe("expéditeur visé par le menu d'une ligne", () => {
+  it("dernier expéditeur de la conversation visée ; aucun si plusieurs sont cochées", async () => {
+    const mail = new MailState(fakeApi(3), () => null);
+    await mail.show(UNIFIED_INBOX);
+    const bob = { name: "Bob", address: "bob@example.com", contact: null };
+    const zoe = { name: "Zoé", address: "zoe@example.com", contact: 3 };
+    mail.conversations = [
+      { ...conversation(1), senders: [bob, zoe] },
+      { ...conversation(2), senders: [zoe] },
+      { ...conversation(3), senders: [] },
+    ];
+    mail.select(1);
+    expect(mail.targetSender()).toEqual(zoe);
+    mail.select(0);
+    expect(mail.targetSender()).toEqual(bob);
+    // Conversation ouverte : c'est elle que visent les actions du menu.
+    mail.opened = mail.conversations[1] ?? null;
+    expect(mail.targetSender()).toEqual(zoe);
+    mail.opened = null;
+    mail.select(2);
+    expect(mail.targetSender()).toBeNull();
+    mail.toggleMarkAt(0);
+    mail.toggleMarkAt(1);
+    expect(mail.targetSender()).toBeNull();
   });
 });

@@ -54,6 +54,35 @@ line of the list.
 
 ![The right-click menu on a contact](captures/contact-menu.png)
 
+## Your contacts in your messages
+
+When someone in your address book writes to you, Norelly shows them under
+the name you gave them, in the message list as well as in the open
+message. A small badge next to their name reminds you that they are in
+your contacts.
+
+To add someone who wrote to you:
+
+1. Open their message and click their **name** (or **right-click** the
+   message in the list).
+2. Choose **Add to address book**: the new contact window opens, already
+   filled in with their name and address.
+3. Complete it if you wish, then click **Save**.
+
+![The right-click menu, with “Add to address book”](captures/person-add-menu.png)
+
+![The new contact window, already filled in](captures/person-add-dialog.png)
+
+For someone already in your address book, clicking their name offers
+**View contact**, which opens their card.
+
+![The menu of a sender already in your contacts](captures/person-menu.png)
+
+Beware: your contact's name is shown based on the address given by the
+message, which a fraudster can imitate. It does not guarantee that the
+message really comes from that person: if in doubt (a request for money or
+a password), check by other means.
+
 ## Deleting contacts
 
 - One contact: on their card, click **Delete contact**, then confirm.

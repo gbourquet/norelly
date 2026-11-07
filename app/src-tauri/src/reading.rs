@@ -9,6 +9,7 @@
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
 
+use norelly_application::contacts::NameSenders;
 use norelly_application::reading::allow_remote_images as allow_images;
 use norelly_domain::account::AccountId;
 use norelly_domain::connection::server_text;
@@ -113,6 +114,11 @@ pub async fn list_conversations(
         .conversations(scope, cursor, limit)
         .await
         .map_err(IpcError::storage)?;
+    let names = NameSenders {
+        directory: &state.contacts,
+    }
+    .execute(page.items.iter().flat_map(|c| &c.senders))
+    .await;
     let items = page
         .items
         .iter()
@@ -123,7 +129,11 @@ pub async fn list_conversations(
                 mailbox: id32(c.mailbox.get())?,
                 date: date_dto(c.date),
                 subject: c.subject.clone(),
-                senders: c.senders.iter().map(CorrespondentDto::from).collect(),
+                senders: c
+                    .senders
+                    .iter()
+                    .map(|s| CorrespondentDto::named(&names, s))
+                    .collect(),
                 messages: c.messages,
                 unread: c.unread,
                 flagged: c.flagged,
@@ -158,6 +168,22 @@ pub async fn conversation_messages(
         .conversation_messages(id)
         .await
         .map_err(IpcError::storage)?;
+    // Expéditeurs d'abord : ils restent nommés si les adresses dépassent
+    // la borne de recherche dans le carnet.
+    let people = messages
+        .iter()
+        .filter_map(|m| m.from.as_ref())
+        .chain(messages.iter().flat_map(|m| m.to.iter().chain(&m.cc)));
+    let names = NameSenders {
+        directory: &state.contacts,
+    }
+    .execute(people)
+    .await;
+    let named = |list: &[norelly_domain::mailbox::Correspondent]| {
+        list.iter()
+            .map(|p| CorrespondentDto::named(&names, p))
+            .collect::<Vec<_>>()
+    };
     messages
         .iter()
         .map(|m| {
@@ -166,9 +192,9 @@ pub async fn conversation_messages(
                 account: id32(m.account.get())?,
                 mailbox: id32(m.mailbox.get())?,
                 date: date_dto(m.date),
-                from: m.from.as_ref().map(CorrespondentDto::from),
-                to: m.to.iter().map(CorrespondentDto::from).collect(),
-                cc: m.cc.iter().map(CorrespondentDto::from).collect(),
+                from: m.from.as_ref().map(|f| CorrespondentDto::named(&names, f)),
+                to: named(&m.to),
+                cc: named(&m.cc),
                 subject: m.subject.clone(),
                 unread: !m.flags.seen,
                 flagged: m.flags.flagged,

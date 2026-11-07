@@ -1065,3 +1065,68 @@ async fn opened_conversation_marks_only_the_shown_messages() {
         ErrorCodeDto::TooManyMessages
     );
 }
+
+#[tokio::test]
+async fn senders_in_the_book_are_named_from_their_card() {
+    use crate::contacts::create_contact;
+    use crate::ipc::SearchScopeDto;
+    use crate::reading::conversation_messages;
+    use crate::search::search_messages;
+    let t = test_app().await;
+    let account = id32(t.account.get());
+    let emilie = create_contact(t.state(), card("Émilie", "Durand", &["E1@example.com"]))
+        .await
+        .unwrap_or_else(fail);
+    let folders = list_folders(t.state(), account).await.unwrap_or_else(fail);
+    let inbox = folders
+        .iter()
+        .find(|f| f.role == "inbox")
+        .map(|f| f.id)
+        .unwrap_or_else(|| panic!("INBOX"));
+    let page = list_conversations(t.state(), ScopeDto::Mailbox { id: inbox }, None, 10)
+        .await
+        .unwrap_or_else(fail);
+    let senders: Vec<(&str, &str, Option<u32>)> = page
+        .items
+        .iter()
+        .flat_map(|c| &c.senders)
+        .map(|s| (s.name.as_str(), s.address.as_str(), s.contact))
+        .collect();
+    assert_eq!(
+        senders,
+        [
+            ("Expéditeur 2", "e2@example.com", None),
+            ("Émilie Durand", "e1@example.com", Some(emilie.id)),
+        ]
+    );
+
+    let known = page
+        .items
+        .iter()
+        .find(|c| c.senders.iter().any(|s| s.contact.is_some()))
+        .map(|c| c.id)
+        .unwrap_or_else(|| panic!("conversation d'Émilie"));
+    let messages = conversation_messages(t.state(), known)
+        .await
+        .unwrap_or_else(fail);
+    let from = messages[0]
+        .from
+        .as_ref()
+        .unwrap_or_else(|| panic!("expéditeur"));
+    assert_eq!(
+        (from.name.as_str(), from.contact),
+        ("Émilie Durand", Some(emilie.id))
+    );
+
+    let found = search_messages(t.state(), "from:e1".into(), SearchScopeDto::All, 0, 0, 50)
+        .await
+        .unwrap_or_else(fail);
+    let from = found.items[0]
+        .from
+        .as_ref()
+        .unwrap_or_else(|| panic!("expéditeur"));
+    assert_eq!(
+        (from.name.as_str(), from.contact),
+        ("Émilie Durand", Some(emilie.id))
+    );
+}

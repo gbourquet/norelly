@@ -19,6 +19,7 @@
 //! - [`settings`] : paramètres de l'application ;
 //! - [`search`] : syntaxe des requêtes de recherche, surlignage ;
 //! - [`contacts`] : carnet d'adresses (fiche, nom affiché, filtre) ;
+//! - [`sender`] : nom affiché d'un correspondant (carnet, en-tête) ;
 //! - [`ports`] : traits implémentés par les adaptateurs.
 
 pub mod account;
@@ -40,5 +41,6 @@ pub mod ports;
 pub mod reading;
 pub mod search;
 pub mod security;
+pub mod sender;
 pub mod settings;
 pub mod sync;

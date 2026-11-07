@@ -21,6 +21,8 @@ import UserPenIcon from "@lucide/svelte/icons/user-pen";
 import SquarePenIcon from "@lucide/svelte/icons/square-pen";
 import StarIcon from "@lucide/svelte/icons/star";
 import StarOffIcon from "@lucide/svelte/icons/star-off";
+import UserPlusIcon from "@lucide/svelte/icons/user-plus";
+import BookUserIcon from "@lucide/svelte/icons/book-user";
 import { m } from "./paraglide/messages.js";
 
 export interface VisibleAction {
@@ -62,9 +64,29 @@ function flagToggle(subject: ActionSubject | null): VisibleAction {
   };
 }
 
+/** Personne d'un message pour les commandes du carnet : déjà dans le
+ * carnet, inconnue du carnet, ou aucune. */
+export type PersonKind = "contact" | "stranger" | null;
+
+/** Actions sur une personne d'un message (son menu) : l'ajouter au
+ * carnet, ou voir sa fiche si elle y est déjà. */
+export function personActions(person: PersonKind): VisibleAction[] {
+  if (person === "stranger") return [{ command: "contacts.add-person", icon: UserPlusIcon }];
+  if (person === "contact") return [{ command: "contacts.show-person", icon: BookUserIcon }];
+  return [];
+}
+
+/** Actions sur une personne, en dernier groupe d'un menu. */
+const personSection = (person: PersonKind, section: number): VisibleAction[] =>
+  personActions(person).map((a) => ({ ...a, section }));
+
 /** Barre du mail ouvert : actions principales, libellées, et actions
- * secondaires du menu « Plus… ». */
-export function readerActions(subject: ActionSubject | null): {
+ * secondaires du menu « Plus… » (dont l'expéditeur du dernier message,
+ * `person`). */
+export function readerActions(
+  subject: ActionSubject | null,
+  person: PersonKind = null,
+): {
   primary: VisibleAction[];
   more: VisibleAction[];
 } {
@@ -83,6 +105,7 @@ export function readerActions(subject: ActionSubject | null): {
       { command: "reading.plain-text", icon: FileTextIcon, section: 2 },
       { command: "conversation.previous", icon: ChevronUpIcon, section: 3 },
       { command: "conversation.next", icon: ChevronDownIcon, section: 3 },
+      ...personSection(person, 4),
     ],
   };
 }
@@ -113,8 +136,11 @@ export function subjectOf(targets: ActionSubject[]): ActionSubject | null {
 }
 
 /** Menu contextuel d'une ligne : ouvrir, puis les actions de la barre du
- * mail ouvert, en groupes. */
-export function menuActions(subject: ActionSubject | null): VisibleAction[] {
+ * mail ouvert, en groupes, puis le dernier expéditeur (`person`). */
+export function menuActions(
+  subject: ActionSubject | null,
+  person: PersonKind = null,
+): VisibleAction[] {
   return [
     { command: "conversation.open", icon: EyeIcon, section: 0 },
     { command: "compose.reply", icon: ReplyIcon, section: 1 },
@@ -125,6 +151,7 @@ export function menuActions(subject: ActionSubject | null): VisibleAction[] {
     { ...readToggle(subject), section: 3 },
     { ...flagToggle(subject), section: 3 },
     { ...move, section: 3 },
+    ...personSection(person, 4),
   ];
 }
 

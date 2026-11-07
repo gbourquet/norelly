@@ -907,17 +907,41 @@ pub struct ConversationCursorDto {
     pub id: u32,
 }
 
+/// Correspondant affiché : nom retenu par le domaine (celui du carnet si
+/// l'adresse y figure ; vide : afficher l'adresse) et contact du carnet.
 #[derive(Debug, Clone, Serialize, Type)]
 pub struct CorrespondentDto {
     pub name: String,
     pub address: String,
+    /// Contact du carnet qui porte l'adresse.
+    pub contact: Option<u32>,
 }
 
 impl From<&norelly_domain::mailbox::Correspondent> for CorrespondentDto {
+    /// Sans le carnet : nom de l'en-tête, écarté s'il imite une adresse.
     fn from(c: &norelly_domain::mailbox::Correspondent) -> Self {
+        let label = norelly_domain::sender::sender_label(c, None);
         Self {
-            name: c.name.clone(),
-            address: c.address.clone(),
+            name: label.name,
+            address: label.address,
+            contact: None,
+        }
+    }
+}
+
+impl CorrespondentDto {
+    /// Correspondant nommé d'après le carnet (`names`). Une fiche
+    /// d'identifiant hors des 32 bits de l'interface est ignorée : elle ne
+    /// fait pas échouer la page du courrier.
+    pub fn named(
+        names: &norelly_domain::sender::SenderNames,
+        c: &norelly_domain::mailbox::Correspondent,
+    ) -> Self {
+        let label = names.label(c);
+        Self {
+            name: label.name,
+            address: label.address,
+            contact: label.contact.and_then(|id| id32(id.get()).ok()),
         }
     }
 }
@@ -1190,6 +1214,21 @@ mod reading_tests {
         assert_eq!(date_from_dto(1_700_000_000), 1_700_000_000);
         assert!(id32(-1).is_err());
         assert!(id32(i64::from(u32::MAX) + 1).is_err());
+    }
+
+    #[test]
+    fn a_correspondent_without_the_book_hides_a_name_imitating_an_address() {
+        use norelly_domain::mailbox::Correspondent;
+        let dto = CorrespondentDto::from(&Correspondent::new(
+            "service@banque.fr",
+            "pirate@exemple.net",
+        ));
+        assert_eq!(
+            (dto.name.as_str(), dto.address.as_str(), dto.contact),
+            ("", "pirate@exemple.net", None)
+        );
+        let dto = CorrespondentDto::from(&Correspondent::new("Bob", "bob@example.com"));
+        assert_eq!(dto.name, "Bob");
     }
 }
 

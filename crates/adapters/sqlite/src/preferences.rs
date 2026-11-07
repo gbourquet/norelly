@@ -3,7 +3,7 @@
 
 use norelly_domain::address::EmailAddress;
 use norelly_domain::ports::{ReadingPreferences, SettingsStore, StoreError};
-use norelly_domain::settings::{Language, Settings, UpdateCheck};
+use norelly_domain::settings::{Language, Settings, SettingsError, UpdateCheck};
 use rusqlite::{OptionalExtension, params};
 
 use crate::{Database, store_error};
@@ -108,6 +108,7 @@ const UPDATE_KEY: &str = "app.update_check";
 const NOTIFY_KEY: &str = "notify.enabled";
 const PRIVACY_KEY: &str = "notify.privacy";
 const THRESHOLD_KEY: &str = "fetch.attachment_threshold";
+const MARK_SEEN_DELAY_KEY: &str = "app.mark_seen_delay";
 
 const fn flag(value: bool) -> &'static str {
     if value { "1" } else { "0" }
@@ -140,9 +141,21 @@ fn settings_of(rows: &[(String, String)]) -> Settings {
         attachment_threshold: value(THRESHOLD_KEY)
             .and_then(|v| v.parse().ok())
             .unwrap_or(defaults.attachment_threshold),
+        mark_seen_delay_secs: value(MARK_SEEN_DELAY_KEY)
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(defaults.mark_seen_delay_secs),
     };
-    if settings.validate().is_err() {
-        settings.attachment_threshold = defaults.attachment_threshold;
+    // Chaque réglage refusé reprend sa valeur par défaut, qui est valide :
+    // la boucle s'arrête au plus après un tour par réglage borné.
+    while let Err(e) = settings.validate() {
+        match e {
+            SettingsError::AttachmentThreshold => {
+                settings.attachment_threshold = defaults.attachment_threshold;
+            }
+            SettingsError::MarkSeenDelay => {
+                settings.mark_seen_delay_secs = defaults.mark_seen_delay_secs;
+            }
+        }
     }
     settings
 }
@@ -189,6 +202,10 @@ impl SettingsStore for SqliteSettingsStore {
             (NOTIFY_KEY, flag(settings.notifications).to_owned()),
             (PRIVACY_KEY, flag(settings.notification_privacy).to_owned()),
             (THRESHOLD_KEY, settings.attachment_threshold.to_string()),
+            (
+                MARK_SEEN_DELAY_KEY,
+                settings.mark_seen_delay_secs.to_string(),
+            ),
         ];
         self.db
             .run(move |c| {
@@ -238,6 +255,8 @@ mod tests {
         let store = SqliteSettingsStore::new(db.clone());
         let chosen = Settings {
             notifications: false,
+            attachment_threshold: 8 * 1024 * 1024,
+            mark_seen_delay_secs: 12,
             ..Settings::default()
         };
         store.save_settings(&chosen).await?;
@@ -246,7 +265,25 @@ mod tests {
              UPDATE settings SET value = '1' WHERE key = 'fetch.attachment_threshold';",
         )
         .await?;
-        assert_eq!(store.settings().await?, chosen);
+        let read = store.settings().await?;
+        assert_eq!(
+            read,
+            Settings {
+                attachment_threshold: Settings::default().attachment_threshold,
+                ..chosen
+            },
+            "seul le seuil hors bornes reprend sa valeur par défaut"
+        );
+        db.write_for_tests("UPDATE settings SET value = '3600' WHERE key = 'app.mark_seen_delay'")
+            .await?;
+        assert_eq!(
+            store.settings().await?,
+            Settings {
+                mark_seen_delay_secs: Settings::default().mark_seen_delay_secs,
+                ..read
+            },
+            "seul le délai hors bornes reprend sa valeur par défaut"
+        );
         Ok(())
     }
 

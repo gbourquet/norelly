@@ -97,6 +97,7 @@ pub fn settings_dto(s: &Settings) -> SettingsDto {
         notifications: s.notifications,
         notification_privacy: s.notification_privacy,
         attachment_threshold: s.attachment_threshold,
+        mark_seen_delay_secs: s.mark_seen_delay_secs,
     }
 }
 
@@ -115,6 +116,7 @@ fn settings_of(dto: SettingsDto) -> Settings {
         notifications: dto.notifications,
         notification_privacy: dto.notification_privacy,
         attachment_threshold: dto.attachment_threshold,
+        mark_seen_delay_secs: dto.mark_seen_delay_secs,
     }
 }
 

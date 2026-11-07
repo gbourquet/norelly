@@ -957,6 +957,11 @@ export type SettingsDto = {
 	notification_privacy: boolean,
 	/**  Octets. */
 	attachment_threshold: number,
+	/**
+	 *  Secondes avant qu'une conversation non lue restée ouverte soit
+	 *  marquée comme lue (0 : à l'ouverture).
+	 */
+	mark_seen_delay_secs: number,
 };
 
 /**  Événement de synchronisation relayé à l'interface. */

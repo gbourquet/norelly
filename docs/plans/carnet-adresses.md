@@ -40,7 +40,7 @@ sensible (SQL, IPC, fichiers, rendu).
 - `docs/plans/carnet-adresses.md` (ce plan).
 - `docs/DECISIONS.md` : **ADR-012 Carnet d'adresses** (local, unique,
   modèle vCard, codecs dans un adaptateur, CardDAV différé, dépendance
-  `csv`) — **à valider par le mainteneur avant le lot 1**.
+  `csv`) — acceptée le 2026-11-07.
 - `docs/BACKLOG.md` : « Synchronisation CardDAV », « Photos de contact ».
 
 ### Lot 1 — `domaine/contacts` : modèle, port, stockage

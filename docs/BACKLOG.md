@@ -31,8 +31,7 @@ quand le mainteneur l'abandonne (avec la raison).
 ## Interface et fonctionnalités
 
 - **Carnet d'adresses** : epic planifiée dans
-  [plans/carnet-adresses.md](plans/carnet-adresses.md) (ADR-012 proposée,
-  à valider avant le lot 1).
+  [plans/carnet-adresses.md](plans/carnet-adresses.md) (ADR-012).
 - **Synchronisation CardDAV du carnet** (après l'epic carnet) : adaptateur
   WebDAV sur `tls`, synchronisation bidirectionnelle, conflits, sans
   reprise du schéma (modèle déjà calqué sur vCard, ADR-012).

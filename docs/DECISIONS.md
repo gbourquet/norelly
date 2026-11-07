@@ -504,8 +504,7 @@ est majoritairement écrit par Claude et relu par le mainteneur.
 
 ## ADR-012 : carnet d'adresses
 
-- **Statut** : Proposée (2026-11-07), à valider par le mainteneur avant
-  l'implémentation ([plan de l'epic](plans/carnet-adresses.md)).
+- **Statut** : Acceptée (2026-11-07) ([plan de l'epic](plans/carnet-adresses.md)).
 - **Contexte** : les seules adresses connues sont calculées à la volée à
   partir des messages (expéditeurs reçus, destinataires envoyés), pour
   l'autocomplétion. Il manque un carnet que l'utilisateur alimente,

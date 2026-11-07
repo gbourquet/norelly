@@ -11,6 +11,10 @@
 //   « Voir le contact » depuis le nom de l'expéditeur ;
 // - « Ajouter au carnet d'adresses » depuis le clic droit sur une
 //   conversation, fiche pré-remplie ;
+// - pendant la saisie d'un destinataire, le contact est proposé d'abord,
+//   sous le nom du carnet et signalé, une seule fois même si son adresse
+//   figure aussi dans le courrier ; un destinataire collé dont le nom
+//   imite une adresse ne garde que l'adresse réelle ;
 // - suppression depuis le menu contextuel d'une ligne, avec confirmation.
 import { $, browser, expect } from "@wdio/globals";
 import {
@@ -184,6 +188,50 @@ describe("carnet d'adresses", () => {
     await confirm.waitForDisplayed();
     await confirm.$("button=Supprimer").click();
     await confirm.waitForDisplayed({ reverse: true, timeout: 10000 });
+  });
+
+  it("propose d'abord le contact du carnet pendant la saisie d'un destinataire", async () => {
+    await inbox();
+    await button("Nouveau message").click();
+    const compose = dialog("Nouveau message");
+    await compose.waitForDisplayed({ timeout: 20000 });
+    const to = compose.$('[aria-label="À"]');
+    await to.click();
+    await browser.keys("zoe");
+    const list = compose.$('[role="listbox"]');
+    await list.waitForDisplayed({ timeout: 10000 });
+    const options = list.$$('[role="option"]');
+    // Adresse préférée d'abord, puis l'autre adresse de la fiche ; l'adresse
+    // aussi reçue de « Z. M. » n'est pas proposée une seconde fois.
+    await expect(options).toBeElementsArrayOfSize(2);
+    const shows = async (option, name, address, contact) => {
+      // Nom tronqué au besoin (overflow) : WebKitWebDriver n'en lit pas le
+      // texte rendu, d'où le contenu de l'élément affiché.
+      await expect(option.$(".who")).toBeDisplayed();
+      await expect(option.$(".who")).toHaveElementProperty("textContent", name);
+      await expect(option.$(".address")).toHaveText(`<${address}>`);
+      await expect(option.$(".in-contacts")).toHaveText(contact);
+    };
+    await shows(options[0], "Zoé Martin", "zoe.pro@norelly.test", "Dans vos contacts");
+    await shows(options[1], "Zoé Martin", "zoe@norelly.test", "Dans vos contacts");
+    await expect(list.$('.//*[contains(normalize-space(), "Z. M.")]')).not.toBeExisting();
+    await options[0].$("button").click();
+    await expect(
+      compose.$('.//*[contains(@class, "chip")][@title="zoe.pro@norelly.test"]'),
+    ).toHaveText("Zoé Martin <zoe.pro@norelly.test>");
+
+    // Destinataire collé dont le nom imite une adresse : l'adresse réelle
+    // seule. WebKitWebDriver perd les lettres doublées d'une frappe : le
+    // texte n'en a pas.
+    await to.click();
+    await browser.keys("Banque <service@banque.test> <pirate@exemple.test>");
+    await browser.keys("Enter");
+    const pasted = compose.$('.//*[contains(@class, "chip")][@title="pirate@exemple.test"]');
+    await expect(pasted).toHaveText("pirate@exemple.test");
+    await browser.keys("Escape");
+    await compose.waitForDisplayed({ reverse: true, timeout: 20000 });
+    await $("nav").$("button=Contacts").click();
+    await button("Nouveau contact").waitForDisplayed({ timeout: 10000 });
   });
 
   it("supprime le contact depuis le menu contextuel", async () => {

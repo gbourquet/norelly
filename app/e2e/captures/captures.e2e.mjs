@@ -68,6 +68,7 @@ const content = {
     folder: "Jardin",
     renamed: "Potager",
     search: "tarte",
+    suggest: "ler",
     contacts: [
       ["Alice", "Martin", "alice@norelly.test", "Association des parents d'élèves"],
       ["Paul", "Bernard", "paul@norelly.test", ""],
@@ -102,6 +103,7 @@ const content = {
     folder: "Garden",
     renamed: "Vegetables",
     search: "pie",
+    suggest: "lee",
     contacts: [
       ["Alice", "Martin", "alice@norelly.test", "Parents' association"],
       ["Paul", "Brown", "paul@norelly.test", ""],
@@ -510,5 +512,19 @@ describe(`captures d'écran (${lang})`, () => {
     await capture("person-add-dialog");
     await button(msg("common_cancel")).click();
     await form.waitForDisplayed({ reverse: true, timeout: 10000 });
+  });
+
+  it("suggestions de destinataires : contact du carnet signalé", async () => {
+    await button(msg("cmd_compose")).click();
+    const dialog = dialogTitled(msg("compose_title_new"));
+    await dialog.waitForDisplayed({ timeout: 20000 });
+    await dialog.$(`[aria-label="${msg("compose_to")}"]`).click();
+    // Un contact (Jeanne Leroy, Jane Lee) et une adresse reçue (le cabinet).
+    await browser.keys(content.suggest);
+    await dialog.$('[role="listbox"]').waitForDisplayed({ timeout: 10000 });
+    await dialog.$$('[role="option"] button')[1].moveTo();
+    await capture("compose-suggestions");
+    await browser.keys("Escape");
+    await dialog.waitForDisplayed({ reverse: true, timeout: 20000 });
   });
 });

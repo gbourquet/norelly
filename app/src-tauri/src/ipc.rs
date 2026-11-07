@@ -95,9 +95,14 @@ pub enum ErrorCodeDto {
     FolderProtected,
     /// Dossier à vider de ses sous-dossiers avant de le supprimer.
     FolderHasSubfolders,
+    /// Dossier déplacé dans lui-même ou dans un de ses sous-dossiers.
+    FolderIntoItself,
     /// Renommage du dossier impossible : refus du serveur ou serveur
     /// injoignable (`detail` : réponse brute du serveur).
     FolderRenameFailed,
+    /// Déplacement du dossier impossible : refus du serveur ou serveur
+    /// injoignable (`detail` : réponse brute du serveur).
+    FolderMoveFailed,
     /// Suppression du dossier impossible : refus du serveur ou serveur
     /// injoignable (`detail` : réponse brute du serveur).
     FolderDeleteFailed,

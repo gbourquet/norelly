@@ -95,6 +95,13 @@ export const commands = {
 	 */
 	renameFolder: (account: number, mailbox: number, name: string) => typedError<number | null, IpcError_Serialize>(__TAURI_INVOKE("rename_folder", { account, mailbox, name })),
 	/**
+	 *  Déplace le dossier `mailbox` du compte `account` sous `parent` (ou au
+	 *  premier niveau), avec ses sous-dossiers ; renvoie l'identifiant local du
+	 *  dossier à sa nouvelle place (`null` si la liste n'a pas encore été
+	 *  relue).
+	 */
+	moveFolder: (account: number, mailbox: number, parent: number | null) => typedError<number | null, IpcError_Serialize>(__TAURI_INVOKE("move_folder", { account, mailbox, parent })),
+	/**
 	 *  Supprime le dossier `mailbox` du compte `account` et ses messages, sur
 	 *  le serveur ; la liste des dossiers est ensuite relue.
 	 */
@@ -580,11 +587,18 @@ export type ErrorCodeDto =
 "folder_protected" | 
 /**  Dossier à vider de ses sous-dossiers avant de le supprimer. */
 "folder_has_subfolders" | 
+/**  Dossier déplacé dans lui-même ou dans un de ses sous-dossiers. */
+"folder_into_itself" | 
 /**
  *  Renommage du dossier impossible : refus du serveur ou serveur
  *  injoignable (`detail` : réponse brute du serveur).
  */
 "folder_rename_failed" | 
+/**
+ *  Déplacement du dossier impossible : refus du serveur ou serveur
+ *  injoignable (`detail` : réponse brute du serveur).
+ */
+"folder_move_failed" | 
 /**
  *  Suppression du dossier impossible : refus du serveur ou serveur
  *  injoignable (`detail` : réponse brute du serveur).

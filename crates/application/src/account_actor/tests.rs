@@ -600,6 +600,40 @@ async fn renamed_folder_is_listed_and_synchronised_at_once() {
 }
 
 #[tokio::test]
+async fn moved_folder_is_listed_and_synchronised_at_once() {
+    let imap = FakeImap::new();
+    imap.create_mailbox("Bla", &[]);
+    imap.create_mailbox("Bli", &[]);
+    imap.create_mailbox("Bli/2026", &[]);
+    imap.append("Bli", b"Subject: un\r\n\r\nx", Flags::default(), 1);
+    imap.append("Bli/2026", b"Subject: deux\r\n\r\ny", Flags::default(), 2);
+    let mut r = start(&imap);
+    wait_for(&mut r.events, WAIT, online).await;
+    let name = |raw: &str| MailboxName::parse(raw).unwrap_or_else(|e| panic!("{e}"));
+    let moved = tokio::time::timeout(
+        WAIT,
+        r.handle
+            .client()
+            .move_folder(name("Bli"), Some(name("Bla"))),
+    )
+    .await
+    .unwrap_or_else(|_| panic!("délai"));
+    assert_eq!(moved, Ok(name("Bla/Bli")));
+    // Le dossier déplacé et son sous-dossier sont relus aussitôt.
+    let deadline = tokio::time::Instant::now() + WAIT;
+    while (
+        local_total(&r, "Bla/Bli").await,
+        local_total(&r, "Bla/Bli/2026").await,
+    ) != (Some(1), Some(1))
+    {
+        assert!(tokio::time::Instant::now() < deadline, "dossiers relus");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert_eq!(local_total(&r, "Bli").await, None, "ancien nom oublié");
+    r.handle.shutdown().await;
+}
+
+#[tokio::test]
 async fn deleted_folder_disappears_locally() {
     let imap = FakeImap::new();
     imap.create_mailbox("Projets", &[]);

@@ -16,7 +16,8 @@
   import { NewFolderState } from "./lib/new-folder.svelte";
   import RenameFolderDialog from "./components/RenameFolderDialog.svelte";
   import DeleteFolderDialog from "./components/DeleteFolderDialog.svelte";
-  import { DeleteFolderState, RenameFolderState } from "./lib/folder-edit.svelte";
+  import MoveFolderDialog from "./components/MoveFolderDialog.svelte";
+  import { DeleteFolderState, MoveFolderState, RenameFolderState } from "./lib/folder-edit.svelte";
   import { DragMove, type DropTarget } from "./lib/drag-move.svelte";
   import ActionNotice from "./components/ActionNotice.svelte";
   import ActionBar from "./components/ActionBar.svelte";
@@ -138,10 +139,14 @@
   });
 
   const renameFolder = new RenameFolderState(api);
+  const moveFolder = new MoveFolderState(api);
   const deleteFolder = new DeleteFolderState(api);
-  /** Dossier visé par le renommage ou la suppression ouverts. */
+  /** Dossier visé par le renommage, le déplacement ou la suppression
+   * ouverts. */
   const editedFolder = $derived(
-    app.dialog === "rename-folder" || app.dialog === "delete-folder" ? app.targetFolder() : null,
+    app.dialog === "rename-folder" || app.dialog === "move-folder" || app.dialog === "delete-folder"
+      ? app.targetFolder()
+      : null,
   );
 
   // Formulaire prérempli (ou sans erreur) à chaque ouverture seulement :
@@ -151,13 +156,15 @@
     untrack(() => {
       const folder = app.targetFolder();
       if (dialog === "rename-folder" && folder !== null) renameFolder.reset(folder);
+      if (dialog === "move-folder" && folder !== null && app.selectedAccountId !== null)
+        moveFolder.reset(folder, mail.folders[app.selectedAccountId] ?? []);
       if (dialog === "delete-folder") deleteFolder.reset();
     });
   });
 
-  /** Après un renommage ou une suppression : liste des dossiers relue ;
-   * dossier affiché renommé (suivi sous son nouveau nom) ou supprimé
-   * (retour à la boîte de réception du compte). */
+  /** Après un renommage, un déplacement ou une suppression : liste des
+   * dossiers relue ; dossier affiché renommé ou déplacé (suivi sous son
+   * nouveau nom) ou supprimé (retour à la boîte de réception du compte). */
   async function afterFolderChange(
     account: number,
     folder: FolderDto,
@@ -424,6 +431,21 @@
     app.close();
     mail.notice = { text: m.action_folder_renamed({ folder: renamed.name }), undoable: false };
     if (account !== null && folder !== null) void afterFolderChange(account, folder, renamed.id);
+  }}
+/>
+<MoveFolderDialog
+  open={app.dialog === "move-folder"}
+  account={app.selectedAccount}
+  folder={editedFolder}
+  folders={archiveFolders}
+  form={moveFolder}
+  onClose={() => app.close()}
+  onMoved={(moved) => {
+    const account = app.selectedAccountId;
+    const folder = editedFolder;
+    app.close();
+    mail.notice = { text: m.action_folder_moved({ folder: moved.name }), undoable: false };
+    if (account !== null && folder !== null) void afterFolderChange(account, folder, moved.id);
   }}
 />
 <DeleteFolderDialog

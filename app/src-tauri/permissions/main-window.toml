@@ -28,6 +28,7 @@ permissions = [
   "allow-set-archive-folder",
   "allow-create-folder",
   "allow-rename-folder",
+  "allow-move-folder",
   "allow-delete-folder",
   "allow-search-messages",
   "allow-get-settings",

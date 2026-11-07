@@ -215,3 +215,78 @@ async fn folder_with_subfolders_is_not_deleted() {
     );
     assert_eq!(names(&imap).await, ["INBOX", "Projets", "Projets/2026"]);
 }
+
+#[tokio::test]
+async fn moves_the_folder_with_its_subfolders() {
+    let imap = FakeImap::new();
+    imap.create_mailbox("Bla", &[]);
+    imap.create_mailbox("Bli", &[]);
+    imap.create_mailbox("Bli/2026", &[]);
+    let mut session = imap.session().unwrap_or_else(|e| panic!("{e}"));
+    let (folder, parent) = (name("Bli"), name("Bla"));
+    let moved = MoveFolder {
+        folder: &folder,
+        parent: Some(&parent),
+    }
+    .execute(&mut session)
+    .await;
+    assert_eq!(moved, Ok(name("Bla/Bli")));
+    assert_eq!(
+        names(&imap).await,
+        ["INBOX", "Bla", "Bla/Bli", "Bla/Bli/2026"]
+    );
+}
+
+#[tokio::test]
+async fn move_to_the_same_place_sends_nothing() {
+    let imap = FakeImap::new();
+    imap.create_mailbox("Bla", &[]);
+    imap.create_mailbox("Bla/Bli", &[]);
+    let mut session = imap.session().unwrap_or_else(|e| panic!("{e}"));
+    let before = imap.operations();
+    let (folder, parent) = (name("Bla/Bli"), name("Bla"));
+    let moved = MoveFolder {
+        folder: &folder,
+        parent: Some(&parent),
+    }
+    .execute(&mut session)
+    .await;
+    assert_eq!(moved, Ok(folder));
+    assert_eq!(imap.operations(), before + 1, "seule la liste lue");
+}
+
+#[tokio::test]
+async fn move_into_itself_sends_nothing() {
+    let imap = FakeImap::new();
+    imap.create_mailbox("Bla", &[]);
+    imap.create_mailbox("Bla/Bli", &[]);
+    let mut session = imap.session().unwrap_or_else(|e| panic!("{e}"));
+    let before = imap.operations();
+    let (folder, parent) = (name("Bla"), name("Bla/Bli"));
+    let moved = MoveFolder {
+        folder: &folder,
+        parent: Some(&parent),
+    }
+    .execute(&mut session)
+    .await;
+    assert_eq!(
+        moved,
+        Err(FolderFailure::Change(FolderChangeError::IntoItself))
+    );
+    assert_eq!(imap.operations(), before + 1, "seule la liste lue");
+    assert_eq!(names(&imap).await, ["INBOX", "Bla", "Bla/Bli"]);
+}
+
+#[tokio::test]
+async fn folder_change_move_returns_the_new_name() {
+    let imap = FakeImap::new();
+    imap.create_mailbox("Bla", &[]);
+    imap.create_mailbox("Bla/Bli", &[]);
+    let mut session = imap.session().unwrap_or_else(|e| panic!("{e}"));
+    let change = FolderChange::Move {
+        folder: name("Bla/Bli"),
+        parent: None,
+    };
+    assert_eq!(change.execute(&mut session).await, Ok(name("Bli")));
+    assert_eq!(change.kind(), "dossier déplacé");
+}

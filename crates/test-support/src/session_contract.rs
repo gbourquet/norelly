@@ -514,8 +514,9 @@ where
 /// sélectionné), il emporte ses sous-dossiers et ses messages ; supprimé,
 /// il disparaît de `LIST`. Un nom déjà pris ou une boîte absente est
 /// refusé ([`ConnectionError::Rejected`]) sans rendre la session
-/// inutilisable. `box_name` et `box_name/Sous` sont créées, renommées puis
-/// supprimées par le contrat.
+/// inutilisable. Un dossier renommé vers un autre parent y est déplacé avec
+/// ses sous-dossiers et ses messages. `box_name`, `box_name/Sous` et
+/// `box_name parent` sont créées, renommées puis supprimées par le contrat.
 ///
 /// [`ConnectionError::Rejected`]: norelly_domain::connection::ConnectionError::Rejected
 pub async fn folders_session_contract<C, K>(
@@ -592,6 +593,34 @@ where
     }
     let selected = session.select_writable(&renamed).await.map_err(e)?;
     assert_eq!(selected.exists, 1, "message conservé par le renommage");
+
+    // --- Déplacement sous un autre dossier, puis retour au premier niveau :
+    // sous-dossiers et messages suivent ---
+    if let Some(d) = delimiter {
+        let parent_name = format!("{box_name} parent");
+        let parent = name(&parent_name);
+        session.create_mailbox(&parent).await.map_err(e)?;
+        let moved_name = format!("{parent_name}{d}{renamed_name}");
+        let moved = name(&moved_name);
+        session.rename_mailbox(&renamed, &moved).await.map_err(e)?;
+        let listed = session.list_mailboxes().await.map_err(e)?;
+        assert!(
+            !listed.iter().any(|m| m.name == renamed),
+            "{renamed_name} encore listé après déplacement : {listed:?}"
+        );
+        for expected in [moved.clone(), name(&format!("{moved_name}{d}Sous"))] {
+            assert!(
+                listed.iter().any(|m| m.name == expected),
+                "{expected} absent de LIST après déplacement : {listed:?}"
+            );
+        }
+        let selected = session.select_writable(&moved).await.map_err(e)?;
+        assert_eq!(selected.exists, 1, "message conservé par le déplacement");
+        session.rename_mailbox(&moved, &renamed).await.map_err(e)?;
+        session.delete_mailbox(&parent).await.map_err(e)?;
+        let selected = session.select_writable(&renamed).await.map_err(e)?;
+        assert_eq!(selected.exists, 1, "message revenu au premier niveau");
+    }
 
     // --- Boîte absente : refus, session utilisable ---
     let refused = session.rename_mailbox(&created, &name("Ailleurs")).await;

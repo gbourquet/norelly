@@ -550,3 +550,136 @@ fn deleted_folder_must_exist() {
         Err(FolderChangeError::UnknownFolder)
     );
 }
+
+// ---------------------------------------------------------------------------
+// Déplacer un dossier
+// ---------------------------------------------------------------------------
+
+#[test]
+fn moved_folder_goes_under_its_new_parent() {
+    let existing = vec![
+        remote("INBOX", Some('/')),
+        remote("Bla", Some('/')),
+        remote("Bli", Some('/')),
+    ];
+    assert_eq!(
+        moved_folder_name(&name("Bli"), Some(&name("Bla")), &existing),
+        Ok(name("Bla/Bli"))
+    );
+    // Sous la boîte de réception, comme un nouveau dossier.
+    assert_eq!(
+        moved_folder_name(&name("Bli"), Some(&name("INBOX")), &existing),
+        Ok(name("INBOX/Bli"))
+    );
+}
+
+#[test]
+fn moved_folder_back_to_top_level() {
+    let existing = plain_account();
+    assert_eq!(
+        moved_folder_name(&name("Projets/2026"), None, &existing),
+        Ok(name("2026"))
+    );
+    // Serveur qui range tout sous la boîte de réception.
+    let existing = vec![
+        remote("INBOX", Some('.')),
+        remote("INBOX.Projets", Some('.')),
+        remote("INBOX.Projets.2026", Some('.')),
+    ];
+    assert_eq!(
+        moved_folder_name(&name("INBOX.Projets.2026"), None, &existing),
+        Ok(name("INBOX.2026"))
+    );
+}
+
+#[test]
+fn moved_folder_already_there_keeps_its_name() {
+    let existing = plain_account();
+    assert_eq!(
+        moved_folder_name(&name("Projets/2026"), Some(&name("Projets")), &existing),
+        Ok(name("Projets/2026"))
+    );
+    assert_eq!(
+        moved_folder_name(&name("Projets"), None, &existing),
+        Ok(name("Projets"))
+    );
+}
+
+#[test]
+fn moved_folder_cannot_go_into_itself() {
+    let mut existing = plain_account();
+    existing.push(remote("Projets/2026/Mars", Some('/')));
+    for parent in ["Projets", "Projets/2026", "Projets/2026/Mars"] {
+        assert_eq!(
+            moved_folder_name(&name("Projets"), Some(&name(parent)), &existing),
+            Err(FolderChangeError::IntoItself),
+            "{parent}"
+        );
+    }
+    // Un nom qui commence pareil n'est pas un sous-dossier.
+    existing.push(remote("Projets 2026", Some('/')));
+    assert_eq!(
+        moved_folder_name(&name("Projets"), Some(&name("Projets 2026")), &existing),
+        Ok(name("Projets 2026/Projets"))
+    );
+}
+
+#[test]
+fn moved_folder_rejects_a_name_taken_at_destination() {
+    let mut existing = plain_account();
+    existing.push(remote("Archives perso", Some('/')));
+    existing.push(remote("Archives perso/projets", Some('/')));
+    assert_eq!(
+        moved_folder_name(&name("Projets"), Some(&name("Archives perso")), &existing),
+        Err(FolderChangeError::Name(NewFolderError::AlreadyExists))
+    );
+}
+
+#[test]
+fn moved_folder_destination_rules() {
+    let mut existing = plain_account();
+    existing.push(special("[Gmail]/Tous", MailboxRole::All));
+    existing.push(special("[Gmail]/Suivis", MailboxRole::Flagged));
+    assert_eq!(
+        moved_folder_name(&name("Projets"), Some(&name("Absent")), &existing),
+        Err(FolderChangeError::Name(NewFolderError::UnknownParent))
+    );
+    for parent in ["[Gmail]/Tous", "[Gmail]/Suivis"] {
+        assert_eq!(
+            moved_folder_name(&name("Projets"), Some(&name(parent)), &existing),
+            Err(FolderChangeError::Name(NewFolderError::VirtualParent)),
+            "{parent}"
+        );
+    }
+    // Serveur sans hiérarchie.
+    let flat = vec![
+        remote("INBOX", None),
+        remote("Bla", None),
+        remote("Bli", None),
+    ];
+    assert_eq!(
+        moved_folder_name(&name("Bli"), Some(&name("Bla")), &flat),
+        Err(FolderChangeError::Name(NewFolderError::NoHierarchy))
+    );
+}
+
+#[test]
+fn special_and_unknown_folders_cannot_be_moved() {
+    let existing = vec![
+        remote("INBOX", Some('/')),
+        special("Envoyés", MailboxRole::Sent),
+        special("Corbeille", MailboxRole::Trash),
+        remote("Bla", Some('/')),
+    ];
+    for folder in ["INBOX", "Envoyés", "Corbeille"] {
+        assert_eq!(
+            moved_folder_name(&name(folder), Some(&name("Bla")), &existing),
+            Err(FolderChangeError::Protected),
+            "{folder}"
+        );
+    }
+    assert_eq!(
+        moved_folder_name(&name("Absent"), None, &existing),
+        Err(FolderChangeError::UnknownFolder)
+    );
+}

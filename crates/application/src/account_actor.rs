@@ -215,6 +215,18 @@ impl ActorClient {
             .await
     }
 
+    /// Déplace le dossier `folder` sous `parent` (ou au premier niveau) ;
+    /// renvoie son nouveau nom. Comme pour un renommage, le dossier et ses
+    /// sous-dossiers sont aussitôt resynchronisés sous leur nouveau nom.
+    pub async fn move_folder(
+        &self,
+        folder: MailboxName,
+        parent: Option<MailboxName>,
+    ) -> Result<MailboxName, FolderFailure> {
+        self.change_folder(FolderChange::Move { folder, parent })
+            .await
+    }
+
     /// Supprime le dossier `folder` et ses messages.
     pub async fn delete_folder(&self, folder: MailboxName) -> Result<MailboxName, FolderFailure> {
         self.change_folder(FolderChange::Delete { folder }).await
@@ -563,10 +575,12 @@ where
                     _ = stop.changed() => return None,
                     r = self.change_folder(session, known, &change) => r,
                 };
-                // Dossier renommé : relu aussitôt sous son nouveau nom, avec
-                // ses sous-dossiers (le cache local de l'ancien nom est
-                // oublié avec la liste).
-                if let (FolderChange::Rename { .. }, Ok(renamed)) = (&change, &result) {
+                // Dossier renommé ou déplacé : relu aussitôt sous son
+                // nouveau nom, avec ses sous-dossiers (le cache local de
+                // l'ancien nom est oublié avec la liste).
+                if let (FolderChange::Rename { .. } | FolderChange::Move { .. }, Ok(renamed)) =
+                    (&change, &result)
+                {
                     for m in known.iter().filter(|m| within(&m.mailbox, renamed)) {
                         names.insert(m.mailbox.name.clone(), ());
                     }

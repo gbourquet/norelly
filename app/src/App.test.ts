@@ -98,6 +98,7 @@ vi.mock("./lib/ipc/api", () => ({
     searchMessages: vi.fn(async () => ({ items: [], next: null })),
     createFolder: vi.fn(async () => undefined),
     renameFolder: vi.fn(async () => 13),
+    moveFolder: vi.fn(async () => 14),
     deleteFolder: vi.fn(async () => undefined),
     performAction: vi.fn(async () => ({ ops: [9], messages: 1 })),
   },
@@ -294,6 +295,30 @@ describe("App", () => {
     await waitFor(() => expect(api.renameFolder).toHaveBeenCalledWith(3, 12, "Chantiers"));
     expect(await screen.findByText("Dossier renommé en « Chantiers ».")).toBeInTheDocument();
     expect(screen.queryByRole("dialog", { name: "Renommer le dossier" })).toBeNull();
+    vi.mocked(api.listFolders).mockResolvedValue([]);
+  });
+
+  it("déplace un dossier depuis son menu", async () => {
+    bobWithProjets();
+    render(App);
+    const menu = await openFolderMenu("Projets");
+    await fireEvent.click(within(menu).getByRole("menuitem", { name: "Déplacer le dossier…" }));
+    const dialog = await screen.findByRole("dialog", { name: "Déplacer le dossier" });
+    expect(dialog).toHaveTextContent("Projets");
+    const location = within(dialog).getByLabelText("Nouvel emplacement");
+    // Ni le dossier lui-même ni ses sous-dossiers.
+    expect(
+      within(location)
+        .getAllByRole("option")
+        .map((o) => o.textContent?.trim()),
+    ).toEqual(["Au premier niveau", "Boîte de réception"]);
+    const move = within(dialog).getByRole("button", { name: "Déplacer" });
+    expect(move).toBeDisabled();
+    await fireEvent.change(location, { target: { value: "11" } });
+    await fireEvent.click(move);
+    await waitFor(() => expect(api.moveFolder).toHaveBeenCalledWith(3, 12, 11));
+    expect(await screen.findByText("Dossier « Projets » déplacé.")).toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "Déplacer le dossier" })).toBeNull();
     vi.mocked(api.listFolders).mockResolvedValue([]);
   });
 

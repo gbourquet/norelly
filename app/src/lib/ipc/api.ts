@@ -42,11 +42,21 @@ import {
   type ContactDto,
   type ContactFieldsDto,
   type ContactPageDto_Serialize,
+  type ContactListCursorDto,
+  type ContactListDto_Serialize,
+  type ContactListFieldsDto,
+  type ContactListItemDto,
+  type ContactListPageDto_Serialize,
+  type ExpandedListDto,
   type CorrespondentDto_Serialize,
 } from "./bindings";
 import { IpcFailure } from "../errors";
 
 export type {
+  ContactListCursorDto,
+  ContactListFieldsDto,
+  ContactListItemDto,
+  ExpandedListDto,
   ContactCursorDto,
   ContactDto,
   ContactEmailDto,
@@ -96,6 +106,9 @@ export type Discovery = DiscoveryDto_Serialize;
 export type ConversationPage = ConversationPageDto_Serialize;
 export type ContactPage = ContactPageDto_Serialize;
 export type ContactItem = ContactPage["items"][number];
+/** Liste de diffusion ouverte : champs et fiches des membres. */
+export type ContactList = ContactListDto_Serialize;
+export type ContactListPage = ContactListPageDto_Serialize;
 export type ConversationDto = ConversationDto_Serialize;
 /** Correspondant affiché : `contact`, la fiche du carnet qui porte
  * l'adresse. */
@@ -304,6 +317,36 @@ export const api = {
 
   /** Supprime des fiches ; renvoie le nombre de fiches supprimées. */
   deleteContacts: (ids: number[]): Promise<number> => unwrap(commands.deleteContacts(ids)),
+
+  /** Page des listes de diffusion filtrée sur le nom (vide : toutes). */
+  listContactLists: (
+    text: string,
+    cursor: ContactListCursorDto | null,
+    limit: number,
+  ): Promise<ContactListPage> => unwrap(commands.listContactLists(text, cursor, limit)),
+
+  getContactList: (id: number): Promise<ContactList> => unwrap(commands.getContactList(id)),
+
+  createContactList: (list: ContactListFieldsDto): Promise<ContactList> =>
+    unwrap(commands.createContactList(list)),
+
+  updateContactList: (id: number, list: ContactListFieldsDto): Promise<ContactList> =>
+    unwrap(commands.updateContactList(id, list)),
+
+  /** Supprime une liste (ses contacts restent) ; `false` si elle n'existait plus. */
+  deleteContactList: (id: number): Promise<boolean> => unwrap(commands.deleteContactList(id)),
+
+  /** Ajoute des contacts à une liste (déjà membres : ignorés). */
+  addToContactList: (id: number, contacts: number[]): Promise<ContactList> =>
+    unwrap(commands.addToContactList(id, contacts)),
+
+  /** Destinataires d'une liste, lus par Rust (adresse préférée de chaque membre). */
+  expandContactList: (id: number): Promise<ExpandedListDto> =>
+    unwrap(commands.expandContactList(id)),
+
+  /** Listes proposées pendant la saisie d'un destinataire (vides écartées). */
+  suggestContactLists: (text: string): Promise<ContactListItemDto[]> =>
+    unwrap(commands.suggestContactLists(text)),
 
   onComposeEvent: async (listener: (event: ComposeEventDto) => void): Promise<() => void> =>
     events.composeEventDto.listen((e) => listener(e.payload)),

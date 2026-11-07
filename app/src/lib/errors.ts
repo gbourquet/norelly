@@ -86,6 +86,12 @@ export function fieldLabel(field: FieldDto | null): string {
       return m.field_organization();
     case "notes":
       return m.field_notes();
+    case "contact_list":
+      return m.field_contact_list();
+    case "list_name":
+      return m.field_list_name();
+    case "list_description":
+      return m.field_list_description();
     case null:
       return "?";
   }
@@ -181,6 +187,20 @@ function codeText(code: ErrorCodeDto, field: FieldDto | null): string {
       return m.err_contact_duplicate_address();
     case "contact_not_found":
       return m.err_contact_not_found();
+    case "contact_list_no_name":
+      return m.err_contact_list_no_name();
+    case "contact_list_invalid":
+      return m.err_contact_list_invalid({ field: fieldLabel(field) });
+    case "contact_list_too_long":
+      return m.err_contact_list_too_long({ field: fieldLabel(field) });
+    case "contact_list_duplicate_name":
+      return m.err_contact_list_duplicate_name();
+    case "contact_list_too_many_members":
+      return m.err_contact_list_too_many_members();
+    case "contact_list_empty":
+      return m.err_contact_list_empty();
+    case "contact_list_not_found":
+      return m.err_contact_list_not_found();
     case "internal":
       return m.err_internal();
   }

@@ -15,6 +15,12 @@ import { isEditableFolder } from "./folder-edit.svelte";
 import { ComposeState } from "./compose.svelte";
 import { MailState } from "./mail.svelte";
 import { ContactFormState, ContactsState, DeleteContactsState } from "./contacts.svelte";
+import {
+  AddToListState,
+  ContactListFormState,
+  ContactListsState,
+  DeleteContactListState,
+} from "./contact-lists.svelte";
 import { SearchState } from "./search.svelte";
 import { SettingsState } from "./settings.svelte";
 import { UpdatesState } from "./updates.svelte";
@@ -43,7 +49,10 @@ export type DialogName =
   | "settings"
   | "drafts"
   | "contact"
-  | "delete-contacts";
+  | "delete-contacts"
+  | "contact-list"
+  | "delete-contact-list"
+  | "add-to-list";
 
 export interface AppContext {
   selectedAccount: AccountDto | null;
@@ -71,6 +80,10 @@ export interface AppContext {
   contactTargets: number;
   /** Nombre de contacts cochés. */
   contactsMarked: number;
+  /** La section « Listes » de la vue Contacts est affichée. */
+  listsView: boolean;
+  /** Une liste est visée (menu d'une ligne, liste ouverte). */
+  listTargets: number;
   /** Personne d'un message visée ([`AppState.targetPerson`]) : déjà dans
    * le carnet, inconnue du carnet, ou aucune. */
   person: PersonKind;
@@ -91,6 +104,12 @@ class AppState {
   /** Contact dont le menu contextuel est ouvert (sinon : les cochés, ou
    * la fiche ouverte). */
   contactTarget = $state<number | null>(null);
+  /** Liste dont le menu contextuel est ouvert (sinon : la liste ouverte). */
+  listTarget = $state<number | null>(null);
+  /** Liste dont la suppression est demandée (dialogue ouvert). */
+  listToDelete = $state<number | null>(null);
+  /** Contacts à ajouter à une liste (dialogue ouvert). */
+  contactsToAdd = $state<number[]>([]);
   /** Personne d'un message dont le menu est ouvert (expéditeur,
    * destinataire, ligne de la liste). */
   personTarget = $state<CorrespondentDto | null>(null);
@@ -131,7 +150,9 @@ class AppState {
 
   context(): AppContext {
     if (this.view === "contacts") {
-      // Courrier masqué : ses commandes ne visent rien.
+      // Courrier masqué : ses commandes ne visent rien ; section « Listes »
+      // affichée : celles des contacts non plus.
+      const listsView = lists.shown;
       return {
         selectedAccount: this.selectedAccount,
         folder: null,
@@ -144,8 +165,10 @@ class AppState {
         searching: false,
         results: 0,
         contactsView: true,
-        contactTargets: this.contactTargets().length,
-        contactsMarked: contacts.marked.length,
+        contactTargets: listsView ? 0 : this.contactTargets().length,
+        contactsMarked: listsView ? 0 : contacts.marked.length,
+        listsView,
+        listTargets: listsView && this.listTargetId() !== null ? 1 : 0,
         person: null,
       };
     }
@@ -165,6 +188,8 @@ class AppState {
       contactsView: false,
       contactTargets: 0,
       contactsMarked: 0,
+      listsView: false,
+      listTargets: 0,
       person: personKind(this.targetPerson()),
     };
   }
@@ -205,6 +230,24 @@ class AppState {
     return targets;
   }
 
+  /** Liste visée par les commandes des listes : celle dont le menu est
+   * ouvert, sinon la liste ouverte. */
+  listTargetId(): number | null {
+    return this.listTarget ?? lists.selectedId;
+  }
+
+  /** Liste visée, puis menu d'une ligne oublié. */
+  takeListTarget(): number | null {
+    const id = this.listTargetId();
+    this.listTarget = null;
+    return id;
+  }
+
+  /** Contexte des commandes qui visent la liste `id` (menu d'une ligne). */
+  contextForList(id: number): AppContext {
+    return { ...this.context(), listTargets: id > 0 ? 1 : 0 };
+  }
+
   /** Contacts dont la suppression est demandée (dialogue ouvert). */
   contactsToDelete = $state<number[]>([]);
 
@@ -239,6 +282,7 @@ class AppState {
     this.folderTarget = null;
     this.contactTarget = null;
     this.personTarget = null;
+    this.listTarget = null;
   }
 
   /** Ouvre l'éditeur : nouveau message, réponse ou transfert. */
@@ -375,6 +419,18 @@ export const contactForm = new ContactFormState(api);
 
 /** Confirmation de suppression de contacts. */
 export const contactDeletion = new DeleteContactsState(api);
+
+/** Listes de diffusion (section « Listes » de la vue Contacts). */
+export const lists = new ContactListsState(api);
+
+/** Formulaire de création ou de modification d'une liste. */
+export const listForm = new ContactListFormState(api);
+
+/** Ajout de contacts à une liste. */
+export const addToList = new AddToListState(api);
+
+/** Confirmation de suppression d'une liste. */
+export const listDeletion = new DeleteContactListState(api);
 
 export const settings = new SettingsState(api);
 
@@ -790,6 +846,74 @@ export function registerAppCommands(): () => void {
         app.contactsToDelete = app.takeContactTargets();
         contactDeletion.reset();
         app.open("delete-contacts");
+      },
+    }),
+    registry.register({
+      id: "contacts.add-to-list",
+      title: m.cmd_contact_add_to_list(),
+      group: m.group_contacts(),
+      keywords: words(m.cmd_contact_add_to_list_keywords()),
+      when: (ctx) => ctx.contactsView && ctx.contactTargets > 0,
+      run: async () => {
+        app.contactsToAdd = app.takeContactTargets();
+        app.open("add-to-list");
+        await addToList.open();
+      },
+    }),
+    registry.register({
+      id: "lists.new",
+      title: m.cmd_list_new(),
+      group: m.group_contacts(),
+      keywords: words(m.cmd_list_new_keywords()),
+      run: async () => {
+        if (app.view !== "contacts") await app.showContacts();
+        if (!lists.shown) await lists.show(true);
+        app.listTarget = null;
+        listForm.reset(null);
+        app.open("contact-list");
+      },
+    }),
+    registry.register({
+      id: "lists.edit",
+      title: m.cmd_list_edit(),
+      group: m.group_contacts(),
+      keywords: words(m.cmd_list_edit_keywords()),
+      when: (ctx) => ctx.listsView && ctx.listTargets === 1,
+      run: async () => {
+        const id = app.takeListTarget();
+        if (id === null) return;
+        try {
+          listForm.reset(await api.getContactList(id));
+          app.open("contact-list");
+        } catch (e) {
+          mail.notice = { text: errorText(e), undoable: false };
+        }
+      },
+    }),
+    registry.register({
+      id: "lists.write",
+      title: m.cmd_list_write(),
+      group: m.group_contacts(),
+      keywords: words(m.cmd_list_write_keywords()),
+      when: (ctx) => ctx.listsView && ctx.listTargets === 1 && ctx.selectedAccount !== null,
+      run: async (ctx) => {
+        const account = ctx.selectedAccount;
+        const id = app.takeListTarget();
+        if (account === null || id === null) return;
+        await app.compose("new", account.id, null);
+        await compose.addList("to", id);
+      },
+    }),
+    registry.register({
+      id: "lists.delete",
+      title: m.cmd_list_delete(),
+      group: m.group_contacts(),
+      keywords: words(m.cmd_list_delete_keywords()),
+      when: (ctx) => ctx.listsView && ctx.listTargets === 1,
+      run: () => {
+        app.listToDelete = app.takeListTarget();
+        listDeletion.reset();
+        app.open("delete-contact-list");
       },
     }),
     registry.register({

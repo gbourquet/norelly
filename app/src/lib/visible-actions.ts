@@ -23,6 +23,8 @@ import StarIcon from "@lucide/svelte/icons/star";
 import StarOffIcon from "@lucide/svelte/icons/star-off";
 import UserPlusIcon from "@lucide/svelte/icons/user-plus";
 import BookUserIcon from "@lucide/svelte/icons/book-user";
+import ListPlusIcon from "@lucide/svelte/icons/list-plus";
+import PencilIcon from "@lucide/svelte/icons/pencil";
 import { m } from "./paraglide/messages.js";
 
 export interface VisibleAction {
@@ -163,6 +165,10 @@ export interface ContactSubject {
 const writeContact: VisibleAction = { command: "contacts.write", icon: SquarePenIcon };
 const editContact: VisibleAction = { command: "contacts.edit", icon: UserPenIcon };
 const deleteContact: VisibleAction = { command: "contacts.delete", icon: TrashIcon };
+const addToList: VisibleAction = { command: "contacts.add-to-list", icon: ListPlusIcon };
+const writeList: VisibleAction = { command: "lists.write", icon: SquarePenIcon };
+const editList: VisibleAction = { command: "lists.edit", icon: PencilIcon };
+const deleteList: VisibleAction = { command: "lists.delete", icon: TrashIcon };
 
 /** Bascule de favori : propose l'état inverse du contact. */
 function favoriteToggle(subject: ContactSubject | null): VisibleAction {
@@ -185,7 +191,7 @@ export function contactsToolbar(subject: ContactSubject | null): {
       { ...editContact, priority: 2 },
       { ...deleteContact, priority: 3 },
     ],
-    more: [favoriteToggle(subject)],
+    more: [favoriteToggle(subject), addToList],
   };
 }
 
@@ -195,6 +201,7 @@ export function contactMenuActions(subject: ContactSubject | null): VisibleActio
     { ...editContact, section: 0 },
     { ...writeContact, section: 0 },
     { ...favoriteToggle(subject), section: 0 },
+    { ...addToList, section: 0 },
     { ...deleteContact, section: 1 },
   ];
 }
@@ -206,7 +213,7 @@ export function contactBulkActions(): { primary: VisibleAction[]; more: VisibleA
       { ...writeContact, priority: 1 },
       { ...deleteContact, priority: 2 },
     ],
-    more: [],
+    more: [addToList],
   };
 }
 
@@ -239,4 +246,25 @@ export function fitByPriority(
     used = next;
   }
   return visible;
+}
+
+/** Barre d'une liste de diffusion ouverte. */
+export function contactListToolbar(): { primary: VisibleAction[]; more: VisibleAction[] } {
+  return {
+    primary: [
+      { ...writeList, priority: 1 },
+      { ...editList, priority: 2 },
+      { ...deleteList, priority: 3 },
+    ],
+    more: [],
+  };
+}
+
+/** Menu contextuel d'une ligne de la section « Listes ». */
+export function contactListMenuActions(): VisibleAction[] {
+  return [
+    { ...editList, section: 0 },
+    { ...writeList, section: 0 },
+    { ...deleteList, section: 1 },
+  ];
 }

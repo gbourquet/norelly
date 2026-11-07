@@ -89,6 +89,11 @@ choisissent une adresse proposée, `Entrée` ou `,` la valide.
 | Désélectionner les contacts | palette |
 | Ajouter au carnet d'adresses | palette |
 | Voir le contact | palette |
+| Ajouter à une liste… | palette |
+| Nouvelle liste | palette |
+| Modifier la liste | palette |
+| Écrire à la liste | palette |
+| Supprimer la liste | palette |
 
 Dans la vue **Contacts**, ces actions visent le contact ouvert à droite, ou
 tous les contacts cochés. `N` fonctionne partout : il ouvre les contacts et
@@ -96,6 +101,9 @@ la fiche d'un nouveau contact. **Ajouter au carnet d'adresses** et **Voir le
 contact** visent la personne dont le menu est ouvert (clic sur un nom dans
 un message, clic droit sur une conversation), sinon l'expéditeur du dernier
 message de la conversation ouverte.
+
+Les actions d'une liste de diffusion visent la liste ouverte à droite dans
+la section **Listes** (ou celle dont le menu est ouvert par un clic droit).
 
 ## Comptes
 

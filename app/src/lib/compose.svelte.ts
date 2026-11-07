@@ -7,6 +7,7 @@
 import type {
   Api,
   ComposeKindDto,
+  ContactListItemDto,
   ConversationMessage,
   Draft,
   DraftAttachmentDto,
@@ -31,6 +32,8 @@ export type ComposeApi = Pick<
   | "discardDraft"
   | "parseRecipient"
   | "suggestContacts"
+  | "suggestContactLists"
+  | "expandContactList"
   | "pickAttachments"
   | "attachDropped"
 >;
@@ -45,6 +48,7 @@ export class ComposeState {
   error = $state<string | null>(null);
   busy = $state(false);
   suggestions = $state<RecipientSuggestion[]>([]);
+  listSuggestions = $state<ContactListItemDto[]>([]);
   /** Modifié depuis le dernier enregistrement. */
   #dirty = false;
   #saveTimer: ReturnType<typeof setTimeout> | null = null;
@@ -91,6 +95,7 @@ export class ComposeState {
     this.draft = null;
     this.error = null;
     this.suggestions = [];
+    this.listSuggestions = [];
   }
 
   #changed(): void {
@@ -124,6 +129,7 @@ export class ComposeState {
     if (all.some((r) => same(r.address, parsed.address))) return false;
     this.draft = { ...this.draft, [field]: [...this.draft[field], parsed] };
     this.suggestions = [];
+    this.listSuggestions = [];
     this.#changed();
     return true;
   }
@@ -152,6 +158,25 @@ export class ComposeState {
     this.#changed();
   }
 
+  /** Liste de diffusion choisie dans les suggestions : ses membres,
+   * dépliés par Rust (adresse préférée de chacun), deviennent des puces
+   * relues comme une saisie ; en copie cachée si la liste le demande,
+   * quel que soit `field`. `false` si la liste est refusée (erreur
+   * affichée). */
+  async addList(field: RecipientField, id: number): Promise<boolean> {
+    if (this.draft === null) return false;
+    try {
+      const expanded = await this.#api.expandContactList(id);
+      await this.addRecipients(expanded.bcc ? "bcc" : field, expanded.recipients);
+    } catch (e) {
+      this.error = errorText(e);
+      return false;
+    }
+    this.suggestions = [];
+    this.listSuggestions = [];
+    return true;
+  }
+
   removeRecipient(field: RecipientField, index: number): void {
     if (this.draft === null) return;
     this.draft = { ...this.draft, [field]: this.draft[field].filter((_, i) => i !== index) };
@@ -165,10 +190,19 @@ export class ComposeState {
     const account = this.draft?.account;
     if (text.trim() === "" || account === undefined) {
       this.suggestions = [];
+      this.listSuggestions = [];
       return;
     }
     this.#suggestTimer = setTimeout(() => {
       this.#suggestTimer = null;
+      this.#api
+        .suggestContactLists(text)
+        .then((found) => {
+          if (ticket === this.#query) this.listSuggestions = found;
+        })
+        .catch(() => {
+          if (ticket === this.#query) this.listSuggestions = [];
+        });
       this.#api
         .suggestContacts(account, text)
         .then((found) => {

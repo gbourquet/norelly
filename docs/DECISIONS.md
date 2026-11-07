@@ -539,6 +539,16 @@ est majoritairement écrit par Claude et relu par le mainteneur.
     unique sur `address_key`), pour que la comparaison des adresses reste
     celle du domaine (`AddressKey`) ; requêtes du courrier et bancs 50k
     inchangés ;
+  - suggestions de destinataires : **écart au plan validé par le
+    mainteneur le 2026-11-07 (lot 4)**, `ContactQuery::suggest` reste
+    limité aux adresses collectées ; le cas d'usage lit le carnet par
+    `ContactDirectory::page` (favoris, puis tous) et une règle du domaine
+    fusionne les deux listes (carnet d'abord, une fois par `AddressKey`),
+    sans nouvelle requête SQL ni jointure entre contacts et messages ;
+  - un nom de fiche qui imite une adresse est écarté à l'affichage
+    (courrier, suggestions), comme un nom d'en-tête ; le refus à la
+    saisie attend l'import (lot 6) et l'assainissement des fiches
+    existantes ;
   - le nom du carnet s'affiche pour une adresse `From` qui peut être
     falsifiée : il ne vaut pas preuve d'identité (constat à porter par la
     revue de sécurité) ;

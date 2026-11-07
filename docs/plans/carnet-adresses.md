@@ -127,9 +127,13 @@ sensible (SQL, IPC, fichiers, rendu).
   n'afficher la pastille que si l'authentification (DKIM/DMARC) est connue.
 
 ### Lot 4 — `ui/suggestions-carnet` : autocomplétion
-- `ContactQuery::suggest` : contacts du carnet d'abord (nom du carnet,
-  favoris en tête), puis adresses collectées, dédoublonnées par adresse ;
-  contrat `compose_contracts.rs:368` étendu.
+- Suggestions : contacts du carnet d'abord (nom du carnet, favoris en
+  tête), puis adresses collectées, dédoublonnées par adresse. Écart validé
+  (ADR-012) : `ContactQuery::suggest` inchangé, carnet lu par
+  `ContactDirectory::page`, fusion par une règle du domaine ; contrat du
+  carnet étendu (recherche sur toutes les adresses d'une fiche).
+- Nom de fiche imitant une adresse écarté à l'affichage (courrier,
+  suggestions).
 - `RecipientInput.svelte` : distinguer visuellement contact / collecté.
 
 ### Lot 5 — `domaine/listes-diffusion` : listes de diffusion

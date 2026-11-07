@@ -683,3 +683,184 @@ fn special_and_unknown_folders_cannot_be_moved() {
         Err(FolderChangeError::UnknownFolder)
     );
 }
+
+fn node(id: i64, raw: &str, role: MailboxRole) -> FolderNode {
+    FolderNode {
+        id: MailboxId::new(id).unwrap_or_else(|| panic!("identifiant")),
+        name: name(raw),
+        delimiter: Some('/'),
+        role,
+        selectable: true,
+        total: 0,
+        unread: 0,
+    }
+}
+
+fn display_order(folders: Vec<FolderNode>) -> Vec<String> {
+    folder_display_order(folders)
+        .into_iter()
+        .map(|f| f.name.to_string())
+        .collect()
+}
+
+#[test]
+fn subfolders_follow_their_parent() {
+    use MailboxRole::{Drafts, Inbox, Normal, Trash};
+    let order = display_order(vec![
+        node(1, "Projets/2026", Normal),
+        node(2, "Trash/Vieux", Normal),
+        node(3, "Projets", Normal),
+        node(4, "INBOX/Factures", Normal),
+        node(5, "Trash", Trash),
+        node(6, "Archives perso", Normal),
+        node(7, "INBOX", Inbox),
+        node(8, "Drafts", Drafts),
+        node(9, "Projets/2025", Normal),
+        node(10, "INBOX/Factures/EDF", Normal),
+    ]);
+    assert_eq!(
+        order,
+        [
+            "INBOX",
+            "INBOX/Factures",
+            "INBOX/Factures/EDF",
+            "Drafts",
+            "Trash",
+            "Trash/Vieux",
+            "Archives perso",
+            "Projets",
+            "Projets/2025",
+            "Projets/2026",
+        ]
+    );
+}
+
+#[test]
+fn special_folders_stay_first_even_when_nested() {
+    use MailboxRole::{Inbox, Normal, Sent, Trash};
+    // Gmail range ses dossiers spéciaux sous `[Gmail]` ; certains serveurs
+    // les rangent sous la boîte de réception (`INBOX/Sent`).
+    let order = display_order(vec![
+        node(1, "[Gmail]", Normal),
+        node(2, "[Gmail]/Important", Normal),
+        node(3, "[Gmail]/Corbeille", Trash),
+        node(4, "INBOX/Sent", Sent),
+        node(5, "INBOX/Sent/2025", Normal),
+        node(6, "INBOX", Inbox),
+        node(7, "Achats", Normal),
+    ]);
+    assert_eq!(
+        order,
+        [
+            "INBOX",
+            "INBOX/Sent",
+            "INBOX/Sent/2025",
+            "[Gmail]/Corbeille",
+            "Achats",
+            "[Gmail]",
+            "[Gmail]/Important",
+        ]
+    );
+}
+
+#[test]
+fn subfolder_without_listed_parent_follows_its_nearest_ancestor() {
+    use MailboxRole::Normal;
+    let mut lone = node(4, "Perso.Voyages", Normal);
+    lone.delimiter = None;
+    let order = display_order(vec![
+        node(1, "Projets/A/B", Normal),
+        node(2, "Zeta/x", Normal),
+        node(3, "Projets", Normal),
+        lone,
+        node(5, "Projets/C", Normal),
+    ]);
+    assert_eq!(
+        order,
+        [
+            "Perso.Voyages",
+            "Projets",
+            "Projets/A/B",
+            "Projets/C",
+            "Zeta/x"
+        ]
+    );
+}
+
+#[test]
+fn inbox_children_are_found_whatever_the_case_of_inbox() {
+    use MailboxRole::{Inbox, Normal};
+    let order = display_order(vec![
+        node(1, "Achats", Normal),
+        node(2, "inbox/Factures", Normal),
+        node(3, "INBOX", Inbox),
+    ]);
+    assert_eq!(order, ["INBOX", "inbox/Factures", "Achats"]);
+}
+
+/// Pire cas annoncé par un serveur hostile : `MAX_MAILBOXES` noms de
+/// `MAX_MAILBOX_NAME_LEN` octets presque faits de séparateurs, sans aucun
+/// ancêtre listé. L'ordre doit rester rapide (relu à chaque changement) ;
+/// seuil large pour la couverture instrumentée, l'ordre quadratique
+/// prenait plus de 30 s.
+#[test]
+fn display_order_stays_fast_with_deep_hostile_names() {
+    let folders: Vec<FolderNode> = (1..=i64::try_from(MAX_MAILBOXES).unwrap_or(i64::MAX))
+        .map(|i| {
+            let suffix = format!("{i}");
+            let raw = format!(
+                "{}{suffix}",
+                "/".repeat(MAX_MAILBOX_NAME_LEN - suffix.len())
+            );
+            node(i, &raw, MailboxRole::Normal)
+        })
+        .collect();
+    let started = std::time::Instant::now();
+    let order = folder_display_order(folders);
+    let elapsed = started.elapsed();
+    assert_eq!(order.len(), MAX_MAILBOXES);
+    assert!(
+        elapsed < std::time::Duration::from_secs(2),
+        "ordre trop lent : {elapsed:?}"
+    );
+}
+
+/// Entrées hostiles : la sortie est une permutation de l'entrée.
+#[test]
+fn display_order_keeps_every_folder_once() {
+    use MailboxRole::{Inbox, Normal, Sent, Trash};
+    let mut euro = node(9, "Perso€Banque", Normal);
+    euro.delimiter = Some('€');
+    let mut euro_parent = node(10, "Perso", Normal);
+    euro_parent.delimiter = Some('€');
+    let folders = vec![
+        node(1, "/", Normal),
+        node(2, "//", Normal),
+        node(3, "a//b", Normal),
+        node(4, "inbox/x", Normal),
+        node(5, "INBOX", Normal),
+        node(6, "INBOX/Sent", Sent),
+        node(7, "Trash/Trash", Trash),
+        node(8, "a", Inbox),
+        euro,
+        euro_parent,
+    ];
+    let mut ids: Vec<i64> = folder_display_order(folders.clone())
+        .iter()
+        .map(|f| f.id.get())
+        .collect();
+    ids.sort_unstable();
+    assert_eq!(ids, (1..=10).collect::<Vec<_>>());
+    let names = display_order(folders);
+    let after = |child: &str, parent: &str| {
+        let p = names.iter().position(|n| n == parent);
+        let c = names.iter().position(|n| n == child);
+        assert_eq!(
+            c,
+            p.map(|p| p + 1),
+            "{child} juste après {parent} : {names:?}"
+        );
+    };
+    after("Perso€Banque", "Perso");
+    after("inbox/x", "INBOX");
+}

@@ -44,6 +44,7 @@ const APP_COMMANDS: &[&str] = &[
     "outbox",
     "retry_send",
     "cancel_send",
+    "parse_recipient",
     "suggest_contacts",
     "pick_attachments",
     "attach_dropped",

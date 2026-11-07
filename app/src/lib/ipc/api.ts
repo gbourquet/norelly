@@ -272,6 +272,10 @@ export const api = {
   cancelSend: (account: number, id: number): Promise<void> =>
     unwrap(commands.cancelSend(account, id)).then(() => undefined),
 
+  /** Destinataire saisi ou collé, lu et validé en Rust (nom qui imite une
+   * adresse écarté) ; `IpcFailure` si la saisie n'est pas une adresse. */
+  parseRecipient: (raw: string): Promise<RecipientDto> => unwrap(commands.parseRecipient(raw)),
+
   suggestContacts: (account: number, text: string): Promise<RecipientSuggestion[]> =>
     unwrap(commands.suggestContacts(account, text)),
 

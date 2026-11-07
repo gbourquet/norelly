@@ -169,6 +169,12 @@ export const commands = {
 	 */
 	cancelSend: (account: number, id: number) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("cancel_send", { account, id })),
 	/**
+	 *  Destinataire saisi ou collé dans l'éditeur, lu et validé par le
+	 *  domaine ([`Recipient::parse`]) : un nom qui imite une adresse est
+	 *  écarté.
+	 */
+	parseRecipient: (raw: string) => typedError<RecipientDto, IpcError_Serialize>(__TAURI_INVOKE("parse_recipient", { raw })),
+	/**
 	 *  Destinataires proposés pour la saisie : contacts du carnet, puis
 	 *  adresses connues du compte.
 	 */

@@ -587,6 +587,19 @@ pub async fn cancel_send(
     Ok(())
 }
 
+/// Destinataire saisi ou collé dans l'éditeur, lu et validé par le
+/// domaine ([`Recipient::parse`]) : un nom qui imite une adresse est
+/// écarté.
+#[tauri::command]
+#[specta::specta]
+pub fn parse_recipient(raw: String) -> Result<RecipientDto, IpcError> {
+    let r = Recipient::parse(&raw).map_err(|_| IpcError::invalid(FieldDto::Address))?;
+    Ok(RecipientDto {
+        name: r.name,
+        address: r.address.to_string(),
+    })
+}
+
 /// Destinataires proposés pour la saisie : contacts du carnet, puis
 /// adresses connues du compte.
 #[tauri::command]

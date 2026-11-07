@@ -320,7 +320,7 @@ describe(`captures d'écran (${lang})`, () => {
     await row().waitForDisplayed({ timeout: 10000 });
   });
 
-  it("renommer puis supprimer un dossier (à la souris)", async () => {
+  it("renommer, déplacer puis supprimer un dossier (à la souris)", async () => {
     const folders = `//*[@aria-label="${msg("sidebar_folders_of", { address })}"]`;
     const label = (name) => $(`${folders}//span[normalize-space()="${name}"]`);
     /** Ouvre le menu « ⋯ » du dossier `name`, visible au survol. */
@@ -342,6 +342,23 @@ describe(`captures d'écran (${lang})`, () => {
     await rename.$(`button=${msg("rename_folder_confirm")}`).click();
     await rename.waitForDisplayed({ reverse: true, timeout: 30000 });
     // Renommé sur le serveur, puis affiché sous son nouveau nom.
+    await label(content.renamed).waitForDisplayed({ timeout: 30000 });
+
+    // Déplacé sous la boîte de réception, avec le même nom.
+    await folderMenu(content.renamed);
+    await menuItem(msg("cmd_move_folder")).waitForDisplayed({ timeout: 10000 });
+    await menuItem(msg("cmd_move_folder")).click();
+    const move = dialogTitled(msg("move_folder_title"));
+    await move.waitForDisplayed({ timeout: 10000 });
+    // Premier choix : le premier niveau ; le deuxième : la boîte de réception.
+    await move.$("select").selectByIndex(1);
+    await capture("move-folder");
+    await move.$(`button=${msg("move_folder_confirm")}`).click();
+    await move.waitForDisplayed({ reverse: true, timeout: 30000 });
+    await expect($(".notice-region")).toHaveText(
+      expect.stringContaining(msg("action_folder_moved", { folder: content.renamed })),
+      { wait: 30000 },
+    );
     await label(content.renamed).waitForDisplayed({ timeout: 30000 });
 
     await folderMenu(content.renamed);

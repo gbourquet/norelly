@@ -81,6 +81,20 @@ quand le mainteneur l'abandonne (avec la raison).
   de sécurité, basse) : l'état lu est visible des autres personnes qui
   partagent la boîte, et le marquage s'active à la mise à jour sans choix
   de l'utilisateur. (`crates/domain/src/settings.rs`)
+- **Exemplaire forgé marqué lu à l'ouverture** (revue de sécurité,
+  basse) : `opened_seen_targets` étend le marquage aux membres de même
+  `Message-ID` relus au moment du marquage ; un message forgé avec le
+  `Message-ID` d'un message affiché, arrivé pendant le délai, est marqué
+  lu, puis remplace l'affichage (dédoublonnage « le plus récent
+  l'emporte » de `messages_query`). Ne garder que les exemplaires présents
+  à l'ouverture (repère transmis par l'interface), préférer l'exemplaire
+  le plus ancien ou hors Indésirables au dédoublonnage, et fixer le cas
+  par un test. (`crates/domain/src/actions.rs`,
+  `crates/adapters/sqlite/src/conversations.rs`)
+- **Action en attente du marquage automatique sans limite** (revue de
+  sécurité, info) : `#autoSeenInFlight` couvre aussi le rafraîchissement
+  qui suit ; n'attendre que l'appel `markOpenedSeen`, ou borner l'attente.
+  (`app/src/lib/mail.svelte.ts`)
 - **Marquage comme lu fenêtre cachée** (revue de sécurité, info) : le
   délai court même fenêtre réduite ou masquée ; le suspendre tant que
   `document.visibilityState` n'est pas `visible`. (`app/src/lib/mail.svelte.ts`)

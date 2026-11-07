@@ -155,7 +155,7 @@ fn contact_dto(contact: &Contact) -> Result<ContactDto, IpcError> {
     })
 }
 
-fn item_dto(item: ContactListItem) -> Result<ContactItemDto, IpcError> {
+pub(crate) fn item_dto(item: ContactListItem) -> Result<ContactItemDto, IpcError> {
     Ok(ContactItemDto {
         id: id32(item.id.get())?,
         name: item.name,

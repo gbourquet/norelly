@@ -307,7 +307,7 @@ fn refused(
 
 fn sorted(lists: &[ContactList]) -> Vec<ContactList> {
     let mut out = lists.to_vec();
-    out.sort_by(|a, b| (a.draft().name_key(), a.id()).cmp(&(b.draft().name_key(), b.id())));
+    out.sort_by_key(|a| (a.draft().name_key(), a.id()));
     out
 }
 

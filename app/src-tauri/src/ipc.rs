@@ -123,6 +123,20 @@ pub enum ErrorCodeDto {
     ContactDuplicateAddress,
     /// Contact introuvable (supprimé entre-temps).
     ContactNotFound,
+    /// Liste de diffusion sans nom.
+    ContactListNoName,
+    /// Champ d'une liste refusé (`field`).
+    ContactListInvalid,
+    /// Champ d'une liste trop long (`field`).
+    ContactListTooLong,
+    /// Nom déjà porté par une autre liste (`detail` : le nom saisi).
+    ContactListDuplicateName,
+    /// Trop de membres dans la liste.
+    ContactListTooManyMembers,
+    /// Liste sans membre : rien à écrire.
+    ContactListEmpty,
+    /// Liste introuvable (supprimée entre-temps).
+    ContactListNotFound,
     /// Erreur interne (journalisée).
     Internal,
 }
@@ -167,6 +181,12 @@ pub enum FieldDto {
     Nickname,
     Organization,
     Notes,
+    /// Liste de diffusion (identifiant).
+    ContactList,
+    /// Nom d'une liste de diffusion.
+    ListName,
+    /// Description d'une liste de diffusion.
+    ListDescription,
 }
 
 /// Erreur renvoyée à l'interface : un code, le champ concerné, et un détail
@@ -1307,4 +1327,57 @@ pub struct ContactCursorDto {
 pub struct ContactPageDto {
     pub items: Vec<ContactItemDto>,
     pub next: Option<ContactCursorDto>,
+}
+
+/// Champs d'une liste de diffusion : saisie envoyée par l'interface
+/// (revalidée par le domaine) ou liste relue. Description vide : absente.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+pub struct ContactListFieldsDto {
+    pub name: String,
+    pub description: String,
+    /// Contacts membres, dans l'ordre de la liste.
+    pub members: Vec<u32>,
+    /// Membres envoyés en copie cachée.
+    pub bcc: bool,
+}
+
+/// Liste de diffusion ouverte.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
+pub struct ContactListDto {
+    pub id: u32,
+    pub fields: ContactListFieldsDto,
+    /// Fiches des membres (nom, adresse préférée), dans l'ordre.
+    pub members: Vec<ContactItemDto>,
+}
+
+/// Ligne de la liste des listes de diffusion (et suggestion de liste).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
+pub struct ContactListItemDto {
+    pub id: u32,
+    pub name: String,
+    /// Nombre de membres.
+    pub members: u32,
+    pub bcc: bool,
+}
+
+/// Position dans la liste des listes (rendue telle quelle).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+pub struct ContactListCursorDto {
+    pub sort_key: String,
+    pub id: u32,
+}
+
+/// Une page de listes de diffusion.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
+pub struct ContactListPageDto {
+    pub items: Vec<ContactListItemDto>,
+    pub next: Option<ContactListCursorDto>,
+}
+
+/// Liste dépliée en destinataires (noms et adresses lus par le domaine).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
+pub struct ExpandedListDto {
+    pub recipients: Vec<RecipientDto>,
+    /// À ranger en copie cachée, quel que soit le champ de saisie.
+    pub bcc: bool,
 }

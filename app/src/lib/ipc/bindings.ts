@@ -205,6 +205,31 @@ export const commands = {
 	 *  de fiches supprimées.
 	 */
 	deleteContacts: (ids: number[]) => typedError<number, IpcError_Serialize>(__TAURI_INVOKE("delete_contacts", { ids })),
+	/**
+	 *  Une page des listes filtrée sur le nom (`text` vide : toutes), après
+	 *  `cursor`.
+	 */
+	listContactLists: (text: string, cursor: ContactListCursorDto | null, limit: number) => typedError<ContactListPageDto_Serialize, IpcError_Serialize>(__TAURI_INVOKE("list_contact_lists", { text, cursor, limit })),
+	/**  Liste `id` et ses membres. */
+	getContactList: (id: number) => typedError<ContactListDto_Serialize, IpcError_Serialize>(__TAURI_INVOKE("get_contact_list", { id })),
+	/**  Enregistre une nouvelle liste. */
+	createContactList: (list: ContactListFieldsDto) => typedError<ContactListDto_Serialize, IpcError_Serialize>(__TAURI_INVOKE("create_contact_list", { list })),
+	/**  Remplace le contenu de la liste `id`. */
+	updateContactList: (id: number, list: ContactListFieldsDto) => typedError<ContactListDto_Serialize, IpcError_Serialize>(__TAURI_INVOKE("update_contact_list", { id, list })),
+	/**
+	 *  Supprime la liste `id` (ses contacts restent) ; `false` si elle
+	 *  n'existait plus.
+	 */
+	deleteContactList: (id: number) => typedError<boolean, IpcError_Serialize>(__TAURI_INVOKE("delete_contact_list", { id })),
+	/**  Ajoute des contacts à la liste `id` (déjà membres : ignorés). */
+	addToContactList: (id: number, contacts: number[]) => typedError<ContactListDto_Serialize, IpcError_Serialize>(__TAURI_INVOKE("add_to_contact_list", { id, contacts })),
+	/**
+	 *  Destinataires de la liste `id` : chaque membre à son adresse préférée,
+	 *  nom lu par le domaine.
+	 */
+	expandContactList: (id: number) => typedError<ExpandedListDto, IpcError_Serialize>(__TAURI_INVOKE("expand_contact_list", { id })),
+	/**  Listes proposées pendant la saisie d'un destinataire. */
+	suggestContactLists: (text: string) => typedError<ContactListItemDto[], IpcError_Serialize>(__TAURI_INVOKE("suggest_contact_lists", { text })),
 	/**  État de la recherche de mises à jour. */
 	updateStatus: () => __TAURI_INVOKE<UpdateStatusDto_Serialize>("update_status"),
 	/**
@@ -430,6 +455,68 @@ export type ContactItemDto_Serialize = {
 	address: string,
 	organization: string | null,
 	favorite: boolean,
+};
+
+/**  Position dans la liste des listes (rendue telle quelle). */
+export type ContactListCursorDto = {
+	sort_key: string,
+	id: number,
+};
+
+/**  Liste de diffusion ouverte. */
+export type ContactListDto = ContactListDto_Serialize | ContactListDto_Deserialize;
+
+/**  Liste de diffusion ouverte. */
+export type ContactListDto_Deserialize = {
+	id: number,
+	fields: ContactListFieldsDto,
+	/**  Fiches des membres (nom, adresse préférée), dans l'ordre. */
+	members: ContactItemDto_Deserialize[],
+};
+
+/**  Liste de diffusion ouverte. */
+export type ContactListDto_Serialize = {
+	id: number,
+	fields: ContactListFieldsDto,
+	/**  Fiches des membres (nom, adresse préférée), dans l'ordre. */
+	members: ContactItemDto_Serialize[],
+};
+
+/**
+ *  Champs d'une liste de diffusion : saisie envoyée par l'interface
+ *  (revalidée par le domaine) ou liste relue. Description vide : absente.
+ */
+export type ContactListFieldsDto = {
+	name: string,
+	description: string,
+	/**  Contacts membres, dans l'ordre de la liste. */
+	members: number[],
+	/**  Membres envoyés en copie cachée. */
+	bcc: boolean,
+};
+
+/**  Ligne de la liste des listes de diffusion (et suggestion de liste). */
+export type ContactListItemDto = {
+	id: number,
+	name: string,
+	/**  Nombre de membres. */
+	members: number,
+	bcc: boolean,
+};
+
+/**  Une page de listes de diffusion. */
+export type ContactListPageDto = ContactListPageDto_Serialize | ContactListPageDto_Deserialize;
+
+/**  Une page de listes de diffusion. */
+export type ContactListPageDto_Deserialize = {
+	items: ContactListItemDto[],
+	next?: ContactListCursorDto | null,
+};
+
+/**  Une page de listes de diffusion. */
+export type ContactListPageDto_Serialize = {
+	items: ContactListItemDto[],
+	next: ContactListCursorDto | null,
 };
 
 /**  Une page de contacts. */
@@ -781,8 +868,29 @@ export type ErrorCodeDto =
 "contact_duplicate_address" | 
 /**  Contact introuvable (supprimé entre-temps). */
 "contact_not_found" | 
+/**  Liste de diffusion sans nom. */
+"contact_list_no_name" | 
+/**  Champ d'une liste refusé (`field`). */
+"contact_list_invalid" | 
+/**  Champ d'une liste trop long (`field`). */
+"contact_list_too_long" | 
+/**  Nom déjà porté par une autre liste (`detail` : le nom saisi). */
+"contact_list_duplicate_name" | 
+/**  Trop de membres dans la liste. */
+"contact_list_too_many_members" | 
+/**  Liste sans membre : rien à écrire. */
+"contact_list_empty" | 
+/**  Liste introuvable (supprimée entre-temps). */
+"contact_list_not_found" | 
 /**  Erreur interne (journalisée). */
 "internal";
+
+/**  Liste dépliée en destinataires (noms et adresses lus par le domaine). */
+export type ExpandedListDto = {
+	recipients: RecipientDto[],
+	/**  À ranger en copie cachée, quel que soit le champ de saisie. */
+	bcc: boolean,
+};
 
 export type FailureKindDto = "network" | "authentication" | "security" | "protocol" | 
 /**  Paramètres refusés par le domaine. */
@@ -807,7 +915,13 @@ export type FieldDto = "address" | "display_name" | "host" | "port" | "username"
 /**  Adresse électronique d'un contact. */
 "contact_email" | 
 /**  Téléphone d'un contact. */
-"contact_phone" | "given_name" | "family_name" | "nickname" | "organization" | "notes";
+"contact_phone" | "given_name" | "family_name" | "nickname" | "organization" | "notes" | 
+/**  Liste de diffusion (identifiant). */
+"contact_list" | 
+/**  Nom d'une liste de diffusion. */
+"list_name" | 
+/**  Description d'une liste de diffusion. */
+"list_description";
 
 /**  Dossier d'un compte. */
 export type FolderDto = {

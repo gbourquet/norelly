@@ -84,6 +84,13 @@ describe("traduction des erreurs IPC", () => {
       too_many_attachments: true,
       schedule_too_far: true,
       outbox_busy: true,
+      folder_name_empty: true,
+      folder_name_too_long: true,
+      folder_name_invalid: true,
+      folder_name_delimiter: true,
+      folder_exists: true,
+      no_subfolders: true,
+      folder_create_failed: true,
       update_failed: true,
       internal: true,
     } satisfies Record<ErrorCodeDto, true>;

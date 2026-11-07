@@ -113,6 +113,7 @@ Norelly est un client de messagerie **IMAP/SMTP** de bureau, pour
 | Afficher la liste des conversations, boîte unifiée | [conversations.md](conversations.md) |
 | Lire un message en sécurité : HTML isolé, images, liens, pièces jointes, texte brut | [lecture.md](lecture.md) |
 | Agir sur les messages : archiver, supprimer, déplacer, suivre, lu/non lu, annuler, hors ligne | [actions.md](actions.md) |
+| Créer un dossier, au premier niveau ou dans un dossier existant | [dossiers.md](dossiers.md) |
 | Rédiger : nouveau message, répondre, répondre à tous, transférer, pièces jointes | [redaction.md](redaction.md) |
 | Brouillons : enregistrement, reprise, brouillons d'autres clients | [brouillons.md](brouillons.md) |
 | Envoyer : boîte d'envoi, nouvelles tentatives, envoi différé | [envoi.md](envoi.md) |

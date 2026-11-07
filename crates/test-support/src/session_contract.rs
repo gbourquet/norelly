@@ -509,6 +509,70 @@ where
     Ok(())
 }
 
+/// Contrat de la création de dossier (`CREATE`) : le dossier créé apparaît
+/// dans `LIST` et peut être sélectionné ; un nom déjà pris est refusé
+/// ([`ConnectionError::Rejected`]) sans rendre la session inutilisable.
+/// `box_name` et `box_name/Sous` sont créées par le contrat, puis
+/// supprimées.
+///
+/// [`ConnectionError::Rejected`]: norelly_domain::connection::ConnectionError::Rejected
+pub async fn folders_session_contract<C, K>(
+    connector: &C,
+    request: &ConnectRequest,
+    control: &K,
+    box_name: &str,
+) -> Result<(), String>
+where
+    C: RemoteMailboxConnector,
+    K: MailboxControl,
+{
+    let mut session = connector
+        .connect(request)
+        .await
+        .map_err(|e| e.to_string())?;
+    let e = |e: norelly_domain::connection::ConnectionError| e.to_string();
+    let created = name(box_name);
+    session.create_mailbox(&created).await.map_err(e)?;
+    let listed = session.list_mailboxes().await.map_err(e)?;
+    let delimiter = listed
+        .iter()
+        .find(|m| m.name == created)
+        .map(|m| m.delimiter)
+        .ok_or_else(|| format!("{box_name} absent de LIST après CREATE : {listed:?}"))?;
+    let selected = session.select_writable(&created).await.map_err(e)?;
+    assert_eq!(selected.exists, 0, "dossier créé vide");
+
+    // --- Sous-dossier, avec le séparateur annoncé ---
+    let child_name = delimiter.map(|d| format!("{box_name}{d}Sous"));
+    if let Some(child_name) = &child_name {
+        let child = name(child_name);
+        session.create_mailbox(&child).await.map_err(e)?;
+        let listed = session.list_mailboxes().await.map_err(e)?;
+        assert!(
+            listed.iter().any(|m| m.name == child),
+            "{child_name} absent de LIST : {listed:?}"
+        );
+    }
+
+    // --- Nom déjà pris : refus, session utilisable ---
+    let refused = session.create_mailbox(&created).await;
+    assert!(
+        matches!(
+            refused,
+            Err(norelly_domain::connection::ConnectionError::Rejected(_))
+        ),
+        "{refused:?}"
+    );
+    session.select_writable(&created).await.map_err(e)?;
+
+    session.logout().await.map_err(e)?;
+    if let Some(child_name) = &child_name {
+        control.delete(child_name).await?;
+    }
+    control.delete(box_name).await?;
+    Ok(())
+}
+
 /// Partie APPEND du contrat des actions.
 async fn append_contract<S: RemoteMailboxSession>(
     session: &mut S,
@@ -649,5 +713,12 @@ mod tests {
             actions_session_contract(&servers, &fake_request()?, &imap, "Actions").await?;
         }
         Ok(())
+    }
+
+    #[tokio::test]
+    async fn fake_server_passes_folders_contract() -> Result<(), String> {
+        let imap = FakeImap::new();
+        let servers = FakeMailServers::with_imap(imap.clone());
+        folders_session_contract(&servers, &fake_request()?, &imap, "Nouveau").await
     }
 }

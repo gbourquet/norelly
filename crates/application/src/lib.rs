@@ -6,6 +6,7 @@ pub mod actions;
 pub mod compose;
 pub mod compose_worker;
 pub mod discover_settings;
+pub mod folders;
 pub mod reading;
 pub mod sync;
 pub mod test_connection;

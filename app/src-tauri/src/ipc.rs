@@ -73,6 +73,23 @@ pub enum ErrorCodeDto {
     ScheduleTooFar,
     /// Envoi non annulable ou non relançable dans son état.
     OutboxBusy,
+    /// Nom de dossier vide.
+    FolderNameEmpty,
+    /// Nom de dossier trop long.
+    FolderNameTooLong,
+    /// Nom de dossier avec un caractère interdit (`*`, `%`, caractère
+    /// invisible).
+    FolderNameInvalid,
+    /// Nom de dossier avec le séparateur de hiérarchie du serveur
+    /// (`detail` : le séparateur).
+    FolderNameDelimiter,
+    /// Un dossier de ce nom existe déjà.
+    FolderExists,
+    /// Le serveur n'accepte pas de sous-dossiers.
+    NoSubfolders,
+    /// Création du dossier impossible : refus du serveur ou serveur
+    /// injoignable (`detail` : réponse brute du serveur).
+    FolderCreateFailed,
     /// Téléchargement ou installation d'une mise à jour impossible
     /// (`detail` : erreur brute).
     UpdateFailed,

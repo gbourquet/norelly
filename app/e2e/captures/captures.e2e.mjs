@@ -65,6 +65,7 @@ const content = {
       ],
     ],
     reply: "Avec plaisir, à dimanche ! Je prends les jus de fruits.",
+    folder: "Jardin",
     search: "tarte",
   },
   en: {
@@ -92,6 +93,7 @@ const content = {
       ],
     ],
     reply: "Great, until Sunday! I can bring drinks.",
+    folder: "Garden",
     search: "pie",
   },
 }[lang];
@@ -268,6 +270,20 @@ describe(`captures d'écran (${lang})`, () => {
     await browser.keys("Escape");
     await picker.waitForDisplayed({ reverse: true, timeout: 10000 });
     await browser.keys("Escape");
+  });
+
+  it("nouveau dossier (à la souris)", async () => {
+    await accountMenu(address, msg("cmd_new_folder"), msg("sidebar_account_menu", { address }));
+    const dialog = dialogTitled(msg("new_folder_title"));
+    await dialog.waitForDisplayed({ timeout: 10000 });
+    await dialog.$(`input[type="text"]`).setValue(content.folder);
+    await capture("new-folder");
+    await dialog.$(`button=${msg("new_folder_create")}`).click();
+    await dialog.waitForDisplayed({ reverse: true, timeout: 30000 });
+    // Créé sur le serveur, puis affiché dans les dossiers du compte.
+    await $(
+      `//*[@aria-label="${msg("sidebar_folders_of", { address })}"]//span[normalize-space()="${content.folder}"]`,
+    ).waitForDisplayed({ timeout: 30000 });
   });
 
   it("recherche", async () => {

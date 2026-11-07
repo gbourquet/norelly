@@ -12,6 +12,8 @@
   import ConversationList from "./components/ConversationList.svelte";
   import ConversationView from "./components/ConversationView.svelte";
   import FolderPicker from "./components/FolderPicker.svelte";
+  import NewFolderDialog from "./components/NewFolderDialog.svelte";
+  import { NewFolderState } from "./lib/new-folder.svelte";
   import ActionNotice from "./components/ActionNotice.svelte";
   import ActionBar from "./components/ActionBar.svelte";
   import ComposeDialog from "./components/ComposeDialog.svelte";
@@ -123,6 +125,13 @@
         ? m.compose_title_forward()
         : m.compose_title_reply(),
   );
+
+  const newFolder = new NewFolderState(api);
+
+  // Formulaire vide à chaque ouverture.
+  $effect(() => {
+    if (app.dialog === "new-folder") newFolder.reset();
+  });
 
   const archiveFolders = $derived(
     app.selectedAccountId === null ? [] : (mail.folders[app.selectedAccountId] ?? []),
@@ -287,6 +296,19 @@
         }),
       (e: unknown) => (mail.notice = { text: errorText(e), undoable: false }),
     );
+  }}
+/>
+<NewFolderDialog
+  open={app.dialog === "new-folder"}
+  account={app.selectedAccount}
+  folders={archiveFolders}
+  form={newFolder}
+  onClose={() => app.close()}
+  onCreated={(name) => {
+    app.close();
+    mail.notice = { text: m.action_folder_created({ folder: name }), undoable: false };
+    const account = app.selectedAccountId;
+    if (account !== null) void mail.loadFolders(account);
   }}
 />
 <ComposeDialog

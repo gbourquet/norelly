@@ -195,6 +195,38 @@ Accès à la souris (interface) :
   UIDPLUS : comptées (`ReplayReport::foreign_expunges`), la boîte est
   resynchronisée.
 
+## Dossiers : création
+
+Fiche : [dossiers.md](../fonctionnel/dossiers.md).
+
+### Règles et code
+
+| Règle | Où |
+|---|---|
+| Nom saisi : espaces de bord retirés, non vide, 100 caractères au plus, ni contrôle, ni caractère de mise en forme, ni `*` / `%` (`folder_label`, `MAX_FOLDER_LABEL_CHARS`) | `crates/domain/src/mailbox.rs` |
+| Nom complet (`new_folder_name`) : parent + séparateur du parent ; au premier niveau, préfixe `INBOX<séparateur>` si tous les autres dossiers sont sous INBOX (Courier, Cyrus) ; séparateur interdit dans le nom ; doublon refusé à la casse près ; parent inconnu, sans hiérarchie ou virtuel (`\All`, `\Flagged`) refusé | `mailbox.rs` |
+| Décision prise sur la liste relue par `LIST` juste avant `CREATE`, pas sur la copie locale | `crates/application/src/folders.rs` (`CreateFolder`) |
+| `CREATE` sur la connexion de commandes de l'acteur ; relecture de la liste (`sync_folders`) puis `FoldersChanged` ; un dossier créé reste annoncé comme créé si la relecture échoue (reconnexion ensuite) ; une demande abandonnée par l'interface (délai dépassé) avant d'être servie n'est pas envoyée | `crates/application/src/account_actor.rs` |
+| Nom envoyé en UTF-7 modifié ; refus `NO` → `ConnectionError::Rejected` | `crates/adapters/imap/src/session.rs` (`create`) |
+| Commande IPC : compte et parent revalidés (le parent doit être un dossier du compte), nom vérifié seul avant l'envoi, 30 s au plus (`CREATE_FOLDER_TIMEOUT`), erreurs traduites en codes | `app/src-tauri/src/folders.rs`, `app/src-tauri/src/mail.rs` |
+| Emplacements proposés : premier niveau puis dossiers du compte, sans les dossiers virtuels `\All` et `\Flagged` (`parentChoices`, affichage seulement : la règle est dans le domaine) | `app/src/lib/new-folder.svelte.ts` |
+
+Port : `RemoteMailboxSession::create_mailbox` ; contrat
+`folders_session_contract` (`crates/test-support/src/session_contract.rs`),
+joué contre le faux serveur et contre Dovecot
+(`crates/adapters/imap/tests/integration_sync.rs`).
+
+Accès à la souris : menu « ⋯ » d'un compte (`Sidebar.svelte`), fenêtre
+`NewFolderDialog.svelte`.
+
+### Clés des messages
+
+`cmd_new_folder`, `cmd_new_folder_keywords`, `new_folder_title`, `new_folder_name`, `new_folder_parent`, `new_folder_top_level`, `new_folder_create`, `new_folder_creating`, `action_folder_created`, `err_folder_name_empty`, `err_folder_name_too_long`, `err_folder_name_invalid`, `err_folder_name_delimiter`, `err_folder_exists`, `err_no_subfolders`, `err_folder_create_failed`.
+
+### Commandes
+
+`account.new-folder`.
+
 ## Rédaction : nouveau message, réponse, transfert
 
 Fiche : [redaction.md](../fonctionnel/redaction.md).

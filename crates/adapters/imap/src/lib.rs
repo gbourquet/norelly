@@ -351,6 +351,10 @@ impl RemoteMailboxSession for ImapSession {
         self.conn.transfer(uid, to, false).await
     }
 
+    async fn create_mailbox(&mut self, mailbox: &MailboxName) -> Result<(), ConnectionError> {
+        self.conn.create(mailbox).await
+    }
+
     async fn copy_to(&mut self, uid: Uid, to: &MailboxName) -> Result<(), ConnectionError> {
         self.conn.transfer(uid, to, true).await
     }

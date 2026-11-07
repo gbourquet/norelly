@@ -1268,3 +1268,53 @@ async fn undecodable_examine_response_marks_the_selection_incomplete() -> TestRe
         .map_err(|e| format!("LOGOUT : {e}"))?;
     Ok(())
 }
+
+/// `CREATE` : nom envoyé en UTF-7 modifié ; refus `NO` → `Rejected`, la
+/// session reste utilisable.
+#[tokio::test]
+async fn create_mailbox_encodes_the_name_and_reports_refusal() -> TestResult {
+    use norelly_domain::connection::ConnectionError;
+    use norelly_domain::mailbox::MailboxName;
+
+    let f = fixture()?;
+    let cert = f.ca.issue(&["localhost"])?;
+    let script = authenticated(
+        Script::new()
+            .expect("CREATE Voyages/&AMk-t&AOk-")
+            .send("{tag} OK CREATE termine\r\n")
+            .expect("CREATE Projets")
+            .send("{tag} NO [ALREADYEXISTS] existe deja\r\n")
+            // Guillemet, barre oblique inverse, espace, accolade : chaîne
+            // entre guillemets échappée, jamais d'argument supplémentaire.
+            .expect("CREATE \"a\\\" b\\\\c{d}\"")
+            .send("{tag} OK CREATE termine\r\n")
+            .expect("EXPUNGE")
+            .send("{tag} OK EXPUNGE termine\r\n"),
+    );
+    let server = ScriptedServer::start_tls(script, cert.server_config()?).await?;
+    let mut session = f
+        .connector
+        .connect(&request(
+            server.port(),
+            Security::Tls,
+            PlaintextPolicy::deny_all(),
+        ))
+        .await?;
+    session
+        .create_mailbox(&MailboxName::parse("Voyages/Été")?)
+        .await?;
+    let refused = session
+        .create_mailbox(&MailboxName::parse("Projets")?)
+        .await;
+    assert!(
+        matches!(refused, Err(ConnectionError::Rejected(_))),
+        "{refused:?}"
+    );
+    session
+        .create_mailbox(&MailboxName::parse("a\" b\\c{d}")?)
+        .await?;
+    assert_eq!(session.expunge_all().await?, 0, "session utilisable");
+    session.logout().await?;
+    server.finish().await.result?;
+    Ok(())
+}

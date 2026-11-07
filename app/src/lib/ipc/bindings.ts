@@ -82,6 +82,12 @@ export const commands = {
 	 *  `\Archive` (`None` : aucun).
 	 */
 	setArchiveFolder: (account: number, mailbox: number | null) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("set_archive_folder", { account, mailbox })),
+	/**
+	 *  Crée le dossier `name` dans le compte `account`, sous `parent` ou au
+	 *  premier niveau ; la liste des dossiers est ensuite relue (événement
+	 *  `folders_changed`).
+	 */
+	createFolder: (account: number, name: string, parent: number | null) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("create_folder", { account, name, parent })),
 	/**  Une page de messages trouvés, hors ligne (index local). */
 	searchMessages: (query: string, scope: SearchScopeDto, utcOffsetMinutes: number, offset: number, limit: number) => typedError<SearchPageDto_Serialize, IpcError_Serialize>(__TAURI_INVOKE("search_messages", { query, scope, utcOffsetMinutes, offset, limit })),
 	/**  Paramètres de l'application. */
@@ -533,6 +539,29 @@ export type ErrorCodeDto =
 "schedule_too_far" | 
 /**  Envoi non annulable ou non relançable dans son état. */
 "outbox_busy" | 
+/**  Nom de dossier vide. */
+"folder_name_empty" | 
+/**  Nom de dossier trop long. */
+"folder_name_too_long" | 
+/**
+ *  Nom de dossier avec un caractère interdit (`*`, `%`, caractère
+ *  invisible).
+ */
+"folder_name_invalid" | 
+/**
+ *  Nom de dossier avec le séparateur de hiérarchie du serveur
+ *  (`detail` : le séparateur).
+ */
+"folder_name_delimiter" | 
+/**  Un dossier de ce nom existe déjà. */
+"folder_exists" | 
+/**  Le serveur n'accepte pas de sous-dossiers. */
+"no_subfolders" | 
+/**
+ *  Création du dossier impossible : refus du serveur ou serveur
+ *  injoignable (`detail` : réponse brute du serveur).
+ */
+"folder_create_failed" | 
 /**
  *  Téléchargement ou installation d'une mise à jour impossible
  *  (`detail` : erreur brute).

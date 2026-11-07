@@ -1460,3 +1460,48 @@ async fn selected_mailbox_is_left_before_rename_or_delete() -> TestResult {
     Ok(())
 }
 
+/// Texte de refus en UTF-8 brut (Dovecot y cite le nom de la boîte, comme
+/// IMAP4rev2 le permet) : refus reçu tout de suite, caractères non ASCII
+/// remplacés, au lieu d'une réponse écartée et d'un délai dépassé.
+#[tokio::test]
+async fn utf8_refusal_text_is_received_as_a_refusal() -> TestResult {
+    use norelly_domain::connection::ConnectionError;
+    use norelly_domain::mailbox::MailboxName;
+
+    let f = fixture()?;
+    let cert = f.ca.issue(&["localhost"])?;
+    let script = authenticated(
+        Script::new()
+            .expect("DELETE &AMk-t&AOk-")
+            .send("{tag} NO [NONEXISTENT] Mailbox doesn't exist: Été\r\n")
+            .expect("CREATE Projets")
+            .send("* OK [ALERT] Quota presque atteint : réduisez\r\n{tag} OK CREATE termine\r\n")
+            .expect("LOGOUT")
+            .send("* BYE au revoir\r\n{tag} OK LOGOUT termine\r\n")
+            .expect_eof(),
+    );
+    let server = ScriptedServer::start_tls(script, cert.server_config()?).await?;
+    let mut session = f
+        .connector
+        .connect(&request(
+            server.port(),
+            Security::Tls,
+            PlaintextPolicy::deny_all(),
+        ))
+        .await?;
+    let refused = tokio::time::timeout(
+        Duration::from_secs(5),
+        session.delete_mailbox(&MailboxName::parse("Été")?),
+    )
+    .await?;
+    let Err(ConnectionError::Rejected(text)) = refused else {
+        panic!("refus attendu : {refused:?}");
+    };
+    assert!(text.contains("Mailbox doesn't exist: ??t??"), "{text}");
+    session
+        .create_mailbox(&MailboxName::parse("Projets")?)
+        .await?;
+    session.logout().await?;
+    server.finish().await.result?;
+    Ok(())
+}

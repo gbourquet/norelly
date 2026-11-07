@@ -603,3 +603,81 @@ async fn trapped_contacts_cannot_alter_the_database() -> Result<(), Box<dyn std:
     assert_eq!(l.db.schema().await?, schema_before, "schéma modifié");
     Ok(())
 }
+
+#[tokio::test]
+async fn trapped_contact_lists_cannot_alter_the_database() -> Result<(), Box<dyn std::error::Error>>
+{
+    use norelly_application::contact_lists::{
+        CreateContactList, ExpandContactList, ListContactLists, SuggestContactLists,
+        UpdateContactList,
+    };
+    use norelly_application::contacts::CreateContact;
+    use norelly_domain::contact_lists::ContactListInput;
+    use norelly_domain::ports::{ContactListBook, ContactListDirectory};
+    use norelly_sqlite::contacts::SqliteContactBook;
+
+    let l = local("sql-injection-contact-lists").await;
+    let schema_before = l.db.schema().await?;
+    let accounts = SqliteAccountRepository::new(l.db.clone());
+    let accounts_before = accounts.list().await?;
+    let book = SqliteContactBook::new(l.db.clone());
+    let member = CreateContact { book: &book }
+        .execute(trapped_contact(0))
+        .await?;
+
+    // Listes piégées (nom et description) : enregistrées, relues à
+    // l'identique, retrouvées par leur nom, dépliées.
+    let mut created = Vec::new();
+    for (n, payload) in PAYLOADS.iter().enumerate() {
+        let list = CreateContactList { book: &book }
+            .execute(ContactListInput {
+                name: format!("{n} {payload}"),
+                description: PAYLOADS[(n + 1) % PAYLOADS.len()].to_owned(),
+                members: vec![member.id().get()],
+                bcc: n.is_multiple_of(2),
+            })
+            .await?;
+        assert_eq!(book.get_list(list.id()).await?.as_ref(), Some(&list));
+        created.push(list);
+    }
+    for (n, payload) in PAYLOADS.iter().enumerate() {
+        let name = format!("{n} {payload}");
+        let page = ListContactLists { directory: &book }
+            .execute(&name, None, 50)
+            .await?;
+        assert!(
+            page.items.iter().any(|i| i.id == created[n].id()),
+            "{payload:?} : liste non retrouvée"
+        );
+        let found = SuggestContactLists { directory: &book }
+            .execute(&name, 5)
+            .await?;
+        assert!(found.iter().any(|i| i.id == created[n].id()), "{payload:?}");
+        let expanded = ExpandContactList {
+            lists: &book,
+            contacts: &book,
+        }
+        .execute(created[n].id())
+        .await?;
+        assert_eq!(expanded.recipients.len(), 1);
+    }
+
+    // Modification et suppression piégées.
+    let renamed = UpdateContactList { book: &book }
+        .execute(
+            created[0].id(),
+            ContactListInput {
+                name: PAYLOADS[3].to_owned(),
+                ..created[0].draft().to_input()
+            },
+        )
+        .await?;
+    assert_eq!(book.get_list(renamed.id()).await?, Some(renamed));
+    let ids: Vec<_> = created.iter().map(|c| c.id()).collect();
+    assert_eq!(book.delete_lists(&ids).await?, PAYLOADS.len());
+
+    assert_eq!(accounts.list().await?, accounts_before, "comptes modifiés");
+    assert_eq!(l.db.integrity_problems().await?, Vec::<String>::new());
+    assert_eq!(l.db.schema().await?, schema_before, "schéma modifié");
+    Ok(())
+}

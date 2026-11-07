@@ -117,6 +117,11 @@ vi.mock("./lib/ipc/api", () => ({
     })),
     openDraft: vi.fn(async () => ({ ...savedDraft(7), subject: "Repris" })),
     discardDraft: vi.fn(),
+    // Faux de la lecture Rust d'un destinataire (Recipient::parse).
+    parseRecipient: vi.fn(async (raw: string) => {
+      const angle = /^(.*)<([^<>\s]+)>$/.exec(raw.trim());
+      return { name: (angle?.[1] ?? "").trim(), address: angle ? (angle[2] ?? "") : raw.trim() };
+    }),
     suggestContacts: vi.fn(async () => []),
     pickAttachments: vi.fn(async () => []),
     attachDropped: vi.fn(async () => []),

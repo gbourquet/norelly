@@ -37,7 +37,12 @@ function contact(id: number, name: string, favorite = false): ContactDto {
 /** Carnet factice : `pages` renvoyées dans l'ordre des appels. */
 function fakeApi(book: ContactDto[] = []) {
   const all = () =>
-    book.map((c) => item(c.id, c.name, c.fields.favorite)).sort((a, b) => a.id - b.id);
+    book
+      .map((c) => ({
+        ...item(c.id, c.name, c.fields.favorite),
+        address: c.fields.emails[0]?.address ?? "",
+      }))
+      .sort((a, b) => a.id - b.id);
   const api = {
     listContacts: vi.fn(
       async (
@@ -205,6 +210,34 @@ describe("fiche et sélection", () => {
     await s.removed([1]);
     expect(s.selectedId).toBeNull();
     expect(s.marked).toEqual([2]);
+  });
+});
+
+describe("écrire à des contacts", () => {
+  it("donne l'adresse préférée et le nom de chaque contact visé", async () => {
+    const api = fakeApi([contact(1, "Alice"), contact(2, "Bob")]);
+    const s = new ContactsState(api);
+    await s.search("ali");
+    // Bob n'est pas dans la liste affichée : sa fiche est relue.
+    expect(await s.recipients([1, 2])).toEqual([
+      { name: "Alice", address: "alice@example.com" },
+      { name: "Bob", address: "bob@example.com" },
+    ]);
+    expect(api.getContact).toHaveBeenCalledTimes(1);
+  });
+
+  it("sans nom, le destinataire n'a que son adresse", async () => {
+    const nameless = contact(3, "x");
+    nameless.name = "x@example.com";
+    const s = new ContactsState(fakeApi([nameless]));
+    expect(await s.recipients([3])).toEqual([{ name: "", address: "x@example.com" }]);
+    await s.load();
+    expect(await s.recipients([3])).toEqual([{ name: "", address: "x@example.com" }]);
+  });
+
+  it("ignore un contact disparu entre-temps", async () => {
+    const s = new ContactsState(fakeApi([contact(1, "Alice")]));
+    expect(await s.recipients([9, 1])).toEqual([{ name: "Alice", address: "alice@example.com" }]);
   });
 });
 

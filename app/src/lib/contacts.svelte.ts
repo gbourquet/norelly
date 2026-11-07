@@ -2,7 +2,14 @@
 // ouverte, contacts cochés, formulaire d'ajout ou de modification et
 // suppression. Saisie revalidée et refus décidés par Rust (ADR-012).
 
-import type { Api, ContactCursorDto, ContactDto, ContactFieldsDto, ContactItem } from "./ipc/api";
+import type {
+  Api,
+  ContactCursorDto,
+  ContactDto,
+  ContactFieldsDto,
+  ContactItem,
+  RecipientDto,
+} from "./ipc/api";
 import { errorText } from "./errors";
 
 export type ContactsApi = Pick<
@@ -30,6 +37,12 @@ export function emptyFields(): ContactFieldsDto {
     phones: [],
     favorite: false,
   };
+}
+
+/** Destinataire d'un contact : sans nom si son nom affiché est son
+ * adresse (fiche sans nom). */
+function recipient(name: string, address: string): RecipientDto {
+  return { name: name === address ? "" : name, address };
 }
 
 export class ContactsState {
@@ -135,6 +148,29 @@ export class ContactsState {
   targets(): number[] {
     if (this.marked.length > 0) return [...this.marked];
     return this.selectedId === null ? [] : [this.selectedId];
+  }
+
+  /** Destinataires « Écrire à » : nom et adresse préférée de chaque
+   * contact visé (fiche relue s'il n'est pas dans la liste affichée ;
+   * contact disparu : ignoré). */
+  async recipients(ids: number[]): Promise<RecipientDto[]> {
+    const result: RecipientDto[] = [];
+    for (const id of ids) {
+      const shown = this.items.find((i) => i.id === id);
+      if (shown !== undefined) {
+        result.push(recipient(shown.name, shown.address));
+        continue;
+      }
+      try {
+        const contact = await this.#api.getContact(id);
+        const preferred =
+          contact.fields.emails.find((e) => e.preferred) ?? contact.fields.emails[0];
+        if (preferred !== undefined) result.push(recipient(contact.name, preferred.address));
+      } catch {
+        // Supprimé entre-temps : rien à écrire.
+      }
+    }
+    return result;
   }
 
   /** Ajoute la fiche ouverte aux favoris, ou l'en retire ; renvoie le

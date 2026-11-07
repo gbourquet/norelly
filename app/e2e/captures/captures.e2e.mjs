@@ -68,6 +68,11 @@ const content = {
     folder: "Jardin",
     renamed: "Potager",
     search: "tarte",
+    contacts: [
+      ["Alice", "Martin", "alice@norelly.test", "Association des parents d'élèves"],
+      ["Paul", "Bernard", "paul@norelly.test", ""],
+      ["Jeanne", "Leroy", "jeanne@norelly.test", "Cabinet médical Leroy"],
+    ],
   },
   en: {
     name: "Mary Smith",
@@ -97,6 +102,11 @@ const content = {
     folder: "Garden",
     renamed: "Vegetables",
     search: "pie",
+    contacts: [
+      ["Alice", "Martin", "alice@norelly.test", "Parents' association"],
+      ["Paul", "Brown", "paul@norelly.test", ""],
+      ["Jane", "Lee", "jane@norelly.test", "Dr Lee's surgery"],
+    ],
   },
 }[lang];
 
@@ -413,6 +423,41 @@ describe(`captures d'écran (${lang})`, () => {
     );
     await box.click();
     await capture("search");
+    await browser.keys("Escape");
+  });
+
+  it("contacts (à la souris)", async () => {
+    await $("nav")
+      .$(`button=${msg("sidebar_contacts")}`)
+      .click();
+    const field = (key) =>
+      $(`//label[span[normalize-space()="${msg(key)}"]]//*[self::input or self::textarea]`);
+    for (const [i, [given, family, email, organization]] of content.contacts.entries()) {
+      await button(msg("cmd_contact_new")).click();
+      const form = dialogTitled(msg("contact_dialog_new"));
+      await form.waitForDisplayed();
+      await field("contact_given_name").setValue(given);
+      await field("contact_family_name").setValue(family);
+      await $(`[aria-label="${msg("contact_email_n", { n: 1 })}"]`).setValue(email);
+      if (organization !== "") await field("contact_organization").setValue(organization);
+      if (i === 0) {
+        await $(`[aria-label="${msg("contact_email_label_n", { n: 1 })}"]`).setValue(
+          lang === "fr" ? "maison" : "home",
+        );
+        await button(msg("contact_add_phone")).click();
+        await $(`[aria-label="${msg("contact_phone_n", { n: 1 })}"]`).setValue("06 12 34 56 78");
+        await capture("contact-dialog");
+      }
+      await button(msg("contact_save")).click();
+      await form.waitForDisplayed({ reverse: true, timeout: 10000 });
+    }
+    const first = `${content.contacts[0][0]} ${content.contacts[0][1]}`;
+    await $(`//*[@role="option"][.//*[normalize-space()="${first}"]]`).click();
+    await $(`article[aria-label="${msg("contacts_card", { name: first })}"]`).waitForDisplayed();
+    await capture("contacts");
+    await openContextMenu($(`//*[@role="option"][.//*[normalize-space()="${first}"]]`));
+    await menuItem(msg("cmd_contact_edit")).waitForDisplayed();
+    await capture("contact-menu");
     await browser.keys("Escape");
   });
 });

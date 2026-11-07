@@ -29,6 +29,8 @@ pub const MAX_CONTACT_EMAILS: usize = 20;
 pub const MAX_CONTACT_PHONES: usize = 20;
 /// Longueur maximale du texte d'un filtre, en caractères.
 pub const MAX_CONTACT_FILTER_CHARS: usize = 200;
+/// Nombre maximal de fiches visées en une fois (suppression).
+pub const MAX_CONTACT_SELECTION: usize = 1000;
 
 /// Identifiant local d'un contact, attribué par le carnet (strictement
 /// positif).
@@ -553,6 +555,40 @@ impl ContactFilter {
     }
 }
 
+/// Sélection de fiches refusée.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum ContactSelectionError {
+    #[error("identifiant de contact invalide")]
+    InvalidId,
+    #[error("plus de {MAX_CONTACT_SELECTION} contacts visés")]
+    TooMany,
+}
+
+/// Fiches visées par une action (suppression) : identifiants valides,
+/// chacun une fois dans l'ordre de la première apparition, au plus
+/// [`MAX_CONTACT_SELECTION`] fiches distinctes. Plus de deux fois cette
+/// borne d'identifiants reçus (doublons compris) : refusé d'emblée, sans
+/// parcourir la liste.
+pub fn contact_selection<T: Copy + Into<i64>>(
+    raw: &[T],
+) -> Result<Vec<ContactId>, ContactSelectionError> {
+    if raw.len() > 2 * MAX_CONTACT_SELECTION {
+        return Err(ContactSelectionError::TooMany);
+    }
+    let mut ids: Vec<ContactId> = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for &value in raw {
+        let id = ContactId::new(value.into()).ok_or(ContactSelectionError::InvalidId)?;
+        if seen.insert(id) {
+            if ids.len() == MAX_CONTACT_SELECTION {
+                return Err(ContactSelectionError::TooMany);
+            }
+            ids.push(id);
+        }
+    }
+    Ok(ids)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1035,5 +1071,74 @@ mod tests {
         assert!(ContactFilter::new("élo", true).matches(&fav));
         // Un saut de ligne ne fait pas déborder d'un champ à l'autre.
         assert!(!ContactFilter::new("élodie\nacme", false).matches(&plain));
+    }
+
+    #[test]
+    fn selection_keeps_valid_ids_once_in_order() {
+        let ids = |raw: &[i64]| -> Vec<i64> {
+            contact_selection(raw)
+                .unwrap_or_else(|e| panic!("{e}"))
+                .into_iter()
+                .map(ContactId::get)
+                .collect()
+        };
+        assert_eq!(ids(&[3, 1, 3, 2, 1]), vec![3, 1, 2]);
+        assert!(ids(&[]).is_empty());
+    }
+
+    #[test]
+    fn selection_refuses_invalid_ids_and_too_many() {
+        assert_eq!(
+            contact_selection(&[1, 0]),
+            Err(ContactSelectionError::InvalidId)
+        );
+        assert_eq!(
+            contact_selection(&[-4]),
+            Err(ContactSelectionError::InvalidId)
+        );
+        let max = i64::try_from(MAX_CONTACT_SELECTION).unwrap_or(i64::MAX);
+        let all: Vec<i64> = (1..=max).collect();
+        assert_eq!(
+            contact_selection(&all).map(|v| v.len()),
+            Ok(MAX_CONTACT_SELECTION)
+        );
+        let more: Vec<i64> = (1..=max + 1).collect();
+        assert_eq!(
+            contact_selection(&more),
+            Err(ContactSelectionError::TooMany)
+        );
+        // Les doublons ne comptent qu'une fois.
+        let doubled: Vec<i64> = all.iter().chain(all.iter()).copied().collect();
+        assert_eq!(
+            contact_selection(&doubled).map(|v| v.len()),
+            Ok(MAX_CONTACT_SELECTION)
+        );
+        // Liste reçue démesurée : refusée sans être parcourue en entier.
+        let flood = vec![1_i64; 2 * MAX_CONTACT_SELECTION + 1];
+        assert_eq!(
+            contact_selection(&flood),
+            Err(ContactSelectionError::TooMany)
+        );
+    }
+
+    #[test]
+    fn cursor_from_the_interface_is_revalidated() {
+        use crate::ports::{ContactCursor, MAX_CONTACT_SORT_KEY_CHARS};
+        let c = ContactCursor::parse("élodie".into(), 7).unwrap_or_else(|| panic!("curseur"));
+        assert_eq!(c.sort_key, "élodie");
+        assert_eq!(c.id.get(), 7);
+        assert!(ContactCursor::parse("a".into(), 0).is_none());
+        let max = "é".repeat(MAX_CONTACT_SORT_KEY_CHARS);
+        assert!(ContactCursor::parse(max.clone(), 1).is_some());
+        assert!(ContactCursor::parse(max + "e", 1).is_none());
+        // Toute clé produite par une fiche valide est acceptée.
+        let long = "İ".repeat(MAX_CONTACT_NAME_CHARS);
+        let d = draft(ContactInput {
+            given_name: long.clone(),
+            family_name: long,
+            emails: vec![email("a@example.com")],
+            ..ContactInput::default()
+        });
+        assert!(ContactCursor::parse(d.sort_key(), 1).is_some());
     }
 }

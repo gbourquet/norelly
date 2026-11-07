@@ -36,10 +36,19 @@ import {
   type DraftsDto,
   type UpdateEventDto,
   type UpdateStatusDto_Serialize,
+  type ContactCursorDto,
+  type ContactDto,
+  type ContactFieldsDto,
+  type ContactPageDto_Serialize,
 } from "./bindings";
 import { IpcFailure } from "../errors";
 
 export type {
+  ContactCursorDto,
+  ContactDto,
+  ContactEmailDto,
+  ContactFieldsDto,
+  ContactPhoneDto,
   ComposeEventDto,
   ComposeKindDto,
   DraftAttachmentDto,
@@ -84,6 +93,8 @@ export type AddAccountInput = AddAccountInput_Deserialize;
 export type AddAccountResult = AddAccountResultDto_Serialize;
 export type Discovery = DiscoveryDto_Serialize;
 export type ConversationPage = ConversationPageDto_Serialize;
+export type ContactPage = ContactPageDto_Serialize;
+export type ContactItem = ContactPage["items"][number];
 export type ConversationMessage = ConversationMessageDto_Serialize;
 export type SearchHit = SearchHitDto_Serialize;
 export type SearchPage = SearchPageDto_Serialize;
@@ -257,6 +268,25 @@ export const api = {
 
   attachDropped: (account: number, token: number): Promise<DraftAttachmentDto[]> =>
     unwrap(commands.attachDropped(account, token)),
+
+  /** Page du carnet d'adresses filtrée sur `text` (vide : tous). */
+  listContacts: (
+    text: string,
+    favoritesOnly: boolean,
+    cursor: ContactCursorDto | null,
+    limit: number,
+  ): Promise<ContactPage> => unwrap(commands.listContacts(text, favoritesOnly, cursor, limit)),
+
+  getContact: (id: number): Promise<ContactDto> => unwrap(commands.getContact(id)),
+
+  createContact: (contact: ContactFieldsDto): Promise<ContactDto> =>
+    unwrap(commands.createContact(contact)),
+
+  updateContact: (id: number, contact: ContactFieldsDto): Promise<ContactDto> =>
+    unwrap(commands.updateContact(id, contact)),
+
+  /** Supprime des fiches ; renvoie le nombre de fiches supprimées. */
+  deleteContacts: (ids: number[]): Promise<number> => unwrap(commands.deleteContacts(ids)),
 
   onComposeEvent: async (listener: (event: ComposeEventDto) => void): Promise<() => void> =>
     events.composeEventDto.listen((e) => listener(e.payload)),

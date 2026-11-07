@@ -18,6 +18,33 @@ function savedDraft(account: number) {
   };
 }
 const syncListeners: ((e: unknown) => void)[] = [];
+/** Carnet d'adresses factice. */
+interface Card {
+  id: number;
+  name: string;
+  fields: {
+    display_name: string;
+    given_name: string;
+    family_name: string;
+    nickname: string;
+    organization: string;
+    notes: string;
+    emails: { address: string; label: string; preferred: boolean }[];
+    phones: { number: string; label: string }[];
+    favorite: boolean;
+  };
+}
+const book: Card[] = [];
+function cardOf(id: number, fields: Card["fields"]): Card {
+  const name =
+    fields.display_name ||
+    [fields.given_name, fields.family_name].filter(Boolean).join(" ") ||
+    (fields.emails[0]?.address ?? "");
+  const emails = fields.emails.some((e) => e.preferred)
+    ? fields.emails
+    : fields.emails.map((e, i) => ({ ...e, preferred: i === 0 }));
+  return { id, name, fields: { ...fields, emails } };
+}
 const askedSettings = {
   language: "system" as "system" | "fr" | "en",
   update_check: "enabled" as "not_asked" | "enabled" | "disabled",
@@ -101,12 +128,45 @@ vi.mock("./lib/ipc/api", () => ({
     moveFolder: vi.fn(async () => 14),
     deleteFolder: vi.fn(async () => undefined),
     performAction: vi.fn(async () => ({ ops: [9], messages: 1 })),
+    listContacts: vi.fn(async (text: string, favoritesOnly: boolean) => ({
+      items: book
+        .filter((c) => c.name.toLowerCase().includes(text.toLowerCase()))
+        .filter((c) => !favoritesOnly || c.fields.favorite)
+        .map((c) => ({
+          id: c.id,
+          name: c.name,
+          address: c.fields.emails.find((e) => e.preferred)?.address ?? "",
+          organization: c.fields.organization || null,
+          favorite: c.fields.favorite,
+        })),
+      next: null,
+    })),
+    getContact: vi.fn(async (id: number) => structuredClone(book.find((c) => c.id === id))),
+    createContact: vi.fn(async (fields: Card["fields"]) => {
+      const card = cardOf(40 + book.length, structuredClone(fields));
+      book.push(card);
+      return structuredClone(card);
+    }),
+    updateContact: vi.fn(async (id: number, fields: Card["fields"]) => {
+      const card = cardOf(id, structuredClone(fields));
+      book.splice(
+        book.findIndex((c) => c.id === id),
+        1,
+        card,
+      );
+      return structuredClone(card);
+    }),
+    deleteContacts: vi.fn(async (ids: number[]) => {
+      const before = book.length;
+      book.splice(0, book.length, ...book.filter((c) => !ids.includes(c.id)));
+      return before - book.length;
+    }),
   },
 }));
 
 const { default: App } = await import("./App.svelte");
 const { api } = await import("./lib/ipc/api");
-const { app, registry } = await import("./lib/app.svelte");
+const { app, contacts, registry } = await import("./lib/app.svelte");
 
 const server = {
   host: "imap.example.com",
@@ -120,6 +180,13 @@ beforeEach(() => {
   // l'autre.
   app.close();
   accounts.splice(0, accounts.length);
+  book.splice(0, book.length);
+  app.showMail();
+  // Carnet : ni filtre, ni sélection d'un test à l'autre.
+  contacts.text = "";
+  contacts.favoritesOnly = false;
+  contacts.clearMarks();
+  void contacts.select(null);
   syncListeners.splice(0, syncListeners.length);
   storedSettings = { ...askedSettings };
   updatesSupported = true;
@@ -946,5 +1013,211 @@ describe("App", () => {
     await waitFor(() =>
       expect(screen.queryByPlaceholderText("Rechercher une commande…")).toBeNull(),
     );
+  });
+
+  it("carnet d'adresses à la souris : ajouter, modifier, favori, écrire, supprimer", async () => {
+    accounts.push({
+      id: 7,
+      address: "alice@example.com",
+      display_name: "Alice",
+      imap: server,
+      smtp: server,
+    });
+    render(App);
+    const nav = await screen.findByRole("navigation", { name: "Comptes et dossiers" });
+    const open = within(nav).getByRole("button", { name: "Contacts" });
+    expect(open).toHaveAttribute("title", "Contacts — Ctrl+Maj+B");
+    await fireEvent.click(open);
+    expect(await screen.findByRole("heading", { name: "Contacts" })).toBeInTheDocument();
+    expect(open).toHaveAttribute("aria-current", "true");
+    expect(await screen.findByText(/Aucun contact pour l'instant/)).toBeInTheDocument();
+    expect(screen.getByText(/Choisissez un contact/)).toBeInTheDocument();
+
+    // Nouveau contact : deux adresses, la seconde préférée.
+    await fireEvent.click(screen.getByRole("button", { name: "Nouveau contact" }));
+    const form = await screen.findByRole("dialog", { name: "Nouveau contact" });
+    const save = within(form).getByRole("button", { name: "Enregistrer" });
+    expect(save).toBeDisabled();
+    await fireEvent.input(within(form).getByLabelText("Prénom"), { target: { value: "Zoé" } });
+    await fireEvent.input(within(form).getByLabelText("Nom"), { target: { value: "Martin" } });
+    await fireEvent.input(within(form).getByLabelText("Adresse électronique 1"), {
+      target: { value: "zoe@example.com" },
+    });
+    await fireEvent.click(within(form).getByRole("button", { name: "Ajouter une adresse" }));
+    await fireEvent.input(within(form).getByLabelText("Adresse électronique 2"), {
+      target: { value: "zoe.pro@example.com" },
+    });
+    await fireEvent.click(must(within(form).getAllByRole("radio")[1]));
+    await fireEvent.click(within(form).getByRole("button", { name: "Ajouter un téléphone" }));
+    await fireEvent.input(within(form).getByLabelText("Téléphone 1"), {
+      target: { value: "01 02 03 04 05" },
+    });
+    await fireEvent.input(within(form).getByLabelText("Notes"), {
+      target: { value: "<b>pas du HTML</b>" },
+    });
+    await fireEvent.click(save);
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "Nouveau contact" })).toBeNull(),
+    );
+    expect(api.createContact).toHaveBeenCalledWith(
+      expect.objectContaining({
+        given_name: "Zoé",
+        emails: [
+          { address: "zoe@example.com", label: "", preferred: false },
+          { address: "zoe.pro@example.com", label: "", preferred: true },
+        ],
+        phones: [{ number: "01 02 03 04 05", label: "" }],
+      }),
+    );
+    const card = await screen.findByRole("article", { name: "Fiche de Zoé Martin" });
+    expect(within(card).getByText("zoe.pro@example.com")).toBeInTheDocument();
+    expect(within(card).getByText("préférée")).toBeInTheDocument();
+    expect(within(card).getByText("<b>pas du HTML</b>")).toBeInTheDocument();
+    expect(card.querySelector("b")).toBeNull();
+    expect(screen.getByRole("option", { name: /Zoé Martin/ })).toBeInTheDocument();
+    expect(screen.getByText("Contact « Zoé Martin » ajouté.")).toBeInTheDocument();
+
+    // Modifier : fenêtre préremplie.
+    await fireEvent.click(within(card).getByRole("button", { name: "Modifier le contact" }));
+    const edit = await screen.findByRole("dialog", { name: "Modifier le contact" });
+    expect(within(edit).getByLabelText("Prénom")).toHaveValue("Zoé");
+    // La première adresse retirée, la seconde reste préférée.
+    await fireEvent.click(within(edit).getByRole("button", { name: "Retirer l'adresse 1" }));
+    expect(within(edit).getByRole("button", { name: "Retirer l'adresse 1" })).toBeDisabled();
+    await fireEvent.input(within(edit).getByLabelText("Surnom"), { target: { value: "Zozo" } });
+    await fireEvent.click(within(edit).getByRole("button", { name: "Enregistrer" }));
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "Modifier le contact" })).toBeNull(),
+    );
+    expect(api.updateContact).toHaveBeenCalledWith(
+      40,
+      expect.objectContaining({ nickname: "Zozo" }),
+    );
+    expect(await screen.findByText("Surnom : Zozo")).toBeInTheDocument();
+
+    // Favori depuis le menu du clic droit d'une ligne.
+    await fireEvent.contextMenu(screen.getByRole("option", { name: /Zoé Martin/ }));
+    const menu = await screen.findByRole("menu", { name: "Actions sur le contact" });
+    await fireEvent.click(within(menu).getByRole("menuitem", { name: /Ajouter aux favoris/ }));
+    expect(await screen.findByText("Zoé Martin ajouté aux favoris.")).toBeInTheDocument();
+    await fireEvent.click(screen.getByRole("button", { name: "Favoris" }));
+    await waitFor(() => expect(api.listContacts).toHaveBeenLastCalledWith("", true, null, 100));
+    expect((await screen.findAllByLabelText("Favori", { selector: "svg" })).length).toBeGreaterThan(
+      0,
+    );
+
+    // Écrire au contact : rédaction adressée à l'adresse préférée.
+    await fireEvent.click(
+      within(await screen.findByRole("article", { name: "Fiche de Zoé Martin" })).getByRole(
+        "button",
+        { name: "Écrire au contact" },
+      ),
+    );
+    const compose = await screen.findByRole("dialog", { name: "Nouveau message" });
+    expect(api.prepareCompose).toHaveBeenCalledWith(7, "new", null, "");
+    expect(await within(compose).findByText(/zoe\.pro@example\.com/)).toBeInTheDocument();
+    app.close();
+
+    // Supprimer, après confirmation.
+    await fireEvent.click(screen.getByRole("button", { name: "Supprimer le contact" }));
+    const confirm = await screen.findByRole("dialog", { name: "Supprimer le contact" });
+    expect(within(confirm).getByText(/Supprimer « Zoé Martin »/)).toBeInTheDocument();
+    await fireEvent.click(within(confirm).getByRole("button", { name: "Supprimer" }));
+    await waitFor(() => expect(api.deleteContacts).toHaveBeenCalledWith([40]));
+    expect(await screen.findByText("1 contact(s) supprimé(s).")).toBeInTheDocument();
+    expect(screen.queryByRole("article", { name: "Fiche de Zoé Martin" })).toBeNull();
+
+    // Retour au courrier par la boîte unifiée.
+    await fireEvent.click(within(nav).getByRole("button", { name: "Boîte de réception unifiée" }));
+    expect(screen.queryByRole("heading", { name: "Contacts" })).toBeNull();
+    expect(open).not.toHaveAttribute("aria-current");
+  });
+
+  it("carnet : refus affiché, recherche, sélection multiple", async () => {
+    book.push(
+      cardOf(1, {
+        display_name: "",
+        given_name: "Alice",
+        family_name: "",
+        nickname: "",
+        organization: "ACME",
+        notes: "",
+        emails: [{ address: "alice@example.com", label: "", preferred: true }],
+        phones: [],
+        favorite: false,
+      }),
+      cardOf(2, {
+        display_name: "",
+        given_name: "Bob",
+        family_name: "",
+        nickname: "",
+        organization: "",
+        notes: "",
+        emails: [{ address: "bob@example.com", label: "", preferred: true }],
+        phones: [],
+        favorite: false,
+      }),
+    );
+    const { IpcFailure } = await import("./lib/errors");
+    vi.mocked(api.createContact).mockRejectedValueOnce(
+      new IpcFailure("contact_duplicate_address", null, "alice@example.com"),
+    );
+    render(App);
+    const nav = await screen.findByRole("navigation", { name: "Comptes et dossiers" });
+    await fireEvent.click(within(nav).getByRole("button", { name: "Contacts" }));
+    expect(await screen.findByRole("option", { name: /Alice/ })).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        (_, el) =>
+          el?.classList.contains("detail") === true &&
+          el.textContent?.replace(/\s+/g, " ").trim() === "alice@example.com · ACME",
+      ),
+    ).toBeInTheDocument();
+
+    // Adresse déjà prise : fenêtre gardée, refus expliqué.
+    await fireEvent.click(screen.getByRole("button", { name: "Nouveau contact" }));
+    const form = await screen.findByRole("dialog", { name: "Nouveau contact" });
+    await fireEvent.input(within(form).getByLabelText("Adresse électronique 1"), {
+      target: { value: "alice@example.com" },
+    });
+    await fireEvent.click(within(form).getByRole("button", { name: "Enregistrer" }));
+    expect(await within(form).findByRole("alert")).toHaveTextContent(
+      "Cette adresse appartient déjà à un autre contact. (« alice@example.com »)",
+    );
+    await fireEvent.click(within(form).getByRole("button", { name: "Annuler" }));
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "Nouveau contact" })).toBeNull(),
+    );
+
+    // Recherche au fil de la frappe.
+    await fireEvent.input(screen.getByRole("searchbox", { name: "Rechercher un contact" }), {
+      target: { value: "bo" },
+    });
+    await waitFor(() => expect(api.listContacts).toHaveBeenLastCalledWith("bo", false, null, 100));
+    await waitFor(() => expect(screen.queryByRole("option", { name: /Alice/ })).toBeNull());
+    await fireEvent.input(screen.getByRole("searchbox", { name: "Rechercher un contact" }), {
+      target: { value: "" },
+    });
+    await waitFor(() => expect(api.listContacts).toHaveBeenLastCalledWith("", false, null, 100));
+    expect(await screen.findByRole("option", { name: /Alice/ })).toBeInTheDocument();
+
+    // Sélection multiple : barre, suppression groupée, désélection.
+    await fireEvent.click(screen.getByRole("checkbox", { name: "Sélectionner Alice" }));
+    await fireEvent.click(screen.getByRole("checkbox", { name: "Sélectionner Bob" }));
+    expect(screen.getByText("2 contact(s) sélectionné(s)")).toBeInTheDocument();
+    expect(screen.queryByRole("article")).toBeNull();
+    await fireEvent.click(
+      within(screen.getByRole("region", { name: "Contacts sélectionnés" })).getByRole("button", {
+        name: "Supprimer le contact",
+      }),
+    );
+    const confirm = await screen.findByRole("dialog", { name: "Supprimer les contacts" });
+    expect(
+      within(confirm).getByText("Supprimer 2 contacts du carnet d'adresses ?"),
+    ).toBeInTheDocument();
+    await fireEvent.click(within(confirm).getByRole("button", { name: "Annuler" }));
+    await fireEvent.click(screen.getByRole("button", { name: "Désélectionner les contacts" }));
+    expect(screen.queryByText("2 contact(s) sélectionné(s)")).toBeNull();
+    expect(api.deleteContacts).not.toHaveBeenCalled();
   });
 });

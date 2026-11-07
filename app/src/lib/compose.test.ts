@@ -151,6 +151,21 @@ describe("rédaction", () => {
     expect(c.suggestions).toEqual([]);
   });
 
+  it("préremplit les destinataires (« Écrire à »), chacun une fois", async () => {
+    const api = fakeApi();
+    const c = new ComposeState(api);
+    await c.open(1, "new", null);
+    c.addRecipients("to", [
+      { name: "Dupont, Bob", address: "bob@example.com" },
+      { name: "", address: "zoe@example.com" },
+      { name: "Bob bis", address: "BOB@example.com" },
+    ]);
+    expect(c.draft?.to).toEqual([
+      { name: "Dupont, Bob", address: "bob@example.com" },
+      { name: "", address: "zoe@example.com" },
+    ]);
+  });
+
   it("joint des fichiers par le sélecteur et par dépôt", async () => {
     const api = fakeApi();
     const c = new ComposeState(api);

@@ -109,6 +109,20 @@ pub enum ErrorCodeDto {
     /// Téléchargement ou installation d'une mise à jour impossible
     /// (`detail` : erreur brute).
     UpdateFailed,
+    /// Fiche contact sans adresse électronique.
+    ContactNoAddress,
+    /// Champ d'une fiche contact refusé (`field` ; `detail` : l'adresse
+    /// saisie quand c'est une adresse).
+    ContactInvalid,
+    /// Champ d'une fiche contact trop long (`field`).
+    ContactTooLong,
+    /// Même adresse deux fois dans la fiche (`detail` : l'adresse).
+    ContactRepeatedAddress,
+    /// Adresse déjà portée par un autre contact du carnet (`detail` :
+    /// l'adresse).
+    ContactDuplicateAddress,
+    /// Contact introuvable (supprimé entre-temps).
+    ContactNotFound,
     /// Erreur interne (journalisée).
     Internal,
 }
@@ -142,6 +156,17 @@ pub enum FieldDto {
     Settings,
     /// Mise à jour de l'application.
     Update,
+    /// Contact du carnet (identifiant, sélection).
+    Contact,
+    /// Adresse électronique d'un contact.
+    ContactEmail,
+    /// Téléphone d'un contact.
+    ContactPhone,
+    GivenName,
+    FamilyName,
+    Nickname,
+    Organization,
+    Notes,
 }
 
 /// Erreur renvoyée à l'interface : un code, le champ concerné, et un détail
@@ -1163,4 +1188,69 @@ mod reading_tests {
         assert!(id32(-1).is_err());
         assert!(id32(i64::from(u32::MAX) + 1).is_err());
     }
+}
+
+/// Adresse d'une fiche contact (saisie, ou fiche relue).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+pub struct ContactEmailDto {
+    pub address: String,
+    pub label: String,
+    pub preferred: bool,
+}
+
+/// Téléphone d'une fiche contact.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+pub struct ContactPhoneDto {
+    pub number: String,
+    pub label: String,
+}
+
+/// Champs d'une fiche contact : saisie envoyée par l'interface (revalidée
+/// par le domaine) ou fiche relue (formulaire pré-rempli). Champ vide :
+/// absent.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+pub struct ContactFieldsDto {
+    pub display_name: String,
+    pub given_name: String,
+    pub family_name: String,
+    pub nickname: String,
+    pub organization: String,
+    pub notes: String,
+    pub emails: Vec<ContactEmailDto>,
+    pub phones: Vec<ContactPhoneDto>,
+    pub favorite: bool,
+}
+
+/// Fiche contact enregistrée.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
+pub struct ContactDto {
+    pub id: u32,
+    /// Nom à afficher (règle du domaine).
+    pub name: String,
+    pub fields: ContactFieldsDto,
+}
+
+/// Ligne de la liste des contacts.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
+pub struct ContactItemDto {
+    pub id: u32,
+    pub name: String,
+    /// Adresse préférée.
+    pub address: String,
+    pub organization: Option<String>,
+    pub favorite: bool,
+}
+
+/// Position dans la liste des contacts (rendue telle quelle).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+pub struct ContactCursorDto {
+    pub sort_key: String,
+    pub id: u32,
+}
+
+/// Une page de contacts.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
+pub struct ContactPageDto {
+    pub items: Vec<ContactItemDto>,
+    pub next: Option<ContactCursorDto>,
 }

@@ -75,6 +75,22 @@ In the writing window: `Ctrl+Enter` sends the message, `Esc` closes the
 window and keeps the draft. In the **To** field: the arrow keys choose a
 suggested address, `Enter` or `,` confirms it.
 
+## Contacts
+
+| Action | Shortcut |
+|---|---|
+| Open contacts | `Ctrl+Shift+B` |
+| New contact | `N` |
+| Edit contact | `Shift+E` |
+| Write to contact | `W` |
+| Favorite (add or remove) | `Shift+S` |
+| Delete contact | `Delete` |
+| Clear contact selection | palette |
+
+In the **Contacts** view, these actions apply to the contact shown on the
+right, or to all checked contacts. `N` works everywhere: it opens the
+contacts and a new contact card.
+
 ## Accounts
 
 | Action | Shortcut |

@@ -8,6 +8,7 @@ pub mod actions;
 mod command_tests;
 pub mod commands;
 pub mod compose;
+pub mod contacts;
 pub mod folders;
 pub mod ipc;
 pub mod mail;
@@ -74,6 +75,11 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             compose::suggest_contacts,
             compose::pick_attachments,
             compose::attach_dropped,
+            contacts::list_contacts,
+            contacts::get_contact,
+            contacts::create_contact,
+            contacts::update_contact,
+            contacts::delete_contacts,
             updates::update_status,
             updates::install_update,
         ])

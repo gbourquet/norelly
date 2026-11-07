@@ -129,6 +129,21 @@ export class ComposeState {
     return true;
   }
 
+  /** Ajoute des destinataires déjà connus (« Écrire à ») ; une adresse
+   * déjà présente est ignorée. */
+  addRecipients(field: RecipientField, recipients: RecipientDto[]): void {
+    if (this.draft === null) return;
+    const all = [...this.draft.to, ...this.draft.cc, ...this.draft.bcc];
+    const added: RecipientDto[] = [];
+    for (const r of recipients) {
+      if ([...all, ...added].some((x) => same(x.address, r.address))) continue;
+      added.push({ name: r.name, address: r.address });
+    }
+    if (added.length === 0) return;
+    this.draft = { ...this.draft, [field]: [...this.draft[field], ...added] };
+    this.#changed();
+  }
+
   removeRecipient(field: RecipientField, index: number): void {
     if (this.draft === null) return;
     this.draft = { ...this.draft, [field]: this.draft[field].filter((_, i) => i !== index) };

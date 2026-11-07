@@ -76,6 +76,22 @@ Dans la fenêtre de rédaction : `Ctrl+Entrée` envoie le message, `Échap`
 ferme la fenêtre en gardant le brouillon. Dans le champ **À** : les flèches
 choisissent une adresse proposée, `Entrée` ou `,` la valide.
 
+## Contacts
+
+| Action | Raccourci |
+|---|---|
+| Ouvrir les contacts | `Ctrl+Maj+B` |
+| Nouveau contact | `N` |
+| Modifier le contact | `Maj+E` |
+| Écrire au contact | `W` |
+| Favori (ajouter ou retirer) | `Maj+S` |
+| Supprimer le contact | `Suppr` |
+| Désélectionner les contacts | palette |
+
+Dans la vue **Contacts**, ces actions visent le contact ouvert à droite, ou
+tous les contacts cochés. `N` fonctionne partout : il ouvre les contacts et
+la fiche d'un nouveau contact.
+
 ## Comptes
 
 | Action | Raccourci |

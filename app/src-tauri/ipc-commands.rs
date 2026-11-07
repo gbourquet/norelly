@@ -46,6 +46,11 @@ const APP_COMMANDS: &[&str] = &[
     "suggest_contacts",
     "pick_attachments",
     "attach_dropped",
+    "list_contacts",
+    "get_contact",
+    "create_contact",
+    "update_contact",
+    "delete_contacts",
     "update_status",
     "install_update",
 ];

@@ -42,6 +42,22 @@ describe("traduction des erreurs IPC", () => {
     );
   });
 
+  it("explique les refus du carnet d'adresses", () => {
+    expect(errorText(new IpcFailure("contact_no_address"))).toBe(
+      "Indiquez au moins une adresse électronique.",
+    );
+    expect(errorText(new IpcFailure("contact_invalid", "contact_email", "bob@"))).toBe(
+      "Valeur refusée dans la fiche : adresse électronique du contact. (« bob@ »)",
+    );
+    expect(errorText(new IpcFailure("contact_too_long", "given_name"))).toBe(
+      "Texte trop long : prénom.",
+    );
+    expect(errorText(new IpcFailure("contact_duplicate_address", null, "bob@example.com"))).toBe(
+      "Cette adresse appartient déjà à un autre contact. (« bob@example.com »)",
+    );
+    expect(errorText(new IpcFailure("contact_not_found"))).toBe("Ce contact n'existe plus.");
+  });
+
   it("cite le détail technique tel quel, sans le traduire", () => {
     expect(errorText(new IpcFailure("open_failed", null, "No such file"))).toBe(
       "Ouverture impossible. (« No such file »)",
@@ -98,6 +114,12 @@ describe("traduction des erreurs IPC", () => {
       folder_move_failed: true,
       folder_delete_failed: true,
       update_failed: true,
+      contact_no_address: true,
+      contact_invalid: true,
+      contact_too_long: true,
+      contact_repeated_address: true,
+      contact_duplicate_address: true,
+      contact_not_found: true,
       internal: true,
     } satisfies Record<ErrorCodeDto, true>;
     const fields = {
@@ -122,6 +144,14 @@ describe("traduction des erreurs IPC", () => {
       query: true,
       settings: true,
       update: true,
+      contact: true,
+      contact_email: true,
+      contact_phone: true,
+      given_name: true,
+      family_name: true,
+      nickname: true,
+      organization: true,
+      notes: true,
     } satisfies Record<FieldDto, true>;
     const kinds = {
       network: true,

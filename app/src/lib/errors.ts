@@ -70,6 +70,22 @@ export function fieldLabel(field: FieldDto | null): string {
       return m.field_settings();
     case "update":
       return m.field_update();
+    case "contact":
+      return m.field_contact();
+    case "contact_email":
+      return m.field_contact_email();
+    case "contact_phone":
+      return m.field_contact_phone();
+    case "given_name":
+      return m.field_given_name();
+    case "family_name":
+      return m.field_family_name();
+    case "nickname":
+      return m.field_nickname();
+    case "organization":
+      return m.field_organization();
+    case "notes":
+      return m.field_notes();
     case null:
       return "?";
   }
@@ -153,6 +169,18 @@ function codeText(code: ErrorCodeDto, field: FieldDto | null): string {
       return m.err_folder_delete_failed();
     case "update_failed":
       return m.err_update_failed();
+    case "contact_no_address":
+      return m.err_contact_no_address();
+    case "contact_invalid":
+      return m.err_contact_invalid({ field: fieldLabel(field) });
+    case "contact_too_long":
+      return m.err_contact_too_long({ field: fieldLabel(field) });
+    case "contact_repeated_address":
+      return m.err_contact_repeated_address();
+    case "contact_duplicate_address":
+      return m.err_contact_duplicate_address();
+    case "contact_not_found":
+      return m.err_contact_not_found();
     case "internal":
       return m.err_internal();
   }

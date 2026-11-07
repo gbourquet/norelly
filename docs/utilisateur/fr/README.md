@@ -46,9 +46,11 @@ La fenêtre est partagée en trois parties :
 3. [Utiliser Norelly au quotidien](everyday.md) : lire, répondre, écrire,
    joindre un fichier, ranger, supprimer, rechercher, retrouver un
    brouillon.
-4. [Que faire quand un message d'erreur s'affiche ?](errors.md)
-5. [Questions fréquentes](faq.md)
-6. [Aide-mémoire des raccourcis clavier](shortcuts.md)
+4. [Garder vos contacts](contacts.md) : ajouter, modifier, supprimer un
+   contact, lui écrire.
+5. [Que faire quand un message d'erreur s'affiche ?](errors.md)
+6. [Questions fréquentes](faq.md)
+7. [Aide-mémoire des raccourcis clavier](shortcuts.md)
 
 ## Trois conseils pour commencer
 

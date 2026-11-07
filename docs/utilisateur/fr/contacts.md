@@ -87,6 +87,43 @@ par le message, qu'un fraudeur peut imiter. Il ne garantit pas que le
 message vient vraiment de cette personne : en cas de doute (demande
 d'argent, de mot de passe), vérifiez par un autre moyen.
 
+## Écrire à un groupe : les listes de diffusion
+
+Une **liste de diffusion** regroupe plusieurs contacts (votre famille, un
+club) pour leur écrire en une seule fois.
+
+1. Dans **Contacts**, cliquez sur **Nouvelle liste**.
+2. Donnez-lui un nom, par exemple « Famille ».
+3. Dans **Ajouter un contact**, tapez quelques lettres d'un nom, puis
+   cliquez sur **Ajouter** à côté de la bonne personne. Recommencez pour
+   chaque membre ; la croix à droite d'un membre le retire.
+4. Cochez **Envoyer aux membres en copie cachée (Cci)** si les membres ne
+   doivent pas voir l'adresse des autres (une association, des voisins).
+5. Cliquez sur **Enregistrer**.
+
+![La fenêtre d'une nouvelle liste](captures/contact-list-dialog.png)
+
+Cliquez sur **Listes**, à côté de **Tous** et **Favoris**, pour voir vos
+listes ; la liste choisie s'affiche à droite avec ses membres.
+
+![La liste Famille et ses membres](captures/contact-lists.png)
+
+- **Écrire à la liste** ouvre un nouveau message adressé à tous ses
+  membres.
+- En écrivant un message, tapez le début du nom de la liste dans **À** :
+  elle est proposée en tête, choisissez-la et chaque membre apparaît
+  comme destinataire. Une liste « Cci » range ses membres dans **Cci**.
+- Pour ajouter quelqu'un à une liste depuis sa fiche : **Plus…**, puis
+  **Ajouter à une liste…**.
+- **Modifier la liste** et **Supprimer la liste** sont sur la liste
+  ouverte et dans le menu du clic droit. Supprimer une liste ne supprime
+  pas ses contacts.
+
+Chaque membre reçoit le message à son adresse **préférée** : changez-la
+sur sa fiche et toutes ses listes en tiennent compte.
+
+![La liste proposée pendant la saisie d'un destinataire](captures/compose-list-suggestion.png)
+
 ## Supprimer des contacts
 
 - Un contact : sur sa fiche, cliquez sur **Supprimer le contact**, puis
@@ -95,5 +132,5 @@ d'argent, de mot de passe), vérifiez par un autre moyen.
   barre apparaît en haut de la liste, avec **Supprimer le contact** et
   **Écrire au contact**. **Désélectionner les contacts** décoche tout.
 
-Supprimer un contact ne touche pas à vos messages. La suppression est
-définitive.
+Supprimer un contact ne touche pas à vos messages et le retire de ses
+listes. La suppression est définitive.

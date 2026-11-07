@@ -86,6 +86,41 @@ message, which a fraudster can imitate. It does not guarantee that the
 message really comes from that person: if in doubt (a request for money or
 a password), check by other means.
 
+## Writing to a group: mailing lists
+
+A **mailing list** groups several contacts (your family, a club) so you
+can write to all of them at once.
+
+1. In **Contacts**, click **New list**.
+2. Give it a name, for example “Family”.
+3. In **Add a contact**, type a few letters of a name, then click **Add**
+   next to the right person. Repeat for each member; the cross on the
+   right of a member removes them.
+4. Tick **Send to members as blind copies (Bcc)** if members must not see
+   each other's addresses (an association, neighbours).
+5. Click **Save**.
+
+![The new list window](captures/contact-list-dialog.png)
+
+Click **Lists**, next to **All** and **Favorites**, to see your lists; the
+chosen list is shown on the right with its members.
+
+![The Family list and its members](captures/contact-lists.png)
+
+- **Write to list** opens a new message addressed to all its members.
+- While writing a message, type the start of the list's name in **To**:
+  it is suggested first; pick it and each member appears as a recipient.
+  A “Bcc” list puts its members in **Bcc**.
+- To add someone to a list from their card: **More…**, then **Add to a
+  list…**.
+- **Edit list** and **Delete list** are on the open list and in the
+  right-click menu. Deleting a list does not delete its contacts.
+
+Each member receives the message at their **preferred** address: change it
+on their card and all their lists follow.
+
+![The list suggested while typing a recipient](captures/compose-list-suggestion.png)
+
 ## Deleting contacts
 
 - One contact: on their card, click **Delete contact**, then confirm.
@@ -93,4 +128,5 @@ a password), check by other means.
   at the top of the list, with **Delete contact** and **Write to
   contact**. **Clear contact selection** unticks everything.
 
-Deleting a contact does not touch your messages. Deletion is permanent.
+Deleting a contact does not touch your messages and removes them from
+their lists. Deletion is permanent.

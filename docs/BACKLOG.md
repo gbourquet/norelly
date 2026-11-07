@@ -35,8 +35,30 @@ quand le mainteneur l'abandonne (avec la raison).
   (modèle, ports, stockage, cas d'usage), 2 (vue Contacts : ajouter,
   modifier, supprimer, favoris, écrire), 3 (nom du carnet dans le
   courrier, « Ajouter au carnet », « Voir le contact ») et 4 (suggestions
-  de destinataires depuis le carnet, saisie lue en Rust) livrés, lots 5 à
-  8 à faire.
+  de destinataires depuis le carnet, saisie lue en Rust) et 5 (listes de
+  diffusion) livrés, lots 6 à 8 à faire.
+- **Carnet : découvert au lot 5** :
+  - l'expansion d'une liste relit ses membres un par un
+    (`ContactDirectory::get`, 100 lectures au plus) : un port qui rend des
+    fiches par identifiants en une requête (`crates/application/src/contact_lists.rs`) ;
+  - les listes proposées à la saisie relisent une page entière de listes
+    (membres compris) à chaque frappe, puis écartent les vides : requête
+    dédiée (comptage des membres, `LIMIT`) si les listes se multiplient ;
+  - plusieurs listes insérées dans un message peuvent dépasser la limite
+    de destinataires : le refus n'arrive qu'à l'envoi ; prévenir dès
+    l'insertion des pastilles (`app/src/lib/compose.svelte.ts`) ;
+  - import et export des listes (vCard `KIND:group`, LDIF
+    `groupOfNames`) à prévoir avec les lots 6 et 7.
+- **Carnet : constats de la revue de sécurité du lot 5** (infos) :
+  - une seule liste corrompue en base rend toute la section « Listes »
+    illisible et vide les suggestions de listes : n'écarter que la liste
+    fautive, journaliser son identifiant (`crates/adapters/sqlite/src/contact_lists.rs`, `load`) ;
+  - unicité du nom sans normalisation Unicode (NFC) : « É » précomposé et
+    « E » suivi d'un accent combinant font deux listes au rendu
+    identique ; à traiter avant l'import de listes (lots 6 et 7), qui
+    devra aussi appliquer bornes et revalidation (`ContactListDraft::name_key`) ;
+  - étendre le message piégé de bout en bout aux listes quand l'import
+    alimentera ces tables.
 - **Carnet : découvert au lot 4** :
   - le filtre du carnet cherche dans chaque champ séparément : « alice
     mar » ne trouve pas Alice Martin (prénom et nom dans deux champs), ni

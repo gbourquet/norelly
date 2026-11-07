@@ -552,4 +552,12 @@ est majoritairement écrit par Claude et relu par le mainteneur.
   - le nom du carnet s'affiche pour une adresse `From` qui peut être
     falsifiée : il ne vaut pas preuve d'identité (constat à porter par la
     revue de sécurité) ;
+  - listes de diffusion : **écart au plan validé par le mainteneur le
+    2026-11-07 (lot 5)**, une liste regroupe des **contacts**, pas des
+    adresses : pas d'adresse choisie par membre, chacun est écrit à son
+    adresse préférée au moment de l'envoi (modifier une fiche ne laisse
+    jamais une adresse périmée dans une liste). L'envoi en Cci est une
+    propriété de la liste, choisie dans son dialogue ; les listes sont
+    proposées par une commande à part (`suggest_contact_lists`),
+    `suggest_contacts` restant inchangé ;
   - photos de contact et CardDAV restent au backlog.

@@ -143,6 +143,11 @@ sensible (SQL, IPC, fichiers, rendu).
   contacts (adresse préférée ou une adresse choisie) ; nom unique sans la
   casse, liste non vide pour l'envoi, taille bornée ; règle
   `expand(list) -> Vec<Correspondent>` dédoublonnée.
+  *Réalisé* (écart validé par le mainteneur, consigné dans l'ADR-012) :
+  membres = contacts seulement, toujours écrits à leur adresse préférée
+  du moment (pas d'adresse choisie) ; Cci enregistré avec la liste ;
+  section « Listes » en 3e filtre de la vue Contacts ; listes proposées
+  par `suggest_contact_lists`.
 - Migration `0012_contact_lists.sql` (`contact_lists`,
   `contact_list_members` avec `ON DELETE CASCADE`) ; port, SQLite, faux,
   contrat.

@@ -153,3 +153,25 @@ async fn delete_list_and_get() -> Result<(), ContactFailure> {
     );
     Ok(())
 }
+
+#[tokio::test]
+async fn senders_are_named_from_the_book() -> Result<(), ContactFailure> {
+    use norelly_domain::mailbox::Correspondent;
+
+    let book = InMemoryContactBook::default();
+    let alice = CreateContact { book: &book }
+        .execute(input("Alice Martin", &["alice@example.com"]))
+        .await?;
+    let people = [
+        Correspondent::new("Bob", "bob@example.com"),
+        Correspondent::new("alice", "ALICE@example.com"),
+        Correspondent::new("x", "pas une adresse"),
+    ];
+    let names = NameSenders { directory: &book }.execute(&people).await?;
+    let alice_label = names.label(&people[1]);
+    assert_eq!(alice_label.name, "Alice Martin");
+    assert_eq!(alice_label.contact, Some(alice.id()));
+    assert_eq!(names.label(&people[0]).contact, None);
+    assert_eq!(names.label(&people[0]).name, "Bob");
+    Ok(())
+}

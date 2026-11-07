@@ -30,6 +30,15 @@ quand le mainteneur l'abandonne (avec la raison).
 
 ## Interface et fonctionnalités
 
+- **Carnet d'adresses** : epic planifiée dans
+  [plans/carnet-adresses.md](plans/carnet-adresses.md) (ADR-012).
+- **Synchronisation CardDAV du carnet** (après l'epic carnet) : adaptateur
+  WebDAV sur `tls`, synchronisation bidirectionnelle, conflits, sans
+  reprise du schéma (modèle déjà calqué sur vCard, ADR-012).
+- **Photos de contact** : `PHOTO` des vCard ignorée à l'import ; une image
+  venue d'un fichier tiers passe par le même contrôle que les pièces
+  jointes et le rendu (revue de sécurité) ; initiales en attendant.
+
 - **Ouvrir un message ne le marque pas comme lu** : corps lus en
   `BODY.PEEK`, aucun marquage automatique ; la ligne reste en gras et le
   compteur ne baisse pas. Marquer lu à l'ouverture (éventuellement après un

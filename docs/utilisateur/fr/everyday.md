@@ -186,6 +186,14 @@ passez la souris sur son nom dans le panneau de gauche, cliquez sur le
 
   ![La fenêtre « Déplacer le dossier », avec le nouvel emplacement](captures/move-folder.png)
 
+  Plus rapide : **glissez** le dossier avec la souris et lâchez-le sur un
+  autre dossier pour l'y ranger, ou sur la ligne de votre compte (votre
+  nom et votre adresse) pour le remettre au premier niveau. La cible est
+  encadrée pendant que vous la survolez ; appuyez sur **Échap** pour
+  annuler.
+
+  ![Un dossier glissé sur la ligne du compte, pour le remettre au premier niveau](captures/drag-folder.png)
+
 - **Supprimer** : une fenêtre vous demande de confirmer. Attention, les
   messages du dossier sont **supprimés définitivement**, sans passer par la
   corbeille : déplacez d'abord ceux que vous voulez garder. Un dossier qui

@@ -171,6 +171,13 @@ right, then **Rename folder…**, **Move folder…** or **Delete folder…**.
 
   ![The "Move folder" window, with the new location](captures/move-folder.png)
 
+  Faster: **drag** the folder with the mouse and drop it on another
+  folder to put it there, or on your account's line (your name and
+  address) to bring it back to the top level. The target is outlined
+  while you hover over it; press **Esc** to cancel.
+
+  ![A folder dragged onto the account line, to bring it back to the top level](captures/drag-folder.png)
+
 - **Delete**: a window asks you to confirm. Careful: the folder's messages
   are **permanently deleted**, without going to the trash, so move the
   ones you want to keep first. A folder that contains subfolders cannot be

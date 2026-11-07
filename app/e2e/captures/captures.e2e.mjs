@@ -320,7 +320,7 @@ describe(`captures d'écran (${lang})`, () => {
     await row().waitForDisplayed({ timeout: 10000 });
   });
 
-  it("renommer, déplacer puis supprimer un dossier (à la souris)", async () => {
+  it("renommer, déplacer (fenêtre puis glisser) et supprimer un dossier (à la souris)", async () => {
     const folders = `//*[@aria-label="${msg("sidebar_folders_of", { address })}"]`;
     const label = (name) => $(`${folders}//span[normalize-space()="${name}"]`);
     /** Ouvre le menu « ⋯ » du dossier `name`, visible au survol. */
@@ -360,6 +360,29 @@ describe(`captures d'écran (${lang})`, () => {
       { wait: 30000 },
     );
     await label(content.renamed).waitForDisplayed({ timeout: 30000 });
+
+    // Glissé sur la ligne du compte : revenu au premier niveau.
+    const root = $("div.account[data-drop-account]");
+    const pointer = () =>
+      browser.action("pointer", { id: "souris", parameters: { pointerType: "mouse" } });
+    await pointer()
+      .move({ origin: label(content.renamed) })
+      .down({ button: 0 })
+      .move({ origin: label(content.renamed), x: 20, y: 10, duration: 100 })
+      .move({ origin: root, duration: 300 })
+      .perform(true);
+    await $(".drag-ghost").waitForDisplayed({ timeout: 10000 });
+    await expect(root).toHaveElementClass("drop-over");
+    await capture("drag-folder");
+    await pointer().move({ origin: root, duration: 50 }).up({ button: 0 }).perform();
+    await $(".drag-ghost").waitForDisplayed({ reverse: true, timeout: 10000 });
+    // Le dossier revenu au premier niveau n'est plus en retrait.
+    await browser.waitUntil(
+      async () =>
+        (await label(content.renamed).parentElement().getAttribute("style"))?.includes("+ 0px)") ??
+        false,
+      { timeout: 30000, timeoutMsg: "dossier pas revenu au premier niveau" },
+    );
 
     await folderMenu(content.renamed);
     await menuItem(msg("cmd_delete_folder")).waitForDisplayed({ timeout: 10000 });

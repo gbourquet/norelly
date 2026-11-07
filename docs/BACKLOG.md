@@ -31,8 +31,9 @@ quand le mainteneur l'abandonne (avec la raison).
 ## Interface et fonctionnalités
 
 - **Carnet d'adresses** : epic planifiée dans
-  [plans/carnet-adresses.md](plans/carnet-adresses.md) (ADR-012) ; lot 1
-  (modèle, ports, stockage, cas d'usage) livré, lots 2 à 8 à faire.
+  [plans/carnet-adresses.md](plans/carnet-adresses.md) (ADR-012) ; lots 1
+  (modèle, ports, stockage, cas d'usage) et 2 (vue Contacts : ajouter,
+  modifier, supprimer, favoris, écrire) livrés, lots 3 à 8 à faire.
 - **Carnet : constats de la revue de sécurité du lot 1** (bas) :
   - caractères invisibles encore admis dans les champs d'une fiche
     (U+2028/2029, U+206A–206F, U+FFF9–FFFB, étiquettes U+E0000–E007F,
@@ -42,9 +43,6 @@ quand le mainteneur l'abandonne (avec la raison).
   - une fiche relue invalide fait échouer toute la page : écarter et
     signaler la ligne, ou assainir par migration à chaque durcissement de
     règle (`crates/adapters/sqlite/src/contacts.rs`) ;
-  - entrées à borner pour l'IPC (lot 2) : `MAX_CONTACT_DELETE` pour
-    `delete_many`, constructeur validant de `ContactCursor` (longueur de
-    `sort_key`) ;
   - nom imitant une adresse (`ceo@bank.example`) : règle aujourd'hui dans
     l'interface seulement (`RecipientInput.svelte`) ; la porter dans le
     domaine pour les fiches et `sender_label` (lot 3), nom prérempli depuis

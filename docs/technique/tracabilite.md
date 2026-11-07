@@ -387,6 +387,47 @@ Syntaxe (`crates/domain/src/search.rs`, `parse_query`) :
 - Mesure (bench, 50 000 messages de 300 mots) : 0,3 à 89 ms selon la
   requête, seuil 100 ms.
 
+## Carnet d'adresses : contacts, favoris, écrire à un contact
+
+Fiche : [contacts.md](../fonctionnel/contacts.md). Décision : ADR-012.
+
+### Règles et code
+
+| Règle | Où |
+|---|---|
+| Fiche validée (`ContactDraft::new`) : au moins une adresse, 20 adresses et 20 téléphones au plus, adresses distinctes à la casse ASCII près, une seule préférée (la première sinon), champs bornés, sans caractère de contrôle ni de mise en forme ; champ vide : absent | `crates/domain/src/contacts.rs` |
+| Nom affiché (`display_label`) : nom affiché, sinon prénom et nom, sinon surnom, sinon adresse préférée ; tri sur ce nom en minuscules (`sort_key`) | `contacts.rs` |
+| Une adresse n'appartient qu'à un contact du carnet (`AddressKey`, index unique) : écriture refusée sans effet (`ContactStoreError::DuplicateAddress`) | `contacts.rs`, `crates/adapters/sqlite/src/contacts.rs` |
+| Filtre de la liste (`ContactFilter`) : texte borné, sans casse, cherché dans noms, organisation et adresses ; favoris seulement | `contacts.rs`, `sqlite/src/contacts.rs` |
+| Sélection reçue de l'interface (`contact_selection`) : identifiants valides, dédoublonnés, 1 000 au plus | `contacts.rs` |
+| Curseur reçu de l'interface (`ContactCursor::parse`) : identifiant valide, clé de tri bornée (`MAX_CONTACT_SORT_KEY_CHARS`) | `crates/domain/src/ports.rs` |
+| Cas d'usage : la saisie est validée par le domaine avant toute écriture | `crates/application/src/contacts.rs` |
+| Commandes IPC `list_contacts`, `get_contact`, `create_contact`, `update_contact`, `delete_contacts` : entrées revalidées, refus traduits en codes (`contact_no_address`, `contact_invalid`, `contact_too_long`, `contact_repeated_address`, `contact_duplicate_address`, `contact_not_found`), adresse refusée citée en `detail` | `app/src-tauri/src/contacts.rs`, `app/src-tauri/src/ipc.rs` |
+| État de la vue : pages de 100 par curseur, réponse dépassée ignorée, contacts visés (menu d'une ligne, sinon cochés, sinon fiche ouverte), lignes vides non envoyées, destinataires « Écrire à » (adresse préférée, sans nom si le nom est l'adresse) | `app/src/lib/contacts.svelte.ts`, `app/src/lib/app.svelte.ts` |
+| Vue Contacts : commandes du courrier neutralisées (`AppContext` sans conversation visée), retour au courrier par la boîte unifiée ou un dossier | `app/src/lib/app.svelte.ts`, `App.svelte` |
+| Actions visibles : barre de la fiche, « Plus… », menu contextuel d'une ligne, barre des contacts cochés, bouton du pied du panneau de gauche | `app/src/lib/visible-actions.ts`, `ContactList.svelte`, `ContactCard.svelte`, `Sidebar.svelte` |
+| Saisie affichée en texte, jamais interprétée | `ContactCard.svelte`, `ContactList.svelte` |
+
+### Clés des messages
+
+`contacts_*`, `contact_*`, `delete_contacts_*`, `err_contact_*`,
+`field_contact*`, `field_given_name`, `field_family_name`,
+`field_nickname`, `field_organization`, `field_notes`, `sidebar_contacts`,
+`key_delete`.
+
+### Commandes
+
+`contacts.open`, `contacts.new`, `contacts.edit`, `contacts.write`,
+`contacts.favorite`, `contacts.delete`, `contacts.clear-selection`.
+
+### Vérifications et compléments
+
+- Contrats du carnet joués contre le faux et SQLite
+  (`crates/test-support/src/contacts_contracts.rs`).
+- Commandes IPC sur l'application factice : aller-retour complet et
+  entrées refusées (`app/src-tauri/src/command_tests.rs`).
+- Scénario de bout en bout à la souris (`app/e2e/specs/contacts.e2e.mjs`).
+
 ## Notifications des nouveaux messages
 
 Fiche : [notifications.md](../fonctionnel/notifications.md).

@@ -43,9 +43,11 @@ The window is split into three parts:
    Outlook.com.
 3. [Using Norelly every day](everyday.md): read, reply, write, attach a
    file, tidy up, delete, search, find a draft.
-4. [What to do when an error message appears](errors.md)
-5. [Frequently asked questions](faq.md)
-6. [Keyboard shortcuts cheat sheet](shortcuts.md)
+4. [Keeping your contacts](contacts.md): add, edit, delete a contact,
+   write to them.
+5. [What to do when an error message appears](errors.md)
+6. [Frequently asked questions](faq.md)
+7. [Keyboard shortcuts cheat sheet](shortcuts.md)
 
 ## Three tips to get started
 

@@ -370,6 +370,22 @@ describe(`captures d'écran (${lang})`, () => {
       { wait: 30000 },
     );
     await label(content.renamed).waitForDisplayed({ timeout: 30000 });
+    // Affiché juste sous la boîte de réception, avant les autres dossiers
+    // spéciaux.
+    let shown = [];
+    await browser
+      .waitUntil(
+        async () => {
+          shown = await browser
+            .$$(`${folders}//button/span[contains(concat(" ", @class, " "), " label ")]`)
+            .map((e) => e.getText());
+          return shown[shown.indexOf(content.renamed) - 1] === msg("mailbox_inbox");
+        },
+        { timeout: 30000 },
+      )
+      .catch(() => {
+        throw new Error(`dossier pas affiché sous la boîte de réception : ${shown.join(", ")}`);
+      });
 
     // Glissé sur la ligne du compte : revenu au premier niveau.
     const root = $("div.account[data-drop-account]");

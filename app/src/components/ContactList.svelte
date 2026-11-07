@@ -287,9 +287,11 @@
     border-bottom: var(--border-width) solid var(--color-border);
   }
 
+  /* Recherche sur toute la largeur, filtres en dessous : le texte
+   * d'aide n'est jamais tronqué. */
   .search {
     display: flex;
-    flex: 1 1 160px;
+    flex: 1 1 100%;
     align-items: center;
     gap: var(--space-2);
     min-width: 0;

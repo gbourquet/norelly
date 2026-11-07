@@ -199,18 +199,18 @@
     </label>
     <label class="field">
       <span>{m.contact_notes()}</span>
-      <textarea class="input notes" rows="3" bind:value={form.fields.notes} disabled={form.busy}
+      <textarea class="input notes" rows="2" bind:value={form.fields.notes} disabled={form.busy}
       ></textarea>
-    </label>
-    <label class="check">
-      <input type="checkbox" bind:checked={form.fields.favorite} disabled={form.busy} />
-      <span>{m.contact_favorite()}</span>
     </label>
 
     {#if form.error}
       <p class="error" role="alert">{form.error}</p>
     {/if}
     <div class="actions">
+      <label class="check">
+        <input type="checkbox" bind:checked={form.fields.favorite} disabled={form.busy} />
+        <span>{m.contact_favorite()}</span>
+      </label>
       <button class="btn" type="button" onclick={onClose} disabled={form.busy}
         >{m.common_cancel()}</button
       >
@@ -305,8 +305,14 @@
   .actions {
     display: flex;
     justify-content: flex-end;
+    align-items: center;
     gap: var(--space-2);
     margin-top: var(--space-2);
+  }
+
+  /* Favori à gauche, boutons à droite. */
+  .actions .check {
+    margin-right: auto;
   }
 
   .error {

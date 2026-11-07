@@ -13,6 +13,7 @@ import {
 import { isEditableFolder } from "./folder-edit.svelte";
 import { ComposeState } from "./compose.svelte";
 import { MailState } from "./mail.svelte";
+import { ContactFormState, ContactsState, DeleteContactsState } from "./contacts.svelte";
 import { SearchState } from "./search.svelte";
 import { SettingsState } from "./settings.svelte";
 import { UpdatesState } from "./updates.svelte";
@@ -38,7 +39,9 @@ export type DialogName =
   | "compose"
   | "outbox"
   | "settings"
-  | "drafts";
+  | "drafts"
+  | "contact"
+  | "delete-contacts";
 
 export interface AppContext {
   selectedAccount: AccountDto | null;
@@ -60,10 +63,23 @@ export interface AppContext {
   searching: boolean;
   /** Nombre de résultats de recherche affichés. */
   results: number;
+  /** Le carnet d'adresses est affiché. */
+  contactsView: boolean;
+  /** Nombre de contacts visés (menu d'une ligne, cochés, fiche ouverte). */
+  contactTargets: number;
+  /** Nombre de contacts cochés. */
+  contactsMarked: number;
 }
+
+/** Vue affichée dans les panneaux de liste et de lecture. */
+export type ViewName = "mail" | "contacts";
 
 class AppState {
   accounts = $state<AccountDto[]>([]);
+  view = $state<ViewName>("mail");
+  /** Contact dont le menu contextuel est ouvert (sinon : les cochés, ou
+   * la fiche ouverte). */
+  contactTarget = $state<number | null>(null);
   selectedAccountId = $state<number | null>(null);
   dialog = $state<DialogName | null>(null);
   loadError = $state<string | null>(null);
@@ -100,6 +116,24 @@ class AppState {
   }
 
   context(): AppContext {
+    if (this.view === "contacts") {
+      // Courrier masqué : ses commandes ne visent rien.
+      return {
+        selectedAccount: this.selectedAccount,
+        folder: null,
+        dialog: this.dialog,
+        conversations: 0,
+        reading: false,
+        hasTargets: false,
+        marked: 0,
+        canUndo: mail.lastAction !== null,
+        searching: false,
+        results: 0,
+        contactsView: true,
+        contactTargets: this.contactTargets().length,
+        contactsMarked: contacts.marked.length,
+      };
+    }
     return {
       selectedAccount: this.selectedAccount,
       folder: this.targetFolder(),
@@ -113,7 +147,46 @@ class AppState {
       canUndo: mail.lastAction !== null,
       searching: search.active,
       results: search.hits.length,
+      contactsView: false,
+      contactTargets: 0,
+      contactsMarked: 0,
     };
+  }
+
+  /** Contacts visés par les commandes du carnet : celui dont le menu est
+   * ouvert, sinon les cochés, sinon la fiche ouverte. */
+  contactTargets(): number[] {
+    return this.contactTarget !== null ? [this.contactTarget] : contacts.targets();
+  }
+
+  /** Contacts visés, puis menu d'une ligne oublié (la commande les a
+   * pris en charge). */
+  takeContactTargets(): number[] {
+    const targets = this.contactTargets();
+    this.contactTarget = null;
+    return targets;
+  }
+
+  /** Contacts dont la suppression est demandée (dialogue ouvert). */
+  contactsToDelete = $state<number[]>([]);
+
+  /** Affiche le carnet d'adresses à la place du courrier. */
+  async showContacts(): Promise<void> {
+    this.view = "contacts";
+    search.close();
+    await contacts.load();
+  }
+
+  /** Revient au courrier. */
+  showMail(): void {
+    this.view = "mail";
+    this.contactTarget = null;
+  }
+
+  /** Contexte des commandes qui visent le contact `id` (menu d'une
+   * ligne). */
+  contextFor(id: number): AppContext {
+    return { ...this.context(), contactTargets: id > 0 ? 1 : 0 };
   }
 
   open(dialog: DialogName): void {
@@ -123,6 +196,7 @@ class AppState {
   close(): void {
     this.dialog = null;
     this.folderTarget = null;
+    this.contactTarget = null;
   }
 
   /** Ouvre l'éditeur : nouveau message, réponse ou transfert. */
@@ -237,6 +311,14 @@ export const mail = new MailState(api);
 
 export const search = new SearchState(api);
 
+export const contacts = new ContactsState(api);
+
+/** Formulaire d'ajout ou de modification d'un contact. */
+export const contactForm = new ContactFormState(api);
+
+/** Confirmation de suppression de contacts. */
+export const contactDeletion = new DeleteContactsState(api);
+
 export const settings = new SettingsState(api);
 
 export const updates = new UpdatesState(api);
@@ -350,14 +432,20 @@ export function registerAppCommands(): () => void {
       group: m.group_reading(),
       shortcut: "/",
       keywords: words(m.cmd_search_keywords()),
-      run: () => search.open(),
+      run: () => {
+        app.showMail();
+        search.open();
+      },
     }),
     registry.register({
       id: "mailbox.unified",
       title: m.cmd_unified(),
       group: m.group_reading(),
       keywords: words(m.cmd_unified_keywords()),
-      run: () => mail.show({ kind: "unified", role: "inbox" }),
+      run: () => {
+        app.showMail();
+        return mail.show({ kind: "unified", role: "inbox" });
+      },
     }),
     registry.register({
       id: "reading.plain-text",
@@ -554,6 +642,106 @@ export function registerAppCommands(): () => void {
       when: (ctx) =>
         ctx.selectedAccount !== null && ctx.folder !== null && isEditableFolder(ctx.folder),
       run: () => app.open("delete-folder"),
+    }),
+    registry.register({
+      id: "contacts.open",
+      title: m.cmd_contacts(),
+      group: m.group_contacts(),
+      shortcut: "Ctrl+Shift+B",
+      keywords: words(m.cmd_contacts_keywords()),
+      run: () => app.showContacts(),
+    }),
+    registry.register({
+      id: "contacts.new",
+      title: m.cmd_contact_new(),
+      group: m.group_contacts(),
+      shortcut: "n",
+      keywords: words(m.cmd_contact_new_keywords()),
+      run: async () => {
+        if (app.view !== "contacts") await app.showContacts();
+        app.contactTarget = null;
+        contactForm.reset(null);
+        app.open("contact");
+      },
+    }),
+    registry.register({
+      id: "contacts.edit",
+      title: m.cmd_contact_edit(),
+      group: m.group_contacts(),
+      shortcut: "Shift+E",
+      keywords: words(m.cmd_contact_edit_keywords()),
+      when: (ctx) => ctx.contactsView && ctx.contactTargets === 1,
+      run: async () => {
+        const [id] = app.takeContactTargets();
+        if (id === undefined) return;
+        try {
+          contactForm.reset(await api.getContact(id));
+          app.open("contact");
+        } catch (e) {
+          mail.notice = { text: errorText(e), undoable: false };
+        }
+      },
+    }),
+    registry.register({
+      id: "contacts.write",
+      title: m.cmd_contact_write(),
+      group: m.group_contacts(),
+      shortcut: "w",
+      keywords: words(m.cmd_contact_write_keywords()),
+      when: (ctx) => ctx.contactsView && ctx.contactTargets > 0 && ctx.selectedAccount !== null,
+      run: async (ctx) => {
+        const account = ctx.selectedAccount;
+        const recipients = await contacts.recipients(app.takeContactTargets());
+        if (account === null || recipients.length === 0) return;
+        await app.compose("new", account.id, null);
+        compose.addRecipients("to", recipients);
+      },
+    }),
+    registry.register({
+      id: "contacts.favorite",
+      title: m.cmd_contact_favorite(),
+      group: m.group_contacts(),
+      shortcut: "Shift+S",
+      keywords: words(m.cmd_contact_favorite_keywords()),
+      when: (ctx) => ctx.contactsView && ctx.contactTargets === 1,
+      run: async () => {
+        const [id] = app.takeContactTargets();
+        if (id === undefined) return;
+        if (contacts.selectedId !== id) await contacts.select(id);
+        const name = contacts.selected?.name ?? "";
+        const favorite = await contacts.toggleFavorite();
+        if (favorite === null) {
+          if (contacts.error !== null) mail.notice = { text: contacts.error, undoable: false };
+          return;
+        }
+        mail.notice = {
+          text: favorite
+            ? m.contacts_notice_favorited({ name })
+            : m.contacts_notice_unfavorited({ name }),
+          undoable: false,
+        };
+      },
+    }),
+    registry.register({
+      id: "contacts.delete",
+      title: m.cmd_contact_delete(),
+      group: m.group_contacts(),
+      shortcut: "Delete",
+      keywords: words(m.cmd_contact_delete_keywords()),
+      when: (ctx) => ctx.contactsView && ctx.contactTargets > 0,
+      run: () => {
+        app.contactsToDelete = app.takeContactTargets();
+        contactDeletion.reset();
+        app.open("delete-contacts");
+      },
+    }),
+    registry.register({
+      id: "contacts.clear-selection",
+      title: m.cmd_contacts_clear_selection(),
+      group: m.group_contacts(),
+      keywords: words(m.cmd_contacts_clear_selection_keywords()),
+      when: (ctx) => ctx.contactsView && ctx.contactsMarked > 0,
+      run: () => contacts.clearMarks(),
     }),
     registry.register({
       id: "account.sync",

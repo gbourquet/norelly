@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   bulkActions,
+  contactBulkActions,
+  contactMenuActions,
+  contactsToolbar,
   fitByPriority,
   menuActions,
   readerActions,
@@ -96,6 +99,49 @@ describe("actions visibles", () => {
       "action.delete",
       "compose.forward",
       "compose.reply-all",
+    ]);
+  });
+});
+
+describe("actions de la vue Contacts", () => {
+  it("barre : nouveau contact, écrire, modifier, supprimer ; favori dans « Plus… »", () => {
+    const { primary, more } = contactsToolbar({ favorite: false });
+    expect(ids(primary)).toEqual([
+      "contacts.new",
+      "contacts.write",
+      "contacts.edit",
+      "contacts.delete",
+    ]);
+    expect(ids(more)).toEqual(["contacts.favorite"]);
+    const byPriority = [...primary].sort((a, b) => (a.priority ?? 0) - (b.priority ?? 0));
+    expect(ids(byPriority)[0]).toBe("contacts.new");
+  });
+
+  it("le favori a un libellé selon l'état", () => {
+    const favorite = (value: boolean | null) =>
+      contactsToolbar(value === null ? null : { favorite: value }).more[0]?.label?.();
+    expect(favorite(false)).toBe("Ajouter aux favoris");
+    expect(favorite(null)).toBe("Ajouter aux favoris");
+    expect(favorite(true)).toBe("Retirer des favoris");
+  });
+
+  it("menu contextuel d'un contact : modifier, écrire, favori, puis supprimer", () => {
+    const actions = contactMenuActions({ favorite: true });
+    expect(ids(actions)).toEqual([
+      "contacts.edit",
+      "contacts.write",
+      "contacts.favorite",
+      "contacts.delete",
+    ]);
+    expect(actions.map((a) => a.section ?? 0)).toEqual([0, 0, 0, 1]);
+    expect(actions[2]?.label?.()).toBe("Retirer des favoris");
+  });
+
+  it("barre des contacts cochés : écrire, supprimer, tout désélectionner", () => {
+    expect(ids(contactBulkActions().primary)).toEqual([
+      "contacts.write",
+      "contacts.delete",
+      "contacts.clear-selection",
     ]);
   });
 });

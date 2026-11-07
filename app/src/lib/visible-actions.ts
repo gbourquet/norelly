@@ -17,6 +17,12 @@ import FileTextIcon from "@lucide/svelte/icons/file-text";
 import ChevronUpIcon from "@lucide/svelte/icons/chevron-up";
 import ChevronDownIcon from "@lucide/svelte/icons/chevron-down";
 import EyeIcon from "@lucide/svelte/icons/eye";
+import UserPlusIcon from "@lucide/svelte/icons/user-plus";
+import UserPenIcon from "@lucide/svelte/icons/user-pen";
+import SquarePenIcon from "@lucide/svelte/icons/square-pen";
+import StarIcon from "@lucide/svelte/icons/star";
+import StarOffIcon from "@lucide/svelte/icons/star-off";
+import XIcon from "@lucide/svelte/icons/x";
 import { m } from "./paraglide/messages.js";
 
 export interface VisibleAction {
@@ -122,6 +128,63 @@ export function menuActions(subject: ActionSubject | null): VisibleAction[] {
     { ...flagToggle(subject), section: 3 },
     { ...move, section: 3 },
   ];
+}
+
+/** État d'un contact qui choisit la bascule de favori. */
+export interface ContactSubject {
+  favorite: boolean;
+}
+
+const writeContact: VisibleAction = { command: "contacts.write", icon: SquarePenIcon };
+const editContact: VisibleAction = { command: "contacts.edit", icon: UserPenIcon };
+const deleteContact: VisibleAction = { command: "contacts.delete", icon: TrashIcon };
+
+/** Bascule de favori : propose l'état inverse du contact. */
+function favoriteToggle(subject: ContactSubject | null): VisibleAction {
+  const favorite = subject?.favorite ?? false;
+  return {
+    command: "contacts.favorite",
+    icon: favorite ? StarOffIcon : StarIcon,
+    label: favorite ? m.contacts_unfavorite : m.contacts_favorite,
+  };
+}
+
+/** Barre de la vue Contacts et son menu « Plus… ». */
+export function contactsToolbar(subject: ContactSubject | null): {
+  primary: VisibleAction[];
+  more: VisibleAction[];
+} {
+  return {
+    primary: [
+      { command: "contacts.new", icon: UserPlusIcon, priority: 1 },
+      { ...writeContact, priority: 2 },
+      { ...editContact, priority: 3 },
+      { ...deleteContact, priority: 4 },
+    ],
+    more: [favoriteToggle(subject)],
+  };
+}
+
+/** Menu contextuel d'une ligne de la liste des contacts. */
+export function contactMenuActions(subject: ContactSubject | null): VisibleAction[] {
+  return [
+    { ...editContact, section: 0 },
+    { ...writeContact, section: 0 },
+    { ...favoriteToggle(subject), section: 0 },
+    { ...deleteContact, section: 1 },
+  ];
+}
+
+/** Barre des contacts cochés. */
+export function contactBulkActions(): { primary: VisibleAction[]; more: VisibleAction[] } {
+  return {
+    primary: [
+      { ...writeContact, priority: 1 },
+      { ...deleteContact, priority: 2 },
+      { command: "contacts.clear-selection", icon: XIcon, priority: 3 },
+    ],
+    more: [],
+  };
 }
 
 /** Actions rapides au survol d'une ligne de la liste. */

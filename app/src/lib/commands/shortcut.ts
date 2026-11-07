@@ -121,6 +121,7 @@ export function formatShortcut(s: Shortcut): string[] {
     " ": m.key_space,
     Escape: m.key_escape,
     Enter: m.key_enter,
+    Delete: m.key_delete,
   };
   const label = named[s.key]?.() ?? s.key;
   keys.push(label.length === 1 ? label.toUpperCase() : label);

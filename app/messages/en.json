@@ -32,7 +32,7 @@
   "list_flagged": "Flagged",
   "conversation_label": "Conversation",
   "conversation_back": "Back to list",
-  "conversation_to": "To: {recipients}",
+  "conversation_message_toggle": "Message from {name}, {date}",
   "message_unreadable": "Unreadable message: {error}",
   "message_link_failed": "Link not opened: {error}",
   "message_saved_as": "Saved as “{path}”.",

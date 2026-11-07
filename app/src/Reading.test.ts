@@ -82,8 +82,8 @@ vi.mock("./lib/ipc/api", () => ({
         account: 1,
         mailbox: 5,
         date: 1_700_000_000,
-        from: { name: `Expéditeur ${id}`, address: `e${id}@example.com` },
-        to: [{ name: "Alice", address: "alice@example.com" }],
+        from: { name: `Expéditeur ${id}`, address: `e${id}@example.com`, contact: null },
+        to: [{ name: "Alice", address: "alice@example.com", contact: 4 }],
         cc: [],
         subject: `Sujet ${id}`,
         unread: id === 1,
@@ -124,12 +124,28 @@ vi.mock("./lib/ipc/api", () => ({
     })),
     discardDraft: vi.fn(async () => undefined),
     saveDraft: vi.fn(async () => ({ id: 1 })),
+    listContacts: vi.fn(async () => ({ items: [], next: null })),
+    getContact: vi.fn(async (id: number) => ({
+      id,
+      name: "Alice",
+      fields: {
+        display_name: "Alice",
+        given_name: "",
+        family_name: "",
+        nickname: "",
+        organization: "",
+        notes: "",
+        emails: [{ address: "alice@example.com", label: "", preferred: true }],
+        phones: [],
+        favorite: false,
+      },
+    })),
   },
 }));
 
 const { default: App } = await import("./App.svelte");
 const { api } = await import("./lib/ipc/api");
-const { app, mail, settings } = await import("./lib/app.svelte");
+const { app, contacts, mail, settings } = await import("./lib/app.svelte");
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -500,14 +516,48 @@ describe("lecture", () => {
       "Marquer comme non lu Maj+U",
       "Suivre S",
       "Déplacer vers… V",
+      "Ajouter au carnet d'adresses",
     ]);
-    // Groupes séparés comme dans la barre.
-    expect(within(menu).getAllByRole("separator")).toHaveLength(3);
+    // Groupes séparés comme dans la barre, puis l'expéditeur.
+    expect(within(menu).getAllByRole("separator")).toHaveLength(4);
 
     // Répondre depuis la liste : ouvre la conversation, puis l'éditeur.
     await fireEvent.click(within(menu).getByRole("menuitem", { name: /^Répondre R/ }));
     expect(await screen.findByRole("dialog", { name: "Répondre" })).toBeInTheDocument();
     expect(api.prepareCompose).toHaveBeenCalledWith(1, "reply", 20, expect.any(String));
     expect(screen.getByRole("article", { name: "Conversation" })).toBeInTheDocument();
+  });
+
+  it("le nom d'une personne ouvre son menu : ajouter au carnet, ou voir le contact", async () => {
+    render(App);
+    const list = await screen.findByRole("listbox", { name: "Conversations" });
+    await fireEvent.click(await within(list).findByText("Sujet 1"));
+    const reader = await screen.findByRole("article", { name: "Conversation" });
+
+    // Expéditeur inconnu du carnet : l'ajouter, fiche pré-remplie.
+    const sender = await within(reader).findByRole("button", {
+      name: "Actions pour Expéditeur 1",
+    });
+    expect(sender).toHaveAttribute("title", "e1@example.com");
+    await fireEvent.pointerDown(sender, { button: 0, pointerType: "mouse" });
+    await fireEvent.click(
+      await screen.findByRole("menuitem", { name: "Ajouter au carnet d'adresses" }),
+    );
+    const form = await screen.findByRole("dialog", { name: "Nouveau contact" });
+    expect(within(form).getByDisplayValue("Expéditeur 1")).toBeInTheDocument();
+    expect(within(form).getByDisplayValue("e1@example.com")).toBeInTheDocument();
+    await fireEvent.click(within(form).getByRole("button", { name: "Annuler" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+
+    // Destinataire déjà dans le carnet : pastille, puis sa fiche.
+    const known = within(reader).getByRole("button", {
+      name: "Actions pour Alice (Dans vos contacts)",
+    });
+    expect(within(known).getByTitle("Dans vos contacts")).toBeInTheDocument();
+    await fireEvent.pointerDown(known, { button: 0, pointerType: "mouse" });
+    await fireEvent.click(await screen.findByRole("menuitem", { name: "Voir le contact" }));
+    await waitFor(() => expect(app.view).toBe("contacts"));
+    await waitFor(() => expect(contacts.selectedId).toBe(4));
+    app.showMail();
   });
 });

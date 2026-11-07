@@ -32,7 +32,7 @@ vi.mock("./ipc/api", () => ({
   },
 }));
 
-const { app, contactForm, contacts, mail, registerAppCommands, registry, search } =
+const { app, contactForm, contacts, mail, registerAppCommands, registry, runForPerson, search } =
   await import("./app.svelte");
 
 const conversation: ConversationDto = {
@@ -230,6 +230,19 @@ describe("personnes d'un message et carnet", () => {
     expect(app.personTarget).toBeNull();
     // Dans la vue Contacts, aucune personne de message n'est visée.
     expect(enabled("contacts.add-person")).toBe(false);
+  });
+
+  it("le menu d'une personne exécute la commande pour elle", async () => {
+    mail.opened = conversation;
+    mail.messages = [message(2, alice)];
+    await runForPerson("contacts.add-person", bob);
+    expect(app.dialog).toBe("contact");
+    expect(contactForm.fields.display_name).toBe("Bob Martin");
+    app.close();
+    // Commande qui ne vise pas cette personne : rien.
+    await runForPerson("contacts.show-person", bob);
+    expect(app.view).toBe("mail");
+    expect(app.personTarget).toBeNull();
   });
 
   it("revenir au courrier relit la liste (noms du carnet à jour)", async () => {

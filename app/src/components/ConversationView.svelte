@@ -5,7 +5,7 @@
   // déplient d'un clic.
   import type { Snippet } from "svelte";
   import ArrowLeftIcon from "@lucide/svelte/icons/arrow-left";
-  import type { Api, ConversationDto, ConversationMessage } from "../lib/ipc/api";
+  import type { Api, ConversationDto, ConversationMessage, CorrespondentDto } from "../lib/ipc/api";
   import type { Shortcut } from "../lib/commands/shortcut";
   import MessageBody from "./MessageBody.svelte";
   import { longDate, personName } from "../lib/format";
@@ -20,9 +20,12 @@
     backTitle: string;
     /** Barre d'actions (sous le titre). */
     toolbar?: Snippet;
+    /** Nom d'une personne (expéditeur en gras si non lu, destinataire),
+     * avec son menu ; sinon, le nom seul. */
+    person?: Snippet<[CorrespondentDto, boolean]>;
   }
 
-  let { conversation, messages, api, onBack, onKey, backTitle, toolbar }: Props = $props();
+  let { conversation, messages, api, onBack, onKey, backTitle, toolbar, person }: Props = $props();
 
   let expanded = $state<number[]>([]);
 
@@ -35,8 +38,8 @@
     expanded = expanded.includes(id) ? expanded.filter((e) => e !== id) : [...expanded, id];
   }
 
-  function recipients(msg: ConversationMessage): string {
-    return [...msg.to, ...msg.cc].map((p) => personName(p)).join(", ");
+  function recipients(msg: ConversationMessage): CorrespondentDto[] {
+    return [...msg.to, ...msg.cc];
   }
 </script>
 
@@ -60,16 +63,38 @@
     {#each messages as msg (msg.id)}
       {@const open = expanded.includes(msg.id)}
       <li class="message" class:open>
-        <button class="summary" type="button" aria-expanded={open} onclick={() => toggle(msg.id)}>
-          <span class="from" class:unread={msg.unread}>{personName(msg.from)}</span>
+        <div class="summary">
+          <!-- Toute la ligne déplie le message ; le nom de l'expéditeur
+               garde son propre menu par-dessus. -->
+          <button
+            class="toggle"
+            type="button"
+            aria-expanded={open}
+            aria-label={m.conversation_message_toggle({
+              name: personName(msg.from),
+              date: longDate(msg.date),
+            })}
+            onclick={() => toggle(msg.id)}
+          ></button>
+          {#if msg.from && person}
+            <span class="who">{@render person(msg.from, msg.unread)}</span>
+          {:else}
+            <span class="from" class:unread={msg.unread}>{personName(msg.from)}</span>
+          {/if}
           {#if msg.from && msg.from.name !== ""}<span class="address"
               >&lt;{msg.from.address}&gt;</span
             >{/if}
           <span class="date">{longDate(msg.date)}</span>
-        </button>
+        </div>
         {#if open}
-          {#if recipients(msg) !== ""}
-            <p class="to">{m.conversation_to({ recipients: recipients(msg) })}</p>
+          {#if recipients(msg).length > 0}
+            <p class="to">
+              <span>{m.conversation_to_label()}</span>
+              {#each recipients(msg) as p, i (i)}
+                {#if i > 0}<span aria-hidden="true">, </span>{/if}
+                {#if person}{@render person(p, false)}{:else}<span>{personName(p)}</span>{/if}
+              {/each}
+            </p>
           {/if}
           <MessageBody message={msg.id} {api} {onKey} />
         {/if}
@@ -128,17 +153,32 @@
   }
 
   .summary {
+    position: relative;
     display: flex;
     align-items: baseline;
     flex-wrap: wrap;
     gap: var(--space-2);
     width: 100%;
     padding: var(--space-1) 0;
+  }
+
+  .toggle {
+    position: absolute;
+    inset: 0;
     border: none;
+    border-radius: var(--radius-sm);
     background: transparent;
-    color: inherit;
-    text-align: left;
     cursor: pointer;
+  }
+
+  .summary > :not(.toggle) {
+    pointer-events: none;
+  }
+
+  .summary > .who {
+    position: relative;
+    min-width: 0;
+    pointer-events: auto;
   }
 
   .from.unread {
@@ -157,6 +197,10 @@
   }
 
   .to {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0 var(--space-1);
     margin: 0 0 var(--space-2);
   }
 </style>

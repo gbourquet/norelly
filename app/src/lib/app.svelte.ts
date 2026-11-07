@@ -20,6 +20,7 @@ import { SettingsState } from "./settings.svelte";
 import { UpdatesState } from "./updates.svelte";
 import type { ConversationMessage } from "./ipc/api";
 import { failureLabel } from "./outbox";
+import type { PersonKind } from "./visible-actions";
 import { m } from "./paraglide/messages.js";
 import { errorText } from "./errors";
 
@@ -74,8 +75,6 @@ export interface AppContext {
    * le carnet, inconnue du carnet, ou aucune. */
   person: PersonKind;
 }
-
-export type PersonKind = "contact" | "stranger" | null;
 
 /** Nature d'une personne pour les commandes du carnet. */
 function personKind(person: CorrespondentDto | null): PersonKind {
@@ -347,6 +346,18 @@ class AppState {
     } catch (e) {
       this.loadError = errorText(e);
     }
+  }
+}
+
+/** Exécute la commande `id` pour `person` (menu d'une personne d'un
+ * message, d'une ligne de la liste). */
+export async function runForPerson(id: string, person: CorrespondentDto): Promise<void> {
+  const context = app.contextForPerson(person);
+  app.personTarget = person;
+  try {
+    await registry.execute(id, context);
+  } finally {
+    app.personTarget = null;
   }
 }
 

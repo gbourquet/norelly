@@ -6,6 +6,7 @@ import {
   contactsToolbar,
   fitByPriority,
   menuActions,
+  personActions,
   readerActions,
   rowActions,
   subjectOf,
@@ -134,6 +135,27 @@ describe("actions de la vue Contacts", () => {
 
   it("barre des contacts cochés : écrire, supprimer", () => {
     expect(ids(contactBulkActions().primary)).toEqual(["contacts.write", "contacts.delete"]);
+  });
+});
+
+describe("actions sur une personne d'un message", () => {
+  it("inconnue du carnet : l'ajouter ; déjà contact : voir sa fiche", () => {
+    expect(ids(personActions("stranger"))).toEqual(["contacts.add-person"]);
+    expect(ids(personActions("contact"))).toEqual(["contacts.show-person"]);
+    expect(personActions(null)).toEqual([]);
+  });
+
+  it("dans « Plus… » du mail ouvert et le menu d'une ligne, en dernier groupe", () => {
+    const subject = { unread: 0, flagged: false };
+    const more = readerActions(subject, "stranger").more;
+    expect(more.at(-1)?.command).toBe("contacts.add-person");
+    expect(more.at(-1)?.section).toBeGreaterThan(more.at(-2)?.section ?? 0);
+    const menu = menuActions(subject, "contact");
+    expect(menu.at(-1)?.command).toBe("contacts.show-person");
+    expect(menu.at(-1)?.section).toBeGreaterThan(menu.at(-2)?.section ?? 0);
+    // Sans personne : menus inchangés.
+    expect(ids(readerActions(subject).more)).not.toContain("contacts.add-person");
+    expect(ids(menuActions(subject))).not.toContain("contacts.show-person");
   });
 });
 

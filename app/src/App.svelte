@@ -32,6 +32,7 @@
   import ContactCard from "./components/ContactCard.svelte";
   import ContactDialog from "./components/ContactDialog.svelte";
   import DeleteContactsDialog from "./components/DeleteContactsDialog.svelte";
+  import PersonMenu from "./components/PersonMenu.svelte";
   import BookUserIcon from "@lucide/svelte/icons/book-user";
   import { notificationText } from "./lib/notifications";
   import { readerActions } from "./lib/visible-actions";
@@ -47,6 +48,7 @@
     openSelectedHit,
     registerAppCommands,
     registry,
+    runForPerson,
     search,
     settings,
     updates,
@@ -356,6 +358,9 @@
         context={app.context()}
         onSearch={() => search.open()}
         {drag}
+        person={mail.selected?.senders[0] ?? null}
+        personContext={(p) => app.contextForPerson(p)}
+        onPerson={(id, p) => void runForPerson(id, p)}
       />
     {/if}
   {/snippet}
@@ -383,8 +388,17 @@
         )?.tooltip ?? m.conversation_back()}
         onKey={onFrameKey}
       >
+        {#snippet person(p, strong)}
+          <PersonMenu
+            person={p}
+            {registry}
+            context={app.contextForPerson(p)}
+            run={(id) => void runForPerson(id, p)}
+            {strong}
+          />
+        {/snippet}
         {#snippet toolbar()}
-          {@const actions = readerActions(mail.opened)}
+          {@const actions = readerActions(mail.opened, app.context().person)}
           <ActionBar
             primary={actions.primary}
             more={actions.more}
@@ -619,6 +633,8 @@
       undoable: false,
     };
     void contacts.saved(contact);
+    // Nom du carnet dans la liste et le message ouvert.
+    if (app.view === "mail") void mail.reload();
   }}
 />
 <DeleteContactsDialog

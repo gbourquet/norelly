@@ -11,7 +11,14 @@
   import type { CommandRegistry } from "../lib/commands/registry";
   import { RegistryWatch } from "../lib/commands/watch.svelte";
   import { describeCommand } from "../lib/commands/describe";
-  import { bulkActions, menuActions, rowActions, subjectOf } from "../lib/visible-actions";
+  import {
+    bulkActions,
+    menuActions,
+    personActions,
+    rowActions,
+    subjectOf,
+  } from "../lib/visible-actions";
+  import type { CorrespondentDto } from "../lib/ipc/api";
   import ActionButtons from "./ActionButtons.svelte";
   import ActionBar from "./ActionBar.svelte";
   import { VirtualList } from "../lib/virtual-list.svelte";
@@ -27,20 +34,62 @@
     onSearch?: () => void;
     /** Glisser-déposer des conversations sur un dossier. */
     drag?: DragMove;
+    /** Dernier expéditeur de la conversation visée (menu contextuel). */
+    person?: CorrespondentDto | null;
+    /** Contexte des commandes qui visent `person`. */
+    personContext?: (person: CorrespondentDto) => C;
+    /** Exécute une commande pour `person`. */
+    onPerson?: (id: string, person: CorrespondentDto) => void;
   }
 
-  let { mail, title, registry, context, onSearch, drag }: Props = $props();
+  let {
+    mail,
+    title,
+    registry,
+    context,
+    onSearch,
+    drag,
+    person = null,
+    personContext,
+    onPerson,
+  }: Props = $props();
 
   /** Entrées du menu contextuel : ouvrir, puis les actions de la barre
-   * du mail ouvert, pour la conversation visée. */
-  const menu = $derived(menuActions(subjectOf(mail.targets())));
+   * du mail ouvert, pour la conversation visée, puis son dernier
+   * expéditeur. */
+  const menu = $derived(
+    menuActions(
+      subjectOf(mail.targets()),
+      person === null || onPerson === undefined
+        ? null
+        : person.contact !== null
+          ? "contact"
+          : "stranger",
+    ),
+  );
+
+  /** Commandes du menu qui visent l'expéditeur, pas la conversation. */
+  const personCommands = new Set(
+    [...personActions("contact"), ...personActions("stranger")].map((a) => a.command),
+  );
+
+  function contextOf(id: string): C {
+    return personCommands.has(id) && person !== null && personContext !== undefined
+      ? personContext(person)
+      : context;
+  }
+
+  function runMenu(id: string): void {
+    if (personCommands.has(id) && person !== null && onPerson !== undefined) onPerson(id, person);
+    else void registry.execute(id, context);
+  }
 
   // Le registre n'est pas réactif : relecture à chaque modification.
   const watch = new RegistryWatch(() => registry);
 
-  function describe(id: string, label?: string) {
+  function describe(id: string, label?: string, ctx: C = context) {
     void watch.version;
-    return describeCommand(registry, id, context, label);
+    return describeCommand(registry, id, ctx, label);
   }
 
   const bulk = bulkActions();
@@ -226,7 +275,7 @@
     <ContextMenu.Portal>
       <ContextMenu.Content class="menu" aria-label={m.list_context_menu()}>
         {#each menu as action, i (action.command)}
-          {@const e = describe(action.command, action.label?.())}
+          {@const e = describe(action.command, action.label?.(), contextOf(action.command))}
           {@const Icon = action.icon}
           {#if i > 0 && (menu[i - 1]?.section ?? 0) !== (action.section ?? 0)}
             <ContextMenu.Separator class="menu-separator" />
@@ -235,7 +284,7 @@
             <ContextMenu.Item
               class="menu-item"
               disabled={!e.enabled}
-              onSelect={() => void registry.execute(action.command, context)}
+              onSelect={() => runMenu(action.command)}
             >
               <Icon size={16} aria-hidden="true" />
               <span class="menu-label">{e.label}</span>

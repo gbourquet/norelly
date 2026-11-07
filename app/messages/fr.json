@@ -32,7 +32,7 @@
   "list_flagged": "Suivi",
   "conversation_label": "Conversation",
   "conversation_back": "Retour à la liste",
-  "conversation_to": "À : {recipients}",
+  "conversation_message_toggle": "Message de {name}, {date}",
   "message_unreadable": "Message illisible : {error}",
   "message_link_failed": "Lien non ouvert : {error}",
   "message_saved_as": "Enregistré sous « {path} ».",

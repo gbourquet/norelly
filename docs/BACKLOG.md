@@ -44,7 +44,9 @@ quand le mainteneur l'abandonne (avec la raison).
     (lot 6)** (`crates/domain/src/contacts.rs`, `connection::is_format_char`) ;
   - une fiche relue invalide fait échouer toute la page : écarter et
     signaler la ligne, ou assainir par migration à chaque durcissement de
-    règle (`crates/adapters/sqlite/src/contacts.rs`) ;
+    règle (`crates/adapters/sqlite/src/contacts.rs`). Depuis le lot 3, le
+    courrier n'en souffre pas (noms des en-têtes gardés, `NameSenders`),
+    mais les noms du carnet disparaissent de toute la page ;
   - nom imitant une adresse (`ceo@bank.example`) : règle portée dans le
     domaine pour les noms d'en-tête (`sender::imitates_address`, lot 3) ;
     reste à l'appliquer aux noms des fiches (saisie, import du lot 6) et à
@@ -67,6 +69,24 @@ quand le mainteneur l'abandonne (avec la raison).
     suppression échoue sur un « valeur refusée » générique ; « Écrire au
     contact » relit une à une les fiches hors de la liste affichée :
     message clair et borne côté interface (`app/src/lib/contacts.svelte.ts`).
+- **Carnet : constats de la revue de sécurité du lot 3** :
+  - (moyen) le nom du carnet et la pastille « Dans vos contacts »
+    s'affichent pour une adresse `From` falsifiable : l'application ne lit
+    ni `Authentication-Results`, ni DKIM, ni DMARC. Piste : lire en Rust
+    `Authentication-Results` du seul `authserv-id` du serveur du compte,
+    règle du domaine `SenderAuth { Pass, Fail, Unknown }` (DMARC pass, ou
+    DKIM pass aligné sur le domaine du `From`) ; pastille seulement sur
+    `Pass`, avertissement « Expéditeur non vérifié » sur `Fail`. Garder le
+    libellé « Dans vos contacts », jamais « vérifié »
+    (`crates/domain/src/sender.rs`, `PersonMenu.svelte`) ;
+  - (bas) `imitates_address` couvre `@ < >` et leurs sosies courants
+    (pleine largeur, petites formes, chevrons), pas les formes textuelles
+    (`support(at)banque.fr`) ni un nom qui ressemble à un domaine : piste,
+    afficher aussi l'adresse dans la liste quand le nom d'en-tête contient
+    un domaine ; appliquer la règle au nom prérempli par « Ajouter au
+    carnet » et aux noms des fiches (voir le lot 1).
+  - les notifications de nouveaux messages gardent le nom de l'en-tête
+    (filtré s'il imite une adresse) : les nommer d'après le carnet.
 - **Synchronisation CardDAV du carnet** (après l'epic carnet) : adaptateur
   WebDAV sur `tls`, synchronisation bidirectionnelle, conflits, sans
   reprise du schéma (modèle déjà calqué sur vCard, ADR-012).

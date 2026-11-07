@@ -153,7 +153,7 @@ describe("carnet d'adresses", () => {
       fake.$('.//*[contains(normalize-space(), "service@banque.test")]'),
     ).not.toBeExisting();
 
-    await known.$('.//*[normalize-space()="Réunion du carnet"]').click();
+    await $("span=Réunion du carnet").click();
     await openMenu(button("Actions pour Zoé Martin (Dans vos contacts)"));
     await menuItem("Voir le contact").click();
     await expect($('article[aria-label="Fiche de Zoé Martin"]')).toBeDisplayed({ wait: 10000 });
@@ -171,9 +171,7 @@ describe("carnet d'adresses", () => {
     await form.waitForDisplayed({ reverse: true, timeout: 10000 });
 
     // La conversation le signale désormais comme contact.
-    await row("Prêt du carnet de chant")
-      .$('.//*[normalize-space()="Prêt du carnet de chant"]')
-      .click();
+    await $("span=Prêt du carnet de chant").click();
     await expect(button("Actions pour Hugo Petit (Dans vos contacts)")).toBeDisplayed({
       wait: 10000,
     });

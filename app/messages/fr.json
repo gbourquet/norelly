@@ -220,6 +220,7 @@
   "action_archived": "Archivé.",
   "action_deleted": "Supprimé.",
   "action_moved": "Déplacé vers « {folder} ».",
+  "drag_conversations": "{count} conversations",
   "action_marked_read": "Marqué comme lu.",
   "action_marked_unread": "Marqué comme non lu.",
   "action_flagged": "Suivi activé.",

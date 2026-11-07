@@ -143,6 +143,26 @@ describe("état de la lecture", () => {
     expect(mail.lastAction).toBeNull();
   });
 
+  it("action sur des conversations désignées (glisser-déposer), pas sur la sélection", async () => {
+    const api = fakeApi(5);
+    const mail = new MailState(api);
+    await mail.show(UNIFIED_INBOX);
+    mail.select(0);
+    await mail.open();
+    const opened = mail.opened?.id;
+    expect(opened).toBe(1);
+    mail.toggleMarkAt(1);
+    await mail.act({ kind: "move", mailbox: 77 }, "Déplacé.", [3, 4]);
+    expect(api.performAction).toHaveBeenCalledWith([3, 4], UNIFIED_INBOX, {
+      kind: "move",
+      mailbox: 77,
+    });
+    // La conversation ouverte n'était pas visée : elle reste ouverte.
+    expect(mail.opened?.id).toBe(opened);
+    expect(mail.marked).toEqual([]);
+    expect(mail.notice).toEqual({ text: "Déplacé.", undoable: true });
+  });
+
   it("sélection multiple avec x, puis action sur les conversations cochées", async () => {
     const api = fakeApi(5);
     const mail = new MailState(api);

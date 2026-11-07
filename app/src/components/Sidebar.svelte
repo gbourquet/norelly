@@ -45,6 +45,8 @@
      * `account` ; `target` : le dossier devient la cible des commandes
      * (menu du dossier choisi). */
     onFolder: (account: number, folder: FolderDto, target: boolean) => C;
+    /** Dossier survolé où déposer les conversations glissées. */
+    dropOver?: number | null;
   }
 
   let {
@@ -59,6 +61,7 @@
     context,
     onAccount,
     onFolder,
+    dropOver = null,
   }: Props = $props();
 
   // Le registre n'est pas réactif : relecture à chaque modification.
@@ -198,10 +201,16 @@
             {#each folders[account.id] ?? [] as f (f.id)}
               {@const Icon = icon(f.role)}
               {@const current = scope.kind === "mailbox" && scope.id === f.id}
-              <li class:selected={current} class:editable={isEditableFolder(f)}>
+              <li
+                class:selected={current}
+                class:editable={isEditableFolder(f)}
+                class:drop-over={dropOver === f.id}
+              >
                 <button
                   class="folder"
                   type="button"
+                  data-drop-folder={f.id}
+                  data-drop-account={account.id}
                   disabled={!f.selectable}
                   aria-current={current ? "true" : undefined}
                   style:padding-left="calc(var(--space-2) + {Math.min(f.depth, 6) * 12}px)"
@@ -394,6 +403,12 @@
 
   .folders li.selected {
     background: var(--color-selected);
+  }
+
+  /* Dossier où les conversations glissées seront déposées. */
+  .folders li.drop-over {
+    background: var(--color-selected);
+    outline: var(--border-width) solid var(--color-accent);
   }
 
   .folder {

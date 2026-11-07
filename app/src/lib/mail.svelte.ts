@@ -291,15 +291,20 @@ export class MailState {
   }
 
   /**
-   * Applique une action aux conversations visées. `done` : texte affiché
+   * Applique une action aux conversations visées, ou aux conversations
+   * `ids` de la liste affichée (glisser-déposer). `done` : texte affiché
    * en cas de succès. L'effet local est immédiat ; l'envoi au serveur
    * attend la fenêtre d'annulation.
    */
-  async act(action: ActionDto, done: string): Promise<void> {
-    const targets = this.targets();
+  async act(action: ActionDto, done: string, ids?: number[]): Promise<void> {
+    const targets =
+      ids === undefined ? this.targets() : this.conversations.filter((c) => ids.includes(c.id));
     if (targets.length === 0) return;
     try {
-      const scope = this.marked.length === 0 ? (this.#openedScope ?? this.scope) : this.scope;
+      const scope =
+        ids === undefined && this.marked.length === 0
+          ? (this.#openedScope ?? this.scope)
+          : this.scope;
       const result = await this.#api.performAction(
         targets.map((c) => c.id),
         scope,

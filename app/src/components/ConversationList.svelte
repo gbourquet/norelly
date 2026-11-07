@@ -16,6 +16,7 @@
   import ActionBar from "./ActionBar.svelte";
   import { VirtualList } from "../lib/virtual-list.svelte";
   import { personName, shortDate } from "../lib/format";
+  import { dragPayload, type DragMove } from "../lib/drag-move.svelte";
 
   interface Props {
     mail: MailState;
@@ -24,9 +25,11 @@
     context: C;
     /** Ouvre la recherche (bouton de l'en-tête). */
     onSearch?: () => void;
+    /** Glisser-déposer des conversations sur un dossier. */
+    drag?: DragMove;
   }
 
-  let { mail, title, registry, context, onSearch }: Props = $props();
+  let { mail, title, registry, context, onSearch, drag }: Props = $props();
 
   /** Entrées du menu contextuel : ouvrir, puis les actions de la barre
    * du mail ouvert, pour la conversation visée. */
@@ -62,7 +65,20 @@
     return c.senders.map((s) => personName(s)).join(", ");
   }
 
+  /** Bouton de la souris enfoncé sur une ligne : début possible d'un
+   * glisser (pas depuis la case à cocher ni les boutons de la ligne). */
+  function press(e: PointerEvent, index: number): void {
+    const c = mail.conversations[index];
+    if (drag === undefined || c === undefined || e.button !== 0) return;
+    if (e.pointerType !== "mouse" && e.pointerType !== "pen") return;
+    if (e.target instanceof Element && e.target.closest("input, button") !== null) return;
+    const payload = dragPayload(c, mail.marked, mail.conversations);
+    if (payload !== null) drag.press(payload, e.clientX, e.clientY);
+  }
+
   function choose(index: number): void {
+    // Clic qui termine un glisser : la conversation n'est pas ouverte.
+    if (drag?.suppressClick()) return;
     mail.select(index);
     void mail.open();
   }
@@ -139,6 +155,7 @@
                   class:selected={row.index === mail.selectedIndex}
                   class:marked={mail.marked.includes(c.id)}
                   class:unread={c.unread > 0}
+                  class:dragged={drag?.payload?.ids.includes(c.id) ?? false}
                   role="option"
                   aria-selected={mail.marked.length > 0
                     ? mail.marked.includes(c.id)
@@ -146,6 +163,7 @@
                   tabindex="-1"
                   style:height="{ROW_HEIGHT}px"
                   style:transform="translateY({row.start}px)"
+                  onpointerdown={(e) => press(e, row.index)}
                   onclick={() => choose(row.index)}
                   oncontextmenu={() => mail.pointAt(row.index)}
                   onkeydown={(e) => {
@@ -339,6 +357,11 @@
 
   .row:hover .row-actions {
     display: block;
+  }
+
+  /* Conversations en cours de glisser. */
+  .row.dragged {
+    opacity: 0.5;
   }
 
   .row.marked {

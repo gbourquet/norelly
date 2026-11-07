@@ -220,6 +220,7 @@
   "action_archived": "Archived.",
   "action_deleted": "Deleted.",
   "action_moved": "Moved to “{folder}”.",
+  "drag_conversations": "{count} conversations",
   "action_marked_read": "Marked as read.",
   "action_marked_unread": "Marked as unread.",
   "action_flagged": "Flagged.",

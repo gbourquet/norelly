@@ -10,8 +10,8 @@ use norelly_application::contacts::{
     ContactFailure, CreateContact, DeleteContacts, GetContact, ListContacts, UpdateContact,
 };
 use norelly_domain::contacts::{
-    Contact, ContactError, ContactField, ContactId, ContactInput, EmailInput, PhoneInput,
-    contact_selection,
+    Contact, ContactError, ContactField, ContactId, ContactInput, EmailInput, MAX_CONTACT_EMAILS,
+    PhoneInput, contact_selection,
 };
 use norelly_domain::ports::{ContactCursor, ContactListItem, ContactStoreError};
 use tauri::State;
@@ -165,9 +165,14 @@ fn item_dto(item: ContactListItem) -> Result<ContactItemDto, IpcError> {
     })
 }
 
-/// Adresses saisies, pour citer celle qui est refusée.
+/// Adresses saisies, pour citer celle qui est refusée : les seules que le
+/// domaine peut désigner (une fiche plus longue est refusée en bloc).
 fn typed_addresses(dto: &ContactFieldsDto) -> Vec<String> {
-    dto.emails.iter().map(|e| e.address.clone()).collect()
+    dto.emails
+        .iter()
+        .take(MAX_CONTACT_EMAILS)
+        .map(|e| e.address.clone())
+        .collect()
 }
 
 /// Une page de contacts filtrée sur `text` (vide : tous) et, au besoin,
@@ -266,8 +271,7 @@ pub async fn update_contact(
 #[tauri::command]
 #[specta::specta]
 pub async fn delete_contacts(state: State<'_, AppState>, ids: Vec<u32>) -> Result<u32, IpcError> {
-    let raw: Vec<i64> = ids.into_iter().map(i64::from).collect();
-    let ids = contact_selection(&raw).map_err(|_| IpcError::invalid(FieldDto::Contact))?;
+    let ids = contact_selection(&ids).map_err(|_| IpcError::invalid(FieldDto::Contact))?;
     let deleted = DeleteContacts {
         book: &state.contacts,
     }

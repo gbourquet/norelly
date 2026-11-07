@@ -566,12 +566,19 @@ pub enum ContactSelectionError {
 
 /// Fiches visées par une action (suppression) : identifiants valides,
 /// chacun une fois dans l'ordre de la première apparition, au plus
-/// [`MAX_CONTACT_SELECTION`] fiches distinctes.
-pub fn contact_selection(raw: &[i64]) -> Result<Vec<ContactId>, ContactSelectionError> {
+/// [`MAX_CONTACT_SELECTION`] fiches distinctes. Plus de deux fois cette
+/// borne d'identifiants reçus (doublons compris) : refusé d'emblée, sans
+/// parcourir la liste.
+pub fn contact_selection<T: Copy + Into<i64>>(
+    raw: &[T],
+) -> Result<Vec<ContactId>, ContactSelectionError> {
+    if raw.len() > 2 * MAX_CONTACT_SELECTION {
+        return Err(ContactSelectionError::TooMany);
+    }
     let mut ids: Vec<ContactId> = Vec::new();
     let mut seen = std::collections::HashSet::new();
     for &value in raw {
-        let id = ContactId::new(value).ok_or(ContactSelectionError::InvalidId)?;
+        let id = ContactId::new(value.into()).ok_or(ContactSelectionError::InvalidId)?;
         if seen.insert(id) {
             if ids.len() == MAX_CONTACT_SELECTION {
                 return Err(ContactSelectionError::TooMany);
@@ -1105,6 +1112,12 @@ mod tests {
         assert_eq!(
             contact_selection(&doubled).map(|v| v.len()),
             Ok(MAX_CONTACT_SELECTION)
+        );
+        // Liste reçue démesurée : refusée sans être parcourue en entier.
+        let flood = vec![1_i64; 2 * MAX_CONTACT_SELECTION + 1];
+        assert_eq!(
+            contact_selection(&flood),
+            Err(ContactSelectionError::TooMany)
         );
     }
 

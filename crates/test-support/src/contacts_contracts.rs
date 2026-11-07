@@ -247,6 +247,21 @@ pub async fn contact_book_contract<B: ContactBook + ContactDirectory>(
     );
     assert_eq!(line.items[0].organization.as_deref(), Some("ACME"));
     assert!(line.items[0].favorite);
+    // Recherche sur chaque nom (prénom, nom, surnom) et sur toutes les
+    // adresses, pas seulement la préférée : base des suggestions de
+    // destinataires.
+    for text in ["ALICE", "martin", "lili", "alice@example.com", "perso@"] {
+        let found = book
+            .page(&ContactFilter::new(text, false), None, 10)
+            .await?;
+        assert_eq!(
+            found.items.iter().map(|i| i.id).collect::<Vec<_>>(),
+            vec![favorite.id()],
+            "{text}"
+        );
+        let favorites = book.page(&ContactFilter::new(text, true), None, 10).await?;
+        assert_eq!(favorites.items.len(), 1, "{text} parmi les favoris");
+    }
 
     // Un contact ajouté avant le curseur ne décale pas la suite.
     let page = book.page(&all, None, 2).await?;

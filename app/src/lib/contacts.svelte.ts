@@ -237,6 +237,15 @@ export class ContactFormState {
     this.busy = false;
   }
 
+  /** Nouveau contact pré-rempli avec un correspondant (« Ajouter au
+   * carnet ») : son nom tel qu'affiché, son adresse préférée. */
+  prefill(person: { name: string; address: string }): void {
+    this.reset(null);
+    this.fields.display_name = person.name;
+    const first = this.fields.emails[0];
+    if (first !== undefined) first.address = person.address;
+  }
+
   addEmail(): void {
     if (!this.canAddEmail) return;
     const preferred = this.fields.emails.length === 0;

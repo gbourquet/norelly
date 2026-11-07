@@ -261,6 +261,19 @@ describe("formulaire d'un contact", () => {
     expect(source.fields.display_name).toBe("Alice");
   });
 
+  it("pré-remplit un nouveau contact avec le nom et l'adresse d'un correspondant", () => {
+    const f = new ContactFormState(fakeApi());
+    f.reset(contact(4, "Alice"));
+    f.prefill({ name: "Bob Martin", address: "bob@example.com" });
+    expect(f.id).toBeNull();
+    expect(f.fields.display_name).toBe("Bob Martin");
+    expect(f.fields.emails).toEqual([{ address: "bob@example.com", label: "", preferred: true }]);
+    expect(f.canSubmit).toBe(true);
+    f.prefill({ name: "", address: "zoe@example.com" });
+    expect(f.fields.display_name).toBe("");
+    expect(at(f.fields.emails, 0).address).toBe("zoe@example.com");
+  });
+
   it("ajoute et retire des adresses ; une seule est préférée", () => {
     const f = new ContactFormState(fakeApi());
     f.reset(null);

@@ -2,11 +2,17 @@
 // rien tant qu'elle est affichée ; celles des contacts suivent la fiche
 // ouverte, les contacts cochés et le contact dont le menu est ouvert.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { ConversationDto } from "./ipc/api";
+import type { ConversationDto, ConversationMessage, CorrespondentDto } from "./ipc/api";
+
+const listed = vi.hoisted(() => ({ calls: 0 }));
 
 vi.mock("./ipc/api", () => ({
   IpcFailure: class extends Error {},
   api: {
+    listConversations: vi.fn(async () => {
+      listed.calls += 1;
+      return { items: [], next: null };
+    }),
     listContacts: vi.fn(async () => ({ items: [], next: null })),
     getContact: vi.fn(async (id: number) => ({
       id,
@@ -26,7 +32,8 @@ vi.mock("./ipc/api", () => ({
   },
 }));
 
-const { app, contacts, mail, registerAppCommands, registry, search } = await import("./app.svelte");
+const { app, contactForm, contacts, mail, registerAppCommands, registry, search } =
+  await import("./app.svelte");
 
 const conversation: ConversationDto = {
   id: 1,
@@ -137,5 +144,100 @@ describe("vue Contacts", () => {
     expect(enabled("contacts.new")).toBe(true);
     expect(enabled("contacts.edit")).toBe(false);
     expect(enabled("contacts.delete")).toBe(false);
+  });
+});
+
+function message(id: number, from: CorrespondentDto | null): ConversationMessage {
+  return {
+    id,
+    account: 1,
+    mailbox: 1,
+    date: 0,
+    from,
+    to: [],
+    cc: [],
+    subject: "Bonjour",
+    unread: false,
+    flagged: false,
+    has_attachments: false,
+  };
+}
+
+const bob: CorrespondentDto = { name: "Bob Martin", address: "bob@example.com", contact: null };
+const alice: CorrespondentDto = { name: "Alice", address: "alice@example.com", contact: 4 };
+
+describe("personnes d'un message et carnet", () => {
+  let off: () => void = () => undefined;
+
+  beforeEach(() => {
+    off = registerAppCommands();
+    mail.conversations = [conversation];
+    mail.selectedIndex = 0;
+  });
+
+  afterEach(() => {
+    off();
+    app.close();
+    app.showMail();
+    app.personTarget = null;
+    mail.opened = null;
+    mail.messages = [];
+    mail.conversations = [];
+  });
+
+  it("sans message ouvert ni personne visée, rien à ajouter ni à voir", () => {
+    expect(app.targetPerson()).toBeNull();
+    expect(app.context().person).toBeNull();
+    expect(enabled("contacts.add-person")).toBe(false);
+    expect(enabled("contacts.show-person")).toBe(false);
+  });
+
+  it("vise l'expéditeur du dernier message ouvert", () => {
+    mail.opened = conversation;
+    mail.messages = [message(1, alice), message(2, bob)];
+    expect(app.targetPerson()).toEqual(bob);
+    expect(app.context().person).toBe("stranger");
+    expect(enabled("contacts.add-person")).toBe(true);
+    expect(enabled("contacts.show-person")).toBe(false);
+  });
+
+  it("la personne d'un menu l'emporte ; un contact connu se consulte", () => {
+    mail.opened = conversation;
+    mail.messages = [message(2, bob)];
+    app.personTarget = alice;
+    expect(app.context().person).toBe("contact");
+    expect(enabled("contacts.show-person")).toBe(true);
+    expect(enabled("contacts.add-person")).toBe(false);
+    expect(app.contextForPerson(bob).person).toBe("stranger");
+  });
+
+  it("ajouter au carnet ouvre la fiche pré-remplie, sans quitter le courrier", async () => {
+    app.personTarget = bob;
+    await registry.execute("contacts.add-person", app.context());
+    expect(app.dialog).toBe("contact");
+    expect(app.view).toBe("mail");
+    expect(app.personTarget).toBeNull();
+    expect(contactForm.id).toBeNull();
+    expect(contactForm.fields.display_name).toBe("Bob Martin");
+    expect(contactForm.fields.emails.map((e) => e.address)).toEqual(["bob@example.com"]);
+  });
+
+  it("voir le contact ouvre sa fiche dans la vue Contacts", async () => {
+    app.personTarget = alice;
+    await registry.execute("contacts.show-person", app.context());
+    expect(app.view).toBe("contacts");
+    expect(contacts.selectedId).toBe(4);
+    expect(app.personTarget).toBeNull();
+    // Dans la vue Contacts, aucune personne de message n'est visée.
+    expect(enabled("contacts.add-person")).toBe(false);
+  });
+
+  it("revenir au courrier relit la liste (noms du carnet à jour)", async () => {
+    await app.showContacts();
+    const before = listed.calls;
+    app.showMail();
+    expect(listed.calls).toBe(before + 1);
+    app.showMail();
+    expect(listed.calls).toBe(before + 1);
   });
 });

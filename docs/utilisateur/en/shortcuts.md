@@ -86,10 +86,15 @@ suggested address, `Enter` or `,` confirms it.
 | Favorite (add or remove) | `Shift+S` |
 | Delete contact | `Delete` |
 | Clear contact selection | palette |
+| Add to address book | palette |
+| View contact | palette |
 
 In the **Contacts** view, these actions apply to the contact shown on the
 right, or to all checked contacts. `N` works everywhere: it opens the
-contacts and a new contact card.
+contacts and a new contact card. **Add to address book** and **View
+contact** apply to the person whose menu is open (click a name in a
+message, right-click a conversation), otherwise to the sender of the last
+message of the open conversation.
 
 ## Accounts
 

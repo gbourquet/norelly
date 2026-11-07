@@ -22,6 +22,7 @@
   import PencilIcon from "@lucide/svelte/icons/pencil";
   import FolderXIcon from "@lucide/svelte/icons/folder-x";
   import FolderInputIcon from "@lucide/svelte/icons/folder-input";
+  import ContactIcon from "@lucide/svelte/icons/book-user";
   import { isEditableFolder } from "../lib/folder-edit.svelte";
   import { folderPayload, type DragMove } from "../lib/drag-move.svelte";
   import type { AccountDto, FolderDto, ScopeDto } from "../lib/ipc/api";
@@ -50,6 +51,9 @@
     /** Glisser-déposer en cours : dossier ou premier niveau survolés ;
      * un dossier ordinaire peut lui-même être glissé. */
     drag?: DragMove;
+    /** Le carnet d'adresses est affiché (aucun dossier n'est alors le
+     * dossier courant). */
+    contactsActive?: boolean;
   }
 
   let {
@@ -65,6 +69,7 @@
     onAccount,
     onFolder,
     drag,
+    contactsActive = false,
   }: Props = $props();
 
   /** Bouton de la souris enfoncé sur un dossier : début possible d'un
@@ -91,6 +96,7 @@
   const write = $derived(describe("compose.new"));
   const help = $derived(describe("help.shortcuts"));
   const settings = $derived(describe("settings.open", m.sidebar_settings()));
+  const contacts = $derived(describe("contacts.open", m.sidebar_contacts()));
 
   /** Menu d'un compte : actions qui visent le compte sélectionné. */
   const accountActions: VisibleAction[] = [
@@ -122,7 +128,9 @@
     return role in ICONS ? ICONS[role as keyof typeof ICONS] : FolderIcon;
   }
 
-  const unifiedSelected = $derived(scope.kind === "unified" && scope.role === "inbox");
+  const unifiedSelected = $derived(
+    !contactsActive && scope.kind === "unified" && scope.role === "inbox",
+  );
   const totalUnread = $derived(
     Object.values(folders)
       .flat()
@@ -222,7 +230,7 @@
           <ul class="folders" aria-label={m.sidebar_folders_of({ address: account.address })}>
             {#each folders[account.id] ?? [] as f (f.id)}
               {@const Icon = icon(f.role)}
-              {@const current = scope.kind === "mailbox" && scope.id === f.id}
+              {@const current = !contactsActive && scope.kind === "mailbox" && scope.id === f.id}
               <li
                 class:selected={current}
                 class:editable={isEditableFolder(f)}
@@ -279,6 +287,18 @@
   {/if}
 
   <ul class="folders footer">
+    <li class:selected={contactsActive}>
+      <button
+        class="folder"
+        type="button"
+        title={contacts?.tooltip}
+        aria-current={contactsActive ? "true" : undefined}
+        onclick={() => void registry.execute("contacts.open", context)}
+      >
+        <ContactIcon size={16} aria-hidden="true" />
+        <span class="label">{contacts?.label}</span>
+      </button>
+    </li>
     <li>
       <button class="folder" type="button" title={m.sidebar_add_account()} onclick={onAdd}>
         <PlusIcon size={16} aria-hidden="true" />

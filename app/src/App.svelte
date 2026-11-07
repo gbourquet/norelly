@@ -28,12 +28,20 @@
   import DraftsDialog from "./components/DraftsDialog.svelte";
   import UpdateQuestion from "./components/UpdateQuestion.svelte";
   import UpdateBanner from "./components/UpdateBanner.svelte";
+  import ContactList from "./components/ContactList.svelte";
+  import ContactCard from "./components/ContactCard.svelte";
+  import ContactDialog from "./components/ContactDialog.svelte";
+  import DeleteContactsDialog from "./components/DeleteContactsDialog.svelte";
+  import BookUserIcon from "@lucide/svelte/icons/book-user";
   import { notificationText } from "./lib/notifications";
   import { readerActions } from "./lib/visible-actions";
   import { describeCommand } from "./lib/commands/describe";
   import {
     app,
     compose,
+    contactDeletion,
+    contactForm,
+    contacts,
     mail,
     moveAccount,
     openSelectedHit,
@@ -179,11 +187,20 @@
     else selectScope({ kind: "unified", role: "inbox" }, null);
   }
 
+  /** Nom du contact dont la suppression est demandée, s'il est seul. */
+  const deletionName = $derived.by(() => {
+    const [id, ...others] = app.contactsToDelete;
+    if (id === undefined || others.length > 0) return null;
+    if (contacts.selected?.id === id) return contacts.selected.name;
+    return contacts.items.find((c) => c.id === id)?.name ?? null;
+  });
+
   const archiveFolders = $derived(
     app.selectedAccountId === null ? [] : (mail.folders[app.selectedAccountId] ?? []),
   );
 
   function selectScope(scope: ScopeDto, account: number | null): void {
+    app.showMail();
     if (account !== null) app.selectedAccountId = account;
     search.close();
     void mail.show(scope);
@@ -310,6 +327,7 @@
         return app.context();
       }}
       {drag}
+      contactsActive={app.view === "contacts"}
       onFolder={(account, folder, target) => {
         if (!target) {
           return { ...app.context(), selectedAccount: app.accountById(account), folder };
@@ -321,7 +339,14 @@
     />
   {/snippet}
   {#snippet list()}
-    {#if search.active}
+    {#if app.view === "contacts"}
+      <ContactList
+        {contacts}
+        {registry}
+        context={app.context()}
+        onPoint={(id) => (app.contactTarget = id)}
+      />
+    {:else if search.active}
       <SearchPanel {search} onOpen={() => void openSelectedHit()} />
     {:else if app.accounts.length > 0}
       <ConversationList
@@ -335,7 +360,24 @@
     {/if}
   {/snippet}
   {#snippet reader()}
-    {#if mail.opened !== null}
+    {#if app.view === "contacts"}
+      {#if contacts.selected !== null}
+        <ContactCard contact={contacts.selected} {registry} context={app.context()} />
+      {:else}
+        {@const create = describeCommand(registry, "contacts.new", app.context())}
+        <div class="placeholder">
+          <BookUserIcon size={40} aria-hidden="true" />
+          <p>{m.contacts_pick()}</p>
+          <button
+            class="btn btn-primary"
+            type="button"
+            title={create?.tooltip}
+            onclick={() => void registry.execute("contacts.new", app.context())}
+            >{create?.label}</button
+          >
+        </div>
+      {/if}
+    {:else if mail.opened !== null}
       <ConversationView
         conversation={mail.opened}
         messages={mail.messages}
@@ -570,6 +612,34 @@
   open={settings.askUpdate && updates.supported && app.dialog === null}
   onAnswer={(yes) => void settings.answerUpdate(yes)}
   onDismiss={() => settings.dismissUpdate()}
+/>
+<ContactDialog
+  open={app.dialog === "contact"}
+  form={contactForm}
+  onClose={() => app.close()}
+  onSaved={(contact) => {
+    const created = contactForm.id === null;
+    app.close();
+    mail.notice = {
+      text: created
+        ? m.contacts_notice_created({ name: contact.name })
+        : m.contacts_notice_saved({ name: contact.name }),
+      undoable: false,
+    };
+    void contacts.saved(contact);
+  }}
+/>
+<DeleteContactsDialog
+  open={app.dialog === "delete-contacts"}
+  ids={app.contactsToDelete}
+  name={deletionName}
+  form={contactDeletion}
+  onClose={() => app.close()}
+  onDeleted={(ids, count) => {
+    app.close();
+    mail.notice = { text: m.contacts_notice_deleted({ count }), undoable: false };
+    void contacts.removed(ids);
+  }}
 />
 <RemoveAccountDialog
   open={app.dialog === "remove-account"}

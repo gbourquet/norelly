@@ -17,12 +17,10 @@ import FileTextIcon from "@lucide/svelte/icons/file-text";
 import ChevronUpIcon from "@lucide/svelte/icons/chevron-up";
 import ChevronDownIcon from "@lucide/svelte/icons/chevron-down";
 import EyeIcon from "@lucide/svelte/icons/eye";
-import UserPlusIcon from "@lucide/svelte/icons/user-plus";
 import UserPenIcon from "@lucide/svelte/icons/user-pen";
 import SquarePenIcon from "@lucide/svelte/icons/square-pen";
 import StarIcon from "@lucide/svelte/icons/star";
 import StarOffIcon from "@lucide/svelte/icons/star-off";
-import XIcon from "@lucide/svelte/icons/x";
 import { m } from "./paraglide/messages.js";
 
 export interface VisibleAction {
@@ -149,17 +147,16 @@ function favoriteToggle(subject: ContactSubject | null): VisibleAction {
   };
 }
 
-/** Barre de la vue Contacts et son menu « Plus… ». */
+/** Barre de la fiche ouverte et son menu « Plus… ». */
 export function contactsToolbar(subject: ContactSubject | null): {
   primary: VisibleAction[];
   more: VisibleAction[];
 } {
   return {
     primary: [
-      { command: "contacts.new", icon: UserPlusIcon, priority: 1 },
-      { ...writeContact, priority: 2 },
-      { ...editContact, priority: 3 },
-      { ...deleteContact, priority: 4 },
+      { ...writeContact, priority: 1 },
+      { ...editContact, priority: 2 },
+      { ...deleteContact, priority: 3 },
     ],
     more: [favoriteToggle(subject)],
   };
@@ -181,7 +178,6 @@ export function contactBulkActions(): { primary: VisibleAction[]; more: VisibleA
     primary: [
       { ...writeContact, priority: 1 },
       { ...deleteContact, priority: 2 },
-      { command: "contacts.clear-selection", icon: XIcon, priority: 3 },
     ],
     more: [],
   };

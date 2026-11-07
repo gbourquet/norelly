@@ -104,17 +104,12 @@ describe("actions visibles", () => {
 });
 
 describe("actions de la vue Contacts", () => {
-  it("barre : nouveau contact, écrire, modifier, supprimer ; favori dans « Plus… »", () => {
+  it("barre de la fiche : écrire, modifier, supprimer ; favori dans « Plus… »", () => {
     const { primary, more } = contactsToolbar({ favorite: false });
-    expect(ids(primary)).toEqual([
-      "contacts.new",
-      "contacts.write",
-      "contacts.edit",
-      "contacts.delete",
-    ]);
+    expect(ids(primary)).toEqual(["contacts.write", "contacts.edit", "contacts.delete"]);
     expect(ids(more)).toEqual(["contacts.favorite"]);
     const byPriority = [...primary].sort((a, b) => (a.priority ?? 0) - (b.priority ?? 0));
-    expect(ids(byPriority)[0]).toBe("contacts.new");
+    expect(ids(byPriority)[0]).toBe("contacts.write");
   });
 
   it("le favori a un libellé selon l'état", () => {
@@ -137,12 +132,8 @@ describe("actions de la vue Contacts", () => {
     expect(actions[2]?.label?.()).toBe("Retirer des favoris");
   });
 
-  it("barre des contacts cochés : écrire, supprimer, tout désélectionner", () => {
-    expect(ids(contactBulkActions().primary)).toEqual([
-      "contacts.write",
-      "contacts.delete",
-      "contacts.clear-selection",
-    ]);
+  it("barre des contacts cochés : écrire, supprimer", () => {
+    expect(ids(contactBulkActions().primary)).toEqual(["contacts.write", "contacts.delete"]);
   });
 });
 

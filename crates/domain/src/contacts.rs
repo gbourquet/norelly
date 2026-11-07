@@ -53,9 +53,12 @@ impl fmt::Display for ContactId {
     }
 }
 
-/// Clé de comparaison d'une adresse : l'adresse validée, entièrement en
+/// Clé de comparaison d'une adresse : l'adresse validée, lettres ASCII en
 /// minuscules. Deux adresses de même clé désignent la même boîte pour le
 /// carnet (la casse de la partie locale n'est presque jamais significative).
+/// Les caractères non ASCII sont gardés tels quels : le repli Unicode
+/// change avec les versions et confond des boîtes distinctes (signe
+/// kelvin U+212A et « k »).
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct AddressKey(String);
 
@@ -63,7 +66,11 @@ impl AddressKey {
     /// Clé d'une adresse validée.
     #[must_use]
     pub fn of(address: &EmailAddress) -> Self {
-        Self(address.to_string().to_lowercase())
+        Self(format!(
+            "{}@{}",
+            address.local_part().to_ascii_lowercase(),
+            address.domain()
+        ))
     }
 
     /// Clé d'une adresse brute (en-tête reçu, saisie) ; refusée si
@@ -591,6 +598,24 @@ mod tests {
             AddressKey::parse("alice@EXAMPLE.com")
         );
         assert!(AddressKey::parse("pas une adresse").is_err());
+    }
+
+    #[test]
+    fn address_key_folds_ascii_only() {
+        // Repli Unicode instable d'une version à l'autre et source de
+        // collisions (signe kelvin U+212A → « k ») : seul l'ASCII est plié.
+        assert_eq!(
+            AddressKey::of(&addr("\u{212A}evin@example.org")).as_str(),
+            "\u{212A}evin@example.org"
+        );
+        assert_ne!(
+            AddressKey::parse("\u{212A}evin@example.org"),
+            AddressKey::parse("kevin@example.org")
+        );
+        assert_eq!(
+            AddressKey::of(&addr("ÉLodie@Example.fr")).as_str(),
+            "Élodie@example.fr"
+        );
     }
 
     #[test]

@@ -45,6 +45,8 @@ struct ContactRow {
     texts: [Option<String>; 6],
     favorite: bool,
     emails: Vec<EmailInput>,
+    /// Clés stockées des adresses, dans le même ordre.
+    keys: Vec<String>,
     phones: Vec<PhoneInput>,
 }
 
@@ -62,6 +64,7 @@ impl ContactRow {
             ],
             favorite: row.get(7)?,
             emails: Vec::new(),
+            keys: Vec::new(),
             phones: Vec::new(),
         })
     }
@@ -88,6 +91,12 @@ impl ContactRow {
             favorite: self.favorite,
         })
         .map_err(|e| corrupted(self.id, &e.to_string()))?;
+        // La contrainte d'unicité et la recherche par adresse portent sur
+        // la clé stockée : elle doit être celle que calcule le domaine.
+        let stored = self.keys.iter().map(String::as_str);
+        if !draft.emails().iter().map(|e| e.key().as_str()).eq(stored) {
+            return Err(corrupted(self.id, "clé d'adresse"));
+        }
         Ok(draft.with_id(id))
     }
 }
@@ -122,7 +131,7 @@ fn load(c: &Connection, ids: &[i64]) -> Result<Vec<Contact>, StoreError> {
 
     let mut stmt = c
         .prepare_cached(
-            "SELECT contact_id, address, label, preferred FROM contact_emails \
+            "SELECT contact_id, address, label, preferred, address_key FROM contact_emails \
              WHERE contact_id IN (SELECT value FROM json_each(?1)) \
              ORDER BY contact_id, position",
         )
@@ -136,13 +145,15 @@ fn load(c: &Connection, ids: &[i64]) -> Result<Vec<Contact>, StoreError> {
                     label: r.get::<_, Option<String>>(2)?.unwrap_or_default(),
                     preferred: r.get(3)?,
                 },
+                r.get::<_, String>(4)?,
             ))
         })
         .map_err(store_error)?;
     for email in emails {
-        let (id, email) = email.map_err(store_error)?;
+        let (id, email, key) = email.map_err(store_error)?;
         if let Some(row) = rows.get_mut(&id) {
             row.emails.push(email);
+            row.keys.push(key);
         }
     }
 
@@ -496,6 +507,22 @@ mod tests {
                 )
                 .await
                 .is_err()
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn stored_address_key_must_match_the_address() -> Result<(), ContactStoreError> {
+        let book = book();
+        let a = book
+            .create(&sample_contact("A", &["a@example.com"]))
+            .await?;
+        book.db
+            .write_for_tests("UPDATE contact_emails SET address_key = 'patron@corp.com';")
+            .await?;
+        assert!(
+            book.get(a.id()).await.is_err(),
+            "clé stockée incohérente acceptée"
         );
         Ok(())
     }

@@ -266,6 +266,7 @@ Fiche : [redaction.md](../fonctionnel/redaction.md).
 | Sujet : toujours `Re:` / `Fwd:`, sans empilement (préfixes étrangers reconnus puis retirés : `RE :`, `AW:`, `TR:`, `SV:`, `Antw:`…) | `compose.rs` (`reply_subject`, `forward_subject`), ADR-011 |
 | `In-Reply-To` et `References` (bornées à 20 : racine et plus récents) | `compose.rs` (`reply_threading`, `MAX_REFERENCES`) |
 | Citation : en-tête « Le … a écrit : » construit par l'interface dans la langue de l'utilisateur, inséré tel quel par le domaine | `compose.rs` (`quote`), ADR-011 |
+| Destinataire saisi ou collé lu en Rust (`Recipient::parse`, commande `parse_recipient`) : « adresse », « Nom <adresse> », nom entre guillemets ; nom imitant une adresse écarté (`Recipient::new`, aussi pour tout brouillon relu) ; l'interface n'en décide pas | `crates/domain/src/compose/draft.rs`, `app/src-tauri/src/compose.rs` |
 | Validation avant envoi : au moins un destinataire, 100 au plus ; sujet sans caractère de contrôle, 998 caractères au plus ; corps ≤ 5 Mio ; pièces jointes ≤ 25 Mio au total et 100 au plus | `crates/domain/src/compose/draft.rs` (`check_sendable`) |
 | HTML de l'éditeur réassaini en Rust (liste blanche minimale : p, br, gras, italique, barré, liens http/https/mailto, listes, citations) ; version texte dérivée du HTML assaini ; envoi en `multipart/alternative` | `crates/adapters/render/src/compose.rs`, ADR-010 |
 | `Bcc` seulement dans les copies locales, jamais dans les octets transmis ; `Message-ID` aléatoire de 128 bits, sans nom de machine | `render/src/compose.rs` |
@@ -418,6 +419,10 @@ Fiche : [contacts.md](../fonctionnel/contacts.md). Décision : ADR-012.
 | Liste des conversations, messages d'une conversation (expéditeur, destinataires) et résultats de recherche nommés d'après le carnet ; DTO `CorrespondentDto.contact` ; sans carnet (notification), nom imitant une adresse écarté | `app/src-tauri/src/reading.rs`, `app/src-tauri/src/search.rs`, `app/src-tauri/src/ipc.rs` |
 | Personne visée par « Ajouter au carnet » / « Voir le contact » : celle du menu, sinon l'expéditeur du dernier message ouvert ; fiche préremplie (`ContactFormState.prefill`) ; courrier relu au retour du carnet et après un ajout | `app/src/lib/app.svelte.ts`, `app/src/lib/contacts.svelte.ts`, `App.svelte` |
 | Actions visibles : nom cliquable de l'expéditeur et des destinataires, pastille du carnet, menu contextuel d'une ligne, « Plus… » du message ouvert | `PersonMenu.svelte`, `ConversationView.svelte`, `ConversationList.svelte`, `visible-actions.ts` (`personActions`) |
+| Nom d'une fiche qui imite une adresse écarté à l'affichage (`contact_name`), comme un nom d'en-tête | `sender.rs` |
+| Suggestions de destinataires (`recipient_suggestions`) : contacts d'abord (favoris, puis ordre du carnet), nom du carnet ; trouvé par un nom, toutes ses adresses (la préférée d'abord), sinon les adresses qui contiennent la saisie ; puis adresses collectées ; une fois par `AddressKey`, le carnet l'emporte ; adresses invalides écartées ; `MAX_CONTACT_SUGGESTIONS` au plus | `crates/domain/src/suggestions.rs` |
+| Cas d'usage `SuggestRecipients` : carnet lu par `ContactDirectory::page` (favoris, puis tous) puis fiche par fiche, sans jointure SQL avec les messages (ADR-012, écart du lot 4) ; carnet illisible : adresses collectées seules | `crates/application/src/contacts.rs` |
+| Commande `suggest_contacts` : DTO `RecipientSuggestionDto.contact` ; pastille « Dans vos contacts » (icône et texte, pas la couleur seule) | `app/src-tauri/src/compose.rs`, `app/src-tauri/src/ipc.rs`, `RecipientInput.svelte` |
 
 ### Clés des messages
 
@@ -425,7 +430,8 @@ Fiche : [contacts.md](../fonctionnel/contacts.md). Décision : ADR-012.
 `field_contact*`, `field_given_name`, `field_family_name`,
 `field_nickname`, `field_organization`, `field_notes`, `sidebar_contacts`,
 `key_delete`, `cmd_person_*`, `person_menu`, `person_in_contacts`,
-`conversation_to_label`, `conversation_message_toggle`.
+`conversation_to_label`, `conversation_message_toggle`,
+`compose_suggestions`, `compose_suggestion_contact`.
 
 ### Commandes
 
@@ -436,13 +442,18 @@ Fiche : [contacts.md](../fonctionnel/contacts.md). Décision : ADR-012.
 ### Vérifications et compléments
 
 - Contrats du carnet joués contre le faux et SQLite
-  (`crates/test-support/src/contacts_contracts.rs`).
+  (`crates/test-support/src/contacts_contracts.rs`), dont la recherche sur
+  chaque nom et toutes les adresses d'une fiche.
+- Charges d'injection SQL dans tous les champs d'une fiche, comme filtre
+  et comme saisie d'un destinataire
+  (`crates/application/tests/hostile_message_sql.rs`).
 - Commandes IPC sur l'application factice : aller-retour complet et
   entrées refusées (`app/src-tauri/src/command_tests.rs`).
 - Scénario de bout en bout à la souris (`app/e2e/specs/contacts.e2e.mjs`),
   dont le nom du carnet dans la liste et le message, un nom d'en-tête qui
-  imite une adresse, « Voir le contact » et « Ajouter au carnet
-  d'adresses ».
+  imite une adresse, « Voir le contact », « Ajouter au carnet
+  d'adresses » et les suggestions de destinataires (contact d'abord, une
+  fois par adresse, destinataire collé imitant une adresse).
 - Nom des correspondants sur l'application factice : liste, conversation,
   recherche (`command_tests.rs`, `senders_in_the_book_are_named_from_their_card`).
 

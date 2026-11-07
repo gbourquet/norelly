@@ -20,8 +20,12 @@ puisse devenir dangereux.
   sujet et citation sont préremplis ; le transfert reprend les pièces
   jointes d'origine.
 - Champs : À, Cc et Cci (affichés à la demande), Objet, corps.
-  Destinataires en étiquettes, avec **suggestions** parmi les adresses
-  connues (flèches, Entrée, virgule ou Tab pour valider).
+  Destinataires en étiquettes, avec **suggestions** : d'abord les
+  contacts du carnet, marqués « Dans vos contacts », puis les adresses
+  déjà utilisées dans le courrier ([contacts](contacts.md)) ; flèches,
+  Entrée, virgule ou Tab pour valider. Une saisie ou un collage de la
+  forme « Nom <adresse> » est accepté ; si le nom ressemble lui-même à une
+  adresse, seule l'adresse réelle est gardée.
 - La fenêtre se ferme par son bouton **Fermer**, Échap ou un clic à
   l'extérieur, en gardant le brouillon.
 - Mise en forme : gras, italique, barré, lien, listes à puces et

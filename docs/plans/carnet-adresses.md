@@ -134,6 +134,8 @@ sensible (SQL, IPC, fichiers, rendu).
   carnet étendu (recherche sur toutes les adresses d'une fiche).
 - Nom de fiche imitant une adresse écarté à l'affichage (courrier,
   suggestions).
+- Saisie d'un destinataire lue en Rust (`parse_recipient`, validé par le
+  mainteneur) : la règle `imitates_address` quitte l'interface.
 - `RecipientInput.svelte` : distinguer visuellement contact / collecté.
 
 ### Lot 5 — `domaine/listes-diffusion` : listes de diffusion

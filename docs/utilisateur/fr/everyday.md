@@ -80,10 +80,13 @@ jointes, cliquez sur **Transférer** (au clavier : **F**).
 1. Cliquez sur le bouton bleu **Nouveau message**, en haut à gauche (au
    clavier : **C**). Le message part de l'adresse sélectionnée dans le
    panneau de gauche.
-2. Dans **À**, tapez l'adresse du destinataire. Norelly propose les
+2. Dans **À**, tapez le nom ou l'adresse du destinataire. Norelly
+   propose d'abord vos contacts (marqués « Dans vos contacts »), puis les
    adresses que vous connaissez déjà : choisissez avec les flèches du
    clavier puis **Entrée**, ou cliquez dessus. Vous pouvez mettre
    plusieurs destinataires.
+
+   ![Les suggestions de destinataires : un contact, puis une adresse déjà connue](captures/compose-suggestions.png)
 3. Pour mettre quelqu'un **en copie** (**Cc**) ou **en copie cachée**
    (**Cci** : les autres destinataires ne le voient pas), cliquez sur
    **Cc et Cci**.

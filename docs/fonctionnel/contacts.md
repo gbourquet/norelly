@@ -7,8 +7,9 @@
 Garder les personnes à qui l'on écrit souvent dans un carnet à soi :
 enregistrer un contact avec son nom, ses adresses et ses téléphones, le
 corriger, le marquer comme favori, lui écrire en un clic et le supprimer ;
-voir ses contacts sous le nom qu'on leur a donné dans le courrier, et
-ajouter au carnet une personne rencontrée dans un message.
+voir ses contacts sous le nom qu'on leur a donné dans le courrier,
+les retrouver en premier en écrivant un message, et ajouter au carnet une
+personne rencontrée dans un message.
 Le carnet est **unique** pour tous les comptes et reste **sur
 l'ordinateur** : rien n'est envoyé à un serveur.
 
@@ -120,9 +121,26 @@ l'ordinateur** : rien n'est envoyé à un serveur.
 - Une personne absente du carnet garde le nom donné par le message, sauf
   si ce nom ressemble à une adresse (il contient « @ », « < » ou « > ») :
   seule l'adresse réelle s'affiche alors, pour qu'un message ne puisse pas
-  se faire passer pour une autre adresse.
+  se faire passer pour une autre adresse. La même règle vaut pour le nom
+  d'une fiche : un contact nommé comme une adresse s'affiche sous son
+  adresse réelle.
 - Après un ajout, une modification ou une suppression dans le carnet, les
   noms se mettent à jour au retour dans le courrier.
+
+### Retrouver ses contacts en écrivant
+
+- En tapant un destinataire (À, Cc, Cci), les suggestions montrent
+  **d'abord les contacts du carnet**, favoris en tête, sous le nom du
+  carnet et marqués « Dans vos contacts » ; viennent ensuite les adresses
+  déjà utilisées dans le courrier du compte.
+- La recherche porte sur le nom, le prénom, le surnom, l'organisation et
+  toutes les adresses d'une fiche, sans tenir compte des majuscules. Un
+  contact trouvé par son nom propose toutes ses adresses, la préférée
+  d'abord ; trouvé par une adresse, seulement celle-ci.
+- Une adresse n'est proposée qu'une fois : présente dans le carnet et
+  dans le courrier, elle apparaît sous le nom du carnet.
+- La liste reste courte ; un carnet momentanément illisible laisse les
+  seules adresses déjà utilisées.
 
 ### Ajouter au carnet, voir le contact
 
@@ -151,8 +169,9 @@ l'ordinateur** : rien n'est envoyé à un serveur.
 
 ## Limites actuelles
 
-- Les suggestions de destinataires ne proposent pas encore les contacts
-  du carnet, et les notifications de nouveaux messages gardent le nom
-  donné par le message.
+- Les notifications de nouveaux messages gardent le nom donné par le
+  message.
+- Un nom de fiche qui ressemble à une adresse est accepté à la saisie
+  (il est seulement écarté à l'affichage).
 - Pas encore de listes de diffusion, d'import ni d'export (vCard, CSV,
   LDIF), ni de recherche des doublons.

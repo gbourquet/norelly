@@ -33,9 +33,31 @@ quand le mainteneur l'abandonne (avec la raison).
 - **Carnet d'adresses** : epic planifiée dans
   [plans/carnet-adresses.md](plans/carnet-adresses.md) (ADR-012) ; lots 1
   (modèle, ports, stockage, cas d'usage), 2 (vue Contacts : ajouter,
-  modifier, supprimer, favoris, écrire) et 3 (nom du carnet dans le
-  courrier, « Ajouter au carnet », « Voir le contact ») livrés, lots 4 à 8
-  à faire.
+  modifier, supprimer, favoris, écrire), 3 (nom du carnet dans le
+  courrier, « Ajouter au carnet », « Voir le contact ») et 4 (suggestions
+  de destinataires depuis le carnet, saisie lue en Rust) livrés, lots 5 à
+  8 à faire.
+- **Carnet : découvert au lot 4** :
+  - le filtre du carnet cherche dans chaque champ séparément : « alice
+    mar » ne trouve pas Alice Martin (prénom et nom dans deux champs), ni
+    dans la liste, ni dans les suggestions. Chercher aussi dans le nom
+    affiché composé (`ContactDraft::search_text`, colonne de recherche
+    SQLite, migration) ;
+  - les suggestions relisent chaque fiche trouvée (`ContactDirectory::get`,
+    au plus deux fois la limite demandée) faute d'une lecture de fiches
+    complètes filtrées : à mesurer avec les bancs 50k si le carnet grossit
+    (import, lot 6), et au besoin un port qui rend des `Contact`.
+- **Carnet : constats de la revue de sécurité du lot 4** (infos) :
+  - `Recipient` garde des champs publics : la règle « nom imitant une
+    adresse écarté » ne tient que par `Recipient::new` et `Recipient::parse`
+    (aucun contournement aujourd'hui) ; rendre les champs privés avec
+    accesseurs (`crates/domain/src/compose/draft.rs`) ;
+  - une fiche illisible écarte tout le carnet des suggestions et journalise
+    un avertissement à chaque frappe : n'écarter que la fiche, journaliser
+    une fois (rejoint « une fiche relue invalide » du lot 1) ;
+  - `Recipient::new` s'applique aussi au nom d'expéditeur du compte : un
+    nom d'affichage de compte contenant « @ » part sans nom ; refuser ce
+    nom dès la saisie du compte, avec un message clair.
 - **Carnet : constats de la revue de sécurité du lot 1** (bas) :
   - caractères invisibles encore admis dans les champs d'une fiche
     (U+2028/2029, U+206A–206F, U+FFF9–FFFB, étiquettes U+E0000–E007F,
@@ -47,13 +69,14 @@ quand le mainteneur l'abandonne (avec la raison).
     règle (`crates/adapters/sqlite/src/contacts.rs`). Depuis le lot 3, le
     courrier n'en souffre pas (noms des en-têtes gardés, `NameSenders`),
     mais les noms du carnet disparaissent de toute la page ;
-  - nom imitant une adresse (`ceo@bank.example`) : règle portée dans le
-    domaine pour les noms d'en-tête (`sender::imitates_address`, lot 3) ;
-    reste à l'appliquer aux noms des fiches (saisie, import du lot 6) et à
-    remplacer la copie de l'interface (`RecipientInput.svelte`) quand les
-    suggestions passeront par le carnet (lot 4) ;
-  - étendre `hostile_message_sql.rs` et le contrat (métacaractères SQL dans
-    tous les champs) dès qu'un message ou un import alimente le carnet ;
+  - nom imitant une adresse (`ceo@bank.example`) : écarté à l'affichage
+    pour les en-têtes, les fiches (courrier, suggestions) et les
+    destinataires (`Recipient::new`, saisie lue en Rust) ; reste à le
+    refuser à la saisie et à l'import d'une fiche (lot 6), avec
+    l'assainissement des fiches existantes ;
+  - étendre `hostile_message_sql.rs` (métacaractères SQL) à l'import du
+    lot 6 ; les champs d'une fiche et la saisie d'un destinataire sont
+    couverts depuis le lot 4 ;
   - plafond global du nombre de fiches, à fixer avec les bancs (lot 6) ;
   - un lien `tel:` éventuel exigera un jeu de caractères restreint décidé
     en Rust.
@@ -84,7 +107,8 @@ quand le mainteneur l'abandonne (avec la raison).
     (`support(at)banque.fr`) ni un nom qui ressemble à un domaine : piste,
     afficher aussi l'adresse dans la liste quand le nom d'en-tête contient
     un domaine ; appliquer la règle au nom prérempli par « Ajouter au
-    carnet » et aux noms des fiches (voir le lot 1).
+    carnet » (les noms des fiches sont écartés à l'affichage depuis le
+    lot 4).
   - les notifications de nouveaux messages gardent le nom de l'en-tête
     (filtré s'il imite une adresse) : les nommer d'après le carnet.
 - **Synchronisation CardDAV du carnet** (après l'epic carnet) : adaptateur

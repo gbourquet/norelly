@@ -880,6 +880,36 @@ impl Connection {
         ensure_ok(&reply.status)
     }
 
+    /// `UNSELECT` (RFC 3691) : quitte la boîte sélectionnée sans rien
+    /// effacer.
+    pub(crate) async fn unselect(&mut self) -> Result<(), ConnectionError> {
+        let reply = self.execute(CommandBody::Unselect, false).await?;
+        ensure_ok(&reply.status)
+    }
+
+    /// `RENAME` ; refus (`NO`) : [`ConnectionError::Rejected`].
+    pub(crate) async fn rename(
+        &mut self,
+        from: &MailboxName,
+        to: &MailboxName,
+    ) -> Result<(), ConnectionError> {
+        let body = CommandBody::Rename {
+            from: mailbox_arg(from)?,
+            to: mailbox_arg(to)?,
+        };
+        let reply = self.execute(body, false).await?;
+        ensure_ok(&reply.status)
+    }
+
+    /// `DELETE` ; refus (`NO`) : [`ConnectionError::Rejected`].
+    pub(crate) async fn delete(&mut self, name: &MailboxName) -> Result<(), ConnectionError> {
+        let body = CommandBody::Delete {
+            mailbox: mailbox_arg(name)?,
+        };
+        let reply = self.execute(body, false).await?;
+        ensure_ok(&reply.status)
+    }
+
     /// `UID MOVE` ou `UID COPY`.
     pub(crate) async fn transfer(
         &mut self,

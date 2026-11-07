@@ -223,6 +223,7 @@ impl RemoteMailboxConnector for ImapConnector {
             capabilities,
             extensions: SyncExtensions::default(),
             selected_condstore: false,
+            selected: false,
         })
     }
 }
@@ -235,6 +236,31 @@ pub struct ImapSession {
     extensions: SyncExtensions,
     /// CONDSTORE actif sur la boîte sélectionnée (MODSEQ demandés).
     selected_condstore: bool,
+    /// Une boîte est sélectionnée par Norelly (à quitter avant de la
+    /// renommer ou de la supprimer).
+    selected: bool,
+}
+
+impl ImapSession {
+    /// Quitte la boîte sélectionnée : certains serveurs (Dovecot) coupent
+    /// la session si elle est renommée ou supprimée. `UNSELECT` si
+    /// annoncé ; sinon `EXAMINE INBOX`, jamais `CLOSE` (qui effacerait les
+    /// messages marqués supprimés).
+    async fn leave_selected(&mut self) -> Result<(), ConnectionError> {
+        if !self.selected {
+            return Ok(());
+        }
+        if self.capabilities.has("UNSELECT") {
+            self.conn.unselect().await?;
+        } else {
+            self.conn
+                .examine(&MailboxName::inbox(), &SelectRequest::default())
+                .await?;
+        }
+        self.selected = false;
+        self.selected_condstore = false;
+        Ok(())
+    }
 }
 
 impl RemoteMailboxSession for ImapSession {
@@ -273,7 +299,10 @@ impl RemoteMailboxSession for ImapSession {
             request.qresync = None;
         }
         request.condstore &= self.extensions.condstore;
+        // Un SELECT refusé laisse la session sans boîte sélectionnée.
+        self.selected = false;
         let selected = self.conn.examine(mailbox, &request).await?;
+        self.selected = true;
         self.selected_condstore = request.condstore || request.qresync.is_some();
         Ok(selected)
     }
@@ -311,7 +340,9 @@ impl RemoteMailboxSession for ImapSession {
         mailbox: &MailboxName,
     ) -> Result<SelectedMailbox, ConnectionError> {
         let condstore = self.extensions.condstore;
+        self.selected = false;
         let selected = self.conn.select_rw(mailbox, condstore).await?;
+        self.selected = true;
         self.selected_condstore = condstore;
         Ok(selected)
     }
@@ -353,6 +384,20 @@ impl RemoteMailboxSession for ImapSession {
 
     async fn create_mailbox(&mut self, mailbox: &MailboxName) -> Result<(), ConnectionError> {
         self.conn.create(mailbox).await
+    }
+
+    async fn rename_mailbox(
+        &mut self,
+        from: &MailboxName,
+        to: &MailboxName,
+    ) -> Result<(), ConnectionError> {
+        self.leave_selected().await?;
+        self.conn.rename(from, to).await
+    }
+
+    async fn delete_mailbox(&mut self, mailbox: &MailboxName) -> Result<(), ConnectionError> {
+        self.leave_selected().await?;
+        self.conn.delete(mailbox).await
     }
 
     async fn copy_to(&mut self, uid: Uid, to: &MailboxName) -> Result<(), ConnectionError> {

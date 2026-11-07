@@ -25,7 +25,7 @@ use crate::{Database, store_error};
 /// Carnet d'adresses SQLite.
 #[derive(Debug, Clone)]
 pub struct SqliteContactBook {
-    db: Database,
+    pub(crate) db: Database,
 }
 
 impl SqliteContactBook {
@@ -107,7 +107,7 @@ fn corrupted(id: i64, detail: &str) -> StoreError {
 
 /// Tableau JSON des valeurs, lu en SQL par `json_each` (liste de taille
 /// variable passée en un seul paramètre lié).
-fn json_list<T: serde::Serialize>(values: &[T]) -> Result<String, StoreError> {
+pub(crate) fn json_list<T: serde::Serialize>(values: &[T]) -> Result<String, StoreError> {
     serde_json::to_string(values).map_err(|e| StoreError(e.to_string()))
 }
 

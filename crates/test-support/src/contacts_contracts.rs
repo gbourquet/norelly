@@ -5,6 +5,7 @@
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use norelly_domain::address::EmailAddress;
+use norelly_domain::contact_lists::{ContactList, ContactListDraft, ContactListInput};
 use norelly_domain::contacts::{
     AddressKey, Contact, ContactDraft, ContactFilter, ContactId, ContactInput, EmailInput,
     PhoneInput,
@@ -347,15 +348,23 @@ pub async fn contact_book_contract<B: ContactBook + ContactDirectory>(
     Ok(())
 }
 
-/// Faux carnet d'adresses en mémoire.
+/// Faux carnet d'adresses en mémoire, listes de diffusion comprises
+/// ([`crate::contact_lists_contracts`]).
 #[derive(Debug, Default)]
 pub struct InMemoryContactBook {
     state: Mutex<(i64, Vec<Contact>)>,
+    /// Listes : dernier identifiant attribué, listes. Verrouillé après
+    /// `state` quand les deux le sont.
+    pub(crate) lists: Mutex<(i64, Vec<ContactList>)>,
 }
 
 impl InMemoryContactBook {
-    fn lock(&self) -> MutexGuard<'_, (i64, Vec<Contact>)> {
+    pub(crate) fn lock(&self) -> MutexGuard<'_, (i64, Vec<Contact>)> {
         self.state.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    pub(crate) fn lock_lists(&self) -> MutexGuard<'_, (i64, Vec<ContactList>)> {
+        self.lists.lock().unwrap_or_else(PoisonError::into_inner)
     }
 }
 
@@ -438,6 +447,25 @@ impl ContactBook for InMemoryContactBook {
         let mut state = self.lock();
         let before = state.1.len();
         state.1.retain(|c| !ids.contains(&c.id()));
+        // Un contact supprimé quitte toutes ses listes.
+        let mut lists = self.lock_lists();
+        for list in &mut lists.1 {
+            let kept: Vec<i64> = list
+                .draft()
+                .members()
+                .iter()
+                .filter(|m| !ids.contains(m))
+                .map(|m| m.get())
+                .collect();
+            if kept.len() != list.draft().members().len() {
+                let draft = ContactListDraft::new(ContactListInput {
+                    members: kept,
+                    ..list.draft().to_input()
+                })
+                .map_err(|e| ContactStoreError::Corrupted(e.to_string()))?;
+                *list = draft.with_id(list.id());
+            }
+        }
         Ok(before - state.1.len())
     }
 }

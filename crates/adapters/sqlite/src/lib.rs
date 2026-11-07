@@ -15,6 +15,7 @@
 
 pub mod actions;
 pub mod compose;
+pub mod contact_lists;
 pub mod contacts;
 pub mod conversations;
 pub mod mail;
@@ -50,6 +51,7 @@ fn migrations() -> Migrations<'static> {
         M::up(include_str!("../migrations/0009_folder_counts.sql")),
         M::up(include_str!("../migrations/0010_scheduled_send.sql")),
         M::up(include_str!("../migrations/0011_contacts.sql")),
+        M::up(include_str!("../migrations/0012_contact_lists.sql")),
     ])
 }
 
@@ -596,6 +598,10 @@ mod tests {
          VALUES (1, 0, 'V11@example.com', 'v11@example.com', NULL, 1); \
          INSERT INTO contact_phones (contact_id, position, number, label) \
          VALUES (1, 0, '01 02 03', 'maison');",
+        // Version 12 : une liste dont le contact de la version 11 est membre.
+        "INSERT INTO contact_lists (name, name_key, description, bcc) \
+         VALUES ('V12', 'v12', NULL, 1); \
+         INSERT INTO contact_list_members (list_id, position, contact_id) VALUES (1, 0, 1);",
     ];
 
     /// Montée de version depuis chaque version précédente, données

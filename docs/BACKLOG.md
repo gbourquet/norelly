@@ -125,14 +125,19 @@ quand le mainteneur l'abandonne (avec la raison).
   ordinaire propose renommer et supprimer ; manquent le clic droit, un menu
   sur les dossiers spéciaux (sans entrée aujourd'hui) et « Nouveau
   sous-dossier… », qui y présélectionnerait l'emplacement. (`Sidebar.svelte`)
-- **Sous-dossiers des dossiers spéciaux mal placés dans le panneau de
-  gauche** : la liste est triée par rôle puis par nom (`FolderTreeQuery::tree`),
-  pas dans l'ordre de l'arborescence. Un dossier rangé dans la boîte de
-  réception (ou dans la corbeille) s'affiche, indenté, après le dernier
-  dossier spécial : on le croirait dans la corbeille. Plus visible depuis
-  qu'on peut déplacer un dossier dans la boîte de réception. Trier en
-  arbre (chaque dossier suivi de ses sous-dossiers, rôles spéciaux d'abord
-  au premier niveau). (`crates/adapters/sqlite/src/mail.rs`, `Sidebar.svelte`)
+- **Retrait d'un dossier spécial rangé dans un autre** : il reste en tête,
+  parmi les dossiers spéciaux (`folder_display_order`), mais son retrait
+  suit toujours la profondeur de son nom (`depth`, `list_folders`) :
+  `[Gmail]/Sent Mail` ou `INBOX/Sent` s'affichent en retrait sous un
+  dossier qui n'est pas leur parent. Même défaut pour un dossier dont le
+  parent n'est pas listé (revue de sécurité, basse) : `INBOX/Perso/Banque`
+  sans `INBOX/Perso` semble rangé sous le dossier qui le précède, et les
+  fenêtres de choix n'affichent que « Banque ». Profondeur affichée
+  calculée par le domaine avec l'ordre (0 pour un dossier remonté au
+  premier niveau, ancêtre + 1 pour un orphelin, libellé avec le chemin
+  intermédiaire), en gardant la profondeur du nom pour `parentName` et
+  `isSameOrUnder`. (`app/src-tauri/src/reading.rs`, `Sidebar.svelte`,
+  `folder-edit.svelte.ts`)
 - **« Nouveau dossier… » depuis « Déplacer vers… »** : le sélecteur ne
   propose que les dossiers existants ; créer puis déplacer en un geste.
   (`FolderPicker.svelte`)

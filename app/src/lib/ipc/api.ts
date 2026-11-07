@@ -197,6 +197,15 @@ export const api = {
   createFolder: (account: number, name: string, parent: number | null): Promise<void> =>
     unwrap(commands.createFolder(account, name, parent)).then(() => undefined),
 
+  /** Renomme un dossier, à la même place ; renvoie son identifiant sous
+   * son nouveau nom (`null` si la liste n'est pas encore relue). */
+  renameFolder: (account: number, mailbox: number, name: string): Promise<number | null> =>
+    unwrap(commands.renameFolder(account, mailbox, name)),
+
+  /** Supprime un dossier et ses messages, sur le serveur. */
+  deleteFolder: (account: number, mailbox: number): Promise<void> =>
+    unwrap(commands.deleteFolder(account, mailbox)).then(() => undefined),
+
   /** Brouillon de départ ; `attribution` : en-tête de citation localisé. */
   prepareCompose: (
     account: number,

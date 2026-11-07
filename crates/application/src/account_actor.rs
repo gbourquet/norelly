@@ -223,7 +223,7 @@ impl ActorClient {
     /// Modifie un dossier par la connexion de commandes, puis relit la
     /// liste des dossiers (événement [`SyncEvent::FoldersChanged`]).
     /// Attend la reconnexion si elle est coupée ; à borner par l'appelant.
-    async fn change_folder(&self, change: FolderChange) -> Result<MailboxName, FolderFailure> {
+    pub async fn change_folder(&self, change: FolderChange) -> Result<MailboxName, FolderFailure> {
         let closed = || FolderFailure::Connection(ConnectionError::Closed);
         let (reply, answer) = oneshot::channel();
         self.commands

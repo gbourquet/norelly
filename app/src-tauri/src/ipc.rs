@@ -90,6 +90,17 @@ pub enum ErrorCodeDto {
     /// Création du dossier impossible : refus du serveur ou serveur
     /// injoignable (`detail` : réponse brute du serveur).
     FolderCreateFailed,
+    /// Boîte de réception ou dossier spécial : ni renommable ni
+    /// supprimable.
+    FolderProtected,
+    /// Dossier à vider de ses sous-dossiers avant de le supprimer.
+    FolderHasSubfolders,
+    /// Renommage du dossier impossible : refus du serveur ou serveur
+    /// injoignable (`detail` : réponse brute du serveur).
+    FolderRenameFailed,
+    /// Suppression du dossier impossible : refus du serveur ou serveur
+    /// injoignable (`detail` : réponse brute du serveur).
+    FolderDeleteFailed,
     /// Téléchargement ou installation d'une mise à jour impossible
     /// (`detail` : erreur brute).
     UpdateFailed,

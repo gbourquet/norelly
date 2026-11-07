@@ -723,3 +723,90 @@ async fn folder_creation_revalidates_its_inputs() {
         ErrorCodeDto::FolderCreateFailed
     );
 }
+
+#[tokio::test]
+async fn folder_rename_and_delete_revalidate_their_inputs() {
+    use crate::folders::{delete_folder, rename_folder};
+    use norelly_domain::mailbox::{MailboxName, MailboxRole, RemoteMailbox};
+    use norelly_domain::ports::{AccountRepository, MailStore};
+
+    let t = test_app().await;
+    let account = id32(t.account.get());
+    let mailbox = |name: &str, role| RemoteMailbox {
+        name: MailboxName::parse(name).unwrap_or_else(|e| panic!("{e}")),
+        delimiter: Some('/'),
+        role,
+        selectable: true,
+    };
+    let mine = t
+        .state()
+        .mail
+        .store
+        .replace_mailboxes(
+            t.account,
+            &[
+                mailbox("INBOX", MailboxRole::Inbox),
+                mailbox("Projets", MailboxRole::Normal),
+            ],
+        )
+        .await
+        .unwrap_or_else(|e| panic!("{e}"));
+    let projets = mine
+        .iter()
+        .find(|m| m.mailbox.name.as_str() == "Projets")
+        .map(|m| id32(m.id.get()))
+        .unwrap_or_else(|| panic!("Projets"));
+    let other = t
+        .state()
+        .accounts
+        .insert(&norelly_test_support::contracts::sample_account(
+            "bob@example.com",
+            false,
+        ))
+        .await
+        .unwrap_or_else(|e| panic!("{e}"))
+        .id();
+    let foreign = t
+        .state()
+        .mail
+        .store
+        .replace_mailboxes(other, &[mailbox("Projets", MailboxRole::Normal)])
+        .await
+        .unwrap_or_else(|e| panic!("{e}"))
+        .first()
+        .map(|m| id32(m.id.get()))
+        .unwrap_or_else(|| panic!("dossier de bob"));
+
+    for (account, mailbox, field) in [
+        (0, projets, FieldDto::Account),
+        (account, 0, FieldDto::Mailbox),
+        // Inconnu, ou dossier d'un autre compte : refusé avant tout envoi.
+        (account, 999_999, FieldDto::Mailbox),
+        (account, foreign, FieldDto::Mailbox),
+    ] {
+        assert_eq!(
+            code(rename_folder(t.state(), account, mailbox, "Chantiers".into()).await),
+            (ErrorCodeDto::InvalidInput, Some(field)),
+            "renommer {account}/{mailbox}"
+        );
+        assert_eq!(
+            code(delete_folder(t.state(), account, mailbox).await),
+            (ErrorCodeDto::InvalidInput, Some(field)),
+            "supprimer {account}/{mailbox}"
+        );
+    }
+    // Nom démesuré : refusé sans passer par le serveur.
+    assert_eq!(
+        code(rename_folder(t.state(), account, projets, "x".repeat(10_000)).await).0,
+        ErrorCodeDto::FolderNameTooLong
+    );
+    // Compte sans connexion en cours : échec explicite, propre à l'opération.
+    assert_eq!(
+        code(rename_folder(t.state(), account, projets, "Chantiers".into()).await).0,
+        ErrorCodeDto::FolderRenameFailed
+    );
+    assert_eq!(
+        code(delete_folder(t.state(), account, projets).await).0,
+        ErrorCodeDto::FolderDeleteFailed
+    );
+}

@@ -139,6 +139,14 @@ function codeText(code: ErrorCodeDto, field: FieldDto | null): string {
       return m.err_no_subfolders();
     case "folder_create_failed":
       return m.err_folder_create_failed();
+    case "folder_protected":
+      return m.err_folder_protected();
+    case "folder_has_subfolders":
+      return m.err_folder_has_subfolders();
+    case "folder_rename_failed":
+      return m.err_folder_rename_failed();
+    case "folder_delete_failed":
+      return m.err_folder_delete_failed();
     case "update_failed":
       return m.err_update_failed();
     case "internal":

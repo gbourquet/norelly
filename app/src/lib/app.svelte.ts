@@ -33,6 +33,7 @@ export type DialogName =
   | "archive-folder"
   | "new-folder"
   | "rename-folder"
+  | "move-folder"
   | "delete-folder"
   | "compose"
   | "outbox"
@@ -535,6 +536,15 @@ export function registerAppCommands(): () => void {
       when: (ctx) =>
         ctx.selectedAccount !== null && ctx.folder !== null && isEditableFolder(ctx.folder),
       run: () => app.open("rename-folder"),
+    }),
+    registry.register({
+      id: "folder.move",
+      title: m.cmd_move_folder(),
+      group: m.group_accounts(),
+      keywords: words(m.cmd_move_folder_keywords()),
+      when: (ctx) =>
+        ctx.selectedAccount !== null && ctx.folder !== null && isEditableFolder(ctx.folder),
+      run: () => app.open("move-folder"),
     }),
     registry.register({
       id: "folder.delete",

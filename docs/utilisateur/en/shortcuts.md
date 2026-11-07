@@ -82,6 +82,7 @@ suggested address, `Enter` or `,` confirms it.
 | Add an account… | palette |
 | New folder… | palette |
 | Rename folder… | palette |
+| Move folder… | palette |
 | Delete folder… | palette |
 | Choose archive folder… | palette |
 | Synchronise selected account | palette |

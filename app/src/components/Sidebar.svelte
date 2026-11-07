@@ -21,6 +21,7 @@
   import FolderPlusIcon from "@lucide/svelte/icons/folder-plus";
   import PencilIcon from "@lucide/svelte/icons/pencil";
   import FolderXIcon from "@lucide/svelte/icons/folder-x";
+  import FolderInputIcon from "@lucide/svelte/icons/folder-input";
   import { isEditableFolder } from "../lib/folder-edit.svelte";
   import type { AccountDto, FolderDto, ScopeDto } from "../lib/ipc/api";
   import type { CommandRegistry } from "../lib/commands/registry";
@@ -89,6 +90,7 @@
   /** Menu d'un dossier ordinaire. */
   const folderActions: VisibleAction[] = [
     { command: "folder.rename", icon: PencilIcon, section: 0 },
+    { command: "folder.move", icon: FolderInputIcon, section: 0 },
     { command: "folder.delete", icon: FolderXIcon, section: 1 },
   ];
 

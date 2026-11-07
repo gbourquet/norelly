@@ -66,6 +66,10 @@ async fn record_one<S: PendingOpStore>(
     }
 }
 
+fn mailbox_name(raw: &str) -> norelly_domain::mailbox::MailboxName {
+    norelly_domain::mailbox::MailboxName::parse(raw).unwrap_or_else(|e| panic!("{raw} : {e}"))
+}
+
 /// Contrat de [`PendingOpStore`] pour `account` (qui doit exister et
 /// n'avoir aucune boîte) ; `other` : second compte (isolation).
 pub async fn pending_op_store_contract<S>(
@@ -212,6 +216,46 @@ where
         Some(OpKind::Move { to }) if to.as_str() == "Corbeille"
     ));
     assert!(store.pending(other).await?.is_empty());
+
+    // --- Dossiers renommés pendant l'attente : source et destination
+    // réécrites (destination ignorée pour une opération sans destination) ---
+    let (boite, archives) = (mailbox_name("Boîte"), mailbox_name("Archives/Corbeille"));
+    assert!(store.relocate(id2, &boite, Some(&archives)).await?);
+    assert!(store.relocate(id1, &boite, Some(&archives)).await?);
+    let pending = store.pending(account).await?;
+    assert_eq!(
+        pending
+            .get(1)
+            .map(|(_, op)| (op.mailbox.as_str(), &op.kind)),
+        Some((
+            "Boîte",
+            &OpKind::Move {
+                to: archives.clone()
+            }
+        ))
+    );
+    assert_eq!(
+        pending
+            .first()
+            .map(|(_, op)| (op.mailbox.as_str(), &op.kind)),
+        Some(("Boîte", &op1.kind)),
+        "drapeau : source seulement"
+    );
+    let missing = norelly_domain::ports::PendingOpId::new(999_999).ok_or_else(|| fail("id"))?;
+    assert!(!store.relocate(missing, &boite, None).await?);
+    // Retour aux noms d'origine pour la suite du contrat.
+    let corbeille = mailbox_name("Corbeille");
+    assert!(store.relocate(id1, &op1.mailbox, None).await?);
+    assert!(store.relocate(id2, &op2.mailbox, Some(&corbeille)).await?);
+    assert_eq!(
+        store
+            .pending(account)
+            .await?
+            .into_iter()
+            .map(|(_, op)| op)
+            .collect::<Vec<_>>(),
+        [op1.clone(), op2.clone()]
+    );
 
     // --- La synchronisation rapporte l'état du serveur, puis réapplication ---
     store

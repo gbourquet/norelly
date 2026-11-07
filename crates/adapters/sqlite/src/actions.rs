@@ -487,6 +487,32 @@ impl PendingOpStore for SqliteMailStore {
         self.db().run(move |c| pending_ops(c, account)).await
     }
 
+    async fn relocate(
+        &self,
+        id: PendingOpId,
+        mailbox: &MailboxName,
+        target: Option<&MailboxName>,
+    ) -> Result<bool, StoreError> {
+        let mailbox = mailbox.as_str().to_owned();
+        let target = target.map(|t| t.as_str().to_owned());
+        self.db()
+            .run(move |c| {
+                // Destination réécrite pour un déplacement seulement
+                // (contrainte `kind = 'move'` ⇔ `target` non nul).
+                let n = c
+                    .execute(
+                        "UPDATE pending_ops SET mailbox = ?2, \
+                         target = CASE WHEN kind = 'move' THEN COALESCE(?3, target) \
+                         ELSE target END \
+                         WHERE id = ?1",
+                        rusqlite::params![id.get(), mailbox, target],
+                    )
+                    .map_err(store_error)?;
+                Ok(n > 0)
+            })
+            .await
+    }
+
     async fn complete(&self, id: PendingOpId) -> Result<bool, StoreError> {
         self.db()
             .run(move |c| {

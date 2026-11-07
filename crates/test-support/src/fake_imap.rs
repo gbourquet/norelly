@@ -800,6 +800,51 @@ impl RemoteMailboxSession for FakeImapSession {
         Ok(())
     }
 
+    async fn rename_mailbox(
+        &mut self,
+        from: &MailboxName,
+        to: &MailboxName,
+    ) -> Result<(), ConnectionError> {
+        self.throttle().await;
+        {
+            let mut s = self.step()?;
+            let (from, to) = (from.as_str(), to.as_str());
+            if s.mailbox(from).is_none() {
+                return Err(ConnectionError::Rejected(
+                    "NO [NONEXISTENT] boîte inconnue".into(),
+                ));
+            }
+            if s.mailbox(to).is_some() {
+                return Err(ConnectionError::Rejected(
+                    "NO [ALREADYEXISTS] boîte existante".into(),
+                ));
+            }
+            // Sous-boîtes renommées avec leur parent (séparateur « / »).
+            let children = format!("{from}/");
+            for (name, _) in &mut s.mailboxes {
+                if name == from {
+                    *name = to.to_owned();
+                } else if let Some(rest) = name.strip_prefix(&children) {
+                    *name = format!("{to}/{rest}");
+                }
+            }
+        }
+        self.server.changed.notify_waiters();
+        Ok(())
+    }
+
+    async fn delete_mailbox(&mut self, mailbox: &MailboxName) -> Result<(), ConnectionError> {
+        self.throttle().await;
+        let exists = self.step()?.mailbox(mailbox.as_str()).is_some();
+        if !exists || mailbox.is_inbox() {
+            return Err(ConnectionError::Rejected(
+                "NO [NONEXISTENT] boîte inconnue".into(),
+            ));
+        }
+        self.server.delete_mailbox(mailbox.as_str());
+        Ok(())
+    }
+
     async fn copy_to(&mut self, target: Uid, to: &MailboxName) -> Result<(), ConnectionError> {
         self.transfer(target, to, true).await
     }

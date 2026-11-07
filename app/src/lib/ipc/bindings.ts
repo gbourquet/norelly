@@ -88,6 +88,17 @@ export const commands = {
 	 *  `folders_changed`).
 	 */
 	createFolder: (account: number, name: string, parent: number | null) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("create_folder", { account, name, parent })),
+	/**
+	 *  Renomme le dossier `mailbox` du compte `account` en `name`, à la même
+	 *  place ; renvoie l'identifiant local du dossier sous son nouveau nom
+	 *  (`null` si la liste n'a pas encore été relue).
+	 */
+	renameFolder: (account: number, mailbox: number, name: string) => typedError<number | null, IpcError_Serialize>(__TAURI_INVOKE("rename_folder", { account, mailbox, name })),
+	/**
+	 *  Supprime le dossier `mailbox` du compte `account` et ses messages, sur
+	 *  le serveur ; la liste des dossiers est ensuite relue.
+	 */
+	deleteFolder: (account: number, mailbox: number) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("delete_folder", { account, mailbox })),
 	/**  Une page de messages trouvés, hors ligne (index local). */
 	searchMessages: (query: string, scope: SearchScopeDto, utcOffsetMinutes: number, offset: number, limit: number) => typedError<SearchPageDto_Serialize, IpcError_Serialize>(__TAURI_INVOKE("search_messages", { query, scope, utcOffsetMinutes, offset, limit })),
 	/**  Paramètres de l'application. */
@@ -562,6 +573,23 @@ export type ErrorCodeDto =
  *  injoignable (`detail` : réponse brute du serveur).
  */
 "folder_create_failed" | 
+/**
+ *  Boîte de réception ou dossier spécial : ni renommable ni
+ *  supprimable.
+ */
+"folder_protected" | 
+/**  Dossier à vider de ses sous-dossiers avant de le supprimer. */
+"folder_has_subfolders" | 
+/**
+ *  Renommage du dossier impossible : refus du serveur ou serveur
+ *  injoignable (`detail` : réponse brute du serveur).
+ */
+"folder_rename_failed" | 
+/**
+ *  Suppression du dossier impossible : refus du serveur ou serveur
+ *  injoignable (`detail` : réponse brute du serveur).
+ */
+"folder_delete_failed" | 
 /**
  *  Téléchargement ou installation d'une mise à jour impossible
  *  (`detail` : erreur brute).

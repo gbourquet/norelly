@@ -360,6 +360,21 @@ pub trait RemoteMailboxSession: Send {
         mailbox: &MailboxName,
     ) -> impl Future<Output = Result<(), ConnectionError>> + Send;
 
+    /// Renomme une boîte et ses sous-boîtes (`RENAME`). Refus du serveur
+    /// (boîte absente, nom pris, droits) : [`ConnectionError::Rejected`].
+    fn rename_mailbox(
+        &mut self,
+        from: &MailboxName,
+        to: &MailboxName,
+    ) -> impl Future<Output = Result<(), ConnectionError>> + Send;
+
+    /// Supprime une boîte et ses messages (`DELETE`). Refus du serveur :
+    /// [`ConnectionError::Rejected`].
+    fn delete_mailbox(
+        &mut self,
+        mailbox: &MailboxName,
+    ) -> impl Future<Output = Result<(), ConnectionError>> + Send;
+
     /// `UID COPY`.
     fn copy_to(
         &mut self,

@@ -448,6 +448,7 @@ impl Connection {
         let max = self.max_response_size as usize;
         let mut response = Vec::new();
         let mut nesting = Nesting::default();
+        let mut with_literal = false;
         loop {
             let line = self.read_line(timeout, max - response.len()).await?;
             let literal = nesting.scan_line(&line);
@@ -455,12 +456,16 @@ impl Connection {
             let Some(size) = literal else {
                 break;
             };
+            with_literal = true;
             let size = usize::try_from(size).unwrap_or(usize::MAX);
             if size > max - response.len() {
                 return Err(protocol("réponse trop longue"));
             }
             let bytes = self.read_exact(timeout, size).await?;
             response.extend_from_slice(&bytes);
+        }
+        if !with_literal {
+            ascii_status_text(&mut response);
         }
         self.command_bytes = self.command_bytes.saturating_add(response.len());
         if self.command_bytes > MAX_COMMAND_BYTES {
@@ -803,5 +808,61 @@ fn event_name(event: &Event) -> &'static str {
         Event::DataReceived { .. } => "DataReceived",
         Event::StatusReceived { .. } => "StatusReceived",
         Event::ContinuationRequestReceived { .. } => "ContinuationRequestReceived",
+    }
+}
+
+/// Ligne d'état (`OK`, `NO`, `BAD`, `BYE`, `PREAUTH`, étiquetée ou non) :
+/// octets non ASCII remplacés par `?`. Certains serveurs (Dovecot) y citent
+/// un nom de boîte en UTF-8, comme IMAP4rev2 le permet, ce que la
+/// grammaire IMAP4rev1 d'`imap-next` refuse : la réponse étiquetée serait
+/// écartée et la commande attendrait jusqu'au délai. Le texte d'état n'est
+/// qu'informatif ; les autres réponses (noms de `LIST`, contenus) ne sont
+/// pas touchées.
+fn ascii_status_text(line: &mut [u8]) {
+    let mut words = line.splitn(3, |&b| b == b' ');
+    let (Some(_tag), Some(kind)) = (words.next(), words.next()) else {
+        return;
+    };
+    let status = [&b"OK"[..], b"NO", b"BAD", b"BYE", b"PREAUTH"]
+        .iter()
+        .any(|k| kind.eq_ignore_ascii_case(k));
+    if !status {
+        return;
+    }
+    for b in line.iter_mut().filter(|b| !b.is_ascii()) {
+        *b = b'?';
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ascii_status_text;
+
+    fn cleaned(line: &str) -> String {
+        let mut bytes = line.as_bytes().to_vec();
+        ascii_status_text(&mut bytes);
+        String::from_utf8_lossy(&bytes).into_owned()
+    }
+
+    #[test]
+    fn only_status_lines_are_made_ascii() {
+        assert_eq!(
+            cleaned("N3 NO existe : Été\r\n"),
+            "N3 NO existe : ??t??\r\n"
+        );
+        assert_eq!(
+            cleaned("* ok [ALERT] réduit\r\n"),
+            "* ok [ALERT] r??duit\r\n"
+        );
+        assert_eq!(cleaned("* BYE à bientôt\r\n"), "* BYE ?? bient??t\r\n");
+        // Données : noms de boîtes et contenus intacts.
+        for line in [
+            "* LIST () \"/\" Été\r\n",
+            "* 3 FETCH (FLAGS (\\Seen))\r\n",
+            "* NOTED Été\r\n",
+            "Été\r\n",
+        ] {
+            assert_eq!(cleaned(line), line);
+        }
     }
 }

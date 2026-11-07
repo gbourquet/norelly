@@ -509,11 +509,13 @@ where
     Ok(())
 }
 
-/// Contrat de la création de dossier (`CREATE`) : le dossier créé apparaît
-/// dans `LIST` et peut être sélectionné ; un nom déjà pris est refusé
-/// ([`ConnectionError::Rejected`]) sans rendre la session inutilisable.
-/// `box_name` et `box_name/Sous` sont créées par le contrat, puis
-/// supprimées.
+/// Contrat des dossiers (`CREATE`, `RENAME`, `DELETE`) : le dossier créé
+/// apparaît dans `LIST` et peut être sélectionné ; renommé (même
+/// sélectionné), il emporte ses sous-dossiers et ses messages ; supprimé,
+/// il disparaît de `LIST`. Un nom déjà pris ou une boîte absente est
+/// refusé ([`ConnectionError::Rejected`]) sans rendre la session
+/// inutilisable. `box_name` et `box_name/Sous` sont créées, renommées puis
+/// supprimées par le contrat.
 ///
 /// [`ConnectionError::Rejected`]: norelly_domain::connection::ConnectionError::Rejected
 pub async fn folders_session_contract<C, K>(
@@ -565,11 +567,64 @@ where
     );
     session.select_writable(&created).await.map_err(e)?;
 
-    session.logout().await.map_err(e)?;
-    if let Some(child_name) = &child_name {
-        control.delete(child_name).await?;
+    // --- Renommage, dossier sélectionné : sous-dossiers et messages suivent ---
+    control
+        .append(box_name, &contract_message(8), false)
+        .await?;
+    let renamed_name = format!("{box_name} renommé");
+    let renamed = name(&renamed_name);
+    session.select_writable(&created).await.map_err(e)?;
+    session
+        .rename_mailbox(&created, &renamed)
+        .await
+        .map_err(e)?;
+    let listed = session.list_mailboxes().await.map_err(e)?;
+    assert!(
+        !listed.iter().any(|m| m.name == created),
+        "{box_name} encore listé après RENAME : {listed:?}"
+    );
+    let renamed_child = delimiter.map(|d| name(&format!("{renamed_name}{d}Sous")));
+    for expected in std::iter::once(&renamed).chain(renamed_child.as_ref()) {
+        assert!(
+            listed.iter().any(|m| m.name == *expected),
+            "{expected} absent de LIST après RENAME : {listed:?}"
+        );
     }
-    control.delete(box_name).await?;
+    let selected = session.select_writable(&renamed).await.map_err(e)?;
+    assert_eq!(selected.exists, 1, "message conservé par le renommage");
+
+    // --- Boîte absente : refus, session utilisable ---
+    let refused = session.rename_mailbox(&created, &name("Ailleurs")).await;
+    assert!(
+        matches!(
+            refused,
+            Err(norelly_domain::connection::ConnectionError::Rejected(_))
+        ),
+        "{refused:?}"
+    );
+
+    // --- Suppression, dossier sélectionné ---
+    if let Some(child) = &renamed_child {
+        session.delete_mailbox(child).await.map_err(e)?;
+    }
+    session.select_writable(&renamed).await.map_err(e)?;
+    session.delete_mailbox(&renamed).await.map_err(e)?;
+    let listed = session.list_mailboxes().await.map_err(e)?;
+    assert!(
+        !listed.iter().any(|m| m.name == renamed),
+        "{renamed_name} encore listé après DELETE : {listed:?}"
+    );
+    let refused = session.delete_mailbox(&renamed).await;
+    assert!(
+        matches!(
+            refused,
+            Err(norelly_domain::connection::ConnectionError::Rejected(_))
+        ),
+        "{refused:?}"
+    );
+    session.select_writable(&name("INBOX")).await.map_err(e)?;
+
+    session.logout().await.map_err(e)?;
     Ok(())
 }
 

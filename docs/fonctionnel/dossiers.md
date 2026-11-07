@@ -1,4 +1,4 @@
-# Dossiers : créer un dossier
+# Dossiers : créer, renommer, supprimer
 
 [← Fonctionnalités](README.md)
 
@@ -6,9 +6,11 @@
 
 Ranger ses messages dans ses propres dossiers, sans passer par le site de
 son fournisseur : créer un dossier, au premier niveau ou dans un dossier
-existant, depuis l'application.
+existant, le renommer ou le supprimer, depuis l'application.
 
 ## Comportement attendu
+
+### Créer un dossier
 
 - Accès, qui font tous la même chose :
   - menu **⋯** d'un compte, dans le panneau de gauche : **Nouveau
@@ -24,6 +26,39 @@ existant, depuis l'application.
   dans le panneau de gauche et dans la liste « Déplacer vers… ».
 - En cas de refus, la fenêtre reste ouverte avec la saisie et l'explication,
   pour corriger et réessayer.
+
+### Renommer un dossier
+
+- Accès, qui font tous la même chose :
+  - menu **⋯** d'un dossier, dans le panneau de gauche : **Renommer le
+    dossier…** ; ce bouton apparaît au survol du dossier, et reste visible
+    sur le dossier affiché ;
+  - palette de commandes (« Renommer le dossier… »), pour le dossier
+    affiché.
+- Une fenêtre propose le **nom actuel**, à modifier. **Renommer** reste
+  grisé tant que le nom est vide ou inchangé. Pendant le renommage, le
+  bouton indique « Renommage… » et la fenêtre ne peut pas être fermée.
+- Le dossier garde sa place : seul son nom change. Ses sous-dossiers et
+  ses messages le suivent.
+- Le dossier est renommé **sur le serveur**. Il apparaît aussitôt sous son
+  nouveau nom, avec ses messages ; s'il était affiché, il le reste.
+- En cas de refus, la fenêtre reste ouverte avec la saisie et l'explication.
+
+### Supprimer un dossier
+
+- Accès, qui font tous la même chose :
+  - menu **⋯** d'un dossier, dans le panneau de gauche : **Supprimer le
+    dossier…** ;
+  - palette de commandes (« Supprimer le dossier… »), pour le dossier
+    affiché.
+- Une fenêtre demande confirmation, en rappelant le nom du dossier : tous
+  les messages qu'il contient seront **supprimés définitivement, sans passer
+  par la corbeille**. **Annuler** ne supprime rien. La fenêtre n'annonce
+  jamais un dossier « vide » ni un nombre de messages : ceux connus de
+  l'application peuvent être incomplets (dossier pas encore synchronisé).
+- Le dossier disparaît aussitôt du panneau de gauche et de la liste
+  « Déplacer vers… ». S'il était affiché, la boîte de réception du compte
+  s'affiche à sa place.
 
 ## Règles
 
@@ -43,18 +78,33 @@ existant, depuis l'application.
   autres.
 - Les dossiers virtuels du serveur (tous les messages, messages suivis) ne
   sont pas proposés comme emplacement.
+- Le nouveau nom d'un dossier renommé suit les mêmes règles qu'un nouveau
+  dossier ; seul un changement de majuscules et minuscules de son propre nom
+  est accepté.
+- La **boîte de réception** et les **dossiers spéciaux** (envoyés,
+  brouillons, corbeille, indésirables, archives, dossiers virtuels) ne se
+  renomment ni ne se suppriment : leur menu **⋯** n'est pas proposé.
+- Un dossier qui contient des **sous-dossiers** ne peut pas être supprimé :
+  il faut d'abord supprimer ses sous-dossiers.
 
 ## Cas limites
 
-- **Hors ligne** : la création attend la reconnexion au plus 30 secondes,
-  puis échoue avec un message ; rien n'est mis en attente, et le dossier ne
-  sera pas créé plus tard à l'insu de l'utilisateur.
+- **Hors ligne** : la création, le renommage ou la suppression attend la
+  reconnexion au plus 30 secondes, puis échoue avec un message ; rien n'est
+  mis en attente, et rien ne sera fait plus tard à l'insu de l'utilisateur.
 - **Serveur sans sous-dossiers** : un emplacement autre que le premier
   niveau est refusé.
 - **Refus du serveur** (droits, quota, nom interdit) : le message cite la
   réponse du serveur.
-- Connexion perdue juste après la création : le dossier est bien annoncé
-  comme créé ; il apparaît dans la liste à la reconnexion.
+- Connexion perdue juste après la création, le renommage ou la
+  suppression : l'opération est bien annoncée comme faite ; la liste des
+  dossiers est mise à jour à la reconnexion.
+- Dossier **modifié entre-temps** par une autre application (renommé,
+  supprimé, sous-dossier ajouté) : la vérification se fait d'après la liste
+  présente sur le serveur, et l'opération est refusée si elle n'a plus de
+  sens.
+- Les messages d'un dossier renommé sont téléchargés à nouveau sous son
+  nouveau nom.
 
 ## Messages affichés
 
@@ -70,9 +120,20 @@ existant, depuis l'application.
 | Nom déjà pris | Un dossier de ce nom existe déjà à cet endroit. |
 | Pas de sous-dossiers | Ce serveur n'accepte pas de sous-dossiers : choisissez « Au premier niveau ». |
 | Refus, hors ligne | Le dossier n'a pas pu être créé sur le serveur. (« réponse du serveur ») |
+| Menu d'un dossier | Actions du dossier {folder} : Renommer le dossier…, Supprimer le dossier… |
+| Fenêtre de renommage | Renommer le dossier, Nouveau nom, Renommer, Renommage…, Annuler |
+| Dossier renommé | Dossier renommé en « {folder} ». |
+| Fenêtre de suppression | Supprimer le dossier ; « Le dossier « {folder} » et tous les messages qu'il contient seront supprimés définitivement du serveur, sans passer par la corbeille. » ; « Cette action ne peut pas être annulée. » ; Supprimer le dossier, Suppression…, Annuler |
+| Dossier supprimé | Dossier « {folder} » supprimé. |
+| Dossier protégé | La boîte de réception et les dossiers spéciaux (envoyés, brouillons, corbeille…) ne peuvent être ni renommés ni supprimés. |
+| Sous-dossiers | Ce dossier contient des sous-dossiers : supprimez-les d'abord. |
+| Refus, hors ligne (renommage) | Le dossier n'a pas pu être renommé sur le serveur. (« réponse du serveur ») |
+| Refus, hors ligne (suppression) | Le dossier n'a pas pu être supprimé sur le serveur. (« réponse du serveur ») |
 
 ## Raccourcis
 
 | Commande | Raccourci |
 |---|---|
 | Nouveau dossier… | palette |
+| Renommer le dossier… | palette |
+| Supprimer le dossier… | palette |

@@ -106,3 +106,112 @@ async fn connection_loss_is_reported() {
     imap.cut_after(None);
     assert_eq!(names(&imap).await, ["INBOX"]);
 }
+
+#[tokio::test]
+async fn renames_the_folder_in_place() {
+    let imap = FakeImap::new();
+    imap.create_mailbox("Projets", &[]);
+    imap.create_mailbox("Projets/2026", &[]);
+    let mut session = imap.session().unwrap_or_else(|e| panic!("{e}"));
+    let folder = name("Projets/2026");
+    let renamed = RenameFolder {
+        folder: &folder,
+        label: "Année 2026",
+    }
+    .execute(&mut session)
+    .await;
+    assert_eq!(renamed, Ok(name("Projets/Année 2026")));
+    assert_eq!(
+        names(&imap).await,
+        ["INBOX", "Projets", "Projets/Année 2026"]
+    );
+}
+
+#[tokio::test]
+async fn unchanged_name_sends_nothing() {
+    let imap = FakeImap::new();
+    imap.create_mailbox("Projets", &[]);
+    let mut session = imap.session().unwrap_or_else(|e| panic!("{e}"));
+    let before = imap.operations();
+    let folder = name("Projets");
+    let renamed = RenameFolder {
+        folder: &folder,
+        label: " Projets ",
+    }
+    .execute(&mut session)
+    .await;
+    assert_eq!(renamed, Ok(folder));
+    // Seule la liste a été lue.
+    assert_eq!(imap.operations(), before + 1);
+}
+
+#[tokio::test]
+async fn rename_name_errors_are_name_errors() {
+    let imap = FakeImap::new();
+    imap.create_mailbox("Projets", &[]);
+    imap.create_mailbox("Factures", &[]);
+    let mut session = imap.session().unwrap_or_else(|e| panic!("{e}"));
+    let folder = name("Projets");
+    let renamed = RenameFolder {
+        folder: &folder,
+        label: "factures",
+    }
+    .execute(&mut session)
+    .await;
+    assert_eq!(
+        renamed,
+        Err(FolderFailure::Invalid(NewFolderError::AlreadyExists))
+    );
+}
+
+#[tokio::test]
+async fn protected_folders_are_left_alone() {
+    let imap = FakeImap::new();
+    imap.create_mailbox("Corbeille", &["\\Trash"]);
+    let mut session = imap.session().unwrap_or_else(|e| panic!("{e}"));
+    let before = imap.operations();
+    let trash = name("Corbeille");
+    let renamed = RenameFolder {
+        folder: &trash,
+        label: "Poubelle",
+    }
+    .execute(&mut session)
+    .await;
+    assert_eq!(
+        renamed,
+        Err(FolderFailure::Change(FolderChangeError::Protected))
+    );
+    let deleted = DeleteFolder { folder: &trash }.execute(&mut session).await;
+    assert_eq!(
+        deleted,
+        Err(FolderFailure::Change(FolderChangeError::Protected))
+    );
+    assert_eq!(imap.operations(), before + 2, "seules les listes lues");
+    assert_eq!(names(&imap).await, ["INBOX", "Corbeille"]);
+}
+
+#[tokio::test]
+async fn deletes_the_folder_on_the_server() {
+    let imap = FakeImap::new();
+    imap.create_mailbox("Projets", &[]);
+    let mut session = imap.session().unwrap_or_else(|e| panic!("{e}"));
+    let folder = name("Projets");
+    let deleted = DeleteFolder { folder: &folder }.execute(&mut session).await;
+    assert_eq!(deleted, Ok(()));
+    assert_eq!(names(&imap).await, ["INBOX"]);
+}
+
+#[tokio::test]
+async fn folder_with_subfolders_is_not_deleted() {
+    let imap = FakeImap::new();
+    imap.create_mailbox("Projets", &[]);
+    imap.create_mailbox("Projets/2026", &[]);
+    let mut session = imap.session().unwrap_or_else(|e| panic!("{e}"));
+    let folder = name("Projets");
+    let deleted = DeleteFolder { folder: &folder }.execute(&mut session).await;
+    assert_eq!(
+        deleted,
+        Err(FolderFailure::Change(FolderChangeError::HasSubfolders))
+    );
+    assert_eq!(names(&imap).await, ["INBOX", "Projets", "Projets/2026"]);
+}

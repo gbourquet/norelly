@@ -1318,3 +1318,186 @@ async fn create_mailbox_encodes_the_name_and_reports_refusal() -> TestResult {
     server.finish().await.result?;
     Ok(())
 }
+
+/// `RENAME` et `DELETE` : noms envoyés en UTF-7 modifié ; refus `NO` →
+/// `Rejected`, la session reste utilisable.
+#[tokio::test]
+async fn rename_and_delete_mailbox_encode_names_and_report_refusal() -> TestResult {
+    use norelly_domain::connection::ConnectionError;
+    use norelly_domain::mailbox::MailboxName;
+
+    let f = fixture()?;
+    let cert = f.ca.issue(&["localhost"])?;
+    let script = authenticated(
+        Script::new()
+            .expect("RENAME Projets Voyages/&AMk-t&AOk-")
+            .send("{tag} OK RENAME termine\r\n")
+            .expect("RENAME Absent Autre")
+            .send("{tag} NO [NONEXISTENT] inconnu\r\n")
+            .expect("DELETE \"a b\"")
+            .send("{tag} OK DELETE termine\r\n")
+            .expect("DELETE Absent")
+            .send("{tag} NO [NONEXISTENT] inconnu\r\n")
+            .expect("EXPUNGE")
+            .send("{tag} OK EXPUNGE termine\r\n"),
+    );
+    let server = ScriptedServer::start_tls(script, cert.server_config()?).await?;
+    let mut session = f
+        .connector
+        .connect(&request(
+            server.port(),
+            Security::Tls,
+            PlaintextPolicy::deny_all(),
+        ))
+        .await?;
+    session
+        .rename_mailbox(
+            &MailboxName::parse("Projets")?,
+            &MailboxName::parse("Voyages/Été")?,
+        )
+        .await?;
+    let refused = session
+        .rename_mailbox(
+            &MailboxName::parse("Absent")?,
+            &MailboxName::parse("Autre")?,
+        )
+        .await;
+    assert!(
+        matches!(refused, Err(ConnectionError::Rejected(_))),
+        "{refused:?}"
+    );
+    session.delete_mailbox(&MailboxName::parse("a b")?).await?;
+    let refused = session.delete_mailbox(&MailboxName::parse("Absent")?).await;
+    assert!(
+        matches!(refused, Err(ConnectionError::Rejected(_))),
+        "{refused:?}"
+    );
+    assert_eq!(session.expunge_all().await?, 0, "session utilisable");
+    session.logout().await?;
+    server.finish().await.result?;
+    Ok(())
+}
+
+/// Session authentifiée annonçant `capabilities` après connexion.
+fn authenticated_with(capabilities: &str, script: Script) -> Script {
+    Script::new()
+        .send(imap::greeting("IMAP4rev1 AUTH=PLAIN SASL-IR"))
+        .expect("AUTHENTICATE PLAIN")
+        .send(imap::ok("authentifie"))
+        .expect("CAPABILITY")
+        .send(imap::capability(capabilities))
+        .steps_from(script)
+}
+
+const SELECTED: &str = "* OK [UIDVALIDITY 7] ok\r\n* 1 EXISTS\r\n{tag} OK [READ-WRITE] termine\r\n";
+
+/// Une boîte sélectionnée est quittée avant `RENAME` ou `DELETE` (certains
+/// serveurs, dont Dovecot, coupent la session si la boîte sélectionnée
+/// disparaît) : `UNSELECT` si annoncé, qui n'efface rien, sinon `EXAMINE`
+/// de la boîte de réception (jamais `CLOSE`, qui effacerait les messages
+/// marqués supprimés).
+#[tokio::test]
+async fn selected_mailbox_is_left_before_rename_or_delete() -> TestResult {
+    use norelly_domain::mailbox::MailboxName;
+
+    for (capabilities, leave) in [
+        ("IMAP4rev1 UNSELECT", "UNSELECT"),
+        ("IMAP4rev1", "EXAMINE INBOX"),
+    ] {
+        let f = fixture()?;
+        let cert = f.ca.issue(&["localhost"])?;
+        let left = if leave == "UNSELECT" {
+            "{tag} OK UNSELECT termine\r\n"
+        } else {
+            "* OK [UIDVALIDITY 1] ok\r\n* 0 EXISTS\r\n{tag} OK [READ-ONLY] termine\r\n"
+        };
+        let script = authenticated_with(
+            capabilities,
+            Script::new()
+                .expect("SELECT Projets")
+                .send(SELECTED)
+                .expect(leave)
+                .send(left)
+                .expect("RENAME Projets Chantiers")
+                .send("{tag} OK RENAME termine\r\n")
+                // Plus rien de sélectionné par Norelly : rien à quitter.
+                .expect("DELETE Chantiers")
+                .send("{tag} OK DELETE termine\r\n")
+                .expect("SELECT Notes")
+                .send(SELECTED)
+                .expect(leave)
+                .send(left)
+                .expect("DELETE Notes")
+                .send("{tag} OK DELETE termine\r\n")
+                .expect("LOGOUT")
+                .send("* BYE au revoir\r\n{tag} OK LOGOUT termine\r\n")
+                .expect_eof(),
+        );
+        let server = ScriptedServer::start_tls(script, cert.server_config()?).await?;
+        let mut session = f
+            .connector
+            .connect(&request(
+                server.port(),
+                Security::Tls,
+                PlaintextPolicy::deny_all(),
+            ))
+            .await?;
+        let projets = MailboxName::parse("Projets")?;
+        let chantiers = MailboxName::parse("Chantiers")?;
+        session.select_writable(&projets).await?;
+        session.rename_mailbox(&projets, &chantiers).await?;
+        session.delete_mailbox(&chantiers).await?;
+        let notes = MailboxName::parse("Notes")?;
+        session.select_writable(&notes).await?;
+        session.delete_mailbox(&notes).await?;
+        session.logout().await?;
+        server.finish().await.result?;
+    }
+    Ok(())
+}
+
+/// Texte de refus en UTF-8 brut (Dovecot y cite le nom de la boîte, comme
+/// IMAP4rev2 le permet) : refus reçu tout de suite, caractères non ASCII
+/// remplacés, au lieu d'une réponse écartée et d'un délai dépassé.
+#[tokio::test]
+async fn utf8_refusal_text_is_received_as_a_refusal() -> TestResult {
+    use norelly_domain::connection::ConnectionError;
+    use norelly_domain::mailbox::MailboxName;
+
+    let f = fixture()?;
+    let cert = f.ca.issue(&["localhost"])?;
+    let script = authenticated(
+        Script::new()
+            .expect("DELETE &AMk-t&AOk-")
+            .send("{tag} NO [NONEXISTENT] Mailbox doesn't exist: Été\r\n")
+            .expect("CREATE Projets")
+            .send("* OK [ALERT] Quota presque atteint : réduisez\r\n{tag} OK CREATE termine\r\n")
+            .expect("LOGOUT")
+            .send("* BYE au revoir\r\n{tag} OK LOGOUT termine\r\n")
+            .expect_eof(),
+    );
+    let server = ScriptedServer::start_tls(script, cert.server_config()?).await?;
+    let mut session = f
+        .connector
+        .connect(&request(
+            server.port(),
+            Security::Tls,
+            PlaintextPolicy::deny_all(),
+        ))
+        .await?;
+    let refused = tokio::time::timeout(
+        Duration::from_secs(5),
+        session.delete_mailbox(&MailboxName::parse("Été")?),
+    )
+    .await?;
+    let Err(ConnectionError::Rejected(text)) = refused else {
+        panic!("refus attendu : {refused:?}");
+    };
+    assert!(text.contains("Mailbox doesn't exist: ??t??"), "{text}");
+    session
+        .create_mailbox(&MailboxName::parse("Projets")?)
+        .await?;
+    session.logout().await?;
+    server.finish().await.result?;
+    Ok(())
+}

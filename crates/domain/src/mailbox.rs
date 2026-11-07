@@ -583,6 +583,16 @@ pub enum NewFolderError {
     VirtualParent,
 }
 
+impl From<MailboxNameError> for NewFolderError {
+    fn from(e: MailboxNameError) -> Self {
+        match e {
+            MailboxNameError::Empty => Self::Empty,
+            MailboxNameError::TooLong => Self::TooLong,
+            MailboxNameError::InvalidCharacter => Self::InvalidCharacter,
+        }
+    }
+}
+
 /// Nom complet d'un nouveau dossier `label`, sous `parent` (ou au premier
 /// niveau), d'après les boîtes `existing` du compte.
 ///
@@ -626,11 +636,7 @@ pub fn new_folder_name(
     {
         return Err(NewFolderError::ContainsDelimiter(d));
     }
-    let full = MailboxName::parse(&format!("{prefix}{label}")).map_err(|e| match e {
-        MailboxNameError::Empty => NewFolderError::Empty,
-        MailboxNameError::TooLong => NewFolderError::TooLong,
-        MailboxNameError::InvalidCharacter => NewFolderError::InvalidCharacter,
-    })?;
+    let full = MailboxName::parse(&format!("{prefix}{label}")).map_err(NewFolderError::from)?;
     let wanted = full.as_str().to_lowercase();
     if existing
         .iter()
@@ -659,6 +665,90 @@ pub fn folder_label(label: &str) -> Result<&str, NewFolderError> {
         return Err(NewFolderError::InvalidCharacter);
     }
     Ok(label)
+}
+
+/// Renommage ou suppression d'un dossier refusé.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum FolderChangeError {
+    #[error("dossier inconnu")]
+    UnknownFolder,
+    #[error("dossier protégé : boîte de réception ou dossier spécial")]
+    Protected,
+    #[error("le dossier contient des sous-dossiers")]
+    HasSubfolders,
+    #[error(transparent)]
+    Name(#[from] NewFolderError),
+}
+
+/// Nouveau nom complet du dossier `folder` renommé en `label`, à la même
+/// place (même parent), d'après les boîtes `existing` du compte.
+///
+/// Le nom saisi suit les règles d'un nouveau dossier ([`folder_label`],
+/// sans séparateur, nom libre à la casse près) ; seule la casse du dossier
+/// lui-même peut changer. La boîte de réception et les dossiers spéciaux
+/// (envoyés, brouillons, corbeille, indésirables, archives, dossiers
+/// virtuels) ne se renomment pas.
+pub fn renamed_folder_name(
+    folder: &MailboxName,
+    label: &str,
+    existing: &[RemoteMailbox],
+) -> Result<MailboxName, FolderChangeError> {
+    let mailbox = changeable(folder, existing)?;
+    let label = folder_label(label)?;
+    if let Some(d) = mailbox.delimiter
+        && label.contains(d)
+    {
+        return Err(NewFolderError::ContainsDelimiter(d).into());
+    }
+    let prefix = mailbox
+        .delimiter
+        .and_then(|d| folder.as_str().rfind(d).map(|i| i + d.len_utf8()))
+        .and_then(|end| folder.as_str().get(..end))
+        .unwrap_or("");
+    let renamed = MailboxName::parse(&format!("{prefix}{label}")).map_err(NewFolderError::from)?;
+    let wanted = renamed.as_str().to_lowercase();
+    if existing
+        .iter()
+        .any(|m| m.name != *folder && m.name.as_str().to_lowercase() == wanted)
+    {
+        return Err(NewFolderError::AlreadyExists.into());
+    }
+    Ok(renamed)
+}
+
+/// Vérifie que le dossier `folder` peut être supprimé : il existe, n'est
+/// ni la boîte de réception ni un dossier spécial, et n'a pas de
+/// sous-dossier (les serveurs traitent ce cas chacun à leur façon).
+pub fn deletable_folder(
+    folder: &MailboxName,
+    existing: &[RemoteMailbox],
+) -> Result<(), FolderChangeError> {
+    let mailbox = changeable(folder, existing)?;
+    if let Some(d) = mailbox.delimiter {
+        let prefix = format!("{}{d}", folder.as_str());
+        if existing
+            .iter()
+            .any(|m| m.name.as_str().starts_with(&prefix))
+        {
+            return Err(FolderChangeError::HasSubfolders);
+        }
+    }
+    Ok(())
+}
+
+/// Boîte `folder` du compte, si elle peut être renommée ou supprimée.
+fn changeable<'a>(
+    folder: &MailboxName,
+    existing: &'a [RemoteMailbox],
+) -> Result<&'a RemoteMailbox, FolderChangeError> {
+    let mailbox = existing
+        .iter()
+        .find(|m| m.name == *folder)
+        .ok_or(FolderChangeError::UnknownFolder)?;
+    if folder.is_inbox() || mailbox.role != MailboxRole::Normal {
+        return Err(FolderChangeError::Protected);
+    }
+    Ok(mailbox)
 }
 
 /// Préfixe des dossiers de premier niveau : « INBOX » suivi du séparateur

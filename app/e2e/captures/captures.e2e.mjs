@@ -66,6 +66,7 @@ const content = {
     ],
     reply: "Avec plaisir, à dimanche ! Je prends les jus de fruits.",
     folder: "Jardin",
+    renamed: "Potager",
     search: "tarte",
   },
   en: {
@@ -94,6 +95,7 @@ const content = {
     ],
     reply: "Great, until Sunday! I can bring drinks.",
     folder: "Garden",
+    renamed: "Vegetables",
     search: "pie",
   },
 }[lang];
@@ -284,6 +286,41 @@ describe(`captures d'écran (${lang})`, () => {
     await $(
       `//*[@aria-label="${msg("sidebar_folders_of", { address })}"]//span[normalize-space()="${content.folder}"]`,
     ).waitForDisplayed({ timeout: 30000 });
+  });
+
+  it("renommer puis supprimer un dossier (à la souris)", async () => {
+    const folders = `//*[@aria-label="${msg("sidebar_folders_of", { address })}"]`;
+    const label = (name) => $(`${folders}//span[normalize-space()="${name}"]`);
+    /** Ouvre le menu « ⋯ » du dossier `name`, visible au survol. */
+    const folderMenu = async (name) => {
+      await label(name).moveTo();
+      await openMenu($(`aria/${msg("sidebar_folder_menu", { folder: name })}`));
+    };
+
+    await folderMenu(content.folder);
+    await menuItem(msg("cmd_rename_folder")).waitForDisplayed({ timeout: 10000 });
+    await capture("folder-menu");
+    await menuItem(msg("cmd_rename_folder")).click();
+    const rename = dialogTitled(msg("rename_folder_title"));
+    await rename.waitForDisplayed({ timeout: 10000 });
+    const input = rename.$(`input[type="text"]`);
+    await input.clearValue();
+    await input.setValue(content.renamed);
+    await capture("rename-folder");
+    await rename.$(`button=${msg("rename_folder_confirm")}`).click();
+    await rename.waitForDisplayed({ reverse: true, timeout: 30000 });
+    // Renommé sur le serveur, puis affiché sous son nouveau nom.
+    await label(content.renamed).waitForDisplayed({ timeout: 30000 });
+
+    await folderMenu(content.renamed);
+    await menuItem(msg("cmd_delete_folder")).waitForDisplayed({ timeout: 10000 });
+    await menuItem(msg("cmd_delete_folder")).click();
+    const remove = dialogTitled(msg("delete_folder_title"));
+    await remove.waitForDisplayed({ timeout: 10000 });
+    await capture("delete-folder");
+    await remove.$(`button=${msg("delete_folder_confirm")}`).click();
+    await remove.waitForDisplayed({ reverse: true, timeout: 30000 });
+    await label(content.renamed).waitForDisplayed({ reverse: true, timeout: 30000 });
   });
 
   it("recherche", async () => {

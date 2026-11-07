@@ -91,6 +91,10 @@ describe("traduction des erreurs IPC", () => {
       folder_exists: true,
       no_subfolders: true,
       folder_create_failed: true,
+      folder_protected: true,
+      folder_has_subfolders: true,
+      folder_rename_failed: true,
+      folder_delete_failed: true,
       update_failed: true,
       internal: true,
     } satisfies Record<ErrorCodeDto, true>;

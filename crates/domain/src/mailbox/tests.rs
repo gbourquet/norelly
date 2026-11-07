@@ -408,3 +408,145 @@ fn new_folder_rejects_virtual_parents() {
         );
     }
 }
+
+// ---------------------------------------------------------------------------
+// Renommer et supprimer un dossier
+// ---------------------------------------------------------------------------
+
+fn special(raw: &str, role: MailboxRole) -> RemoteMailbox {
+    RemoteMailbox {
+        role,
+        ..remote(raw, Some('/'))
+    }
+}
+
+#[test]
+fn renamed_folder_keeps_its_place() {
+    let existing = plain_account();
+    assert_eq!(
+        renamed_folder_name(&name("Projets"), " Chantiers ", &existing),
+        Ok(name("Chantiers"))
+    );
+    assert_eq!(
+        renamed_folder_name(&name("Projets/2026"), "Année 2026", &existing),
+        Ok(name("Projets/Année 2026"))
+    );
+}
+
+#[test]
+fn renamed_folder_under_inbox_prefix() {
+    let existing = vec![
+        remote("INBOX", Some('.')),
+        remote("INBOX.Sent", Some('.')),
+        remote("INBOX.Projets", Some('.')),
+    ];
+    assert_eq!(
+        renamed_folder_name(&name("INBOX.Projets"), "Chantiers", &existing),
+        Ok(name("INBOX.Chantiers"))
+    );
+}
+
+#[test]
+fn renamed_folder_may_change_only_its_case() {
+    let existing = plain_account();
+    assert_eq!(
+        renamed_folder_name(&name("Projets"), "PROJETS", &existing),
+        Ok(name("PROJETS"))
+    );
+    assert_eq!(
+        renamed_folder_name(&name("Projets"), "Projets", &existing),
+        Ok(name("Projets"))
+    );
+}
+
+#[test]
+fn renamed_folder_follows_the_name_rules() {
+    let existing = plain_account();
+    let folder = name("Projets");
+    for (label, expected) in [
+        ("  ", NewFolderError::Empty),
+        ("a*b", NewFolderError::InvalidCharacter),
+        ("a/b", NewFolderError::ContainsDelimiter('/')),
+        ("sent", NewFolderError::AlreadyExists),
+    ] {
+        assert_eq!(
+            renamed_folder_name(&folder, label, &existing),
+            Err(FolderChangeError::Name(expected)),
+            "{label:?}"
+        );
+    }
+    assert_eq!(
+        renamed_folder_name(&folder, &"x".repeat(MAX_FOLDER_LABEL_CHARS + 1), &existing),
+        Err(FolderChangeError::Name(NewFolderError::TooLong))
+    );
+}
+
+#[test]
+fn renamed_folder_must_exist() {
+    assert_eq!(
+        renamed_folder_name(&name("Absent"), "x", &plain_account()),
+        Err(FolderChangeError::UnknownFolder)
+    );
+}
+
+#[test]
+fn special_folders_cannot_be_renamed_or_deleted() {
+    let mut existing = vec![
+        remote("INBOX", Some('/')),
+        special("Envoyés", MailboxRole::Sent),
+        special("Brouillons", MailboxRole::Drafts),
+        special("Corbeille", MailboxRole::Trash),
+        special("Indésirables", MailboxRole::Junk),
+        special("Archives", MailboxRole::Archive),
+        special("[Gmail]/Tous", MailboxRole::All),
+        special("[Gmail]/Suivis", MailboxRole::Flagged),
+    ];
+    // La boîte de réception est protégée même sans rôle reconnu.
+    existing[0].role = MailboxRole::Normal;
+    for folder in &existing {
+        assert_eq!(
+            renamed_folder_name(&folder.name, "x", &existing),
+            Err(FolderChangeError::Protected),
+            "{}",
+            folder.name
+        );
+        assert_eq!(
+            deletable_folder(&folder.name, &existing),
+            Err(FolderChangeError::Protected),
+            "{}",
+            folder.name
+        );
+    }
+}
+
+#[test]
+fn folder_without_subfolders_can_be_deleted() {
+    let existing = plain_account();
+    assert_eq!(deletable_folder(&name("Projets/2026"), &existing), Ok(()));
+    let mut hidden = remote("Vieux", Some('/'));
+    hidden.selectable = false;
+    assert_eq!(deletable_folder(&hidden.name.clone(), &[hidden]), Ok(()));
+}
+
+#[test]
+fn folder_with_subfolders_cannot_be_deleted() {
+    let existing = plain_account();
+    assert_eq!(
+        deletable_folder(&name("Projets"), &existing),
+        Err(FolderChangeError::HasSubfolders)
+    );
+    // Un nom qui commence pareil n'est pas un sous-dossier.
+    let existing = vec![
+        remote("Projets", Some('/')),
+        remote("Projets 2026", Some('/')),
+    ];
+    assert_eq!(deletable_folder(&name("Projets"), &existing), Ok(()));
+}
+
+#[test]
+fn deleted_folder_must_exist() {
+    assert_eq!(
+        deletable_folder(&name("Absent"), &plain_account()),
+        Err(FolderChangeError::UnknownFolder)
+    );
+}

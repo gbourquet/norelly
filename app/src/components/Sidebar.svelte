@@ -19,6 +19,9 @@
   import OutboxIcon from "@lucide/svelte/icons/send-horizontal";
   import EllipsisIcon from "@lucide/svelte/icons/ellipsis";
   import FolderPlusIcon from "@lucide/svelte/icons/folder-plus";
+  import PencilIcon from "@lucide/svelte/icons/pencil";
+  import FolderXIcon from "@lucide/svelte/icons/folder-x";
+  import { isEditableFolder } from "../lib/folder-edit.svelte";
   import type { AccountDto, FolderDto, ScopeDto } from "../lib/ipc/api";
   import type { CommandRegistry } from "../lib/commands/registry";
   import { RegistryWatch } from "../lib/commands/watch.svelte";
@@ -38,6 +41,10 @@
     context: C;
     /** Sélectionne un compte ; renvoie le contexte des commandes à jour. */
     onAccount: (id: number) => C;
+    /** Contexte des commandes qui visent le dossier `folder` du compte
+     * `account` ; `target` : le dossier devient la cible des commandes
+     * (menu du dossier choisi). */
+    onFolder: (account: number, folder: FolderDto, target: boolean) => C;
   }
 
   let {
@@ -51,6 +58,7 @@
     registry,
     context,
     onAccount,
+    onFolder,
   }: Props = $props();
 
   // Le registre n'est pas réactif : relecture à chaque modification.
@@ -73,6 +81,12 @@
     { command: "account.new-folder", icon: FolderPlusIcon, section: 1 },
     { command: "account.archive-folder", icon: ArchiveIcon, section: 1 },
     { command: "account.remove", icon: TrashIcon, label: m.sidebar_remove, section: 2 },
+  ];
+
+  /** Menu d'un dossier ordinaire. */
+  const folderActions: VisibleAction[] = [
+    { command: "folder.rename", icon: PencilIcon, section: 0 },
+    { command: "folder.delete", icon: FolderXIcon, section: 1 },
   ];
 
   const ICONS = {
@@ -184,7 +198,7 @@
             {#each folders[account.id] ?? [] as f (f.id)}
               {@const Icon = icon(f.role)}
               {@const current = scope.kind === "mailbox" && scope.id === f.id}
-              <li class:selected={current}>
+              <li class:selected={current} class:editable={isEditableFolder(f)}>
                 <button
                   class="folder"
                   type="button"
@@ -197,6 +211,28 @@
                   <span class="label">{folderLabel(f)}</span>
                   {#if f.unread > 0}<span class="unread">{f.unread}</span>{/if}
                 </button>
+                {#if isEditableFolder(f)}
+                  <CommandMenu
+                    actions={folderActions}
+                    {registry}
+                    context={onFolder(account.id, f, false)}
+                    label={m.sidebar_folder_menu({ folder: folderLabel(f) })}
+                    run={(id) => void registry.execute(id, onFolder(account.id, f, true))}
+                    align="start"
+                  >
+                    {#snippet trigger({ props })}
+                      <button
+                        {...props}
+                        class="btn btn-ghost icon folder-menu"
+                        type="button"
+                        title={m.sidebar_folder_menu({ folder: folderLabel(f) })}
+                        aria-label={m.sidebar_folder_menu({ folder: folderLabel(f) })}
+                      >
+                        <EllipsisIcon size={16} aria-hidden="true" />
+                      </button>
+                    {/snippet}
+                  </CommandMenu>
+                {/if}
               </li>
             {/each}
           </ul>
@@ -329,6 +365,27 @@
 
   .folders li {
     border-radius: var(--radius);
+  }
+
+  /* Dossier ordinaire : son menu « ⋯ » à droite du nom. */
+  .folders li.editable {
+    display: flex;
+    align-items: center;
+  }
+
+  /* Menu visible au survol, au clavier, sur le dossier affiché et tant
+   * qu'il est ouvert ; sa place est toujours réservée. */
+  .folder-menu {
+    flex: none;
+    margin-right: var(--space-1);
+    opacity: 0;
+  }
+
+  .folders li:hover .folder-menu,
+  .folders li:focus-within .folder-menu,
+  .folders li.selected .folder-menu,
+  .folder-menu[aria-expanded="true"] {
+    opacity: 1;
   }
 
   .folders li:hover {

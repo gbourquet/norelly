@@ -44,11 +44,12 @@ quand le mainteneur l'abandonne (avec la raison).
   message. À faire comme une fonctionnalité complète (domaine, IMAP
   `STORE` des mots-clés, port, IPC), puis l'ajouter au menu « Plus… » et
   au menu contextuel. (`crates/domain/src/mailbox.rs`, `visible-actions.ts`)
-- **Renommer et supprimer un dossier** : seule la création existe
-  (« Nouveau dossier… »). Même chemin : règle dans le domaine
-  (`new_folder_name` pour le nouveau nom, dossiers spéciaux protégés),
-  `RENAME` / `DELETE` sur le port de session, contrat Dovecot, entrées dans
-  le menu d'un dossier. (`crates/domain/src/mailbox.rs`, `Sidebar.svelte`)
+- **Cache local perdu au renommage d'un dossier** : la liste relue oublie
+  l'ancien nom avec ses messages, qui sont téléchargés à nouveau sous le
+  nouveau nom (coûteux pour un gros dossier). Renommer les boîtes locales
+  (et leurs sous-boîtes) dans le stockage, puis laisser la synchronisation
+  vérifier l'UIDVALIDITY. (`MailStore::replace_mailboxes`,
+  `crates/application/src/account_actor.rs`)
 - **Noms de dossier particuliers** (revue de sécurité, info) : un nom
   commençant par `~` ou `#`, ou les segments `.` / `..`, sont envoyés tels
   quels ; certains serveurs (UW-IMAP) les interprètent (répertoire
@@ -56,9 +57,10 @@ quand le mainteneur l'abandonne (avec la raison).
   son propre compte) ; les refuser dans `folder_label` en défense en
   profondeur. Idem si le serveur n'annonce aucun séparateur.
   (`crates/domain/src/mailbox.rs`)
-- **Menu d'un dossier dans le panneau de gauche** : pas de clic droit ni
-  de « ⋯ » sur un dossier ; « Nouveau sous-dossier… » y présélectionnerait
-  l'emplacement (aujourd'hui choisi dans la fenêtre). (`Sidebar.svelte`)
+- **Menu d'un dossier dans le panneau de gauche** : le « ⋯ » d'un dossier
+  ordinaire propose renommer et supprimer ; manquent le clic droit, un menu
+  sur les dossiers spéciaux (sans entrée aujourd'hui) et « Nouveau
+  sous-dossier… », qui y présélectionnerait l'emplacement. (`Sidebar.svelte`)
 - **« Nouveau dossier… » depuis « Déplacer vers… »** : le sélecteur ne
   propose que les dossiers existants ; créer puis déplacer en un geste.
   (`FolderPicker.svelte`)
@@ -101,6 +103,24 @@ quand le mainteneur l'abandonne (avec la raison).
 - Installateur Windows non signé (Authenticode) tant que SignPath n'a pas
   accepté le projet ([candidature](signpath-candidature.md)).
 - Permission Tauri `core:default` réductible.
+- **Dossier modifié malgré un échec affiché** (revue de sécurité, basse) :
+  le délai de 30 s de l'interface peut expirer pendant un `RENAME` ou un
+  `DELETE` déjà commencé par l'acteur ; l'utilisateur voit « impossible »
+  alors que l'opération aboutit. Code « résultat inconnu » puis relecture de
+  la liste, ou délai limité à la prise en charge par l'acteur.
+  (`app/src-tauri/src/mail.rs`, `crates/application/src/account_actor.rs`)
+- **Sous-dossiers ignorés au contrôle avant suppression** (revue de
+  sécurité, basse) : un sous-dossier au nom indécodable ou refusé par
+  `MailboxName::parse`, ou au-delà de `MAX_MAILBOXES`, n'est pas vu par
+  `deletable_folder` ; le parent part en `DELETE` (effet selon le serveur).
+  `LIST` dédié `<parent><délim>%` avant `DELETE`, ou noms écartés comptés
+  comme « sous-dossier possible ». (`crates/domain/src/mailbox.rs`,
+  `crates/adapters/imap/src/session.rs`)
+- **Nom de dossier finissant par `{n}`** (revue de sécurité, basse) :
+  cité par le serveur à la fin d'une ligne d'état, il est pris pour
+  l'annonce d'un littéral ; la commande attend jusqu'au délai et la session
+  est rouverte. Refuser `{` final (ou `\{\d+\}$`) dans `folder_label`.
+  (`crates/domain/src/mailbox.rs`, `crates/adapters/imap/src/connection.rs`)
 
 **Règle permanente** : à chaque montée de version de Tauri, rejouer le test
 e2e qui vérifie qu'aucun accès à l'IPC n'est possible depuis l'iframe

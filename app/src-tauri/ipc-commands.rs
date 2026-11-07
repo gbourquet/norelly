@@ -25,6 +25,8 @@ const APP_COMMANDS: &[&str] = &[
     "undo_actions",
     "set_archive_folder",
     "create_folder",
+    "rename_folder",
+    "delete_folder",
     "search_messages",
     "get_settings",
     "save_settings",

@@ -12,6 +12,7 @@ norelly-domain.workspace = true
 rustls.workspace = true
 tokio-rustls.workspace = true
 rustls-platform-verifier.workspace = true
+rustls-webpki.workspace = true
 ring.workspace = true
 tokio.workspace = true
 tracing.workspace = true

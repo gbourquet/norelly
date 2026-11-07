@@ -49,6 +49,9 @@ zeroize = "1.8"
 rustls = { version = "0.23.31", default-features = false, features = ["ring", "std", "tls12"] }
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
 rustls-platform-verifier = "0.7"
+# Déjà tirée par rustls : déclarée pour reconnaître par leur type les
+# erreurs webpki que rustls range dans `CertificateError::Other`.
+rustls-webpki = { version = "0.103", default-features = false, features = ["std"] }
 ring = "0.17"
 rcgen = { version = "0.14", default-features = false, features = ["crypto", "ring", "pem"] }
 # Protocoles

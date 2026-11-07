@@ -70,8 +70,22 @@ pub fn certificate_issue(error: &rustls::Error) -> CertificateIssue {
             CertificateIssue::InvalidSignature
         }
         CertificateError::BadEncoding => CertificateIssue::Malformed,
+        CertificateError::Other(other) if is_ca_used_as_end_entity(other) => {
+            CertificateIssue::UnknownIssuer
+        }
         other => CertificateIssue::Other(format!("{other:?}")),
     }
+}
+
+/// Certificat de serveur marqué autorité (`CA:TRUE`) : webpki le refuse
+/// avant même de chercher son émetteur. C'est le certificat autosigné que
+/// produit `openssl req -x509` par défaut ; pour l'utilisateur, c'est une
+/// autorité inconnue comme un autre certificat autosigné.
+fn is_ca_used_as_end_entity(error: &rustls::OtherError) -> bool {
+    matches!(
+        error.0.downcast_ref::<webpki::Error>(),
+        Some(webpki::Error::CaUsedAsEndEntity)
+    )
 }
 
 /// Racines de confiance.
@@ -410,6 +424,28 @@ mod tests {
         assert_eq!(r.fingerprint, fingerprint(cert.leaf()));
         assert_eq!(r.host, host("localhost"));
         assert!(!r.fingerprint_changed);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn self_signed_ca_is_rejected_as_unknown_issuer() -> TestResult {
+        let (_, factory) = setup()?;
+        let cert = TestCert::self_signed_ca(&["localhost"])?;
+        let r = rejection(attempt(&factory, &cert, "localhost", &[]).await?);
+        assert_eq!(r.issue, CertificateIssue::UnknownIssuer);
+        assert_eq!(r.fingerprint, fingerprint(cert.leaf()));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn self_signed_ca_is_accepted_by_its_exception() -> TestResult {
+        let (_, factory) = setup()?;
+        let cert = TestCert::self_signed_ca(&["localhost"])?;
+        let exception = CertificateException {
+            host: host("localhost"),
+            fingerprint: fingerprint(cert.leaf()),
+        };
+        attempt(&factory, &cert, "localhost", &[exception]).await??;
         Ok(())
     }
 

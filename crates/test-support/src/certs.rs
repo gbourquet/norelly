@@ -45,6 +45,19 @@ impl TestCert {
         Ok(Self::from_parts(cert.der().clone(), cert.pem(), &key))
     }
 
+    /// Certificat autosigné marqué autorité (`CA:TRUE`), sans usage de clé
+    /// ni usage étendu : ce que produit `openssl req -x509` avec sa
+    /// configuration par défaut, courant sur les serveurs personnels.
+    pub fn self_signed_ca(names: &[&str]) -> Result<Self, CertError> {
+        let key = KeyPair::generate()?;
+        let mut params = server_params(names)?;
+        params.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
+        params.key_usages = Vec::new();
+        params.extended_key_usages = Vec::new();
+        let cert = params.self_signed(&key)?;
+        Ok(Self::from_parts(cert.der().clone(), cert.pem(), &key))
+    }
+
     fn from_parts(der: CertificateDer<'static>, cert_pem: String, key: &KeyPair) -> Self {
         Self {
             chain: vec![der],
@@ -160,6 +173,7 @@ mod tests {
             ca.issue_expired(&["localhost"])?,
             ca.issue(&["wrong.example"])?,
             TestCert::self_signed(&["localhost"])?,
+            TestCert::self_signed_ca(&["localhost"])?,
         ] {
             assert!(cert.key_pem.contains("PRIVATE KEY"));
             assert_ne!(cert.leaf().as_ref(), ca.root().as_ref());

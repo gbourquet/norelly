@@ -3278,6 +3278,7 @@ dependencies = [
  "ring",
  "rustls",
  "rustls-platform-verifier",
+ "rustls-webpki",
  "thiserror 2.0.21",
  "tokio",
  "tokio-rustls",

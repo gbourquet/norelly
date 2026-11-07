@@ -248,6 +248,28 @@ pub struct Expansion {
     pub bcc: bool,
 }
 
+/// Champ de destinataires d'un message.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RecipientField {
+    To,
+    Cc,
+    Bcc,
+}
+
+impl Expansion {
+    /// Champ où ranger les destinataires, la liste ayant été choisie dans
+    /// `requested` : toujours la copie cachée pour une liste « en Cci »,
+    /// pour qu'aucun membre ne voie l'adresse des autres.
+    #[must_use]
+    pub fn field(&self, requested: RecipientField) -> RecipientField {
+        if self.bcc {
+            RecipientField::Bcc
+        } else {
+            requested
+        }
+    }
+}
+
 /// Déplie `list` : chaque membre encore dans `contacts` (fiches lues du
 /// carnet), à son adresse préférée, sous son nom du carnet (vide s'il n'en
 /// a pas ou s'il imite une adresse) ; chaque adresse une fois
@@ -609,6 +631,28 @@ mod tests {
         });
         let e = expand(&list, &[contact(1, "Alice", &[("a@example.com", true)])]);
         assert_eq!(e.map(|e| e.bcc), Ok(true));
+    }
+
+    #[test]
+    fn a_bcc_list_always_goes_to_bcc_others_where_chosen() {
+        let members = [contact(1, "Alice", &[("a@example.com", true)])];
+        let hidden = expand(
+            &draft(ContactListInput {
+                bcc: true,
+                ..input("Famille", &[1])
+            }),
+            &members,
+        )
+        .unwrap_or_else(|e| panic!("{e}"));
+        let open = expand(&draft(input("Club", &[1])), &members).unwrap_or_else(|e| panic!("{e}"));
+        for requested in [RecipientField::To, RecipientField::Cc, RecipientField::Bcc] {
+            assert_eq!(
+                hidden.field(requested),
+                RecipientField::Bcc,
+                "{requested:?}"
+            );
+            assert_eq!(open.field(requested), requested, "{requested:?}");
+        }
     }
 
     #[test]

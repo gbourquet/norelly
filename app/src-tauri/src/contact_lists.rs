@@ -13,6 +13,7 @@ use norelly_application::contact_lists::{
 };
 use norelly_domain::contact_lists::{
     ContactListError, ContactListField, ContactListId, ContactListInput, MAX_LIST_SUGGESTIONS,
+    RecipientField,
 };
 use norelly_domain::contacts::{Contact, contact_selection};
 use norelly_domain::ports::{
@@ -23,7 +24,8 @@ use tauri::State;
 use crate::contacts::item_dto as contact_item_dto;
 use crate::ipc::{
     ContactItemDto, ContactListCursorDto, ContactListDto, ContactListFieldsDto, ContactListItemDto,
-    ContactListPageDto, ErrorCodeDto, ExpandedListDto, FieldDto, IpcError, RecipientDto, id32,
+    ContactListPageDto, ErrorCodeDto, ExpandedListDto, FieldDto, IpcError, RecipientDto,
+    RecipientFieldDto, id32,
 };
 use crate::state::AppState;
 
@@ -240,13 +242,15 @@ pub async fn add_to_contact_list(
     view(&state, id).await
 }
 
-/// Destinataires de la liste `id` : chaque membre à son adresse préférée,
-/// nom lu par le domaine.
+/// Destinataires de la liste `id`, choisie dans le champ `field` : chaque
+/// membre à son adresse préférée, nom lu par le domaine, et le champ où
+/// les ranger (copie cachée pour une liste « en Cci »).
 #[tauri::command]
 #[specta::specta]
 pub async fn expand_contact_list(
     state: State<'_, AppState>,
     id: u32,
+    field: RecipientFieldDto,
 ) -> Result<ExpandedListDto, IpcError> {
     let id = list_id(id)?;
     let expansion = ExpandContactList {
@@ -256,6 +260,7 @@ pub async fn expand_contact_list(
     .execute(id)
     .await
     .map_err(list_error)?;
+    let target = field_dto(expansion.field(field_of(field)));
     Ok(ExpandedListDto {
         recipients: expansion
             .recipients
@@ -265,8 +270,24 @@ pub async fn expand_contact_list(
                 address: r.address.to_string(),
             })
             .collect(),
-        bcc: expansion.bcc,
+        field: target,
     })
+}
+
+fn field_of(dto: RecipientFieldDto) -> RecipientField {
+    match dto {
+        RecipientFieldDto::To => RecipientField::To,
+        RecipientFieldDto::Cc => RecipientField::Cc,
+        RecipientFieldDto::Bcc => RecipientField::Bcc,
+    }
+}
+
+fn field_dto(field: RecipientField) -> RecipientFieldDto {
+    match field {
+        RecipientField::To => RecipientFieldDto::To,
+        RecipientField::Cc => RecipientFieldDto::Cc,
+        RecipientField::Bcc => RecipientFieldDto::Bcc,
+    }
 }
 
 /// Listes proposées pendant la saisie d'un destinataire.

@@ -1274,10 +1274,14 @@ async fn contact_lists_are_managed_suggested_and_expanded() {
         .await
         .unwrap_or_else(fail);
     assert_eq!(found.iter().map(|l| l.id).collect::<Vec<_>>(), [club.id]);
-    let expanded = expand_contact_list(t.state(), club.id)
+    let expanded = expand_contact_list(t.state(), club.id, crate::ipc::RecipientFieldDto::To)
         .await
         .unwrap_or_else(fail);
-    assert!(expanded.bcc);
+    assert_eq!(
+        expanded.field,
+        crate::ipc::RecipientFieldDto::Bcc,
+        "liste en Cci"
+    );
     assert_eq!(
         expanded.recipients,
         [
@@ -1292,7 +1296,7 @@ async fn contact_lists_are_managed_suggested_and_expanded() {
         ]
     );
     assert_eq!(
-        code(expand_contact_list(t.state(), empty.id).await),
+        code(expand_contact_list(t.state(), empty.id, crate::ipc::RecipientFieldDto::Cc).await),
         (ErrorCodeDto::ContactListEmpty, None)
     );
 

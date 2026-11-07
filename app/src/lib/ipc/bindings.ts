@@ -224,10 +224,11 @@ export const commands = {
 	/**  Ajoute des contacts à la liste `id` (déjà membres : ignorés). */
 	addToContactList: (id: number, contacts: number[]) => typedError<ContactListDto_Serialize, IpcError_Serialize>(__TAURI_INVOKE("add_to_contact_list", { id, contacts })),
 	/**
-	 *  Destinataires de la liste `id` : chaque membre à son adresse préférée,
-	 *  nom lu par le domaine.
+	 *  Destinataires de la liste `id`, choisie dans le champ `field` : chaque
+	 *  membre à son adresse préférée, nom lu par le domaine, et le champ où
+	 *  les ranger (copie cachée pour une liste « en Cci »).
 	 */
-	expandContactList: (id: number) => typedError<ExpandedListDto, IpcError_Serialize>(__TAURI_INVOKE("expand_contact_list", { id })),
+	expandContactList: (id: number, field: RecipientFieldDto) => typedError<ExpandedListDto, IpcError_Serialize>(__TAURI_INVOKE("expand_contact_list", { id, field })),
 	/**  Listes proposées pendant la saisie d'un destinataire. */
 	suggestContactLists: (text: string) => typedError<ContactListItemDto[], IpcError_Serialize>(__TAURI_INVOKE("suggest_contact_lists", { text })),
 	/**  État de la recherche de mises à jour. */
@@ -888,8 +889,11 @@ export type ErrorCodeDto =
 /**  Liste dépliée en destinataires (noms et adresses lus par le domaine). */
 export type ExpandedListDto = {
 	recipients: RecipientDto[],
-	/**  À ranger en copie cachée, quel que soit le champ de saisie. */
-	bcc: boolean,
+	/**
+	 *  Champ où les ranger, décidé par le domaine : la copie cachée pour
+	 *  une liste « en Cci », quel que soit le champ de saisie.
+	 */
+	field: RecipientFieldDto,
 };
 
 export type FailureKindDto = "network" | "authentication" | "security" | "protocol" | 
@@ -1025,6 +1029,9 @@ export type RecipientDto = {
 	name: string,
 	address: string,
 };
+
+/**  Champ de destinataires d'un message. */
+export type RecipientFieldDto = "to" | "cc" | "bcc";
 
 /**
  *  Destinataire proposé pendant la saisie : contact du carnet ou adresse

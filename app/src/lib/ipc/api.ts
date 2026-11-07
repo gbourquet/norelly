@@ -48,6 +48,7 @@ import {
   type ContactListItemDto,
   type ContactListPageDto_Serialize,
   type ExpandedListDto,
+  type RecipientFieldDto,
   type CorrespondentDto_Serialize,
 } from "./bindings";
 import { IpcFailure } from "../errors";
@@ -341,8 +342,8 @@ export const api = {
     unwrap(commands.addToContactList(id, contacts)),
 
   /** Destinataires d'une liste, lus par Rust (adresse préférée de chaque membre). */
-  expandContactList: (id: number): Promise<ExpandedListDto> =>
-    unwrap(commands.expandContactList(id)),
+  expandContactList: (id: number, field: RecipientFieldDto): Promise<ExpandedListDto> =>
+    unwrap(commands.expandContactList(id, field)),
 
   /** Listes proposées pendant la saisie d'un destinataire (vides écartées). */
   suggestContactLists: (text: string): Promise<ContactListItemDto[]> =>

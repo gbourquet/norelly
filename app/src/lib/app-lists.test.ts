@@ -44,9 +44,9 @@ vi.mock("./ipc/api", () => ({
       references: [],
       attachments: [],
     })),
-    expandContactList: vi.fn(async () => ({
+    expandContactList: vi.fn(async (_id: number, field: string) => ({
       recipients: [{ name: "Alice", address: "alice@example.com" }],
-      bcc: false,
+      field,
     })),
     parseRecipient: vi.fn(async (raw: string) => ({
       name: raw.includes("<") ? raw.split("<")[0]?.trim() : "",

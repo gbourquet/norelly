@@ -55,6 +55,9 @@ export class ComposeState {
   #suggestTimer: ReturnType<typeof setTimeout> | null = null;
   #query = 0;
   #saving: Promise<void> | null = null;
+  /** Numéro du brouillon ouvert : une lecture en cours pour un brouillon
+   * refermé ou remplacé n'en touche pas un autre. */
+  #session = 0;
 
   constructor(api: ComposeApi) {
     this.#api = api;
@@ -87,6 +90,7 @@ export class ComposeState {
   }
 
   #reset(): void {
+    this.#session++;
     if (this.#saveTimer !== null) clearTimeout(this.#saveTimer);
     if (this.#suggestTimer !== null) clearTimeout(this.#suggestTimer);
     this.#saveTimer = null;
@@ -118,13 +122,14 @@ export class ComposeState {
    * est refusée ou si l'adresse est déjà présente. */
   async addRecipient(field: RecipientField, raw: string): Promise<boolean> {
     if (this.draft === null || raw.trim() === "") return false;
+    const session = this.#session;
     let parsed: RecipientDto;
     try {
       parsed = await this.#api.parseRecipient(raw);
     } catch {
       return false;
     }
-    if (this.draft === null) return false;
+    if (this.draft === null || session !== this.#session) return false;
     const all = [...this.draft.to, ...this.draft.cc, ...this.draft.bcc];
     if (all.some((r) => same(r.address, parsed.address))) return false;
     this.draft = { ...this.draft, [field]: [...this.draft[field], parsed] };
@@ -138,6 +143,7 @@ export class ComposeState {
    * comme une saisie (nom imitant une adresse écarté) ; une adresse déjà
    * présente ou refusée est ignorée. */
   async addRecipients(field: RecipientField, recipients: RecipientDto[]): Promise<void> {
+    const session = this.#session;
     const read: RecipientDto[] = [];
     for (const r of recipients) {
       try {
@@ -146,7 +152,7 @@ export class ComposeState {
         // Adresse refusée par Rust : ignorée.
       }
     }
-    if (this.draft === null) return;
+    if (this.draft === null || session !== this.#session) return;
     const all = [...this.draft.to, ...this.draft.cc, ...this.draft.bcc];
     const added: RecipientDto[] = [];
     for (const r of read) {
@@ -160,14 +166,16 @@ export class ComposeState {
 
   /** Liste de diffusion choisie dans les suggestions : ses membres,
    * dépliés par Rust (adresse préférée de chacun), deviennent des puces
-   * relues comme une saisie ; en copie cachée si la liste le demande,
-   * quel que soit `field`. `false` si la liste est refusée (erreur
+   * relues comme une saisie, dans le champ décidé par Rust (la copie
+   * cachée pour une liste « en Cci », quel que soit `field`). `false` si la liste est refusée (erreur
    * affichée). */
   async addList(field: RecipientField, id: number): Promise<boolean> {
     if (this.draft === null) return false;
+    const session = this.#session;
     try {
-      const expanded = await this.#api.expandContactList(id);
-      await this.addRecipients(expanded.bcc ? "bcc" : field, expanded.recipients);
+      const expanded = await this.#api.expandContactList(id, field);
+      if (session !== this.#session) return false;
+      await this.addRecipients(expanded.field, expanded.recipients);
     } catch (e) {
       this.error = errorText(e);
       return false;

@@ -1374,10 +1374,20 @@ pub struct ContactListPageDto {
     pub next: Option<ContactListCursorDto>,
 }
 
+/// Champ de destinataires d'un message.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum RecipientFieldDto {
+    To,
+    Cc,
+    Bcc,
+}
+
 /// Liste dépliée en destinataires (noms et adresses lus par le domaine).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
 pub struct ExpandedListDto {
     pub recipients: Vec<RecipientDto>,
-    /// À ranger en copie cachée, quel que soit le champ de saisie.
-    pub bcc: bool,
+    /// Champ où les ranger, décidé par le domaine : la copie cachée pour
+    /// une liste « en Cci », quel que soit le champ de saisie.
+    pub field: RecipientFieldDto,
 }

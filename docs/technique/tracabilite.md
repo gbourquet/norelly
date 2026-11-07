@@ -26,6 +26,7 @@ Fiche : [comptes.md](../fonctionnel/comptes.md).
 | Préférence de sécurité : TLS implicite > STARTTLS > clair | `discovery.rs` |
 | Jamais de HTTP en clair pour l'autoconfiguration ; serveur SRV hors du domaine de l'adresse : confirmation obligatoire | `discovery.rs` |
 | Certificat : valide pour la plateforme, ou exception mémorisée (hôte + empreinte SHA-256) ; sinon rejet avec un `CertificateIssue` détaillé ; une empreinte différente de l'exception est signalée comme changement | `crates/domain/src/security.rs` (`TlsTrustPolicy`) |
+| Un certificat autosigné reste une « autorité inconnue » même marqué autorité (`CA:TRUE`, `openssl req -x509` par défaut), que webpki refuse comme `CaUsedAsEndEntity` | `crates/adapters/tls/src/lib.rs` (`certificate_issue`) |
 | Clair refusé sans consentement explicite par serveur ; STARTTLS obligatoire s'il est annoncé ou demandé (aucun repli silencieux) ; capacités relues après TLS | `security.rs` (`PlaintextPolicy`), `capabilities.rs` |
 | Authentification : `AUTHENTICATE PLAIN` ou `LOGIN` selon les capacités, `LOGINDISABLED` respecté ; `XOAUTH2` non pris en charge | `crates/domain/src/auth.rs` |
 | Le secret n'est jamais dans `Debug`, n'a pas de `Display`, n'est pas sérialisable | `crates/domain/src/credentials.rs` |

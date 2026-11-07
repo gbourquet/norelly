@@ -155,16 +155,6 @@ quand le mainteneur l'abandonne (avec la raison).
   Reformuler, ou n'afficher qu'avec un trousseau. (`app/messages/{fr,en}.json`,
   `AddAccountDialog.svelte`)
 
-## Bogues
-
-- **Certificat autosigné mal qualifié** : présenté comme « Le certificat a
-  été refusé. » (`add_issue_other`) au lieu de « n'est pas signé par une
-  autorité reconnue ». Hypothèse : `openssl req -x509` pose `CA:TRUE`,
-  webpki répond `CaUsedAsEndEntity`, que `certificate_issue` range dans
-  `Other` ; cas courant des serveurs personnels. Test rouge avec un
-  certificat autosigné `CA:TRUE`, puis correspondance vers `UnknownIssuer`
-  (ou un problème dédié). (`crates/adapters/tls/src/lib.rs`)
-
 ## Sécurité et chaîne d'approvisionnement
 
 - Oracle du fuzzing de `sanitize_html` limité à `<script` : l'enrichir
@@ -181,6 +171,12 @@ quand le mainteneur l'abandonne (avec la raison).
 - Installateur Windows non signé (Authenticode) tant que SignPath n'a pas
   accepté le projet ([candidature](signpath-candidature.md)).
 - Permission Tauri `core:default` réductible.
+- **Nom d'hôte non signalé pour un certificat autosigné** (revue de
+  sécurité, info) : webpki refuse la chaîne (autorité inconnue, ou
+  `CA:TRUE` en feuille) avant de comparer le nom ; un certificat autosigné
+  au mauvais nom n'est présenté que comme « autorité inconnue ». Comparer
+  aussi le nom pour l'afficher en plus de la raison.
+  (`crates/adapters/tls/src/lib.rs`)
 - **Dossier modifié malgré un échec affiché** (revue de sécurité, basse) :
   le délai de 30 s de l'interface peut expirer pendant un `RENAME` ou un
   `DELETE` déjà commencé par l'acteur ; l'utilisateur voit « impossible »

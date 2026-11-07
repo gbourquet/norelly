@@ -33,8 +33,8 @@ s'appelle toujours `tests/integration*.rs`.
   qu'un vrai serveur ne fait pas sur commande : STARTTLS retiré, injection
   après `STARTTLS`, `LOGINDISABLED`, réponses malformées ou tronquées,
   `BAD`, délais, capacités masquées (`FakeImap::set_move_extensions`).
-- `certs.rs` : certificats `rcgen` (CA de test, autosigné, expiré, mauvais
-  nom d'hôte).
+- `certs.rs` : certificats `rcgen` (CA de test, autosigné, autosigné marqué
+  autorité comme `openssl req -x509`, expiré, mauvais nom d'hôte).
 - `containers.rs` : Dovecot 2.4.5, Mailpit, Toxiproxy (coupure, latence,
   connexion à moitié fermée), Stalwart ; images figées par empreinte.
 - `imap_control.rs` : manipulation directe d'une boîte (APPEND, changement

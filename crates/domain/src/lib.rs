@@ -18,6 +18,7 @@
 //! - [`notify`] : nouveaux messages à signaler (notifications) ;
 //! - [`settings`] : paramètres de l'application ;
 //! - [`search`] : syntaxe des requêtes de recherche, surlignage ;
+//! - [`contacts`] : carnet d'adresses (fiche, nom affiché, filtre) ;
 //! - [`ports`] : traits implémentés par les adaptateurs.
 
 pub mod account;
@@ -27,6 +28,7 @@ pub mod auth;
 pub mod capabilities;
 pub mod compose;
 pub mod connection;
+pub mod contacts;
 pub mod conversation;
 pub mod credentials;
 pub mod discovery;

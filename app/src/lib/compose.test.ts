@@ -149,14 +149,17 @@ describe("rédaction", () => {
     const api = fakeApi();
     const c = new ComposeState(api);
     await c.open(1, "new", null);
-    c.addRecipients("to", [
+    await c.addRecipients("to", [
       { name: "Dupont, Bob", address: "bob@example.com" },
       { name: "", address: "zoe@example.com" },
       { name: "Bob bis", address: "BOB@example.com" },
+      // Fiche nommée comme une adresse : relue par Rust, nom écarté.
+      { name: "ceo@banque.fr", address: "pirate@exemple.net" },
     ]);
     expect(c.draft?.to).toEqual([
       { name: "Dupont, Bob", address: "bob@example.com" },
       { name: "", address: "zoe@example.com" },
+      { name: "", address: "pirate@exemple.net" },
     ]);
   });
 

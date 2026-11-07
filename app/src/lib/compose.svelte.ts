@@ -128,13 +128,22 @@ export class ComposeState {
     return true;
   }
 
-  /** Ajoute des destinataires déjà connus (« Écrire à ») ; une adresse
-   * déjà présente est ignorée. */
-  addRecipients(field: RecipientField, recipients: RecipientDto[]): void {
+  /** Ajoute des destinataires déjà connus (« Écrire à »), relus par Rust
+   * comme une saisie (nom imitant une adresse écarté) ; une adresse déjà
+   * présente ou refusée est ignorée. */
+  async addRecipients(field: RecipientField, recipients: RecipientDto[]): Promise<void> {
+    const read: RecipientDto[] = [];
+    for (const r of recipients) {
+      try {
+        read.push(await this.#api.parseRecipient(r.name ? `${r.name} <${r.address}>` : r.address));
+      } catch {
+        // Adresse refusée par Rust : ignorée.
+      }
+    }
     if (this.draft === null) return;
     const all = [...this.draft.to, ...this.draft.cc, ...this.draft.bcc];
     const added: RecipientDto[] = [];
-    for (const r of recipients) {
+    for (const r of read) {
       if ([...all, ...added].some((x) => same(x.address, r.address))) continue;
       added.push({ name: r.name, address: r.address });
     }

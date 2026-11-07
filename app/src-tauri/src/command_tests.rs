@@ -202,6 +202,52 @@ async fn contacts_come_from_received_messages() {
     assert!(!t.messages.is_empty());
 }
 
+#[test]
+fn typed_recipients_are_read_by_the_domain() {
+    use crate::compose::parse_recipient;
+    let read = |raw: &str| parse_recipient(raw.into()).map(|r| (r.name, r.address));
+    assert_eq!(
+        read(" \"Dupont, Bob\" <bob@example.com> ").ok(),
+        Some(("Dupont, Bob".into(), "bob@example.com".into()))
+    );
+    // Nom qui imite une adresse : seule l'adresse réelle est gardée.
+    assert_eq!(
+        read("Banque <support@banque.fr> <pirate@exemple.net>").ok(),
+        Some((String::new(), "pirate@exemple.net".into()))
+    );
+    assert_eq!(
+        code(read("pas une adresse")),
+        (ErrorCodeDto::InvalidInput, Some(FieldDto::Address))
+    );
+}
+
+#[tokio::test]
+async fn suggestions_name_contacts_from_the_book_first() {
+    use crate::contacts::create_contact;
+    let t = test_app().await;
+    let account = id32(t.account.get());
+    let eve = create_contact(t.state(), card("Ève", "Un", &["E1@example.com"]))
+        .await
+        .unwrap_or_else(fail);
+    let found = suggest_contacts(t.state(), account, "e1@".into())
+        .await
+        .unwrap_or_else(|e| panic!("{e:?}"));
+    assert_eq!(
+        found,
+        [crate::ipc::RecipientSuggestionDto {
+            name: "Ève Un".into(),
+            address: "E1@example.com".into(),
+            contact: Some(eve.id),
+        }],
+        "adresse du carnet et adresse collectée : une seule suggestion, celle du carnet"
+    );
+    // Recherche par nom du carnet, absent des messages.
+    let by_name = suggest_contacts(t.state(), account, "ève".into())
+        .await
+        .unwrap_or_else(|e| panic!("{e:?}"));
+    assert_eq!(by_name.first().and_then(|s| s.contact), Some(eve.id));
+}
+
 #[tokio::test]
 async fn accounts_are_listed_and_removed() {
     use crate::commands::{list_accounts, remove_account, trust_certificate};

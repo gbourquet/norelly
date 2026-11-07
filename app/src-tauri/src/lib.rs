@@ -73,6 +73,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             compose::outbox,
             compose::retry_send,
             compose::cancel_send,
+            compose::parse_recipient,
             compose::suggest_contacts,
             compose::pick_attachments,
             compose::attach_dropped,

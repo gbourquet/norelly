@@ -216,3 +216,153 @@ async fn an_unreadable_book_leaves_the_header_names() {
     assert_eq!(names.label(&people[0]).name, "Bob");
     assert_eq!(names.label(&people[0]).contact, None);
 }
+
+/// Adresses collectées fixes, quelle que soit la saisie.
+struct Collected(Vec<Correspondent>);
+
+impl ContactQuery for Collected {
+    async fn suggest(
+        &self,
+        _: AccountId,
+        _: &str,
+        limit: usize,
+    ) -> Result<Vec<Correspondent>, StoreError> {
+        Ok(self.0.iter().take(limit).cloned().collect())
+    }
+}
+
+fn account() -> AccountId {
+    AccountId::new(1).unwrap_or_else(|_| panic!("compte"))
+}
+
+fn suggested(found: &[RecipientSuggestion]) -> Vec<(&str, &str, bool)> {
+    found
+        .iter()
+        .map(|s| (s.name.as_str(), s.address.as_str(), s.contact.is_some()))
+        .collect()
+}
+
+#[tokio::test]
+async fn suggestions_put_contacts_first_then_collected_addresses() -> Result<(), ContactFailure> {
+    let book = InMemoryContactBook::default();
+    let create = CreateContact { book: &book };
+    // Favori classé après les autres par l'ordre alphabétique, et une
+    // seconde adresse qui n'est pas dans la ligne de liste.
+    let mut zoe = input("Zoé Martin", &["zoe@example.com", "zoe.perso@exemple.fr"]);
+    zoe.favorite = true;
+    create.execute(zoe).await?;
+    create
+        .execute(input("Alice Martin", &["alice@example.com"]))
+        .await?;
+    let collected = Collected(vec![
+        Correspondent::new("alice", "ALICE@example.com"),
+        Correspondent::new("Marc Martin", "marc@example.com"),
+    ]);
+    let found = SuggestRecipients {
+        collected: &collected,
+        directory: &book,
+    }
+    .execute(account(), "martin", 10)
+    .await?;
+    assert_eq!(
+        suggested(&found),
+        [
+            ("Zoé Martin", "zoe@example.com", true),
+            ("Zoé Martin", "zoe.perso@exemple.fr", true),
+            ("Alice Martin", "alice@example.com", true),
+            ("Marc Martin", "marc@example.com", false),
+        ]
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn many_favorites_and_contacts_stay_bounded() -> Result<(), ContactFailure> {
+    use norelly_domain::ports::MAX_CONTACT_SUGGESTIONS;
+
+    let book = InMemoryContactBook::default();
+    let create = CreateContact { book: &book };
+    for i in 0..30 {
+        let mut c = input(&format!("Martin {i:02}"), &[&format!("m{i}@example.com")]);
+        c.favorite = i >= 25;
+        create.execute(c).await?;
+    }
+    let found = SuggestRecipients {
+        collected: &Collected(vec![]),
+        directory: &book,
+    }
+    .execute(account(), "martin", usize::MAX)
+    .await?;
+    assert_eq!(found.len(), MAX_CONTACT_SUGGESTIONS);
+    // Les favoris d'abord, même classés en fin de liste.
+    assert_eq!(found[0].name, "Martin 25");
+    assert_eq!(found[5].name, "Martin 00");
+    Ok(())
+}
+
+#[tokio::test]
+async fn an_unreadable_book_leaves_the_collected_addresses() -> Result<(), StoreError> {
+    let collected = Collected(vec![Correspondent::new("Bob", "bob@example.com")]);
+    let found = SuggestRecipients {
+        collected: &collected,
+        directory: &BrokenDirectory,
+    }
+    .execute(account(), "bob", 10)
+    .await?;
+    assert_eq!(suggested(&found), [("Bob", "bob@example.com", false)]);
+    Ok(())
+}
+
+#[tokio::test]
+async fn an_empty_text_reads_nothing() -> Result<(), StoreError> {
+    let collected = Collected(vec![Correspondent::new("Bob", "bob@example.com")]);
+    let found = SuggestRecipients {
+        collected: &collected,
+        directory: &BrokenDirectory,
+    }
+    .execute(account(), "  ", 10)
+    .await?;
+    assert!(found.is_empty());
+    Ok(())
+}
+
+/// Adresses collectées : garde le texte reçu.
+#[derive(Default)]
+struct Recording(std::sync::Mutex<Vec<String>>);
+
+impl ContactQuery for Recording {
+    async fn suggest(
+        &self,
+        _: AccountId,
+        text: &str,
+        _: usize,
+    ) -> Result<Vec<Correspondent>, StoreError> {
+        self.0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .push(text.to_owned());
+        Ok(Vec::new())
+    }
+}
+
+#[tokio::test]
+async fn collected_addresses_receive_the_bounded_text() -> Result<(), StoreError> {
+    use norelly_domain::contacts::MAX_CONTACT_FILTER_CHARS;
+
+    let collected = Recording::default();
+    let book = InMemoryContactBook::default();
+    let typed = format!("  {}  ", "a".repeat(10 * MAX_CONTACT_FILTER_CHARS));
+    SuggestRecipients {
+        collected: &collected,
+        directory: &book,
+    }
+    .execute(account(), &typed, 10)
+    .await?;
+    let seen = collected
+        .0
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .clone();
+    assert_eq!(seen, ["a".repeat(MAX_CONTACT_FILTER_CHARS)]);
+    Ok(())
+}

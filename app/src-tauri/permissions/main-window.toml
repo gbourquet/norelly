@@ -46,6 +46,7 @@ permissions = [
   "allow-outbox",
   "allow-retry-send",
   "allow-cancel-send",
+  "allow-parse-recipient",
   "allow-suggest-contacts",
   "allow-pick-attachments",
   "allow-attach-dropped",

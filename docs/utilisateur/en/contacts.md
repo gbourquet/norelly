@@ -78,6 +78,9 @@ For someone already in your address book, clicking their name offers
 
 ![The menu of a sender already in your contacts](captures/person-menu.png)
 
+When you write a message, type the start of a contact's name in **To**:
+your contacts are suggested first, under the name in your address book.
+
 Beware: your contact's name is shown based on the address given by the
 message, which a fraudster can imitate. It does not guarantee that the
 message really comes from that person: if in doubt (a request for money or

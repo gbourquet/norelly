@@ -11,6 +11,7 @@ import type {
   Draft,
   DraftAttachmentDto,
   RecipientDto,
+  RecipientSuggestion,
 } from "./ipc/api";
 import { errorText } from "./errors";
 import { longDate, personName } from "./format";
@@ -28,23 +29,13 @@ export type ComposeApi = Pick<
   | "sendDraft"
   | "scheduleDraft"
   | "discardDraft"
+  | "parseRecipient"
   | "suggestContacts"
   | "pickAttachments"
   | "attachDropped"
 >;
 
 export type RecipientField = "to" | "cc" | "bcc";
-
-/** « Nom <adresse> », « "Dupont, Bob" <adresse> » ou « adresse ». La
- * validation réelle est faite en Rust. */
-export function parseRecipient(raw: string): RecipientDto | null {
-  const text = raw.trim();
-  const angle = /^(.*)<([^<>\s]+)>$/.exec(text);
-  const name = angle ? (angle[1] ?? "").trim().replace(/^"(.*)"$/, "$1") : "";
-  const address = angle ? (angle[2] ?? "") : text;
-  if (!/^[^\s@]+@[^\s@]+$/.test(address)) return null;
-  return { name, address };
-}
 
 const same = (a: string, b: string): boolean => a.toLowerCase() === b.toLowerCase();
 
@@ -53,7 +44,7 @@ export class ComposeState {
   draft = $state<Draft | null>(null);
   error = $state<string | null>(null);
   busy = $state(false);
-  suggestions = $state<RecipientDto[]>([]);
+  suggestions = $state<RecipientSuggestion[]>([]);
   /** Modifié depuis le dernier enregistrement. */
   #dirty = false;
   #saveTimer: ReturnType<typeof setTimeout> | null = null;
@@ -118,9 +109,17 @@ export class ComposeState {
     this.#changed();
   }
 
-  addRecipient(field: RecipientField, raw: string): boolean {
-    const parsed = parseRecipient(raw);
-    if (this.draft === null || parsed === null) return false;
+  /** Saisie d'un destinataire, lue et validée en Rust ; `false` si elle
+   * est refusée ou si l'adresse est déjà présente. */
+  async addRecipient(field: RecipientField, raw: string): Promise<boolean> {
+    if (this.draft === null || raw.trim() === "") return false;
+    let parsed: RecipientDto;
+    try {
+      parsed = await this.#api.parseRecipient(raw);
+    } catch {
+      return false;
+    }
+    if (this.draft === null) return false;
     const all = [...this.draft.to, ...this.draft.cc, ...this.draft.bcc];
     if (all.some((r) => same(r.address, parsed.address))) return false;
     this.draft = { ...this.draft, [field]: [...this.draft[field], parsed] };
@@ -129,13 +128,22 @@ export class ComposeState {
     return true;
   }
 
-  /** Ajoute des destinataires déjà connus (« Écrire à ») ; une adresse
-   * déjà présente est ignorée. */
-  addRecipients(field: RecipientField, recipients: RecipientDto[]): void {
+  /** Ajoute des destinataires déjà connus (« Écrire à »), relus par Rust
+   * comme une saisie (nom imitant une adresse écarté) ; une adresse déjà
+   * présente ou refusée est ignorée. */
+  async addRecipients(field: RecipientField, recipients: RecipientDto[]): Promise<void> {
+    const read: RecipientDto[] = [];
+    for (const r of recipients) {
+      try {
+        read.push(await this.#api.parseRecipient(r.name ? `${r.name} <${r.address}>` : r.address));
+      } catch {
+        // Adresse refusée par Rust : ignorée.
+      }
+    }
     if (this.draft === null) return;
     const all = [...this.draft.to, ...this.draft.cc, ...this.draft.bcc];
     const added: RecipientDto[] = [];
-    for (const r of recipients) {
+    for (const r of read) {
       if ([...all, ...added].some((x) => same(x.address, r.address))) continue;
       added.push({ name: r.name, address: r.address });
     }

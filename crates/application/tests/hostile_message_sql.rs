@@ -4,8 +4,9 @@
 //! références, mots-clés, nom de boîte, corps, nom de pièce jointe)
 //! traversent toute la chaîne
 //! réelle : faux serveur IMAP, `mail-parser`, domaine, SQLite sur disque,
-//! fichiers. Elles doivent être stockées comme de simples données : schéma
-//! inchangé, base intègre, aucune autre ligne touchée, valeurs relues à
+//! fichiers ; puis dans tous les champs d'une fiche du carnet, comme filtre
+//! et comme saisie d'un destinataire. Elles doivent être stockées comme de
+//! simples données : schéma inchangé, base intègre, aucune autre ligne touchée, valeurs relues à
 //! l'identique (une fois assainies pour l'affichage).
 //!
 //! Sans Docker : exécuté avec les tests unitaires (`cargo nextest run`).
@@ -492,6 +493,112 @@ async fn trapped_messages_cannot_alter_the_database() -> Result<(), Box<dyn std:
         "brouillon programmé relu à l'identique"
     );
 
+    assert_eq!(l.db.integrity_problems().await?, Vec::<String>::new());
+    assert_eq!(l.db.schema().await?, schema_before, "schéma modifié");
+    Ok(())
+}
+
+/// Fiche dont chaque champ texte porte une charge (décalée de `n`).
+fn trapped_contact(n: usize) -> norelly_domain::contacts::ContactInput {
+    use norelly_domain::contacts::{ContactInput, EmailInput, PhoneInput};
+    let p = |i: usize| PAYLOADS[(n + i) % PAYLOADS.len()].to_owned();
+    // Étiquettes et numéros : au plus 64 caractères.
+    let short = |i: usize| p(i).chars().take(64).collect::<String>();
+    ContactInput {
+        display_name: p(0),
+        given_name: p(1),
+        family_name: p(2),
+        nickname: p(3),
+        organization: p(4),
+        notes: PAYLOADS.join("\n"),
+        emails: vec![
+            EmailInput {
+                address: format!("c{n}@example.com"),
+                label: short(5),
+                preferred: true,
+            },
+            EmailInput {
+                address: format!("c{n}.bis@example.org"),
+                label: short(6),
+                preferred: false,
+            },
+        ],
+        phones: vec![PhoneInput {
+            number: short(7),
+            label: short(0),
+        }],
+        favorite: n.is_multiple_of(2),
+    }
+}
+
+#[tokio::test]
+async fn trapped_contacts_cannot_alter_the_database() -> Result<(), Box<dyn std::error::Error>> {
+    use norelly_application::contacts::{CreateContact, SuggestRecipients, UpdateContact};
+    use norelly_domain::contacts::{ContactFilter, ContactInput};
+    use norelly_domain::ports::{ContactBook, ContactDirectory};
+    use norelly_sqlite::contacts::SqliteContactBook;
+
+    let l = local("sql-injection-contacts").await;
+    let schema_before = l.db.schema().await?;
+    let accounts = SqliteAccountRepository::new(l.db.clone());
+    let accounts_before = accounts.list().await?;
+    let book = SqliteContactBook::new(l.db.clone());
+
+    // Fiches piégées : enregistrées, relues à l'identique.
+    let mut created = Vec::new();
+    for n in 0..PAYLOADS.len() {
+        let contact = CreateContact { book: &book }
+            .execute(trapped_contact(n))
+            .await?;
+        assert_eq!(book.get(contact.id()).await?.as_ref(), Some(&contact));
+        created.push(contact);
+    }
+
+    // Chaque charge, comme filtre de la liste et comme saisie d'un
+    // destinataire : de simples données, qui retrouvent leur fiche.
+    let suggest = SuggestRecipients {
+        collected: &*l.store,
+        directory: &book,
+    };
+    for (n, payload) in PAYLOADS.iter().enumerate() {
+        let page = book
+            .page(&ContactFilter::new(payload, false), None, 50)
+            .await?;
+        assert!(
+            page.items.iter().any(|i| i.id == created[n].id()),
+            "{payload:?} : fiche non retrouvée"
+        );
+        let found = suggest.execute(l.account, payload, 20).await?;
+        assert!(
+            found
+                .iter()
+                .any(|s| s.address == format!("c{n}@example.com")),
+            "{payload:?} : suggestion absente ({found:?})"
+        );
+    }
+
+    // Modification et suppression piégées.
+    let renamed = UpdateContact { book: &book }
+        .execute(
+            created[0].id(),
+            ContactInput {
+                display_name: PAYLOADS[4].to_owned(),
+                given_name: PAYLOADS[7].to_owned(),
+                ..trapped_contact(0)
+            },
+        )
+        .await?;
+    assert_eq!(book.get(renamed.id()).await?, Some(renamed.clone()));
+    let ids: Vec<_> = created.iter().map(|c| c.id()).collect();
+    assert_eq!(book.delete_many(&ids).await?, PAYLOADS.len());
+    assert!(
+        book.page(&ContactFilter::default(), None, 50)
+            .await?
+            .items
+            .is_empty()
+    );
+
+    assert_eq!(accounts.list().await?, accounts_before, "comptes modifiés");
     assert_eq!(l.db.integrity_problems().await?, Vec::<String>::new());
     assert_eq!(l.db.schema().await?, schema_before, "schéma modifié");
     Ok(())

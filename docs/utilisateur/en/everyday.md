@@ -74,9 +74,12 @@ To **forward** a message to someone else, with its attachments, click
 1. Click the blue **New message** button at the top left (from the
    keyboard: **C**). The message is sent from the address selected in the
    left panel.
-2. In **To**, type the recipient's address. Norelly suggests addresses you
-   already know: pick one with the arrow keys and **Enter**, or click it.
-   You can add several recipients.
+2. In **To**, type the recipient's name or address. Norelly suggests your
+   contacts first (marked “In your contacts”), then addresses you already
+   know: pick one with the arrow keys and **Enter**, or click it. You can
+   add several recipients.
+
+   ![Recipient suggestions: a contact, then an address you already know](captures/compose-suggestions.png)
 3. To send a **copy** (**Cc**) or a **blind copy** (**Bcc**: the other
    recipients do not see it) to someone, click **Cc and Bcc**.
 4. Fill in the **Subject**, then write your text. The buttons above the

@@ -14,9 +14,10 @@
 //! 4. abandonné, il est supprimé localement et sur le serveur.
 
 use crate::account::AccountId;
-use crate::address::EmailAddress;
+use crate::address::{EmailAddress, EmailAddressError, MAX_ADDRESS_LEN};
 use crate::mailbox::{MAX_ADDRESS_CHARS, MailboxName, Uid, UidValidity, header_text};
 use crate::ports::BlobId;
+use crate::sender::imitates_address;
 
 use super::Threading;
 
@@ -50,6 +51,10 @@ pub const REMOTE_SAVE_INTERVAL_SECS: i64 = 30;
 /// serveur (quota, message refusé) ou impossible à construire.
 pub const REMOTE_REFUSED_RETRY_SECS: i64 = 3600;
 
+/// Longueur maximale, en octets, d'un destinataire saisi ou collé : un
+/// nom et une adresse de longueur maximale, guillemets et chevrons compris.
+pub const MAX_RECIPIENT_INPUT_LEN: usize = 4 * MAX_ADDRESS_CHARS + MAX_ADDRESS_LEN + 8;
+
 /// Destinataire validé.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Recipient {
@@ -61,11 +66,42 @@ pub struct Recipient {
 
 impl Recipient {
     #[must_use]
+    /// Nom assaini ([`header_text`]) ; écarté s'il imite une adresse
+    /// ([`imitates_address`]) : seule l'adresse réelle s'affiche et part.
     pub fn new(name: &str, address: EmailAddress) -> Self {
+        let name = header_text(name, MAX_ADDRESS_CHARS);
         Self {
-            name: header_text(name, MAX_ADDRESS_CHARS),
+            name: if imitates_address(&name) {
+                String::new()
+            } else {
+                name
+            },
             address,
         }
+    }
+
+    /// Destinataire saisi ou collé : « adresse », « Nom <adresse> » ou
+    /// « "Nom, avec virgule" <adresse> » ; nom traité par [`Self::new`].
+    /// Au-delà de [`MAX_RECIPIENT_INPUT_LEN`] octets : refusé d'emblée.
+    pub fn parse(raw: &str) -> Result<Self, EmailAddressError> {
+        if raw.len() > MAX_RECIPIENT_INPUT_LEN {
+            return Err(EmailAddressError::TooLong);
+        }
+        let text = raw.trim();
+        let angle = text.strip_suffix('>').and_then(|inner| {
+            inner
+                .rfind('<')
+                .map(|open| (&inner[..open], &inner[open + 1..]))
+        });
+        let Some((name, address)) = angle else {
+            return EmailAddress::parse(text).map(|a| Self::new("", a));
+        };
+        let name = name.trim();
+        let name = name
+            .strip_prefix('"')
+            .and_then(|n| n.strip_suffix('"'))
+            .unwrap_or(name);
+        EmailAddress::parse(address).map(|a| Self::new(name, a))
     }
 }
 
@@ -322,6 +358,64 @@ mod tests {
             EmailAddress::parse("b@example.com").unwrap_or_else(|_| panic!()),
         );
         assert!(!r.name.contains(['\r', '\n']), "{:?}", r.name);
+    }
+
+    #[test]
+    fn typed_recipients_are_parsed() {
+        let parsed = |raw: &str| Recipient::parse(raw).map(|r| (r.name, r.address.to_string()));
+        assert_eq!(
+            parsed("bob@example.com"),
+            Ok((String::new(), "bob@example.com".into()))
+        );
+        assert_eq!(
+            parsed(" Bob Dupont <bob@example.com> "),
+            Ok(("Bob Dupont".into(), "bob@example.com".into()))
+        );
+        assert_eq!(
+            parsed("\"Dupont, Bob\" <bob@example.com>"),
+            Ok(("Dupont, Bob".into(), "bob@example.com".into()))
+        );
+        assert_eq!(
+            parsed("<bob@example.com>"),
+            Ok((String::new(), "bob@example.com".into()))
+        );
+        assert!(parsed("pas une adresse").is_err());
+        assert_eq!(parsed(""), Err(EmailAddressError::Empty));
+        assert!(parsed("Bob <bob@example.com").is_err());
+        assert!(parsed("Bob <bob@example.com> suite").is_err());
+    }
+
+    #[test]
+    fn an_oversized_typed_recipient_is_refused_at_once() {
+        let huge = format!("{} <bob@example.com>", "n".repeat(MAX_RECIPIENT_INPUT_LEN));
+        assert_eq!(Recipient::parse(&huge), Err(EmailAddressError::TooLong));
+        let longest_name = "n".repeat(MAX_ADDRESS_CHARS);
+        assert!(Recipient::parse(&format!("{longest_name} <bob@example.com>")).is_ok());
+    }
+
+    #[test]
+    fn a_pasted_recipient_imitating_another_address_keeps_only_the_real_one() {
+        let r = Recipient::parse("Banque <support@banque.fr> <pirate@exemple.net>")
+            .unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(r.name, "");
+        assert_eq!(r.address.to_string(), "pirate@exemple.net");
+        let r = Recipient::parse("support@banque.fr <pirate@exemple.net>")
+            .unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(
+            (r.name.as_str(), r.address.to_string().as_str()),
+            ("", "pirate@exemple.net")
+        );
+    }
+
+    #[test]
+    fn a_recipient_name_imitating_an_address_is_dropped() {
+        let address = EmailAddress::parse("pirate@exemple.net").unwrap_or_else(|_| panic!());
+        assert_eq!(Recipient::new("ceo@banque.fr", address.clone()).name, "");
+        assert_eq!(
+            Recipient::new("Banque \u{FF1C}x\u{FF1E}", address.clone()).name,
+            ""
+        );
+        assert_eq!(Recipient::new("Dupont, Bob", address).name, "Dupont, Bob");
     }
 
     #[test]

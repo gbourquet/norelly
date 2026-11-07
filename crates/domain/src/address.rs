@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use crate::endpoint::Host;
 
 /// Longueur maximale d'une adresse (RFC 5321, chemin moins les chevrons).
-const MAX_ADDRESS_LEN: usize = 254;
+pub const MAX_ADDRESS_LEN: usize = 254;
 /// Longueur maximale de la partie locale (RFC 5321).
 const MAX_LOCAL_LEN: usize = 64;
 

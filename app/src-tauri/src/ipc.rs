@@ -772,6 +772,18 @@ pub struct RecipientDto {
     pub address: String,
 }
 
+/// Destinataire proposé pendant la saisie : contact du carnet ou adresse
+/// déjà utilisée dans le courrier. Le nom est déjà écarté s'il imite une
+/// adresse.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
+pub struct RecipientSuggestionDto {
+    /// Nom à afficher ; vide : l'adresse seule.
+    pub name: String,
+    pub address: String,
+    /// Contact du carnet qui porte l'adresse ; absent : adresse collectée.
+    pub contact: Option<u32>,
+}
+
 /// Pièce jointe d'un brouillon (contenu déjà stocké).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 pub struct DraftAttachmentDto {

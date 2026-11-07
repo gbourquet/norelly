@@ -1,17 +1,19 @@
 <script lang="ts">
   // Champ de destinataires : puces retirables, saisie validée par Entrée,
-  // virgule ou tabulation, suggestions d'adresses connues (liste
-  // accessible au clavier). La validation réelle est faite en Rust.
+  // virgule ou tabulation, suggestions (contacts du carnet, signalés, puis
+  // adresses déjà utilisées ; liste accessible au clavier). La saisie est
+  // lue et validée en Rust, qui écarte aussi tout nom imitant une adresse.
+  import BookUserIcon from "@lucide/svelte/icons/book-user";
   import XIcon from "@lucide/svelte/icons/x";
-  import type { RecipientDto } from "../lib/ipc/api";
+  import type { RecipientDto, RecipientSuggestion } from "../lib/ipc/api";
   import { m } from "../lib/paraglide/messages.js";
 
   interface Props {
     label: string;
     recipients: RecipientDto[];
-    suggestions: RecipientDto[];
-    /** Renvoie `false` si la saisie est refusée. */
-    onAdd: (raw: string) => boolean;
+    suggestions: RecipientSuggestion[];
+    /** Résout `false` si la saisie est refusée. */
+    onAdd: (raw: string) => Promise<boolean>;
     onRemove: (index: number) => void;
     onQuery: (text: string) => void;
   }
@@ -24,19 +26,20 @@
   let highlighted = $state(-1);
   const shown = $derived(focused && text.trim() !== "" ? suggestions : []);
 
-  function commit(raw: string): void {
+  async function commit(raw: string): Promise<void> {
     if (raw.trim() === "") return;
-    if (onAdd(raw)) {
+    const typed = text;
+    if (await onAdd(raw)) {
+      // Saisie poursuivie pendant la lecture : gardée.
+      if (text !== typed) return;
       text = "";
       highlighted = -1;
       onQuery("");
     }
   }
 
-  /** « Nom <adresse> » ; un nom qui imite une adresse (`@`, `<`, `>`) est
-   * écarté : seule l'adresse réelle est montrée. */
-  const format = (r: RecipientDto): string =>
-    r.name && !/[@<>]/.test(r.name) ? `${r.name} <${r.address}>` : r.address;
+  /** « Nom <adresse> », ou l'adresse seule si Rust n'a pas gardé de nom. */
+  const format = (r: RecipientDto): string => (r.name ? `${r.name} <${r.address}>` : r.address);
 
   function onKeyDown(e: KeyboardEvent): void {
     if (e.ctrlKey || e.metaKey || e.altKey) return;
@@ -49,7 +52,7 @@
     } else if (e.key === "Enter" || e.key === "," || (e.key === "Tab" && text.trim() !== "")) {
       const choice = shown[highlighted];
       if (choice !== undefined || text.trim() !== "") e.preventDefault();
-      commit(choice !== undefined ? format(choice) : text);
+      void commit(choice !== undefined ? format(choice) : text);
     } else if (e.key === "Backspace" && text === "" && recipients.length > 0) {
       onRemove(recipients.length - 1);
     }
@@ -84,7 +87,7 @@
       onfocus={() => (focused = true)}
       onblur={() => {
         focused = false;
-        commit(text);
+        void commit(text);
       }}
     />
   </div>
@@ -95,9 +98,20 @@
           <button
             type="button"
             tabindex="-1"
+            title={s.address}
             onmousedown={(e) => e.preventDefault()}
-            onclick={() => commit(format(s))}>{format(s)}</button
+            onclick={() => void commit(format(s))}
           >
+            <!-- Nom seul tronqué : l'adresse reste toujours entière. -->
+            {#if s.name}<span class="who">{s.name}</span>{/if}
+            <span class="address">{s.name ? `<${s.address}>` : s.address}</span>
+            {#if s.contact != null}
+              <span class="in-contacts">
+                <BookUserIcon size={12} aria-hidden="true" />
+                {m.compose_suggestion_contact()}
+              </span>
+            {/if}
+          </button>
         </li>
       {/each}
     </ul>
@@ -168,6 +182,9 @@
   }
 
   li button {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
     width: 100%;
     padding: var(--space-1) var(--space-2);
     border: none;
@@ -175,6 +192,32 @@
     color: inherit;
     text-align: left;
     cursor: pointer;
+  }
+
+  .who {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .address {
+    flex-shrink: 0;
+    color: var(--color-text-muted);
+  }
+
+  .in-contacts {
+    display: inline-flex;
+    flex-shrink: 0;
+    margin-left: auto;
+    align-items: center;
+    gap: var(--space-1);
+    color: var(--color-text-muted);
+    font-size: var(--font-size-sm);
+  }
+
+  li button:hover {
+    background: var(--color-border);
   }
 
   li[aria-selected="true"] button {

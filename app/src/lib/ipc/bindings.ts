@@ -168,8 +168,17 @@ export const commands = {
 	 *  d'envoi : en attente, ou en échec.
 	 */
 	cancelSend: (account: number, id: number) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("cancel_send", { account, id })),
-	/**  Adresses connues correspondant à la saisie. */
-	suggestContacts: (account: number, text: string) => typedError<RecipientDto[], IpcError_Serialize>(__TAURI_INVOKE("suggest_contacts", { account, text })),
+	/**
+	 *  Destinataire saisi ou collé dans l'éditeur, lu et validé par le
+	 *  domaine ([`Recipient::parse`]) : un nom qui imite une adresse est
+	 *  écarté.
+	 */
+	parseRecipient: (raw: string) => typedError<RecipientDto, IpcError_Serialize>(__TAURI_INVOKE("parse_recipient", { raw })),
+	/**
+	 *  Destinataires proposés pour la saisie : contacts du carnet, puis
+	 *  adresses connues du compte.
+	 */
+	suggestContacts: (account: number, text: string) => typedError<RecipientSuggestionDto_Serialize[], IpcError_Serialize>(__TAURI_INVOKE("suggest_contacts", { account, text })),
 	/**
 	 *  Joint des fichiers choisis dans le sélecteur du système (titre
 	 *  localisé par l'interface) ; liste vide si l'utilisateur annule.
@@ -901,6 +910,39 @@ export type ReadingPreferencesDto = {
 export type RecipientDto = {
 	name: string,
 	address: string,
+};
+
+/**
+ *  Destinataire proposé pendant la saisie : contact du carnet ou adresse
+ *  déjà utilisée dans le courrier. Le nom est déjà écarté s'il imite une
+ *  adresse.
+ */
+export type RecipientSuggestionDto = RecipientSuggestionDto_Serialize | RecipientSuggestionDto_Deserialize;
+
+/**
+ *  Destinataire proposé pendant la saisie : contact du carnet ou adresse
+ *  déjà utilisée dans le courrier. Le nom est déjà écarté s'il imite une
+ *  adresse.
+ */
+export type RecipientSuggestionDto_Deserialize = {
+	/**  Nom à afficher ; vide : l'adresse seule. */
+	name: string,
+	address: string,
+	/**  Contact du carnet qui porte l'adresse ; absent : adresse collectée. */
+	contact?: number | null,
+};
+
+/**
+ *  Destinataire proposé pendant la saisie : contact du carnet ou adresse
+ *  déjà utilisée dans le courrier. Le nom est déjà écarté s'il imite une
+ *  adresse.
+ */
+export type RecipientSuggestionDto_Serialize = {
+	/**  Nom à afficher ; vide : l'adresse seule. */
+	name: string,
+	address: string,
+	/**  Contact du carnet qui porte l'adresse ; absent : adresse collectée. */
+	contact: number | null,
 };
 
 /**  Brouillon du dossier « Brouillons » écrit par un autre client. */

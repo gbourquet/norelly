@@ -43,4 +43,5 @@ pub mod search;
 pub mod security;
 pub mod sender;
 pub mod settings;
+pub mod suggestions;
 pub mod sync;

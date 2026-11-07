@@ -2,20 +2,24 @@
 //! ([`CreateContact`]), modifier ([`UpdateContact`]), supprimer
 //! ([`DeleteContacts`]), lister ([`ListContacts`]) et lire
 //! ([`GetContact`]) une fiche ; nommer des correspondants d'après le
-//! carnet ([`NameSenders`]).
+//! carnet ([`NameSenders`]) ; suggérer des destinataires
+//! ([`SuggestRecipients`]).
 //!
 //! Les règles (validation de la fiche, nom affiché, filtre, ordre) sont
 //! dans `norelly_domain::contacts` ; ce module valide la saisie par le
 //! domaine avant toute écriture, puis appelle le carnet.
 
+use norelly_domain::account::AccountId;
 use norelly_domain::contacts::{
     Contact, ContactDraft, ContactError, ContactFilter, ContactId, ContactInput,
 };
 use norelly_domain::mailbox::Correspondent;
 use norelly_domain::ports::{
-    ContactBook, ContactCursor, ContactDirectory, ContactPage, ContactStoreError, StoreError,
+    ContactBook, ContactCursor, ContactDirectory, ContactPage, ContactQuery, ContactStoreError,
+    MAX_CONTACT_SUGGESTIONS, StoreError,
 };
 use norelly_domain::sender::{SenderNames, sender_keys};
+use norelly_domain::suggestions::{RecipientSuggestion, recipient_suggestions};
 
 /// Échec d'un cas d'usage du carnet.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -143,6 +147,72 @@ impl<D: ContactDirectory> NameSenders<'_, D> {
                 }
             }
         }
+    }
+}
+
+/// Cas d'usage : au plus `limit` destinataires proposés pendant la saisie
+/// de `text` ([`recipient_suggestions`]) :
+/// contacts du carnet (lus par la liste, favoris puis tous, puis fiche par
+/// fiche), puis adresses collectées du compte. Un carnet illisible laisse
+/// les seules adresses collectées (avertissement journalisé).
+#[derive(Debug)]
+pub struct SuggestRecipients<'a, Q, D> {
+    pub collected: &'a Q,
+    pub directory: &'a D,
+}
+
+impl<Q: ContactQuery, D: ContactDirectory> SuggestRecipients<'_, Q, D> {
+    pub async fn execute(
+        &self,
+        account: AccountId,
+        text: &str,
+        limit: usize,
+    ) -> Result<Vec<RecipientSuggestion>, StoreError> {
+        let limit = limit.min(MAX_CONTACT_SUGGESTIONS);
+        let filter = ContactFilter::new(text, false);
+        if filter.text().is_empty() || limit == 0 {
+            return Ok(Vec::new());
+        }
+        let contacts = match self.contacts(&filter, limit).await {
+            Ok(contacts) => contacts,
+            Err(e) => {
+                tracing::warn!(error = %e, "carnet illisible : adresses collectées seules");
+                Vec::new()
+            }
+        };
+        let collected = self
+            .collected
+            .suggest(account, filter.text(), limit)
+            .await?;
+        Ok(recipient_suggestions(text, &contacts, &collected, limit))
+    }
+
+    /// Fiches complètes des contacts qui passent `filter` : les `limit`
+    /// premiers favoris, puis les `limit` premiers de la liste, chacun une
+    /// fois.
+    async fn contacts(
+        &self,
+        filter: &ContactFilter,
+        limit: usize,
+    ) -> Result<Vec<Contact>, StoreError> {
+        let limit = u32::try_from(limit).unwrap_or(u32::MAX);
+        let favorites = ContactFilter::new(filter.text(), true);
+        let mut ids = Vec::new();
+        for f in [&favorites, filter] {
+            for item in self.directory.page(f, None, limit).await?.items {
+                if !ids.contains(&item.id) {
+                    ids.push(item.id);
+                }
+            }
+        }
+        let mut contacts = Vec::with_capacity(ids.len());
+        for id in ids {
+            // Fiche supprimée entre les deux lectures : ignorée.
+            if let Some(contact) = self.directory.get(id).await? {
+                contacts.push(contact);
+            }
+        }
+        Ok(contacts)
     }
 }
 

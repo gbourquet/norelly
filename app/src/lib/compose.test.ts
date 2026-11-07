@@ -1,12 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ConversationMessage, Draft } from "./ipc/api";
-import {
-  AUTOSAVE_MS,
-  ComposeState,
-  SUGGEST_MS,
-  parseRecipient,
-  type ComposeApi,
-} from "./compose.svelte";
+import { AUTOSAVE_MS, ComposeState, SUGGEST_MS, type ComposeApi } from "./compose.svelte";
 import { IpcFailure } from "./errors";
 import { setLocale } from "./paraglide/runtime.js";
 
@@ -44,8 +38,17 @@ function fakeApi(): ComposeApi & { saved: Draft[] } {
     sendDraft: vi.fn(async () => 7),
     scheduleDraft: vi.fn(async () => 8),
     discardDraft: vi.fn(async () => undefined),
+    // Lecture de la saisie faite en Rust (Recipient::parse) : ici, un
+    // faux qui imite son contrat.
+    parseRecipient: vi.fn(async (raw: string) => {
+      const angle = /^(.*)<([^<>\s]+)>$/.exec(raw.trim());
+      const address = angle ? (angle[2] ?? "") : raw.trim();
+      if (!/^[^\s@]+@[^\s@]+$/.test(address)) throw new IpcFailure("invalid_input", "address");
+      const name = (angle?.[1] ?? "").trim();
+      return { name: /[@<>]/.test(name) ? "" : name, address };
+    }),
     suggestContacts: vi.fn(async (_a: number, text: string) => [
-      { name: "Alice", address: `${text}@example.com` },
+      { name: "Alice", address: `${text}@example.com`, contact: 3 },
     ]),
     pickAttachments: vi.fn(async () => [attachment]),
     attachDropped: vi.fn(async () => [attachment]),
@@ -65,22 +68,6 @@ const message: ConversationMessage = {
   flagged: false,
   has_attachments: false,
 };
-
-describe("parseRecipient", () => {
-  it("lit les formes usuelles", () => {
-    expect(parseRecipient("bob@example.com")).toEqual({ name: "", address: "bob@example.com" });
-    expect(parseRecipient(" Bob Dupont <bob@example.com> ")).toEqual({
-      name: "Bob Dupont",
-      address: "bob@example.com",
-    });
-    expect(parseRecipient('"Dupont, Bob" <bob@example.com>')).toEqual({
-      name: "Dupont, Bob",
-      address: "bob@example.com",
-    });
-    expect(parseRecipient("pas une adresse")).toBeNull();
-    expect(parseRecipient("")).toBeNull();
-  });
-});
 
 describe("rédaction", () => {
   beforeEach(() => {
@@ -135,17 +122,24 @@ describe("rédaction", () => {
     const api = fakeApi();
     const c = new ComposeState(api);
     await c.open(1, "new", null);
-    expect(c.addRecipient("to", "Bob <bob@example.com>")).toBe(true);
-    expect(c.addRecipient("to", "bob@example.com")).toBe(false);
-    expect(c.addRecipient("cc", "n'importe quoi")).toBe(false);
+    expect(await c.addRecipient("to", "Bob <bob@example.com>")).toBe(true);
+    expect(api.parseRecipient).toHaveBeenCalledWith("Bob <bob@example.com>");
+    expect(await c.addRecipient("to", "bob@example.com")).toBe(false);
+    expect(await c.addRecipient("cc", "n'importe quoi")).toBe(false);
+    expect(await c.addRecipient("cc", "   ")).toBe(false);
     expect(c.draft?.to).toEqual([{ name: "Bob", address: "bob@example.com" }]);
+    // Le destinataire est celui lu par Rust, nom écarté compris.
+    expect(await c.addRecipient("cc", "Banque <support@banque.fr> <pirate@exemple.net>")).toBe(
+      true,
+    );
+    expect(c.draft?.cc).toEqual([{ name: "", address: "pirate@exemple.net" }]);
     c.removeRecipient("to", 0);
     expect(c.draft?.to).toEqual([]);
     c.query("al");
     c.query("ali");
     await vi.advanceTimersByTimeAsync(SUGGEST_MS);
     expect(api.suggestContacts).toHaveBeenCalledTimes(1);
-    expect(c.suggestions).toEqual([{ name: "Alice", address: "ali@example.com" }]);
+    expect(c.suggestions).toEqual([{ name: "Alice", address: "ali@example.com", contact: 3 }]);
     c.query("");
     await vi.advanceTimersByTimeAsync(SUGGEST_MS);
     expect(c.suggestions).toEqual([]);
@@ -155,14 +149,17 @@ describe("rédaction", () => {
     const api = fakeApi();
     const c = new ComposeState(api);
     await c.open(1, "new", null);
-    c.addRecipients("to", [
+    await c.addRecipients("to", [
       { name: "Dupont, Bob", address: "bob@example.com" },
       { name: "", address: "zoe@example.com" },
       { name: "Bob bis", address: "BOB@example.com" },
+      // Fiche nommée comme une adresse : relue par Rust, nom écarté.
+      { name: "ceo@banque.fr", address: "pirate@exemple.net" },
     ]);
     expect(c.draft?.to).toEqual([
       { name: "Dupont, Bob", address: "bob@example.com" },
       { name: "", address: "zoe@example.com" },
+      { name: "", address: "pirate@exemple.net" },
     ]);
   });
 

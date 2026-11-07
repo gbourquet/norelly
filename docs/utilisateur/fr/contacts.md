@@ -79,6 +79,9 @@ Pour une personne déjà dans votre carnet, un clic sur son nom propose
 
 ![Le menu d'un expéditeur déjà dans les contacts](captures/person-menu.png)
 
+Quand vous écrivez un message, tapez le début du nom d'un contact dans
+**À** : vos contacts sont proposés en premier, sous le nom de votre carnet.
+
 Attention : le nom de votre contact s'affiche d'après l'adresse indiquée
 par le message, qu'un fraudeur peut imiter. Il ne garantit pas que le
 message vient vraiment de cette personne : en cas de doute (demande

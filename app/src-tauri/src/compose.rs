@@ -11,13 +11,12 @@ use std::path::PathBuf;
 
 use norelly_application::account_actor::unix_now;
 use norelly_application::compose::{ComposeFailure, PrepareReply, QueueMessage, SaveDraft};
+use norelly_application::contacts::SuggestRecipients;
 use norelly_domain::compose::ReplyKind;
 use norelly_domain::compose::draft::MAX_ATTACHMENTS_BYTES;
 use norelly_domain::compose::outbox::OutboxEntry;
 use norelly_domain::connection::server_text;
-use norelly_domain::ports::{
-    AccountRepository, BlobStore, ContactQuery, DraftStore, MessageId, OutboxStore,
-};
+use norelly_domain::ports::{AccountRepository, BlobStore, DraftStore, MessageId, OutboxStore};
 use norelly_render::compose::MimeComposer;
 use tauri::{AppHandle, State};
 use tauri_plugin_dialog::DialogExt;
@@ -37,8 +36,8 @@ use norelly_domain::ports::{
 
 use crate::ipc::{
     ComposeKindDto, DraftAttachmentDto, DraftDto, DraftSummaryDto, DraftsDto, ErrorCodeDto,
-    FieldDto, IpcError, OutboxItemDto, OutboxStateDto, RecipientDto, RemoteDraftDto, SavedDraftDto,
-    SendFailureDto, date_dto, id32,
+    FieldDto, IpcError, OutboxItemDto, OutboxStateDto, RecipientDto, RecipientSuggestionDto,
+    RemoteDraftDto, SavedDraftDto, SendFailureDto, date_dto, id32,
 };
 
 fn recipients_of(list: &[RecipientDto]) -> Result<Vec<Recipient>, IpcError> {
@@ -588,25 +587,42 @@ pub async fn cancel_send(
     Ok(())
 }
 
-/// Adresses connues correspondant à la saisie.
+/// Destinataire saisi ou collé dans l'éditeur, lu et validé par le
+/// domaine ([`Recipient::parse`]) : un nom qui imite une adresse est
+/// écarté.
+#[tauri::command]
+#[specta::specta]
+pub fn parse_recipient(raw: String) -> Result<RecipientDto, IpcError> {
+    let r = Recipient::parse(&raw).map_err(|_| IpcError::invalid(FieldDto::Address))?;
+    Ok(RecipientDto {
+        name: r.name,
+        address: r.address.to_string(),
+    })
+}
+
+/// Destinataires proposés pour la saisie : contacts du carnet, puis
+/// adresses connues du compte.
 #[tauri::command]
 #[specta::specta]
 pub async fn suggest_contacts(
     state: State<'_, AppState>,
     account: u32,
     text: String,
-) -> Result<Vec<RecipientDto>, IpcError> {
-    let found = state
-        .mail
-        .store
-        .suggest(account_of(account)?, &text, SUGGESTIONS)
-        .await
-        .map_err(IpcError::storage)?;
+) -> Result<Vec<RecipientSuggestionDto>, IpcError> {
+    let found = SuggestRecipients {
+        collected: &*state.mail.store,
+        directory: &state.contacts,
+    }
+    .execute(account_of(account)?, &text, SUGGESTIONS)
+    .await
+    .map_err(IpcError::storage)?;
     Ok(found
         .into_iter()
-        .map(|c| RecipientDto {
-            name: c.name,
-            address: c.address,
+        .map(|s| RecipientSuggestionDto {
+            name: s.name,
+            address: s.address,
+            // Identifiant hors de 32 bits : proposée comme adresse simple.
+            contact: s.contact.and_then(|id| id32(id.get()).ok()),
         })
         .collect())
 }

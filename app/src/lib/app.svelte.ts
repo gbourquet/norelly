@@ -751,7 +751,7 @@ export function registerAppCommands(): () => void {
         const recipients = await contacts.recipients(app.takeContactTargets());
         if (account === null || recipients.length === 0) return;
         await app.compose("new", account.id, null);
-        compose.addRecipients("to", recipients);
+        await compose.addRecipients("to", recipients);
       },
     }),
     registry.register({

@@ -71,10 +71,13 @@ quand le mainteneur l'abandonne (avec la raison).
   venue d'un fichier tiers passe par le même contrôle que les pièces
   jointes et le rendu (revue de sécurité) ; initiales en attendant.
 
-- **Délai du marquage comme lu réglable** : une conversation non lue est
-  marquée lue après 5 s d'ouverture (`AUTO_SEEN_DELAY_MS`). En faire une
-  préférence (immédiat, quelques secondes, jamais), avec l'élément visible
-  dans les réglages. (`app/src/lib/mail.svelte.ts`)
+- **Délai du marquage comme lu dans la fenêtre des réglages** : le réglage
+  existe de bout en bout (`Settings::mark_seen_delay_secs`, 5 s par défaut,
+  0 à 60 s, dans `SettingsDto`) mais aucun contrôle ne permet encore de le
+  modifier. Ajouter le choix (immédiat, quelques secondes…) à
+  `SettingsDialog.svelte`, libellés dans les deux catalogues, fiche
+  fonctionnelle et guides. Une option « jamais » demanderait de changer le
+  type du réglage (domaine, DTO). (`crates/domain/src/settings.rs`)
 - **Noms de dossiers non traduits** : « Drafts », « Sent », « Trash »
   viennent du serveur alors que la boîte de réception est traduite. Libellé
   traduit d'après le rôle SPECIAL-USE, nom du serveur en info-bulle.

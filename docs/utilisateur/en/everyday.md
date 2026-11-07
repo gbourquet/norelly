@@ -130,6 +130,15 @@ type a few letters of its name, then **Enter**.
 
 ![Choosing the destination folder, with a search box](captures/move.png)
 
+You can also **drag** a message into a folder: click the message in the
+list, keep the mouse button pressed, bring it over a folder in the left
+panel, then release. The folder that will receive the message is outlined.
+If you have ticked several messages, drag one of them: they all go
+together. To give up, release elsewhere or press **Esc**. As with **Move
+to…**, you can undo right after.
+
+![A message dragged onto the "Garden" folder](captures/drag-to-folder.png)
+
 To **create a folder**:
 
 1. In the left panel, click **⋯** next to your account, then **New

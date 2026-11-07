@@ -64,6 +64,12 @@ quand le mainteneur l'abandonne (avec la raison).
 - **« Nouveau dossier… » depuis « Déplacer vers… »** : le sélecteur ne
   propose que les dossiers existants ; créer puis déplacer en un geste.
   (`FolderPicker.svelte`)
+- **Glisser-déposer, suites** : seules les lignes de la liste des
+  conversations se glissent (pas les résultats de recherche ni le message
+  ouvert) ; pas de défilement automatique du panneau de gauche quand le
+  pointeur approche de son bord (dossiers hors de vue inaccessibles par ce
+  geste) ; rien au toucher. (`app/src/lib/drag-move.svelte.ts`,
+  `SearchPanel.svelte`, `Sidebar.svelte`)
 - **Imprimer un message** : n'existe pas. À prévoir dans « Plus… » ;
   impression du rendu assaini, depuis Rust ou la webview, à étudier avec la
   revue de sécurité (rendu HTML). (`visible-actions.ts`)

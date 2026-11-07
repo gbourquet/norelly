@@ -180,10 +180,13 @@ Accès à la souris (interface) :
 | Quand la place manque, les boutons passent dans « Plus… » par priorité (`fitByPriority`) | `visible-actions.ts`, `app/src/components/ActionBar.svelte` |
 | Libellés des bascules selon l'état de toutes les cibles (`subjectOf`) | `visible-actions.ts` |
 | Case à cocher d'une ligne sans changer la sélection (`toggleMarkAt`), tout décocher (`clearMarks`) | `app/src/lib/mail.svelte.ts` |
+| Glisser-déposer sur un dossier : événements pointeur (souris, stylet), pas le glisser-déposer HTML, que l'interception native des fichiers déposés rend peu fiable dans la webview ; seuil de 5 px (`DRAG_THRESHOLD`) ; conversations emportées : la saisie, ou toutes les cochées si elle l'est, d'un seul compte (`dragPayload`) ; dossiers proposés : même compte, sélectionnable, pas le seul dossier d'origine (`canDrop`, affichage seulement : Rust revalide le déplacement) ; Échap annule ; le clic qui suit un glisser n'ouvre pas la conversation (`suppressClick`) | `app/src/lib/drag-move.svelte.ts` |
+| Dépôt = action `move` sur les conversations emportées, sans toucher à la sélection ni à la conversation ouverte (`act(action, done, ids)`) | `app/src/lib/mail.svelte.ts`, `app/src/App.svelte` |
+| Cibles du dépôt : attributs `data-drop-folder` / `data-drop-account` des dossiers, trouvés sous le pointeur (`elementFromPoint`) | `app/src/components/Sidebar.svelte`, `App.svelte` |
 
 ### Clés des messages
 
-`action_archived`, `action_deleted`, `action_moved`, `action_flagged`, `action_unflagged`, `action_marked_read`, `action_marked_unread`, `action_undo`, `action_undone`, `action_too_late`, `action_nothing`, `err_no_trash`, `err_no_archive`, `err_pending_queue_full`, `action_archive_folder_set`, `action_more`, `action_follow`, `action_unfollow`, `list_marked`, `list_select_row`, `list_selection`, `list_bulk_actions`, `cmd_clear_selection`.
+`action_archived`, `action_deleted`, `action_moved`, `action_flagged`, `action_unflagged`, `action_marked_read`, `action_marked_unread`, `action_undo`, `action_undone`, `action_too_late`, `action_nothing`, `err_no_trash`, `err_no_archive`, `err_pending_queue_full`, `action_archive_folder_set`, `action_more`, `action_follow`, `action_unfollow`, `list_marked`, `list_select_row`, `list_selection`, `list_bulk_actions`, `cmd_clear_selection`, `drag_conversations`.
 
 ### Commandes
 

@@ -288,6 +288,38 @@ describe(`captures d'écran (${lang})`, () => {
     ).waitForDisplayed({ timeout: 30000 });
   });
 
+  it("glisser un message sur un dossier, puis annuler", async () => {
+    const subject = content.messages[2][1];
+    const folders = `//*[@aria-label="${msg("sidebar_folders_of", { address })}"]`;
+    // Recherchée à chaque fois : la liste virtualisée réutilise ses lignes.
+    const row = () => $(`//*[@role="option"][.//span[normalize-space()="${subject}"]]`);
+    const target = $(`${folders}//span[normalize-space()="${content.folder}"]`);
+    await row().waitForDisplayed({ timeout: 10000 });
+    // Bouton enfoncé, déplacé jusqu'au dossier, sans relâcher : capture
+    // pendant le glisser. Même pointeur pour les deux séquences : sa
+    // position est conservée.
+    const mouse = () =>
+      browser.action("pointer", { id: "souris", parameters: { pointerType: "mouse" } });
+    await mouse()
+      .move({ origin: row() })
+      .down({ button: 0 })
+      .move({ origin: row(), x: 20, y: 10, duration: 100 })
+      .move({ origin: target, duration: 300 })
+      .perform(true);
+    await $(".drag-ghost").waitForDisplayed({ timeout: 10000 });
+    await capture("drag-to-folder");
+    await mouse().move({ origin: target, duration: 50 }).up({ button: 0 }).perform();
+    await expect($(".notice-region")).toHaveText(
+      expect.stringContaining(msg("action_moved", { folder: content.folder })),
+      { wait: 10000 },
+    );
+    await row().waitForDisplayed({ reverse: true, timeout: 10000 });
+    // « Annuler » dans l'avis (libellé suivi du raccourci) : le message
+    // revient dans la boîte de réception.
+    await $(`//button[starts-with(normalize-space(), "${msg("action_undo")}")]`).click();
+    await row().waitForDisplayed({ timeout: 10000 });
+  });
+
   it("renommer puis supprimer un dossier (à la souris)", async () => {
     const folders = `//*[@aria-label="${msg("sidebar_folders_of", { address })}"]`;
     const label = (name) => $(`${folders}//span[normalize-space()="${name}"]`);

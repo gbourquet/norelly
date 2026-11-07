@@ -99,6 +99,7 @@ vi.mock("./lib/ipc/api", () => ({
     createFolder: vi.fn(async () => undefined),
     renameFolder: vi.fn(async () => 13),
     deleteFolder: vi.fn(async () => undefined),
+    performAction: vi.fn(async () => ({ ops: [9], messages: 1 })),
   },
 }));
 
@@ -129,6 +130,12 @@ async function openAccountMenu(address: string): Promise<HTMLElement> {
   const button = await screen.findByRole("button", { name: `Actions du compte ${address}` });
   await fireEvent.pointerDown(button, { button: 0, pointerType: "mouse" });
   return screen.findByRole("menu", { name: `Actions du compte ${address}` });
+}
+
+/** Valeur présente, sinon échec du test. */
+function must<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) throw new Error("valeur attendue");
+  return value;
 }
 
 /** Ouvre le menu « ⋯ » d'un dossier dans la barre latérale. */
@@ -308,6 +315,100 @@ describe("App", () => {
     expect(await screen.findByText("Dossier « Projets » supprimé.")).toBeInTheDocument();
     expect(screen.queryByRole("dialog", { name: "Supprimer le dossier" })).toBeNull();
     vi.mocked(api.listFolders).mockResolvedValue([]);
+  });
+
+  it("glisse une conversation sur un dossier pour l'y déplacer", async () => {
+    bobWithProjets();
+    const conversation = (id: number, subject: string) => ({
+      id,
+      account: 3,
+      mailbox: 11,
+      date: 1_700_000_000,
+      subject,
+      senders: [],
+      messages: 1,
+      unread: 0,
+      flagged: false,
+      has_attachments: false,
+    });
+    vi.mocked(api.listConversations).mockResolvedValue({
+      items: [conversation(21, "Devis cuisine"), conversation(22, "Facture")],
+      next: null,
+    });
+    render(App);
+    const row = must((await screen.findByText("Devis cuisine")).closest('[role="option"]'));
+    const projets = must((await screen.findByText("Projets")).closest("button"));
+    const inbox = must(
+      screen
+        .getAllByText("Boîte de réception")
+        .map((e) => e.closest("button"))
+        .find((b) => b?.dataset.dropFolder === "11"),
+    );
+    let under: Element = inbox;
+    document.elementFromPoint = vi.fn(() => under);
+
+    // Un petit déplacement reste un clic : rien n'est emporté.
+    await fireEvent.pointerDown(row, { button: 0, pointerType: "mouse", clientX: 10, clientY: 10 });
+    await fireEvent.pointerMove(window, { pointerType: "mouse", clientX: 12, clientY: 11 });
+    expect(document.querySelector(".drag-ghost")).toBeNull();
+
+    // Au-delà du seuil : l'étiquette suit le pointeur.
+    await fireEvent.pointerMove(window, { pointerType: "mouse", clientX: 60, clientY: 40 });
+    expect(document.querySelector(".drag-ghost")).toHaveTextContent("Devis cuisine");
+    // Dossier d'origine : pas une cible.
+    expect(inbox.closest("li")).not.toHaveClass("drop-over");
+    under = projets;
+    await fireEvent.pointerMove(window, { pointerType: "mouse", clientX: 20, clientY: 200 });
+    expect(projets.closest("li")).toHaveClass("drop-over");
+    await fireEvent.pointerUp(window, { pointerType: "mouse", clientX: 20, clientY: 200 });
+    await waitFor(() =>
+      expect(api.performAction).toHaveBeenCalledWith(
+        [21],
+        { kind: "unified", role: "inbox" },
+        {
+          kind: "move",
+          mailbox: 12,
+        },
+      ),
+    );
+    expect(document.querySelector(".drag-ghost")).toBeNull();
+    expect(await screen.findByText("Déplacé vers « Projets ».")).toBeInTheDocument();
+    vi.mocked(api.listFolders).mockResolvedValue([]);
+    vi.mocked(api.listConversations).mockResolvedValue({ items: [], next: null });
+  });
+
+  it("Échap annule un glisser en cours", async () => {
+    bobWithProjets();
+    vi.mocked(api.listConversations).mockResolvedValue({
+      items: [
+        {
+          id: 21,
+          account: 3,
+          mailbox: 11,
+          date: 1_700_000_000,
+          subject: "Devis cuisine",
+          senders: [],
+          messages: 1,
+          unread: 0,
+          flagged: false,
+          has_attachments: false,
+        },
+      ],
+      next: null,
+    });
+    render(App);
+    const row = must((await screen.findByText("Devis cuisine")).closest('[role="option"]'));
+    const projets = must((await screen.findByText("Projets")).closest("button"));
+    document.elementFromPoint = vi.fn(() => projets);
+    await fireEvent.pointerDown(row, { button: 0, pointerType: "mouse", clientX: 10, clientY: 10 });
+    await fireEvent.pointerMove(window, { pointerType: "mouse", clientX: 20, clientY: 200 });
+    expect(document.querySelector(".drag-ghost")).not.toBeNull();
+    await fireEvent.keyDown(window, { key: "Escape" });
+    expect(document.querySelector(".drag-ghost")).toBeNull();
+    await fireEvent.pointerUp(window, { pointerType: "mouse", clientX: 20, clientY: 200 });
+    expect(api.performAction).not.toHaveBeenCalled();
+    vi.mocked(api.listFolders).mockResolvedValue([]);
+    vi.mocked(api.listConversations).mockResolvedValue({ items: [], next: null });
   });
 
   it("annuler la suppression ne supprime rien", async () => {

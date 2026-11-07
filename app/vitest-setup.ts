@@ -19,3 +19,15 @@ if (typeof globalThis.ResizeObserver !== "function") {
     disconnect(): void {}
   };
 }
+
+// jsdom n'implémente pas PointerEvent (glisser-déposer des conversations) :
+// un MouseEvent (position, bouton) avec le type de pointeur.
+if (typeof globalThis.PointerEvent !== "function") {
+  globalThis.PointerEvent = class PointerEvent extends MouseEvent {
+    readonly pointerType: string;
+    constructor(type: string, init: PointerEventInit = {}) {
+      super(type, init);
+      this.pointerType = init.pointerType ?? "mouse";
+    }
+  } as unknown as typeof globalThis.PointerEvent;
+}

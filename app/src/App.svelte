@@ -17,6 +17,7 @@
   import RenameFolderDialog from "./components/RenameFolderDialog.svelte";
   import DeleteFolderDialog from "./components/DeleteFolderDialog.svelte";
   import { DeleteFolderState, RenameFolderState } from "./lib/folder-edit.svelte";
+  import { DragMove, type DropTarget } from "./lib/drag-move.svelte";
   import ActionNotice from "./components/ActionNotice.svelte";
   import ActionBar from "./components/ActionBar.svelte";
   import ComposeDialog from "./components/ComposeDialog.svelte";
@@ -193,7 +194,43 @@
     return target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName);
   }
 
+  const drag = new DragMove();
+
+  /** Dossier du panneau de gauche sous le pointeur. */
+  function dropTargetAt(x: number, y: number): DropTarget | null {
+    const element = document.elementFromPoint(x, y)?.closest<HTMLElement>("[data-drop-folder]");
+    if (!element) return null;
+    const account = Number(element.dataset.dropAccount);
+    const id = Number(element.dataset.dropFolder);
+    const folder = (mail.folders[account] ?? []).find((f) => f.id === id);
+    return folder === undefined ? null : { account, folder };
+  }
+
+  function onPointerMove(e: PointerEvent): void {
+    drag.move(e.clientX, e.clientY, dropTargetAt(e.clientX, e.clientY));
+  }
+
+  function onPointerUp(): void {
+    const drop = drag.release();
+    if (drop === null) return;
+    void mail.act(
+      { kind: "move", mailbox: drop.folder.id },
+      m.action_moved({ folder: drop.folder.name }),
+      drop.payload.ids,
+    );
+  }
+
+  // Pendant un glisser : ni sélection de texte, curseur « saisi ».
+  $effect(() => {
+    document.body.classList.toggle("dragging", drag.payload !== null);
+  });
+
   function onKeyDown(e: KeyboardEvent): void {
+    if (drag.payload !== null && e.key === "Escape") {
+      e.preventDefault();
+      drag.cancel();
+      return;
+    }
     // Les fenêtres modales gèrent leur propre clavier.
     if (app.dialog !== null || e.isComposing || e.defaultPrevented) return;
     const command = registry.resolve(shortcutFromEvent(e), app.context(), isEditable(e.target));
@@ -204,7 +241,23 @@
   }
 </script>
 
-<svelte:window onkeydown={onKeyDown} />
+<svelte:window
+  onkeydown={onKeyDown}
+  onpointermove={onPointerMove}
+  onpointerup={onPointerUp}
+  onpointercancel={() => drag.cancel()}
+/>
+
+{#if drag.payload !== null}
+  <div
+    class="drag-ghost"
+    aria-hidden="true"
+    style:left="{drag.x + 14}px"
+    style:top="{drag.y + 14}px"
+  >
+    {drag.payload.label ?? m.drag_conversations({ count: drag.payload.ids.length })}
+  </div>
+{/if}
 
 <ThreePaneLayout>
   {#snippet sidebar()}
@@ -222,6 +275,7 @@
         app.selectedAccountId = id;
         return app.context();
       }}
+      dropOver={drag.over}
       onFolder={(account, folder, target) => {
         if (!target) {
           return { ...app.context(), selectedAccount: app.accountById(account), folder };
@@ -242,6 +296,7 @@
         {registry}
         context={app.context()}
         onSearch={() => search.open()}
+        {drag}
       />
     {/if}
   {/snippet}
@@ -482,6 +537,29 @@
 />
 
 <style>
+  /* Étiquette qui suit le pointeur pendant un glisser. */
+  .drag-ghost {
+    position: fixed;
+    z-index: 1000;
+    max-width: 280px;
+    padding: var(--space-1) var(--space-2);
+    overflow: hidden;
+    border: var(--border-width) solid var(--color-border);
+    border-radius: var(--radius);
+    background: var(--color-bg);
+    box-shadow: var(--shadow-dialog);
+    color: var(--color-text);
+    font-size: var(--font-size-sm);
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    pointer-events: none;
+  }
+
+  :global(body.dragging) {
+    cursor: grabbing;
+    user-select: none;
+  }
+
   .placeholder {
     display: flex;
     flex-direction: column;

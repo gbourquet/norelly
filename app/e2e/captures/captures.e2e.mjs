@@ -74,6 +74,15 @@ const content = {
       ["Paul", "Bernard", "paul@norelly.test", ""],
       ["Jeanne", "Leroy", "jeanne@norelly.test", "Cabinet médical Leroy"],
     ],
+    list: {
+      name: "Famille",
+      description: "Pour organiser les repas du dimanche",
+      members: [
+        ["ali", "Alice Martin"],
+        ["pau", "Paul Bernard"],
+      ],
+      suggest: "fam",
+    },
   },
   en: {
     name: "Mary Smith",
@@ -109,6 +118,15 @@ const content = {
       ["Paul", "Brown", "paul@norelly.test", ""],
       ["Jane", "Lee", "jane@norelly.test", "Dr Lee's surgery"],
     ],
+    list: {
+      name: "Family",
+      description: "To organise Sunday lunches",
+      members: [
+        ["ali", "Alice Martin"],
+        ["pau", "Paul Brown"],
+      ],
+      suggest: "fam",
+    },
   },
 }[lang];
 
@@ -479,6 +497,37 @@ describe(`captures d'écran (${lang})`, () => {
     await browser.keys("Escape");
   });
 
+  it("listes de diffusion (à la souris)", async () => {
+    const field = (key) =>
+      $(`//label[span[normalize-space()="${msg(key)}"]]//*[self::input or self::textarea]`);
+    await button(msg("contacts_filter_lists")).click();
+    await button(msg("cmd_list_new")).click();
+    const form = dialogTitled(msg("list_dialog_new"));
+    await form.waitForDisplayed();
+    await field("list_name").setValue(content.list.name);
+    await field("list_description").setValue(content.list.description);
+    await form.$('input[type="checkbox"]').click();
+    for (const [query, name] of content.list.members) {
+      await form.$(`input[aria-label="${msg("list_find_member")}"]`).setValue(query);
+      const add = form.$(`button[aria-label="${msg("list_add_member", { name })}"]`);
+      await add.waitForDisplayed({ timeout: 10000 });
+      await add.click();
+    }
+    // Recherche laissée ouverte : le contact déjà membre est signalé.
+    await form
+      .$(`input[aria-label="${msg("list_find_member")}"]`)
+      .setValue(content.list.members[0][0]);
+    await form.$(`span*=${msg("list_already_member")}`).waitForDisplayed({ timeout: 10000 });
+    await capture("contact-list-dialog");
+    await button(msg("list_save")).click();
+    await form.waitForDisplayed({ reverse: true, timeout: 10000 });
+    await $(
+      `article[aria-label="${msg("lists_card", { name: content.list.name })}"]`,
+    ).waitForDisplayed();
+    await capture("contact-lists");
+    await button(msg("contacts_filter_all")).click();
+  });
+
   it("personnes d'un message et carnet (à la souris)", async () => {
     await $("nav")
       .$(`button*=${msg("mailbox_unified_inbox")}`)
@@ -524,6 +573,19 @@ describe(`captures d'écran (${lang})`, () => {
     await dialog.$('[role="listbox"]').waitForDisplayed({ timeout: 10000 });
     await dialog.$$('[role="option"] button')[1].moveTo();
     await capture("compose-suggestions");
+    await browser.keys("Escape");
+    await dialog.waitForDisplayed({ reverse: true, timeout: 20000 });
+  });
+
+  it("suggestions de destinataires : liste de diffusion", async () => {
+    await button(msg("cmd_compose")).click();
+    const dialog = dialogTitled(msg("compose_title_new"));
+    await dialog.waitForDisplayed({ timeout: 20000 });
+    await dialog.$(`[aria-label="${msg("compose_to")}"]`).click();
+    await browser.keys(content.list.suggest);
+    await dialog.$('[role="listbox"]').waitForDisplayed({ timeout: 10000 });
+    await dialog.$$('[role="option"] button')[0].moveTo();
+    await capture("compose-list-suggestion");
     await browser.keys("Escape");
     await dialog.waitForDisplayed({ reverse: true, timeout: 20000 });
   });

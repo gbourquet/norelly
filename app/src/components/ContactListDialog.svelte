@@ -108,7 +108,7 @@
         {#if form.candidates.length === 0}
           <p class="muted">{m.list_no_candidates()}</p>
         {:else}
-          <ul class="candidates" aria-label={m.list_find_member()}>
+          <ul class="candidates" aria-label={m.list_candidates()}>
             {#each form.candidates as c (c.id)}
               <li>
                 <span class="who">

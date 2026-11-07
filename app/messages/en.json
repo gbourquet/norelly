@@ -607,5 +607,6 @@
   "delete_list_busy": "Deleting…",
   "compose_suggestion_list": "List",
   "compose_list_option": "List {name}, {count} member(s)",
-  "lists_pick": "Pick a list on the left to see its members."
+  "lists_pick": "Pick a list on the left to see its members.",
+  "list_candidates": "Matching contacts"
 }

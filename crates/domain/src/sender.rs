@@ -22,11 +22,19 @@ pub struct SenderLabel {
     pub contact: Option<ContactId>,
 }
 
-/// Vrai si un nom d'en-tête imite une adresse (`@`, `<`, `>`) : il
-/// pourrait faire passer une adresse pour une autre.
+/// Caractères qui servent, ou ressemblent, à `@`, `<` et `>` (formes
+/// pleine largeur, petites formes, guillemets et chevrons).
+const ADDRESS_LOOK_ALIKES: [char; 17] = [
+    '@', '<', '>', '\u{FF20}', '\u{FE6B}', '\u{FF1C}', '\u{FF1E}', '\u{FE64}', '\u{FE65}',
+    '\u{2039}', '\u{203A}', '\u{2329}', '\u{232A}', '\u{27E8}', '\u{27E9}', '\u{3008}', '\u{3009}',
+];
+
+/// Vrai si un nom d'en-tête imite une adresse (`@`, `<`, `>` ou un
+/// caractère qui leur ressemble) : il pourrait faire passer une adresse
+/// pour une autre.
 #[must_use]
 pub fn imitates_address(name: &str) -> bool {
-    name.contains(['@', '<', '>'])
+    name.contains(ADDRESS_LOOK_ALIKES)
 }
 
 /// Nom affiché d'un correspondant : celui de `contact` s'il porte
@@ -159,6 +167,22 @@ mod tests {
         assert!(imitates_address("x > y"));
         assert!(!imitates_address("Alice Martin"));
         assert!(!imitates_address(""));
+    }
+
+    #[test]
+    fn look_alikes_of_at_and_angle_brackets_also_imitate_an_address() {
+        for name in [
+            "service\u{FF20}banque.fr",
+            "service\u{FE6B}banque.fr",
+            "Banque \u{FF1C}x\u{FF1E}",
+            "Banque \u{FE64}x\u{FE65}",
+            "Banque \u{2039}x\u{203A}",
+            "Banque \u{2329}x\u{232A}",
+            "Banque \u{27E8}x\u{27E9}",
+            "Banque \u{3008}x\u{3009}",
+        ] {
+            assert!(imitates_address(name), "{name}");
+        }
     }
 
     #[test]

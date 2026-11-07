@@ -13,9 +13,9 @@ shortcuts.
 1. In the left panel, click a folder, for example **Inbox**. To see the
    messages of all your addresses together, click **Unified inbox**.
 2. In the middle list, click a message. It is shown on the right. Unread
-   messages are in bold. Opening a message does not mark it as read: once
-   you have read it, click **More…** in the action bar, then **Mark as
-   read** (or press **Shift** + **I**).
+   messages are in bold. A message that stays open for 5 seconds is marked
+   as read. To make it bold again, click **More…** in the action bar, then
+   **Mark as unread** (or press **Shift** + **U**).
 3. To go back to the list, click the **Back to list** arrow or press
    **Esc**.
 

@@ -131,6 +131,7 @@ Fiche : [lecture.md](../fonctionnel/lecture.md).
 | Enregistrement : création exclusive dans le dossier choisi, jamais d'écrasement ni de lien suivi | `app/src-tauri/src/reading.rs`, ADR-004 |
 | HTML assaini par liste blanche (`ammonia`), CSS assaini (`@import`, `url()` externes retirés), `cid:` → `mailpart://`, images distantes → espace réservé ou `remote-img://` | `crates/adapters/render/src/sanitize.rs`, `css.rs` |
 | CSP du document : `default-src 'none'`, seul script autorisé : l'agent (empreinte SHA-256) ; cadre `sandbox="allow-scripts"` sans `allow-same-origin` | ADR-004, `app/src-tauri/src/protocols.rs` |
+| Conversation non lue marquée lue après 5 s d'ouverture (action `mark_seen` ordinaire, sans message ni annulation) ; minuteur annulé si l'on quitte la conversation ou si l'utilisateur agit dessus | `app/src/lib/mail.svelte.ts` (`AUTO_SEEN_DELAY_MS`), `mail.test.ts` |
 | Proxy d'images : sans cookies ni `Referer`, User-Agent neutre, taille et types bornés, adresses publiques seulement, autorisation revérifiée à chaque image | `app/src-tauri/src/remote_images.rs` |
 
 ### Clés des messages

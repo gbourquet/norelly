@@ -71,11 +71,10 @@ quand le mainteneur l'abandonne (avec la raison).
   venue d'un fichier tiers passe par le même contrôle que les pièces
   jointes et le rendu (revue de sécurité) ; initiales en attendant.
 
-- **Ouvrir un message ne le marque pas comme lu** : corps lus en
-  `BODY.PEEK`, aucun marquage automatique ; la ligne reste en gras et le
-  compteur ne baisse pas. Marquer lu à l'ouverture (éventuellement après un
-  délai réglable), par une action du domaine. (`app/src/lib/mail.svelte.ts`,
-  `app/src-tauri/src/reading.rs`)
+- **Délai du marquage comme lu réglable** : une conversation non lue est
+  marquée lue après 5 s d'ouverture (`AUTO_SEEN_DELAY_MS`). En faire une
+  préférence (immédiat, quelques secondes, jamais), avec l'élément visible
+  dans les réglages. (`app/src/lib/mail.svelte.ts`)
 - **Noms de dossiers non traduits** : « Drafts », « Sent », « Trash »
   viennent du serveur alors que la boîte de réception est traduite. Libellé
   traduit d'après le rôle SPECIAL-USE, nom du serveur en info-bulle.

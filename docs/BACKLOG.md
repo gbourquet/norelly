@@ -103,6 +103,24 @@ quand le mainteneur l'abandonne (avec la raison).
 - Installateur Windows non signé (Authenticode) tant que SignPath n'a pas
   accepté le projet ([candidature](signpath-candidature.md)).
 - Permission Tauri `core:default` réductible.
+- **Dossier modifié malgré un échec affiché** (revue de sécurité, basse) :
+  le délai de 30 s de l'interface peut expirer pendant un `RENAME` ou un
+  `DELETE` déjà commencé par l'acteur ; l'utilisateur voit « impossible »
+  alors que l'opération aboutit. Code « résultat inconnu » puis relecture de
+  la liste, ou délai limité à la prise en charge par l'acteur.
+  (`app/src-tauri/src/mail.rs`, `crates/application/src/account_actor.rs`)
+- **Sous-dossiers ignorés au contrôle avant suppression** (revue de
+  sécurité, basse) : un sous-dossier au nom indécodable ou refusé par
+  `MailboxName::parse`, ou au-delà de `MAX_MAILBOXES`, n'est pas vu par
+  `deletable_folder` ; le parent part en `DELETE` (effet selon le serveur).
+  `LIST` dédié `<parent><délim>%` avant `DELETE`, ou noms écartés comptés
+  comme « sous-dossier possible ». (`crates/domain/src/mailbox.rs`,
+  `crates/adapters/imap/src/session.rs`)
+- **Nom de dossier finissant par `{n}`** (revue de sécurité, basse) :
+  cité par le serveur à la fin d'une ligne d'état, il est pris pour
+  l'annonce d'un littéral ; la commande attend jusqu'au délai et la session
+  est rouverte. Refuser `{` final (ou `\{\d+\}$`) dans `folder_label`.
+  (`crates/domain/src/mailbox.rs`, `crates/adapters/imap/src/connection.rs`)
 
 **Règle permanente** : à chaque montée de version de Tauri, rejouer le test
 e2e qui vérifie qu'aucun accès à l'IPC n'est possible depuis l'iframe

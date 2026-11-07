@@ -3,7 +3,7 @@
 
 use norelly_domain::address::EmailAddress;
 use norelly_domain::ports::{ReadingPreferences, SettingsStore, StoreError};
-use norelly_domain::settings::{Language, Settings, SettingsError, UpdateCheck};
+use norelly_domain::settings::{Language, Settings, UpdateCheck};
 use rusqlite::{OptionalExtension, params};
 
 use crate::{Database, store_error};
@@ -124,7 +124,7 @@ fn settings_of(rows: &[(String, String)]) -> Settings {
         Some("0") => false,
         _ => default,
     };
-    let mut settings = Settings {
+    Settings {
         language: value(LANGUAGE_KEY)
             .and_then(Language::parse)
             .unwrap_or(defaults.language),
@@ -144,20 +144,8 @@ fn settings_of(rows: &[(String, String)]) -> Settings {
         mark_seen_delay_secs: value(MARK_SEEN_DELAY_KEY)
             .and_then(|v| v.parse().ok())
             .unwrap_or(defaults.mark_seen_delay_secs),
-    };
-    // Chaque réglage refusé reprend sa valeur par défaut, qui est valide :
-    // la boucle s'arrête au plus après un tour par réglage borné.
-    while let Err(e) = settings.validate() {
-        match e {
-            SettingsError::AttachmentThreshold => {
-                settings.attachment_threshold = defaults.attachment_threshold;
-            }
-            SettingsError::MarkSeenDelay => {
-                settings.mark_seen_delay_secs = defaults.mark_seen_delay_secs;
-            }
-        }
     }
-    settings
+    .sanitized()
 }
 
 /// Paramètres de l'application en base (table `settings`, une clé par
@@ -284,6 +272,22 @@ mod tests {
             },
             "seul le délai hors bornes reprend sa valeur par défaut"
         );
+        Ok(())
+    }
+
+    /// Tous les réglages bornés hors bornes à la fois : relecture aux
+    /// valeurs par défaut, sans blocage.
+    #[tokio::test]
+    async fn all_out_of_bounds_settings_reload_to_defaults() -> Result<(), StoreError> {
+        let db = Database::open_in_memory().map_err(|e| StoreError(e.to_string()))?;
+        let store = SqliteSettingsStore::new(db.clone());
+        store.save_settings(&Settings::default()).await?;
+        db.write_for_tests(
+            "UPDATE settings SET value = '1' WHERE key = 'fetch.attachment_threshold'; \
+             UPDATE settings SET value = '3600' WHERE key = 'app.mark_seen_delay';",
+        )
+        .await?;
+        assert_eq!(store.settings().await?, Settings::default());
         Ok(())
     }
 

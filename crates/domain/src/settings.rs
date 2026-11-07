@@ -156,15 +156,41 @@ impl Settings {
     /// [`SettingsError::MarkSeenDelay`] au-delà de
     /// [`MAX_MARK_SEEN_DELAY_SECS`].
     pub fn validate(&self) -> Result<(), SettingsError> {
-        if !(MIN_ATTACHMENT_THRESHOLD..=MAX_ATTACHMENT_THRESHOLD)
-            .contains(&self.attachment_threshold)
-        {
+        if !self.threshold_ok() {
             return Err(SettingsError::AttachmentThreshold);
         }
-        if self.mark_seen_delay_secs > MAX_MARK_SEEN_DELAY_SECS {
+        if !self.mark_seen_delay_ok() {
             return Err(SettingsError::MarkSeenDelay);
         }
         Ok(())
+    }
+
+    fn threshold_ok(&self) -> bool {
+        (MIN_ATTACHMENT_THRESHOLD..=MAX_ATTACHMENT_THRESHOLD).contains(&self.attachment_threshold)
+    }
+
+    const fn mark_seen_delay_ok(&self) -> bool {
+        self.mark_seen_delay_secs <= MAX_MARK_SEEN_DELAY_SECS
+    }
+
+    /// Chaque réglage hors bornes remplacé par sa valeur par défaut, les
+    /// autres gardés (paramètres relus d'une base modifiée à la main).
+    #[must_use]
+    pub fn sanitized(self) -> Self {
+        let defaults = Self::default();
+        Self {
+            attachment_threshold: if self.threshold_ok() {
+                self.attachment_threshold
+            } else {
+                defaults.attachment_threshold
+            },
+            mark_seen_delay_secs: if self.mark_seen_delay_ok() {
+                self.mark_seen_delay_secs
+            } else {
+                defaults.mark_seen_delay_secs
+            },
+            ..self
+        }
     }
 
     /// Politique de rapatriement correspondante.
@@ -291,6 +317,33 @@ mod tests {
         assert_eq!(s.validate(), Ok(()));
         s.mark_seen_delay_secs = MAX_MARK_SEEN_DELAY_SECS + 1;
         assert_eq!(s.validate(), Err(SettingsError::MarkSeenDelay));
+    }
+
+    #[test]
+    fn sanitized_resets_each_out_of_bounds_setting_to_its_default() {
+        let chosen = Settings {
+            notifications: false,
+            attachment_threshold: 8 * 1024 * 1024,
+            mark_seen_delay_secs: 12,
+            ..Settings::default()
+        };
+        assert_eq!(chosen.sanitized(), chosen, "valide : inchangé");
+        let all_wrong = Settings {
+            attachment_threshold: 1,
+            mark_seen_delay_secs: MAX_MARK_SEEN_DELAY_SECS + 1,
+            ..chosen
+        };
+        let fixed = all_wrong.sanitized();
+        assert_eq!(fixed.validate(), Ok(()));
+        assert_eq!(
+            fixed,
+            Settings {
+                attachment_threshold: DEFAULT_ATTACHMENT_THRESHOLD,
+                mark_seen_delay_secs: DEFAULT_MARK_SEEN_DELAY_SECS,
+                ..chosen
+            },
+            "les autres réglages sont gardés"
+        );
     }
 
     #[test]

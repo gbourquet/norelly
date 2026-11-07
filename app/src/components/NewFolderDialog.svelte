@@ -17,7 +17,7 @@
 
   let { open, account, folders, form, onCreated, onClose }: Props = $props();
 
-  const choices = $derived(parentChoices(folders, m.new_folder_top_level(), m.mailbox_inbox()));
+  const choices = $derived(parentChoices(folders, m.new_folder_top_level()));
 
   /** Retrait visuel d'un emplacement dans la liste (espaces insécables). */
   function indent(depth: number): string {

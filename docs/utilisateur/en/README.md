@@ -30,8 +30,10 @@ Norelly is free and open source.
 The window is split into three parts:
 
 1. **on the left**, your addresses (called "accounts") and their folders
-   (Inbox, Sent, Drafts, Trash…). Apart from the Inbox, folders have the
-   names chosen by your provider;
+   (Inbox, Drafts, Sent, Trash…). The usual folders always have these
+   names, even if your provider calls them something else ("Envoyés",
+   "Corbeille"): the provider's name appears when the mouse rests on
+   them. Your own folders keep the name you gave them;
 2. **in the middle**, the list of messages in the chosen folder. Messages
    that answer each other are grouped on a single line: a "conversation";
 3. **on the right**, the message you are reading.

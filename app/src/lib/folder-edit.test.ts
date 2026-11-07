@@ -122,9 +122,9 @@ describe("déplacer un dossier", () => {
 
   it("propose tous les emplacements sauf le dossier et ses sous-dossiers", () => {
     const bli = folder(4, "Bli");
-    expect(destinationChoices(tree, bli, "Premier niveau", "Réception")).toEqual([
+    expect(destinationChoices(tree, bli, "Premier niveau")).toEqual([
       { id: null, label: "Premier niveau", depth: 0 },
-      { id: 1, label: "Réception", depth: 1 },
+      { id: 1, label: "Boîte de réception", depth: 1 },
       { id: 2, label: "Bla", depth: 1 },
       { id: 3, label: "Sous", depth: 2 },
       { id: 8, label: "Zed", depth: 1 },
@@ -169,13 +169,7 @@ describe("déplacer un dossier", () => {
       folder(12, "Trash/Vieux"),
     ];
     const potager = folder(10, "INBOX/Potager");
-    expect(destinationChoices(listed, potager, "P", "R").map((c) => c.id)).toEqual([
-      null,
-      1,
-      9,
-      2,
-      12,
-    ]);
+    expect(destinationChoices(listed, potager, "P").map((c) => c.id)).toEqual([null, 1, 9, 2, 12]);
     const state = new MoveFolderState(fakeApi());
     state.reset(potager, listed);
     expect(state.parent).toBe(1);
@@ -183,7 +177,7 @@ describe("déplacer un dossier", () => {
     expect(state.parent).toBe(9);
     // Un nom qui commence pareil n'est pas un sous-dossier.
     const similar = [folder(2, "Bla"), folder(3, "Bla bla"), folder(4, "Bla bla/x")];
-    expect(destinationChoices(similar, folder(2, "Bla"), "P", "R").map((c) => c.id)).toEqual([
+    expect(destinationChoices(similar, folder(2, "Bla"), "P").map((c) => c.id)).toEqual([
       null,
       3,
       4,

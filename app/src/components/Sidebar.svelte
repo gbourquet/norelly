@@ -1,5 +1,6 @@
 <script lang="ts" generics="C">
   import { m } from "../lib/paraglide/messages.js";
+  import { folderLabel, folderServerName } from "../lib/folder-label";
   // Panneau de navigation : « Nouveau message », boîte de réception
   // unifiée, comptes et leurs dossiers (chacun avec son menu d'actions),
   // puis ajout de compte et paramètres en bas.
@@ -138,8 +139,9 @@
       .reduce((n, f) => n + f.unread, 0),
   );
 
-  function folderLabel(f: FolderDto): string {
-    return f.role === "inbox" ? m.mailbox_inbox() : f.leaf;
+  function serverNameTitle(f: FolderDto): string | undefined {
+    const name = folderServerName(f);
+    return name === undefined ? undefined : m.mailbox_server_name({ name });
   }
 </script>
 
@@ -244,6 +246,7 @@
                   data-drop-account={account.id}
                   disabled={!f.selectable}
                   aria-current={current ? "true" : undefined}
+                  title={serverNameTitle(f)}
                   style:padding-left="calc(var(--space-2) + {Math.min(f.depth, 6) * 12}px)"
                   onpointerdown={(e) => press(e, account.id, f)}
                   onclick={() => {

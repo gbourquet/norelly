@@ -91,12 +91,10 @@ export function destinationChoices(
   folders: FolderDto[],
   folder: FolderDto,
   topLevel: string,
-  inbox: string,
 ): ParentChoice[] {
   return parentChoices(
     folders.filter((f) => !isSameOrUnder(f, folder)),
     topLevel,
-    inbox,
   );
 }
 

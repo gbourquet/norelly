@@ -22,6 +22,14 @@ supprimer, depuis l'application.
 - Un dossier spécial que le fournisseur range dans un autre dossier (les
   messages envoyés de Gmail, par exemple) garde sa place parmi les
   dossiers spéciaux.
+- Les dossiers spéciaux portent un nom dans la langue de l'application
+  (Boîte de réception, Brouillons, Envoyés, Archives, Indésirables,
+  Corbeille, Tous les messages, Messages suivis), quel que soit le nom
+  choisi par le fournisseur. Ce nom d'origine s'affiche en info-bulle
+  quand il diffère. Le même nom traduit est repris partout : titre de la
+  liste, « Déplacer vers… », emplacements proposés, messages de
+  confirmation ; « Déplacer vers… » trouve un dossier spécial par l'un ou
+  l'autre nom. Les autres dossiers gardent le nom du serveur.
 
 ### Créer un dossier
 

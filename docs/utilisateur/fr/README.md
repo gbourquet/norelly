@@ -30,9 +30,11 @@ Norelly est gratuit et libre.
 La fenêtre est partagée en trois parties :
 
 1. **à gauche**, vos adresses (on dit « comptes ») et leurs dossiers
-   (Boîte de réception, Envoyés, Brouillons, Corbeille…). Hormis la Boîte
-   de réception, les dossiers portent les noms choisis par votre
-   fournisseur, parfois en anglais (« Sent », « Drafts », « Trash ») ;
+   (Boîte de réception, Brouillons, Envoyés, Corbeille…). Les dossiers
+   habituels portent toujours ces noms, même si votre fournisseur les
+   appelle autrement (« Sent », « Trash ») : le nom du fournisseur
+   s'affiche quand la souris s'arrête dessus. Vos propres dossiers
+   gardent le nom que vous leur avez donné ;
 2. **au milieu**, la liste des messages du dossier choisi. Les messages
    qui se répondent sont regroupés en une seule ligne : une
    « conversation » ;

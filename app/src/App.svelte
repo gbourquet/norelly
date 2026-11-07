@@ -1,5 +1,6 @@
 <script lang="ts">
   import { m } from "./lib/paraglide/messages.js";
+  import { folderLabel } from "./lib/folder-label";
   import { errorText } from "./lib/errors";
   import { onMount, untrack } from "svelte";
   import InboxIcon from "@lucide/svelte/icons/inbox";
@@ -117,7 +118,7 @@
     if (scope.kind === "unified") return m.mailbox_unified_inbox();
     for (const folders of Object.values(mail.folders)) {
       const f = folders.find((x) => x.id === scope.id);
-      if (f !== undefined) return f.role === "inbox" ? m.mailbox_inbox() : f.leaf;
+      if (f !== undefined) return folderLabel(f);
     }
     return m.mailbox_folder();
   });
@@ -266,7 +267,7 @@
     if (drop.folder === null) return;
     void mail.act(
       { kind: "move", mailbox: drop.folder.id },
-      m.action_moved({ folder: drop.folder.name }),
+      m.action_moved({ folder: folderLabel(drop.folder) }),
       drop.payload.ids,
     );
   }
@@ -459,7 +460,10 @@
   onClose={() => app.close()}
   onChoose={(folder) => {
     app.close();
-    void mail.act({ kind: "move", mailbox: folder.id }, m.action_moved({ folder: folder.name }));
+    void mail.act(
+      { kind: "move", mailbox: folder.id },
+      m.action_moved({ folder: folderLabel(folder) }),
+    );
   }}
 />
 <FolderPicker
@@ -474,7 +478,7 @@
     api.setArchiveFolder(account, folder.id).then(
       () =>
         (mail.notice = {
-          text: m.action_archive_folder_set({ folder: folder.name }),
+          text: m.action_archive_folder_set({ folder: folderLabel(folder) }),
           undoable: false,
         }),
       (e: unknown) => (mail.notice = { text: errorText(e), undoable: false }),

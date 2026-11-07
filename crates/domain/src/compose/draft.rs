@@ -16,6 +16,7 @@
 use crate::account::AccountId;
 use crate::address::EmailAddress;
 use crate::mailbox::{MAX_ADDRESS_CHARS, MailboxName, Uid, UidValidity, header_text};
+use crate::sender::imitates_address;
 use crate::ports::BlobId;
 
 use super::Threading;
@@ -61,9 +62,12 @@ pub struct Recipient {
 
 impl Recipient {
     #[must_use]
+    /// Nom assaini ([`header_text`]) ; écarté s'il imite une adresse
+    /// ([`imitates_address`]) : seule l'adresse réelle s'affiche et part.
     pub fn new(name: &str, address: EmailAddress) -> Self {
+        let name = header_text(name, MAX_ADDRESS_CHARS);
         Self {
-            name: header_text(name, MAX_ADDRESS_CHARS),
+            name: if imitates_address(&name) { String::new() } else { name },
             address,
         }
     }
@@ -322,6 +326,17 @@ mod tests {
             EmailAddress::parse("b@example.com").unwrap_or_else(|_| panic!()),
         );
         assert!(!r.name.contains(['\r', '\n']), "{:?}", r.name);
+    }
+
+    #[test]
+    fn a_recipient_name_imitating_an_address_is_dropped() {
+        let address = EmailAddress::parse("pirate@exemple.net").unwrap_or_else(|_| panic!());
+        assert_eq!(Recipient::new("ceo@banque.fr", address.clone()).name, "");
+        assert_eq!(
+            Recipient::new("Banque \u{FF1C}x\u{FF1E}", address.clone()).name,
+            ""
+        );
+        assert_eq!(Recipient::new("Dupont, Bob", address).name, "Dupont, Bob");
     }
 
     #[test]

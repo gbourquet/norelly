@@ -59,14 +59,17 @@ pub fn sender_label(header: &Correspondent, contact: Option<&Contact>) -> Sender
 }
 
 /// Nom d'un contact, s'il en porte un (sinon son nom affiché serait son
-/// adresse préférée, pas forcément celle du correspondant).
-fn contact_name(contact: &Contact) -> Option<String> {
+/// adresse préférée, pas forcément celle du correspondant) et qu'il
+/// n'imite pas une adresse.
+pub(crate) fn contact_name(contact: &Contact) -> Option<String> {
     let d = contact.draft();
     let named = d.display_name_field().is_some()
         || d.given_name().is_some()
         || d.family_name().is_some()
         || d.nickname().is_some();
-    named.then(|| d.display_name())
+    named
+        .then(|| d.display_name())
+        .filter(|name| !imitates_address(name))
 }
 
 /// Clés des adresses valides de ces correspondants, chacune une fois dans
@@ -253,6 +256,22 @@ mod tests {
             sender_label(&header("", "zoe@example.com"), Some(&named)).name,
             "Zoé"
         );
+    }
+
+    #[test]
+    fn a_contact_name_imitating_an_address_is_dropped() {
+        let fake = contact(
+            5,
+            ContactInput {
+                display_name: "ceo@banque.fr".into(),
+                ..ContactInput::default()
+            },
+            &["pirate@exemple.net"],
+        );
+        let label = sender_label(&header("", "pirate@exemple.net"), Some(&fake));
+        assert_eq!(label.name, "");
+        assert_eq!(label.contact, id(5));
+        assert_eq!(contact_name(&fake), None);
     }
 
     #[test]

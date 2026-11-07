@@ -33,6 +33,10 @@ async function markListShown(): Promise<void> {
 /** Fenêtre d'annulation d'une action (UNDO_WINDOW_SECS côté Rust). */
 export const UNDO_WINDOW_MS = 5000;
 
+/** Délai au bout duquel une conversation non lue restée ouverte est
+ * marquée comme lue. */
+export const AUTO_SEEN_DELAY_MS = 5000;
+
 /** Taille d'une page demandée au Rust. */
 export const PAGE_SIZE = 100;
 
@@ -96,6 +100,8 @@ export class MailState {
    * pas été rejouées sur le serveur. */
   lastAction = $state<number[] | null>(null);
   #actionGeneration = 0;
+  /** Marquage comme lu en attente de la conversation ouverte. */
+  #autoSeen: ReturnType<typeof setTimeout> | null = null;
   notice = $state<Notice | null>(null);
 
   readonly selected = $derived(this.conversations[this.selectedIndex] ?? null);
@@ -123,9 +129,7 @@ export class MailState {
   async show(scope: ScopeDto): Promise<void> {
     this.scope = scope;
     this.marked = [];
-    this.opened = null;
-    this.#openedScope = null;
-    this.messages = [];
+    this.#closeOpened();
     this.selectedIndex = -1;
     await this.reload();
     await markListShown();
@@ -221,10 +225,49 @@ export class MailState {
   async open(): Promise<void> {
     const conversation = this.selected;
     if (conversation === null) return;
+    this.#openWith(conversation, null);
+    await this.#loadMessages(conversation.id);
+  }
+
+  /** Affiche une conversation ; si elle a des messages non lus, la
+   * marque comme lue après `AUTO_SEEN_DELAY_MS` si elle est encore
+   * ouverte. */
+  #openWith(conversation: ConversationDto, scope: ScopeDto | null): void {
+    this.#cancelAutoSeen();
     this.opened = conversation;
+    this.#openedScope = scope;
+    this.messages = [];
+    if (conversation.unread === 0) return;
+    this.#autoSeen = setTimeout(() => {
+      this.#autoSeen = null;
+      void this.#markOpenedSeen(conversation);
+    }, AUTO_SEEN_DELAY_MS);
+  }
+
+  #cancelAutoSeen(): void {
+    if (this.#autoSeen !== null) clearTimeout(this.#autoSeen);
+    this.#autoSeen = null;
+  }
+
+  /** Marquage automatique : ni message de confirmation ni annulation,
+   * qui restent ceux de la dernière action de l'utilisateur. */
+  async #markOpenedSeen(conversation: ConversationDto): Promise<void> {
+    try {
+      await this.#api.performAction([conversation.id], this.#openedScope ?? this.scope, {
+        kind: "mark_seen",
+        value: true,
+      });
+      await this.refreshAfterAction([conversation.account]);
+    } catch (e) {
+      this.notice = { text: errorText(e), undoable: false };
+    }
+  }
+
+  #closeOpened(): void {
+    this.#cancelAutoSeen();
+    this.opened = null;
     this.#openedScope = null;
     this.messages = [];
-    await this.#loadMessages(conversation.id);
   }
 
   async #loadMessages(id: number): Promise<void> {
@@ -275,9 +318,7 @@ export class MailState {
    * du message trouvé, où s'appliquent les actions. */
   async openConversation(conversation: ConversationDto, scope: ScopeDto): Promise<void> {
     this.marked = [];
-    this.opened = conversation;
-    this.#openedScope = scope;
-    this.messages = [];
+    this.#openWith(conversation, scope);
     await this.#loadMessages(conversation.id);
   }
 
@@ -300,6 +341,7 @@ export class MailState {
     const targets =
       ids === undefined ? this.targets() : this.conversations.filter((c) => ids.includes(c.id));
     if (targets.length === 0) return;
+    if (targets.some((t) => t.id === this.opened?.id)) this.#cancelAutoSeen();
     try {
       const scope =
         ids === undefined && this.marked.length === 0
@@ -359,9 +401,7 @@ export class MailState {
 
   /** Retour à la liste. */
   back(): void {
-    this.opened = null;
-    this.#openedScope = null;
-    this.messages = [];
+    this.#closeOpened();
   }
 
   /** Événement de synchronisation : rafraîchit ce qui est concerné. */

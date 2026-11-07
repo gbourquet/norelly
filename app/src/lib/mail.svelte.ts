@@ -33,10 +33,6 @@ async function markListShown(): Promise<void> {
 /** Fenêtre d'annulation d'une action (UNDO_WINDOW_SECS côté Rust). */
 export const UNDO_WINDOW_MS = 5000;
 
-/** Délai au bout duquel une conversation non lue restée ouverte est
- * marquée comme lue. */
-export const AUTO_SEEN_DELAY_MS = 5000;
-
 /** Taille d'une page demandée au Rust. */
 export const PAGE_SIZE = 100;
 
@@ -74,8 +70,14 @@ function sameScope(a: ScopeDto, b: ScopeDto): boolean {
     : a.kind === "unified" && b.kind === "unified" && a.role === b.role;
 }
 
+/** Délai du marquage comme lu à l'ouverture (millisecondes), lu dans les
+ * réglages à chaque ouverture ; `null` : réglages pas encore chargés,
+ * rien n'est marqué. */
+export type MarkSeenDelay = () => number | null;
+
 export class MailState {
   readonly #api: MailApi;
+  readonly #markSeenDelay: MarkSeenDelay;
   /** Dossiers par compte. */
   folders = $state<Record<number, FolderDto[]>>({});
   /** Comptes hors ligne (raison). */
@@ -106,8 +108,9 @@ export class MailState {
 
   readonly selected = $derived(this.conversations[this.selectedIndex] ?? null);
 
-  constructor(api: MailApi) {
+  constructor(api: MailApi, markSeenDelay: MarkSeenDelay) {
     this.#api = api;
+    this.#markSeenDelay = markSeenDelay;
   }
 
   async loadFolders(account: number): Promise<void> {
@@ -230,18 +233,19 @@ export class MailState {
   }
 
   /** Affiche une conversation ; si elle a des messages non lus, la
-   * marque comme lue après `AUTO_SEEN_DELAY_MS` si elle est encore
-   * ouverte. */
+   * marque comme lue si elle est encore ouverte au bout du délai des
+   * réglages. */
   #openWith(conversation: ConversationDto, scope: ScopeDto | null): void {
     this.#cancelAutoSeen();
     this.opened = conversation;
     this.#openedScope = scope;
     this.messages = [];
-    if (conversation.unread === 0) return;
+    const delay = this.#markSeenDelay();
+    if (conversation.unread === 0 || delay === null) return;
     this.#autoSeen = setTimeout(() => {
       this.#autoSeen = null;
       void this.#markOpenedSeen(conversation);
-    }, AUTO_SEEN_DELAY_MS);
+    }, delay);
   }
 
   #cancelAutoSeen(): void {

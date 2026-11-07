@@ -125,7 +125,7 @@ vi.mock("./lib/ipc/api", () => ({
 
 const { default: App } = await import("./App.svelte");
 const { api } = await import("./lib/ipc/api");
-const { mail } = await import("./lib/app.svelte");
+const { mail, settings } = await import("./lib/app.svelte");
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -135,6 +135,7 @@ beforeEach(() => {
   mail.marked = [];
   mail.lastAction = null;
   mail.notice = null;
+  settings.current = null;
 });
 
 describe("lecture", () => {
@@ -166,6 +167,27 @@ describe("lecture", () => {
     // Échap : retour à la liste.
     await fireEvent.keyDown(window, { key: "Escape" });
     await waitFor(() => expect(screen.queryByRole("article")).toBeNull());
+  });
+
+  it("marque lue la conversation ouverte selon le délai des réglages", async () => {
+    settings.current = {
+      language: "system",
+      update_check: "enabled",
+      notifications: true,
+      notification_privacy: false,
+      attachment_threshold: 2 * 1024 * 1024,
+      mark_seen_delay_secs: 0,
+    };
+    render(App);
+    const list = await screen.findByRole("listbox", { name: "Conversations" });
+    await within(list).findByText("Sujet 1");
+    await fireEvent.keyDown(window, { key: "Enter" });
+    await waitFor(() =>
+      expect(api.performAction).toHaveBeenCalledWith([1], expect.anything(), {
+        kind: "mark_seen",
+        value: true,
+      }),
+    );
   });
 
   it("bannière d'images bloquées, pièces jointes et messages d'agent validés", async () => {

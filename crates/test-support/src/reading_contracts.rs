@@ -488,7 +488,9 @@ pub async fn reading_preferences_contract<P: ReadingPreferences>(
 
 /// Contrat de [`SettingsStore`] (stockage vide au départ).
 pub async fn settings_store_contract<S: SettingsStore>(store: &S) -> Result<(), StoreError> {
-    use norelly_domain::settings::{Language, MAX_ATTACHMENT_THRESHOLD, Settings, UpdateCheck};
+    use norelly_domain::settings::{
+        Language, MAX_ATTACHMENT_THRESHOLD, MAX_MARK_SEEN_DELAY_SECS, Settings, UpdateCheck,
+    };
     assert_eq!(
         store.settings().await?,
         Settings::default(),
@@ -500,6 +502,7 @@ pub async fn settings_store_contract<S: SettingsStore>(store: &S) -> Result<(), 
         notifications: false,
         notification_privacy: true,
         attachment_threshold: 8 * 1024 * 1024,
+        mark_seen_delay_secs: 12,
     };
     store.save_settings(&chosen).await?;
     assert_eq!(store.settings().await?, chosen);
@@ -510,6 +513,15 @@ pub async fn settings_store_contract<S: SettingsStore>(store: &S) -> Result<(), 
     assert!(
         store.save_settings(&invalid).await.is_err(),
         "hors bornes refusé"
+    );
+    assert_eq!(store.settings().await?, chosen, "rien enregistré");
+    let invalid = Settings {
+        mark_seen_delay_secs: MAX_MARK_SEEN_DELAY_SECS + 1,
+        ..chosen
+    };
+    assert!(
+        store.save_settings(&invalid).await.is_err(),
+        "délai hors bornes refusé"
     );
     assert_eq!(store.settings().await?, chosen, "rien enregistré");
     Ok(())

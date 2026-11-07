@@ -359,6 +359,7 @@ fn conversation_targets_follow_the_action() {
                 role,
                 flags,
                 date,
+                message_id: None,
             }
         };
     let members = vec![
@@ -522,4 +523,39 @@ fn pending_action_elsewhere_is_left_alone() {
         move_op("INBOX", "Bli").follow_folder(&from, &name("Blo"), None),
         Some(move_op("INBOX", "Blo"))
     );
+}
+
+#[test]
+fn opened_seen_targets_are_the_unread_copies_of_the_shown_messages() {
+    let member = |id: i64, mailbox: i64, seen: bool, message_id: Option<&str>| {
+        let mut flags = Flags::default();
+        flags.seen = seen;
+        Member {
+            id: MessageId::new(id).unwrap_or_else(|| panic!("id")),
+            mailbox: mailbox_id(mailbox),
+            role: MailboxRole::Inbox,
+            flags,
+            date: id,
+            message_id: message_id.map(str::to_owned),
+        }
+    };
+    let id = |n: i64| MessageId::new(n).unwrap_or_else(|| panic!("id"));
+    let members = vec![
+        // Affiché non lu à l'ouverture.
+        member(1, 1, false, Some("a@x")),
+        // Même message rangé dans un autre dossier : non affiché (doublon).
+        member(2, 3, false, Some("a@x")),
+        // Réponse arrivée après l'ouverture : jamais vue.
+        member(3, 1, false, Some("b@x")),
+        // Affiché, déjà lu depuis (ailleurs) : rien à faire.
+        member(4, 1, true, Some("c@x")),
+        // Sans Message-ID : reconnu par son identifiant seulement.
+        member(5, 1, false, None),
+        member(6, 1, false, None),
+    ];
+    assert_eq!(
+        opened_seen_targets(&members, &[id(1), id(4), id(5), id(99)]),
+        vec![id(1), id(2), id(5)]
+    );
+    assert_eq!(opened_seen_targets(&members, &[]), Vec::<MessageId>::new());
 }

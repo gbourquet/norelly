@@ -1062,6 +1062,7 @@ impl PendingOpStore for InMemoryMailStore {
                 role: l.role,
                 flags: l.message.stored.meta.flags.clone(),
                 date: l.message.stored.meta.sort_date(),
+                message_id: l.message.stored.meta.headers.message_id.clone(),
             })
             .collect();
         out.sort_by_key(|m| (m.date, m.id));

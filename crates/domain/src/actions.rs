@@ -191,6 +191,9 @@ pub struct Member {
     pub role: MailboxRole,
     pub flags: Flags,
     pub date: i64,
+    /// `Message-ID` : reconnaît les exemplaires d'un même message rangé
+    /// dans plusieurs dossiers.
+    pub message_id: Option<String>,
 }
 
 /// Messages visés par une action sur une conversation affichée dans
@@ -236,6 +239,32 @@ pub fn conversation_targets(
             members.iter().filter(in_scope).map(|m| m.id).collect()
         }
     }
+}
+
+/// Messages à marquer comme lus quand une conversation reste ouverte :
+/// `shown`, les messages affichés non lus à l'ouverture, et leurs
+/// exemplaires rangés dans d'autres dossiers (même `Message-ID`), s'ils
+/// sont encore non lus. Un message arrivé depuis l'ouverture n'a pas été
+/// vu et n'est pas touché ; un identifiant étranger à la conversation est
+/// ignoré.
+#[must_use]
+pub fn opened_seen_targets(members: &[Member], shown: &[MessageId]) -> Vec<MessageId> {
+    let shown_ids: Vec<&str> = members
+        .iter()
+        .filter(|m| shown.contains(&m.id))
+        .filter_map(|m| m.message_id.as_deref())
+        .collect();
+    members
+        .iter()
+        .filter(|m| !m.flags.seen)
+        .filter(|m| {
+            shown.contains(&m.id)
+                || m.message_id
+                    .as_deref()
+                    .is_some_and(|mid| shown_ids.contains(&mid))
+        })
+        .map(|m| m.id)
+        .collect()
 }
 
 /// Opération sur le serveur.

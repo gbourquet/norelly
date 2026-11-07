@@ -23,9 +23,13 @@ sur l'application ; ouvrir liens et pièces jointes sans danger.
   et « Enregistrer… » (choix du dossier). Une pièce non encore téléchargée
   l'est à la demande.
 - **Texte brut** : bouton par message, et préférence globale.
-- Ouvrir un message **ne le marque pas comme lu** : l'utilisateur le marque
-  lu par le menu « Plus… » de la barre d'actions, le bouton au survol de
-  la ligne ou `Maj+I`.
+- Une conversation non lue **devient lue quand elle reste ouverte quelques
+  secondes** : la parcourir rapidement ne change rien. Seuls les messages
+  affichés à l'ouverture deviennent lus : une réponse arrivée pendant la
+  lecture reste non lue. Ce marquage ne
+  remplace pas le message de la dernière action ni sa possibilité
+  d'annulation. Elle redevient non lue par le menu « Plus… » de la barre
+  d'actions, le bouton au survol de la ligne ou `Maj+U`.
 
 ## Règles
 

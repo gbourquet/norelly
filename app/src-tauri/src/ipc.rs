@@ -949,6 +949,9 @@ pub struct SettingsDto {
     pub notification_privacy: bool,
     /// Octets.
     pub attachment_threshold: u32,
+    /// Secondes avant qu'une conversation non lue restée ouverte soit
+    /// marquée comme lue (0 : à l'ouverture).
+    pub mark_seen_delay_secs: u32,
 }
 
 /// Où chercher.

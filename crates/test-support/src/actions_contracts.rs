@@ -395,6 +395,12 @@ where
             .any(|m| m.mailbox == projets && m.role == MailboxRole::Normal)
     );
     assert!(members.iter().any(|m| m.id == m1 && m.flags.seen));
+    assert!(
+        members
+            .iter()
+            .all(|m| m.message_id.as_deref() == Some("m1@example.com")),
+        "Message-ID des exemplaires : {members:?}"
+    );
     let t1 = target(store, m1).await?;
     let hide = Effect::MoveTo(norelly_domain::actions::FolderRef {
         id: trash,

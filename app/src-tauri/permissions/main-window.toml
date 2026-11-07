@@ -24,6 +24,7 @@ permissions = [
   "allow-save-attachment",
   "allow-open-attachment",
   "allow-perform-action",
+  "allow-mark-opened-seen",
   "allow-undo-actions",
   "allow-set-archive-folder",
   "allow-create-folder",

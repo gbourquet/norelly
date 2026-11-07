@@ -307,7 +307,10 @@ class AppState {
   }
 }
 
-export const mail = new MailState(api);
+export const mail = new MailState(api, () => {
+  const current = settings.current;
+  return current === null ? null : current.mark_seen_delay_secs * 1000;
+});
 
 export const search = new SearchState(api);
 

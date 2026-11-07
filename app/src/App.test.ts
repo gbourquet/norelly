@@ -51,6 +51,7 @@ const askedSettings = {
   notifications: true,
   notification_privacy: false,
   attachment_threshold: 2 * 1024 * 1024,
+  mark_seen_delay_secs: 5,
 };
 let storedSettings = { ...askedSettings };
 let updatesSupported = true;

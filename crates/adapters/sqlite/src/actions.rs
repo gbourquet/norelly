@@ -15,6 +15,10 @@ use crate::mail::{SqliteMailStore, corrupted, flags_from, mailbox_id, uid_of};
 use crate::store_error;
 
 /// Masque d'un drapeau dans la colonne `messages.flags`.
+/// Membre d'une conversation relu : identifiant, dossier, rôle,
+/// drapeaux, mots-clés, date de tri, `Message-ID`.
+type MemberRow = (i64, i64, String, i64, String, i64, Option<String>);
+
 const fn flag_bit(flag: ActionFlag) -> i64 {
     match flag {
         ActionFlag::Seen => 1,
@@ -387,7 +391,8 @@ impl PendingOpStore for SqliteMailStore {
             .read(move |c| {
                 let mut stmt = c
                     .prepare_cached(
-                        "SELECT m.id, m.mailbox_id, b.role, m.flags, m.keywords, m.sort_date \
+                        "SELECT m.id, m.mailbox_id, b.role, m.flags, m.keywords, m.sort_date, \
+                         m.message_id \
                          FROM messages m JOIN mailboxes b ON b.id = m.mailbox_id \
                          WHERE m.conversation_id = ?1 AND m.hidden = 0 AND (m.flags & 8) = 0 \
                          AND m.pending_op IS NULL \
@@ -395,7 +400,7 @@ impl PendingOpStore for SqliteMailStore {
                     )
                     .map_err(store_error)?;
                 let limit = i64::try_from(MAX_ACTION_TARGETS).unwrap_or(i64::MAX);
-                let rows: Vec<(i64, i64, String, i64, String, i64)> = stmt
+                let rows: Vec<MemberRow> = stmt
                     .query_map(params![conversation.get(), limit], |r| {
                         Ok((
                             r.get(0)?,
@@ -404,19 +409,21 @@ impl PendingOpStore for SqliteMailStore {
                             r.get(3)?,
                             r.get(4)?,
                             r.get(5)?,
+                            r.get(6)?,
                         ))
                     })
                     .map_err(store_error)?
                     .collect::<Result<_, _>>()
                     .map_err(store_error)?;
                 rows.into_iter()
-                    .map(|(id, mailbox, role, bits, keywords, date)| {
+                    .map(|(id, mailbox, role, bits, keywords, date, message_id)| {
                         Ok(Member {
                             id: MessageId::new(id).ok_or_else(|| corrupted("message"))?,
                             mailbox: mailbox_id(mailbox)?,
                             role: MailboxRole::parse(&role).ok_or_else(|| corrupted("rôle"))?,
                             flags: flags_from(bits, &keywords),
                             date,
+                            message_id,
                         })
                     })
                     .collect()

@@ -6,7 +6,9 @@
 //! - notifications des nouveaux messages, avec une option de
 //!   confidentialité qui retire expéditeur et sujet ;
 //! - rapatriement : seuil au-delà duquel les pièces jointes ne sont pas
-//!   téléchargées pendant la synchronisation.
+//!   téléchargées pendant la synchronisation ;
+//! - lecture : délai au bout duquel une conversation non lue restée
+//!   ouverte est marquée comme lue.
 
 use crate::fetch_policy::{DEFAULT_ATTACHMENT_THRESHOLD, FetchPolicy};
 use crate::notify::NewMail;
@@ -15,6 +17,11 @@ use crate::notify::NewMail;
 pub const MIN_ATTACHMENT_THRESHOLD: u32 = 64 * 1024;
 /// Seuil maximal de rapatriement des pièces jointes (64 Mio).
 pub const MAX_ATTACHMENT_THRESHOLD: u32 = 64 * 1024 * 1024;
+
+/// Délai par défaut du marquage comme lu à l'ouverture (secondes).
+pub const DEFAULT_MARK_SEEN_DELAY_SECS: u32 = 5;
+/// Délai maximal du marquage comme lu à l'ouverture (secondes).
+pub const MAX_MARK_SEEN_DELAY_SECS: u32 = 60;
 
 /// Langue de l'interface.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -75,6 +82,9 @@ pub struct Settings {
     pub notifications: bool,
     pub notification_privacy: bool,
     pub attachment_threshold: u32,
+    /// Délai au bout duquel une conversation non lue restée ouverte est
+    /// marquée comme lue (secondes ; 0 : à l'ouverture).
+    pub mark_seen_delay_secs: u32,
 }
 
 impl Default for Settings {
@@ -85,6 +95,7 @@ impl Default for Settings {
             notifications: true,
             notification_privacy: false,
             attachment_threshold: DEFAULT_ATTACHMENT_THRESHOLD,
+            mark_seen_delay_secs: DEFAULT_MARK_SEEN_DELAY_SECS,
         }
     }
 }
@@ -94,6 +105,8 @@ impl Default for Settings {
 pub enum SettingsError {
     #[error("seuil de rapatriement hors bornes")]
     AttachmentThreshold,
+    #[error("délai du marquage comme lu hors bornes")]
+    MarkSeenDelay,
 }
 
 impl Language {
@@ -139,14 +152,44 @@ impl Settings {
     ///
     /// # Errors
     /// [`SettingsError::AttachmentThreshold`] hors de
-    /// [`MIN_ATTACHMENT_THRESHOLD`]..=[`MAX_ATTACHMENT_THRESHOLD`].
+    /// [`MIN_ATTACHMENT_THRESHOLD`]..=[`MAX_ATTACHMENT_THRESHOLD`] ;
+    /// [`SettingsError::MarkSeenDelay`] au-delà de
+    /// [`MAX_MARK_SEEN_DELAY_SECS`].
     pub fn validate(&self) -> Result<(), SettingsError> {
-        if (MIN_ATTACHMENT_THRESHOLD..=MAX_ATTACHMENT_THRESHOLD)
-            .contains(&self.attachment_threshold)
-        {
-            Ok(())
-        } else {
-            Err(SettingsError::AttachmentThreshold)
+        if !self.threshold_ok() {
+            return Err(SettingsError::AttachmentThreshold);
+        }
+        if !self.mark_seen_delay_ok() {
+            return Err(SettingsError::MarkSeenDelay);
+        }
+        Ok(())
+    }
+
+    fn threshold_ok(&self) -> bool {
+        (MIN_ATTACHMENT_THRESHOLD..=MAX_ATTACHMENT_THRESHOLD).contains(&self.attachment_threshold)
+    }
+
+    const fn mark_seen_delay_ok(&self) -> bool {
+        self.mark_seen_delay_secs <= MAX_MARK_SEEN_DELAY_SECS
+    }
+
+    /// Chaque réglage hors bornes remplacé par sa valeur par défaut, les
+    /// autres gardés (paramètres relus d'une base modifiée à la main).
+    #[must_use]
+    pub fn sanitized(self) -> Self {
+        let defaults = Self::default();
+        Self {
+            attachment_threshold: if self.threshold_ok() {
+                self.attachment_threshold
+            } else {
+                defaults.attachment_threshold
+            },
+            mark_seen_delay_secs: if self.mark_seen_delay_ok() {
+                self.mark_seen_delay_secs
+            } else {
+                defaults.mark_seen_delay_secs
+            },
+            ..self
         }
     }
 
@@ -261,6 +304,46 @@ mod tests {
         s.attachment_threshold = 5 * 1024 * 1024;
         assert_eq!(s.validate(), Ok(()));
         assert_eq!(s.fetch_policy().attachment_threshold, 5 * 1024 * 1024);
+    }
+
+    #[test]
+    fn mark_seen_delay_defaults_to_five_seconds_and_is_bounded() {
+        let mut s = Settings::default();
+        assert_eq!(s.mark_seen_delay_secs, DEFAULT_MARK_SEEN_DELAY_SECS);
+        assert_eq!(DEFAULT_MARK_SEEN_DELAY_SECS, 5);
+        s.mark_seen_delay_secs = 0;
+        assert_eq!(s.validate(), Ok(()), "immédiat");
+        s.mark_seen_delay_secs = MAX_MARK_SEEN_DELAY_SECS;
+        assert_eq!(s.validate(), Ok(()));
+        s.mark_seen_delay_secs = MAX_MARK_SEEN_DELAY_SECS + 1;
+        assert_eq!(s.validate(), Err(SettingsError::MarkSeenDelay));
+    }
+
+    #[test]
+    fn sanitized_resets_each_out_of_bounds_setting_to_its_default() {
+        let chosen = Settings {
+            notifications: false,
+            attachment_threshold: 8 * 1024 * 1024,
+            mark_seen_delay_secs: 12,
+            ..Settings::default()
+        };
+        assert_eq!(chosen.sanitized(), chosen, "valide : inchangé");
+        let all_wrong = Settings {
+            attachment_threshold: 1,
+            mark_seen_delay_secs: MAX_MARK_SEEN_DELAY_SECS + 1,
+            ..chosen
+        };
+        let fixed = all_wrong.sanitized();
+        assert_eq!(fixed.validate(), Ok(()));
+        assert_eq!(
+            fixed,
+            Settings {
+                attachment_threshold: DEFAULT_ATTACHMENT_THRESHOLD,
+                mark_seen_delay_secs: DEFAULT_MARK_SEEN_DELAY_SECS,
+                ..chosen
+            },
+            "les autres réglages sont gardés"
+        );
     }
 
     #[test]

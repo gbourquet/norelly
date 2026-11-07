@@ -71,11 +71,33 @@ quand le mainteneur l'abandonne (avec la raison).
   venue d'un fichier tiers passe par le même contrôle que les pièces
   jointes et le rendu (revue de sécurité) ; initiales en attendant.
 
-- **Ouvrir un message ne le marque pas comme lu** : corps lus en
-  `BODY.PEEK`, aucun marquage automatique ; la ligne reste en gras et le
-  compteur ne baisse pas. Marquer lu à l'ouverture (éventuellement après un
-  délai réglable), par une action du domaine. (`app/src/lib/mail.svelte.ts`,
-  `app/src-tauri/src/reading.rs`)
+- **Délai du marquage comme lu dans la fenêtre des réglages** : le réglage
+  existe de bout en bout (`Settings::mark_seen_delay_secs`, 5 s par défaut,
+  0 à 60 s, dans `SettingsDto`) mais aucun contrôle ne permet encore de le
+  modifier. Ajouter le choix (immédiat, quelques secondes…) à
+  `SettingsDialog.svelte`, libellés dans les deux catalogues, fiche
+  fonctionnelle et guides. Une option « jamais » demanderait de changer le
+  type du réglage (domaine, DTO) ; elle compte pour la vie privée (revue
+  de sécurité, basse) : l'état lu est visible des autres personnes qui
+  partagent la boîte, et le marquage s'active à la mise à jour sans choix
+  de l'utilisateur. (`crates/domain/src/settings.rs`)
+- **Exemplaire forgé marqué lu à l'ouverture** (revue de sécurité,
+  basse) : `opened_seen_targets` étend le marquage aux membres de même
+  `Message-ID` relus au moment du marquage ; un message forgé avec le
+  `Message-ID` d'un message affiché, arrivé pendant le délai, est marqué
+  lu, puis remplace l'affichage (dédoublonnage « le plus récent
+  l'emporte » de `messages_query`). Ne garder que les exemplaires présents
+  à l'ouverture (repère transmis par l'interface), préférer l'exemplaire
+  le plus ancien ou hors Indésirables au dédoublonnage, et fixer le cas
+  par un test. (`crates/domain/src/actions.rs`,
+  `crates/adapters/sqlite/src/conversations.rs`)
+- **Action en attente du marquage automatique sans limite** (revue de
+  sécurité, info) : `#autoSeenInFlight` couvre aussi le rafraîchissement
+  qui suit ; n'attendre que l'appel `markOpenedSeen`, ou borner l'attente.
+  (`app/src/lib/mail.svelte.ts`)
+- **Marquage comme lu fenêtre cachée** (revue de sécurité, info) : le
+  délai court même fenêtre réduite ou masquée ; le suspendre tant que
+  `document.visibilityState` n'est pas `visible`. (`app/src/lib/mail.svelte.ts`)
 - **Noms de dossiers non traduits** : « Drafts », « Sent », « Trash »
   viennent du serveur alors que la boîte de réception est traduite. Libellé
   traduit d'après le rôle SPECIAL-USE, nom du serveur en info-bulle.

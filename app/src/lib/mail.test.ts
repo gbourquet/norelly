@@ -1,7 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
-import type { ActionDto, ConversationDto, ScopeDto } from "./ipc/api";
+import type { ActionDto, ConversationDto, ConversationMessage, ScopeDto } from "./ipc/api";
 import { MailState, PAGE_SIZE, UNDO_WINDOW_MS, UNIFIED_INBOX, type MailApi } from "./mail.svelte";
 import { IpcFailure } from "./errors";
+
+/** Sans marquage comme lu à l'ouverture (réglages non chargés). */
+const noAutoSeen = (): null => null;
 
 function conversation(id: number, account = 1): ConversationDto {
   return {
@@ -18,8 +21,11 @@ function conversation(id: number, account = 1): ConversationDto {
   };
 }
 
-function fakeApi(total: number): MailApi & { calls: ScopeDto[] } {
-  let all = Array.from({ length: total }, (_, i) => conversation(i + 1));
+function fakeApi(total: number, unread: number[] = []): MailApi & { calls: ScopeDto[] } {
+  let all = Array.from({ length: total }, (_, i) => ({
+    ...conversation(i + 1),
+    unread: unread.includes(i + 1) ? 1 : 0,
+  }));
   const calls: ScopeDto[] = [];
   let removed: ConversationDto[] = [];
   return {
@@ -36,6 +42,10 @@ function fakeApi(total: number): MailApi & { calls: ScopeDto[] } {
       removed = [];
       return ops.length;
     }),
+    markOpenedSeen: vi.fn(async (_conversation: number, shown: number[]) => ({
+      ops: shown.map((id) => id + 2000),
+      messages: shown.length,
+    })),
     listFolders: vi.fn(async () => []),
     syncAccount: vi.fn(async () => undefined),
     conversationMessages: vi.fn(async (id: number) => [
@@ -48,7 +58,7 @@ function fakeApi(total: number): MailApi & { calls: ScopeDto[] } {
         to: [],
         cc: [],
         subject: `Sujet ${id}`,
-        unread: false,
+        unread: unread.includes(id),
         flagged: false,
         has_attachments: false,
       },
@@ -68,7 +78,7 @@ function fakeApi(total: number): MailApi & { calls: ScopeDto[] } {
 describe("état de la lecture", () => {
   it("affiche la boîte unifiée, pagine et navigue avec j/k", async () => {
     const api = fakeApi(PAGE_SIZE + 30);
-    const mail = new MailState(api);
+    const mail = new MailState(api, noAutoSeen);
     await mail.show(UNIFIED_INBOX);
     expect(api.calls[0]).toEqual(UNIFIED_INBOX);
     expect(mail.conversations).toHaveLength(PAGE_SIZE);
@@ -89,7 +99,7 @@ describe("état de la lecture", () => {
   });
 
   it("ouvre, suit la navigation et revient à la liste", async () => {
-    const mail = new MailState(fakeApi(5));
+    const mail = new MailState(fakeApi(5), noAutoSeen);
     await mail.show({ kind: "mailbox", id: 10 });
     await mail.open();
     expect(mail.opened?.id).toBe(1);
@@ -104,7 +114,7 @@ describe("état de la lecture", () => {
 
   it("rafraîchit selon les événements de synchronisation", async () => {
     const api = fakeApi(3);
-    const mail = new MailState(api);
+    const mail = new MailState(api, noAutoSeen);
     await mail.show({ kind: "mailbox", id: 10 });
     mail.select(2);
     await mail.onSyncEvent({ kind: "folder_changed", account: 1, mailbox: 99 });
@@ -127,7 +137,7 @@ describe("état de la lecture", () => {
 
   it("actions : effet immédiat, sélection suivante, annulation", async () => {
     const api = fakeApi(5);
-    const mail = new MailState(api);
+    const mail = new MailState(api, noAutoSeen);
     await mail.show(UNIFIED_INBOX);
     mail.select(1);
     await mail.act({ kind: "archive" }, "Archivé.");
@@ -145,7 +155,7 @@ describe("état de la lecture", () => {
 
   it("action sur des conversations désignées (glisser-déposer), pas sur la sélection", async () => {
     const api = fakeApi(5);
-    const mail = new MailState(api);
+    const mail = new MailState(api, noAutoSeen);
     await mail.show(UNIFIED_INBOX);
     mail.select(0);
     await mail.open();
@@ -165,7 +175,7 @@ describe("état de la lecture", () => {
 
   it("sélection multiple avec x, puis action sur les conversations cochées", async () => {
     const api = fakeApi(5);
-    const mail = new MailState(api);
+    const mail = new MailState(api, noAutoSeen);
     await mail.show(UNIFIED_INBOX);
     mail.select(0);
     mail.toggleMark();
@@ -185,7 +195,7 @@ describe("état de la lecture", () => {
 
   it("case à cocher d'une ligne : coche sans changer la sélection, puis tout décocher", async () => {
     const api = fakeApi(5);
-    const mail = new MailState(api);
+    const mail = new MailState(api, noAutoSeen);
     await mail.show(UNIFIED_INBOX);
     mail.select(1);
     mail.toggleMarkAt(0);
@@ -203,7 +213,7 @@ describe("état de la lecture", () => {
 
   it("annulation trop tardive et erreur d'action", async () => {
     const api = fakeApi(3);
-    const mail = new MailState(api);
+    const mail = new MailState(api, noAutoSeen);
     await mail.show(UNIFIED_INBOX);
     mail.select(0);
     await mail.act({ kind: "delete" }, "Supprimé.");
@@ -221,7 +231,7 @@ describe("état de la lecture", () => {
   it("« annuler » n'est plus proposé après la fenêtre d'annulation", async () => {
     vi.useFakeTimers();
     try {
-      const mail = new MailState(fakeApi(3));
+      const mail = new MailState(fakeApi(3), noAutoSeen);
       await mail.show(UNIFIED_INBOX);
       mail.select(0);
       await mail.act({ kind: "archive" }, "Archivé.");
@@ -237,7 +247,7 @@ describe("état de la lecture", () => {
 describe("conversation ouverte depuis la recherche", () => {
   it("agit dans le dossier du résultat, puis revient à la portée affichée", async () => {
     const api = fakeApi(3);
-    const mail = new MailState(api);
+    const mail = new MailState(api, noAutoSeen);
     await mail.show(UNIFIED_INBOX);
     const acted = vi.fn();
     mail.onActed = acted;
@@ -264,7 +274,7 @@ describe("conversation ouverte depuis la recherche", () => {
 
   it("ignore les conversations cochées dans la liste", async () => {
     const api = fakeApi(3);
-    const mail = new MailState(api);
+    const mail = new MailState(api, noAutoSeen);
     await mail.show(UNIFIED_INBOX);
     mail.toggleMark();
     await mail.openConversation(conversation(9), { kind: "mailbox", id: 10 });
@@ -276,12 +286,253 @@ describe("conversation ouverte depuis la recherche", () => {
 describe("mesure de performance", () => {
   it("pose un repère à chaque liste affichée, et un premier repère au démarrage", async () => {
     performance.clearMarks();
-    const mail = new MailState(fakeApi(3));
+    const mail = new MailState(fakeApi(3), noAutoSeen);
     await mail.show(UNIFIED_INBOX);
     expect(performance.getEntriesByName("norelly:first-list")).toHaveLength(1);
     expect(performance.getEntriesByName("norelly:list-shown")).toHaveLength(1);
     await mail.show({ kind: "mailbox", id: 10 });
     expect(performance.getEntriesByName("norelly:first-list")).toHaveLength(1);
     expect(performance.getEntriesByName("norelly:list-shown")).toHaveLength(2);
+  });
+});
+
+describe("marquage comme lu à l'ouverture", () => {
+  const DELAY_MS = 5000;
+
+  function seenCalls(api: MailApi): unknown[][] {
+    return vi.mocked(api.markOpenedSeen).mock.calls;
+  }
+
+  function message(id: number, unread: boolean): ConversationMessage {
+    return {
+      id,
+      account: 1,
+      mailbox: 10,
+      date: 0,
+      from: null,
+      to: [],
+      cc: [],
+      subject: "Sujet",
+      unread,
+      flagged: false,
+      has_attachments: false,
+    };
+  }
+
+  it("marque lus les messages affichés non lus restés ouverts, sans message ni annulation", async () => {
+    vi.useFakeTimers();
+    try {
+      const api = fakeApi(3, [1]);
+      const mail = new MailState(api, () => DELAY_MS);
+      await mail.show({ kind: "mailbox", id: 10 });
+      await mail.open();
+      await vi.advanceTimersByTimeAsync(DELAY_MS - 1);
+      expect(seenCalls(api)).toEqual([]);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(seenCalls(api)).toEqual([[1, [10]]]);
+      expect(api.performAction).not.toHaveBeenCalled();
+      expect(mail.notice).toBeNull();
+      expect(mail.lastAction).toBeNull();
+      expect(mail.opened?.id).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("une réponse arrivée pendant le délai n'est pas marquée", async () => {
+    vi.useFakeTimers();
+    try {
+      const api = fakeApi(3, [1]);
+      const mail = new MailState(api, () => DELAY_MS);
+      await mail.show(UNIFIED_INBOX);
+      vi.mocked(api.conversationMessages).mockResolvedValueOnce([
+        message(10, true),
+        message(9, false),
+      ]);
+      await mail.open();
+      // Synchronisation : la conversation relue a une réponse non lue.
+      vi.mocked(api.conversationMessages).mockResolvedValueOnce([
+        message(11, true),
+        message(10, true),
+        message(9, false),
+      ]);
+      await mail.onSyncEvent({ kind: "folder_changed", account: 1, mailbox: 10 });
+      expect(mail.messages.map((x) => x.id)).toEqual([11, 10, 9]);
+      await vi.advanceTimersByTimeAsync(DELAY_MS);
+      expect(seenCalls(api)).toEqual([[1, [10]]]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("ne marque pas une conversation quittée avant le délai", async () => {
+    vi.useFakeTimers();
+    try {
+      const api = fakeApi(3, [1, 2]);
+      const mail = new MailState(api, () => DELAY_MS);
+      await mail.show(UNIFIED_INBOX);
+      await mail.open();
+      await vi.advanceTimersByTimeAsync(DELAY_MS / 2);
+      await mail.next();
+      await vi.advanceTimersByTimeAsync(DELAY_MS / 2);
+      mail.back();
+      await vi.advanceTimersByTimeAsync(DELAY_MS);
+      expect(seenCalls(api)).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("une ouverture dépassée pendant le chargement ne programme rien", async () => {
+    vi.useFakeTimers();
+    try {
+      const api = fakeApi(3, [1, 2]);
+      let release: () => void = () => undefined;
+      vi.mocked(api.conversationMessages).mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            release = () => resolve([message(10, true)]);
+          }),
+      );
+      const mail = new MailState(api, () => DELAY_MS);
+      await mail.show(UNIFIED_INBOX);
+      // Conversation 1 ouverte, puis 2 avant que les messages de 1 arrivent.
+      const first = mail.open();
+      mail.select(1);
+      await mail.open();
+      release();
+      await first;
+      await vi.advanceTimersByTimeAsync(DELAY_MS);
+      expect(seenCalls(api)).toEqual([[2, [20]]]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("ne fait rien pour une conversation déjà lue", async () => {
+    vi.useFakeTimers();
+    try {
+      const api = fakeApi(3);
+      const mail = new MailState(api, () => DELAY_MS);
+      await mail.show(UNIFIED_INBOX);
+      await mail.open();
+      await vi.advanceTimersByTimeAsync(DELAY_MS);
+      expect(seenCalls(api)).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("une action de l'utilisateur sur la conversation ouverte annule le marquage", async () => {
+    vi.useFakeTimers();
+    try {
+      const api = fakeApi(3, [1]);
+      const mail = new MailState(api, () => DELAY_MS);
+      await mail.show(UNIFIED_INBOX);
+      await mail.open();
+      await mail.act({ kind: "mark_flagged", value: true }, "Suivi.");
+      await vi.advanceTimersByTimeAsync(DELAY_MS);
+      expect(seenCalls(api)).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("une action de l'utilisateur attend le marquage en cours d'envoi", async () => {
+    vi.useFakeTimers();
+    try {
+      const api = fakeApi(3, [1]);
+      let finish: () => void = () => undefined;
+      vi.mocked(api.markOpenedSeen).mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finish = () => resolve({ ops: [2010], messages: 1 });
+          }),
+      );
+      const mail = new MailState(api, () => DELAY_MS);
+      await mail.show(UNIFIED_INBOX);
+      await mail.open();
+      await vi.advanceTimersByTimeAsync(DELAY_MS);
+      expect(seenCalls(api)).toHaveLength(1);
+
+      const unseen = mail.act({ kind: "mark_seen", value: false }, "Non lu.");
+      await vi.advanceTimersByTimeAsync(0);
+      expect(api.performAction).not.toHaveBeenCalled();
+      finish();
+      await unseen;
+      expect(api.performAction).toHaveBeenCalledWith([1], UNIFIED_INBOX, {
+        kind: "mark_seen",
+        value: false,
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("conversation ouverte depuis la recherche", async () => {
+    vi.useFakeTimers();
+    try {
+      const api = fakeApi(3, [42]);
+      const mail = new MailState(api, () => DELAY_MS);
+      await mail.show(UNIFIED_INBOX);
+      await mail.openConversation({ ...conversation(42), unread: 1 }, { kind: "mailbox", id: 77 });
+      await vi.advanceTimersByTimeAsync(DELAY_MS);
+      expect(seenCalls(api)).toEqual([[42, [420]]]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("un échec du marquage est signalé", async () => {
+    vi.useFakeTimers();
+    try {
+      const api = fakeApi(3, [1]);
+      const mail = new MailState(api, () => DELAY_MS);
+      await mail.show(UNIFIED_INBOX);
+      await mail.open();
+      vi.mocked(api.markOpenedSeen).mockRejectedValueOnce(new IpcFailure("too_many_messages"));
+      await vi.advanceTimersByTimeAsync(DELAY_MS);
+      expect(mail.notice?.undoable).toBe(false);
+      expect(mail.notice?.text).toBeTruthy();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("suit le délai des réglages, relu à chaque ouverture", async () => {
+    vi.useFakeTimers();
+    try {
+      const api = fakeApi(3, [1]);
+      let delay: number | null = 12_000;
+      const mail = new MailState(api, () => delay);
+      await mail.show(UNIFIED_INBOX);
+      await mail.open();
+      await vi.advanceTimersByTimeAsync(11_999);
+      expect(seenCalls(api)).toEqual([]);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(seenCalls(api)).toHaveLength(1);
+
+      delay = 0;
+      mail.back();
+      await mail.open();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(seenCalls(api)).toHaveLength(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("réglages pas encore chargés : rien n'est marqué", async () => {
+    vi.useFakeTimers();
+    try {
+      const api = fakeApi(3, [1]);
+      const mail = new MailState(api, () => null);
+      await mail.show(UNIFIED_INBOX);
+      await mail.open();
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(seenCalls(api)).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

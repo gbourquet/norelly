@@ -10,9 +10,11 @@ use std::collections::BTreeSet;
 use norelly_application::account_actor::unix_now;
 use norelly_application::actions::{PerformAction, UndoActions};
 use norelly_domain::account::AccountId;
-use norelly_domain::actions::{MAX_ACTION_TARGETS, MessageAction, conversation_targets};
+use norelly_domain::actions::{
+    MAX_ACTION_TARGETS, MessageAction, conversation_targets, opened_seen_targets,
+};
 use norelly_domain::mailbox::MailboxId;
-use norelly_domain::ports::{ConversationId, PendingOpId, PendingOpStore};
+use norelly_domain::ports::{ConversationId, MessageId, PendingOpId, PendingOpStore};
 use tauri::State;
 
 use crate::ipc::{ActionDto, ActionResultDto, ErrorCodeDto, FieldDto, IpcError, ScopeDto, id32};
@@ -61,9 +63,21 @@ pub async fn perform_action(
         messages.extend(conversation_targets(action, &members, &scope));
     }
     let messages: Vec<_> = messages.into_iter().collect();
-    let report = PerformAction { store }
-        .execute(&messages, action, unix_now())
-        .await?;
+    apply(&state, &messages, action).await
+}
+
+/// Applique `action` aux messages choisis par le domaine : effet local
+/// immédiat, rejeu après la fenêtre d'annulation.
+async fn apply(
+    state: &AppState,
+    messages: &[MessageId],
+    action: MessageAction,
+) -> Result<ActionResultDto, IpcError> {
+    let report = PerformAction {
+        store: &*state.mail.store,
+    }
+    .execute(messages, action, unix_now())
+    .await?;
     for account in &report.accounts {
         state.mail.replay_soon(*account).await;
     }
@@ -75,6 +89,38 @@ pub async fn perform_action(
             .collect::<Result<_, _>>()?,
         messages: u32::try_from(messages.len()).unwrap_or(u32::MAX),
     })
+}
+
+/// Marque comme lus les messages d'une conversation restée ouverte :
+/// `shown`, les messages affichés non lus à l'ouverture. Le domaine
+/// (`opened_seen_targets`) y ajoute leurs exemplaires d'autres dossiers et
+/// écarte les messages arrivés depuis ou étrangers à la conversation.
+#[tauri::command]
+#[specta::specta]
+pub async fn mark_opened_seen(
+    state: State<'_, AppState>,
+    conversation: u32,
+    shown: Vec<u32>,
+) -> Result<ActionResultDto, IpcError> {
+    if shown.len() > MAX_ACTION_TARGETS {
+        return Err(IpcError::new(ErrorCodeDto::TooManyMessages));
+    }
+    let conversation = ConversationId::new(i64::from(conversation))
+        .ok_or_else(|| IpcError::invalid(FieldDto::Conversation))?;
+    let shown = shown
+        .into_iter()
+        .map(|raw| {
+            MessageId::new(i64::from(raw)).ok_or_else(|| IpcError::invalid(FieldDto::Message))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let members = state
+        .mail
+        .store
+        .conversation_members(conversation)
+        .await
+        .map_err(IpcError::storage)?;
+    let messages = opened_seen_targets(&members, &shown);
+    apply(&state, &messages, MessageAction::MarkSeen(true)).await
 }
 
 /// Annule des opérations encore en attente (dernière action) ; renvoie le

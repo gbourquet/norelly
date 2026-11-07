@@ -198,6 +198,11 @@ export const api = {
     action: ActionDto,
   ): Promise<ActionResultDto> => unwrap(commands.performAction(conversations, scope, action)),
 
+  /** Marque lus les messages `shown` (affichés non lus à l'ouverture)
+   * d'une conversation restée ouverte ; Rust choisit les messages visés. */
+  markOpenedSeen: (conversation: number, shown: number[]): Promise<ActionResultDto> =>
+    unwrap(commands.markOpenedSeen(conversation, shown)),
+
   /** Annule des opérations en attente ; renvoie le nombre annulé. */
   undoActions: (ops: number[]): Promise<number> => unwrap(commands.undoActions(ops)),
 

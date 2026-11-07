@@ -86,7 +86,7 @@ vi.mock("./lib/ipc/api", () => ({
         to: [{ name: "Alice", address: "alice@example.com" }],
         cc: [],
         subject: `Sujet ${id}`,
-        unread: false,
+        unread: id === 1,
         flagged: false,
         has_attachments: false,
       },
@@ -103,6 +103,10 @@ vi.mock("./lib/ipc/api", () => ({
     performAction: vi.fn(async (ids: number[]) => ({
       ops: ids.map((id) => id + 100),
       messages: ids.length,
+    })),
+    markOpenedSeen: vi.fn(async (_conversation: number, shown: number[]) => ({
+      ops: shown.map((id) => id + 200),
+      messages: shown.length,
     })),
     undoActions: vi.fn(async (ops: number[]) => ops.length),
     setArchiveFolder: vi.fn(async () => undefined),
@@ -125,7 +129,7 @@ vi.mock("./lib/ipc/api", () => ({
 
 const { default: App } = await import("./App.svelte");
 const { api } = await import("./lib/ipc/api");
-const { mail } = await import("./lib/app.svelte");
+const { app, mail, settings } = await import("./lib/app.svelte");
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -135,6 +139,9 @@ beforeEach(() => {
   mail.marked = [];
   mail.lastAction = null;
   mail.notice = null;
+  settings.current = null;
+  // Boîte de dialogue laissée ouverte par un test précédent.
+  app.dialog = null;
 });
 
 describe("lecture", () => {
@@ -166,6 +173,22 @@ describe("lecture", () => {
     // Échap : retour à la liste.
     await fireEvent.keyDown(window, { key: "Escape" });
     await waitFor(() => expect(screen.queryByRole("article")).toBeNull());
+  });
+
+  it("marque lue la conversation ouverte selon le délai des réglages", async () => {
+    settings.current = {
+      language: "system",
+      update_check: "enabled",
+      notifications: true,
+      notification_privacy: false,
+      attachment_threshold: 2 * 1024 * 1024,
+      mark_seen_delay_secs: 0,
+    };
+    render(App);
+    const list = await screen.findByRole("listbox", { name: "Conversations" });
+    await within(list).findByText("Sujet 1");
+    await fireEvent.keyDown(window, { key: "Enter" });
+    await waitFor(() => expect(api.markOpenedSeen).toHaveBeenCalledWith(1, [10]));
   });
 
   it("bannière d'images bloquées, pièces jointes et messages d'agent validés", async () => {

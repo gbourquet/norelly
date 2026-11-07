@@ -14,6 +14,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::connection::is_format_char;
 use crate::fetch_policy::MimePart;
+use crate::ports::FolderNode;
 
 // ---------------------------------------------------------------------------
 // Identifiants IMAP
@@ -1034,6 +1035,80 @@ impl MessageMeta {
             .as_ref()
             .is_some_and(MimePart::has_attachments)
     }
+}
+
+/// Ordre d'affichage des dossiers d'un compte, en arbre : chaque dossier
+/// est suivi de ses sous-dossiers, rangés par nom.
+///
+/// Au premier niveau viennent d'abord les dossiers spéciaux, dans l'ordre
+/// de leur rôle ([`MailboxRole::rank`]), puis les autres par nom. Un
+/// dossier spécial reste au premier niveau même s'il est rangé dans un
+/// autre (`[Gmail]/Sent Mail`, `INBOX/Sent`) : il garde sa place parmi les
+/// dossiers spéciaux, suivi de ses propres sous-dossiers. Un sous-dossier
+/// dont le parent n'est pas listé suit son plus proche ancêtre listé, ou
+/// se place au premier niveau s'il n'en a aucun.
+#[must_use]
+pub fn folder_display_order(folders: Vec<FolderNode>) -> Vec<FolderNode> {
+    // Clé de hiérarchie : segments du nom joints par `\0`, absent des noms
+    // (caractère de contrôle refusé), `INBOX` normalisé. Triées, les clés
+    // placent chaque dossier juste avant ses descendants : une pile suffit
+    // pour trouver le plus proche ancêtre listé, en un seul passage.
+    let keys: Vec<String> = folders.iter().map(hierarchy_key).collect();
+    let mut sorted: Vec<usize> = (0..folders.len()).collect();
+    sorted.sort_by(|a, b| keys[*a].cmp(&keys[*b]));
+    let is_ancestor = |ancestor: &str, key: &str| {
+        key.len() > ancestor.len()
+            && key.starts_with(ancestor)
+            && key.as_bytes()[ancestor.len()] == 0
+    };
+
+    let mut roots = Vec::new();
+    let mut children: Vec<Vec<usize>> = vec![Vec::new(); folders.len()];
+    let mut ancestors: Vec<usize> = Vec::new();
+    for i in sorted {
+        while let Some(&top) = ancestors.last() {
+            if is_ancestor(&keys[top], &keys[i]) {
+                break;
+            }
+            ancestors.pop();
+        }
+        match ancestors.last() {
+            Some(&parent) if folders[i].role == MailboxRole::Normal => children[parent].push(i),
+            _ => roots.push(i),
+        }
+        ancestors.push(i);
+    }
+    let name = |i: &usize| folders[*i].name.as_str();
+    roots.sort_by(|a, b| {
+        (folders[*a].role.rank(), name(a)).cmp(&(folders[*b].role.rank(), name(b)))
+    });
+    for siblings in &mut children {
+        siblings.sort_by(|a, b| name(a).cmp(name(b)));
+    }
+
+    // Parcours en profondeur, pile inversée pour garder l'ordre des frères.
+    let mut order = Vec::with_capacity(folders.len());
+    let mut stack: Vec<usize> = roots.into_iter().rev().collect();
+    while let Some(i) = stack.pop() {
+        order.push(i);
+        stack.extend(children[i].iter().rev().copied());
+    }
+    let mut slots: Vec<Option<FolderNode>> = folders.into_iter().map(Some).collect();
+    order.into_iter().filter_map(|i| slots[i].take()).collect()
+}
+
+/// Clé de hiérarchie d'un dossier pour [`folder_display_order`].
+fn hierarchy_key(folder: &FolderNode) -> String {
+    let name = folder.name.as_str();
+    let Some(delimiter) = folder.delimiter else {
+        return name.to_owned();
+    };
+    let mut key = name.replace(delimiter, "\0");
+    let first = key.find('\0').unwrap_or(key.len());
+    if key[..first].eq_ignore_ascii_case("INBOX") {
+        key.replace_range(..first, "INBOX");
+    }
+    key
 }
 
 #[cfg(test)]

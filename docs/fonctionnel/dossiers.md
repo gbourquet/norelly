@@ -11,6 +11,18 @@ supprimer, depuis l'application.
 
 ## Comportement attendu
 
+### Ordre dans le panneau de gauche
+
+- Chaque dossier est suivi de ses sous-dossiers, en retrait, rangés par
+  nom : un dossier rangé dans la boîte de réception ou dans la corbeille
+  s'affiche juste sous elle.
+- Les dossiers spéciaux viennent d'abord, toujours dans le même ordre
+  (boîte de réception, brouillons, envoyés, archives, indésirables,
+  corbeille…), puis les autres dossiers par nom.
+- Un dossier spécial que le fournisseur range dans un autre dossier (les
+  messages envoyés de Gmail, par exemple) garde sa place parmi les
+  dossiers spéciaux.
+
 ### Créer un dossier
 
 - Accès, qui font tous la même chose :

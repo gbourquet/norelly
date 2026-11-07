@@ -747,8 +747,8 @@ pub struct FolderNode {
 
 /// Arborescence des dossiers d'un compte.
 pub trait FolderTreeQuery: Send + Sync {
-    /// Dossiers du compte : rôles spéciaux d'abord (boîte de réception,
-    /// brouillons, envoyés…), puis par nom.
+    /// Dossiers du compte dans l'ordre d'affichage, en arbre
+    /// ([`crate::mailbox::folder_display_order`]).
     fn tree(
         &self,
         account: AccountId,

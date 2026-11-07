@@ -70,7 +70,7 @@ export function parentName(folder: FolderDto): string | null {
 }
 
 /** Vrai si `f` est `folder` ou l'un de ses sous-dossiers, d'après les noms
- * (la liste suit l'ordre des rôles, pas celui de l'arborescence). */
+ * (un dossier spécial rangé dans `folder` n'est pas affiché à sa suite). */
 export function isSameOrUnder(f: FolderDto, folder: FolderDto): boolean {
   if (f.id === folder.id) return true;
   if (f.depth <= folder.depth || !f.name.startsWith(folder.name)) return false;

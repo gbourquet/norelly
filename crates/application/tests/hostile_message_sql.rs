@@ -568,7 +568,7 @@ async fn trapped_contacts_cannot_alter_the_database() -> Result<(), Box<dyn std:
             page.items.iter().any(|i| i.id == created[n].id()),
             "{payload:?} : fiche non retrouvée"
         );
-        let found = suggest.execute(l.account, payload).await?;
+        let found = suggest.execute(l.account, payload, 20).await?;
         assert!(
             found
                 .iter()

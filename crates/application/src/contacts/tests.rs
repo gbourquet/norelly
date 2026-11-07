@@ -262,7 +262,7 @@ async fn suggestions_put_contacts_first_then_collected_addresses() -> Result<(),
         collected: &collected,
         directory: &book,
     }
-    .execute(account(), "martin")
+    .execute(account(), "martin", 10)
     .await?;
     assert_eq!(
         suggested(&found),
@@ -291,7 +291,7 @@ async fn many_favorites_and_contacts_stay_bounded() -> Result<(), ContactFailure
         collected: &Collected(vec![]),
         directory: &book,
     }
-    .execute(account(), "martin")
+    .execute(account(), "martin", usize::MAX)
     .await?;
     assert_eq!(found.len(), MAX_CONTACT_SUGGESTIONS);
     // Les favoris d'abord, même classés en fin de liste.
@@ -307,7 +307,7 @@ async fn an_unreadable_book_leaves_the_collected_addresses() -> Result<(), Store
         collected: &collected,
         directory: &BrokenDirectory,
     }
-    .execute(account(), "bob")
+    .execute(account(), "bob", 10)
     .await?;
     assert_eq!(suggested(&found), [("Bob", "bob@example.com", false)]);
     Ok(())
@@ -320,7 +320,7 @@ async fn an_empty_text_reads_nothing() -> Result<(), StoreError> {
         collected: &collected,
         directory: &BrokenDirectory,
     }
-    .execute(account(), "  ")
+    .execute(account(), "  ", 10)
     .await?;
     assert!(found.is_empty());
     Ok(())

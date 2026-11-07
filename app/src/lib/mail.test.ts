@@ -13,7 +13,7 @@ function conversation(id: number, account = 1): ConversationDto {
     mailbox: 10,
     date: 1_700_000_000 - id,
     subject: `Sujet ${id}`,
-    senders: [{ name: "Alice", address: "alice@example.com" }],
+    senders: [{ name: "Alice", address: "alice@example.com", contact: null }],
     messages: 1,
     unread: 0,
     flagged: false,

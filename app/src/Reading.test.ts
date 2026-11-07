@@ -17,7 +17,7 @@ function conversation(id: number): ConversationDto {
     mailbox: 5,
     date: 1_700_000_000 - id,
     subject: `Sujet ${id}`,
-    senders: [{ name: `Expéditeur ${id}`, address: `e${id}@example.com` }],
+    senders: [{ name: `Expéditeur ${id}`, address: `e${id}@example.com`, contact: null }],
     messages: 1,
     unread: id === 1 ? 1 : 0,
     flagged: false,

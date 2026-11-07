@@ -649,7 +649,7 @@ describe("App", () => {
       account: 7,
       mailbox: 30 + n,
       date: 1_700_000_000,
-      from: { name: "Bob", address: "bob@example.com" },
+      from: { name: "Bob", address: "bob@example.com", contact: null },
       subject: [
         { text: "Facture", hit: true },
         { text: subject, hit: false },

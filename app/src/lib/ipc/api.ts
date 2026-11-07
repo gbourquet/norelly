@@ -8,6 +8,7 @@ import {
   events,
   type AccountDto,
   type ConversationCursorDto,
+  type ConversationDto_Serialize,
   type ConversationMessageDto_Serialize,
   type ConversationPageDto_Serialize,
   type FolderDto,
@@ -40,6 +41,7 @@ import {
   type ContactDto,
   type ContactFieldsDto,
   type ContactPageDto_Serialize,
+  type CorrespondentDto_Serialize,
 } from "./bindings";
 import { IpcFailure } from "../errors";
 
@@ -63,8 +65,6 @@ export type {
   AttachmentDto,
   BodyModeDto,
   ConversationCursorDto,
-  ConversationDto,
-  CorrespondentDto,
   FolderDto,
   MessageViewDto,
   ReadingPreferencesDto,
@@ -95,6 +95,10 @@ export type Discovery = DiscoveryDto_Serialize;
 export type ConversationPage = ConversationPageDto_Serialize;
 export type ContactPage = ContactPageDto_Serialize;
 export type ContactItem = ContactPage["items"][number];
+export type ConversationDto = ConversationDto_Serialize;
+/** Correspondant affiché : `contact`, la fiche du carnet qui porte
+ * l'adresse. */
+export type CorrespondentDto = CorrespondentDto_Serialize;
 export type ConversationMessage = ConversationMessageDto_Serialize;
 export type SearchHit = SearchHitDto_Serialize;
 export type SearchPage = SearchPageDto_Serialize;

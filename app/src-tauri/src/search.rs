@@ -5,6 +5,7 @@
 //! Rust et transmis en morceaux de texte, que l'interface affiche sans
 //! jamais les interpréter comme du HTML.
 
+use norelly_application::contacts::NameSenders;
 use norelly_domain::account::AccountId;
 use norelly_domain::mailbox::MailboxId;
 use norelly_domain::ports::{SearchIndex, SearchRequest, SearchScope};
@@ -70,6 +71,12 @@ pub async fn search_messages(
         })
         .await
         .map_err(IpcError::storage)?;
+    let names = NameSenders {
+        directory: &state.contacts,
+    }
+    .execute(page.items.iter().filter_map(|h| h.from.as_ref()))
+    .await
+    .map_err(IpcError::storage)?;
     let items = page
         .items
         .into_iter()
@@ -80,7 +87,11 @@ pub async fn search_messages(
                 account: id32(h.account.get())?,
                 mailbox: id32(h.mailbox.get())?,
                 date: date_dto(h.date),
-                from: h.from.as_ref().map(CorrespondentDto::from),
+                from: h
+                    .from
+                    .as_ref()
+                    .map(|f| CorrespondentDto::named(&names, f))
+                    .transpose()?,
                 subject: segments(highlight(&h.subject, &terms)),
                 snippet: segments(highlight(&h.snippet, &terms)),
                 unread: !h.flags.seen,

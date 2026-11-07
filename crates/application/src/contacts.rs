@@ -122,15 +122,19 @@ pub struct NameSenders<'a, D> {
 }
 
 impl<D: ContactDirectory> NameSenders<'_, D> {
-    pub async fn execute<'p>(
+    /// Les clés sont calculées avant l'attente : le futur ne garde pas
+    /// les correspondants.
+    pub fn execute<'p>(
         &self,
         people: impl IntoIterator<Item = &'p Correspondent>,
-    ) -> Result<SenderNames, StoreError> {
+    ) -> impl Future<Output = Result<SenderNames, StoreError>> + Send + '_ {
         let keys = sender_keys(people);
-        if keys.is_empty() {
-            return Ok(SenderNames::default());
+        async move {
+            if keys.is_empty() {
+                return Ok(SenderNames::default());
+            }
+            Ok(SenderNames::new(self.directory.by_addresses(&keys).await?))
         }
-        Ok(SenderNames::new(self.directory.by_addresses(&keys).await?))
     }
 }
 

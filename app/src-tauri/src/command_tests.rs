@@ -1,7 +1,7 @@
 //! Commandes IPC appelées sans webview (application factice) : entrées
 //! revalidées, codes d'erreur, effets sur le stockage réel.
 
-use crate::actions::{perform_action, set_archive_folder, undo_actions};
+use crate::actions::{mark_opened_seen, perform_action, set_archive_folder, undo_actions};
 use crate::compose::{
     cancel_send, discard_draft, outbox, prepare_compose, retry_send, save_draft, send_draft,
     suggest_contacts,
@@ -1012,4 +1012,56 @@ async fn contact_inputs_are_revalidated() {
         .await
         .unwrap_or_else(|e| panic!("{e:?}"));
     assert!(page.items.is_empty());
+}
+
+/// Conversation restée ouverte : seuls les messages affichés non lus à
+/// l'ouverture sont marqués ; un message d'une autre conversation est
+/// ignoré.
+#[tokio::test]
+async fn opened_conversation_marks_only_the_shown_messages() {
+    use crate::reading::conversation_messages;
+    let t = test_app().await;
+    let scope = ScopeDto::Unified {
+        role: "inbox".into(),
+    };
+    let page = list_conversations(t.state(), scope.clone(), None, 50)
+        .await
+        .unwrap_or_else(|e| panic!("{e:?}"));
+    assert_eq!(page.items.len(), 2);
+    assert!(page.items.iter().all(|c| c.unread == 1));
+    let (opened, other) = (page.items[0].id, page.items[1].id);
+    let mine = conversation_messages(t.state(), opened)
+        .await
+        .unwrap_or_else(|e| panic!("{e:?}"))[0]
+        .id;
+    let foreign = conversation_messages(t.state(), other)
+        .await
+        .unwrap_or_else(|e| panic!("{e:?}"))[0]
+        .id;
+
+    let result = mark_opened_seen(t.state(), opened, vec![mine, foreign])
+        .await
+        .unwrap_or_else(|e| panic!("{e:?}"));
+    assert_eq!(result.messages, 1);
+    assert_eq!(result.ops.len(), 1);
+    let after = list_conversations(t.state(), scope, None, 50)
+        .await
+        .unwrap_or_else(|e| panic!("{e:?}"));
+    let unread = |id| after.items.iter().find(|c| c.id == id).map(|c| c.unread);
+    assert_eq!(unread(opened), Some(0));
+    assert_eq!(unread(other), Some(1), "autre conversation intacte");
+
+    // Entrées refusées.
+    assert_eq!(
+        code(mark_opened_seen(t.state(), 0, vec![mine]).await),
+        (ErrorCodeDto::InvalidInput, Some(FieldDto::Conversation))
+    );
+    assert_eq!(
+        code(mark_opened_seen(t.state(), opened, vec![0]).await),
+        (ErrorCodeDto::InvalidInput, Some(FieldDto::Message))
+    );
+    assert_eq!(
+        code(mark_opened_seen(t.state(), opened, vec![mine; 1001]).await).0,
+        ErrorCodeDto::TooManyMessages
+    );
 }

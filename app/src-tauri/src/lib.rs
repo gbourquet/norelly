@@ -51,6 +51,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             reading::save_attachment,
             reading::open_attachment,
             actions::perform_action,
+            actions::mark_opened_seen,
             actions::undo_actions,
             actions::set_archive_folder,
             folders::create_folder,

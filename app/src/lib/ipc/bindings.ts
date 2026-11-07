@@ -73,6 +73,13 @@ export const commands = {
 	 */
 	performAction: (conversations: number[], scope: ScopeDto, action: ActionDto) => typedError<ActionResultDto, IpcError_Serialize>(__TAURI_INVOKE("perform_action", { conversations, scope, action })),
 	/**
+	 *  Marque comme lus les messages d'une conversation restée ouverte :
+	 *  `shown`, les messages affichés non lus à l'ouverture. Le domaine
+	 *  (`opened_seen_targets`) y ajoute leurs exemplaires d'autres dossiers et
+	 *  écarte les messages arrivés depuis ou étrangers à la conversation.
+	 */
+	markOpenedSeen: (conversation: number, shown: number[]) => typedError<ActionResultDto, IpcError_Serialize>(__TAURI_INVOKE("mark_opened_seen", { conversation, shown })),
+	/**
 	 *  Annule des opérations encore en attente (dernière action) ; renvoie le
 	 *  nombre d'opérations annulées (0 si elles ont déjà été rejouées).
 	 */

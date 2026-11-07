@@ -22,6 +22,7 @@ const APP_COMMANDS: &[&str] = &[
     "save_attachment",
     "open_attachment",
     "perform_action",
+    "mark_opened_seen",
     "undo_actions",
     "set_archive_folder",
     "create_folder",

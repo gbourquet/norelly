@@ -462,3 +462,64 @@ fn expunges_beyond_the_expected_ones_are_reported() {
     assert_eq!(unexpected_expunges(1, 3), 2);
     assert_eq!(unexpected_expunges(usize::MAX, u32::MAX), 0);
 }
+
+// ---------------------------------------------------------------------------
+// Dossier renommé ou déplacé pendant qu'une action attend
+// ---------------------------------------------------------------------------
+
+fn name(raw: &str) -> MailboxName {
+    MailboxName::parse(raw).unwrap_or_else(|e| panic!("{raw} : {e}"))
+}
+
+fn move_op(from: &str, to: &str) -> PendingOp {
+    PendingOp {
+        mailbox: name(from),
+        ..op(OpKind::Move { to: name(to) })
+    }
+}
+
+#[test]
+fn pending_move_follows_its_destination_folder() {
+    let moved = move_op("INBOX", "Bli").follow_folder(&name("Bli"), &name("Bla/Bli"), Some('/'));
+    assert_eq!(moved, Some(move_op("INBOX", "Bla/Bli")));
+    // Destination dans un sous-dossier du dossier déplacé.
+    let moved =
+        move_op("INBOX", "Bli/2026").follow_folder(&name("Bli"), &name("Bla/Bli"), Some('/'));
+    assert_eq!(moved, Some(move_op("INBOX", "Bla/Bli/2026")));
+}
+
+#[test]
+fn pending_action_follows_its_source_folder() {
+    let moved = move_op("Bli", "INBOX").follow_folder(&name("Bli"), &name("Bla/Bli"), Some('/'));
+    assert_eq!(moved, Some(move_op("Bla/Bli", "INBOX")));
+    let flag = PendingOp {
+        mailbox: name("Bli/2026"),
+        ..seen_op(false, true)
+    };
+    assert_eq!(
+        flag.follow_folder(&name("Bli"), &name("Archives"), Some('/')),
+        Some(PendingOp {
+            mailbox: name("Archives/2026"),
+            ..seen_op(false, true)
+        })
+    );
+}
+
+#[test]
+fn pending_action_elsewhere_is_left_alone() {
+    let from = name("Bli");
+    let to = name("Bla/Bli");
+    // Un nom qui commence pareil n'est pas un sous-dossier.
+    for op in [move_op("INBOX", "Bli bla"), move_op("Blibli", "INBOX")] {
+        assert_eq!(op.follow_folder(&from, &to, Some('/')), None, "{op:?}");
+    }
+    // Sans hiérarchie : seul le nom exact suit.
+    assert_eq!(
+        move_op("INBOX", "Bli/x").follow_folder(&from, &to, None),
+        None
+    );
+    assert_eq!(
+        move_op("INBOX", "Bli").follow_folder(&from, &name("Blo"), None),
+        Some(move_op("INBOX", "Blo"))
+    );
+}

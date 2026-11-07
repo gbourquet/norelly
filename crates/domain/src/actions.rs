@@ -284,6 +284,34 @@ pub struct LocalMessage {
 }
 
 impl PendingOp {
+    /// L'opération après le renommage (ou déplacement) du dossier `from` en
+    /// `to` : dossier source et destination qui sont `from` ou un de ses
+    /// sous-dossiers suivent le nouveau nom. `None` si elle n'est pas
+    /// concernée.
+    #[must_use]
+    pub fn follow_folder(
+        &self,
+        from: &MailboxName,
+        to: &MailboxName,
+        delimiter: Option<char>,
+    ) -> Option<Self> {
+        let mailbox = self.mailbox.relocated(from, to, delimiter);
+        let kind = match &self.kind {
+            OpKind::Move { to: target } => target
+                .relocated(from, to, delimiter)
+                .map(|target| OpKind::Move { to: target }),
+            _ => None,
+        };
+        if mailbox.is_none() && kind.is_none() {
+            return None;
+        }
+        Some(Self {
+            mailbox: mailbox.unwrap_or_else(|| self.mailbox.clone()),
+            kind: kind.unwrap_or_else(|| self.kind.clone()),
+            ..self.clone()
+        })
+    }
+
     /// Opération d'un effet sur un message ; `None` si l'effet est déjà
     /// acquis (drapeau déjà dans l'état voulu) ou si la boîte n'a jamais
     /// été synchronisée (pas d'UIDVALIDITY : l'UID n'aurait pas de sens).

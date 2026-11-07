@@ -1040,6 +1040,18 @@ pub trait PendingOpStore: Send + Sync {
     /// `false` si elle n'existait plus.
     fn revert(&self, id: PendingOpId) -> impl Future<Output = Result<bool, StoreError>> + Send;
 
+    /// Opération dont le dossier source ou la destination a été renommé (ou
+    /// déplacé) sur le serveur ([`crate::actions::PendingOp::follow_folder`]) :
+    /// nouveau dossier source `mailbox`, et nouvelle destination `target`
+    /// pour un déplacement (ignorée sinon ; `None` : inchangée). `false` si
+    /// elle n'existait plus.
+    fn relocate(
+        &self,
+        id: PendingOpId,
+        mailbox: &MailboxName,
+        target: Option<&MailboxName>,
+    ) -> impl Future<Output = Result<bool, StoreError>> + Send;
+
     /// Annulation par l'utilisateur (ou fusion) : comme
     /// [`PendingOpStore::revert`], mais seulement si l'opération n'est pas
     /// réservée par le rejeu (`false` sinon : trop tard).

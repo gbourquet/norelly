@@ -1,15 +1,17 @@
 //! Cas d'usage des dossiers sur le serveur : création ([`CreateFolder`]),
-//! renommage ([`RenameFolder`]) et suppression ([`DeleteFolder`]).
+//! renommage ([`RenameFolder`]), déplacement ([`MoveFolder`]) et
+//! suppression ([`DeleteFolder`]).
 //!
 //! Les règles (nom, préfixe, séparateur, doublons, dossiers protégés,
 //! sous-dossiers) sont dans `norelly_domain::mailbox` (`new_folder_name`,
-//! `renamed_folder_name`, `deletable_folder`) ; ce module ne fait
-//! qu'orchestrer la session, d'après la liste relue sur le serveur.
+//! `renamed_folder_name`, `moved_folder_name`, `deletable_folder`) ; ce
+//! module ne fait qu'orchestrer la session, d'après la liste relue sur le
+//! serveur.
 
 use norelly_domain::connection::ConnectionError;
 use norelly_domain::mailbox::{
     FolderChangeError, MailboxName, NewFolderError, classify_mailboxes, deletable_folder,
-    new_folder_name, renamed_folder_name,
+    moved_folder_name, new_folder_name, renamed_folder_name,
 };
 use norelly_domain::ports::RemoteMailboxSession;
 
@@ -82,6 +84,30 @@ impl RenameFolder<'_> {
     }
 }
 
+/// Cas d'usage : déplacer le dossier `folder` sous `parent` (ou au premier
+/// niveau), avec son nom et ses sous-dossiers.
+#[derive(Debug)]
+pub struct MoveFolder<'a> {
+    pub folder: &'a MailboxName,
+    pub parent: Option<&'a MailboxName>,
+}
+
+impl MoveFolder<'_> {
+    /// Renvoie le nouveau nom complet du dossier ; déjà à cet endroit :
+    /// rien n'est envoyé.
+    pub async fn execute<S: RemoteMailboxSession>(
+        &self,
+        session: &mut S,
+    ) -> Result<MailboxName, FolderFailure> {
+        let existing = classify_mailboxes(session.list_mailboxes().await?);
+        let moved = moved_folder_name(self.folder, self.parent, &existing)?;
+        if moved != *self.folder {
+            session.rename_mailbox(self.folder, &moved).await?;
+        }
+        Ok(moved)
+    }
+}
+
 /// Cas d'usage : supprimer le dossier `folder` et ses messages.
 #[derive(Debug)]
 pub struct DeleteFolder<'a> {
@@ -111,6 +137,10 @@ pub enum FolderChange {
         folder: MailboxName,
         label: String,
     },
+    Move {
+        folder: MailboxName,
+        parent: Option<MailboxName>,
+    },
     Delete {
         folder: MailboxName,
     },
@@ -118,7 +148,7 @@ pub enum FolderChange {
 
 impl FolderChange {
     /// Applique la modification ; renvoie le nom du dossier créé, renommé
-    /// (nouveau nom) ou supprimé.
+    /// ou déplacé (nouveau nom), ou supprimé.
     pub async fn execute<S: RemoteMailboxSession>(
         &self,
         session: &mut S,
@@ -133,6 +163,14 @@ impl FolderChange {
                 .await
             }
             Self::Rename { folder, label } => RenameFolder { folder, label }.execute(session).await,
+            Self::Move { folder, parent } => {
+                MoveFolder {
+                    folder,
+                    parent: parent.as_ref(),
+                }
+                .execute(session)
+                .await
+            }
             Self::Delete { folder } => {
                 DeleteFolder { folder }.execute(session).await?;
                 Ok(folder.clone())
@@ -146,6 +184,7 @@ impl FolderChange {
         match self {
             Self::Create { .. } => "dossier créé",
             Self::Rename { .. } => "dossier renommé",
+            Self::Move { .. } => "dossier déplacé",
             Self::Delete { .. } => "dossier supprimé",
         }
     }

@@ -1081,8 +1081,14 @@ mod tests {
 
     #[test]
     fn selection_refuses_invalid_ids_and_too_many() {
-        assert_eq!(contact_selection(&[1, 0]), Err(ContactSelectionError::InvalidId));
-        assert_eq!(contact_selection(&[-4]), Err(ContactSelectionError::InvalidId));
+        assert_eq!(
+            contact_selection(&[1, 0]),
+            Err(ContactSelectionError::InvalidId)
+        );
+        assert_eq!(
+            contact_selection(&[-4]),
+            Err(ContactSelectionError::InvalidId)
+        );
         let max = i64::try_from(MAX_CONTACT_SELECTION).unwrap_or(i64::MAX);
         let all: Vec<i64> = (1..=max).collect();
         assert_eq!(
@@ -1090,7 +1096,10 @@ mod tests {
             Ok(MAX_CONTACT_SELECTION)
         );
         let more: Vec<i64> = (1..=max + 1).collect();
-        assert_eq!(contact_selection(&more), Err(ContactSelectionError::TooMany));
+        assert_eq!(
+            contact_selection(&more),
+            Err(ContactSelectionError::TooMany)
+        );
         // Les doublons ne comptent qu'une fois.
         let doubled: Vec<i64> = all.iter().chain(all.iter()).copied().collect();
         assert_eq!(

@@ -419,5 +419,19 @@
   "help_send": "Envoyer le message",
   "help_close_compose": "Fermer en gardant le brouillon",
   "help_group_compose_window": "Dans la fenêtre de rédaction",
-  "common_close": "Fermer"
+  "common_close": "Fermer",
+  "field_contact": "contact",
+  "field_contact_email": "adresse électronique du contact",
+  "field_contact_phone": "téléphone",
+  "field_given_name": "prénom",
+  "field_family_name": "nom",
+  "field_nickname": "surnom",
+  "field_organization": "organisation",
+  "field_notes": "notes",
+  "err_contact_no_address": "Indiquez au moins une adresse électronique.",
+  "err_contact_invalid": "Valeur refusée dans la fiche : {field}.",
+  "err_contact_too_long": "Texte trop long : {field}.",
+  "err_contact_repeated_address": "Cette adresse figure deux fois dans la fiche.",
+  "err_contact_duplicate_address": "Cette adresse appartient déjà à un autre contact.",
+  "err_contact_not_found": "Ce contact n'existe plus."
 }

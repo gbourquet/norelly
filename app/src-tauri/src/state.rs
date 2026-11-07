@@ -18,6 +18,7 @@ use norelly_domain::security::CertificateRejection;
 use norelly_imap::ImapConnector;
 use norelly_keyring::{FileSecretStore, SystemSecretStore};
 use norelly_smtp::SmtpSender;
+use norelly_sqlite::contacts::SqliteContactBook;
 use norelly_sqlite::{Database, SqliteAccountRepository, SqliteCertificateExceptionStore};
 use norelly_tls::TlsClientFactory;
 
@@ -162,6 +163,8 @@ pub struct AppState {
     pub accounts: SqliteAccountRepository,
     pub mail: MailServices,
     pub exceptions: SqliteCertificateExceptionStore,
+    /// Carnet d'adresses, commun à tous les comptes (ADR-012).
+    pub contacts: SqliteContactBook,
     pub secrets: AppSecretStore,
     pub local_data: FsAccountDataStore,
     pub test: AppTestConnection,
@@ -237,6 +240,7 @@ impl AppState {
         );
         Ok(Self {
             mail,
+            contacts: SqliteContactBook::new(db.clone()),
             accounts: SqliteAccountRepository::new(db),
             test: TestConnection::new(
                 ImapConnector::new(tls.clone()),

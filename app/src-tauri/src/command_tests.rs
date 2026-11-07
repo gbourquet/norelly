@@ -828,3 +828,178 @@ async fn folder_rename_and_delete_revalidate_their_inputs() {
         ErrorCodeDto::FolderMoveFailed
     );
 }
+
+fn fail<T>(e: IpcError) -> T {
+    panic!("{e:?}")
+}
+
+fn email(address: &str) -> crate::ipc::ContactEmailDto {
+    crate::ipc::ContactEmailDto {
+        address: address.to_owned(),
+        ..crate::ipc::ContactEmailDto::default()
+    }
+}
+
+fn card(given: &str, family: &str, addresses: &[&str]) -> crate::ipc::ContactFieldsDto {
+    crate::ipc::ContactFieldsDto {
+        given_name: given.to_owned(),
+        family_name: family.to_owned(),
+        emails: addresses.iter().map(|a| email(a)).collect(),
+        ..crate::ipc::ContactFieldsDto::default()
+    }
+}
+
+#[tokio::test]
+async fn contacts_are_created_listed_updated_and_deleted() {
+    use crate::contacts::{
+        create_contact, delete_contacts, get_contact, list_contacts, update_contact,
+    };
+    let t = test_app().await;
+    let zoe = create_contact(t.state(), card(" Zoé ", "Martin", &["zoe@example.com"]))
+        .await
+        .unwrap_or_else(fail);
+    assert_eq!(zoe.name, "Zoé Martin");
+    assert_eq!(zoe.fields.given_name, "Zoé", "relue après validation");
+    assert!(zoe.fields.emails[0].preferred, "seule adresse : préférée");
+    let mut fields = card("Bob", "", &["bob@example.com", "b@work.example"]);
+    fields.organization = "ACME".into();
+    let bob = create_contact(t.state(), fields).await.unwrap_or_else(fail);
+
+    // Liste triée par nom, paginée par curseur.
+    let first = list_contacts(t.state(), String::new(), false, None, 1)
+        .await
+        .unwrap_or_else(fail);
+    assert_eq!(first.items.len(), 1);
+    assert_eq!(first.items[0].name, "Bob");
+    assert_eq!(first.items[0].address, "bob@example.com");
+    assert_eq!(first.items[0].organization.as_deref(), Some("ACME"));
+    let rest = list_contacts(t.state(), String::new(), false, first.next, 10)
+        .await
+        .unwrap_or_else(fail);
+    assert_eq!(
+        rest.items.iter().map(|i| i.id).collect::<Vec<_>>(),
+        vec![zoe.id]
+    );
+    assert!(rest.next.is_none());
+    let found = list_contacts(t.state(), "WORK".into(), false, None, 10)
+        .await
+        .unwrap_or_else(fail);
+    assert_eq!(
+        found.items.iter().map(|i| i.id).collect::<Vec<_>>(),
+        vec![bob.id]
+    );
+
+    // Modification : fiche relue, favoris filtrés.
+    let mut edit = get_contact(t.state(), zoe.id)
+        .await
+        .unwrap_or_else(fail)
+        .fields;
+    edit.favorite = true;
+    edit.display_name = "Zoé M.".into();
+    let edited = update_contact(t.state(), zoe.id, edit)
+        .await
+        .unwrap_or_else(fail);
+    assert_eq!(edited.name, "Zoé M.");
+    let favorites = list_contacts(t.state(), String::new(), true, None, 10)
+        .await
+        .unwrap_or_else(fail);
+    assert_eq!(
+        favorites.items.iter().map(|i| i.id).collect::<Vec<_>>(),
+        vec![zoe.id]
+    );
+
+    // Adresse déjà portée par un autre contact, à la casse près.
+    let taken = create_contact(t.state(), card("Autre", "", &["ZOE@example.com"])).await;
+    let e = taken.err().unwrap_or_else(|| panic!("refus attendu"));
+    assert_eq!(
+        (e.code, e.detail.as_deref()),
+        (
+            ErrorCodeDto::ContactDuplicateAddress,
+            Some("ZOE@example.com")
+        )
+    );
+
+    // Suppression (doublons d'identifiants comptés une fois).
+    let deleted = delete_contacts(t.state(), vec![bob.id, bob.id, zoe.id])
+        .await
+        .unwrap_or_else(fail);
+    assert_eq!(deleted, 2);
+    assert_eq!(
+        code(get_contact(t.state(), zoe.id).await),
+        (ErrorCodeDto::ContactNotFound, None)
+    );
+    assert_eq!(
+        code(update_contact(t.state(), zoe.id, card("Z", "", &["z@example.com"])).await),
+        (ErrorCodeDto::ContactNotFound, None)
+    );
+}
+
+#[tokio::test]
+async fn contact_inputs_are_revalidated() {
+    use crate::contacts::{create_contact, delete_contacts, get_contact, list_contacts};
+    use crate::ipc::ContactCursorDto;
+    let t = test_app().await;
+    assert_eq!(
+        code(create_contact(t.state(), card("Sans", "Adresse", &[])).await),
+        (ErrorCodeDto::ContactNoAddress, None)
+    );
+    let bad = create_contact(t.state(), card("A", "", &["pas une adresse"])).await;
+    let e = bad.err().unwrap_or_else(|| panic!("refus attendu"));
+    assert_eq!(
+        (e.code, e.field, e.detail.as_deref()),
+        (
+            ErrorCodeDto::ContactInvalid,
+            Some(FieldDto::ContactEmail),
+            Some("pas une adresse")
+        )
+    );
+    let repeated = create_contact(
+        t.state(),
+        card("A", "", &["a@example.com", "A@example.com"]),
+    )
+    .await;
+    let e = repeated.err().unwrap_or_else(|| panic!("refus attendu"));
+    assert_eq!(
+        (e.code, e.detail.as_deref()),
+        (ErrorCodeDto::ContactRepeatedAddress, Some("A@example.com"))
+    );
+    let mut long = card("A", "", &["a@example.com"]);
+    long.nickname = "x".repeat(10_000);
+    assert_eq!(
+        code(create_contact(t.state(), long).await),
+        (ErrorCodeDto::ContactTooLong, Some(FieldDto::Nickname))
+    );
+    assert_eq!(
+        code(get_contact(t.state(), 0).await),
+        (ErrorCodeDto::InvalidInput, Some(FieldDto::Contact))
+    );
+    assert_eq!(
+        code(delete_contacts(t.state(), vec![1, 0]).await),
+        (ErrorCodeDto::InvalidInput, Some(FieldDto::Contact))
+    );
+    assert_eq!(
+        code(delete_contacts(t.state(), (1..=1001).collect()).await),
+        (ErrorCodeDto::InvalidInput, Some(FieldDto::Contact))
+    );
+    let cursor = ContactCursorDto {
+        sort_key: "a".repeat(100_000),
+        id: 1,
+    };
+    assert_eq!(
+        code(list_contacts(t.state(), String::new(), false, Some(cursor), 10).await),
+        (ErrorCodeDto::InvalidInput, Some(FieldDto::Cursor))
+    );
+    let cursor = ContactCursorDto {
+        sort_key: "a".into(),
+        id: 0,
+    };
+    assert_eq!(
+        code(list_contacts(t.state(), String::new(), false, Some(cursor), 10).await),
+        (ErrorCodeDto::InvalidInput, Some(FieldDto::Cursor))
+    );
+    // Aucune fiche n'a été écrite.
+    let page = list_contacts(t.state(), String::new(), false, None, 10)
+        .await
+        .unwrap_or_else(|e| panic!("{e:?}"));
+    assert!(page.items.is_empty());
+}

@@ -173,6 +173,22 @@ export const commands = {
 	 *  (événement `files_dropped`).
 	 */
 	attachDropped: (account: number, token: number) => typedError<DraftAttachmentDto[], IpcError_Serialize>(__TAURI_INVOKE("attach_dropped", { account, token })),
+	/**
+	 *  Une page de contacts filtrée sur `text` (vide : tous) et, au besoin,
+	 *  les seuls favoris, après `cursor`.
+	 */
+	listContacts: (text: string, favoritesOnly: boolean, cursor: ContactCursorDto | null, limit: number) => typedError<ContactPageDto_Serialize, IpcError_Serialize>(__TAURI_INVOKE("list_contacts", { text, favoritesOnly, cursor, limit })),
+	/**  Fiche complète `id`. */
+	getContact: (id: number) => typedError<ContactDto, IpcError_Serialize>(__TAURI_INVOKE("get_contact", { id })),
+	/**  Enregistre une nouvelle fiche. */
+	createContact: (contact: ContactFieldsDto) => typedError<ContactDto, IpcError_Serialize>(__TAURI_INVOKE("create_contact", { contact })),
+	/**  Remplace le contenu de la fiche `id`. */
+	updateContact: (id: number, contact: ContactFieldsDto) => typedError<ContactDto, IpcError_Serialize>(__TAURI_INVOKE("update_contact", { id, contact })),
+	/**
+	 *  Supprime des fiches (chaque identifiant une fois) ; renvoie le nombre
+	 *  de fiches supprimées.
+	 */
+	deleteContacts: (ids: number[]) => typedError<number, IpcError_Serialize>(__TAURI_INVOKE("delete_contacts", { ids })),
 	/**  État de la recherche de mises à jour. */
 	updateStatus: () => __TAURI_INVOKE<UpdateStatusDto_Serialize>("update_status"),
 	/**
@@ -338,6 +354,88 @@ export type ComposeEventDto =
 export type ComposeKindDto = "new" | "reply" | "reply_all" | "forward" | 
 /**  Reprendre tel quel un brouillon du dossier « Brouillons ». */
 "resume";
+
+/**  Position dans la liste des contacts (rendue telle quelle). */
+export type ContactCursorDto = {
+	sort_key: string,
+	id: number,
+};
+
+/**  Fiche contact enregistrée. */
+export type ContactDto = {
+	id: number,
+	/**  Nom à afficher (règle du domaine). */
+	name: string,
+	fields: ContactFieldsDto,
+};
+
+/**  Adresse d'une fiche contact (saisie, ou fiche relue). */
+export type ContactEmailDto = {
+	address: string,
+	label: string,
+	preferred: boolean,
+};
+
+/**
+ *  Champs d'une fiche contact : saisie envoyée par l'interface (revalidée
+ *  par le domaine) ou fiche relue (formulaire pré-rempli). Champ vide :
+ *  absent.
+ */
+export type ContactFieldsDto = {
+	display_name: string,
+	given_name: string,
+	family_name: string,
+	nickname: string,
+	organization: string,
+	notes: string,
+	emails: ContactEmailDto[],
+	phones: ContactPhoneDto[],
+	favorite: boolean,
+};
+
+/**  Ligne de la liste des contacts. */
+export type ContactItemDto = ContactItemDto_Serialize | ContactItemDto_Deserialize;
+
+/**  Ligne de la liste des contacts. */
+export type ContactItemDto_Deserialize = {
+	id: number,
+	name: string,
+	/**  Adresse préférée. */
+	address: string,
+	organization?: string | null,
+	favorite: boolean,
+};
+
+/**  Ligne de la liste des contacts. */
+export type ContactItemDto_Serialize = {
+	id: number,
+	name: string,
+	/**  Adresse préférée. */
+	address: string,
+	organization: string | null,
+	favorite: boolean,
+};
+
+/**  Une page de contacts. */
+export type ContactPageDto = ContactPageDto_Serialize | ContactPageDto_Deserialize;
+
+/**  Une page de contacts. */
+export type ContactPageDto_Deserialize = {
+	items: ContactItemDto_Deserialize[],
+	next?: ContactCursorDto | null,
+};
+
+/**  Une page de contacts. */
+export type ContactPageDto_Serialize = {
+	items: ContactItemDto_Serialize[],
+	next: ContactCursorDto | null,
+};
+
+/**  Téléphone d'une fiche contact. */
+export type ContactPhoneDto = {
+	number: string,
+	label: string,
+};
 
 export type ConversationCursorDto = {
 	date: number,
@@ -609,6 +707,24 @@ export type ErrorCodeDto =
  *  (`detail` : erreur brute).
  */
 "update_failed" | 
+/**  Fiche contact sans adresse électronique. */
+"contact_no_address" | 
+/**
+ *  Champ d'une fiche contact refusé (`field` ; `detail` : l'adresse
+ *  saisie quand c'est une adresse).
+ */
+"contact_invalid" | 
+/**  Champ d'une fiche contact trop long (`field`). */
+"contact_too_long" | 
+/**  Même adresse deux fois dans la fiche (`detail` : l'adresse). */
+"contact_repeated_address" | 
+/**
+ *  Adresse déjà portée par un autre contact du carnet (`detail` :
+ *  l'adresse).
+ */
+"contact_duplicate_address" | 
+/**  Contact introuvable (supprimé entre-temps). */
+"contact_not_found" | 
 /**  Erreur interne (journalisée). */
 "internal";
 
@@ -629,7 +745,13 @@ export type FieldDto = "address" | "display_name" | "host" | "port" | "username"
 /**  Paramètres hors bornes. */
 "settings" | 
 /**  Mise à jour de l'application. */
-"update";
+"update" | 
+/**  Contact du carnet (identifiant, sélection). */
+"contact" | 
+/**  Adresse électronique d'un contact. */
+"contact_email" | 
+/**  Téléphone d'un contact. */
+"contact_phone" | "given_name" | "family_name" | "nickname" | "organization" | "notes";
 
 /**  Dossier d'un compte. */
 export type FolderDto = {

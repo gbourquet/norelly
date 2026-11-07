@@ -48,6 +48,11 @@ permissions = [
   "allow-suggest-contacts",
   "allow-pick-attachments",
   "allow-attach-dropped",
+  "allow-list-contacts",
+  "allow-get-contact",
+  "allow-create-contact",
+  "allow-update-contact",
+  "allow-delete-contacts",
   "allow-update-status",
   "allow-install-update",
 ]

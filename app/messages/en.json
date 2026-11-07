@@ -419,5 +419,19 @@
   "help_send": "Send the message",
   "help_close_compose": "Close and keep the draft",
   "help_group_compose_window": "In the writing window",
-  "common_close": "Close"
+  "common_close": "Close",
+  "field_contact": "contact",
+  "field_contact_email": "contact email address",
+  "field_contact_phone": "phone",
+  "field_given_name": "first name",
+  "field_family_name": "last name",
+  "field_nickname": "nickname",
+  "field_organization": "organization",
+  "field_notes": "notes",
+  "err_contact_no_address": "Enter at least one email address.",
+  "err_contact_invalid": "Value rejected on the card: {field}.",
+  "err_contact_too_long": "Text too long: {field}.",
+  "err_contact_repeated_address": "This address appears twice on the card.",
+  "err_contact_duplicate_address": "This address already belongs to another contact.",
+  "err_contact_not_found": "This contact no longer exists."
 }

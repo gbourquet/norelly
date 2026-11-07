@@ -296,8 +296,12 @@ describe("App", () => {
     const menu = await openFolderMenu("Projets");
     await fireEvent.click(within(menu).getByRole("menuitem", { name: "Supprimer le dossier…" }));
     const dialog = await screen.findByRole("dialog", { name: "Supprimer le dossier" });
-    expect(dialog).toHaveTextContent("« Projets »");
-    expect(dialog).toHaveTextContent("(4)");
+    // Le nombre de messages connu localement peut être faux (dossier pas
+    // encore synchronisé) : jamais de compte ni de « vide » annoncés.
+    expect(dialog).toHaveTextContent(
+      "Le dossier « Projets » et tous les messages qu'il contient seront supprimés définitivement du serveur",
+    );
+    expect(dialog).not.toHaveTextContent("(4)");
     expect(api.deleteFolder).not.toHaveBeenCalled();
     await fireEvent.click(within(dialog).getByRole("button", { name: "Supprimer le dossier" }));
     await waitFor(() => expect(api.deleteFolder).toHaveBeenCalledWith(3, 12));

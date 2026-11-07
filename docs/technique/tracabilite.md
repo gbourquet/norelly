@@ -217,6 +217,7 @@ Fiche : [dossiers.md](../fonctionnel/dossiers.md).
 | Boîte sélectionnée quittée avant `RENAME` / `DELETE` (`UNSELECT`, sinon `EXAMINE INBOX`, jamais `CLOSE`) : Dovecot coupe la session si la boîte sélectionnée disparaît | `crates/adapters/imap/src/lib.rs` (`leave_selected`) |
 | Ligne d'état (`OK`/`NO`/`BAD`/`BYE`/`PREAUTH`) sans littéral : octets non ASCII remplacés par `?` avant l'analyse (Dovecot cite le nom de la boîte en UTF-8 dans un refus) | `crates/adapters/imap/src/connection.rs` (`ascii_status_text`) |
 | Commandes IPC `rename_folder`, `delete_folder` : compte et dossier revalidés (dossier du compte), nom vérifié seul avant l'envoi, 30 s au plus (`FOLDER_CHANGE_TIMEOUT`), code d'échec propre à l'opération | `app/src-tauri/src/folders.rs`, `app/src-tauri/src/mail.rs` |
+| Confirmation de suppression sans nombre de messages ni « vide » : le compte local peut être incomplet (dossier pas encore synchronisé) | `app/src/components/DeleteFolderDialog.svelte` |
 | Menu « ⋯ » proposé sur les seuls dossiers ordinaires (`isEditableFolder`, affichage seulement : la règle est dans le domaine) ; cible des commandes : dossier du menu, sinon dossier affiché (`AppContext.folder`) | `app/src/lib/folder-edit.svelte.ts`, `app/src/lib/app.svelte.ts` |
 
 Port : `RemoteMailboxSession::create_mailbox`, `rename_mailbox`,
@@ -232,7 +233,7 @@ survol, au focus et sur le dossier affiché), fenêtres
 
 ### Clés des messages
 
-`cmd_new_folder`, `cmd_new_folder_keywords`, `new_folder_title`, `new_folder_name`, `new_folder_parent`, `new_folder_top_level`, `new_folder_create`, `new_folder_creating`, `action_folder_created`, `err_folder_name_empty`, `err_folder_name_too_long`, `err_folder_name_invalid`, `err_folder_name_delimiter`, `err_folder_exists`, `err_no_subfolders`, `err_folder_create_failed`, `cmd_rename_folder`, `cmd_rename_folder_keywords`, `cmd_delete_folder`, `cmd_delete_folder_keywords`, `sidebar_folder_menu`, `rename_folder_title`, `rename_folder_name`, `rename_folder_confirm`, `rename_folder_busy`, `action_folder_renamed`, `delete_folder_title`, `delete_folder_empty`, `delete_folder_messages`, `delete_folder_irreversible`, `delete_folder_confirm`, `delete_folder_busy`, `action_folder_deleted`, `err_folder_protected`, `err_folder_has_subfolders`, `err_folder_rename_failed`, `err_folder_delete_failed`.
+`cmd_new_folder`, `cmd_new_folder_keywords`, `new_folder_title`, `new_folder_name`, `new_folder_parent`, `new_folder_top_level`, `new_folder_create`, `new_folder_creating`, `action_folder_created`, `err_folder_name_empty`, `err_folder_name_too_long`, `err_folder_name_invalid`, `err_folder_name_delimiter`, `err_folder_exists`, `err_no_subfolders`, `err_folder_create_failed`, `cmd_rename_folder`, `cmd_rename_folder_keywords`, `cmd_delete_folder`, `cmd_delete_folder_keywords`, `sidebar_folder_menu`, `rename_folder_title`, `rename_folder_name`, `rename_folder_confirm`, `rename_folder_busy`, `action_folder_renamed`, `delete_folder_title`, `delete_folder_explanation`, `delete_folder_irreversible`, `delete_folder_confirm`, `delete_folder_busy`, `action_folder_deleted`, `err_folder_protected`, `err_folder_has_subfolders`, `err_folder_rename_failed`, `err_folder_delete_failed`.
 
 ### Commandes
 

@@ -51,9 +51,11 @@ existant, le renommer ou le supprimer, depuis l'application.
     dossier…** ;
   - palette de commandes (« Supprimer le dossier… »), pour le dossier
     affiché.
-- Une fenêtre demande confirmation, en rappelant le nom du dossier et le
-  nombre de messages qu'il contient, qui seront **supprimés définitivement,
-  sans passer par la corbeille**. **Annuler** ne supprime rien.
+- Une fenêtre demande confirmation, en rappelant le nom du dossier : tous
+  les messages qu'il contient seront **supprimés définitivement, sans passer
+  par la corbeille**. **Annuler** ne supprime rien. La fenêtre n'annonce
+  jamais un dossier « vide » ni un nombre de messages : ceux connus de
+  l'application peuvent être incomplets (dossier pas encore synchronisé).
 - Le dossier disparaît aussitôt du panneau de gauche et de la liste
   « Déplacer vers… ». S'il était affiché, la boîte de réception du compte
   s'affiche à sa place.
@@ -121,7 +123,7 @@ existant, le renommer ou le supprimer, depuis l'application.
 | Menu d'un dossier | Actions du dossier {folder} : Renommer le dossier…, Supprimer le dossier… |
 | Fenêtre de renommage | Renommer le dossier, Nouveau nom, Renommer, Renommage…, Annuler |
 | Dossier renommé | Dossier renommé en « {folder} ». |
-| Fenêtre de suppression | Supprimer le dossier ; « Le dossier « {folder} » et tous ses messages ({count}) seront supprimés définitivement du serveur, sans passer par la corbeille. » (ou « Le dossier « {folder} » est vide : il sera supprimé du serveur. ») ; « Cette action ne peut pas être annulée. » ; Supprimer le dossier, Suppression…, Annuler |
+| Fenêtre de suppression | Supprimer le dossier ; « Le dossier « {folder} » et tous les messages qu'il contient seront supprimés définitivement du serveur, sans passer par la corbeille. » ; « Cette action ne peut pas être annulée. » ; Supprimer le dossier, Suppression…, Annuler |
 | Dossier supprimé | Dossier « {folder} » supprimé. |
 | Dossier protégé | La boîte de réception et les dossiers spéciaux (envoyés, brouillons, corbeille…) ne peuvent être ni renommés ni supprimés. |
 | Sous-dossiers | Ce dossier contient des sous-dossiers : supprimez-les d'abord. |

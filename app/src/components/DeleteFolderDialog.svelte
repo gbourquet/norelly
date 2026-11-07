@@ -31,11 +31,9 @@
   locked={form.busy}
 >
   {#if folder}
-    <p>
-      {folder.total > 0
-        ? m.delete_folder_messages({ folder: folder.leaf, count: folder.total })
-        : m.delete_folder_empty({ folder: folder.leaf })}
-    </p>
+    <!-- Sans compte ni « vide » : le nombre connu localement peut être faux
+         (dossier pas encore synchronisé). -->
+    <p>{m.delete_folder_explanation({ folder: folder.leaf })}</p>
     <p>{m.delete_folder_irreversible()}</p>
   {/if}
   {#if form.error}

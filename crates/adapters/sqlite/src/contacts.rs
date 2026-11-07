@@ -68,8 +68,14 @@ impl ContactRow {
 
     fn into_contact(self) -> Result<Contact, StoreError> {
         let id = ContactId::new(self.id).ok_or_else(|| corrupted(self.id, "identifiant"))?;
-        let [display_name, given_name, family_name, nickname, organization, notes] =
-            self.texts.map(Option::unwrap_or_default);
+        let [
+            display_name,
+            given_name,
+            family_name,
+            nickname,
+            organization,
+            notes,
+        ] = self.texts.map(Option::unwrap_or_default);
         let draft = ContactDraft::new(ContactInput {
             display_name,
             given_name,
@@ -216,10 +222,16 @@ fn write(tx: &Transaction<'_>, id: i64, draft: &ContactDraft) -> Result<(), Stor
         ],
     )
     .map_err(store_error)?;
-    tx.execute("DELETE FROM contact_emails WHERE contact_id = ?1", params![id])
-        .map_err(store_error)?;
-    tx.execute("DELETE FROM contact_phones WHERE contact_id = ?1", params![id])
-        .map_err(store_error)?;
+    tx.execute(
+        "DELETE FROM contact_emails WHERE contact_id = ?1",
+        params![id],
+    )
+    .map_err(store_error)?;
+    tx.execute(
+        "DELETE FROM contact_phones WHERE contact_id = ?1",
+        params![id],
+    )
+    .map_err(store_error)?;
     let mut stmt = tx
         .prepare_cached(
             "INSERT INTO contact_emails (contact_id, position, address, address_key, label, \
@@ -351,12 +363,10 @@ impl ContactDirectory for SqliteContactBook {
                 let favorites = filter.favorites_only();
                 let text = filter.text();
                 let ids: Vec<i64> = match &cursor {
-                    None => c
-                        .prepare_cached(PAGE_FIRST)
-                        .and_then(|mut s| {
-                            s.query_map(params![favorites, text, fetch], |r| r.get(0))?
-                                .collect()
-                        }),
+                    None => c.prepare_cached(PAGE_FIRST).and_then(|mut s| {
+                        s.query_map(params![favorites, text, fetch], |r| r.get(0))?
+                            .collect()
+                    }),
                     Some(after) => c.prepare_cached(PAGE_AFTER).and_then(|mut s| {
                         s.query_map(
                             params![favorites, text, fetch, after.sort_key, after.id.get()],
@@ -382,9 +392,7 @@ impl ContactDirectory for SqliteContactBook {
     }
 
     async fn get(&self, id: ContactId) -> Result<Option<Contact>, StoreError> {
-        self.db
-            .read(move |c| Ok(load(c, &[id.get()])?.pop()))
-            .await
+        self.db.read(move |c| Ok(load(c, &[id.get()])?.pop())).await
     }
 
     async fn by_addresses(&self, keys: &[AddressKey]) -> Result<Vec<Contact>, StoreError> {
@@ -438,14 +446,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn deleting_a_contact_deletes_its_addresses_and_phones() -> Result<(), ContactStoreError> {
+    async fn deleting_a_contact_deletes_its_addresses_and_phones() -> Result<(), ContactStoreError>
+    {
         let book = book();
         let alice = book.create(&full_contact()).await?;
         let counts = |db: Database| async move {
-            db.read_for_tests(|c| {
-                Ok((count(c, "contact_emails")?, count(c, "contact_phones")?))
-            })
-            .await
+            db.read_for_tests(|c| Ok((count(c, "contact_emails")?, count(c, "contact_phones")?)))
+                .await
         };
         assert_eq!(counts(book.db.clone()).await?, (2, 2));
         // Une modification remplace adresses et téléphones.
@@ -461,8 +468,10 @@ mod tests {
     #[tokio::test]
     async fn schema_refuses_a_shared_address_or_two_preferred() -> Result<(), ContactStoreError> {
         let book = book();
-        book.create(&sample_contact("A", &["a@example.com"])).await?;
-        book.create(&sample_contact("B", &["b@example.com"])).await?;
+        book.create(&sample_contact("A", &["a@example.com"]))
+            .await?;
+        book.create(&sample_contact("B", &["b@example.com"]))
+            .await?;
         // Témoin : une adresse libre, non préférée, est acceptée.
         book.db
             .write_for_tests(
@@ -494,7 +503,9 @@ mod tests {
     #[tokio::test]
     async fn corrupted_rows_are_reported() -> Result<(), ContactStoreError> {
         let book = book();
-        let a = book.create(&sample_contact("A", &["a@example.com"])).await?;
+        let a = book
+            .create(&sample_contact("A", &["a@example.com"]))
+            .await?;
         book.db
             .write_for_tests("UPDATE contact_emails SET address = 'pas une adresse';")
             .await?;

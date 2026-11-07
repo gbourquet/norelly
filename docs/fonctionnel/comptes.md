@@ -103,7 +103,7 @@ acceptés) sont supprimées. **Rien n'est supprimé sur le serveur.**
 | Test de connexion | Test de la connexion à {imap} et {smtp}… |
 | Serveurs trouvés en partie | Les serveurs n'ont pas tous été trouvés automatiquement : vérifiez ou complétez les paramètres. |
 | Serveur hors du domaine | Serveur trouvé par le DNS en dehors du domaine de votre adresse : {hosts}. … |
-| Certificat refusé | Certificat non reconnu, avec la raison : autorité inconnue, expiré, pas encore valide, nom différent, révoqué, signature invalide, illisible, autre |
+| Certificat refusé | Certificat non reconnu, avec la raison : autorité inconnue, expiré, pas encore valide, nom différent, révoqué, signature invalide, illisible, autre ; un certificat autosigné, cas courant d'un serveur personnel, est toujours présenté comme « autorité inconnue » |
 | Certificat changé | ce serveur présente un certificat différent de celui que vous aviez accepté. … |
 | Connexion non chiffrée | La connexion à {host}:{port} ne serait pas chiffrée : … |
 | Aucun trousseau | Aucun trousseau du système … ne répond. … fichier non chiffré … |

@@ -34,6 +34,10 @@ describe("carnet d'adresses", () => {
   });
 
   after(async () => {
+    // Retour au courrier (l'accueil sans compte s'y affiche), même après
+    // un échec en cours de scénario.
+    await browser.keys("Escape");
+    await $("nav").$("button*=Boîte de réception unifiée").click();
     await removeTestAccount();
   });
 
@@ -58,7 +62,7 @@ describe("carnet d'adresses", () => {
     await expect(card).toBeDisplayed();
     await expect(card.$("span=zoe.pro@norelly.test")).toBeDisplayed();
     // Saisie affichée telle quelle, jamais interprétée.
-    await expect(card.$("p=<i>ACME</i>")).toBeDisplayed();
+    await expect(card.$('.//p[normalize-space()="<i>ACME</i>"]')).toBeDisplayed();
     await expect(card.$("i")).not.toBeExisting();
   });
 
@@ -97,7 +101,9 @@ describe("carnet d'adresses", () => {
     await button("Écrire au contact").click();
     const compose = $('//*[@role="dialog"][.//*[normalize-space()="Nouveau message"]]');
     await compose.waitForDisplayed({ timeout: 20000 });
-    await expect(compose.$("*=zoe.pro@norelly.test")).toBeDisplayed();
+    await expect(
+      compose.$('.//*[contains(@class, "chip")][@title="zoe.pro@norelly.test"]'),
+    ).toBeDisplayed();
     await browser.keys("Escape");
     await compose.waitForDisplayed({ reverse: true, timeout: 20000 });
   });
@@ -112,6 +118,6 @@ describe("carnet d'adresses", () => {
     await confirm.waitForDisplayed({ reverse: true, timeout: 10000 });
     await $("p*=Aucun contact pour l'instant").waitForDisplayed({ timeout: 10000 });
     // Retour au courrier par le panneau de gauche.
-    await $("nav").$("button=Boîte de réception unifiée").click();
+    await $("nav").$("button*=Boîte de réception unifiée").click();
   });
 });

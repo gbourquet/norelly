@@ -148,6 +148,42 @@ pub struct ReplayActions<'a, S> {
     pub store: &'a S,
 }
 
+/// Cas d'usage : le dossier `from` a été renommé (ou déplacé) en `to` sur
+/// le serveur ; les opérations en attente qui le visent, en source ou en
+/// destination, lui ou un de ses sous-dossiers, suivent le nouveau nom
+/// ([`PendingOp::follow_folder`]). Sans cela, le rejeu ne trouverait plus
+/// leur dossier et les abandonnerait. Renvoie le nombre d'opérations
+/// réécrites.
+#[derive(Debug)]
+pub struct FollowFolder<'a, S> {
+    pub account: AccountId,
+    pub store: &'a S,
+}
+
+impl<S: PendingOpStore> FollowFolder<'_, S> {
+    pub async fn execute(
+        &self,
+        from: &MailboxName,
+        to: &MailboxName,
+        delimiter: Option<char>,
+    ) -> Result<usize, StoreError> {
+        let mut followed = 0;
+        for (id, op) in self.store.pending(self.account).await? {
+            let Some(moved) = op.follow_folder(from, to, delimiter) else {
+                continue;
+            };
+            let target = match &moved.kind {
+                OpKind::Move { to } => Some(to),
+                _ => None,
+            };
+            if self.store.relocate(id, &moved.mailbox, target).await? {
+                followed += 1;
+            }
+        }
+        Ok(followed)
+    }
+}
+
 /// Résultat de l'exécution d'une opération.
 enum Executed {
     /// Exécutée ; nombre de messages supprimés en trop par l'`EXPUNGE`.

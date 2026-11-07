@@ -292,6 +292,45 @@ describe("lecture", () => {
     );
   });
 
+  it("propose un dossier spécial sous son nom traduit", async () => {
+    vi.mocked(api.listFolders).mockResolvedValue([
+      {
+        id: 5,
+        name: "INBOX",
+        leaf: "INBOX",
+        depth: 0,
+        role: "inbox",
+        selectable: true,
+        total: 3,
+        unread: 1,
+      },
+      {
+        id: 9,
+        name: "Trash",
+        leaf: "Trash",
+        depth: 0,
+        role: "trash",
+        selectable: true,
+        total: 0,
+        unread: 0,
+      },
+    ]);
+    render(App);
+    const list = await screen.findByRole("listbox", { name: "Conversations" });
+    await within(list).findByText("Sujet 1");
+    await fireEvent.keyDown(window, { key: "v" });
+    const picker = await screen.findByRole("dialog", { name: "Déplacer vers…" });
+    expect(await within(picker).findByText("Corbeille")).toBeInTheDocument();
+    expect(within(picker).queryByText("Trash")).toBeNull();
+    const input = within(picker).getByPlaceholderText("Rechercher un dossier…");
+    // Trouvé par son libellé comme par son nom sur le serveur.
+    await fireEvent.input(input, { target: { value: "trash" } });
+    expect(await within(picker).findByText("Corbeille")).toBeInTheDocument();
+    await fireEvent.input(input, { target: { value: "corb" } });
+    await fireEvent.click(await within(picker).findByText("Corbeille"));
+    expect(await screen.findByText("Déplacé vers « Corbeille ».")).toBeInTheDocument();
+  });
+
   it("v ouvre le choix du dossier et déplace", async () => {
     vi.mocked(api.listFolders).mockResolvedValue([
       {

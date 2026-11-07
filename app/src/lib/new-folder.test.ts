@@ -17,13 +17,22 @@ function folder(id: number, name: string, depth: number, role = "normal"): Folde
 }
 
 describe("emplacements d'un nouveau dossier", () => {
+  it("traduit les dossiers spéciaux proposés", () => {
+    const folders = [folder(1, "INBOX", 0, "inbox"), folder(9, "Trash", 0, "trash")];
+    expect(parentChoices(folders, "Premier niveau").map((c) => c.label)).toEqual([
+      "Premier niveau",
+      "Boîte de réception",
+      "Corbeille",
+    ]);
+  });
+
   it("propose le premier niveau puis les dossiers, indentés", () => {
     const folders = [
       folder(1, "INBOX", 0, "inbox"),
       folder(2, "Projets", 0),
       folder(3, "Projets/2026", 1),
     ];
-    expect(parentChoices(folders, "Premier niveau", "Boîte de réception")).toEqual([
+    expect(parentChoices(folders, "Premier niveau")).toEqual([
       { id: null, label: "Premier niveau", depth: 0 },
       { id: 1, label: "Boîte de réception", depth: 1 },
       { id: 2, label: "Projets", depth: 1 },
@@ -36,7 +45,7 @@ describe("emplacements d'un nouveau dossier", () => {
       folder(1, "[Gmail]/Tous", 1, "all"),
       folder(2, "[Gmail]/Suivis", 1, "flagged"),
     ];
-    expect(parentChoices(folders, "Premier niveau", "Boîte").map((c) => c.id)).toEqual([null]);
+    expect(parentChoices(folders, "Premier niveau").map((c) => c.id)).toEqual([null]);
   });
 });
 

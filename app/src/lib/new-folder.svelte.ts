@@ -3,6 +3,7 @@
 
 import type { Api, FolderDto } from "./ipc/api";
 import { errorText } from "./errors";
+import { folderLabel } from "./folder-label";
 
 export type NewFolderApi = Pick<Api, "createFolder">;
 
@@ -15,11 +16,7 @@ export interface ParentChoice {
 
 /** Emplacements : le premier niveau, puis les dossiers du compte dans
  * l'ordre de l'arborescence. */
-export function parentChoices(
-  folders: FolderDto[],
-  topLevel: string,
-  inbox: string,
-): ParentChoice[] {
+export function parentChoices(folders: FolderDto[], topLevel: string): ParentChoice[] {
   return [
     { id: null, label: topLevel, depth: 0 },
     ...folders
@@ -27,7 +24,7 @@ export function parentChoices(
       .filter((f) => f.role !== "all" && f.role !== "flagged")
       .map((f) => ({
         id: f.id,
-        label: f.role === "inbox" ? inbox : f.leaf,
+        label: folderLabel(f),
         depth: f.depth + 1,
       })),
   ];

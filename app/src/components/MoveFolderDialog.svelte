@@ -24,9 +24,7 @@
   let { open, account, folder, folders, form, onMoved, onClose }: Props = $props();
 
   const choices = $derived(
-    folder === null
-      ? []
-      : destinationChoices(folders, folder, m.new_folder_top_level(), m.mailbox_inbox()),
+    folder === null ? [] : destinationChoices(folders, folder, m.new_folder_top_level()),
   );
 
   /** Retrait visuel d'un emplacement dans la liste (espaces insécables). */

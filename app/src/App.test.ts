@@ -290,6 +290,31 @@ describe("App", () => {
     expect(await screen.findByText("Aucun compte pour l'instant.")).toBeInTheDocument();
   });
 
+  it("traduit le nom d'un dossier spécial, nom du serveur en info-bulle", async () => {
+    bobWithProjets();
+    vi.mocked(api.listFolders).mockResolvedValue([
+      ...(await api.listFolders(3)),
+      {
+        id: 13,
+        name: "[Gmail]/Sent Mail",
+        leaf: "Sent Mail",
+        depth: 1,
+        role: "sent",
+        selectable: true,
+        total: 0,
+        unread: 0,
+      },
+    ]);
+    render(App);
+    const sent = await screen.findByRole("button", { name: "Envoyés" });
+    expect(sent).toHaveAttribute("title", "Nom sur le serveur : Sent Mail");
+    expect(screen.queryByText("Sent Mail")).toBeNull();
+    // Dossier ordinaire : son nom, sans info-bulle.
+    expect(screen.getByRole("button", { name: "Projets" })).not.toHaveAttribute("title");
+    await fireEvent.click(sent);
+    expect(await screen.findByRole("heading", { name: "Envoyés" })).toBeInTheDocument();
+  });
+
   it("crée un dossier depuis le menu du compte", async () => {
     accounts.push({
       id: 3,

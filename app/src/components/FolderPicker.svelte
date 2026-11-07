@@ -1,11 +1,12 @@
 <script lang="ts">
   // Choix d'un dossier (déplacer, dossier d'archives), au clavier :
-  // palette filtrée par le nom (bits-ui Command).
+  // palette filtrée par le libellé ou le nom du serveur (bits-ui Command).
   import { Command, Dialog } from "bits-ui";
   import XIcon from "@lucide/svelte/icons/x";
   import FolderIcon from "@lucide/svelte/icons/folder";
   import type { FolderDto } from "../lib/ipc/api";
   import { m } from "../lib/paraglide/messages.js";
+  import { folderLabel } from "../lib/folder-label";
 
   interface Props {
     open: boolean;
@@ -20,8 +21,17 @@
   let query = $state("");
   const results = $derived.by(() => {
     const q = query.trim().toLowerCase();
-    return folders.filter((f) => f.selectable && (q === "" || f.name.toLowerCase().includes(q)));
+    return folders.filter(
+      (f) =>
+        f.selectable &&
+        (q === "" || f.name.toLowerCase().includes(q) || label(f).toLowerCase().includes(q)),
+    );
   });
+
+  /** Dossier spécial : libellé traduit ; autre : nom complet du serveur. */
+  function label(folder: FolderDto): string {
+    return folder.role === "normal" ? folder.name : folderLabel(folder);
+  }
 
   function choose(folder: FolderDto): void {
     query = "";
@@ -66,7 +76,7 @@
               value={String(folder.id)}
               onSelect={() => choose(folder)}
             >
-              <span style:padding-left="{Math.min(folder.depth, 6) * 12}px">{folder.name}</span>
+              <span style:padding-left="{Math.min(folder.depth, 6) * 12}px">{label(folder)}</span>
             </Command.Item>
           {/each}
         </Command.List>

@@ -180,7 +180,10 @@ impl<Q: ContactQuery, D: ContactDirectory> SuggestRecipients<'_, Q, D> {
                 Vec::new()
             }
         };
-        let collected = self.collected.suggest(account, text, limit).await?;
+        let collected = self
+            .collected
+            .suggest(account, filter.text(), limit)
+            .await?;
         Ok(recipient_suggestions(text, &contacts, &collected, limit))
     }
 

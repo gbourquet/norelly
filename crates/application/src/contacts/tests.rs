@@ -325,3 +325,44 @@ async fn an_empty_text_reads_nothing() -> Result<(), StoreError> {
     assert!(found.is_empty());
     Ok(())
 }
+
+/// Adresses collectées : garde le texte reçu.
+#[derive(Default)]
+struct Recording(std::sync::Mutex<Vec<String>>);
+
+impl ContactQuery for Recording {
+    async fn suggest(
+        &self,
+        _: AccountId,
+        text: &str,
+        _: usize,
+    ) -> Result<Vec<Correspondent>, StoreError> {
+        self.0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .push(text.to_owned());
+        Ok(Vec::new())
+    }
+}
+
+#[tokio::test]
+async fn collected_addresses_receive_the_bounded_text() -> Result<(), StoreError> {
+    use norelly_domain::contacts::MAX_CONTACT_FILTER_CHARS;
+
+    let collected = Recording::default();
+    let book = InMemoryContactBook::default();
+    let typed = format!("  {}  ", "a".repeat(10 * MAX_CONTACT_FILTER_CHARS));
+    SuggestRecipients {
+        collected: &collected,
+        directory: &book,
+    }
+    .execute(account(), &typed, 10)
+    .await?;
+    let seen = collected
+        .0
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .clone();
+    assert_eq!(seen, ["a".repeat(MAX_CONTACT_FILTER_CHARS)]);
+    Ok(())
+}

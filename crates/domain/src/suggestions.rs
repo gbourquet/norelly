@@ -67,7 +67,8 @@ pub fn recipient_suggestions(
         let emails =
             std::iter::once(preferred).chain(draft.emails().iter().filter(|e| !e.preferred()));
         for email in emails {
-            if !(by_name || email.key().as_str().contains(needle)) || !seen.insert(email.key().clone())
+            if !(by_name || email.key().as_str().contains(needle))
+                || !seen.insert(email.key().clone())
             {
                 continue;
             }

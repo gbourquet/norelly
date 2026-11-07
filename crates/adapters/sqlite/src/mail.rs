@@ -13,7 +13,7 @@ use norelly_domain::conversation::ThreadKeys;
 use norelly_domain::fetch_policy::{MimePart, PartPath};
 use norelly_domain::mailbox::{
     Correspondent, Flags, Keyword, MAX_SUBJECT_CHARS, MailboxId, MailboxName, MailboxRole, ModSeq,
-    RemoteMailbox, Uid, UidValidity, header_text,
+    RemoteMailbox, Uid, UidValidity, folder_display_order, header_text,
 };
 use norelly_domain::ports::{
     BlobId, FolderNode, FolderTreeQuery, MAX_INDEXED_TEXT_CHARS, MAX_PAGE_SIZE, MailStore,
@@ -582,10 +582,7 @@ impl FolderTreeQuery for SqliteMailStore {
                         unread: u32::try_from(unread).unwrap_or(u32::MAX),
                     });
                 }
-                out.sort_by(|a, b| {
-                    (a.role.rank(), a.name.as_str()).cmp(&(b.role.rank(), b.name.as_str()))
-                });
-                Ok(out)
+                Ok(folder_display_order(out))
             })
             .await
     }

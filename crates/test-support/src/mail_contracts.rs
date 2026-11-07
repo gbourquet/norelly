@@ -414,6 +414,8 @@ where
                 mailbox("INBOX", MailboxRole::Inbox, true),
                 mailbox("Sent", MailboxRole::Normal, true),
                 mailbox("Nouveau", MailboxRole::Normal, true),
+                mailbox("Trash/Vieux", MailboxRole::Normal, true),
+                mailbox("Trash", MailboxRole::Trash, true),
             ],
         )
         .await?;
@@ -432,7 +434,11 @@ where
         .into_iter()
         .map(|n: FolderNode| n.name.to_string())
         .collect();
-    assert_eq!(names, ["INBOX", "Nouveau", "Sent"]);
+    assert_eq!(
+        names,
+        ["INBOX", "Trash", "Trash/Vieux", "Nouveau", "Sent"],
+        "en arbre : un sous-dossier suit son parent"
+    );
 
     // --- Reset (UIDVALIDITY changée) ---
     store
@@ -663,7 +669,7 @@ impl InMemoryMailStore {
 impl FolderTreeQuery for InMemoryMailStore {
     async fn tree(&self, account: AccountId) -> Result<Vec<FolderNode>, StoreError> {
         let s = lock(&self.state);
-        let mut out: Vec<FolderNode> = s
+        let out: Vec<FolderNode> = s
             .mailboxes
             .iter()
             .filter(|(a, _, _)| *a == account)
@@ -685,8 +691,7 @@ impl FolderTreeQuery for InMemoryMailStore {
                 }
             })
             .collect();
-        out.sort_by(|a, b| (a.role.rank(), a.name.as_str()).cmp(&(b.role.rank(), b.name.as_str())));
-        Ok(out)
+        Ok(norelly_domain::mailbox::folder_display_order(out))
     }
 }
 

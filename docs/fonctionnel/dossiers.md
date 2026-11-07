@@ -1,4 +1,4 @@
-# Dossiers : créer, renommer, supprimer
+# Dossiers : créer, renommer, déplacer, supprimer
 
 [← Fonctionnalités](README.md)
 
@@ -6,7 +6,8 @@
 
 Ranger ses messages dans ses propres dossiers, sans passer par le site de
 son fournisseur : créer un dossier, au premier niveau ou dans un dossier
-existant, le renommer ou le supprimer, depuis l'application.
+existant, le renommer, le ranger ailleurs dans l'arborescence ou le
+supprimer, depuis l'application.
 
 ## Comportement attendu
 
@@ -43,6 +44,28 @@ existant, le renommer ou le supprimer, depuis l'application.
 - Le dossier est renommé **sur le serveur**. Il apparaît aussitôt sous son
   nouveau nom, avec ses messages ; s'il était affiché, il le reste.
 - En cas de refus, la fenêtre reste ouverte avec la saisie et l'explication.
+
+### Déplacer un dossier
+
+- Accès, qui font tous la même chose :
+  - menu **⋯** d'un dossier, dans le panneau de gauche : **Déplacer le
+    dossier…** ;
+  - palette de commandes (« Déplacer le dossier… »), pour le dossier
+    affiché.
+- Une fenêtre rappelle le nom du dossier et demande son **nouvel
+  emplacement** : « Au premier niveau » ou l'un des dossiers du compte,
+  présentés dans l'ordre et avec le retrait de l'arborescence. Le dossier
+  lui-même et ses sous-dossiers ne sont pas proposés.
+- L'emplacement actuel est présélectionné ; **Déplacer** reste grisé tant
+  qu'il n'a pas changé. Pendant le déplacement, le bouton indique
+  « Déplacement… » et la fenêtre ne peut pas être fermée.
+- Le dossier garde son nom. Ses sous-dossiers et ses messages le suivent.
+- Le dossier est déplacé **sur le serveur**. Il apparaît aussitôt à sa
+  nouvelle place, avec ses messages ; s'il était affiché, il le reste.
+- En cas de refus, la fenêtre reste ouverte avec le choix et l'explication.
+
+Exemple : avec deux dossiers « Bla » et « Bli » au premier niveau,
+déplacer « Bli » dans « Bla » en fait un sous-dossier de « Bla ».
 
 ### Supprimer un dossier
 
@@ -81,30 +104,36 @@ existant, le renommer ou le supprimer, depuis l'application.
 - Le nouveau nom d'un dossier renommé suit les mêmes règles qu'un nouveau
   dossier ; seul un changement de majuscules et minuscules de son propre nom
   est accepté.
+- Un dossier déplacé suit les règles d'emplacement d'un nouveau dossier.
+  Il ne peut aller ni dans lui-même ni dans un de ses sous-dossiers, et
+  pas là où un dossier porte déjà son nom (majuscules et minuscules
+  confondues).
 - La **boîte de réception** et les **dossiers spéciaux** (envoyés,
   brouillons, corbeille, indésirables, archives, dossiers virtuels) ne se
-  renomment ni ne se suppriment : leur menu **⋯** n'est pas proposé.
+  renomment, ne se déplacent ni ne se suppriment : leur menu **⋯** n'est
+  pas proposé. Ils restent proposés comme emplacement.
 - Un dossier qui contient des **sous-dossiers** ne peut pas être supprimé :
   il faut d'abord supprimer ses sous-dossiers.
 
 ## Cas limites
 
-- **Hors ligne** : la création, le renommage ou la suppression attend la
-  reconnexion au plus 30 secondes, puis échoue avec un message ; rien n'est
-  mis en attente, et rien ne sera fait plus tard à l'insu de l'utilisateur.
+- **Hors ligne** : la création, le renommage, le déplacement ou la
+  suppression attend la reconnexion au plus 30 secondes, puis échoue avec
+  un message ; rien n'est mis en attente, et rien ne sera fait plus tard à
+  l'insu de l'utilisateur.
 - **Serveur sans sous-dossiers** : un emplacement autre que le premier
   niveau est refusé.
 - **Refus du serveur** (droits, quota, nom interdit) : le message cite la
   réponse du serveur.
-- Connexion perdue juste après la création, le renommage ou la
-  suppression : l'opération est bien annoncée comme faite ; la liste des
+- Connexion perdue juste après la création, le renommage, le déplacement
+  ou la suppression : l'opération est bien annoncée comme faite ; la liste des
   dossiers est mise à jour à la reconnexion.
 - Dossier **modifié entre-temps** par une autre application (renommé,
   supprimé, sous-dossier ajouté) : la vérification se fait d'après la liste
   présente sur le serveur, et l'opération est refusée si elle n'a plus de
   sens.
-- Les messages d'un dossier renommé sont téléchargés à nouveau sous son
-  nouveau nom.
+- Les messages d'un dossier renommé ou déplacé sont téléchargés à nouveau
+  sous son nouveau nom.
 
 ## Messages affichés
 
@@ -120,12 +149,16 @@ existant, le renommer ou le supprimer, depuis l'application.
 | Nom déjà pris | Un dossier de ce nom existe déjà à cet endroit. |
 | Pas de sous-dossiers | Ce serveur n'accepte pas de sous-dossiers : choisissez « Au premier niveau ». |
 | Refus, hors ligne | Le dossier n'a pas pu être créé sur le serveur. (« réponse du serveur ») |
-| Menu d'un dossier | Actions du dossier {folder} : Renommer le dossier…, Supprimer le dossier… |
+| Menu d'un dossier | Actions du dossier {folder} : Renommer le dossier…, Déplacer le dossier…, Supprimer le dossier… |
 | Fenêtre de renommage | Renommer le dossier, Nouveau nom, Renommer, Renommage…, Annuler |
 | Dossier renommé | Dossier renommé en « {folder} ». |
+| Fenêtre de déplacement | Déplacer le dossier ; « Où ranger le dossier « {folder} » ? Ses sous-dossiers et ses messages le suivent. » ; Nouvel emplacement, Au premier niveau, Déplacer, Déplacement…, Annuler |
+| Dossier déplacé | Dossier « {folder} » déplacé. |
+| Dans lui-même | Un dossier ne peut pas être rangé dans lui-même ni dans un de ses sous-dossiers. |
+| Refus, hors ligne (déplacement) | Le dossier n'a pas pu être déplacé sur le serveur. (« réponse du serveur ») |
 | Fenêtre de suppression | Supprimer le dossier ; « Le dossier « {folder} » et tous les messages qu'il contient seront supprimés définitivement du serveur, sans passer par la corbeille. » ; « Cette action ne peut pas être annulée. » ; Supprimer le dossier, Suppression…, Annuler |
 | Dossier supprimé | Dossier « {folder} » supprimé. |
-| Dossier protégé | La boîte de réception et les dossiers spéciaux (envoyés, brouillons, corbeille…) ne peuvent être ni renommés ni supprimés. |
+| Dossier protégé | La boîte de réception et les dossiers spéciaux (envoyés, brouillons, corbeille…) ne peuvent être ni renommés, ni déplacés, ni supprimés. |
 | Sous-dossiers | Ce dossier contient des sous-dossiers : supprimez-les d'abord. |
 | Refus, hors ligne (renommage) | Le dossier n'a pas pu être renommé sur le serveur. (« réponse du serveur ») |
 | Refus, hors ligne (suppression) | Le dossier n'a pas pu être supprimé sur le serveur. (« réponse du serveur ») |
@@ -136,4 +169,5 @@ existant, le renommer ou le supprimer, depuis l'application.
 |---|---|
 | Nouveau dossier… | palette |
 | Renommer le dossier… | palette |
+| Déplacer le dossier… | palette |
 | Supprimer le dossier… | palette |

@@ -153,16 +153,23 @@ other apps.
 
 ![The "New folder" window: folder name and location](captures/new-folder.png)
 
-To **rename** or **delete** one of your folders, move the mouse over its
-name in the left panel, click the **⋯** that appears on the right, then
-**Rename folder…** or **Delete folder…**.
+To **rename**, **move** or **delete** one of your folders, move the mouse
+over its name in the left panel, click the **⋯** that appears on the
+right, then **Rename folder…**, **Move folder…** or **Delete folder…**.
 
-![The menu of a folder: rename or delete](captures/folder-menu.png)
+![The menu of a folder: rename, move or delete](captures/folder-menu.png)
 
 - **Rename**: type the new name, then click **Rename**. The folder keeps
   its place, its messages and its subfolders.
 
   ![The "Rename folder" window, with the new name](captures/rename-folder.png)
+
+- **Move**: choose the **new location**, "Top level" or another folder,
+  then click **Move**. The folder keeps its name; its messages and
+  subfolders move with it. This is how you put one folder inside another
+  to reorganize your folders.
+
+  ![The "Move folder" window, with the new location](captures/move-folder.png)
 
 - **Delete**: a window asks you to confirm. Careful: the folder's messages
   are **permanently deleted**, without going to the trash, so move the
@@ -171,8 +178,8 @@ name in the left panel, click the **⋯** that appears on the right, then
 
 ![The confirmation before deleting a folder](captures/delete-folder.png)
 
-The inbox and special folders (Sent, Drafts, Trash…) cannot be renamed or
-deleted.
+The inbox and special folders (Sent, Drafts, Trash…) cannot be renamed,
+moved or deleted.
 
 To act on **several messages at once**, tick the box at the start of each
 line you want. A bar appears above the list: it shows how many messages are

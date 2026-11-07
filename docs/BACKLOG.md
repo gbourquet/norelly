@@ -44,9 +44,9 @@ quand le mainteneur l'abandonne (avec la raison).
   message. À faire comme une fonctionnalité complète (domaine, IMAP
   `STORE` des mots-clés, port, IPC), puis l'ajouter au menu « Plus… » et
   au menu contextuel. (`crates/domain/src/mailbox.rs`, `visible-actions.ts`)
-- **Cache local perdu au renommage d'un dossier** : la liste relue oublie
-  l'ancien nom avec ses messages, qui sont téléchargés à nouveau sous le
-  nouveau nom (coûteux pour un gros dossier). Renommer les boîtes locales
+- **Cache local perdu au renommage ou au déplacement d'un dossier** : la
+  liste relue oublie l'ancien nom avec ses messages, qui sont téléchargés à
+  nouveau sous le nouveau nom (coûteux pour un gros dossier). Renommer les boîtes locales
   (et leurs sous-boîtes) dans le stockage, puis laisser la synchronisation
   vérifier l'UIDVALIDITY. (`MailStore::replace_mailboxes`,
   `crates/application/src/account_actor.rs`)
@@ -55,12 +55,26 @@ quand le mainteneur l'abandonne (avec la raison).
   quels ; certains serveurs (UW-IMAP) les interprètent (répertoire
   personnel, espaces de noms). Sans vecteur tiers (l'utilisateur agit sur
   son propre compte) ; les refuser dans `folder_label` en défense en
-  profondeur. Idem si le serveur n'annonce aucun séparateur.
+  profondeur, et pour le segment conservé d'un dossier déplacé (il vient du
+  serveur et ne passe pas par `folder_label`). Idem si le serveur n'annonce aucun séparateur.
   (`crates/domain/src/mailbox.rs`)
 - **Menu d'un dossier dans le panneau de gauche** : le « ⋯ » d'un dossier
   ordinaire propose renommer et supprimer ; manquent le clic droit, un menu
   sur les dossiers spéciaux (sans entrée aujourd'hui) et « Nouveau
   sous-dossier… », qui y présélectionnerait l'emplacement. (`Sidebar.svelte`)
+- **Sous-dossiers des dossiers spéciaux mal placés dans le panneau de
+  gauche** : la liste est triée par rôle puis par nom (`FolderTreeQuery::tree`),
+  pas dans l'ordre de l'arborescence. Un dossier rangé dans la boîte de
+  réception (ou dans la corbeille) s'affiche, indenté, après le dernier
+  dossier spécial : on le croirait dans la corbeille. Plus visible depuis
+  qu'on peut déplacer un dossier dans la boîte de réception. Trier en
+  arbre (chaque dossier suivi de ses sous-dossiers, rôles spéciaux d'abord
+  au premier niveau). (`crates/adapters/sqlite/src/mail.rs`, `Sidebar.svelte`)
+- **Glisser-déposer un dossier** : un dossier se déplace par son menu
+  « ⋯ » ou la palette ; le glisser sur un autre dossier du panneau de
+  gauche (comme Outlook) serait plus direct. Réutiliser
+  `drag-move.svelte.ts` (cibles déjà en place), en refusant visuellement
+  le dossier lui-même et ses sous-dossiers. (`Sidebar.svelte`)
 - **« Nouveau dossier… » depuis « Déplacer vers… »** : le sélecteur ne
   propose que les dossiers existants ; créer puis déplacer en un geste.
   (`FolderPicker.svelte`)
@@ -115,6 +129,20 @@ quand le mainteneur l'abandonne (avec la raison).
   alors que l'opération aboutit. Code « résultat inconnu » puis relecture de
   la liste, ou délai limité à la prise en charge par l'acteur.
   (`app/src-tauri/src/mail.rs`, `crates/application/src/account_actor.rs`)
+- **Dossiers spéciaux emportés par un parent renommé ou déplacé** (revue
+  de sécurité, basse) : seul le dossier visé est protégé ; un dossier
+  ordinaire qui contient un dossier spécial (`Perso/Envoyés` en `\Sent`),
+  ou un conteneur `\Noselect` comme `[Gmail]`, part avec lui en `RENAME`.
+  Refuser dans le domaine un renommage ou un déplacement dont un
+  descendant a un rôle autre que `Normal`. (`crates/domain/src/mailbox.rs`,
+  `moved_folder_name`, `renamed_folder_name`)
+- **Contrôle « dans lui-même » sensible à la casse** (revue de sécurité,
+  basse) : `is_same_or_under` compare les préfixes à la casse près et avec
+  le seul séparateur du dossier déplacé ; sur un serveur insensible à la
+  casse (`Projets` et `projets/2026`, `inbox/…`), la boucle n'est pas vue
+  et le `RENAME` part (Dovecot et Cyrus refusent). Comparer sans la casse,
+  comme pour les doublons, et avec le séparateur du parent aussi.
+  (`crates/domain/src/mailbox.rs`)
 - **Sous-dossiers ignorés au contrôle avant suppression** (revue de
   sécurité, basse) : un sous-dossier au nom indécodable ou refusé par
   `MailboxName::parse`, ou au-delà de `MAX_MAILBOXES`, n'est pas vu par
@@ -125,7 +153,8 @@ quand le mainteneur l'abandonne (avec la raison).
 - **Nom de dossier finissant par `{n}`** (revue de sécurité, basse) :
   cité par le serveur à la fin d'une ligne d'état, il est pris pour
   l'annonce d'un littéral ; la commande attend jusqu'au délai et la session
-  est rouverte. Refuser `{` final (ou `\{\d+\}$`) dans `folder_label`.
+  est rouverte. Refuser `{` final (ou `\{\d+\}$`) dans `folder_label`, et
+  dans le segment conservé d'un dossier déplacé.
   (`crates/domain/src/mailbox.rs`, `crates/adapters/imap/src/connection.rs`)
 
 **Règle permanente** : à chaque montée de version de Tauri, rejouer le test

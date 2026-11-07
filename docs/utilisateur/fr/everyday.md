@@ -166,16 +166,25 @@ son site et dans vos autres applications.
 
 ![La fenêtre « Nouveau dossier » : nom du dossier et emplacement](captures/new-folder.png)
 
-Pour **renommer** ou **supprimer** un de vos dossiers, passez la souris
-sur son nom dans le panneau de gauche, cliquez sur le **⋯** qui apparaît à
-droite, puis sur **Renommer le dossier…** ou **Supprimer le dossier…**.
+Pour **renommer**, **déplacer** ou **supprimer** un de vos dossiers,
+passez la souris sur son nom dans le panneau de gauche, cliquez sur le
+**⋯** qui apparaît à droite, puis sur **Renommer le dossier…**,
+**Déplacer le dossier…** ou **Supprimer le dossier…**.
 
-![Le menu d'un dossier : renommer ou supprimer](captures/folder-menu.png)
+![Le menu d'un dossier : renommer, déplacer ou supprimer](captures/folder-menu.png)
 
 - **Renommer** : tapez le nouveau nom, puis cliquez sur **Renommer**. Le
   dossier garde sa place, ses messages et ses sous-dossiers.
 
   ![La fenêtre « Renommer le dossier », avec le nouveau nom](captures/rename-folder.png)
+
+- **Déplacer** : choisissez le **nouvel emplacement**, « Au premier
+  niveau » ou un autre dossier, puis cliquez sur **Déplacer**. Le dossier
+  garde son nom ; ses messages et ses sous-dossiers le suivent. C'est
+  ainsi qu'on range un dossier dans un autre pour réorganiser ses
+  dossiers.
+
+  ![La fenêtre « Déplacer le dossier », avec le nouvel emplacement](captures/move-folder.png)
 
 - **Supprimer** : une fenêtre vous demande de confirmer. Attention, les
   messages du dossier sont **supprimés définitivement**, sans passer par la
@@ -186,7 +195,7 @@ droite, puis sur **Renommer le dossier…** ou **Supprimer le dossier…**.
 ![La confirmation avant de supprimer un dossier](captures/delete-folder.png)
 
 La boîte de réception et les dossiers spéciaux (Envoyés, Brouillons,
-Corbeille…) ne peuvent être ni renommés ni supprimés.
+Corbeille…) ne peuvent être ni renommés, ni déplacés, ni supprimés.
 
 Pour agir sur **plusieurs messages d'un coup**, cochez la case au début de
 chaque ligne voulue. Une barre apparaît au-dessus de la liste : elle

@@ -198,7 +198,7 @@ Accès à la souris (interface) :
   UIDPLUS : comptées (`ReplayReport::foreign_expunges`), la boîte est
   resynchronisée.
 
-## Dossiers : création, renommage, suppression
+## Dossiers : création, renommage, déplacement, suppression
 
 Fiche : [dossiers.md](../fonctionnel/dossiers.md).
 
@@ -214,33 +214,37 @@ Fiche : [dossiers.md](../fonctionnel/dossiers.md).
 | Commande IPC : compte et parent revalidés (le parent doit être un dossier du compte), nom vérifié seul avant l'envoi, 30 s au plus (`CREATE_FOLDER_TIMEOUT`), erreurs traduites en codes | `app/src-tauri/src/folders.rs`, `app/src-tauri/src/mail.rs` |
 | Emplacements proposés : premier niveau puis dossiers du compte, sans les dossiers virtuels `\All` et `\Flagged` (`parentChoices`, affichage seulement : la règle est dans le domaine) | `app/src/lib/new-folder.svelte.ts` |
 | Nouveau nom (`renamed_folder_name`) : même parent, mêmes règles qu'un nouveau dossier ; seul le dossier lui-même peut changer de casse ; nom inchangé : rien n'est envoyé | `mailbox.rs`, `folders.rs` (`RenameFolder`) |
+| Déplacement (`moved_folder_name`) : même nom sous le nouveau parent, emplacement calculé comme pour un nouveau dossier (`destination` : parent connu, non virtuel, avec hiérarchie ; préfixe `INBOX<séparateur>` au premier niveau s'il y a lieu) ; ni dans lui-même ni dans un sous-dossier (`IntoItself`) ; doublon à l'arrivée refusé à la casse près ; déjà à cet endroit : rien n'est envoyé ; un seul `RENAME`, les sous-dossiers suivent | `mailbox.rs`, `folders.rs` (`MoveFolder`) |
 | Dossiers protégés (`FolderChangeError::Protected`) : INBOX et tout rôle autre que `Normal` (SPECIAL-USE ou nom reconnu, dossiers virtuels) ; dossier avec sous-dossiers non supprimable (`deletable_folder`, `HasSubfolders`) | `mailbox.rs` |
-| Renommage et suppression décidés sur la liste relue par `LIST` juste avant `RENAME` / `DELETE` | `folders.rs` (`RenameFolder`, `DeleteFolder`) |
-| Une seule commande d'acteur (`FolderChange`) pour créer, renommer, supprimer ; dossier renommé et ses sous-dossiers resynchronisés aussitôt (le cache local de l'ancien nom est oublié avec la liste, `replace_mailboxes`) | `account_actor.rs` |
+| Renommage, déplacement et suppression décidés sur la liste relue par `LIST` juste avant `RENAME` / `DELETE` | `folders.rs` (`RenameFolder`, `MoveFolder`, `DeleteFolder`) |
+| Une seule commande d'acteur (`FolderChange`) pour créer, renommer, déplacer, supprimer ; dossier renommé ou déplacé et ses sous-dossiers resynchronisés aussitôt (le cache local de l'ancien nom est oublié avec la liste, `replace_mailboxes`) | `account_actor.rs` |
 | Boîte sélectionnée quittée avant `RENAME` / `DELETE` (`UNSELECT`, sinon `EXAMINE INBOX`, jamais `CLOSE`) : Dovecot coupe la session si la boîte sélectionnée disparaît | `crates/adapters/imap/src/lib.rs` (`leave_selected`) |
 | Ligne d'état (`OK`/`NO`/`BAD`/`BYE`/`PREAUTH`) sans littéral : octets non ASCII remplacés par `?` avant l'analyse (Dovecot cite le nom de la boîte en UTF-8 dans un refus) | `crates/adapters/imap/src/connection.rs` (`ascii_status_text`) |
-| Commandes IPC `rename_folder`, `delete_folder` : compte et dossier revalidés (dossier du compte), nom vérifié seul avant l'envoi, 30 s au plus (`FOLDER_CHANGE_TIMEOUT`), code d'échec propre à l'opération | `app/src-tauri/src/folders.rs`, `app/src-tauri/src/mail.rs` |
+| Commandes IPC `rename_folder`, `move_folder`, `delete_folder` : compte, dossier et destination revalidés (dossiers du compte), nom vérifié seul avant l'envoi, 30 s au plus (`FOLDER_CHANGE_TIMEOUT`), code d'échec propre à l'opération | `app/src-tauri/src/folders.rs`, `app/src-tauri/src/mail.rs` |
 | Confirmation de suppression sans nombre de messages ni « vide » : le compte local peut être incomplet (dossier pas encore synchronisé) | `app/src/components/DeleteFolderDialog.svelte` |
+| Emplacements proposés au déplacement : ceux d'un nouveau dossier, sans le dossier ni ses sous-dossiers ; emplacement actuel présélectionné, **Déplacer** grisé tant qu'il est inchangé ; hiérarchie lue dans les noms, la liste suivant l'ordre des rôles (`destinationChoices`, `MoveFolderState`, affichage seulement : la règle est dans le domaine) | `app/src/lib/folder-edit.svelte.ts` |
 | Menu « ⋯ » proposé sur les seuls dossiers ordinaires (`isEditableFolder`, affichage seulement : la règle est dans le domaine) ; cible des commandes : dossier du menu, sinon dossier affiché (`AppContext.folder`) | `app/src/lib/folder-edit.svelte.ts`, `app/src/lib/app.svelte.ts` |
 
 Port : `RemoteMailboxSession::create_mailbox`, `rename_mailbox`,
 `delete_mailbox` ; contrat
 `folders_session_contract` (`crates/test-support/src/session_contract.rs`),
-joué contre le faux serveur et contre Dovecot
+(dont le déplacement sous un autre parent, sous-dossier et message
+compris), joué contre le faux serveur et contre Dovecot
 (`crates/adapters/imap/tests/integration_sync.rs`).
 
 Accès à la souris : menu « ⋯ » d'un compte (`Sidebar.svelte`), fenêtre
 `NewFolderDialog.svelte` ; menu « ⋯ » d'un dossier (`Sidebar.svelte`, au
 survol, au focus et sur le dossier affiché), fenêtres
-`RenameFolderDialog.svelte` et `DeleteFolderDialog.svelte`.
+`RenameFolderDialog.svelte`, `MoveFolderDialog.svelte` et
+`DeleteFolderDialog.svelte`.
 
 ### Clés des messages
 
-`cmd_new_folder`, `cmd_new_folder_keywords`, `new_folder_title`, `new_folder_name`, `new_folder_parent`, `new_folder_top_level`, `new_folder_create`, `new_folder_creating`, `action_folder_created`, `err_folder_name_empty`, `err_folder_name_too_long`, `err_folder_name_invalid`, `err_folder_name_delimiter`, `err_folder_exists`, `err_no_subfolders`, `err_folder_create_failed`, `cmd_rename_folder`, `cmd_rename_folder_keywords`, `cmd_delete_folder`, `cmd_delete_folder_keywords`, `sidebar_folder_menu`, `rename_folder_title`, `rename_folder_name`, `rename_folder_confirm`, `rename_folder_busy`, `action_folder_renamed`, `delete_folder_title`, `delete_folder_explanation`, `delete_folder_irreversible`, `delete_folder_confirm`, `delete_folder_busy`, `action_folder_deleted`, `err_folder_protected`, `err_folder_has_subfolders`, `err_folder_rename_failed`, `err_folder_delete_failed`.
+`cmd_new_folder`, `cmd_new_folder_keywords`, `new_folder_title`, `new_folder_name`, `new_folder_parent`, `new_folder_top_level`, `new_folder_create`, `new_folder_creating`, `action_folder_created`, `err_folder_name_empty`, `err_folder_name_too_long`, `err_folder_name_invalid`, `err_folder_name_delimiter`, `err_folder_exists`, `err_no_subfolders`, `err_folder_create_failed`, `cmd_rename_folder`, `cmd_rename_folder_keywords`, `cmd_delete_folder`, `cmd_delete_folder_keywords`, `sidebar_folder_menu`, `rename_folder_title`, `rename_folder_name`, `rename_folder_confirm`, `rename_folder_busy`, `action_folder_renamed`, `delete_folder_title`, `delete_folder_explanation`, `delete_folder_irreversible`, `delete_folder_confirm`, `delete_folder_busy`, `action_folder_deleted`, `err_folder_protected`, `err_folder_has_subfolders`, `err_folder_rename_failed`, `err_folder_delete_failed`, `cmd_move_folder`, `cmd_move_folder_keywords`, `move_folder_title`, `move_folder_explanation`, `move_folder_parent`, `move_folder_confirm`, `move_folder_busy`, `action_folder_moved`, `err_folder_into_itself`, `err_folder_move_failed`.
 
 ### Commandes
 
-`account.new-folder`, `folder.rename`, `folder.delete`.
+`account.new-folder`, `folder.rename`, `folder.move`, `folder.delete`.
 
 ## Rédaction : nouveau message, réponse, transfert
 
@@ -459,7 +463,7 @@ Fiche : [clavier.md](../fonctionnel/clavier.md).
 | Lecture | `conversation.next` (`j`), `conversation.previous` (`k`), `conversation.open` (`Entrée`), `conversation.back` (`Échap`), `search.open` (`/`), `mailbox.unified`, `reading.plain-text` |
 | Actions | `action.archive` (`e`), `action.delete` (`#`), `action.flag` (`s`), `action.mark-read` (`Maj+I`), `action.mark-unread` (`Maj+U`), `action.move` (`v`), `action.toggle-mark` (`x`), `selection.clear`, `action.undo` (`z`) |
 | Rédaction | `compose.new` (`c`), `compose.reply` (`r`), `compose.reply-all` (`a`), `compose.forward` (`f`), `drafts.open`, `compose.outbox` |
-| Comptes | `account.add`, `account.new-folder`, `folder.rename`, `folder.delete`, `account.archive-folder`, `account.sync`, `account.remove` |
+| Comptes | `account.add`, `account.new-folder`, `folder.rename`, `folder.move`, `folder.delete`, `account.archive-folder`, `account.sync`, `account.remove` |
 
 Accessibilité : listes en `listbox`/`option` avec `aria-activedescendant`.
 

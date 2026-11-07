@@ -77,7 +77,13 @@ quand le mainteneur l'abandonne (avec la raison).
   modifier. Ajouter le choix (immédiat, quelques secondes…) à
   `SettingsDialog.svelte`, libellés dans les deux catalogues, fiche
   fonctionnelle et guides. Une option « jamais » demanderait de changer le
-  type du réglage (domaine, DTO). (`crates/domain/src/settings.rs`)
+  type du réglage (domaine, DTO) ; elle compte pour la vie privée (revue
+  de sécurité, basse) : l'état lu est visible des autres personnes qui
+  partagent la boîte, et le marquage s'active à la mise à jour sans choix
+  de l'utilisateur. (`crates/domain/src/settings.rs`)
+- **Marquage comme lu fenêtre cachée** (revue de sécurité, info) : le
+  délai court même fenêtre réduite ou masquée ; le suspendre tant que
+  `document.visibilityState` n'est pas `visible`. (`app/src/lib/mail.svelte.ts`)
 - **Noms de dossiers non traduits** : « Drafts », « Sent », « Trash »
   viennent du serveur alors que la boîte de réception est traduite. Libellé
   traduit d'après le rôle SPECIAL-USE, nom du serveur en info-bulle.

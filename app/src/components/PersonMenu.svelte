@@ -59,8 +59,7 @@
     align-items: center;
     gap: var(--space-1);
     max-width: 100%;
-    padding: 0 var(--space-1);
-    margin: 0 calc(-1 * var(--space-1));
+    padding: 0;
     border: none;
     border-radius: var(--radius-sm);
     background: transparent;
@@ -69,8 +68,8 @@
     cursor: pointer;
   }
 
-  .person:hover {
-    background: var(--color-hover);
+  .person:hover .name {
+    text-decoration: underline;
   }
 
   .person.strong {

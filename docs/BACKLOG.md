@@ -121,10 +121,6 @@ quand le mainteneur l'abandonne (avec la raison).
 - **Marquage comme lu fenêtre cachée** (revue de sécurité, info) : le
   délai court même fenêtre réduite ou masquée ; le suspendre tant que
   `document.visibilityState` n'est pas `visible`. (`app/src/lib/mail.svelte.ts`)
-- **Noms de dossiers non traduits** : « Drafts », « Sent », « Trash »
-  viennent du serveur alors que la boîte de réception est traduite. Libellé
-  traduit d'après le rôle SPECIAL-USE, nom du serveur en info-bulle.
-  (`Sidebar.svelte`, `folderLabel`)
 - **Étiquettes** : le domaine a un type `Keyword` (mots-clés IMAP), mais
   aucun cas d'usage, commande IPC ni interface ne permet d'étiqueter un
   message. À faire comme une fonctionnalité complète (domaine, IMAP

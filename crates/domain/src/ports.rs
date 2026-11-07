@@ -19,7 +19,9 @@ use crate::compose::ReplySource;
 use crate::compose::draft::{ComposeError, Draft, DraftSync, Recipient, RemoteCopy};
 use crate::compose::outbox::OutboxEntry;
 use crate::connection::ConnectionError;
-use crate::contacts::{AddressKey, Contact, ContactDraft, ContactFilter, ContactId};
+use crate::contacts::{
+    AddressKey, Contact, ContactDraft, ContactFilter, ContactId, MAX_CONTACT_NAME_CHARS,
+};
 use crate::conversation::ConversationScope;
 use crate::credentials::{Credentials, Secret, SecretBytes, Username};
 use crate::discovery::{
@@ -1329,7 +1331,20 @@ pub struct ContactCursor {
     pub id: ContactId,
 }
 
+/// Longueur maximale d'une clé de tri reçue dans un curseur, en
+/// caractères : celle d'un prénom et d'un nom de longueur maximale, que
+/// le passage en minuscules peut allonger.
+pub const MAX_CONTACT_SORT_KEY_CHARS: usize = 4 * MAX_CONTACT_NAME_CHARS + 1;
+
 impl ContactCursor {
+    /// Curseur reçu de l'interface : identifiant valide, clé de tri
+    /// bornée à [`MAX_CONTACT_SORT_KEY_CHARS`] ; sinon `None`.
+    #[must_use]
+    pub fn parse(sort_key: String, id: i64) -> Option<Self> {
+        let id = ContactId::new(id)?;
+        (sort_key.chars().count() <= MAX_CONTACT_SORT_KEY_CHARS).then_some(Self { sort_key, id })
+    }
+
     /// Position du contact dans la liste.
     #[must_use]
     pub fn of(contact: &Contact) -> Self {

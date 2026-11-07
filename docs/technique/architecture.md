@@ -64,8 +64,9 @@ relecture prioritaire du mainteneur.
 | `actions` | Sémantique des actions, application optimiste, file durable, conflits |
 | `compose` (`draft`, `outbox`) | Réponses, sujets, fils, citation ; brouillon ; file d'envoi |
 | `search` | Syntaxe des requêtes, surlignage |
+| `contacts` | Fiche du carnet d'adresses validée, clé d'adresse, nom affiché, filtre et ordre de la liste (ADR-012) |
 | `notify`, `settings` | Notifications à émettre ; paramètres |
-| `ports` | Tous les traits (≈ 27) : `RemoteMailboxConnector`, `RemoteMailboxSession`, `MailSender`, `SecretStore`, `MailStore`, `BlobStore`, `PendingOpStore`, `DraftStore`, `OutboxStore`, `SearchIndex`, requêtes d'écran (`FolderTreeQuery`, `ConversationQuery`, `MessageListQuery`)… |
+| `ports` | Tous les traits (≈ 27) : `RemoteMailboxConnector`, `RemoteMailboxSession`, `MailSender`, `SecretStore`, `MailStore`, `BlobStore`, `PendingOpStore`, `DraftStore`, `OutboxStore`, `SearchIndex`, carnet (`ContactBook`), requêtes d'écran (`FolderTreeQuery`, `ConversationQuery`, `MessageListQuery`, `ContactDirectory`)… |
 
 Les ports asynchrones renvoient `impl Future + Send` (dispatch statique dans
 les chemins chauds) ; `dyn` n'est utilisé qu'au point d'assemblage.
@@ -82,6 +83,7 @@ Orchestration async des ports, sans règle métier propre :
 | `reading` | `ReadMessage`, `allow_remote_images`, `DownloadPart` |
 | `actions` | `PerformAction`, `UndoActions`, `ReplayActions` |
 | `compose`, `compose_worker` | `SaveDraft`, `QueueMessage`, `PrepareReply`, `DeliverOutbox`, `RecoverOutbox`, `FileSentCopies`, `SyncDrafts` ; un travailleur par compte |
+| `contacts` | `CreateContact`, `UpdateContact`, `DeleteContacts`, `ListContacts`, `GetContact` |
 
 ### Adaptateurs (`crates/adapters/*`)
 
@@ -90,7 +92,7 @@ Orchestration async des ports, sans règle métier propre :
 | `tls` | `ClientConfig` rustls : vérificateur de la plateforme + exception par empreinte | fichier sensible |
 | `imap` | `RemoteMailboxConnector`, `RemoteMailboxSession` : pilote d'E/S maison au-dessus d'`imap-next` (lignes bornées, délais, rejet des octets reçus après `STARTTLS`) | fichier sensible (`connection.rs`) |
 | `smtp` | `MailSender` : TLS par `norelly-tls`, puis `lettre` | STARTTLS exigé |
-| `sqlite` | `MailStore`, `AccountRepository`, requêtes d'écran, `PendingOpStore`, `DraftStore`, `OutboxStore`, `SearchIndex`, `SettingsStore`… | SQL paramétré uniquement (`check-sql.sh`) |
+| `sqlite` | `MailStore`, `AccountRepository`, requêtes d'écran, `PendingOpStore`, `DraftStore`, `OutboxStore`, `SearchIndex`, `SettingsStore`, `ContactBook`, `ContactDirectory`… | SQL paramétré uniquement (`check-sql.sh`) |
 | `blobs` | `BlobStore` : `.eml.zst` par compte et empreinte, écriture atomique | — |
 | `keyring` | `SecretStore` : Secret Service, Credential Manager ; fichier 0600 en dérogation | — |
 | `discovery` | `AutoconfigClient`, `SrvResolver`, `PortProber` | HTTPS seulement |

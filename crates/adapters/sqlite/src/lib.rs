@@ -2,7 +2,8 @@
 //!
 //! - comptes et exceptions de certificats ;
 //! - boîtes, messages et état de synchronisation ([`mail`]) : `MailStore`
-//!   côté écriture, `FolderTreeQuery` et `MessageListQuery` côté lecture.
+//!   côté écriture, `FolderTreeQuery` et `MessageListQuery` côté lecture ;
+//! - carnet d'adresses ([`contacts`]) : `ContactBook` et `ContactDirectory`.
 //!
 //! Mode WAL : un seul rédacteur (connexion protégée par un verrou) et un
 //! pool de lecteurs en lecture seule, utilisés depuis `spawn_blocking`.
@@ -14,6 +15,7 @@
 
 pub mod actions;
 pub mod compose;
+pub mod contacts;
 pub mod conversations;
 pub mod mail;
 pub mod preferences;
@@ -47,6 +49,7 @@ fn migrations() -> Migrations<'static> {
         M::up(include_str!("../migrations/0008_remote_copy_mailbox.sql")),
         M::up(include_str!("../migrations/0009_folder_counts.sql")),
         M::up(include_str!("../migrations/0010_scheduled_send.sql")),
+        M::up(include_str!("../migrations/0011_contacts.sql")),
     ])
 }
 
@@ -586,6 +589,13 @@ mod tests {
         "UPDATE messages SET flags = 1 WHERE id = 1;",
         // Version 10 : un message programmé avec son brouillon.
         "UPDATE outbox SET draft_content = '{}' WHERE id = 1;",
+        // Version 11 : un contact, son adresse et son téléphone.
+        "INSERT INTO contacts (display_name, favorite, sort_key, search_text) \
+         VALUES ('V11', 1, 'v11', 'v11\nv11@example.com'); \
+         INSERT INTO contact_emails (contact_id, position, address, address_key, label, preferred) \
+         VALUES (1, 0, 'V11@example.com', 'v11@example.com', NULL, 1); \
+         INSERT INTO contact_phones (contact_id, position, number, label) \
+         VALUES (1, 0, '01 02 03', 'maison');",
     ];
 
     /// Montée de version depuis chaque version précédente, données

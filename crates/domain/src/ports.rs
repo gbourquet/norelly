@@ -19,6 +19,7 @@ use crate::compose::ReplySource;
 use crate::compose::draft::{ComposeError, Draft, DraftSync, Recipient, RemoteCopy};
 use crate::compose::outbox::OutboxEntry;
 use crate::connection::ConnectionError;
+use crate::contacts::{AddressKey, Contact, ContactDraft, ContactFilter, ContactId};
 use crate::conversation::ConversationScope;
 use crate::credentials::{Credentials, Secret, SecretBytes, Username};
 use crate::discovery::{
@@ -1268,6 +1269,138 @@ pub trait ContactQuery: Send + Sync {
         text: &str,
         limit: usize,
     ) -> impl Future<Output = Result<Vec<Correspondent>, StoreError>> + Send;
+}
+
+// ---------------------------------------------------------------------------
+// Carnet d'adresses (ADR-012)
+// ---------------------------------------------------------------------------
+
+/// Erreur du carnet d'adresses.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum ContactStoreError {
+    /// L'adresse (à la casse près) appartient déjà à un autre contact.
+    #[error("adresse déjà dans le carnet : {0}")]
+    DuplicateAddress(EmailAddress),
+    #[error("contact inconnu")]
+    NotFound,
+    #[error("données de contact corrompues : {0}")]
+    Corrupted(String),
+    #[error(transparent)]
+    Store(#[from] StoreError),
+}
+
+/// Écritures du carnet d'adresses (unique, commun à tous les comptes).
+///
+/// Une adresse n'appartient qu'à un contact du carnet, à la casse près
+/// ([`AddressKey`]) : l'écriture qui la donnerait à un second contact est
+/// refusée sans effet.
+pub trait ContactBook: Send + Sync {
+    /// Enregistre une nouvelle fiche.
+    fn create(
+        &self,
+        draft: &ContactDraft,
+    ) -> impl Future<Output = Result<Contact, ContactStoreError>> + Send;
+
+    /// Remplace le contenu de la fiche `id` (adresses et téléphones
+    /// compris). `NotFound` si elle n'existe pas.
+    fn update(
+        &self,
+        id: ContactId,
+        draft: &ContactDraft,
+    ) -> impl Future<Output = Result<Contact, ContactStoreError>> + Send;
+
+    /// Supprime une fiche ; `false` si elle n'existait pas.
+    fn delete(&self, id: ContactId)
+    -> impl Future<Output = Result<bool, ContactStoreError>> + Send;
+
+    /// Supprime des fiches en une fois (inconnues ignorées) ; renvoie le
+    /// nombre de fiches supprimées.
+    fn delete_many(
+        &self,
+        ids: &[ContactId],
+    ) -> impl Future<Output = Result<usize, ContactStoreError>> + Send;
+}
+
+/// Position dans la liste des contacts, triée par [`ContactDraft::sort_key`]
+/// puis par identifiant (pagination par curseur).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ContactCursor {
+    pub sort_key: String,
+    pub id: ContactId,
+}
+
+impl ContactCursor {
+    /// Position du contact dans la liste.
+    #[must_use]
+    pub fn of(contact: &Contact) -> Self {
+        Self {
+            sort_key: contact.draft().sort_key(),
+            id: contact.id(),
+        }
+    }
+}
+
+/// Ligne de la liste des contacts.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ContactListItem {
+    pub id: ContactId,
+    /// Nom à afficher ([`ContactDraft::display_name`]).
+    pub name: String,
+    /// Adresse préférée.
+    pub address: EmailAddress,
+    pub organization: Option<String>,
+    pub favorite: bool,
+}
+
+impl From<&Contact> for ContactListItem {
+    fn from(contact: &Contact) -> Self {
+        let draft = contact.draft();
+        Self {
+            id: contact.id(),
+            name: draft.display_name(),
+            address: draft.preferred_email().address().clone(),
+            organization: draft.organization().map(str::to_owned),
+            favorite: draft.favorite(),
+        }
+    }
+}
+
+/// Une page de contacts.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ContactPage {
+    pub items: Vec<ContactListItem>,
+    /// Curseur de la page suivante ; `None` à la fin.
+    pub next: Option<ContactCursor>,
+}
+
+/// Adresses cherchées au plus par [`ContactDirectory::by_addresses`].
+pub const MAX_CONTACT_LOOKUP: usize = 500;
+
+/// Lectures d'écran du carnet d'adresses.
+pub trait ContactDirectory: Send + Sync {
+    /// Au plus `limit` contacts (borné à [`MAX_PAGE_SIZE`]) qui passent
+    /// `filter` ([`ContactFilter::matches`]), après `cursor`, dans l'ordre
+    /// de [`ContactCursor`].
+    fn page(
+        &self,
+        filter: &ContactFilter,
+        cursor: Option<ContactCursor>,
+        limit: u32,
+    ) -> impl Future<Output = Result<ContactPage, StoreError>> + Send;
+
+    /// Fiche complète.
+    fn get(
+        &self,
+        id: ContactId,
+    ) -> impl Future<Output = Result<Option<Contact>, StoreError>> + Send;
+
+    /// Contacts qui portent l'une des adresses (les
+    /// [`MAX_CONTACT_LOOKUP`] premières), chacun une fois, dans l'ordre de
+    /// la liste.
+    fn by_addresses(
+        &self,
+        keys: &[AddressKey],
+    ) -> impl Future<Output = Result<Vec<Contact>, StoreError>> + Send;
 }
 
 // ---------------------------------------------------------------------------

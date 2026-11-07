@@ -31,7 +31,29 @@ quand le mainteneur l'abandonne (avec la raison).
 ## Interface et fonctionnalités
 
 - **Carnet d'adresses** : epic planifiée dans
-  [plans/carnet-adresses.md](plans/carnet-adresses.md) (ADR-012).
+  [plans/carnet-adresses.md](plans/carnet-adresses.md) (ADR-012) ; lot 1
+  (modèle, ports, stockage, cas d'usage) livré, lots 2 à 8 à faire.
+- **Carnet : constats de la revue de sécurité du lot 1** (bas) :
+  - caractères invisibles encore admis dans les champs d'une fiche
+    (U+2028/2029, U+206A–206F, U+FFF9–FFFB, étiquettes U+E0000–E007F,
+    sélecteurs de variante, remplisseurs Hangul, U+2800) : refuser toute la
+    catégorie Cf, Zl, Zp et les remplisseurs « blancs », **avant l'import
+    (lot 6)** (`crates/domain/src/contacts.rs`, `connection::is_format_char`) ;
+  - une fiche relue invalide fait échouer toute la page : écarter et
+    signaler la ligne, ou assainir par migration à chaque durcissement de
+    règle (`crates/adapters/sqlite/src/contacts.rs`) ;
+  - entrées à borner pour l'IPC (lot 2) : `MAX_CONTACT_DELETE` pour
+    `delete_many`, constructeur validant de `ContactCursor` (longueur de
+    `sort_key`) ;
+  - nom imitant une adresse (`ceo@bank.example`) : règle aujourd'hui dans
+    l'interface seulement (`RecipientInput.svelte`) ; la porter dans le
+    domaine pour les fiches et `sender_label` (lot 3), nom prérempli depuis
+    l'en-tête signalé comme modifiable ;
+  - étendre `hostile_message_sql.rs` et le contrat (métacaractères SQL dans
+    tous les champs) dès qu'un message ou un import alimente le carnet ;
+  - plafond global du nombre de fiches, à fixer avec les bancs (lot 6) ;
+  - un lien `tel:` éventuel exigera un jeu de caractères restreint décidé
+    en Rust.
 - **Synchronisation CardDAV du carnet** (après l'epic carnet) : adaptateur
   WebDAV sur `tls`, synchronisation bidirectionnelle, conflits, sans
   reprise du schéma (modèle déjà calqué sur vCard, ADR-012).

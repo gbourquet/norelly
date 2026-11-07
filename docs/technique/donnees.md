@@ -46,6 +46,7 @@ système.
 | 8 | `0008_remote_copy_mailbox.sql` | boîte enregistrée avec chaque copie distante de brouillon |
 | 9 | `0009_folder_counts.sql` | index couvrant `(mailbox_id, hidden, flags)` pour les compteurs de l'arbre |
 | 10 | `0010_scheduled_send.sql` | envoi différé : échéance et contenu du brouillon dans `outbox` |
+| 11 | `0011_contacts.sql` | carnet d'adresses unique (ADR-012) : `contacts` (champs vCard, favori, `sort_key` et `search_text` calculés par le domaine, index de tri), `contact_emails` (`address_key` unique dans le carnet, une seule préférée par contact), `contact_phones` ; cascade à la suppression d'un contact |
 
 Le schéma courant complet est la somme de ces fichiers ; ils sont commentés
 en tête et à chaque table.
@@ -59,13 +60,19 @@ en tête et à chaque table.
   l'écriture du message (déclencheurs) ; les messages ne sont jamais
   remplacés par `INSERT OR REPLACE`.
 - Suppression d'un compte : cascade sur toutes ses données.
+- Carnet d'adresses : une adresse (à la casse près) n'appartient qu'à un
+  contact (`contact_emails.address_key UNIQUE`) ; ordre et filtre de la
+  liste comparent `sort_key` et `search_text` octet par octet, sans le
+  `lower()` de SQLite (ASCII seul) : SQLite et le faux en mémoire trient
+  et filtrent à l'identique. Le carnet n'appartient à aucun compte : la
+  suppression d'un compte n'y touche pas.
 
 ### Lectures d'écran (CQRS léger)
 
 Les écritures passent par le domaine ; les lectures d'écran passent par des
 ports de requête taillés pour l'écran, paginés par curseur
 (`FolderTreeQuery`, `ConversationQuery`, `MessageListQuery`, `SearchIndex`,
-`ContactQuery`), implémentés en SQL dans `crates/adapters/sqlite/src/`.
+`ContactQuery`, `ContactDirectory`), implémentés en SQL dans `crates/adapters/sqlite/src/`.
 Bancs : `crates/adapters/sqlite/benches/` (voir [tests](tests.md)).
 
 ## Stockage des messages bruts

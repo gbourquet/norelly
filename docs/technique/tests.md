@@ -43,7 +43,7 @@ s'appelle toujours `tests/integration*.rs`.
 - `fakes.rs` : implémentations en mémoire des ports.
 - `*_contracts.rs` : suites de contrat (`SecretStore`, `AccountRepository`,
   `MailStore`, `BlobStore`, `PendingOpStore`, `DraftStore`, `OutboxStore`,
-  `SearchIndex`, session IMAP…).
+  `SearchIndex`, carnet d'adresses, session IMAP…).
 
 Contre Dovecot, les capacités sont masquées par le connecteur
 (`ImapConnector::hiding_capabilities`) pour tester les chemins sans MOVE ou

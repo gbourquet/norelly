@@ -846,8 +846,14 @@ mod tests {
 
     #[test]
     fn only_status_lines_are_made_ascii() {
-        assert_eq!(cleaned("N3 NO existe : Été\r\n"), "N3 NO existe : ??t??\r\n");
-        assert_eq!(cleaned("* ok [ALERT] réduit\r\n"), "* ok [ALERT] r??duit\r\n");
+        assert_eq!(
+            cleaned("N3 NO existe : Été\r\n"),
+            "N3 NO existe : ??t??\r\n"
+        );
+        assert_eq!(
+            cleaned("* ok [ALERT] réduit\r\n"),
+            "* ok [ALERT] r??duit\r\n"
+        );
         assert_eq!(cleaned("* BYE à bientôt\r\n"), "* BYE ?? bient??t\r\n");
         // Données : noms de boîtes et contenus intacts.
         for line in [

@@ -1366,12 +1366,8 @@ async fn rename_and_delete_mailbox_encode_names_and_report_refusal() -> TestResu
         matches!(refused, Err(ConnectionError::Rejected(_))),
         "{refused:?}"
     );
-    session
-        .delete_mailbox(&MailboxName::parse("a b")?)
-        .await?;
-    let refused = session
-        .delete_mailbox(&MailboxName::parse("Absent")?)
-        .await;
+    session.delete_mailbox(&MailboxName::parse("a b")?).await?;
+    let refused = session.delete_mailbox(&MailboxName::parse("Absent")?).await;
     assert!(
         matches!(refused, Err(ConnectionError::Rejected(_))),
         "{refused:?}"

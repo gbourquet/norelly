@@ -291,13 +291,13 @@ where
     let contact = |name: &'static str, addresses: &'static [&'static str]| async move {
         book.create(&sample_contact(name, addresses))
             .await
-            .map(|c| c.id())
             .map_err(store)
     };
-    let first = contact("Alice", &["a1@example.com", "a1b@example.com"]).await?;
-    let second = contact("Alice", &["a2@example.com"]).await?;
-    let third = contact("Alice", &["a3@example.com"]).await?;
-    let bob = contact("Bob", &["bob@example.net"]).await?;
+    let first_read = contact("Alice", &["a1@example.com", "a1b@example.com"]).await?;
+    let second_read = contact("Alice", &["a2@example.com"]).await?;
+    let third_stale = contact("Alice", &["a3@example.com"]).await?;
+    let (first, second, third) = (first_read.id(), second_read.id(), third_stale.id());
+    let bob = contact("Bob", &["bob@example.net"]).await?.id();
     let club = book
         .create_list(&sample_list("Club", &[bob, second, third], false))
         .await?;
@@ -319,23 +319,59 @@ where
             "a1b@example.com",
             "a2@example.com",
             "a3@example.com",
+            "a3b@example.com",
         ],
     );
-    let unknown = ContactId::new(i64::MAX).unwrap_or_else(|| panic!("id"));
+    let unknown = sample_contact("Inconnue", &["x@example.com"])
+        .with_id(ContactId::new(i64::MAX).unwrap_or_else(|| panic!("id")));
+    // La troisième fiche change après avoir été lue.
+    let third_read = book
+        .update(
+            third,
+            &sample_contact("Alice", &["a3@example.com", "a3b@example.com"]),
+        )
+        .await
+        .map_err(store)?;
 
-    // Tout ou rien : fiche inconnue ou adresse d'un contact étranger à la
-    // fusion, et rien ne change.
+    // Tout ou rien : fiche inconnue, fiche changée depuis sa lecture ou
+    // adresse d'un contact étranger à la fusion, et rien ne change.
     assert_eq!(
-        book.merge(first, &merged, &[second, unknown]).await,
+        book.merge(
+            &first_read,
+            &merged,
+            &[second_read.clone(), unknown.clone()]
+        )
+        .await,
         Err(ContactStoreError::NotFound)
     );
     assert_eq!(
-        book.merge(unknown, &merged, &[second]).await,
+        book.merge(&unknown, &merged, std::slice::from_ref(&second_read))
+            .await,
         Err(ContactStoreError::NotFound)
+    );
+    assert_eq!(
+        book.merge(
+            &first_read,
+            &merged,
+            &[second_read.clone(), third_stale.clone()]
+        )
+        .await,
+        Err(ContactStoreError::Conflict)
+    );
+    let first_stale = sample_contact("Alice", &["a1@example.com"]).with_id(first);
+    assert_eq!(
+        book.merge(
+            &first_stale,
+            &merged,
+            &[second_read.clone(), third_read.clone()]
+        )
+        .await,
+        Err(ContactStoreError::Conflict)
     );
     let stolen = sample_contact("Alice", &["a1@example.com", "BOB@example.net"]);
     assert_eq!(
-        book.merge(first, &stolen, &[second]).await,
+        book.merge(&first_read, &stolen, std::slice::from_ref(&second_read))
+            .await,
         Err(ContactStoreError::DuplicateAddress(
             EmailAddress::parse("BOB@example.net").unwrap_or_else(|e| panic!("{e}"))
         ))
@@ -343,13 +379,8 @@ where
     for id in [first, second, third] {
         assert!(book.get(id).await?.is_some(), "fiche touchée par un refus");
     }
-    assert_eq!(
-        book.get(first).await?.map(|c| c.draft().clone()),
-        Some(sample_contact(
-            "Alice",
-            &["a1@example.com", "a1b@example.com"]
-        ))
-    );
+    assert_eq!(book.get(first).await?, Some(first_read.clone()));
+    assert_eq!(book.get(third).await?, Some(third_read.clone()));
     assert_eq!(members(club.id()).await?, [bob, second, third]);
     assert_eq!(members(famille.id()).await?, [first, second]);
 
@@ -357,7 +388,7 @@ where
     // qui disparaissent ; elle les remplace dans leurs listes, à leur
     // place, sans y figurer deux fois.
     let kept = book
-        .merge(first, &merged, &[second, third])
+        .merge(&first_read, &merged, &[second_read, third_read])
         .await
         .map_err(store)?;
     assert_eq!(kept, merged.clone().with_id(first));
@@ -365,7 +396,7 @@ where
     assert_eq!(book.get(second).await?, None);
     assert_eq!(book.get(third).await?, None);
     let owner = book
-        .by_addresses(&[AddressKey::parse("a3@example.com").unwrap_or_else(|e| panic!("{e}"))])
+        .by_addresses(&[AddressKey::parse("a3b@example.com").unwrap_or_else(|e| panic!("{e}"))])
         .await?;
     assert_eq!(owner, [kept]);
     assert_eq!(members(club.id()).await?, [bob, first]);

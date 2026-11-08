@@ -25,7 +25,7 @@ async function create(given, family, address, phone = "") {
   const form = dialog("Nouveau contact");
   await form.waitForDisplayed();
   await field("Prénom").setValue(given);
-  await field("Nom").setValue(family);
+  if (family !== "") await field("Nom").setValue(family);
   await $('[aria-label="Adresse électronique 1"]').setValue(address);
   if (phone !== "") {
     await button("Ajouter un téléphone").click();
@@ -53,7 +53,17 @@ describe("doublons du carnet", () => {
   });
 
   after(async () => {
+    // Carnet vidé, même après un échec : il est commun aux scénarios.
     await browser.keys("Escape");
+    const boxes = await $$('[role="option"] input[type="checkbox"]');
+    if (boxes.length > 0) {
+      for (const box of boxes) await box.click();
+      await barAction($('section[aria-label="Contacts sélectionnés"]'), "Supprimer le contact");
+      const confirm = dialog("Supprimer les contacts");
+      await confirm.waitForDisplayed();
+      await confirm.$("button=Supprimer").click();
+      await confirm.waitForDisplayed({ reverse: true, timeout: 10000 });
+    }
     await $("nav").$("button*=Boîte de réception unifiée").click();
     await removeTestAccount();
   });
@@ -69,6 +79,10 @@ describe("doublons du carnet", () => {
     await expect(cards[0].$("span=alice@norelly.test")).toBeDisplayed();
     await expect(cards[0].$('input[type="radio"]')).toBeSelected();
     await expect(cards[0].$('input[type="checkbox"]')).toBeDisabled();
+    // Ce que gardera la fiche, calculé pour les fiches cochées.
+    await expect(
+      cards[0].$("span=Après la fusion : Alice Martin, adresse préférée alice@norelly.test"),
+    ).toBeDisplayed();
   });
 
   it("fusionne les fiches cochées et laisse la fiche décochée", async () => {

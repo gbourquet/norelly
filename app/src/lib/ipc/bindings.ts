@@ -229,9 +229,14 @@ export const commands = {
 	findContactDuplicates: () => typedError<ContactDuplicateGroupDto[], IpcError_Serialize>(__TAURI_INVOKE("find_contact_duplicates")),
 	/**
 	 *  Fusionne les fiches `others` dans la fiche `keep` ; renvoie la fiche
-	 *  gardée.
+	 *  gardée. Refusée si une fiche a changé depuis la recherche.
 	 */
 	mergeContacts: (keep: number, others: number[]) => typedError<ContactDto, IpcError_Serialize>(__TAURI_INVOKE("merge_contacts", { keep, others })),
+	/**
+	 *  Ce que garderait la fiche `keep` si les fiches `others` y étaient
+	 *  fusionnées (nom, adresse préférée), sans rien écrire.
+	 */
+	previewContactMerge: (keep: number, others: number[]) => typedError<ContactMergePreviewDto, IpcError_Serialize>(__TAURI_INVOKE("preview_contact_merge", { keep, others })),
 	/**
 	 *  Une page des listes filtrée sur le nom (`text` vide : toutes), après
 	 *  `cursor`.
@@ -440,8 +445,13 @@ export type ContactDto = {
 
 /**  Groupe de doublons : la fiche proposée à garder d'abord. */
 export type ContactDuplicateGroupDto = {
-	contacts: ContactDto[],
+	contacts: DuplicateCardDto[],
 	reasons: DuplicateReasonDto[],
+	/**
+	 *  Groupe plus grand que ce qu'une fusion peut réunir : seules les
+	 *  fiches les plus complètes sont présentées.
+	 */
+	truncated: boolean,
 };
 
 /**  Adresse d'une fiche contact (saisie, ou fiche relue). */
@@ -598,6 +608,13 @@ export type ContactListPageDto_Deserialize = {
 export type ContactListPageDto_Serialize = {
 	items: ContactListItemDto[],
 	next: ContactListCursorDto | null,
+};
+
+/**  Ce que garderait la fiche après une fusion. */
+export type ContactMergePreviewDto = {
+	/**  Nom affiché (règle du domaine). */
+	name: string,
+	preferred_address: string,
 };
 
 /**  Une page de contacts. */
@@ -817,6 +834,17 @@ export type DraftsDto = {
 	remote: RemoteDraftDto[],
 };
 
+/**  Fiche d'un groupe de doublons : les seuls champs affichés. */
+export type DuplicateCardDto = {
+	id: number,
+	/**  Nom à afficher (règle du domaine). */
+	name: string,
+	emails: ContactEmailDto[],
+	phones: string[],
+	/**  Vide : absente. */
+	organization: string,
+};
+
 /**  Que faire d'une fiche déjà dans le carnet. */
 export type DuplicatePolicyDto = 
 /**  L'ignorer. */
@@ -1003,6 +1031,11 @@ export type ErrorCodeDto =
  *  fiche (adresses, téléphones ou notes).
  */
 "contact_merge_too_large" | 
+/**
+ *  Fusion refusée : une fiche a changé depuis la recherche des
+ *  doublons (rien n'a été écrit).
+ */
+"contact_merge_conflict" | 
 /**  Erreur interne (journalisée). */
 "internal";
 

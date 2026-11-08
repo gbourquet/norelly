@@ -33,3 +33,9 @@ fn a_book_too_large_to_scan_has_its_own_code() {
         ErrorCodeDto::Storage
     );
 }
+
+#[test]
+fn a_card_changed_since_the_search_has_its_own_code() {
+    let e = merge_error(ContactFailure::Store(ContactStoreError::Conflict));
+    assert_eq!(e.code, ErrorCodeDto::ContactMergeConflict);
+}

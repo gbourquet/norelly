@@ -163,6 +163,8 @@ pub(crate) fn import_error(e: ImportFailure) -> IpcError {
                 IpcError::new(ErrorCodeDto::ContactDuplicateAddress).with_detail(address)
             }
             ContactStoreError::NotFound => IpcError::new(ErrorCodeDto::ContactNotFound),
+            // Propre à la fusion : jamais rendu par un import.
+            ContactStoreError::Conflict => IpcError::internal(e),
             ContactStoreError::Corrupted(e) => IpcError::storage(e),
             ContactStoreError::Store(e) => IpcError::storage(e),
         },

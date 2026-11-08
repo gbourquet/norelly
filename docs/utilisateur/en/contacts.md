@@ -173,8 +173,10 @@ import, for example):
 2. Norelly shows, one group at a time, the contacts that share the same
    name or the same phone number. Check that they really are the same
    person; uncheck a card to leave it out.
-3. Choose the card to keep (**Keep this card**), then click **Merge**. Or
-   click **Skip** to see the next group without changing anything.
+3. Choose the card to keep (**Keep this card**), then click **Merge**.
+   Under the kept card, Norelly shows the name and preferred address the
+   contact will have after merging. Or click **Skip** to see the next
+   group without changing anything.
 
 ![Finding duplicates: two cards for Alice Martin](captures/contacts-duplicates.png)
 

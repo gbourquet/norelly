@@ -29,6 +29,13 @@ pub const MAX_MERGED_CONTACTS: usize = MAX_CONTACT_EMAILS - 1;
 /// la borne d'un export (un carnet plus grand est refusé, pas tronqué).
 pub const MAX_DUPLICATE_SCAN: usize = crate::contact_export::MAX_EXPORT_CONTACTS;
 
+/// Nombre maximal de fiches présentées dans un groupe : autant qu'une
+/// fusion peut en réunir.
+pub const MAX_DUPLICATE_GROUP_SIZE: usize = MAX_MERGED_CONTACTS + 1;
+
+/// Nombre maximal de groupes renvoyés par une recherche.
+pub const MAX_DUPLICATE_GROUPS: usize = 500;
+
 /// Ce qui rapproche les contacts d'un groupe.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum DuplicateReason {
@@ -47,13 +54,17 @@ pub struct DuplicateGroup {
     /// Raisons du rapprochement, chacune une fois, dans l'ordre de
     /// [`DuplicateReason`].
     pub reasons: Vec<DuplicateReason>,
+    /// Le groupe comptait plus de [`MAX_DUPLICATE_GROUP_SIZE`] fiches :
+    /// seules les plus complètes sont présentées.
+    pub truncated: bool,
 }
 
 /// Groupes de doublons parmi `contacts` : contacts de même [`name_key`]
 /// ou qui partagent un numéro d'au moins [`MIN_DUPLICATE_PHONE_DIGITS`]
 /// chiffres, regroupés par transitivité. Groupes dans l'ordre du nom de
 /// leur première fiche ([`ContactDraft::sort_key`]), puis de son
-/// identifiant.
+/// identifiant ; au plus [`MAX_DUPLICATE_GROUPS`] groupes, de
+/// [`MAX_DUPLICATE_GROUP_SIZE`] fiches au plus chacun.
 #[must_use]
 pub fn find_duplicates(
     contacts: &[Contact],
@@ -113,19 +124,20 @@ pub fn find_duplicates(
         .filter(|(_, indexes)| indexes.len() > 1)
         .map(|(root, indexes)| {
             let mut group: Vec<&Contact> = indexes.iter().map(|&i| &contacts[i]).collect();
+            // Les plus complètes d'abord (puis favorite, puis la plus
+            // ancienne) : la première est proposée, les suivantes gardées
+            // dans la borne, puis rangées par identifiant.
+            group.sort_by_key(|c| {
+                std::cmp::Reverse((
+                    completeness(c.draft()),
+                    c.draft().favorite(),
+                    std::cmp::Reverse(c.id()),
+                ))
+            });
+            let truncated = group.len() > MAX_DUPLICATE_GROUP_SIZE;
+            group.truncate(MAX_DUPLICATE_GROUP_SIZE);
+            let first = group.remove(0);
             group.sort_by_key(|c| c.id());
-            let keep = group
-                .iter()
-                .enumerate()
-                .max_by_key(|(_, c)| {
-                    (
-                        completeness(c.draft()),
-                        c.draft().favorite(),
-                        std::cmp::Reverse(c.id()),
-                    )
-                })
-                .map_or(0, |(i, _)| i);
-            let first = group.remove(keep);
             let mut reasons = reasons.remove(&root).unwrap_or_default();
             reasons.sort();
             let sort_key = first.draft().sort_key();
@@ -133,11 +145,22 @@ pub fn find_duplicates(
                 .chain(group)
                 .map(Contact::id)
                 .collect();
-            (sort_key, DuplicateGroup { contacts, reasons })
+            (
+                sort_key,
+                DuplicateGroup {
+                    contacts,
+                    reasons,
+                    truncated,
+                },
+            )
         })
         .collect();
     groups.sort_by(|a, b| (&a.0, a.1.contacts[0]).cmp(&(&b.0, b.1.contacts[0])));
-    groups.into_iter().map(|(_, group)| group).collect()
+    groups
+        .into_iter()
+        .take(MAX_DUPLICATE_GROUPS)
+        .map(|(_, group)| group)
+        .collect()
 }
 
 /// Ensembles disjoints (union-find) sur les rangs `0..n`.

@@ -41,6 +41,7 @@ import {
   type ContactCursorDto,
   type ContactDto,
   type ContactDuplicateGroupDto,
+  type ContactMergePreviewDto,
   type ContactImportOutcomeDto,
   type ContactImportPreviewDto,
   type ContactExportFormatDto,
@@ -76,6 +77,8 @@ export type {
   ContactCursorDto,
   ContactDto,
   ContactDuplicateGroupDto,
+  ContactMergePreviewDto,
+  DuplicateCardDto,
   DuplicateReasonDto,
   ContactEmailDto,
   ContactFieldsDto,
@@ -366,6 +369,11 @@ export const api = {
   /** Groupes de doublons du carnet, la fiche proposée à garder d'abord. */
   findContactDuplicates: (): Promise<ContactDuplicateGroupDto[]> =>
     unwrap(commands.findContactDuplicates()),
+
+  /** Nom et adresse préférée que garderait `keep` après la fusion des
+   * fiches `others`, sans rien écrire. */
+  previewContactMerge: (keep: number, others: number[]): Promise<ContactMergePreviewDto> =>
+    unwrap(commands.previewContactMerge(keep, others)),
 
   /** Fusionne les fiches `others` dans `keep` ; renvoie la fiche gardée. */
   mergeContacts: (keep: number, others: number[]): Promise<ContactDto> =>

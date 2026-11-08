@@ -180,8 +180,9 @@ import, par exemple) :
    nom ou le même numéro de téléphone. Vérifiez qu'il s'agit bien de la
    même personne ; décochez une fiche pour la laisser de côté.
 3. Choisissez la fiche à garder (**Garder cette fiche**), puis cliquez sur
-   **Fusionner**. Ou cliquez sur **Passer** pour voir le groupe suivant
-   sans rien changer.
+   **Fusionner**. Sous la fiche gardée, Norelly indique le nom et
+   l'adresse préférée que le contact aura après la fusion. Ou cliquez sur
+   **Passer** pour voir le groupe suivant sans rien changer.
 
 ![La recherche des doublons : deux fiches d'Alice Martin](captures/contacts-duplicates.png)
 

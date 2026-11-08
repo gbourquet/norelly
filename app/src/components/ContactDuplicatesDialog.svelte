@@ -47,6 +47,9 @@
       </ul>
     </div>
     <p class="help">{m.contacts_duplicates_help()}</p>
+    {#if group.truncated}
+      <p class="help">{m.contacts_duplicates_truncated()}</p>
+    {/if}
     <ul class="cards">
       {#each group.contacts as contact (contact.id)}
         {@const kept = form.keep === contact.id}
@@ -58,19 +61,27 @@
               checked={included}
               disabled={kept || form.busy}
               aria-label={m.contacts_duplicates_include({ name: contact.name })}
-              onchange={() => form.toggle(contact.id)}
+              onchange={() => void form.toggle(contact.id)}
             />
             <span class="name">{contact.name}</span>
           </label>
           <div class="details">
-            {#each contact.fields.emails as email (email.address)}
+            {#each contact.emails as email (email.address)}
               <span class="line">{email.address}</span>
             {/each}
-            {#each contact.fields.phones as phone, i (i)}
-              <span class="line muted">{phone.number}</span>
+            {#each contact.phones as phone, i (i)}
+              <span class="line muted">{phone}</span>
             {/each}
-            {#if contact.fields.organization}
-              <span class="line muted">{contact.fields.organization}</span>
+            {#if contact.organization}
+              <span class="line muted">{contact.organization}</span>
+            {/if}
+            {#if kept && form.preview}
+              <span class="after" role="status">
+                {m.contacts_duplicates_after({
+                  name: form.preview.name,
+                  address: form.preview.preferred_address,
+                })}
+              </span>
             {/if}
           </div>
           <label class="keep">
@@ -79,7 +90,7 @@
               name="duplicate-keep"
               checked={kept}
               disabled={form.busy}
-              onchange={() => form.choose(contact.id)}
+              onchange={() => void form.choose(contact.id)}
             />
             {m.contacts_duplicates_keep()}
           </label>
@@ -95,13 +106,15 @@
   {/if}
   {#if form.error}
     <p class="error" role="alert">{form.error}</p>
+  {:else if form.previewError}
+    <p class="error" role="alert">{form.previewError}</p>
   {/if}
   <div class="actions">
     <button class="btn" type="button" onclick={onClose} disabled={form.busy}
       >{m.common_close()}</button
     >
     {#if form.current}
-      <button class="btn" type="button" onclick={() => form.skip()} disabled={form.busy}
+      <button class="btn" type="button" onclick={() => void form.skip()} disabled={form.busy}
         >{m.contacts_duplicates_skip()}</button
       >
       <button
@@ -221,6 +234,12 @@
     gap: var(--space-1);
     white-space: nowrap;
     cursor: pointer;
+  }
+
+  .after {
+    margin-top: var(--space-1);
+    font-weight: var(--font-weight-medium);
+    overflow-wrap: anywhere;
   }
 
   .actions {

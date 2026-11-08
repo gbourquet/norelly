@@ -375,12 +375,14 @@ impl ContactBook for SqliteContactBook {
 
     async fn merge(
         &self,
-        keep: ContactId,
+        keep: &Contact,
         draft: &ContactDraft,
-        absorbed: &[ContactId],
+        absorbed: &[Contact],
     ) -> Result<Contact, ContactStoreError> {
+        let read: Vec<Contact> = std::iter::once(keep).chain(absorbed).cloned().collect();
+        let keep = keep.id();
+        let absorbed: Vec<ContactId> = absorbed.iter().map(Contact::id).collect();
         let draft = draft.clone();
-        let absorbed = absorbed.to_vec();
         self.db
             .run(move |c| {
                 let tx = c.transaction().map_err(store_error)?;
@@ -394,6 +396,16 @@ impl ContactBook for SqliteContactBook {
                     }
                 }
                 drop(exists);
+                // Chaque fiche telle qu'elle a été lue pour calculer la
+                // fusion : une modification entre-temps serait perdue.
+                let ids: Vec<i64> = read.iter().map(|c| c.id().get()).collect();
+                let current = load(&tx, &ids)?;
+                if read
+                    .iter()
+                    .any(|r| current.iter().find(|c| c.id() == r.id()) != Some(r))
+                {
+                    return Ok(Err(ContactStoreError::Conflict));
+                }
                 let mut owner = tx
                     .prepare_cached("SELECT contact_id FROM contact_emails WHERE address_key = ?1")
                     .map_err(store_error)?;

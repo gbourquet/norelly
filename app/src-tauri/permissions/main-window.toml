@@ -60,6 +60,7 @@ permissions = [
   "allow-export-contacts",
   "allow-find-contact-duplicates",
   "allow-merge-contacts",
+  "allow-preview-contact-merge",
   "allow-list-contact-lists",
   "allow-get-contact-list",
   "allow-create-contact-list",

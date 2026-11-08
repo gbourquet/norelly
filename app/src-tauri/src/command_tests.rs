@@ -1337,7 +1337,9 @@ async fn contact_lists_are_managed_suggested_and_expanded() {
 
 #[tokio::test]
 async fn duplicates_are_found_and_merged_with_their_lists() {
-    use crate::contact_duplicates::{find_contact_duplicates, merge_contacts};
+    use crate::contact_duplicates::{
+        find_contact_duplicates, merge_contacts, preview_contact_merge,
+    };
     use crate::contact_lists::{create_contact_list, get_contact_list};
     use crate::contacts::{create_contact, get_contact};
     use crate::ipc::{ContactListFieldsDto, DuplicateReasonDto};
@@ -1370,6 +1372,30 @@ async fn duplicates_are_found_and_merged_with_their_lists() {
     let ids: Vec<u32> = groups[0].contacts.iter().map(|c| c.id).collect();
     assert_eq!(ids, [second.id, first.id]);
     assert_eq!(groups[0].reasons, [DuplicateReasonDto::SameName]);
+    assert!(!groups[0].truncated);
+    // Seuls les champs affichés : nom, adresses (préférée signalée),
+    // téléphones, organisation.
+    let shown = &groups[0].contacts[1];
+    assert_eq!(shown.name, "Alice Martin");
+    assert_eq!(shown.emails[0].address, "a1@example.com");
+    assert!(shown.emails[0].preferred);
+
+    // Aperçu : nom et adresse préférée que garderait la fiche, sans rien
+    // écrire.
+    let preview = preview_contact_merge(t.state(), first.id, vec![second.id])
+        .await
+        .unwrap_or_else(fail);
+    assert_eq!(
+        (preview.name.as_str(), preview.preferred_address.as_str()),
+        ("Alice Martin", "a1@example.com")
+    );
+    assert_eq!(
+        find_contact_duplicates(t.state())
+            .await
+            .unwrap_or_else(fail)
+            .len(),
+        1
+    );
 
     // Fusion recalculée en Rust ; la fiche absorbée disparaît et sa place
     // dans la liste revient à la fiche gardée.

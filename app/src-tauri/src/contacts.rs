@@ -73,6 +73,7 @@ pub(crate) fn contact_error(e: ContactFailure, typed: &[String]) -> IpcError {
                 IpcError::new(ErrorCodeDto::ContactDuplicateAddress).with_detail(address)
             }
             ContactStoreError::NotFound => IpcError::new(ErrorCodeDto::ContactNotFound),
+            ContactStoreError::Conflict => IpcError::new(ErrorCodeDto::ContactMergeConflict),
             ContactStoreError::Corrupted(e) => IpcError::storage(e),
             ContactStoreError::Store(e) => IpcError::storage(e),
         },

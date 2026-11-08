@@ -1,5 +1,5 @@
 //! Commandes IPC des doublons du carnet (ADR-012) : chercher les groupes
-//! de doublons, fusionner des fiches.
+//! de doublons, prévoir et faire la fusion de fiches.
 //!
 //! La fusion est recalculée en Rust d'après les fiches enregistrées :
 //! l'interface ne désigne que la fiche gardée et les fiches absorbées
@@ -7,16 +7,17 @@
 //! des codes ; aucun texte destiné à l'utilisateur.
 
 use norelly_application::contact_duplicates::{
-    DuplicateCandidates, DuplicateScanFailure, FindDuplicates, MergeContacts,
+    DuplicateCandidates, DuplicateScanFailure, FindDuplicates, MergeContacts, PreviewMerge,
 };
 use norelly_application::contacts::ContactFailure;
 use norelly_domain::contact_duplicates::{DuplicateReason, MergeSelection};
-use norelly_domain::contacts::{ContactError, ContactField};
+use norelly_domain::contacts::{Contact, ContactError, ContactField};
 use tauri::State;
 
 use crate::contacts::{contact_dto, contact_error};
 use crate::ipc::{
-    ContactDto, ContactDuplicateGroupDto, DuplicateReasonDto, ErrorCodeDto, FieldDto, IpcError,
+    ContactDto, ContactDuplicateGroupDto, ContactEmailDto, ContactMergePreviewDto,
+    DuplicateCardDto, DuplicateReasonDto, ErrorCodeDto, FieldDto, IpcError, id32,
 };
 use crate::state::AppState;
 
@@ -40,13 +41,39 @@ pub(crate) fn merge_error(e: ContactFailure) -> IpcError {
     }
 }
 
+/// Fiche d'un groupe, réduite à ce que la fenêtre affiche (les notes, qui
+/// peuvent être longues, ne quittent pas Rust).
+fn card_dto(contact: &Contact) -> Result<DuplicateCardDto, IpcError> {
+    let draft = contact.draft();
+    Ok(DuplicateCardDto {
+        id: id32(contact.id().get())?,
+        name: draft.display_name(),
+        emails: draft
+            .emails()
+            .iter()
+            .map(|e| ContactEmailDto {
+                address: e.address().to_string(),
+                label: e.label().unwrap_or_default().to_owned(),
+                preferred: e.preferred(),
+            })
+            .collect(),
+        phones: draft
+            .phones()
+            .iter()
+            .map(|p| p.number().to_owned())
+            .collect(),
+        organization: draft.organization().unwrap_or_default().to_owned(),
+    })
+}
+
 fn group_dto(group: &DuplicateCandidates) -> Result<ContactDuplicateGroupDto, IpcError> {
     Ok(ContactDuplicateGroupDto {
         contacts: group
             .contacts
             .iter()
-            .map(contact_dto)
+            .map(card_dto)
             .collect::<Result<_, _>>()?,
+        truncated: group.truncated,
         reasons: group
             .reasons
             .iter()
@@ -75,8 +102,31 @@ pub async fn find_contact_duplicates(
     groups.iter().map(group_dto).collect()
 }
 
+/// Ce que garderait la fiche `keep` si les fiches `others` y étaient
+/// fusionnées (nom, adresse préférée), sans rien écrire.
+#[tauri::command]
+#[specta::specta]
+pub async fn preview_contact_merge(
+    state: State<'_, AppState>,
+    keep: u32,
+    others: Vec<u32>,
+) -> Result<ContactMergePreviewDto, IpcError> {
+    let selection =
+        MergeSelection::new(keep, &others).map_err(|_| IpcError::invalid(FieldDto::Contact))?;
+    let merged = PreviewMerge {
+        directory: &state.contacts,
+    }
+    .execute(&selection)
+    .await
+    .map_err(merge_error)?;
+    Ok(ContactMergePreviewDto {
+        name: merged.display_name(),
+        preferred_address: merged.preferred_email().address().to_string(),
+    })
+}
+
 /// Fusionne les fiches `others` dans la fiche `keep` ; renvoie la fiche
-/// gardée.
+/// gardée. Refusée si une fiche a changé depuis la recherche.
 #[tauri::command]
 #[specta::specta]
 pub async fn merge_contacts(

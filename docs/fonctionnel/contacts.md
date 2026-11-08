@@ -289,7 +289,13 @@ l'ordinateur** : rien n'est envoyé à un serveur.
   ce qui rapproche les fiches. Pour chaque fiche : son nom, ses adresses,
   ses téléphones, une case pour la réunir aux autres (toutes cochées au
   départ) et le choix **Garder cette fiche** (la plus complète est
-  proposée).
+  proposée). Sous la fiche gardée, la fenêtre indique le nom et l'adresse
+  préférée que le contact aura après la fusion, d'après les fiches
+  cochées : on voit ce qui restera avant de confirmer.
+- Un groupe trop nombreux pour une seule fusion ne présente que ses
+  fiches les plus complètes, et le dit ; une nouvelle recherche après la
+  fusion montre les autres. Une recherche présente un nombre limité de
+  groupes : on la relance pour voir la suite.
 - **Fusionner** réunit les fiches cochées dans la fiche gardée : ses
   champs vides sont complétés par les autres fiches, sans rien remplacer ;
   toutes les adresses et tous les téléphones sont gardés (un numéro écrit
@@ -298,6 +304,8 @@ l'ordinateur** : rien n'est envoyé à un serveur.
   est favori si l'une des fiches l'était ; il remplace les autres fiches
   dans leurs listes de diffusion. Les autres fiches sont ensuite
   supprimées. Tout se fait d'un coup : en cas d'échec, rien ne change.
+  Si l'une des fiches a été modifiée depuis la recherche, rien n'est
+  fusionné et un message invite à relancer la recherche.
 - **Passer** laisse le groupe tel quel et présente le suivant ; il sera de
   nouveau proposé à la prochaine recherche.
 - Fusion refusée, avec un message clair, si la fiche obtenue dépasserait

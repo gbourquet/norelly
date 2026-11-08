@@ -625,14 +625,24 @@ impl ContactBook for InMemoryContactBook {
 
     async fn merge(
         &self,
-        keep: ContactId,
+        keep: &Contact,
         draft: &ContactDraft,
-        absorbed: &[ContactId],
+        absorbed: &[Contact],
     ) -> Result<Contact, ContactStoreError> {
+        let read: Vec<Contact> = std::iter::once(keep).chain(absorbed).cloned().collect();
+        let keep = keep.id();
+        let absorbed: Vec<ContactId> = absorbed.iter().map(Contact::id).collect();
         let mut state = self.lock();
         let known = |id: &ContactId| state.1.iter().any(|c| c.id() == *id);
         if !known(&keep) || !absorbed.iter().all(known) {
             return Err(ContactStoreError::NotFound);
+        }
+        // Chaque fiche telle qu'elle a été lue pour calculer la fusion.
+        if read
+            .iter()
+            .any(|r| state.1.iter().find(|c| c.id() == r.id()) != Some(r))
+        {
+            return Err(ContactStoreError::Conflict);
         }
         let others: Vec<Contact> = state
             .1
@@ -646,7 +656,7 @@ impl ContactBook for InMemoryContactBook {
         let mut lists = self.lock_lists();
         for list in &mut lists.1 {
             let mut members: Vec<ContactId> = list.draft().members().to_vec();
-            for gone in absorbed {
+            for gone in &absorbed {
                 let Some(at) = members.iter().position(|m| m == gone) else {
                     continue;
                 };

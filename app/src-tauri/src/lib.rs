@@ -91,6 +91,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             contact_export::export_contacts,
             contact_duplicates::find_contact_duplicates,
             contact_duplicates::merge_contacts,
+            contact_duplicates::preview_contact_merge,
             contact_lists::list_contact_lists,
             contact_lists::get_contact_list,
             contact_lists::create_contact_list,

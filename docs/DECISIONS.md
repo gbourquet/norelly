@@ -618,5 +618,13 @@ est majoritairement écrit par Claude et relu par le mainteneur.
     est refusée. « Rechercher les doublons… » dans « Plus… » de l'en-tête
     de la vue Contacts ouvre une fenêtre qui présente les groupes un par
     un (« Fusionner », « Passer ») ; un groupe passé n'est pas mémorisé
-    (backlog) ;
+    (backlog). Suites de la revue de sécurité, **validées par le
+    mainteneur le 2026-11-08, avant le code** : un groupe garde au plus
+    20 fiches (les plus complètes ; groupe signalé « tronqué »), une
+    recherche renvoie au plus 500 groupes, et l'écran ne reçoit que les
+    champs affichés (pas les notes) ; la fusion relit les fiches dans sa
+    transaction et refuse sans rien écrire si l'une a changé depuis la
+    recherche (`Conflict`) ; avant de fusionner, la fenêtre montre le nom
+    et l'adresse préférée que gardera la fiche, calculés par Rust pour
+    les fiches cochées (aperçu qui signale aussi une fusion trop grosse) ;
   - photos de contact et CardDAV restent au backlog.

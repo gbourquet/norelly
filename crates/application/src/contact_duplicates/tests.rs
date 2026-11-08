@@ -161,3 +161,48 @@ async fn a_merge_beyond_the_bounds_of_a_card_is_refused_and_writes_nothing()
     assert!(book.get(other.id()).await?.is_some());
     Ok(())
 }
+
+#[tokio::test]
+async fn the_preview_is_the_domain_merge_and_writes_nothing()
+-> Result<(), Box<dyn std::error::Error>> {
+    let book = InMemoryContactBook::default();
+    let keep = book
+        .create(&sample_contact("", &["a1@example.com"]))
+        .await?;
+    let other = book
+        .create(&sample_contact("Alice", &["a2@example.com"]))
+        .await?;
+    let selection = ok(MergeSelection::new(keep.id().get(), &[other.id().get()]));
+    let preview = PreviewMerge { directory: &book }
+        .execute(&selection)
+        .await?;
+    assert_eq!(preview, ok(merge_contacts(keep.draft(), &[other.draft()])));
+    // Le nom vient de l'autre fiche, l'adresse préférée de la fiche gardée.
+    assert_eq!(preview.display_name(), "Alice");
+    assert_eq!(
+        preview.preferred_email().address().to_string(),
+        "a1@example.com"
+    );
+    assert_eq!(book.get(other.id()).await?, Some(other));
+    assert_eq!(book.get(keep.id()).await?, Some(keep));
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_preview_beyond_the_bounds_of_a_card_is_refused() -> Result<(), Box<dyn std::error::Error>>
+{
+    let book = InMemoryContactBook::default();
+    let many = |prefix: &str, n: usize| {
+        let addresses: Vec<String> = (0..n).map(|i| format!("{prefix}{i}@example.com")).collect();
+        let refs: Vec<&str> = addresses.iter().map(String::as_str).collect();
+        sample_contact("Alice", &refs)
+    };
+    let keep = book.create(&many("a", 15)).await?;
+    let other = book.create(&many("b", 6)).await?;
+    let selection = ok(MergeSelection::new(keep.id().get(), &[other.id().get()]));
+    assert_eq!(
+        PreviewMerge { directory: &book }.execute(&selection).await,
+        Err(ContactFailure::Invalid(ContactError::TooManyAddresses))
+    );
+    Ok(())
+}

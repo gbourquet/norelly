@@ -203,7 +203,12 @@ quand le mainteneur l'abandonne (avec la raison).
   (migration, effacées quand une fiche change ou disparaît). Critères
   laissés de côté : noms sans les accents (tables Unicode hors du
   domaine), équivalences d'adresses propres à un fournisseur (Gmail :
-  points, `googlemail.com`).
+  points, `googlemail.com`). Revue de sécurité (basse, traitée en
+  partie : l'aperçu montre le nom et l'adresse préférée gardés) : pour un
+  groupe rapproché par le seul téléphone, une fiche importée hostile très
+  remplie reste proposée comme fiche gardée ; pistes : proposer la plus
+  ancienne, ne rien cocher d'office, ne pas réunir le favori d'une fiche
+  importée.
 
 - **Délai du marquage comme lu dans la fenêtre des réglages** : le réglage
   existe de bout en bout (`Settings::mark_seen_delay_secs`, 5 s par défaut,

@@ -489,3 +489,58 @@ fn a_merge_selection_is_refused_when_invalid() {
     let at_bound: Vec<i64> = (2..=i64::try_from(MAX_MERGED_CONTACTS).unwrap_or(0) + 1).collect();
     assert!(MergeSelection::new(1_i64, &at_bound).is_ok());
 }
+
+// --- Bornes ------------------------------------------------------------------
+
+#[test]
+fn a_group_keeps_at_most_the_most_complete_cards_and_says_so() {
+    let n = MAX_DUPLICATE_GROUP_SIZE + 5;
+    let book: Vec<Contact> = (1..=n)
+        .map(|i| {
+            let i = i64::try_from(i).unwrap_or(0);
+            // Les cinq premières fiches sont les moins complètes.
+            let organization = if i > 5 { "ACME" } else { "" };
+            stored(
+                i,
+                ContactInput {
+                    organization: organization.into(),
+                    ..named("Support", &format!("s{i}@example.com"))
+                },
+            )
+        })
+        .collect();
+    let found = find_duplicates(&book, &FakeNfc);
+    assert_eq!(found.len(), 1);
+    assert!(found[0].truncated);
+    assert_eq!(found[0].contacts.len(), MAX_DUPLICATE_GROUP_SIZE);
+    assert!(found[0].contacts.iter().all(|c| c.get() > 5));
+    // Fiche gardée, puis les autres par identifiant.
+    let rest: Vec<i64> = found[0].contacts[1..].iter().map(|c| c.get()).collect();
+    let mut sorted = rest.clone();
+    sorted.sort_unstable();
+    assert_eq!(rest, sorted);
+
+    let small = [
+        stored(1, named("Alice", "a@example.com")),
+        stored(2, named("Alice", "b@example.com")),
+    ];
+    assert!(!find_duplicates(&small, &FakeNfc)[0].truncated);
+}
+
+#[test]
+fn a_search_returns_at_most_a_bounded_number_of_groups() {
+    let book: Vec<Contact> = (0..MAX_DUPLICATE_GROUPS + 3)
+        .flat_map(|g| {
+            let base = i64::try_from(2 * g).unwrap_or(0);
+            let name = format!("Nom{g:05}");
+            [
+                stored(base + 1, named(&name, &format!("a{g}@example.com"))),
+                stored(base + 2, named(&name, &format!("b{g}@example.com"))),
+            ]
+        })
+        .collect();
+    let found = find_duplicates(&book, &FakeNfc);
+    assert_eq!(found.len(), MAX_DUPLICATE_GROUPS);
+    // Les premiers dans l'ordre des noms.
+    assert_eq!(found[0].contacts[0].get(), 1);
+}

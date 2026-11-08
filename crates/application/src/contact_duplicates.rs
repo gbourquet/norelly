@@ -1,6 +1,6 @@
 //! Cas d'usage des doublons du carnet (ADR-012) : chercher les groupes de
-//! doublons ([`FindDuplicates`]) et fusionner des fiches
-//! ([`MergeContacts`]).
+//! doublons ([`FindDuplicates`]), prévoir ([`PreviewMerge`]) et fusionner
+//! des fiches ([`MergeContacts`]).
 //!
 //! Les règles (critères de rapprochement, fiche proposée, fusion) sont
 //! dans `norelly_domain::contact_duplicates` ; ce module lit le carnet,
@@ -34,6 +34,8 @@ pub enum DuplicateScanFailure {
 pub struct DuplicateCandidates {
     pub contacts: Vec<Contact>,
     pub reasons: Vec<DuplicateReason>,
+    /// Groupe tronqué à ses fiches les plus complètes.
+    pub truncated: bool,
 }
 
 /// Cas d'usage : groupes de doublons du carnet.
@@ -63,12 +65,53 @@ impl<D: ContactDirectory, N: TextNormalizer> FindDuplicates<'_, D, N> {
                     .filter_map(|id| by_id.get(id).map(|c| (*c).clone()))
                     .collect(),
                 reasons: group.reasons,
+                truncated: group.truncated,
             })
             .collect())
     }
 }
 
-/// Cas d'usage : fusionner les fiches de `selection` dans sa fiche gardée.
+/// Fiches de `selection` lues dans le carnet (fiche gardée, fiches
+/// absorbées) et leur fusion calculée par le domaine.
+async fn prepare_merge<D: ContactDirectory>(
+    directory: &D,
+    selection: &MergeSelection,
+) -> Result<(Contact, Vec<Contact>, ContactDraft), ContactFailure> {
+    let read = |id| async move {
+        directory
+            .get(id)
+            .await?
+            .ok_or(ContactFailure::Store(ContactStoreError::NotFound))
+    };
+    let keep = read(selection.keep()).await?;
+    let mut others = Vec::with_capacity(selection.others().len());
+    for &id in selection.others() {
+        others.push(read(id).await?);
+    }
+    let drafts: Vec<&ContactDraft> = others.iter().map(Contact::draft).collect();
+    let merged = merge_contacts(keep.draft(), &drafts)?;
+    Ok((keep, others, merged))
+}
+
+/// Cas d'usage : la fiche qu'une fusion produirait, sans rien écrire
+/// (aperçu du nom et de l'adresse préférée gardés).
+#[derive(Debug)]
+pub struct PreviewMerge<'a, D> {
+    pub directory: &'a D,
+}
+
+impl<D: ContactDirectory> PreviewMerge<'_, D> {
+    pub async fn execute(
+        &self,
+        selection: &MergeSelection,
+    ) -> Result<ContactDraft, ContactFailure> {
+        let (_, _, merged) = prepare_merge(self.directory, selection).await?;
+        Ok(merged)
+    }
+}
+
+/// Cas d'usage : fusionner les fiches de `selection` dans sa fiche
+/// gardée ; refusé sans rien écrire si l'une a changé depuis sa lecture.
 #[derive(Debug)]
 pub struct MergeContacts<'a, B> {
     pub book: &'a B,
@@ -76,23 +119,8 @@ pub struct MergeContacts<'a, B> {
 
 impl<B: ContactBook + ContactDirectory> MergeContacts<'_, B> {
     pub async fn execute(&self, selection: &MergeSelection) -> Result<Contact, ContactFailure> {
-        let read = |id| async move {
-            self.book
-                .get(id)
-                .await?
-                .ok_or(ContactFailure::Store(ContactStoreError::NotFound))
-        };
-        let keep = read(selection.keep()).await?;
-        let mut others = Vec::with_capacity(selection.others().len());
-        for &id in selection.others() {
-            others.push(read(id).await?);
-        }
-        let drafts: Vec<&ContactDraft> = others.iter().map(Contact::draft).collect();
-        let merged = merge_contacts(keep.draft(), &drafts)?;
-        Ok(self
-            .book
-            .merge(selection.keep(), &merged, selection.others())
-            .await?)
+        let (keep, others, merged) = prepare_merge(self.book, selection).await?;
+        Ok(self.book.merge(&keep, &merged, &others).await?)
     }
 }
 

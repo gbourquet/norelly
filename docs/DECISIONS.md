@@ -626,5 +626,8 @@ est majoritairement écrit par Claude et relu par le mainteneur.
     transaction et refuse sans rien écrire si l'une a changé depuis la
     recherche (`Conflict`) ; avant de fusionner, la fenêtre montre le nom
     et l'adresse préférée que gardera la fiche, calculés par Rust pour
-    les fiches cochées (aperçu qui signale aussi une fusion trop grosse) ;
+    les fiches cochées (aperçu qui signale aussi une fusion trop grosse).
+    Conséquence vue sur les captures, validée **après coup** : « Plus… »
+    est désormais toujours dans l'en-tête de la vue Contacts, et à
+    1 280 px « Export… » y passe aussi en anglais (gardé tel quel) ;
   - photos de contact et CardDAV restent au backlog.

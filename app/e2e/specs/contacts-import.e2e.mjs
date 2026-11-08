@@ -10,7 +10,7 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { $, $$, browser, expect } from "@wdio/globals";
-import { addTestAccount, openMenu, pickFile, removeTestAccount } from "./helpers.mjs";
+import { addTestAccount, barAction, openMenu, pickFile, removeTestAccount } from "./helpers.mjs";
 
 const data = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -26,10 +26,9 @@ const pickTitle = "Choisir le fichier de contacts à importer";
 /** « Importer… » de l'en-tête, fichier choisi dans le sélecteur ; renvoie
  * la fenêtre d'aperçu. */
 async function importFile(name) {
-  // Celui de l'en-tête (le carnet vide en montre un second).
-  await $('[role="toolbar"][aria-label="Créer, importer ou exporter"]')
-    .$("button=Importer…")
-    .click();
+  // Celui de l'en-tête (le carnet vide en montre un second), rangé dans
+  // « Plus… » si la colonne est étroite.
+  await barAction($('[role="toolbar"][aria-label="Créer, importer ou exporter"]'), "Importer…");
   await pickFile(pickTitle, path.join(data, name));
   const preview = dialog("Importer des contacts");
   await preview.waitForDisplayed({ timeout: 20000 });

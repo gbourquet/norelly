@@ -125,7 +125,10 @@ describe("carnet d'adresses", () => {
     await form.waitForDisplayed({ reverse: true, timeout: 10000 });
     await expect(card.$("p=Surnom : Zozo")).toBeDisplayed();
 
-    await openMenu(button("Plus…"));
+    // « Plus… » de la fiche (l'en-tête de la liste a le sien).
+    await openMenu(
+      card.$('.//button[normalize-space()="Plus…"][not(ancestor::*[@aria-hidden="true"])]'),
+    );
     await menuItem("Ajouter aux favoris").click();
     await expect(row("Zoé Martin").$('[aria-label="Favori"]')).toBeDisplayed();
     await button("Favoris").click();

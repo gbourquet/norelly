@@ -62,6 +62,20 @@ quand le mainteneur l'abandonne (avec la raison).
     les garde en mémoire (25 000 au plus) avant d'écrire : lecture par
     pages si le carnet grandit ;
   - le nom du fichier proposé (« contacts.vcf ») n'est pas traduit.
+  - à 1 280 px, « Importer… » et « Exporter… » sont tous deux rangés dans
+    « Plus… » de l'en-tête de la vue Contacts (choix du mainteneur) : à
+    revoir si la colonne s'élargit ou si l'en-tête est réorganisé.
+- **Carnet : constats de la revue de sécurité du lot 7** (infos ; le
+  constat bas, les droits du fichier exporté, est corrigé dans la PR, avec
+  le caret vCard et les signes pleine chasse du CSV) :
+  - un arrêt brutal entre l'écriture et le renommage laisse le temporaire
+    `.contacts.vcf.<pid>-<n>.tmp` (tout le carnet, droits 0600) à côté de
+    la cible (`app/src-tauri/src/contact_export.rs`, `write_atomic`) ;
+  - l'écriture atomique derrière le portail de documents Flatpak
+    (temporaire voisin dans `/run/user/<uid>/doc/…`) n'est pas testée :
+    essai manuel à faire sous Flatpak ;
+  - `save_attachment` crée ses fichiers avec les droits par défaut : à
+    aligner sur l'export (0600) si le besoin se confirme.
 - **Carnet : découvert au lot 6** :
   - remplacer les jeux d'essai reconstitués
     (`crates/adapters/contacts-io/tests/data`) par de vrais exports

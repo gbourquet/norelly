@@ -248,3 +248,23 @@ export async function saveFile(title, file) {
   await browser.pause(300);
   await xdotool("key", "Return");
 }
+
+/**
+ * Clique sur l'action `label` d'une barre d'actions (`bar`), ou sur son
+ * entrée de « Plus… » si la barre l'y a rangée faute de place.
+ */
+export async function barAction(bar, label) {
+  const direct = bar.$(
+    `.//button[normalize-space()="${label}"][not(ancestor::*[@aria-hidden="true"])]`,
+  );
+  if (await direct.isDisplayed().catch(() => false)) {
+    await direct.click();
+    return;
+  }
+  await openMenu(
+    bar.$('.//button[normalize-space()="Plus…"][not(ancestor::*[@aria-hidden="true"])]'),
+  );
+  await $(
+    `//*[@role="menuitem"][.//*[contains(@class, "menu-label")][normalize-space()="${label}"]]`,
+  ).click();
+}

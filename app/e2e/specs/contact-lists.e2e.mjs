@@ -143,8 +143,10 @@ describe("listes de diffusion", () => {
   it("ajoute un contact à une liste depuis sa fiche (« Plus… »)", async () => {
     await button("Tous").click();
     await row("Bruno Roy").click();
-    await $('article[aria-label="Fiche de Bruno Roy"]').waitForDisplayed();
-    await openMenu(button("Plus…"));
+    const card = $('article[aria-label="Fiche de Bruno Roy"]');
+    await card.waitForDisplayed();
+    // « Plus… » de la fiche (l'en-tête de la liste a le sien).
+    await openMenu(button("Plus…", card));
     await menuItem("Ajouter à une liste…").click();
     const add = dialog("Ajouter à une liste");
     await add.waitForDisplayed();

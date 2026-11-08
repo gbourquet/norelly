@@ -11,7 +11,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { $, $$, browser, expect } from "@wdio/globals";
-import { addTestAccount, openMenu, pickFile, removeTestAccount, saveFile } from "./helpers.mjs";
+import { addTestAccount, barAction, pickFile, removeTestAccount, saveFile } from "./helpers.mjs";
 
 const data = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -22,22 +22,6 @@ const out = mkdtempSync(path.join(os.tmpdir(), "norelly-export-"));
 const dialog = (title) => $(`//*[@role="dialog"][.//*[normalize-space()="${title}"]]`);
 const row = (name) => $(`//*[@role="option"][.//*[normalize-space()="${name}"]]`);
 const header = () => $('[role="toolbar"][aria-label="Créer, importer ou exporter"]');
-
-/** Bouton `label` d'une barre d'actions, ou son entrée de « Plus… » si la
- * barre l'y a rangé faute de place. */
-async function barAction(bar, label) {
-  const direct = bar.$(
-    `.//button[normalize-space()="${label}"][not(ancestor::*[@aria-hidden="true"])]`,
-  );
-  if (await direct.isDisplayed().catch(() => false)) {
-    await direct.click();
-    return;
-  }
-  await openMenu(bar.$('.//button[normalize-space()="Plus…"]'));
-  await $(
-    `//*[@role="menuitem"][.//*[contains(@class, "menu-label")][normalize-space()="${label}"]]`,
-  ).click();
-}
 
 /** Fenêtre d'export : format `format`, enregistré sous `file`. */
 async function exportAs(format, file) {
@@ -50,7 +34,7 @@ async function exportAs(format, file) {
 }
 
 async function importFile(file) {
-  await header().$("button=Importer…").click();
+  await barAction(header(), "Importer…");
   await pickFile("Choisir le fichier de contacts à importer", file);
   const preview = dialog("Importer des contacts");
   await preview.waitForDisplayed({ timeout: 20000 });

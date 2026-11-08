@@ -1,0 +1,20 @@
+[package]
+name = "norelly-contacts-io"
+description = "Adaptateur des fichiers de contacts : lecture vCard, CSV (Google, Outlook, Thunderbird) et LDIF ; normalisation NFC."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+norelly-domain.workspace = true
+csv.workspace = true
+icu_normalizer.workspace = true
+
+[dev-dependencies]
+norelly-test-support.workspace = true
+proptest.workspace = true
+
+[lints]
+workspace = true

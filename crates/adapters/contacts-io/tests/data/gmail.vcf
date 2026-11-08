@@ -1,0 +1,25 @@
+BEGIN:VCARD
+VERSION:3.0
+FN:Élodie Cézanne
+N:Cézanne;Élodie;;;
+NICKNAME:Lolo
+EMAIL;TYPE=INTERNET;TYPE=WORK:elodie.cezanne@example.com
+EMAIL;TYPE=INTERNET;TYPE=HOME:elodie@example.org
+TEL;TYPE=CELL:+33 6 12 34 56 78
+TEL;TYPE=WORK:+33 4 72 00 00 00
+ADR;TYPE=HOME:;;1 rue de la Paix;Lyon;;69001;France
+ORG:Atelier Sud
+TITLE:Gérante
+BDAY:1980-04-02
+NOTE:Rencontrée à Lyon\, France.\nPréfère le téléphone. Une note assez long
+ ue pour être repliée sur deux lignes par l'export.
+CATEGORIES:myContacts,Famille
+END:VCARD
+BEGIN:VCARD
+VERSION:3.0
+FN:Marc Durand
+N:Durand;Marc;;;
+EMAIL;TYPE=INTERNET:marc.durand@example.net
+EMAIL;TYPE=INTERNET:m.durand@example.net
+CATEGORIES:myContacts
+END:VCARD

@@ -198,8 +198,9 @@ sensible (SQL, IPC, fichiers, rendu).
 - IPC `export_contacts(ids|all, format)` avec sélecteur d'enregistrement ;
   UI : « Exporter… » (tout ou la sélection), choix du format.
 - Test aller-retour : export puis import = même carnet.
-  *Réalisé* (choix validés par le mainteneur avant le code, consignés
-  dans l'ADR-012) : CSV aux colonnes de Google plus `Name` ; règles de
+  *Réalisé* (choix validés par le mainteneur, consignés dans l'ADR-012 ;
+  colonne `Name`, règle du `FN` vCard et « Importer… » replié à
+  1 280 px validés après coup) : CSV aux colonnes de Google plus `Name` ; règles de
   sortie dans le domaine (`export_card`), adresse préférée en tête,
   étiquettes vCard en minuscules, LDIF sans étiquette d'adresse ; favori
   et listes non exportés ; cellules CSV neutralisées (téléphones

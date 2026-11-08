@@ -576,16 +576,18 @@ est majoritairement écrit par Claude et relu par le mainteneur.
     d'essai **reconstitués** dans la structure des exports réels avec des
     données fictives, et non de vrais exports anonymisés (écart validé
     par le mainteneur après coup, le 2026-11-08) ;
-  - export (lot 7) : **choix validés par le mainteneur le 2026-11-08**
-    avant le code. Formats vCard 4.0 (par défaut) et 3.0, CSV aux
-    colonnes de Google (plus `Name` pour le nom affiché), LDIF de
+  - export (lot 7) : **choix validés par le mainteneur le 2026-11-08**,
+    avant le code sauf mention contraire. Formats vCard 4.0 (par défaut)
+    et 3.0, CSV aux colonnes de Google (plus `Name` pour le nom affiché :
+    écart validé **après coup**), LDIF de
     Thunderbird, écrits pour le projet sans nouvelle dépendance (la crate
     `csv` écrit les cellules). Ce que chaque format retient est une règle
     du domaine (`export_card`) : adresse préférée écrite en premier
     partout ; étiquettes vCard en minuscules ; pas d'étiquette d'adresse
     en LDIF, téléphones rangés dans les attributs de Thunderbird
     (étiquette inconnue → `telephoneNumber`) ; `FN` vCard toujours écrit
-    (nom composé à défaut de nom affiché). Le favori n'est pas exporté.
+    (nom composé à défaut de nom affiché, vide sans nom ou trop long :
+    règle validée **après coup**). Le favori n'est pas exporté.
     Toute cellule CSV qui commence par `=`, `+`, `-`, `@`, tabulation ou
     CR, téléphones compris, est préfixée d'une apostrophe, et l'import
     retire cette apostrophe (aller-retour exact dans Norelly ; Gmail ou
@@ -593,5 +595,7 @@ est majoritairement écrit par Claude et relu par le mainteneur.
     l'import (25 000 fiches, 20 Mio) : tout export se réimporte.
     « Exporter… » dans l'en-tête de la vue Contacts (repli dans
     « Plus… ») et dans la barre des contacts cochés, format choisi dans
-    une fenêtre ; listes de diffusion non exportées ;
+    une fenêtre ; listes de diffusion non exportées. Conséquence vue sur
+    les captures, validée **après coup** : à 1 280 px, « Importer… »
+    passe aussi dans « Plus… » de l'en-tête (gardé tel quel) ;
   - photos de contact et CardDAV restent au backlog.

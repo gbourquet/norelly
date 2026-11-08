@@ -62,8 +62,8 @@ pub(crate) fn codec_error(e: ContactCodecError) -> IpcError {
 
 /// Écrit `bytes` (au plus [`MAX_EXPORT_FILE_BYTES`]) dans `path`, de
 /// façon atomique : un fichier temporaire du même dossier, créé en
-/// exclusivité (droits du propriétaire seul sous Unix, ou ceux du fichier
-/// remplacé), écrit et synchronisé, puis renommé sur `path` (un lien à
+/// exclusivité (droits du propriétaire seul sous Unix, ou les droits de
+/// lecture et d'écriture du fichier ordinaire remplacé), écrit et synchronisé, puis renommé sur `path` (un lien à
 /// cet emplacement est remplacé, jamais suivi). En cas d'échec, `path`
 /// est intact et le temporaire retiré.
 pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
@@ -102,9 +102,17 @@ pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
         created.ok_or_else(|| std::io::Error::other("trop de fichiers temporaires"))?;
     let result = (|| {
         file.write_all(bytes)?;
-        // Un fichier remplacé garde ses droits.
-        if let Ok(existing) = std::fs::metadata(path) {
-            file.set_permissions(existing.permissions())?;
+        // Un fichier ordinaire remplacé garde ses droits de lecture et
+        // d'écriture (lien non suivi : sa cible n'est pas remplacée ; ni
+        // bit spécial ni exécution). Sous Windows, rien n'est repris : la
+        // lecture seule empêcherait le remplacement.
+        #[cfg(unix)]
+        if let Ok(existing) = std::fs::symlink_metadata(path)
+            && existing.file_type().is_file()
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = existing.permissions().mode() & 0o666;
+            file.set_permissions(std::fs::Permissions::from_mode(mode))?;
         }
         file.sync_all()?;
         drop(file);

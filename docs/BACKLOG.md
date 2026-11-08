@@ -76,6 +76,9 @@ quand le mainteneur l'abandonne (avec la raison).
     essai manuel à faire sous Flatpak ;
   - `save_attachment` crée ses fichiers avec les droits par défaut : à
     aligner sur l'export (0600) si le besoin se confirme.
+  - neutralisation CSV : les petites formes (U+FE62, U+FE63, U+FE66,
+    U+FE6B) et le signe moins U+2212 ne sont pas traités ; aucun tableur
+    courant ne les évalue, à ajouter si l'un le fait.
 - **Carnet : découvert au lot 6** :
   - remplacer les jeux d'essai reconstitués
     (`crates/adapters/contacts-io/tests/data`) par de vrais exports

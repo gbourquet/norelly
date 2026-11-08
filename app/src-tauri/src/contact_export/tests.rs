@@ -162,5 +162,21 @@ fn write_atomic_keeps_the_book_private() {
         .unwrap_or_else(|e| panic!("{e}"));
     assert!(write_atomic(&kept, b"nouveau").is_ok());
     assert_eq!(mode(&kept), 0o640);
+    // Fichier remplacé exécutable ou setuid : ni bit spécial ni exécution.
+    let special = dir.join("special.vcf");
+    std::fs::write(&special, b"ancien").unwrap_or_else(|e| panic!("{e}"));
+    std::fs::set_permissions(&special, std::fs::Permissions::from_mode(0o4755))
+        .unwrap_or_else(|e| panic!("{e}"));
+    assert!(write_atomic(&special, b"nouveau").is_ok());
+    assert_eq!(mode(&special), 0o644);
+    // Lien remplacé : les droits de sa cible ne sont pas repris.
+    let target = dir.join("cible");
+    std::fs::write(&target, b"autre").unwrap_or_else(|e| panic!("{e}"));
+    std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o644))
+        .unwrap_or_else(|e| panic!("{e}"));
+    let link = dir.join("lien.vcf");
+    std::os::unix::fs::symlink(&target, &link).unwrap_or_else(|e| panic!("{e}"));
+    assert!(write_atomic(&link, b"export").is_ok());
+    assert_eq!(mode(&link), 0o600);
     let _ = std::fs::remove_dir_all(&dir);
 }

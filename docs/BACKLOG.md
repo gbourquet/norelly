@@ -30,13 +30,6 @@ quand le mainteneur l'abandonne (avec la raison).
 
 ## Interface et fonctionnalités
 
-- **Carnet d'adresses** : epic planifiée dans
-  [plans/carnet-adresses.md](plans/carnet-adresses.md) (ADR-012) ; lots 1
-  (modèle, ports, stockage, cas d'usage), 2 (vue Contacts : ajouter,
-  modifier, supprimer, favoris, écrire), 3 (nom du carnet dans le
-  courrier, « Ajouter au carnet », « Voir le contact ») et 4 (suggestions
-  de destinataires depuis le carnet, saisie lue en Rust) et 5 (listes de
-  diffusion) livrés, lots 6 à 8 à faire.
 - **Carnet : découvert au lot 5** :
   - l'expansion d'une liste relit ses membres un par un
     (`ContactDirectory::get`, 100 lectures au plus) : un port qui rend des

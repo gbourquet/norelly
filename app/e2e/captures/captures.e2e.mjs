@@ -541,6 +541,35 @@ describe(`captures d'écran (${lang})`, () => {
     await window.waitForDisplayed({ reverse: true, timeout: 10000 });
   });
 
+  it("doublons de contacts (à la souris)", async () => {
+    // Une seconde fiche au nom du premier contact, saisie prénom et nom
+    // inversés : le groupe est capturé, puis fusionné dans la fiche de la
+    // démonstration (la plus complète, gardée : son nom et son adresse
+    // préférée ne changent pas pour les captures suivantes).
+    const [given, family] = content.contacts[0];
+    const field = (key) =>
+      $(`//label[span[normalize-space()="${msg(key)}"]]//*[self::input or self::textarea]`);
+    await button(msg("cmd_contact_new")).click();
+    const form = dialogTitled(msg("contact_dialog_new"));
+    await form.waitForDisplayed();
+    await field("contact_given_name").setValue(family);
+    await field("contact_family_name").setValue(given);
+    await $(`[aria-label="${msg("contact_email_n", { n: 1 })}"]`).setValue(
+      `${given.toLowerCase()}.${family.toLowerCase()}@norelly.test`,
+    );
+    await button(msg("contact_save")).click();
+    await form.waitForDisplayed({ reverse: true, timeout: 10000 });
+    await headerAction(msg("cmd_contacts_find_duplicates"));
+    const window = dialogTitled(msg("contacts_duplicates_title"));
+    await window.waitForDisplayed({ timeout: 10000 });
+    await window.$(`button=${msg("contacts_duplicates_merge")}`).waitForDisplayed();
+    await capture("contacts-duplicates");
+    await window.$(`button=${msg("contacts_duplicates_merge")}`).click();
+    await window.$(`p=${msg("contacts_duplicates_done")}`).waitForDisplayed({ timeout: 10000 });
+    await window.$(`button=${msg("common_close")}`).click();
+    await window.waitForDisplayed({ reverse: true, timeout: 10000 });
+  });
+
   it("listes de diffusion (à la souris)", async () => {
     const field = (key) =>
       $(`//label[span[normalize-space()="${msg(key)}"]]//*[self::input or self::textarea]`);

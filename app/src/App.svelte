@@ -34,6 +34,7 @@
   import ContactDialog from "./components/ContactDialog.svelte";
   import DeleteContactsDialog from "./components/DeleteContactsDialog.svelte";
   import ContactExportDialog from "./components/ContactExportDialog.svelte";
+  import ContactDuplicatesDialog from "./components/ContactDuplicatesDialog.svelte";
   import ContactImportDialog from "./components/ContactImportDialog.svelte";
   import ContactListCard from "./components/ContactListCard.svelte";
   import ContactListDialog from "./components/ContactListDialog.svelte";
@@ -51,6 +52,7 @@
     compose,
     contactDeletion,
     contactForm,
+    contactDuplicates,
     contactExport,
     contactImport,
     contacts,
@@ -691,6 +693,20 @@
     app.close();
     mail.notice = { text: m.contacts_notice_deleted({ count }), undoable: false };
     void contacts.removed(ids);
+  }}
+/>
+<ContactDuplicatesDialog
+  open={app.dialog === "contact-duplicates"}
+  form={contactDuplicates}
+  onMerged={() => void contacts.load()}
+  onClose={() => {
+    const merged = contactDuplicates.merged;
+    contactDuplicates.close();
+    app.close();
+    if (merged > 0) {
+      mail.notice = { text: m.contacts_duplicates_notice({ count: merged }), undoable: false };
+      if (app.view === "mail") void mail.reload();
+    }
   }}
 />
 <ContactExportDialog

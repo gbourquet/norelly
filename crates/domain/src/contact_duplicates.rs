@@ -25,6 +25,10 @@ pub const MIN_DUPLICATE_PHONE_DIGITS: usize = 6;
 /// moins une adresse, la fiche gardée en a déjà une.
 pub const MAX_MERGED_CONTACTS: usize = MAX_CONTACT_EMAILS - 1;
 
+/// Nombre maximal de contacts parcourus par une recherche de doublons :
+/// la borne d'un export (un carnet plus grand est refusé, pas tronqué).
+pub const MAX_DUPLICATE_SCAN: usize = crate::contact_export::MAX_EXPORT_CONTACTS;
+
 /// Ce qui rapproche les contacts d'un groupe.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum DuplicateReason {

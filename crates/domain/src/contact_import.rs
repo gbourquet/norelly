@@ -11,6 +11,7 @@
 
 use std::collections::{HashMap, HashSet};
 
+use crate::address::EmailAddressError;
 use crate::connection::is_format_char;
 use crate::contacts::{
     AddressKey, Contact, ContactDraft, ContactError, ContactField, ContactInput, EmailInput,
@@ -186,6 +187,20 @@ pub fn plan_import(
             }
         };
         let (input, renamed) = prepare(input, normalizer);
+        if let Some(index) = input
+            .emails
+            .iter()
+            .position(|e| e.address.chars().any(invisible))
+        {
+            plan.rejected.push(reject(
+                hint(&input),
+                RejectReason::Invalid(ContactError::InvalidAddress {
+                    index,
+                    error: EmailAddressError::InvalidLocalCharacter,
+                }),
+            ));
+            continue;
+        }
         if let Some(field) = invisible_field(&input) {
             plan.rejected.push(reject(
                 hint(&input),
@@ -275,7 +290,9 @@ fn prepare(input: &ContactInput, normalizer: &impl TextNormalizer) -> (ContactIn
     let mut preferred_seen = false;
     let mut emails = Vec::with_capacity(input.emails.len());
     for e in &input.emails {
-        let address = e.address.trim();
+        // Même adresse en forme composée ou décomposée : une seule clé.
+        let address = nfc(e.address.trim());
+        let address = address.as_str();
         if address.is_empty() {
             continue;
         }
@@ -406,7 +423,7 @@ fn hint(input: &ContactInput) -> String {
     .find(|text| !text.is_empty())
     .unwrap_or_default();
     raw.chars()
-        .filter(|&c| !c.is_control() && !is_format_char(c))
+        .filter(|&c| !c.is_control() && !is_format_char(c) && !invisible(c))
         .take(MAX_IMPORT_HINT_CHARS)
         .collect::<String>()
         .trim()

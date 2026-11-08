@@ -538,3 +538,36 @@ fn invisible_characters_reject_an_imported_card() {
     );
     assert_eq!(p.create.len(), 1, "{:?}", p.rejected);
 }
+
+#[test]
+fn imported_addresses_are_normalized_and_free_of_invisible_characters() {
+    use crate::address::EmailAddressError;
+    // Partie locale avec un remplisseur invisible : rejetée.
+    let p = plan(
+        &[],
+        &[card("Patron", &["patron\u{3164}@example.com"])],
+        DuplicatePolicy::Skip,
+    );
+    assert_eq!(
+        p.rejected[0].reason,
+        RejectReason::Invalid(ContactError::InvalidAddress {
+            index: 0,
+            error: EmailAddressError::InvalidLocalCharacter
+        })
+    );
+    // Forme décomposée : la même adresse que la forme composée du carnet.
+    let existing = [stored(7, draft("Pétra", &["pétra@example.com"]))];
+    let p = plan(
+        &existing,
+        &[card("Pe\u{301}tra", &["pe\u{301}tra@example.com"])],
+        DuplicatePolicy::Skip,
+    );
+    assert_eq!((p.create.len(), p.duplicates), (0, 1));
+    // Le repère d'une fiche rejetée n'en garde aucun.
+    let p = plan(
+        &[],
+        &[card("Ali\u{3164}ce\u{2800}", &[])],
+        DuplicatePolicy::Skip,
+    );
+    assert_eq!(p.rejected[0].hint, "Alice");
+}

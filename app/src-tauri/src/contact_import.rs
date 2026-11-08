@@ -19,7 +19,7 @@ use norelly_domain::contact_import::{
     ContactFormat, DuplicatePolicy, ImportPlan, ImportedCard, MAX_IMPORT_FILE_BYTES, RejectReason,
 };
 use norelly_domain::contacts::ContactError;
-use norelly_domain::ports::{ContactCodecError, ContactStoreError};
+use norelly_domain::ports::{ContactCodec, ContactCodecError, ContactStoreError};
 use tauri::{AppHandle, State};
 use tauri_plugin_dialog::DialogExt;
 
@@ -179,8 +179,21 @@ fn read_failed(e: &std::io::Error) -> IpcError {
 pub(crate) fn read_contact_file(path: &Path) -> Result<Vec<u8>, IpcError> {
     let too_large = || IpcError::new(ErrorCodeDto::ContactImportTooLarge);
     let limit = u64::try_from(MAX_IMPORT_FILE_BYTES).unwrap_or(u64::MAX);
+    // Fichier ordinaire seulement : une FIFO bloquerait l'ouverture, un
+    // périphérique n'a pas de fin. Revérifié sur le fichier ouvert.
+    let not_regular = || IpcError::new(ErrorCodeDto::ContactImportReadFailed);
+    if !std::fs::metadata(path)
+        .map_err(|e| read_failed(&e))?
+        .is_file()
+    {
+        return Err(not_regular());
+    }
     let file = std::fs::File::open(path).map_err(|e| read_failed(&e))?;
-    if file.metadata().map_err(|e| read_failed(&e))?.len() > limit {
+    let metadata = file.metadata().map_err(|e| read_failed(&e))?;
+    if !metadata.is_file() {
+        return Err(not_regular());
+    }
+    if metadata.len() > limit {
         return Err(too_large());
     }
     let mut bytes = Vec::new();
@@ -219,16 +232,23 @@ pub async fn preview_contact_import(
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_default();
-    let bytes = tokio::task::spawn_blocking(move || read_contact_file(&path))
-        .await
-        .map_err(IpcError::internal)??;
     let imports = &state.imports;
+    // Lecture et décodage hors des fils asynchrones.
+    let codec = imports.codec;
+    let decoded = tokio::task::spawn_blocking(move || {
+        let bytes = read_contact_file(&path)?;
+        codec
+            .decode(&bytes)
+            .map_err(|e| import_error(ImportFailure::File(e)))
+    })
+    .await
+    .map_err(IpcError::internal)??;
     let preview = PreviewContactImport {
         codec: &imports.codec,
         directory: &state.contacts,
         normalizer: &imports.nfc,
     }
-    .execute(&bytes)
+    .plan(decoded)
     .await
     .map_err(import_error)?;
     let token = imports.pending.remember(preview.cards.clone());

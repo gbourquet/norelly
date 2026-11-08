@@ -211,3 +211,23 @@ fn contact_file_is_read_within_bounds() -> Result<(), Box<dyn std::error::Error>
     std::fs::remove_dir_all(&dir)?;
     Ok(())
 }
+
+#[cfg(unix)]
+#[test]
+fn only_regular_files_are_read() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = std::env::temp_dir().join(format!("norelly-import-fifo-{}", std::process::id()));
+    std::fs::create_dir_all(&dir)?;
+    let fifo = dir.join("tube.vcf");
+    let status = std::process::Command::new("mkfifo").arg(&fifo).status()?;
+    assert!(status.success(), "mkfifo");
+    // Une FIFO sans écrivain bloquerait l'ouverture : refusée avant.
+    let read = read_contact_file(&fifo).map(|_| ()).map_err(|e| e.code);
+    assert_eq!(read, Err(ErrorCodeDto::ContactImportReadFailed));
+    // Un périphérique aussi.
+    let dev = read_contact_file(Path::new("/dev/zero"))
+        .map(|_| ())
+        .map_err(|e| e.code);
+    assert_eq!(dev, Err(ErrorCodeDto::ContactImportReadFailed));
+    std::fs::remove_dir_all(&dir)?;
+    Ok(())
+}

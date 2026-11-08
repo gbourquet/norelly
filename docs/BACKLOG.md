@@ -62,9 +62,18 @@ quand le mainteneur l'abandonne (avec la raison).
     à la fermeture (commande dédiée) ;
   - anniversaires, adresses postales, titres et sites des fiches importées
     sont ignorés : à ajouter au modèle si le besoin se confirme ;
-  - le fichier est lu et décodé dans la tâche de la commande : un fichier
-    de 20 Mio occupe un fil du runtime pendant le décodage
-    (`spawn_blocking` pour le décodage aussi, si c'est mesurable).
+- **Carnet : constats de la revue de sécurité du lot 6** (infos ; le
+  constat moyen et les deux bas sont corrigés dans la PR) :
+  - le plan est calculé sur des fiches lues hors de la transaction : une
+    modification faite entre la lecture et l'import d'un contact à
+    compléter serait écrasée. Relire ces contacts dans la transaction, ou
+    comparer une version avant d'écrire
+    (`crates/application/src/contact_import.rs`, `sqlite/src/contacts.rs`) ;
+  - étendre l'import piégé (`hostile_message_sql.rs`) aux étiquettes
+    d'adresse et de téléphone (colonnes Google) et à une partie locale
+    avec `'` ;
+  - les caractères invisibles des parties locales sont refusés à l'import
+    seulement : même durcissement à faire à la saisie (élément du lot 1).
 - **Carnet : constats de la revue de sécurité du lot 5** (infos) :
   - une seule liste corrompue en base rend toute la section « Listes »
     illisible et vide les suggestions de listes : n'écarter que la liste

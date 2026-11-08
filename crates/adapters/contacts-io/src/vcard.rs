@@ -42,13 +42,17 @@ fn is_quoted_printable(line: &str) -> bool {
 /// Lignes logiques : une ligne qui commence par une espace ou une
 /// tabulation continue la précédente (RFC 6350 § 3.2) ; une valeur
 /// quoted-printable terminée par `=` continue sur la ligne suivante
-/// (vCard 2.1), saut gardé pour le décodage.
+/// (vCard 2.1), saut gardé pour le décodage. L'encodage d'une ligne
+/// logique est lu une fois, sur sa première ligne : le dépliage reste
+/// linéaire quelle que soit la longueur des lignes repliées.
 fn logical_lines(text: &str) -> Vec<String> {
     let mut lines: Vec<String> = Vec::new();
+    // La ligne logique en cours est-elle en quoted-printable ?
+    let mut quoted_printable = false;
     for physical in text.split('\n') {
         let physical = physical.strip_suffix('\r').unwrap_or(physical);
         if let Some(last) = lines.last_mut() {
-            if last.ends_with('=') && is_quoted_printable(last) {
+            if quoted_printable && last.ends_with('=') {
                 last.push('\n');
                 last.push_str(physical);
                 continue;
@@ -61,6 +65,7 @@ fn logical_lines(text: &str) -> Vec<String> {
                 continue;
             }
         }
+        quoted_printable = is_quoted_printable(physical);
         lines.push(physical.to_owned());
     }
     lines
@@ -461,6 +466,21 @@ mod tests {
         assert_eq!(
             decode(&card.repeat(MAX_IMPORT_CARDS + 1)),
             Err(ContactCodecError::TooManyCards)
+        );
+    }
+
+    #[test]
+    fn unfolding_stays_linear_on_hostile_soft_breaks() {
+        // Ligne sans « : » terminée par « = », suivie de lignes repliées
+        // qui finissent toutes par « = » : chaque ligne relirait toute la
+        // ligne accumulée (coût quadratique).
+        let hostile = format!("BEGIN:VCARD\nx={}", "\n =".repeat(50_000));
+        let start = std::time::Instant::now();
+        let _ = decode(&hostile);
+        assert!(
+            start.elapsed() < std::time::Duration::from_secs(1),
+            "dépliage trop lent : {:?}",
+            start.elapsed()
         );
     }
 

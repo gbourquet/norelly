@@ -12,7 +12,8 @@
 use std::collections::HashSet;
 
 use norelly_domain::contact_import::{
-    ContactFormat, DuplicatePolicy, ImportPlan, ImportedCard, import_keys, plan_import,
+    ContactFormat, DecodedContacts, DuplicatePolicy, ImportPlan, ImportedCard, import_keys,
+    plan_import,
 };
 use norelly_domain::contacts::Contact;
 use norelly_domain::ports::{
@@ -79,6 +80,12 @@ pub struct PreviewContactImport<'a, C, D, N> {
 impl<C: ContactCodec, D: ContactDirectory, N: TextNormalizer> PreviewContactImport<'_, C, D, N> {
     pub async fn execute(&self, bytes: &[u8]) -> Result<ImportPreview, ImportFailure> {
         let decoded = self.codec.decode(bytes)?;
+        self.plan(decoded).await
+    }
+
+    /// Chiffre l'import de fiches déjà lues (lecture faite hors des fils
+    /// asynchrones par l'appelant).
+    pub async fn plan(&self, decoded: DecodedContacts) -> Result<ImportPreview, ImportFailure> {
         let existing = existing(self.directory, &decoded.cards).await?;
         let plan = |policy| plan_import(&existing, &decoded.cards, policy, self.normalizer);
         Ok(ImportPreview {

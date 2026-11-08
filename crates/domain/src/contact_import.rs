@@ -4,7 +4,7 @@
 //! L'adaptateur `contacts-io` traduit le fichier en fiches brutes
 //! ([`ImportedCard`]) sans rien décider ; le plan décide : noms en forme
 //! NFC, nom qui imite une adresse retiré, adresses vides ou répétées dans
-//! une fiche écartées, fiche revalidée par [`ContactDraft::new`] (rejet
+//! une fiche écartées, caractère invisible refusé, fiche revalidée par [`ContactDraft::new`] (rejet
 //! motivé sinon), doublons reconnus par [`AddressKey`] contre le carnet et
 //! entre fiches du fichier, ignorés ou versés dans le contact existant
 //! selon la [`DuplicatePolicy`].
@@ -13,7 +13,7 @@ use std::collections::{HashMap, HashSet};
 
 use crate::connection::is_format_char;
 use crate::contacts::{
-    AddressKey, Contact, ContactDraft, ContactError, ContactInput, EmailInput,
+    AddressKey, Contact, ContactDraft, ContactError, ContactField, ContactInput, EmailInput,
     MAX_CONTACT_EMAILS, MAX_CONTACT_PHONES, PhoneInput,
 };
 use crate::ports::TextNormalizer;
@@ -159,7 +159,9 @@ pub fn plan_import(
     let mut owners: HashMap<AddressKey, Owner> = HashMap::new();
     for (index, contact) in existing.iter().enumerate() {
         for e in contact.draft().emails() {
-            owners.entry(e.key().clone()).or_insert(Owner::Existing(index));
+            owners
+                .entry(e.key().clone())
+                .or_insert(Owner::Existing(index));
         }
     }
     let mut completed: Vec<Option<ContactDraft>> = vec![None; existing.len()];
@@ -173,7 +175,8 @@ pub fn plan_import(
         let input = match card {
             ImportedCard::Contact(input) => input,
             ImportedCard::List => {
-                plan.rejected.push(reject(String::new(), RejectReason::List));
+                plan.rejected
+                    .push(reject(String::new(), RejectReason::List));
                 continue;
             }
             ImportedCard::Unreadable => {
@@ -183,6 +186,13 @@ pub fn plan_import(
             }
         };
         let (input, renamed) = prepare(input, normalizer);
+        if let Some(field) = invisible_field(&input) {
+            plan.rejected.push(reject(
+                hint(&input),
+                RejectReason::Invalid(ContactError::InvalidCharacter(field)),
+            ));
+            continue;
+        }
         let draft = match ContactDraft::new(input.clone()) {
             Ok(draft) => draft,
             Err(e) => {
@@ -305,6 +315,78 @@ fn prepare(input: &ContactInput, normalizer: &impl TextNormalizer) -> (ContactIn
     (prepared, renamed)
 }
 
+/// Caractères invisibles ou trompeurs refusés dans une fiche importée, en
+/// plus de ceux que refuse [`ContactDraft::new`] : catégorie Unicode Cf
+/// (format), séparateurs de ligne et de paragraphe, sélecteurs de
+/// variante, remplisseurs Hangul et blanc braille, joints de graphèmes.
+/// Une fiche saisie à la main n'est pas concernée (les fiches existantes
+/// resteraient sinon illisibles).
+const INVISIBLE: [(char, char); 26] = [
+    ('\u{00AD}', '\u{00AD}'),
+    ('\u{034F}', '\u{034F}'),
+    ('\u{0600}', '\u{0605}'),
+    ('\u{061C}', '\u{061C}'),
+    ('\u{06DD}', '\u{06DD}'),
+    ('\u{070F}', '\u{070F}'),
+    ('\u{0890}', '\u{0891}'),
+    ('\u{08E2}', '\u{08E2}'),
+    ('\u{115F}', '\u{1160}'),
+    ('\u{180B}', '\u{180F}'),
+    ('\u{200B}', '\u{200F}'),
+    ('\u{2028}', '\u{202E}'),
+    ('\u{2060}', '\u{206F}'),
+    ('\u{2800}', '\u{2800}'),
+    ('\u{3164}', '\u{3164}'),
+    ('\u{FE00}', '\u{FE0F}'),
+    ('\u{FEFF}', '\u{FEFF}'),
+    ('\u{FFA0}', '\u{FFA0}'),
+    ('\u{FFF9}', '\u{FFFB}'),
+    ('\u{110BD}', '\u{110BD}'),
+    ('\u{110CD}', '\u{110CD}'),
+    ('\u{13430}', '\u{1343F}'),
+    ('\u{1BCA0}', '\u{1BCA3}'),
+    ('\u{1D173}', '\u{1D17A}'),
+    ('\u{E0001}', '\u{E007F}'),
+    ('\u{E0100}', '\u{E01EF}'),
+];
+
+fn invisible(c: char) -> bool {
+    INVISIBLE
+        .iter()
+        .any(|&(low, high)| (low..=high).contains(&c))
+}
+
+/// Premier champ d'une fiche importée qui contient un caractère
+/// [`INVISIBLE`].
+fn invisible_field(input: &ContactInput) -> Option<ContactField> {
+    let has = |text: &str| text.chars().any(invisible);
+    let names = [
+        (&input.display_name, ContactField::DisplayName),
+        (&input.given_name, ContactField::GivenName),
+        (&input.family_name, ContactField::FamilyName),
+        (&input.nickname, ContactField::Nickname),
+        (&input.organization, ContactField::Organization),
+        (&input.notes, ContactField::Notes),
+    ];
+    let emails = input
+        .emails
+        .iter()
+        .enumerate()
+        .map(|(i, e)| (&e.label, ContactField::EmailLabel(i)));
+    let phones = input.phones.iter().enumerate().flat_map(|(i, p)| {
+        [
+            (&p.number, ContactField::Phone(i)),
+            (&p.label, ContactField::PhoneLabel(i)),
+        ]
+    });
+    names
+        .into_iter()
+        .chain(emails)
+        .chain(phones)
+        .find(|(text, _)| has(text))
+        .map(|(_, field)| field)
+}
+
 /// Repère d'une fiche rejetée : nom affiché, sinon prénom et nom, sinon
 /// surnom, sinon première adresse ; nettoyé et borné.
 fn hint(input: &ContactInput) -> String {
@@ -386,7 +468,11 @@ pub fn complete_contact(
         });
         changed = true;
     }
-    let mut numbers: HashSet<String> = base.phones().iter().map(|p| phone_key(p.number())).collect();
+    let mut numbers: HashSet<String> = base
+        .phones()
+        .iter()
+        .map(|p| phone_key(p.number()))
+        .collect();
     for p in extra.phones() {
         if input.phones.len() >= MAX_CONTACT_PHONES {
             break;

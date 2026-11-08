@@ -439,3 +439,102 @@ fn import_keys_lists_each_valid_address_once_in_file_order() {
     let keys: Vec<_> = keys.iter().map(AddressKey::as_str).collect();
     assert_eq!(keys, ["b@example.com", "a@example.com", "c@example.com"]);
 }
+
+#[test]
+fn invisible_characters_reject_an_imported_card() {
+    use crate::contacts::{ContactField, PhoneInput};
+    let base = || ContactInput {
+        emails: vec![email("a@example.com")],
+        ..ContactInput::default()
+    };
+    let cases: Vec<(ContactInput, ContactField)> = vec![
+        (
+            ContactInput {
+                display_name: "Ali\u{2028}ce".into(),
+                ..base()
+            },
+            ContactField::DisplayName,
+        ),
+        (
+            ContactInput {
+                given_name: "Bob\u{E0041}".into(),
+                ..base()
+            },
+            ContactField::GivenName,
+        ),
+        (
+            ContactInput {
+                family_name: "\u{3164}".into(),
+                ..base()
+            },
+            ContactField::FamilyName,
+        ),
+        (
+            ContactInput {
+                nickname: "x\u{FE0F}".into(),
+                ..base()
+            },
+            ContactField::Nickname,
+        ),
+        (
+            ContactInput {
+                organization: "\u{206A}ACME".into(),
+                ..base()
+            },
+            ContactField::Organization,
+        ),
+        (
+            ContactInput {
+                notes: "ligne\n\u{2800}".into(),
+                ..base()
+            },
+            ContactField::Notes,
+        ),
+        (
+            ContactInput {
+                emails: vec![EmailInput {
+                    address: "a@example.com".into(),
+                    label: "travail\u{FFF9}".into(),
+                    preferred: false,
+                }],
+                ..base()
+            },
+            ContactField::EmailLabel(0),
+        ),
+        (
+            ContactInput {
+                phones: vec![PhoneInput {
+                    number: "\u{FEFF}06".into(),
+                    label: String::new(),
+                }],
+                ..base()
+            },
+            ContactField::Phone(0),
+        ),
+        (
+            ContactInput {
+                phones: vec![PhoneInput {
+                    number: "06".into(),
+                    label: "\u{E0100}".into(),
+                }],
+                ..base()
+            },
+            ContactField::PhoneLabel(0),
+        ),
+    ];
+    for (input, field) in cases {
+        let p = plan(&[], &[ImportedCard::Contact(input)], DuplicatePolicy::Skip);
+        assert!(p.create.is_empty(), "{field:?} accepté");
+        assert_eq!(
+            p.rejected[0].reason,
+            RejectReason::Invalid(ContactError::InvalidCharacter(field))
+        );
+    }
+    // Lettres, accents combinants et emoji sans sélecteur restent admis.
+    let p = plan(
+        &[],
+        &[card("Zoe\u{301} 😀 한국", &["z@example.com"])],
+        DuplicatePolicy::Skip,
+    );
+    assert_eq!(p.create.len(), 1, "{:?}", p.rejected);
+}

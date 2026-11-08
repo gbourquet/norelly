@@ -20,7 +20,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [mime_message, sanitize_html, sanitize_css, autoconfig_xml, search_query, contact_import]
+        target: [mime_message, sanitize_html, sanitize_css, autoconfig_xml, search_query, contact_import, contact_export]
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:

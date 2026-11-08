@@ -62,3 +62,10 @@ path = "fuzz_targets/contact_import.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "contact_export"
+path = "fuzz_targets/contact_export.rs"
+test = false
+doc = false
+bench = false

@@ -121,6 +121,29 @@ on their card and all their lists follow.
 
 ![The list suggested while typing a recipient](captures/compose-list-suggestion.png)
 
+## Importing contacts from another program
+
+Did you keep your contacts in Gmail, Outlook, Thunderbird, on an iPhone or
+an Android phone? First export them from that program, as **vCard** (a
+`.vcf` file) if you can, otherwise as **CSV**. Then:
+
+1. In **Contacts**, click **Import…**, at the top of the list.
+2. Choose the exported file, then **Open**.
+3. Norelly shows what it is about to do, without changing anything yet:
+   how many contacts will be added, how many are already in your address
+   book, how many cannot be imported (click **See the cards that cannot
+   be imported** to find out which ones, and why).
+4. If some contacts are already in your address book, choose: **Leave
+   them as they are**, or **Complete them from the file** (Norelly adds
+   what they lack, without erasing anything).
+5. Click **Import**.
+
+![The import preview: contacts added, already there, cards refused](captures/contacts-import.png)
+
+A contact is recognised as already there if it has the same email
+address. A card without an email address is not imported: Norelly's
+address book is for writing messages.
+
 ## Deleting contacts
 
 - One contact: on their card, click **Delete contact**, then confirm.

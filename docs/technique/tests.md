@@ -106,7 +106,7 @@ mesure unitaire.
 Les bancs de bout en bout tournent dans le job nocturne
 (`.github/workflows/nightly.yml`), avec cinq minutes de fuzzing par cible
 (`mime_message`, `sanitize_html`, `sanitize_css`, `autoconfig_xml`,
-`search_query`) et la suite de contrat contre Stalwart.
+`search_query`, `contact_import`) et la suite de contrat contre Stalwart.
 
 ## Tests manuels
 

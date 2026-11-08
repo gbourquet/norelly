@@ -49,6 +49,22 @@ quand le mainteneur l'abandonne (avec la raison).
     l'insertion des pastilles (`app/src/lib/compose.svelte.ts`) ;
   - import et export des listes (vCard `KIND:group`, LDIF
     `groupOfNames`) à prévoir avec les lots 6 et 7.
+- **Carnet : découvert au lot 6** :
+  - les étiquettes importées gardent le mot du fichier (`work`, `home`,
+    `cell` des vCard, « Travail » d'un export Google français) : les
+    traduire à l'affichage, et lire les étiquettes `X-ABLabel` d'Apple
+    (`item2.X-ABLabel:bureau`), aujourd'hui ignorées ;
+  - les en-têtes français d'Outlook et de Thunderbird sont reconnus
+    d'après leur forme connue, sans export réel pour les vérifier ; en
+    ajouter un jeu d'essai, et d'autres langues au besoin ;
+  - un aperçu abandonné (fenêtre fermée) garde ses fiches en mémoire
+    jusqu'à l'aperçu suivant (20 Mio de fichier au plus) : les libérer
+    à la fermeture (commande dédiée) ;
+  - anniversaires, adresses postales, titres et sites des fiches importées
+    sont ignorés : à ajouter au modèle si le besoin se confirme ;
+  - le fichier est lu et décodé dans la tâche de la commande : un fichier
+    de 20 Mio occupe un fil du runtime pendant le décodage
+    (`spawn_blocking` pour le décodage aussi, si c'est mesurable).
 - **Carnet : constats de la revue de sécurité du lot 5** (infos) :
   - une seule liste corrompue en base rend toute la section « Listes »
     illisible et vide les suggestions de listes : n'écarter que la liste
@@ -83,9 +99,10 @@ quand le mainteneur l'abandonne (avec la raison).
 - **Carnet : constats de la revue de sécurité du lot 1** (bas) :
   - caractères invisibles encore admis dans les champs d'une fiche
     (U+2028/2029, U+206A–206F, U+FFF9–FFFB, étiquettes U+E0000–E007F,
-    sélecteurs de variante, remplisseurs Hangul, U+2800) : refuser toute la
-    catégorie Cf, Zl, Zp et les remplisseurs « blancs », **avant l'import
-    (lot 6)** (`crates/domain/src/contacts.rs`, `connection::is_format_char`) ;
+    sélecteurs de variante, remplisseurs Hangul, U+2800) : refusés à
+    l'import depuis le lot 6 (`contact_import::INVISIBLE`) ; reste à les
+    refuser à la saisie, avec l'assainissement des fiches existantes
+    (`crates/domain/src/contacts.rs`, `connection::is_format_char`) ;
   - une fiche relue invalide fait échouer toute la page : écarter et
     signaler la ligne, ou assainir par migration à chaque durcissement de
     règle (`crates/adapters/sqlite/src/contacts.rs`). Depuis le lot 3, le
@@ -93,13 +110,12 @@ quand le mainteneur l'abandonne (avec la raison).
     mais les noms du carnet disparaissent de toute la page ;
   - nom imitant une adresse (`ceo@bank.example`) : écarté à l'affichage
     pour les en-têtes, les fiches (courrier, suggestions) et les
-    destinataires (`Recipient::new`, saisie lue en Rust) ; reste à le
-    refuser à la saisie et à l'import d'une fiche (lot 6), avec
+    destinataires (`Recipient::new`, saisie lue en Rust), retiré à
+    l'import (lot 6) ; reste à le refuser à la saisie d'une fiche, avec
     l'assainissement des fiches existantes ;
-  - étendre `hostile_message_sql.rs` (métacaractères SQL) à l'import du
-    lot 6 ; les champs d'une fiche et la saisie d'un destinataire sont
-    couverts depuis le lot 4 ;
-  - plafond global du nombre de fiches, à fixer avec les bancs (lot 6) ;
+  - plafond global du nombre de fiches : l'import en borne 25 000 par
+    fichier (lot 6), sans plafond du carnet ; à fixer avec des bancs du
+    carnet (liste, suggestions, import de 25 000 fiches) ;
   - un lien `tel:` éventuel exigera un jeu de caractères restreint décidé
     en Rust.
 - **Carnet : constats de la revue de sécurité du lot 2** (bas et infos) :

@@ -183,6 +183,13 @@ sensible (SQL, IPC, fichiers, rendu).
   en deux temps (aperçu : N nouveaux, N doublons, N illisibles → confirmer).
 - Jeux d'essai réels anonymisés dans `crates/adapters/contacts-io/tests/data`
   (exports Gmail, Outlook, Thunderbird, Apple).
+  *Réalisé* (écarts validés par le mainteneur, consignés dans l'ADR-012) :
+  NFC par un port `TextNormalizer` (`icu_normalizer` dans `contacts-io`) ;
+  nom imitant une adresse retiré, fiche gardée ; caractères invisibles
+  refusés à l'import seulement ; aperçu chiffré pour les deux politiques,
+  choix dans la fenêtre ; « Importer… » dans l'en-tête de la vue (repli
+  dans « Plus… ») et dans le carnet vide. Jeux d'essai reconstitués dans
+  la structure des exports, données fictives.
 
 ### Lot 7 — `export/contacts` : export vCard, CSV, LDIF
 - `ContactCodec::encode` : vCard 4.0 (et 3.0 au choix pour les vieux

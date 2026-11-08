@@ -124,6 +124,29 @@ sur sa fiche et toutes ses listes en tiennent compte.
 
 ![La liste proposée pendant la saisie d'un destinataire](captures/compose-list-suggestion.png)
 
+## Importer les contacts d'un autre logiciel
+
+Vous aviez vos contacts dans Gmail, Outlook, Thunderbird, sur un iPhone ou
+un téléphone Android ? Exportez-les d'abord depuis ce logiciel, en
+**vCard** (fichier `.vcf`) de préférence, sinon en **CSV**. Puis :
+
+1. Dans **Contacts**, cliquez sur **Importer…**, en haut de la liste.
+2. Choisissez le fichier exporté, puis **Ouvrir**.
+3. Norelly montre ce qu'il va faire, sans encore rien changer : combien
+   de contacts seront ajoutés, combien sont déjà dans votre carnet,
+   combien ne peuvent pas être importés (cliquez sur **Voir les fiches
+   impossibles à importer** pour savoir lesquelles, et pourquoi).
+4. Si des contacts sont déjà dans votre carnet, choisissez : **Les laisser
+   tels quels**, ou **Les compléter avec le fichier** (Norelly ajoute ce
+   qui leur manque, sans rien effacer).
+5. Cliquez sur **Importer**.
+
+![L'aperçu d'un import : contacts ajoutés, déjà présents, fiches refusées](captures/contacts-import.png)
+
+Un contact est reconnu comme déjà présent s'il a la même adresse
+électronique. Une fiche sans adresse électronique n'est pas importée : le
+carnet de Norelly sert à écrire des messages.
+
 ## Supprimer des contacts
 
 - Un contact : sur sa fiche, cliquez sur **Supprimer le contact**, puis

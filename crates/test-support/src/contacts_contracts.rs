@@ -12,7 +12,7 @@ use norelly_domain::contacts::{
 };
 use norelly_domain::ports::{
     ContactBook, ContactCursor, ContactDirectory, ContactListItem, ContactPage, ContactStoreError,
-    MAX_CONTACT_LOOKUP, MAX_PAGE_SIZE, StoreError,
+    ImportOutcome, MAX_CONTACT_LOOKUP, MAX_PAGE_SIZE, StoreError,
 };
 
 /// Fiche de test : `name` (nom affiché, vide : aucun) et ses adresses, la
@@ -348,6 +348,113 @@ pub async fn contact_book_contract<B: ContactBook + ContactDirectory>(
     Ok(())
 }
 
+/// Contrat de l'import en une transaction ([`ContactBook::import`]),
+/// carnet vide au départ : tout ou rien.
+pub async fn contact_import_contract<B: ContactBook + ContactDirectory>(
+    book: &B,
+) -> Result<(), ContactStoreError> {
+    let all = ContactFilter::default();
+    assert_eq!(book.import(&[], &[]).await?, ImportOutcome::default());
+
+    let outcome = book
+        .import(
+            &[
+                sample_contact("Alice", &["alice@example.com"]),
+                full_contact(),
+            ],
+            &[],
+        )
+        .await;
+    // `full_contact` porte aussi alice@example.com : rien n'est écrit.
+    assert_eq!(
+        outcome,
+        Err(ContactStoreError::DuplicateAddress(address(
+            "alice@example.com"
+        )))
+    );
+    assert_eq!(book.page(&all, None, 10).await?, ContactPage::default());
+
+    let outcome = book
+        .import(
+            &[
+                sample_contact("Alice", &["alice@example.com"]),
+                sample_contact("Bob", &["bob@example.net"]),
+            ],
+            &[],
+        )
+        .await?;
+    assert_eq!(
+        outcome,
+        ImportOutcome {
+            created: 2,
+            completed: 0
+        }
+    );
+    let listed = all_pages(book, &all, 10).await?;
+    assert_eq!(names(&listed), vec!["Alice", "Bob"]);
+    let alice = book
+        .get(listed[0].id)
+        .await?
+        .unwrap_or_else(|| panic!("Alice relue"));
+    let bob_id = listed[1].id;
+
+    // Création et complément ensemble.
+    let completed = sample_contact("Alice", &["alice@example.com", "alice@work.example"])
+        .with_id(alice.id());
+    let outcome = book
+        .import(
+            &[sample_contact("Carole", &["carole@example.org"])],
+            std::slice::from_ref(&completed),
+        )
+        .await?;
+    assert_eq!(
+        outcome,
+        ImportOutcome {
+            created: 1,
+            completed: 1
+        }
+    );
+    assert_eq!(book.get(alice.id()).await?, Some(completed.clone()));
+    assert_eq!(all_pages(book, &all, 10).await?.len(), 3);
+
+    // Un complément qui prendrait l'adresse d'un autre contact, ou un
+    // contact inconnu, annule tout l'import.
+    let stolen = sample_contact("Alice", &["alice@example.com", "BOB@example.net"])
+        .with_id(alice.id());
+    assert_eq!(
+        book.import(&[sample_contact("Denis", &["denis@example.org"])], &[stolen])
+            .await,
+        Err(ContactStoreError::DuplicateAddress(address(
+            "BOB@example.net"
+        )))
+    );
+    let unknown = sample_contact("Zoé", &["zoe@example.org"])
+        .with_id(ContactId::new(i64::MAX).unwrap_or_else(|| panic!("id")));
+    assert_eq!(
+        book.import(&[sample_contact("Denis", &["denis@example.org"])], &[unknown])
+            .await,
+        Err(ContactStoreError::NotFound)
+    );
+    // Une création qui reprend une adresse complétée dans le même import
+    // est refusée aussi.
+    let again = sample_contact("Alice", &["alice@example.com", "a3@example.com"])
+        .with_id(alice.id());
+    assert_eq!(
+        book.import(&[sample_contact("Autre", &["A3@example.com"])], &[again])
+            .await,
+        Err(ContactStoreError::DuplicateAddress(address(
+            "A3@example.com"
+        )))
+    );
+    assert_eq!(book.get(alice.id()).await?, Some(completed));
+    assert!(book.get(bob_id).await?.is_some());
+    assert_eq!(
+        names(&all_pages(book, &all, 10).await?),
+        vec!["Alice", "Bob", "Carole"]
+    );
+    Ok(())
+}
+
 /// Faux carnet d'adresses en mémoire, listes de diffusion comprises
 /// ([`crate::contact_lists_contracts`]).
 #[derive(Debug, Default)]
@@ -443,6 +550,39 @@ impl ContactBook for InMemoryContactBook {
         Ok(self.delete_many(&[id]).await? == 1)
     }
 
+    async fn import(
+        &self,
+        create: &[ContactDraft],
+        complete: &[Contact],
+    ) -> Result<ImportOutcome, ContactStoreError> {
+        let mut state = self.lock();
+        // Écrit sur une copie, gardée seulement si tout passe.
+        let (mut last, mut contacts) = state.clone();
+        for contact in complete {
+            let Some(index) = contacts.iter().position(|c| c.id() == contact.id()) else {
+                return Err(ContactStoreError::NotFound);
+            };
+            if let Some(address) = taken(&contacts, contact.draft(), Some(contact.id())) {
+                return Err(ContactStoreError::DuplicateAddress(address));
+            }
+            contacts[index] = contact.clone();
+        }
+        for draft in create {
+            if let Some(address) = taken(&contacts, draft, None) {
+                return Err(ContactStoreError::DuplicateAddress(address));
+            }
+            last += 1;
+            let id = ContactId::new(last)
+                .ok_or_else(|| ContactStoreError::Corrupted("identifiant".into()))?;
+            contacts.push(draft.clone().with_id(id));
+        }
+        *state = (last, contacts);
+        Ok(ImportOutcome {
+            created: create.len(),
+            completed: complete.len(),
+        })
+    }
+
     async fn delete_many(&self, ids: &[ContactId]) -> Result<usize, ContactStoreError> {
         let mut state = self.lock();
         let before = state.1.len();
@@ -518,5 +658,10 @@ mod tests {
     #[tokio::test]
     async fn in_memory_contact_book_passes_contract() -> Result<(), ContactStoreError> {
         contact_book_contract(&InMemoryContactBook::default()).await
+    }
+
+    #[tokio::test]
+    async fn in_memory_contact_book_passes_import_contract() -> Result<(), ContactStoreError> {
+        contact_import_contract(&InMemoryContactBook::default()).await
     }
 }

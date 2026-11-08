@@ -31,6 +31,7 @@ pub mod auth;
 pub mod capabilities;
 pub mod compose;
 pub mod connection;
+pub mod contact_export;
 pub mod contact_import;
 pub mod contact_lists;
 pub mod contacts;

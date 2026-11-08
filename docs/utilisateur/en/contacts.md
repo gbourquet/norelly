@@ -144,6 +144,25 @@ A contact is recognised as already there if it has the same email
 address. A card without an email address is not imported: Norelly's
 address book is for writing messages.
 
+## Exporting your contacts
+
+To keep a copy of your address book, or move it to another program:
+
+1. In **Contacts**, click **Export…**, at the top of the list (in
+   **More…** if the window is narrow). To export only some contacts, tick
+   them first, then click **Export…** in the bar that appears.
+2. Choose the format: **vCard 4.0** works almost everywhere (Gmail,
+   iPhone, Android, Thunderbird); **vCard 3.0** for older software;
+   **CSV** for Outlook or a spreadsheet; **LDIF** for Thunderbird.
+3. Click **Export…**, choose the folder and the file name, then **Save**.
+
+![Choosing the format of an export](captures/contacts-export.png)
+
+Favorites and mailing lists are not exported. In a CSV file opened in a
+spreadsheet, a number starting with “+” shows with an apostrophe in front:
+this is on purpose, so that the spreadsheet does not take it for a
+formula.
+
 ## Deleting contacts
 
 - One contact: on their card, click **Delete contact**, then confirm.

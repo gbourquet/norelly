@@ -147,6 +147,28 @@ Un contact est reconnu comme déjà présent s'il a la même adresse
 électronique. Une fiche sans adresse électronique n'est pas importée : le
 carnet de Norelly sert à écrire des messages.
 
+## Exporter vos contacts
+
+Pour garder une copie de votre carnet, ou le reprendre dans un autre
+logiciel :
+
+1. Dans **Contacts**, cliquez sur **Exporter…**, en haut de la liste
+   (dans **Plus…** si la fenêtre est étroite). Pour n'exporter que
+   quelques contacts, cochez-les d'abord, puis cliquez sur **Exporter…**
+   dans la barre qui apparaît.
+2. Choisissez le format : **vCard 4.0** convient presque partout (Gmail,
+   iPhone, Android, Thunderbird) ; **vCard 3.0** pour un logiciel ancien ;
+   **CSV** pour Outlook ou un tableur ; **LDIF** pour Thunderbird.
+3. Cliquez sur **Exporter…**, choisissez le dossier et le nom du fichier,
+   puis **Enregistrer**.
+
+![Le choix du format d'un export](captures/contacts-export.png)
+
+Les favoris et les listes de diffusion ne sont pas exportés. Dans un
+fichier CSV ouvert avec un tableur, un numéro commençant par « + »
+apparaît précédé d'une apostrophe : c'est voulu, pour que le tableur ne le
+prenne pas pour un calcul.
+
 ## Supprimer des contacts
 
 - Un contact : sur sa fiche, cliquez sur **Supprimer le contact**, puis

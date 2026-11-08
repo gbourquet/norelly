@@ -438,6 +438,11 @@ Fiche : [contacts.md](../fonctionnel/contacts.md). Décision : ADR-012.
 | Import en une transaction (`ContactBook::import`) : tout ou rien, adresse prise ou contact inconnu annule tout | `crates/adapters/sqlite/src/contacts.rs`, `crates/test-support/src/contacts_contracts.rs` (`contact_import_contract`) |
 | Cas d'usage : aperçu (deux politiques chiffrées, contacts du carnet lus par `by_addresses` par paquets de `MAX_CONTACT_LOOKUP`), import qui recalcule le plan contre le carnet du moment | `crates/application/src/contact_import.rs` |
 | Commandes IPC `preview_contact_import` (sélecteur natif, fichier lu en Rust, aperçu chiffré et jeton) et `apply_contact_import` (jeton à usage unique, rendu après un échec) ; codes `contact_import_too_large`, `contact_import_too_many_cards`, `contact_import_unknown_format`, `contact_import_read_failed`, `contact_import_expired` ; 100 rejets détaillés au plus, nom de fichier nettoyé | `app/src-tauri/src/contact_import.rs`, `app/src-tauri/src/ipc.rs` |
+| Export, règles de sortie (`export_card`) : adresse préférée en tête ; `FN` vCard = nom affiché, vide s'il se replierait sur l'adresse ou dépasserait la longueur d'un nom ; étiquettes vCard en minuscules, séparateurs de la syntaxe remplacés, mots réservés (`pref`, `internet`, `x-…`, encodages) écartés ; étiquettes Google sans « * » de tête ; téléphones LDIF rangés en `work`/`home`/`cell`/`fax`/`pager` ; favori non exporté ; neutralisation des cellules CSV (`neutralize_csv_cell` : apostrophe devant `=`, `+`, `-`, `@`, tabulation, CR, apostrophes de tête comprises) et son inverse à l'import (`restore_csv_cell`) ; sélection revalidée (`ContactSelection::of`, non vide, `MAX_CONTACT_SELECTION`) ; bornes de l'import (`MAX_EXPORT_CONTACTS`, `MAX_EXPORT_FILE_BYTES`) | `crates/domain/src/contact_export.rs` |
+| Écriture des fichiers (`ContactCodec::encode`) : vCard 4.0/3.0 (échappements `\\` `,` `;` saut de ligne, lignes repliées à 75 octets sans couper un caractère, CRLF, `PREF=1` ou `TYPE=PREF`), CSV Google (BOM UTF-8, CRLF, colonnes `Name`… `E-mail n - Label/Value`, `Phone n - …`, crate `csv`), LDIF Thunderbird (`dn` échappé RFC 4514, base64 hors `SAFE-STRING`, lignes repliées à 76 octets) ; sortie bornée sans rien produire au-delà | `crates/adapters/contacts-io/src/encode.rs`, `encode/{vcard,csv,ldif}.rs` |
+| Lecture en bloc des fiches (`ContactDirectory::contacts`, tout ou sélection, ordre de la liste, `limit`) | `crates/adapters/sqlite/src/contacts.rs`, `crates/test-support/src/contacts_contracts.rs` (`contact_selection_contract`) |
+| Cas d'usage `PrepareContactExport` (vide refusé, au-delà de 25 000 refusé) ; commande IPC `export_contacts` : sélection revalidée, fichier produit hors des fils asynchrones avant le sélecteur d'enregistrement natif, chemin choisi par le système seulement, écriture atomique (`write_atomic` : temporaire voisin créé en exclusivité, synchronisé, renommé, lien remplacé sans être suivi, borne revérifiée) ; codes `contact_export_empty`, `contact_export_too_large`, `write_failed` | `crates/application/src/contact_export.rs`, `app/src-tauri/src/contact_export.rs`, `app/src-tauri/src/ipc.rs` |
+| Interface : « Exporter… » dans l'en-tête de la vue (replié dans « Plus… » le premier) et dans la barre des contacts cochés ; fenêtre du format (vCard 4.0 par défaut, format repris la fois suivante), enregistrement annulé = fenêtre gardée, erreur gardée pour réessayer, message du nombre exporté | `app/src/lib/contact-export.svelte.ts`, `ContactExportDialog.svelte`, `visible-actions.ts` (`contactsHeaderActions`, `contactBulkActions`) |
 | Interface : « Importer… » dans l'en-tête de la vue (repli dans « Plus… ») et dans le carnet vide ; aperçu (fichier, format, ajoutés, complétés, doublons, rejetés et leur raison, noms retirés), choix du sort des doublons proposé seulement s'il y en a, import impossible sans rien à écrire, erreur gardée pour réessayer | `app/src/lib/contact-import.svelte.ts`, `ContactImportDialog.svelte`, `ContactList.svelte`, `visible-actions.ts` (`contactsHeaderActions`) |
 
 ### Clés des messages
@@ -452,14 +457,16 @@ Fiche : [contacts.md](../fonctionnel/contacts.md). Décision : ADR-012.
 `delete_list_*`, `err_contact_list_*`, `field_contact_list`,
 `field_list_name`, `field_list_description`, `contacts_filter_lists`,
 `contacts_import_*`, `contacts_header_actions`, `cmd_contacts_import*`,
-`err_contact_import_*`.
+`err_contact_import_*`, `contacts_export_*`, `cmd_contacts_export*`,
+`err_contact_export_*`.
 
 ### Commandes
 
 `contacts.open`, `contacts.new`, `contacts.edit`, `contacts.write`,
 `contacts.favorite`, `contacts.delete`, `contacts.clear-selection`,
 `contacts.add-person`, `contacts.show-person`, `contacts.add-to-list`,
-`lists.new`, `lists.edit`, `lists.write`, `lists.delete`, `contacts.import`.
+`lists.new`, `lists.edit`, `lists.write`, `lists.delete`, `contacts.import`,
+`contacts.export`, `contacts.export-selected`.
 
 ### Vérifications et compléments
 
@@ -473,6 +480,19 @@ Fiche : [contacts.md](../fonctionnel/contacts.md). Décision : ADR-012.
   2.1 en Windows-1252), Apple (vCard 3.0) et Thunderbird (CSV, LDIF)
   (`crates/adapters/contacts-io/tests/`) ; propriétés (proptest) et cible
   de fuzzing `contact_import` (lecture puis plan).
+- Contrat de l'écriture des fichiers joué contre le faux et `contacts-io`
+  (`contact_encoding_contract` : relu à l'identique dans chaque format,
+  trop de fiches ou fichier trop gros refusés) ; aller-retour export puis
+  import dans un carnet vide par format, favori non exporté, propriétés
+  (relecture à l'identique, réexport stable) dans
+  `crates/adapters/contacts-io/tests/roundtrip.rs` ; cible de fuzzing
+  `contact_export` (fichier quelconque lu, fiches validées, exportées et
+  relues à l'identique).
+- Scénario de bout en bout de l'export
+  (`app/e2e/specs/contacts-export.e2e.mjs`) : tout le carnet en vCard 4.0
+  depuis l'en-tête, contact coché en CSV depuis la barre de sélection,
+  fichier écrit vérifié (CRLF, 75 octets, BOM, « +33 » neutralisé), puis
+  réimport qui redonne les mêmes contacts.
 - Scénario de bout en bout de l'import (`app/e2e/specs/contacts-import.e2e.mjs`) :
   `.vcf` puis CSV Gmail choisis dans le sélecteur natif, doublons
   reconnus, fiche sans adresse rejetée avec sa raison.

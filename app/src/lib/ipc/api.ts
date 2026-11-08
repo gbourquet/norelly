@@ -42,6 +42,9 @@ import {
   type ContactDto,
   type ContactImportOutcomeDto,
   type ContactImportPreviewDto,
+  type ContactExportFormatDto,
+  type ContactExportOutcomeDto,
+  type ContactExportSelectionDto,
   type DuplicatePolicyDto,
   type ContactFieldsDto,
   type ContactPageDto_Serialize,
@@ -57,6 +60,9 @@ import {
 import { IpcFailure } from "../errors";
 
 export type {
+  ContactExportFormatDto,
+  ContactExportOutcomeDto,
+  ContactExportSelectionDto,
   ContactImportFormatDto,
   ContactImportOutcomeDto,
   ContactImportPreviewDto,
@@ -340,6 +346,19 @@ export const api = {
     token: number,
     policy: DuplicatePolicyDto,
   ): Promise<ContactImportOutcomeDto> => unwrap(commands.applyContactImport(token, policy)),
+
+  /**
+   * Prépare l'export de `selection` au format `format`, ouvre le sélecteur
+   * d'enregistrement (titre et nom du filtre localisés) et écrit le
+   * fichier choisi ; `null` si l'utilisateur annule.
+   */
+  exportContacts: (
+    selection: ContactExportSelectionDto,
+    format: ContactExportFormatDto,
+    title: string,
+    filter: string,
+  ): Promise<ContactExportOutcomeDto | null> =>
+    unwrap(commands.exportContacts(selection, format, title, filter)),
 
   /** Page des listes de diffusion filtrée sur le nom (vide : toutes). */
   listContactLists: (

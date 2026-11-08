@@ -83,6 +83,8 @@ choisissent une adresse proposée, `Entrée` ou `,` la valide.
 | Ouvrir les contacts | `Ctrl+Maj+B` |
 | Nouveau contact | `N` |
 | Importer des contacts… | palette |
+| Exporter les contacts… | palette |
+| Exporter les contacts choisis… | palette |
 | Modifier le contact | `Maj+E` |
 | Écrire au contact | `W` |
 | Favori (ajouter ou retirer) | `Maj+S` |

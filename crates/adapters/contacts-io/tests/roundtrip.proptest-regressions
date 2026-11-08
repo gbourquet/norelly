@@ -1,0 +1,10 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 2696a14c89425029eda5d985ef2649c12794d22f9daf8ee896bc37a41990f697 # shrinks to book = [ContactDraft { display_name: None, given_name: None, family_name: Some(";"), nickname: None, organization: None, notes: None, emails: [ContactEmail { address: EmailAddress { local: "a", domain: Host("a.fr") }, key: AddressKey("a@a.fr"), label: None, preferred: true }], phones: [], favorite: false }], format = VCard4
+cc f18892cef9d71d651c39396f1c77073255e429090bd4e4aff691fa33a65d96d7 # shrinks to book = [ContactDraft { display_name: None, given_name: None, family_name: None, nickname: None, organization: None, notes: None, emails: [ContactEmail { address: EmailAddress { local: "a", domain: Host("a.fr") }, key: AddressKey("a@a.fr"), label: None, preferred: true }], phones: [ContactPhone { number: "-", label: None }], favorite: false }], format = GoogleCsv
+cc 24e893288bd56cb5d0817a0d98b21373464992499d79d02b23fa7a573f079559 # shrinks to book = [ContactDraft { display_name: None, given_name: None, family_name: None, nickname: None, organization: None, notes: None, emails: [ContactEmail { address: EmailAddress { local: "a", domain: Host("a.fr") }, key: AddressKey("a@a.fr"), label: None, preferred: true }], phones: [ContactPhone { number: "+", label: None }], favorite: false }], format = GoogleCsv
+cc a6c085b345cb277a410162af2f9419a7cd026c0fb164fca84e7dd623df977181 # shrinks to book = [ContactDraft { display_name: None, given_name: None, family_name: None, nickname: None, organization: None, notes: None, emails: [ContactEmail { address: EmailAddress { local: "a", domain: Host("a.fr") }, key: AddressKey("a@a.fr"), label: None, preferred: true }], phones: [ContactPhone { number: "-", label: Some("* *") }], favorite: false }], format = GoogleCsv

@@ -159,8 +159,8 @@ pub type AppTestConnection =
     TestConnection<ImapConnector, SmtpSender, SqliteCertificateExceptionStore>;
 pub type AppDiscoverSettings = DiscoverSettings<AppAutoconfig, AppSrvResolver, TcpPortProber>;
 
-/// Import d'un carnet (ADR-012) : lecture des fichiers, normalisation
-/// NFC, aperçu en attente de confirmation.
+/// Import et export d'un carnet (ADR-012) : lecture et écriture des
+/// fichiers, normalisation NFC, aperçu en attente de confirmation.
 #[derive(Debug, Default)]
 pub struct ContactImports {
     pub codec: ContactsIo,

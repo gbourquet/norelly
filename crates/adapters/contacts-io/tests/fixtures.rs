@@ -9,7 +9,8 @@ use norelly_domain::contact_import::{
 use norelly_domain::contacts::{ContactError, ContactInput, EmailInput, PhoneInput};
 use norelly_domain::ports::ContactCodec;
 use norelly_test_support::contact_import_contracts::{
-    SAMPLE_VCARD, contact_codec_contract, text_normalizer_contract,
+    SAMPLE_VCARD, contact_codec_contract, contact_encoding_contract, sample_export_drafts,
+    text_normalizer_contract,
 };
 
 fn data(name: &str) -> Vec<u8> {
@@ -62,6 +63,11 @@ fn real_codec_passes_contract() {
         })],
     };
     contact_codec_contract(&ContactsIo, SAMPLE_VCARD, &expected);
+}
+
+#[test]
+fn real_codec_passes_encoding_contract() {
+    contact_encoding_contract(&ContactsIo, &sample_export_drafts());
 }
 
 #[test]

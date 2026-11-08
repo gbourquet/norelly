@@ -82,6 +82,8 @@ suggested address, `Enter` or `,` confirms it.
 | Open contacts | `Ctrl+Shift+B` |
 | New contact | `N` |
 | Import contacts… | palette |
+| Export contacts… | palette |
+| Export selected contacts… | palette |
 | Edit contact | `Shift+E` |
 | Write to contact | `W` |
 | Favorite (add or remove) | `Shift+S` |

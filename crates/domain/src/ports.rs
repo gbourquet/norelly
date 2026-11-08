@@ -19,6 +19,7 @@ use crate::compose::ReplySource;
 use crate::compose::draft::{ComposeError, Draft, DraftSync, Recipient, RemoteCopy};
 use crate::compose::outbox::OutboxEntry;
 use crate::connection::ConnectionError;
+use crate::contact_export::{ContactSelection, ExportCard, ExportFormat};
 use crate::contact_import::DecodedContacts;
 use crate::contact_lists::{ContactList, ContactListDraft, ContactListFilter, ContactListId};
 use crate::contacts::{
@@ -1360,13 +1361,28 @@ pub enum ContactCodecError {
 }
 
 /// Traduction d'un fichier de contacts (vCard, CSV, LDIF) en fiches à
-/// importer (adaptateur `contacts-io`). Ne décide rien : les fiches
-/// rendues sont revalidées, dédoublonnées et normalisées par
-/// [`crate::contact_import::plan_import`].
+/// importer, et de fiches à exporter en fichier (adaptateur
+/// `contacts-io`). Ne décide rien : les fiches lues sont revalidées,
+/// dédoublonnées et normalisées par
+/// [`crate::contact_import::plan_import`] ; les fiches écrites sont
+/// préparées par [`crate::contact_export::export_card`].
 pub trait ContactCodec: Send + Sync {
     /// Fiches du fichier, dans son ordre ; une fiche illisible est rendue
     /// comme telle (sans arrêter la lecture des suivantes).
     fn decode(&self, bytes: &[u8]) -> Result<DecodedContacts, ContactCodecError>;
+
+    /// Fichier des fiches `cards` (préparées par
+    /// [`crate::contact_export::export_card`] pour `format`), dans leur
+    /// ordre. Refusé au-delà de
+    /// [`crate::contact_export::MAX_EXPORT_CONTACTS`] fiches
+    /// (`TooManyCards`) ou de
+    /// [`crate::contact_export::MAX_EXPORT_FILE_BYTES`] octets (`TooLarge`,
+    /// sans produire plus).
+    fn encode(
+        &self,
+        cards: &[ExportCard],
+        format: ExportFormat,
+    ) -> Result<Vec<u8>, ContactCodecError>;
 }
 
 /// Normalisation Unicode d'un texte (forme NFC), fournie au domaine qui
@@ -1468,6 +1484,14 @@ pub trait ContactDirectory: Send + Sync {
     fn by_addresses(
         &self,
         keys: &[AddressKey],
+    ) -> impl Future<Output = Result<Vec<Contact>, StoreError>> + Send;
+
+    /// Fiches complètes de `selection` (inconnues omises), dans l'ordre
+    /// de [`ContactCursor`], au plus `limit` (export).
+    fn contacts(
+        &self,
+        selection: &ContactSelection,
+        limit: usize,
     ) -> impl Future<Output = Result<Vec<Contact>, StoreError>> + Send;
 }
 

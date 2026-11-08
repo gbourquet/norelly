@@ -198,6 +198,14 @@ sensible (SQL, IPC, fichiers, rendu).
 - IPC `export_contacts(ids|all, format)` avec sélecteur d'enregistrement ;
   UI : « Exporter… » (tout ou la sélection), choix du format.
 - Test aller-retour : export puis import = même carnet.
+  *Réalisé* (choix validés par le mainteneur, consignés dans l'ADR-012 ;
+  colonne `Name`, règle du `FN` vCard et « Importer… » replié à
+  1 280 px validés après coup) : CSV aux colonnes de Google plus `Name` ; règles de
+  sortie dans le domaine (`export_card`), adresse préférée en tête,
+  étiquettes vCard en minuscules, LDIF sans étiquette d'adresse ; favori
+  et listes non exportés ; cellules CSV neutralisées (téléphones
+  compris), apostrophe retirée à l'import ; « Exporter… » dans l'en-tête
+  et la barre des contacts cochés.
 
 ### Lot 8 — `ui/contacts-doublons` : fusion des doublons
 - Domaine : détection (même adresse dans deux contacts impossible par

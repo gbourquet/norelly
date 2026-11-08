@@ -168,6 +168,20 @@ const button = (name) =>
 const menuItem = (label) =>
   $(`//*[@role="menuitem"][.//*[contains(@class, "menu-label")][normalize-space()="${label}"]]`);
 
+/** Action `label` de l'en-tête de la vue Contacts, directe ou rangée dans
+ * « Plus… » faute de place. */
+async function headerAction(label) {
+  const bar = $(`[role="toolbar"][aria-label="${msg("contacts_header_actions")}"]`);
+  const visible = `[not(ancestor::*[@aria-hidden="true"])]`;
+  const direct = bar.$(`.//button[normalize-space()="${label}"]${visible}`);
+  if (await direct.isDisplayed().catch(() => false)) {
+    await direct.click();
+    return;
+  }
+  await openMenu(bar.$(`.//button[normalize-space()="${msg("action_more")}"]${visible}`));
+  await menuItem(label).click();
+}
+
 /** Fenêtre modale dont le titre est `title`. */
 const dialogTitled = (title) => $(`//*[@role="dialog"][.//*[normalize-space()="${title}"]]`);
 
@@ -506,9 +520,7 @@ describe(`captures d'écran (${lang})`, () => {
       path.dirname(fileURLToPath(import.meta.url)),
       "../../../crates/adapters/contacts-io/tests/data/gmail.csv",
     );
-    await $(`[role="toolbar"][aria-label="${msg("contacts_header_actions")}"]`)
-      .$(`button=${msg("contacts_import_button")}`)
-      .click();
+    await headerAction(msg("contacts_import_button"));
     await pickFile(msg("contacts_import_pick_title"), file);
     const preview = dialogTitled(msg("contacts_import_title"));
     await preview.waitForDisplayed({ timeout: 20000 });
@@ -516,6 +528,17 @@ describe(`captures d'écran (${lang})`, () => {
     await capture("contacts-import");
     await button(msg("common_cancel")).click();
     await preview.waitForDisplayed({ reverse: true, timeout: 10000 });
+  });
+
+  it("export de contacts (à la souris)", async () => {
+    // Fenêtre du choix du format, capturée puis fermée (le sélecteur
+    // d'enregistrement du système n'est pas capturé).
+    await headerAction(msg("contacts_export_button"));
+    const window = dialogTitled(msg("contacts_export_title"));
+    await window.waitForDisplayed({ timeout: 10000 });
+    await capture("contacts-export");
+    await button(msg("common_cancel")).click();
+    await window.waitForDisplayed({ reverse: true, timeout: 10000 });
   });
 
   it("listes de diffusion (à la souris)", async () => {

@@ -149,6 +149,11 @@ pub enum ErrorCodeDto {
     ContactImportReadFailed,
     /// Aperçu d'import périmé (remplacé par un autre, ou déjà importé).
     ContactImportExpired,
+    /// Aucun contact à exporter (carnet vide, sélection supprimée).
+    ContactExportEmpty,
+    /// Export trop gros pour être réimporté (trop de contacts, ou fichier
+    /// trop lourd) : exporter une sélection.
+    ContactExportTooLarge,
     /// Erreur interne (journalisée).
     Internal,
 }
@@ -1492,4 +1497,33 @@ pub struct ContactImportPreviewDto {
 pub struct ContactImportOutcomeDto {
     pub created: u32,
     pub completed: u32,
+}
+
+/// Contacts à exporter.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Type)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ContactExportSelectionDto {
+    /// Tout le carnet.
+    All,
+    /// Les contacts cochés.
+    Contacts { ids: Vec<u32> },
+}
+
+/// Format d'un export.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum ContactExportFormatDto {
+    Vcard4,
+    Vcard3,
+    GoogleCsv,
+    Ldif,
+}
+
+/// Bilan d'un export écrit.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
+pub struct ContactExportOutcomeDto {
+    /// Contacts écrits.
+    pub exported: u32,
+    /// Nom du fichier écrit.
+    pub file_name: String,
 }

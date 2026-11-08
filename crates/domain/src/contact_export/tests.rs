@@ -244,13 +244,14 @@ fn google_labels_keep_their_case_without_a_leading_star() {
         emails: vec![
             email("a@example.com", "", true),
             email("b@example.com", "* Perso", false),
+            email("c@example.com", "* * Pro", false),
         ],
-        phones: vec![phone("1", "**")],
+        phones: vec![phone("1", "**"), phone("2", "* *")],
         ..ContactInput::default()
     });
     let card = export_card(&starred, ExportFormat::GoogleCsv);
-    assert_eq!(email_labels(&card), [None, Some("Perso")]);
-    assert_eq!(phone_labels(&card), [None]);
+    assert_eq!(email_labels(&card), [None, Some("Perso"), Some("Pro")]);
+    assert_eq!(phone_labels(&card), [None, None]);
 }
 
 #[test]

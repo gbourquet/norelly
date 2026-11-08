@@ -200,9 +200,10 @@ fn vcard_type(label: &str) -> Option<String> {
     (!value.is_empty() && !reserved).then_some(value)
 }
 
-/// Étiquette Google : sans « * » en tête (marque de l'adresse principale).
+/// Étiquette Google : sans « * » en tête (marque de l'adresse principale),
+/// même répétée ou entrecoupée d'espaces.
 fn google_label(label: &str) -> Option<String> {
-    let value = label.trim_start_matches('*').trim();
+    let value = label.trim_start_matches(|c: char| c == '*' || c.is_whitespace());
     (!value.is_empty()).then(|| value.to_owned())
 }
 

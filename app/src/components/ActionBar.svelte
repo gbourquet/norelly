@@ -45,6 +45,7 @@
       available,
       moreWidth,
       gap,
+      more.length > 0,
     ),
   );
   const overflow = $derived([...primary.filter((_, i) => !visible[i]), ...more]);

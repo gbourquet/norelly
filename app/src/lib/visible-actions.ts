@@ -226,16 +226,21 @@ export function rowActions(subject: ActionSubject | null): VisibleAction[] {
 /**
  * Boutons gardés visibles dans une largeur donnée : par priorité
  * croissante, tant qu'ils tiennent avec le bouton « Plus… » (`moreWidth`)
- * et les espaces (`gap`) ; le plus prioritaire reste toujours. Largeur
- * disponible nulle (pas encore mesurée) : tout reste visible.
+ * et les espaces (`gap`) ; le plus prioritaire reste toujours. Sans action
+ * secondaire (`secondary` faux), « Plus… » ne compte que s'il sert : tout
+ * reste visible si tout tient sans lui. Largeur disponible nulle (pas
+ * encore mesurée) : tout reste visible.
  */
 export function fitByPriority(
   items: { width: number; priority: number }[],
   available: number,
   moreWidth: number,
   gap: number,
+  secondary = true,
 ): boolean[] {
   if (available <= 0) return items.map(() => true);
+  const all = items.reduce((sum, item, i) => sum + item.width + (i > 0 ? gap : 0), 0);
+  if (!secondary && all <= available) return items.map(() => true);
   const order = items.map((item, index) => ({ ...item, index }));
   order.sort((a, b) => a.priority - b.priority);
   const visible = items.map(() => false);

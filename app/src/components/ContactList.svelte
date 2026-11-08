@@ -117,8 +117,8 @@
 
 <div class="contacts">
   <header>
-    <h2>{m.contacts_title()}</h2>
-    <div class="create">
+    <div class="title-row">
+      <h2>{m.contacts_title()}</h2>
       <button
         class="btn btn-primary"
         type="button"
@@ -128,15 +128,15 @@
         <UserPlusIcon size={16} aria-hidden="true" />
         <span>{create?.label}</span>
       </button>
-      <div class="header-actions">
-        <ActionBar
-          primary={header.primary}
-          more={header.more}
-          {registry}
-          {context}
-          label={m.contacts_header_actions()}
-        />
-      </div>
+    </div>
+    <div class="header-actions">
+      <ActionBar
+        primary={header.primary}
+        more={header.more}
+        {registry}
+        {context}
+        label={m.contacts_header_actions()}
+      />
     </div>
   </header>
   <div class="filters">
@@ -382,37 +382,26 @@
 
   header {
     display: flex;
-    align-items: center;
-    justify-content: space-between;
+    flex-direction: column;
     gap: var(--space-2);
     padding: var(--space-3) var(--space-4);
     border-bottom: var(--border-width) solid var(--color-border);
   }
 
-  header h2 {
-    flex: none;
-  }
-
-  .create {
+  .title-row {
     display: flex;
-    flex: 1;
-    min-width: 0;
-    justify-content: flex-end;
+    align-items: center;
+    justify-content: space-between;
     gap: var(--space-2);
   }
 
-  .create > .btn {
+  .title-row .btn {
     flex: none;
     white-space: nowrap;
   }
 
-  /* Largeur restante : « Importer… », puis « Nouvelle liste », passent
-     dans « Plus… » si elle manque. */
-  .header-actions {
-    flex: 1;
-    min-width: 0;
-  }
-
+  /* Ligne pleine largeur : « Importer… », puis « Nouvelle liste »,
+     passent dans « Plus… » si le volet est trop étroit. */
   .header-actions :global(.bar) {
     justify-content: flex-end;
   }

@@ -224,6 +224,15 @@ describe("fitByPriority", () => {
     expect(fitByPriority(items, 389, 60, 10)).toEqual([true, false, false, true, false]);
   });
 
+  it("sans action secondaire, « Plus… » n'occupe de place que s'il sert", () => {
+    // 5 boutons sans « Plus… » : 500 + 4 × 10 = 540.
+    expect(fitByPriority(items, 540, 60, 10, false)).toEqual([true, true, true, true, true]);
+    // Avec des actions secondaires, « Plus… » reste affiché : sa place est due.
+    expect(fitByPriority(items, 540, 60, 10, true)).toEqual([true, true, false, true, true]);
+    // Un bouton de trop : « Plus… » réapparaît, et sa place avec.
+    expect(fitByPriority(items, 539, 60, 10, false)).toEqual([true, true, false, true, true]);
+  });
+
   it("garde toujours le premier bouton, même trop large", () => {
     expect(fitByPriority(items, 50, 60, 10)).toEqual([true, false, false, false, false]);
   });

@@ -598,4 +598,25 @@ est majoritairement écrit par Claude et relu par le mainteneur.
     une fenêtre ; listes de diffusion non exportées. Conséquence vue sur
     les captures, validée **après coup** : à 1 280 px, « Importer… »
     passe aussi dans « Plus… » de l'en-tête (gardé tel quel) ;
+  - doublons (lot 8) : **règles validées par le mainteneur le
+    2026-11-08, avant le code**. Écart au plan : deux contacts ne
+    partagent jamais une adresse (index unique, l'import « ignorer »
+    écarte la fiche entière), le critère « adresses qui se recoupent »
+    est remplacé par le **téléphone**. Sont proposés comme doublons les
+    contacts de **même nom** (nom affiché comparé mot à mot en NFC, sans
+    casse ni ordre des mots, un seul mot suffit ; fiche sans nom ou nom
+    imitant une adresse écartés) ou de **même numéro** (chiffres et `+`,
+    au moins 6 chiffres), regroupés par transitivité. La **fusion**
+    garde la fiche choisie par l'utilisateur (par défaut la plus
+    complète), complète ses champs vides par les autres fiches sans rien
+    écraser, réunit adresses (la préférée reste celle de la fiche
+    gardée) et téléphones (au chiffre près), met les notes distinctes
+    bout à bout (ligne vide entre deux), garde le favori si l'une l'est,
+    reporte les listes de diffusion des fiches absorbées et supprime
+    celles-ci, en une transaction. Une fusion qui dépasserait les bornes
+    d'une fiche (20 adresses, 20 téléphones, 10 000 caractères de notes)
+    est refusée. « Rechercher les doublons… » dans « Plus… » de l'en-tête
+    de la vue Contacts ouvre une fenêtre qui présente les groupes un par
+    un (« Fusionner », « Passer ») ; un groupe passé n'est pas mémorisé
+    (backlog) ;
   - photos de contact et CardDAV restent au backlog.

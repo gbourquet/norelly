@@ -17,13 +17,6 @@ const data = path.resolve(
   "../../../crates/adapters/contacts-io/tests/data",
 );
 
-/** Bouton visible dont le libellé (texte ou `aria-label`) est `name` ; la
- * copie invisible de mesure des barres d'actions est ignorée. */
-const button = (name) =>
-  $(
-    `//button[@aria-label="${name}" or normalize-space()="${name}"][not(ancestor::*[@aria-hidden="true"])]`,
-  );
-
 const dialog = (title) => $(`//*[@role="dialog"][.//*[normalize-space()="${title}"]]`);
 
 const row = (name) => $(`//*[@role="option"][.//*[normalize-space()="${name}"]]`);

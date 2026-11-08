@@ -677,5 +677,5 @@
   "contacts_export_notice": "{count} contact(s) exporté(s) dans « {name} ».",
   "err_contact_export_empty": "Aucun contact à exporter.",
   "err_contact_export_too_large": "Trop de contacts pour un seul fichier (25 000 au plus, 20 Mo au plus) : exportez-en une partie en les cochant.",
-  "contacts_header_actions": "Créer ou importer"
+  "contacts_header_actions": "Créer, importer ou exporter"
 }

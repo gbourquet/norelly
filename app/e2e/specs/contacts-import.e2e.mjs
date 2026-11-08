@@ -27,7 +27,9 @@ const pickTitle = "Choisir le fichier de contacts à importer";
  * la fenêtre d'aperçu. */
 async function importFile(name) {
   // Celui de l'en-tête (le carnet vide en montre un second).
-  await $('[role="toolbar"][aria-label="Créer ou importer"]').$("button=Importer…").click();
+  await $('[role="toolbar"][aria-label="Créer, importer ou exporter"]')
+    .$("button=Importer…")
+    .click();
   await pickFile(pickTitle, path.join(data, name));
   const preview = dialog("Importer des contacts");
   await preview.waitForDisplayed({ timeout: 20000 });

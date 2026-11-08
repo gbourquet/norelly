@@ -234,6 +234,43 @@ l'ordinateur** : rien n'est envoyé à un serveur.
   message invite à exporter en vCard ou CSV), fichier trop gros (20 Mo)
   ou trop de contacts (25 000).
 
+### Exporter des contacts
+
+- But : garder une copie du carnet, ou le reprendre dans un autre
+  logiciel (Gmail, Outlook, Thunderbird, Contacts d'Apple, téléphone).
+- **Exporter…** en haut de la vue Contacts (dans **Plus…** si la colonne
+  est trop étroite) exporte tout le carnet ; **Exporter…** dans la barre
+  des contacts cochés n'exporte que ceux-là. Les deux sont aussi dans la
+  palette de commandes.
+- Une fenêtre rappelle ce qui sera exporté et fait choisir le format :
+  **vCard 4.0** (par défaut, le plus courant), **vCard 3.0** (logiciels
+  anciens), **CSV** (colonnes de Google Contacts, lisibles par Outlook et
+  les tableurs) ou **LDIF** (Thunderbird). Le format choisi est repris la
+  fois suivante. **Exporter…** ouvre ensuite la fenêtre d'enregistrement
+  du système, où l'on choisit le dossier et le nom du fichier ; annuler
+  ramène au choix du format.
+- Un message annonce le nombre de contacts exportés et le nom du fichier.
+  Un fichier du même nom est remplacé d'un coup : en cas d'échec, l'ancien
+  reste intact.
+- Un fichier exporté par Norelly se réimporte dans Norelly et redonne le
+  même carnet : noms, accents, notes sur plusieurs lignes, toutes les
+  adresses et la préférée, téléphones, organisation. Ce que chaque format
+  ne sait pas porter :
+  - vCard : le nom complet est toujours écrit (un contact sans nom affiché
+    reçoit son prénom et son nom) ; les étiquettes sont écrites en
+    minuscules ;
+  - LDIF : les adresses n'ont pas d'étiquette, les téléphones sont rangés
+    en travail, domicile, portable, fax ou bipeur ;
+  - dans tous les formats, l'adresse préférée est écrite en premier ; les
+    favoris et les listes de diffusion ne sont pas exportés.
+- Dans le CSV, une valeur qui commence par `=`, `+`, `-` ou `@` (un
+  numéro « +33… » par exemple) est précédée d'une apostrophe, pour qu'un
+  tableur ne l'exécute pas comme une formule ; l'import de Norelly la
+  retire.
+- Exports refusés, avec un message clair : rien à exporter, ou plus de
+  contacts (25 000) ou de données (20 Mo) qu'un import n'en accepte ; il
+  faut alors en cocher une partie.
+
 ## Sécurité
 
 - Tout ce qui est saisi est affiché comme du **texte**, jamais interprété.
@@ -245,6 +282,9 @@ l'ordinateur** : rien n'est envoyé à un serveur.
   avant lecture ; l'écran ne reçoit que le résumé. Il ne fait charger
   aucune ressource extérieure (photo, lien). Les caractères invisibles ou
   trompeurs d'une fiche importée la font refuser.
+- Un fichier exporté est écrit par l'application à l'emplacement choisi
+  dans la fenêtre du système ; l'écran ne fournit jamais de chemin. Les
+  cellules d'un CSV ne peuvent pas devenir des formules de tableur.
 - Le nom du carnet s'affiche d'après l'adresse annoncée par le message,
   que l'expéditeur peut falsifier : il ne prouve pas que le message vient
   bien de ce contact.
@@ -255,6 +295,6 @@ l'ordinateur** : rien n'est envoyé à un serveur.
   message.
 - Un nom de fiche qui ressemble à une adresse est accepté à la saisie
   (il est seulement écarté à l'affichage) ; l'import ne le reprend pas.
-- Pas encore d'export (vCard, CSV, LDIF), ni de recherche des doublons
-  déjà présents ; les listes ne s'importent ni ne s'exportent. Photos,
+- Pas encore de recherche des doublons déjà présents ; les listes ne
+  s'importent ni ne s'exportent, les favoris ne s'exportent pas. Photos,
   adresses postales et anniversaires d'un fichier importé sont ignorés.

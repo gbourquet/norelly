@@ -518,6 +518,26 @@ describe(`captures d'écran (${lang})`, () => {
     await preview.waitForDisplayed({ reverse: true, timeout: 10000 });
   });
 
+  it("export de contacts (à la souris)", async () => {
+    // Fenêtre du choix du format, capturée puis fermée (le sélecteur
+    // d'enregistrement du système n'est pas capturé).
+    const bar = $(`[role="toolbar"][aria-label="${msg("contacts_header_actions")}"]`);
+    const direct = bar.$(
+      `.//button[normalize-space()="${msg("contacts_export_button")}"][not(ancestor::*[@aria-hidden="true"])]`,
+    );
+    if (await direct.isDisplayed().catch(() => false)) {
+      await direct.click();
+    } else {
+      await openMenu(bar.$(`.//button[normalize-space()="${msg("action_more")}"]`));
+      await menuItem(msg("contacts_export_button")).click();
+    }
+    const window = dialogTitled(msg("contacts_export_title"));
+    await window.waitForDisplayed({ timeout: 10000 });
+    await capture("contacts-export");
+    await button(msg("common_cancel")).click();
+    await window.waitForDisplayed({ reverse: true, timeout: 10000 });
+  });
+
   it("listes de diffusion (à la souris)", async () => {
     const field = (key) =>
       $(`//label[span[normalize-space()="${msg(key)}"]]//*[self::input or self::textarea]`);

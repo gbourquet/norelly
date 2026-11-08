@@ -225,3 +225,26 @@ export async function pickFile(title, file) {
   await browser.pause(300);
   await xdotool("key", "Return");
 }
+
+/**
+ * Enregistre sous `file` (chemin absolu) dans le sélecteur d'enregistrement
+ * du système (GTK) titré `title` : xdotool lui donne le focus, remplace le
+ * nom proposé par le chemin complet et valide.
+ */
+export async function saveFile(title, file) {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      await xdotool("search", "--sync", "--onlyvisible", "--name", title, "windowfocus", "--sync");
+      break;
+    } catch (e) {
+      if (attempt >= 10) throw e;
+      await browser.pause(500);
+    }
+  }
+  await browser.pause(500);
+  await xdotool("key", "--clearmodifiers", "ctrl+a");
+  await browser.pause(200);
+  await xdotool("type", "--delay", "20", file);
+  await browser.pause(300);
+  await xdotool("key", "Return");
+}

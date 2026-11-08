@@ -49,6 +49,19 @@ quand le mainteneur l'abandonne (avec la raison).
     l'insertion des pastilles (`app/src/lib/compose.svelte.ts`) ;
   - import et export des listes (vCard `KIND:group`, LDIF
     `groupOfNames`) à prévoir avec les lots 6 et 7.
+- **Carnet : découvert au lot 7** :
+  - le favori n'est porté par aucun format exporté : l'écrire (vCard
+    `CATEGORIES`, colonne `Labels` de Google « * starred ») et le relire
+    à l'import si le besoin se confirme ;
+  - le CSV exporté n'a pas de colonne `Labels` : Google range les contacts
+    importés dans un libellé propre à l'import, sans « myContacts » ;
+  - « Exporter… » de l'en-tête reste actif sur un carnet vide (le refus
+    arrive après la fenêtre du format) : le désactiver quand la liste est
+    vide ;
+  - un export de tout le carnet lit toutes les fiches en une requête et
+    les garde en mémoire (25 000 au plus) avant d'écrire : lecture par
+    pages si le carnet grandit ;
+  - le nom du fichier proposé (« contacts.vcf ») n'est pas traduit.
 - **Carnet : découvert au lot 6** :
   - remplacer les jeux d'essai reconstitués
     (`crates/adapters/contacts-io/tests/data`) par de vrais exports

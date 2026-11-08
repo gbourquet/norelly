@@ -116,10 +116,11 @@ Signalés au mainteneur dans chaque PR qui les touche (ADR-008) :
   `crates/adapters/smtp/src/stream.rs` ;
 - `crates/adapters/render/src/sanitize.rs`, `css.rs`, `compose.rs`,
   `agent.js` ;
-- `crates/adapters/contacts-io/src/` (lecture de fichiers externes),
-  `crates/domain/src/contact_import.rs` ;
+- `crates/adapters/contacts-io/src/` (lecture et écriture de fichiers
+  externes), `crates/domain/src/contact_import.rs`, `contact_export.rs` ;
 - `app/src-tauri/src/protocols.rs`, `remote_images.rs`, `reading.rs`
-  (pièces jointes), `contact_import.rs` (fichier importé), `ipc.rs`,
+  (pièces jointes), `contact_import.rs` (fichier importé),
+  `contact_export.rs` (fichier exporté), `ipc.rs`,
   `capabilities/`, `permissions/` ;
 - `app/src/lib/agent.ts` ;
 - infrastructure : `deny.toml`, `.github/workflows/*.yml`,

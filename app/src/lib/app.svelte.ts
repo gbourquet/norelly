@@ -15,6 +15,7 @@ import { isEditableFolder } from "./folder-edit.svelte";
 import { ComposeState } from "./compose.svelte";
 import { MailState } from "./mail.svelte";
 import { ContactFormState, ContactsState, DeleteContactsState } from "./contacts.svelte";
+import { ContactImportState } from "./contact-import.svelte";
 import {
   AddToListState,
   ContactListFormState,
@@ -52,7 +53,8 @@ export type DialogName =
   | "delete-contacts"
   | "contact-list"
   | "delete-contact-list"
-  | "add-to-list";
+  | "add-to-list"
+  | "contact-import";
 
 export interface AppContext {
   selectedAccount: AccountDto | null;
@@ -419,6 +421,7 @@ export const contactForm = new ContactFormState(api);
 
 /** Confirmation de suppression de contacts. */
 export const contactDeletion = new DeleteContactsState(api);
+export const contactImport = new ContactImportState(api);
 
 /** Listes de diffusion (section « Listes » de la vue Contacts). */
 export const lists = new ContactListsState(api);
@@ -775,6 +778,24 @@ export function registerAppCommands(): () => void {
         app.contactTarget = null;
         contactForm.reset(null);
         app.open("contact");
+      },
+    }),
+    registry.register({
+      id: "contacts.import",
+      title: m.cmd_contacts_import(),
+      group: m.group_contacts(),
+      keywords: words(m.cmd_contacts_import_keywords()),
+      run: async () => {
+        if (app.view !== "contacts") await app.showContacts();
+        try {
+          const shown = await contactImport.choose(
+            m.contacts_import_pick_title(),
+            m.contacts_import_pick_filter(),
+          );
+          if (shown) app.open("contact-import");
+        } catch (e) {
+          mail.notice = { text: errorText(e), undoable: false };
+        }
       },
     }),
     registry.register({

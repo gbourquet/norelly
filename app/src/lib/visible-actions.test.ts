@@ -3,6 +3,7 @@ import {
   bulkActions,
   contactBulkActions,
   contactMenuActions,
+  contactsHeaderActions,
   contactsToolbar,
   contactListMenuActions,
   contactListToolbar,
@@ -134,6 +135,15 @@ describe("actions de la vue Contacts", () => {
     ]);
     expect(actions.map((a) => a.section ?? 0)).toEqual([0, 0, 0, 0, 1]);
     expect(actions[2]?.label?.()).toBe("Retirer des favoris");
+  });
+
+  it("en-tête de la vue : nouvelle liste puis importer, importer replié dans « Plus… » d'abord", () => {
+    const { primary, more } = contactsHeaderActions();
+    expect(ids(primary)).toEqual(["lists.new", "contacts.import"]);
+    expect(more).toEqual([]);
+    const byPriority = [...primary].sort((a, b) => (a.priority ?? 0) - (b.priority ?? 0));
+    expect(ids(byPriority)).toEqual(["lists.new", "contacts.import"]);
+    expect(primary[1]?.label?.()).toBe("Importer…");
   });
 
   it("barre des contacts cochés : écrire, supprimer, puis ajouter à une liste", () => {

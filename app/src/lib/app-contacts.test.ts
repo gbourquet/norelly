@@ -5,6 +5,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ConversationDto, ConversationMessage, CorrespondentDto } from "./ipc/api";
 
 const listed = vi.hoisted(() => ({ calls: 0 }));
+const picked = vi.hoisted(() => ({
+  result: null as unknown,
+  args: [] as string[],
+}));
 
 vi.mock("./ipc/api", () => ({
   IpcFailure: class extends Error {},
@@ -14,6 +18,11 @@ vi.mock("./ipc/api", () => ({
       return { items: [], next: null };
     }),
     listContacts: vi.fn(async () => ({ items: [], next: null })),
+    previewContactImport: vi.fn(async (title: string, filter: string) => {
+      picked.args = [title, filter];
+      if (picked.result instanceof Error) throw picked.result;
+      return picked.result;
+    }),
     getContact: vi.fn(async (id: number) => ({
       id,
       name: "Alice",
@@ -32,8 +41,17 @@ vi.mock("./ipc/api", () => ({
   },
 }));
 
-const { app, contactForm, contacts, mail, registerAppCommands, registry, runForPerson, search } =
-  await import("./app.svelte");
+const {
+  app,
+  contactForm,
+  contactImport,
+  contacts,
+  mail,
+  registerAppCommands,
+  registry,
+  runForPerson,
+  search,
+} = await import("./app.svelte");
 
 const conversation: ConversationDto = {
   id: 1,
@@ -243,6 +261,42 @@ describe("personnes d'un message et carnet", () => {
     await runForPerson("contacts.show-person", bob);
     expect(app.view).toBe("mail");
     expect(app.personTarget).toBeNull();
+  });
+
+  it("importer : sélecteur aux libellés traduits, aperçu dans sa fenêtre", async () => {
+    expect(enabled("contacts.import")).toBe(true);
+    picked.result = null;
+    await registry.execute("contacts.import", app.context());
+    // Annulé : vue Contacts ouverte, aucune fenêtre.
+    expect(app.view).toBe("contacts");
+    expect(app.dialog).toBeNull();
+    expect(picked.args).toEqual([
+      "Choisir le fichier de contacts à importer",
+      "Fichiers de contacts (vCard, CSV, LDIF)",
+    ]);
+
+    picked.result = {
+      token: 1,
+      file_name: "a.vcf",
+      format: "vcard",
+      cards: 1,
+      skip: { create: 1, complete: 0, duplicates: 0 },
+      complete: { create: 1, complete: 0, duplicates: 0 },
+      renamed: 0,
+      rejected_total: 0,
+      rejected: [],
+    };
+    await registry.execute("contacts.import", app.context());
+    expect(app.dialog).toBe("contact-import");
+    expect(contactImport.preview?.file_name).toBe("a.vcf");
+    app.close();
+
+    // Fichier refusé : message, pas de fenêtre.
+    const { IpcFailure } = await import("./errors");
+    picked.result = new IpcFailure("contact_import_unknown_format");
+    await registry.execute("contacts.import", app.context());
+    expect(app.dialog).toBeNull();
+    expect(mail.notice?.text).toContain("carnet d'adresses reconnu");
   });
 
   it("revenir au courrier relit la liste (noms du carnet à jour)", async () => {

@@ -24,6 +24,7 @@ import StarOffIcon from "@lucide/svelte/icons/star-off";
 import UserPlusIcon from "@lucide/svelte/icons/user-plus";
 import BookUserIcon from "@lucide/svelte/icons/book-user";
 import ListPlusIcon from "@lucide/svelte/icons/list-plus";
+import ImportIcon from "@lucide/svelte/icons/import";
 import PencilIcon from "@lucide/svelte/icons/pencil";
 import { m } from "./paraglide/messages.js";
 
@@ -267,4 +268,21 @@ export function contactListMenuActions(): VisibleAction[] {
     { ...writeList, section: 0 },
     { ...deleteList, section: 1 },
   ];
+}
+
+/** En-tête de la vue Contacts, à côté de « Nouveau contact » : « Importer… »
+ * passe le premier dans « Plus… » si la place manque. */
+export function contactsHeaderActions(): { primary: VisibleAction[]; more: VisibleAction[] } {
+  return {
+    primary: [
+      { command: "lists.new", icon: ListPlusIcon, priority: 1 },
+      {
+        command: "contacts.import",
+        icon: ImportIcon,
+        label: m.contacts_import_button,
+        priority: 2,
+      },
+    ],
+    more: [],
+  };
 }

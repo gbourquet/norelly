@@ -5,7 +5,6 @@
   // « Listes » (listes de diffusion) à la place des contacts.
   import StarIcon from "@lucide/svelte/icons/star";
   import UsersIcon from "@lucide/svelte/icons/users";
-  import ListPlusIcon from "@lucide/svelte/icons/list-plus";
   import XIcon from "@lucide/svelte/icons/x";
   import SearchIcon from "@lucide/svelte/icons/search";
   import UserPlusIcon from "@lucide/svelte/icons/user-plus";
@@ -20,7 +19,9 @@
     contactBulkActions,
     contactListMenuActions,
     contactMenuActions,
+    contactsHeaderActions,
   } from "../lib/visible-actions";
+  import ImportIcon from "@lucide/svelte/icons/import";
   import ActionBar from "./ActionBar.svelte";
   import { VirtualList } from "../lib/virtual-list.svelte";
 
@@ -46,8 +47,9 @@
   }
 
   const bulk = contactBulkActions();
+  const header = contactsHeaderActions();
   const create = $derived(describe("contacts.new"));
-  const createList = $derived(describe("lists.new"));
+  const importer = $derived(describe("contacts.import", m.contacts_import_button()));
 
   /** Contact (ou liste) dont le menu contextuel est ouvert. */
   let pointed = $state<number | null>(null);
@@ -126,15 +128,15 @@
         <UserPlusIcon size={16} aria-hidden="true" />
         <span>{create?.label}</span>
       </button>
-      <button
-        class="btn"
-        type="button"
-        title={createList?.tooltip}
-        onclick={() => void registry.execute("lists.new", context)}
-      >
-        <ListPlusIcon size={16} aria-hidden="true" />
-        <span>{createList?.label}</span>
-      </button>
+      <div class="header-actions">
+        <ActionBar
+          primary={header.primary}
+          more={header.more}
+          {registry}
+          {context}
+          label={m.contacts_header_actions()}
+        />
+      </div>
     </div>
   </header>
   <div class="filters">
@@ -219,6 +221,19 @@
           ? m.contacts_none_found()
           : m.contacts_empty()}
       </p>
+      {#if contacts.text === "" && !contacts.favoritesOnly}
+        <p class="empty-action">
+          <button
+            class="btn"
+            type="button"
+            title={importer?.tooltip}
+            onclick={() => void registry.execute("contacts.import", context)}
+          >
+            <ImportIcon size={16} aria-hidden="true" />
+            <span>{importer?.label}</span>
+          </button>
+        </p>
+      {/if}
     {/if}
   {/if}
   <ContextMenu.Root onOpenChange={(open) => (open ? undefined : point(null))}>
@@ -374,11 +389,37 @@
     border-bottom: var(--border-width) solid var(--color-border);
   }
 
+  header h2 {
+    flex: none;
+  }
+
   .create {
     display: flex;
-    flex-wrap: wrap;
+    flex: 1;
+    min-width: 0;
     justify-content: flex-end;
     gap: var(--space-2);
+  }
+
+  .create > .btn {
+    flex: none;
+    white-space: nowrap;
+  }
+
+  /* Largeur restante : « Importer… », puis « Nouvelle liste », passent
+     dans « Plus… » si elle manque. */
+  .header-actions {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .header-actions :global(.bar) {
+    justify-content: flex-end;
+  }
+
+  .empty-action {
+    padding: 0 var(--space-4) var(--space-4);
+    margin: 0;
   }
 
   .list-icon {

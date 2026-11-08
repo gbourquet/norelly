@@ -5,6 +5,7 @@
 
 use std::collections::HashMap;
 
+use norelly_domain::contact_export::restore_csv_cell;
 use norelly_domain::contact_import::{
     ContactFormat, DecodedContacts, ImportedCard, MAX_IMPORT_CARDS,
 };
@@ -158,9 +159,15 @@ fn card(columns: &[Option<Column>], record: &csv::StringRecord) -> ImportedCard 
     if record.iter().any(|f| f.len() > MAX_FIELD_BYTES) {
         return ImportedCard::Unreadable;
     }
+    // Cellules sans espaces de bord, apostrophe de neutralisation des
+    // formules retirée (règle du domaine).
+    let cells: Vec<&str> = record
+        .iter()
+        .map(|cell| restore_csv_cell(cell.trim()))
+        .collect();
     let mut input = ContactInput::default();
     let mut labels: HashMap<(bool, u32), (String, bool)> = HashMap::new();
-    for (column, cell) in columns.iter().zip(record.iter()) {
+    for (column, cell) in columns.iter().zip(cells.iter().copied()) {
         match column {
             Some(Column::GoogleEmailLabel(n)) => {
                 labels.insert((true, *n), google_label(cell));
@@ -176,7 +183,7 @@ fn card(columns: &[Option<Column>], record: &csv::StringRecord) -> ImportedCard 
             cell.trim().clone_into(field);
         }
     };
-    for (column, cell) in columns.iter().zip(record.iter()) {
+    for (column, cell) in columns.iter().zip(cells.iter().copied()) {
         let Some(column) = column else {
             continue;
         };
@@ -339,5 +346,20 @@ mod tests {
             }]
         );
         assert_eq!(c.phones[0].label, "Mobile");
+    }
+
+    #[test]
+    fn cells_neutralized_against_formulas_are_restored() {
+        let d = decoded(
+            "Name,E-mail 1 - Label,E-mail 1 - Value,Phone 1 - Label,Phone 1 - Value,Notes\n\
+             '=Anne,'-x,anne@example.com,Mobile,'+33 6 12,''=garde une apostrophe\n",
+        );
+        let [ImportedCard::Contact(c)] = &d.cards[..] else {
+            panic!("{:?}", d.cards)
+        };
+        assert_eq!(c.display_name, "=Anne");
+        assert_eq!(c.emails[0].label, "-x");
+        assert_eq!(c.phones[0].number, "+33 6 12");
+        assert_eq!(c.notes, "'=garde une apostrophe");
     }
 }

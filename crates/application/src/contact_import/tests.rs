@@ -23,13 +23,13 @@ fn card(name: &str, emails: &[&str]) -> ImportedCard {
 }
 
 fn codec(cards: Vec<ImportedCard>) -> FakeContactCodec {
-    FakeContactCodec {
-        known: b"fichier".to_vec(),
-        decoded: DecodedContacts {
+    FakeContactCodec::new(
+        b"fichier".to_vec(),
+        DecodedContacts {
             format: ContactFormat::VCard,
             cards,
         },
-    }
+    )
 }
 
 async fn names(book: &InMemoryContactBook) -> Result<Vec<String>, StoreError> {

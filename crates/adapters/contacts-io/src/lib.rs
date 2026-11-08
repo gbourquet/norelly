@@ -13,9 +13,11 @@
 //! fiche est refusé, jamais tronqué.
 
 use icu_normalizer::ComposingNormalizerBorrowed;
+use norelly_domain::contact_export::{ExportCard, ExportFormat, MAX_EXPORT_CONTACTS};
 use norelly_domain::contact_import::{ContactFormat, DecodedContacts, MAX_IMPORT_FILE_BYTES};
 use norelly_domain::ports::{ContactCodec, ContactCodecError, TextNormalizer};
 
+mod encode;
 mod ldif;
 mod tabular;
 mod text;
@@ -53,6 +55,28 @@ impl ContactCodec for ContactsIo {
         } else {
             tabular::decode(&text)
         }
+    }
+
+    fn encode(
+        &self,
+        cards: &[ExportCard],
+        format: ExportFormat,
+    ) -> Result<Vec<u8>, ContactCodecError> {
+        if cards.len() > MAX_EXPORT_CONTACTS {
+            return Err(ContactCodecError::TooManyCards);
+        }
+        let mut out = encode::Output::new();
+        match format {
+            ExportFormat::VCard4 => {
+                encode::vcard::encode(cards, encode::vcard::Version::V4, &mut out)
+            }
+            ExportFormat::VCard3 => {
+                encode::vcard::encode(cards, encode::vcard::Version::V3, &mut out)
+            }
+            ExportFormat::GoogleCsv => encode::csv::encode(cards, &mut out),
+            ExportFormat::Ldif => encode::ldif::encode(cards, &mut out),
+        }?;
+        Ok(out.into_bytes())
     }
 }
 

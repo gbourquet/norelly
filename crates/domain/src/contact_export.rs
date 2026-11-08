@@ -13,7 +13,8 @@ use std::borrow::Cow;
 
 use crate::contact_import::{MAX_IMPORT_CARDS, MAX_IMPORT_FILE_BYTES};
 use crate::contacts::{
-    ContactDraft, ContactEmail, ContactId, MAX_CONTACT_NAME_CHARS, MAX_CONTACT_SELECTION,
+    ContactDraft, ContactEmail, ContactId, ContactSelectionError, MAX_CONTACT_NAME_CHARS,
+    MAX_CONTACT_SELECTION, contact_selection,
 };
 
 /// Nombre maximal de contacts d'un export (celui d'un import).
@@ -68,24 +69,17 @@ pub enum SelectionError {
 }
 
 impl ContactSelection {
-    /// Sélection reçue de l'interface : identifiants valides, au moins
-    /// un, au plus [`MAX_CONTACT_SELECTION`] ; les répétitions sont
-    /// retirées (premier rang gardé).
-    pub fn of(ids: &[i64]) -> Result<Self, SelectionError> {
+    /// Sélection reçue de l'interface : celle d'une action sur plusieurs
+    /// fiches ([`contact_selection`]), non vide.
+    pub fn of<T: Copy + Into<i64>>(ids: &[T]) -> Result<Self, SelectionError> {
+        let ids = contact_selection(ids).map_err(|e| match e {
+            ContactSelectionError::InvalidId => SelectionError::InvalidId,
+            ContactSelectionError::TooMany => SelectionError::TooMany,
+        })?;
         if ids.is_empty() {
             return Err(SelectionError::Empty);
         }
-        let mut kept: Vec<ContactId> = Vec::with_capacity(ids.len().min(MAX_CONTACT_SELECTION));
-        for &raw in ids {
-            let id = ContactId::new(raw).ok_or(SelectionError::InvalidId)?;
-            if !kept.contains(&id) {
-                if kept.len() == MAX_CONTACT_SELECTION {
-                    return Err(SelectionError::TooMany);
-                }
-                kept.push(id);
-            }
-        }
-        Ok(Self::Contacts(kept))
+        Ok(Self::Contacts(ids))
     }
 }
 

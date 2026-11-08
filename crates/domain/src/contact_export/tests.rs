@@ -78,12 +78,12 @@ fn extensions_follow_the_format() {
 fn selection_is_validated_and_deduplicated() {
     let id = |n| ContactId::new(n).unwrap_or_else(|| panic!("id"));
     assert_eq!(
-        ContactSelection::of(&[3, 1, 3]),
+        ContactSelection::of(&[3_i64, 1, 3]),
         Ok(ContactSelection::Contacts(vec![id(3), id(1)]))
     );
-    assert_eq!(ContactSelection::of(&[]), Err(SelectionError::Empty));
+    assert_eq!(ContactSelection::of::<i64>(&[]), Err(SelectionError::Empty));
     assert_eq!(
-        ContactSelection::of(&[1, 0]),
+        ContactSelection::of(&[1_i64, 0]),
         Err(SelectionError::InvalidId)
     );
     let too_many: Vec<i64> = (1..=i64::try_from(MAX_CONTACT_SELECTION).unwrap_or(0) + 1).collect();

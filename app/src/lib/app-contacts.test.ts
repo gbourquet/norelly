@@ -23,6 +23,7 @@ vi.mock("./ipc/api", () => ({
       if (picked.result instanceof Error) throw picked.result;
       return picked.result;
     }),
+    exportContacts: vi.fn(async () => null),
     getContact: vi.fn(async (id: number) => ({
       id,
       name: "Alice",
@@ -44,6 +45,7 @@ vi.mock("./ipc/api", () => ({
 const {
   app,
   contactForm,
+  contactExport,
   contactImport,
   contacts,
   mail,
@@ -297,6 +299,26 @@ describe("personnes d'un message et carnet", () => {
     await registry.execute("contacts.import", app.context());
     expect(app.dialog).toBeNull();
     expect(mail.notice?.text).toContain("carnet d'adresses reconnu");
+  });
+
+  it("exporter : tout le carnet depuis n'importe où, la sélection depuis la vue Contacts", async () => {
+    expect(enabled("contacts.export")).toBe(true);
+    await registry.execute("contacts.export", app.context());
+    expect(app.view).toBe("contacts");
+    expect(app.dialog).toBe("contact-export");
+    expect(contactExport.selection).toEqual({ kind: "all" });
+    app.close();
+
+    contacts.selectedId = null;
+    contacts.clearMarks();
+    expect(enabled("contacts.export-selected")).toBe(false);
+    contacts.marked = [5, 3];
+    expect(enabled("contacts.export-selected")).toBe(true);
+    await registry.execute("contacts.export-selected", app.context());
+    expect(app.dialog).toBe("contact-export");
+    expect(contactExport.selection).toEqual({ kind: "contacts", ids: [5, 3] });
+    app.close();
+    contacts.clearMarks();
   });
 
   it("revenir au courrier relit la liste (noms du carnet à jour)", async () => {

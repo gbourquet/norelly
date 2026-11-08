@@ -33,6 +33,7 @@
   import ContactCard from "./components/ContactCard.svelte";
   import ContactDialog from "./components/ContactDialog.svelte";
   import DeleteContactsDialog from "./components/DeleteContactsDialog.svelte";
+  import ContactExportDialog from "./components/ContactExportDialog.svelte";
   import ContactImportDialog from "./components/ContactImportDialog.svelte";
   import ContactListCard from "./components/ContactListCard.svelte";
   import ContactListDialog from "./components/ContactListDialog.svelte";
@@ -50,6 +51,7 @@
     compose,
     contactDeletion,
     contactForm,
+    contactExport,
     contactImport,
     contacts,
     listDeletion,
@@ -689,6 +691,21 @@
     app.close();
     mail.notice = { text: m.contacts_notice_deleted({ count }), undoable: false };
     void contacts.removed(ids);
+  }}
+/>
+<ContactExportDialog
+  open={app.dialog === "contact-export"}
+  form={contactExport}
+  onClose={() => {
+    contactExport.close();
+    app.close();
+  }}
+  onExported={(outcome) => {
+    app.close();
+    mail.notice = {
+      text: m.contacts_export_notice({ count: outcome.exported, name: outcome.file_name }),
+      undoable: false,
+    };
   }}
 />
 <ContactImportDialog

@@ -15,6 +15,7 @@ import { isEditableFolder } from "./folder-edit.svelte";
 import { ComposeState } from "./compose.svelte";
 import { MailState } from "./mail.svelte";
 import { ContactFormState, ContactsState, DeleteContactsState } from "./contacts.svelte";
+import { ContactExportState } from "./contact-export.svelte";
 import { ContactImportState } from "./contact-import.svelte";
 import {
   AddToListState,
@@ -54,7 +55,8 @@ export type DialogName =
   | "contact-list"
   | "delete-contact-list"
   | "add-to-list"
-  | "contact-import";
+  | "contact-import"
+  | "contact-export";
 
 export interface AppContext {
   selectedAccount: AccountDto | null;
@@ -422,6 +424,7 @@ export const contactForm = new ContactFormState(api);
 /** Confirmation de suppression de contacts. */
 export const contactDeletion = new DeleteContactsState(api);
 export const contactImport = new ContactImportState(api);
+export const contactExport = new ContactExportState(api);
 
 /** Listes de diffusion (section « Listes » de la vue Contacts). */
 export const lists = new ContactListsState(api);
@@ -796,6 +799,30 @@ export function registerAppCommands(): () => void {
         } catch (e) {
           mail.notice = { text: errorText(e), undoable: false };
         }
+      },
+    }),
+    registry.register({
+      id: "contacts.export",
+      title: m.cmd_contacts_export(),
+      group: m.group_contacts(),
+      keywords: words(m.cmd_contacts_export_keywords()),
+      run: async () => {
+        if (app.view !== "contacts") await app.showContacts();
+        contactExport.open({ kind: "all" });
+        app.open("contact-export");
+      },
+    }),
+    registry.register({
+      id: "contacts.export-selected",
+      title: m.cmd_contacts_export_selected(),
+      group: m.group_contacts(),
+      keywords: words(m.cmd_contacts_export_selected_keywords()),
+      when: (ctx) => ctx.contactsView && ctx.contactTargets > 0,
+      run: () => {
+        const ids = app.takeContactTargets();
+        if (ids.length === 0) return;
+        contactExport.open({ kind: "contacts", ids });
+        app.open("contact-export");
       },
     }),
     registry.register({

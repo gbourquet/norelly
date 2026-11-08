@@ -137,17 +137,23 @@ describe("actions de la vue Contacts", () => {
     expect(actions[2]?.label?.()).toBe("Retirer des favoris");
   });
 
-  it("en-tête de la vue : nouvelle liste puis importer, importer replié dans « Plus… » d'abord", () => {
+  it("en-tête de la vue : nouvelle liste, importer, exporter ; exporter replié dans « Plus… » d'abord", () => {
     const { primary, more } = contactsHeaderActions();
-    expect(ids(primary)).toEqual(["lists.new", "contacts.import"]);
+    expect(ids(primary)).toEqual(["lists.new", "contacts.import", "contacts.export"]);
     expect(more).toEqual([]);
     const byPriority = [...primary].sort((a, b) => (a.priority ?? 0) - (b.priority ?? 0));
-    expect(ids(byPriority)).toEqual(["lists.new", "contacts.import"]);
+    expect(ids(byPriority)).toEqual(["lists.new", "contacts.import", "contacts.export"]);
     expect(primary[1]?.label?.()).toBe("Importer…");
+    expect(primary[2]?.label?.()).toBe("Exporter…");
   });
 
-  it("barre des contacts cochés : écrire, supprimer, puis ajouter à une liste", () => {
-    expect(ids(contactBulkActions().primary)).toEqual(["contacts.write", "contacts.delete"]);
+  it("barre des contacts cochés : écrire, supprimer, exporter, puis ajouter à une liste", () => {
+    expect(ids(contactBulkActions().primary)).toEqual([
+      "contacts.write",
+      "contacts.delete",
+      "contacts.export-selected",
+    ]);
+    expect(contactBulkActions().primary[2]?.label?.()).toBe("Exporter…");
     expect(ids(contactBulkActions().more)).toEqual(["contacts.add-to-list"]);
   });
 

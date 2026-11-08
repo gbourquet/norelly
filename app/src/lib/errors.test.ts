@@ -154,6 +154,8 @@ describe("traduction des erreurs IPC", () => {
       contact_import_unknown_format: true,
       contact_import_read_failed: true,
       contact_import_expired: true,
+      contact_export_empty: true,
+      contact_export_too_large: true,
       internal: true,
     } satisfies Record<ErrorCodeDto, true>;
     const fields = {

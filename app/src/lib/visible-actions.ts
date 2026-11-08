@@ -24,6 +24,7 @@ import StarOffIcon from "@lucide/svelte/icons/star-off";
 import UserPlusIcon from "@lucide/svelte/icons/user-plus";
 import BookUserIcon from "@lucide/svelte/icons/book-user";
 import ListPlusIcon from "@lucide/svelte/icons/list-plus";
+import DownloadIcon from "@lucide/svelte/icons/download";
 import ImportIcon from "@lucide/svelte/icons/import";
 import PencilIcon from "@lucide/svelte/icons/pencil";
 import { m } from "./paraglide/messages.js";
@@ -213,6 +214,12 @@ export function contactBulkActions(): { primary: VisibleAction[]; more: VisibleA
     primary: [
       { ...writeContact, priority: 1 },
       { ...deleteContact, priority: 2 },
+      {
+        command: "contacts.export-selected",
+        icon: DownloadIcon,
+        label: m.contacts_export_button,
+        priority: 3,
+      },
     ],
     more: [addToList],
   };
@@ -275,8 +282,8 @@ export function contactListMenuActions(): VisibleAction[] {
   ];
 }
 
-/** En-tête de la vue Contacts, à côté de « Nouveau contact » : « Importer… »
- * passe le premier dans « Plus… » si la place manque. */
+/** En-tête de la vue Contacts, à côté de « Nouveau contact » : « Exporter… »
+ * puis « Importer… » passent dans « Plus… » si la place manque. */
 export function contactsHeaderActions(): { primary: VisibleAction[]; more: VisibleAction[] } {
   return {
     primary: [
@@ -286,6 +293,12 @@ export function contactsHeaderActions(): { primary: VisibleAction[]; more: Visib
         icon: ImportIcon,
         label: m.contacts_import_button,
         priority: 2,
+      },
+      {
+        command: "contacts.export",
+        icon: DownloadIcon,
+        label: m.contacts_export_button,
+        priority: 3,
       },
     ],
     more: [],

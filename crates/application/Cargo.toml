@@ -22,6 +22,8 @@ norelly-sqlite.workspace = true
 norelly-blobs.workspace = true
 norelly-render.workspace = true
 norelly-smtp.workspace = true
+# Import piégé de bout en bout (hostile_message_sql.rs).
+norelly-contacts-io.workspace = true
 
 [lints]
 workspace = true

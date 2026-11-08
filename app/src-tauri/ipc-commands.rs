@@ -53,6 +53,8 @@ const APP_COMMANDS: &[&str] = &[
     "create_contact",
     "update_contact",
     "delete_contacts",
+    "preview_contact_import",
+    "apply_contact_import",
     "list_contact_lists",
     "get_contact_list",
     "create_contact_list",

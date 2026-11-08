@@ -35,6 +35,7 @@ norelly-discovery = { path = "crates/adapters/discovery" }
 norelly-sqlite = { path = "crates/adapters/sqlite" }
 norelly-blobs = { path = "crates/adapters/blobs" }
 norelly-render = { path = "crates/adapters/render" }
+norelly-contacts-io = { path = "crates/adapters/contacts-io" }
 # Infra
 tokio = { version = "1.54", features = ["rt-multi-thread", "macros", "net", "io-util", "time", "sync"] }
 testcontainers = "0.28"
@@ -78,6 +79,10 @@ proptest = { version = "1.7", default-features = false, features = ["std"] }
 # Stockage (ADR-003) : SQLite embarqué ; rusqlite aligné sur rusqlite_migration.
 rusqlite = { version = "0.40", features = ["bundled", "hooks"] }
 rusqlite_migration = "2.6"
+# Fichiers de contacts (ADR-012) : CSV par la crate `csv` (MIT ou
+# Unlicense) ; NFC par icu_normalizer (Unicode-3.0), déjà tirée par idna.
+csv = "1.4"
+icu_normalizer = { version = "2.4", default-features = false, features = ["compiled_data"] }
 # Messages bruts compressés (.eml.zst, ADR-003).
 zstd = "0.13"
 criterion = { version = "0.7", default-features = false, features = ["cargo_bench_support"] }

@@ -65,6 +65,7 @@ relecture prioritaire du mainteneur.
 | `compose` (`draft`, `outbox`) | Réponses, sujets, fils, citation ; brouillon ; file d'envoi |
 | `search` | Syntaxe des requêtes, surlignage |
 | `contacts` | Fiche du carnet d'adresses validée, clé d'adresse, nom affiché, filtre et ordre de la liste (ADR-012) |
+| `contact_import` | Plan d'import d'un carnet : noms en NFC (port `TextNormalizer`), nom imitant une adresse retiré, caractères invisibles refusés, doublons par `AddressKey`, rejets motivés, politique « ignorer » ou « compléter » |
 | `notify`, `settings` | Notifications à émettre ; paramètres |
 | `ports` | Tous les traits (≈ 27) : `RemoteMailboxConnector`, `RemoteMailboxSession`, `MailSender`, `SecretStore`, `MailStore`, `BlobStore`, `PendingOpStore`, `DraftStore`, `OutboxStore`, `SearchIndex`, carnet (`ContactBook`), requêtes d'écran (`FolderTreeQuery`, `ConversationQuery`, `MessageListQuery`, `ContactDirectory`)… |
 
@@ -97,6 +98,7 @@ Orchestration async des ports, sans règle métier propre :
 | `keyring` | `SecretStore` : Secret Service, Credential Manager ; fichier 0600 en dérogation | — |
 | `discovery` | `AutoconfigClient`, `SrvResolver`, `PortProber` | HTTPS seulement |
 | `render` | Rendu MIME → vue, assainissement HTML et CSS, agent, construction MIME sortante, extraction du texte indexé | fichiers sensibles (`sanitize.rs`, `css.rs`, `agent.js`) |
+| `contacts-io` | `ContactCodec` (lecture vCard, CSV Google/Outlook/Thunderbird, LDIF), `TextNormalizer` (NFC) | entrées bornées, fuzzé (`contact_import`) ; fichier lu par le shell, jamais d'URL suivie |
 
 ### Point d'assemblage et adaptateur entrant (`app/src-tauri`)
 

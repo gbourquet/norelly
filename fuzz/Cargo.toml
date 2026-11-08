@@ -19,6 +19,7 @@ libfuzzer-sys = "0.4"
 norelly-domain = { path = "../crates/domain" }
 norelly-render = { path = "../crates/adapters/render" }
 norelly-discovery = { path = "../crates/adapters/discovery" }
+norelly-contacts-io = { path = "../crates/adapters/contacts-io" }
 
 [[bin]]
 name = "mime_message"
@@ -51,6 +52,13 @@ bench = false
 [[bin]]
 name = "search_query"
 path = "fuzz_targets/search_query.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "contact_import"
+path = "fuzz_targets/contact_import.rs"
 test = false
 doc = false
 bench = false

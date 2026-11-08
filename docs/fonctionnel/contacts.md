@@ -197,6 +197,43 @@ l'ordinateur** : rien n'est envoyé à un serveur.
   autres. Les pastilles se modifient ensuite comme les autres
   destinataires.
 
+### Importer des contacts
+
+- But : reprendre en une fois le carnet d'un ancien logiciel (Gmail,
+  Outlook, Thunderbird, Contacts d'Apple, téléphone Android).
+- **Importer…** en haut de la vue Contacts (dans **Plus…** si la colonne
+  est trop étroite), le bouton du carnet vide, ou la palette de
+  commandes, ouvre le sélecteur de fichiers du système. Fichiers lus :
+  vCard (`.vcf`, toutes versions courantes, y compris les anciens exports
+  d'Outlook et d'Android), CSV de Google Contacts, d'Outlook (anglais ou
+  français, virgules ou points-virgules) et de Thunderbird, LDIF de
+  Thunderbird. Le format est reconnu au contenu, pas au nom du fichier ;
+  les accents sont gardés quel que soit l'encodage de l'export.
+- Rien n'est écrit avant confirmation. Une fenêtre résume d'abord ce que
+  l'import va faire : le fichier et son format, le nombre de nouveaux
+  contacts, de fiches déjà dans le carnet, de fiches impossibles à
+  importer. **Voir les fiches impossibles à importer** donne, pour
+  chacune, son rang dans le fichier, son nom et la raison (illisible,
+  sans adresse électronique, adresse invalide, champ trop long ou avec un
+  caractère interdit, trop d'adresses, liste de diffusion).
+- Une fiche est **déjà dans le carnet** si l'une de ses adresses y est,
+  majuscules comprises ; deux fiches du fichier qui partagent une adresse
+  n'en font qu'une. Quand il y en a, la fenêtre propose : **Les laisser
+  tels quels** (par défaut) ou **Les compléter avec le fichier** : les
+  champs vides du contact sont remplis, les adresses et téléphones qui
+  lui manquent ajoutés ; rien n'est effacé ni remplacé, l'adresse
+  préférée et le favori restent. Les chiffres suivent le choix.
+- Un nom (nom affiché, prénom, nom, surnom) qui ressemble à une adresse
+  électronique n'est pas repris : l'adresse s'affiche à sa place. La
+  fenêtre le signale.
+- **Importer** écrit tout en une fois : soit tout l'import réussit, soit
+  rien ne change. Un message annonce ensuite le nombre de contacts
+  ajoutés et complétés. Un contact ajouté entre l'aperçu et l'import est
+  traité comme un doublon.
+- Fichiers refusés en entier, avec un message clair : format inconnu (le
+  message invite à exporter en vCard ou CSV), fichier trop gros (20 Mo)
+  ou trop de contacts (25 000).
+
 ## Sécurité
 
 - Tout ce qui est saisi est affiché comme du **texte**, jamais interprété.
@@ -204,6 +241,10 @@ l'ordinateur** : rien n'est envoyé à un serveur.
   quelle que soit la saisie de l'écran.
 - Le carnet est stocké dans la base locale de l'application, avec les
   messages ; il n'est envoyé à aucun serveur.
+- Un fichier importé est lu par l'application elle-même, taille limitée
+  avant lecture ; l'écran ne reçoit que le résumé. Il ne fait charger
+  aucune ressource extérieure (photo, lien). Les caractères invisibles ou
+  trompeurs d'une fiche importée la font refuser.
 - Le nom du carnet s'affiche d'après l'adresse annoncée par le message,
   que l'expéditeur peut falsifier : il ne prouve pas que le message vient
   bien de ce contact.
@@ -213,6 +254,7 @@ l'ordinateur** : rien n'est envoyé à un serveur.
 - Les notifications de nouveaux messages gardent le nom donné par le
   message.
 - Un nom de fiche qui ressemble à une adresse est accepté à la saisie
-  (il est seulement écarté à l'affichage).
-- Pas encore d'import ni d'export (vCard, CSV, LDIF), ni de recherche
-  des doublons ; les listes ne s'importent ni ne s'exportent.
+  (il est seulement écarté à l'affichage) ; l'import ne le reprend pas.
+- Pas encore d'export (vCard, CSV, LDIF), ni de recherche des doublons
+  déjà présents ; les listes ne s'importent ni ne s'exportent. Photos,
+  adresses postales et anniversaires d'un fichier importé sont ignorés.

@@ -55,6 +55,7 @@ norelly-discovery.workspace = true
 norelly-sqlite.workspace = true
 norelly-blobs.workspace = true
 norelly-render.workspace = true
+norelly-contacts-io.workspace = true
 
 [features]
 updater = ["dep:tauri-plugin-updater"]

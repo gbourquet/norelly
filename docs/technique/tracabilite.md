@@ -432,6 +432,13 @@ Fiche : [contacts.md](../fonctionnel/contacts.md). Décision : ADR-012.
 | Liste choisie à la rédaction : dépliée par Rust (`expand_contact_list`), qui décide aussi du champ (`Expansion::field` : la copie cachée pour une liste « en Cci », quel que soit le champ de saisie) ; chaque membre relu comme une saisie (`parse_recipient`), adresse déjà présente ignorée ; rien n'est ajouté si le brouillon a été refermé ou remplacé entre-temps | `crates/domain/src/contact_lists.rs`, `app/src-tauri/src/contact_lists.rs`, `app/src/lib/compose.svelte.ts` (`addList`), `RecipientInput.svelte` |
 | Section « Listes » de la vue Contacts : 3e filtre, liste ouverte à droite, commandes des contacts neutralisées pendant ce temps ; listes visées : menu d'une ligne, sinon liste ouverte | `app/src/lib/contact-lists.svelte.ts`, `app/src/lib/app.svelte.ts`, `ContactList.svelte`, `ContactListCard.svelte` |
 | Actions visibles : bouton « Nouvelle liste », barre de la liste ouverte, menu contextuel d'une ligne, « Ajouter à une liste… » dans « Plus… » de la fiche, le menu d'un contact et la barre des contacts cochés | `visible-actions.ts` (`contactListToolbar`, `contactListMenuActions`), `ContactListDialog.svelte`, `AddToListDialog.svelte`, `DeleteContactListDialog.svelte` |
+| Import, lecture du fichier (`ContactCodec`, adaptateur `contacts-io`) : vCard 2.1/3.0/4.0 écrit pour le projet (dépliage, sauts souples quoted-printable, `CHARSET`, `ENCODING`, échappements, groupes `item1.`, cartes imbriquées ignorées, `KIND:group` → liste), CSV Google/Outlook/Thunderbird par la crate `csv` (format reconnu à l'en-tête, séparateur `,` `;` tabulation, BOM, repli Windows-1252, UTF-16), LDIF (repli, commentaires, base64, URL ignorées, `groupOfNames` → liste) ; format reconnu au contenu | `crates/adapters/contacts-io/src/{lib,vcard,tabular,ldif,text}.rs` |
+| Entrées bornées : fichier `MAX_IMPORT_FILE_BYTES` (20 Mio, vérifié avant lecture et lecture bornée), `MAX_IMPORT_CARDS` (25 000) fiches, champ lu `MAX_FIELD_BYTES` (64 Kio), 100 adresses ou téléphones lus par fiche ; au-delà fichier refusé ou fiche illisible, jamais tronqué ; propriété ignorée (photo) jamais décodée | `crates/domain/src/contact_import.rs`, `contacts-io/src/lib.rs`, `app/src-tauri/src/contact_import.rs` (`read_contact_file`) |
+| Plan d'import (`plan_import`) : textes en NFC (port `TextNormalizer`, `IcuNfc`), nom imitant une adresse retiré (fiche gardée, comptée), adresses vides ou répétées écartées, une seule préférée, caractères invisibles (Cf, Zl, Zp, sélecteurs de variante, remplisseurs) refusés, fiche revalidée (`ContactDraft::new`) sinon rejetée avec sa raison et un repère nettoyé et borné ; doublons par `AddressKey` contre le carnet et entre fiches du fichier ; « ignorer » ou « compléter » (`complete_contact` : champs vides remplis, adresses et téléphones manquants ajoutés, rien d'écrasé, adresse d'un autre contact jamais prise, limites d'une fiche respectées) | `crates/domain/src/contact_import.rs` |
+| Import en une transaction (`ContactBook::import`) : tout ou rien, adresse prise ou contact inconnu annule tout | `crates/adapters/sqlite/src/contacts.rs`, `crates/test-support/src/contacts_contracts.rs` (`contact_import_contract`) |
+| Cas d'usage : aperçu (deux politiques chiffrées, contacts du carnet lus par `by_addresses` par paquets de `MAX_CONTACT_LOOKUP`), import qui recalcule le plan contre le carnet du moment | `crates/application/src/contact_import.rs` |
+| Commandes IPC `preview_contact_import` (sélecteur natif, fichier lu en Rust, aperçu chiffré et jeton) et `apply_contact_import` (jeton à usage unique, rendu après un échec) ; codes `contact_import_too_large`, `contact_import_too_many_cards`, `contact_import_unknown_format`, `contact_import_read_failed`, `contact_import_expired` ; 100 rejets détaillés au plus, nom de fichier nettoyé | `app/src-tauri/src/contact_import.rs`, `app/src-tauri/src/ipc.rs` |
+| Interface : « Importer… » dans l'en-tête de la vue (repli dans « Plus… ») et dans le carnet vide ; aperçu (fichier, format, ajoutés, complétés, doublons, rejetés et leur raison, noms retirés), choix du sort des doublons proposé seulement s'il y en a, import impossible sans rien à écrire, erreur gardée pour réessayer | `app/src/lib/contact-import.svelte.ts`, `ContactImportDialog.svelte`, `ContactList.svelte`, `visible-actions.ts` (`contactsHeaderActions`) |
 
 ### Clés des messages
 
@@ -443,20 +450,32 @@ Fiche : [contacts.md](../fonctionnel/contacts.md). Décision : ADR-012.
 `compose_suggestions`, `compose_suggestion_contact`, `compose_suggestion_list`,
 `compose_list_option`, `lists_*`, `list_*`, `add_to_list_*`,
 `delete_list_*`, `err_contact_list_*`, `field_contact_list`,
-`field_list_name`, `field_list_description`, `contacts_filter_lists`.
+`field_list_name`, `field_list_description`, `contacts_filter_lists`,
+`contacts_import_*`, `contacts_header_actions`, `cmd_contacts_import*`,
+`err_contact_import_*`.
 
 ### Commandes
 
 `contacts.open`, `contacts.new`, `contacts.edit`, `contacts.write`,
 `contacts.favorite`, `contacts.delete`, `contacts.clear-selection`,
 `contacts.add-person`, `contacts.show-person`, `contacts.add-to-list`,
-`lists.new`, `lists.edit`, `lists.write`, `lists.delete`.
+`lists.new`, `lists.edit`, `lists.write`, `lists.delete`, `contacts.import`.
 
 ### Vérifications et compléments
 
 - Contrats du carnet joués contre le faux et SQLite
   (`crates/test-support/src/contacts_contracts.rs`), dont la recherche sur
-  chaque nom et toutes les adresses d'une fiche.
+  chaque nom et toutes les adresses d'une fiche, et l'import tout ou rien.
+- Contrats de la normalisation NFC et de la lecture des fichiers joués
+  contre les faux et `contacts-io`
+  (`crates/test-support/src/contact_import_contracts.rs`) ; jeux d'essai
+  des exports Gmail (CSV, vCard), Outlook (CSV anglais et français, vCard
+  2.1 en Windows-1252), Apple (vCard 3.0) et Thunderbird (CSV, LDIF)
+  (`crates/adapters/contacts-io/tests/`) ; propriétés (proptest) et cible
+  de fuzzing `contact_import` (lecture puis plan).
+- Scénario de bout en bout de l'import (`app/e2e/specs/contacts-import.e2e.mjs`) :
+  `.vcf` puis CSV Gmail choisis dans le sélecteur natif, doublons
+  reconnus, fiche sans adresse rejetée avec sa raison.
 - Charges d'injection SQL dans tous les champs d'une fiche, comme filtre
   et comme saisie d'un destinataire
   (`crates/application/tests/hostile_message_sql.rs`).

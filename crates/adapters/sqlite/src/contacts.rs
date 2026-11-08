@@ -16,7 +16,7 @@ use norelly_domain::contacts::{
 };
 use norelly_domain::ports::{
     ContactBook, ContactCursor, ContactDirectory, ContactListItem, ContactPage, ContactStoreError,
-    MAX_CONTACT_LOOKUP, MAX_PAGE_SIZE, StoreError,
+    ImportOutcome, MAX_CONTACT_LOOKUP, MAX_PAGE_SIZE, StoreError,
 };
 use rusqlite::{Connection, Row, Transaction, params};
 
@@ -327,6 +327,51 @@ impl ContactBook for SqliteContactBook {
         Ok(self.delete_many(&[id]).await? == 1)
     }
 
+    async fn import(
+        &self,
+        create: &[ContactDraft],
+        complete: &[Contact],
+    ) -> Result<ImportOutcome, ContactStoreError> {
+        let create = create.to_vec();
+        let complete = complete.to_vec();
+        self.db
+            .run(move |c| {
+                let tx = c.transaction().map_err(store_error)?;
+                // Sans commit, la transaction est annulée à sa fermeture.
+                for contact in &complete {
+                    let exists = tx
+                        .prepare_cached("SELECT 1 FROM contacts WHERE id = ?1")
+                        .and_then(|mut s| s.exists(params![contact.id().get()]))
+                        .map_err(store_error)?;
+                    if !exists {
+                        return Ok(Err(ContactStoreError::NotFound));
+                    }
+                    if let Some(address) = taken(&tx, contact.draft(), Some(contact.id()))? {
+                        return Ok(Err(ContactStoreError::DuplicateAddress(address)));
+                    }
+                    write(&tx, contact.id().get(), contact.draft())?;
+                }
+                for draft in &create {
+                    if let Some(address) = taken(&tx, draft, None)? {
+                        return Ok(Err(ContactStoreError::DuplicateAddress(address)));
+                    }
+                    tx.execute(
+                        "INSERT INTO contacts (sort_key, search_text) VALUES ('', '')",
+                        [],
+                    )
+                    .map_err(store_error)?;
+                    let raw = tx.last_insert_rowid();
+                    write(&tx, raw, draft)?;
+                }
+                tx.commit().map_err(store_error)?;
+                Ok(Ok(ImportOutcome {
+                    created: create.len(),
+                    completed: complete.len(),
+                }))
+            })
+            .await?
+    }
+
     async fn delete_many(&self, ids: &[ContactId]) -> Result<usize, ContactStoreError> {
         if ids.is_empty() {
             return Ok(0);
@@ -436,7 +481,7 @@ impl ContactDirectory for SqliteContactBook {
 #[cfg(test)]
 mod tests {
     use norelly_test_support::contacts_contracts::{
-        contact_book_contract, full_contact, sample_contact,
+        contact_book_contract, contact_import_contract, full_contact, sample_contact,
     };
 
     use super::*;
@@ -448,6 +493,11 @@ mod tests {
     #[tokio::test]
     async fn contact_book_passes_contract() -> Result<(), ContactStoreError> {
         contact_book_contract(&book()).await
+    }
+
+    #[tokio::test]
+    async fn contact_book_passes_import_contract() -> Result<(), ContactStoreError> {
+        contact_import_contract(&book()).await
     }
 
     fn count(c: &rusqlite::Connection, table: &'static str) -> Result<i64, StoreError> {

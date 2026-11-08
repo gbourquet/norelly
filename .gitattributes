@@ -6,3 +6,6 @@
 *.ico binary
 *.icns binary
 *.bin binary
+# Jeux d'essai des imports de contacts : octets exacts des exports (CRLF,
+# Windows-1252, BOM), jamais convertis.
+crates/adapters/contacts-io/tests/data/** -text

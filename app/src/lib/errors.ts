@@ -199,6 +199,16 @@ function codeText(code: ErrorCodeDto, field: FieldDto | null): string {
       return m.err_contact_list_too_many_members();
     case "contact_list_empty":
       return m.err_contact_list_empty();
+    case "contact_import_too_large":
+      return m.err_contact_import_too_large();
+    case "contact_import_too_many_cards":
+      return m.err_contact_import_too_many_cards();
+    case "contact_import_unknown_format":
+      return m.err_contact_import_unknown_format();
+    case "contact_import_read_failed":
+      return m.err_contact_import_read_failed();
+    case "contact_import_expired":
+      return m.err_contact_import_expired();
     case "contact_list_not_found":
       return m.err_contact_list_not_found();
     case "internal":

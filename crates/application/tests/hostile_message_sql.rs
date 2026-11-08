@@ -5,7 +5,8 @@
 //! traversent toute la chaîne
 //! réelle : faux serveur IMAP, `mail-parser`, domaine, SQLite sur disque,
 //! fichiers ; puis dans tous les champs d'une fiche du carnet, comme filtre
-//! et comme saisie d'un destinataire. Elles doivent être stockées comme de
+//! et comme saisie d'un destinataire, et dans un fichier de contacts
+//! importé (lecture, plan, import en une transaction, complément). Elles doivent être stockées comme de
 //! simples données : schéma inchangé, base intègre, aucune autre ligne touchée, valeurs relues à
 //! l'identique (une fois assainies pour l'affichage).
 //!
@@ -675,6 +676,120 @@ async fn trapped_contact_lists_cannot_alter_the_database() -> Result<(), Box<dyn
     assert_eq!(book.get_list(renamed.id()).await?, Some(renamed));
     let ids: Vec<_> = created.iter().map(|c| c.id()).collect();
     assert_eq!(book.delete_lists(&ids).await?, PAYLOADS.len());
+
+    assert_eq!(accounts.list().await?, accounts_before, "comptes modifiés");
+    assert_eq!(l.db.integrity_problems().await?, Vec::<String>::new());
+    assert_eq!(l.db.schema().await?, schema_before, "schéma modifié");
+    Ok(())
+}
+
+/// Cellule CSV entre guillemets.
+fn csv_cell(text: &str) -> String {
+    format!("\"{}\"", text.replace('"', "\"\""))
+}
+
+/// Export CSV de Thunderbird dont chaque champ texte porte une charge ;
+/// `extra` : seconde adresse de chaque fiche (complément).
+fn trapped_csv(extra: bool) -> Vec<u8> {
+    let mut out = String::from(
+        "First Name,Last Name,Display Name,Nickname,Primary Email,Secondary Email,Work Phone,Organization,Notes\r\n",
+    );
+    for n in 0..PAYLOADS.len() {
+        let p = |i: usize| PAYLOADS[(n + i) % PAYLOADS.len()];
+        let second = if extra {
+            format!("i{n}.bis@example.org")
+        } else {
+            String::new()
+        };
+        let row = [
+            csv_cell(p(0)),
+            csv_cell(p(1)),
+            csv_cell(p(2)),
+            csv_cell(p(3)),
+            format!("i{n}@example.com"),
+            second,
+            csv_cell(&p(4).chars().take(64).collect::<String>()),
+            csv_cell(p(5)),
+            csv_cell(&PAYLOADS.join("\n")),
+        ];
+        out.push_str(&row.join(","));
+        out.push_str("\r\n");
+    }
+    out.into_bytes()
+}
+
+#[tokio::test]
+async fn trapped_import_cannot_alter_the_database() -> Result<(), Box<dyn std::error::Error>> {
+    use norelly_application::contact_import::{ApplyContactImport, PreviewContactImport};
+    use norelly_contacts_io::{ContactsIo, IcuNfc};
+    use norelly_domain::contact_import::DuplicatePolicy;
+    use norelly_domain::contacts::ContactFilter;
+    use norelly_domain::ports::ContactDirectory;
+    use norelly_sqlite::contacts::SqliteContactBook;
+
+    let l = local("sql-injection-import").await;
+    let schema_before = l.db.schema().await?;
+    let accounts = SqliteAccountRepository::new(l.db.clone());
+    let accounts_before = accounts.list().await?;
+    let book = SqliteContactBook::new(l.db.clone());
+
+    // Fichier piégé lu, chiffré puis importé : chaque fiche, de simples
+    // données.
+    let preview = PreviewContactImport {
+        codec: &ContactsIo,
+        directory: &book,
+        normalizer: &IcuNfc,
+    }
+    .execute(&trapped_csv(false))
+    .await?;
+    assert!(
+        preview.skip.rejected.is_empty(),
+        "{:?}",
+        preview.skip.rejected
+    );
+    assert_eq!(preview.skip.create.len(), PAYLOADS.len());
+    let apply = ApplyContactImport {
+        book: &book,
+        normalizer: &IcuNfc,
+    };
+    let outcome = apply.execute(&preview.cards, DuplicatePolicy::Skip).await?;
+    assert_eq!(outcome.created, PAYLOADS.len());
+    let page = book.page(&ContactFilter::default(), None, 50).await?;
+    assert_eq!(page.items.len(), PAYLOADS.len());
+    for item in &page.items {
+        let contact = book
+            .get(item.id)
+            .await?
+            .unwrap_or_else(|| panic!("fiche {} relue", item.id));
+        assert_eq!(contact.draft().notes(), Some(PAYLOADS.join("\n").as_str()));
+    }
+    // Chaque charge retrouve sa fiche comme filtre.
+    for payload in PAYLOADS {
+        let found = book
+            .page(&ContactFilter::new(payload, false), None, 50)
+            .await?;
+        assert!(!found.items.is_empty(), "{payload:?} : aucune fiche");
+    }
+
+    // Second import piégé : les mêmes fiches complétées d'une adresse.
+    let cards = PreviewContactImport {
+        codec: &ContactsIo,
+        directory: &book,
+        normalizer: &IcuNfc,
+    }
+    .execute(&trapped_csv(true))
+    .await?
+    .cards;
+    let outcome = apply.execute(&cards, DuplicatePolicy::Complete).await?;
+    assert_eq!((outcome.created, outcome.completed), (0, PAYLOADS.len()));
+    let page = book.page(&ContactFilter::default(), None, 50).await?;
+    for item in &page.items {
+        let contact = book
+            .get(item.id)
+            .await?
+            .unwrap_or_else(|| panic!("fiche {} relue", item.id));
+        assert_eq!(contact.draft().emails().len(), 2);
+    }
 
     assert_eq!(accounts.list().await?, accounts_before, "comptes modifiés");
     assert_eq!(l.db.integrity_problems().await?, Vec::<String>::new());

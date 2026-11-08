@@ -24,6 +24,7 @@ import StarOffIcon from "@lucide/svelte/icons/star-off";
 import UserPlusIcon from "@lucide/svelte/icons/user-plus";
 import BookUserIcon from "@lucide/svelte/icons/book-user";
 import ListPlusIcon from "@lucide/svelte/icons/list-plus";
+import ImportIcon from "@lucide/svelte/icons/import";
 import PencilIcon from "@lucide/svelte/icons/pencil";
 import { m } from "./paraglide/messages.js";
 
@@ -225,16 +226,21 @@ export function rowActions(subject: ActionSubject | null): VisibleAction[] {
 /**
  * Boutons gardés visibles dans une largeur donnée : par priorité
  * croissante, tant qu'ils tiennent avec le bouton « Plus… » (`moreWidth`)
- * et les espaces (`gap`) ; le plus prioritaire reste toujours. Largeur
- * disponible nulle (pas encore mesurée) : tout reste visible.
+ * et les espaces (`gap`) ; le plus prioritaire reste toujours. Sans action
+ * secondaire (`secondary` faux), « Plus… » ne compte que s'il sert : tout
+ * reste visible si tout tient sans lui. Largeur disponible nulle (pas
+ * encore mesurée) : tout reste visible.
  */
 export function fitByPriority(
   items: { width: number; priority: number }[],
   available: number,
   moreWidth: number,
   gap: number,
+  secondary = true,
 ): boolean[] {
   if (available <= 0) return items.map(() => true);
+  const all = items.reduce((sum, item, i) => sum + item.width + (i > 0 ? gap : 0), 0);
+  if (!secondary && all <= available) return items.map(() => true);
   const order = items.map((item, index) => ({ ...item, index }));
   order.sort((a, b) => a.priority - b.priority);
   const visible = items.map(() => false);
@@ -267,4 +273,21 @@ export function contactListMenuActions(): VisibleAction[] {
     { ...writeList, section: 0 },
     { ...deleteList, section: 1 },
   ];
+}
+
+/** En-tête de la vue Contacts, à côté de « Nouveau contact » : « Importer… »
+ * passe le premier dans « Plus… » si la place manque. */
+export function contactsHeaderActions(): { primary: VisibleAction[]; more: VisibleAction[] } {
+  return {
+    primary: [
+      { command: "lists.new", icon: ListPlusIcon, priority: 1 },
+      {
+        command: "contacts.import",
+        icon: ImportIcon,
+        label: m.contacts_import_button,
+        priority: 2,
+      },
+    ],
+    more: [],
+  };
 }

@@ -1,0 +1,35 @@
+dn:: Y249SMOpbMOobmUgTGVmw6h2cmUsbWFpbD1oZWxlbmUubGVmZXZyZUBleGFtcGxlLmZy
+objectclass: top
+objectclass: person
+objectclass: organizationalPerson
+objectclass: inetOrgPerson
+objectclass: mozillaAbPersonAlpha
+givenName:: SMOpbMOobmU=
+sn:: TGVmw6h2cmU=
+cn:: SMOpbMOobmUgTGVmw6h2cmU=
+mozillaNickName:: TMOobmU=
+mail: helene.lefevre@example.fr
+mozillaSecondEmail: helene@example.org
+telephoneNumber: 04 77 00 00 00
+mobile: 06 11 22 33 44
+o: Mairie
+description:: VW5lIG5vdGUKc3VyIGRldXggbGlnbmVz
+modifytimestamp: 0Z
+
+dn: cn=Paul Petit,mail=paul.petit@example.com
+objectclass: top
+objectclass: person
+cn: Paul Petit
+givenName: Paul
+sn: Petit
+mail: paul.petit@example.com
+description: Une description repliée sur
+  deux lignes
+
+# Commentaire ignoré
+dn: cn=Amis
+objectclass: top
+objectclass: groupOfNames
+cn: Amis
+member: cn=Paul Petit,mail=paul.petit@example.com
+

@@ -13,6 +13,7 @@
 // suit les traductions sans les recopier.
 import { readFileSync } from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { $, browser, expect } from "@wdio/globals";
 import {
   accountMenu,
@@ -20,6 +21,7 @@ import {
   openContextMenu,
   openMenu,
   password,
+  pickFile,
 } from "../specs/helpers.mjs";
 
 const lang = process.env.NORELLY_E2E_LANG ?? "fr";
@@ -495,6 +497,25 @@ describe(`captures d'écran (${lang})`, () => {
     await menuItem(msg("cmd_contact_edit")).waitForDisplayed();
     await capture("contact-menu");
     await browser.keys("Escape");
+  });
+
+  it("import de contacts (à la souris)", async () => {
+    // Export CSV de Google Contacts des jeux d'essai : aperçu capturé, puis
+    // annulé (les captures suivantes gardent le carnet de la démonstration).
+    const file = path.resolve(
+      path.dirname(fileURLToPath(import.meta.url)),
+      "../../../crates/adapters/contacts-io/tests/data/gmail.csv",
+    );
+    await $(`[role="toolbar"][aria-label="${msg("contacts_header_actions")}"]`)
+      .$(`button=${msg("contacts_import_button")}`)
+      .click();
+    await pickFile(msg("contacts_import_pick_title"), file);
+    const preview = dialogTitled(msg("contacts_import_title"));
+    await preview.waitForDisplayed({ timeout: 20000 });
+    await preview.$(`summary=${msg("contacts_import_rejected_details")}`).click();
+    await capture("contacts-import");
+    await button(msg("common_cancel")).click();
+    await preview.waitForDisplayed({ reverse: true, timeout: 10000 });
   });
 
   it("listes de diffusion (à la souris)", async () => {

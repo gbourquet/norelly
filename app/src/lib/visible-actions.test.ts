@@ -3,6 +3,7 @@ import {
   bulkActions,
   contactBulkActions,
   contactMenuActions,
+  contactsHeaderActions,
   contactsToolbar,
   contactListMenuActions,
   contactListToolbar,
@@ -136,6 +137,15 @@ describe("actions de la vue Contacts", () => {
     expect(actions[2]?.label?.()).toBe("Retirer des favoris");
   });
 
+  it("en-tête de la vue : nouvelle liste puis importer, importer replié dans « Plus… » d'abord", () => {
+    const { primary, more } = contactsHeaderActions();
+    expect(ids(primary)).toEqual(["lists.new", "contacts.import"]);
+    expect(more).toEqual([]);
+    const byPriority = [...primary].sort((a, b) => (a.priority ?? 0) - (b.priority ?? 0));
+    expect(ids(byPriority)).toEqual(["lists.new", "contacts.import"]);
+    expect(primary[1]?.label?.()).toBe("Importer…");
+  });
+
   it("barre des contacts cochés : écrire, supprimer, puis ajouter à une liste", () => {
     expect(ids(contactBulkActions().primary)).toEqual(["contacts.write", "contacts.delete"]);
     expect(ids(contactBulkActions().more)).toEqual(["contacts.add-to-list"]);
@@ -212,6 +222,15 @@ describe("fitByPriority", () => {
     // 3 boutons + « Plus… » : 300 + 60 + 3 × 10 = 390.
     expect(fitByPriority(items, 390, 60, 10)).toEqual([true, false, false, true, true]);
     expect(fitByPriority(items, 389, 60, 10)).toEqual([true, false, false, true, false]);
+  });
+
+  it("sans action secondaire, « Plus… » n'occupe de place que s'il sert", () => {
+    // 5 boutons sans « Plus… » : 500 + 4 × 10 = 540.
+    expect(fitByPriority(items, 540, 60, 10, false)).toEqual([true, true, true, true, true]);
+    // Avec des actions secondaires, « Plus… » reste affiché : sa place est due.
+    expect(fitByPriority(items, 540, 60, 10, true)).toEqual([true, true, false, true, true]);
+    // Un bouton de trop : « Plus… » réapparaît, et sa place avec.
+    expect(fitByPriority(items, 539, 60, 10, false)).toEqual([true, true, false, true, true]);
   });
 
   it("garde toujours le premier bouton, même trop large", () => {

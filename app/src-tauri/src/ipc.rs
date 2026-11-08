@@ -137,6 +137,18 @@ pub enum ErrorCodeDto {
     ContactListEmpty,
     /// Liste introuvable (supprimée entre-temps).
     ContactListNotFound,
+    /// Fichier de contacts trop gros pour être importé.
+    ContactImportTooLarge,
+    /// Trop de fiches dans le fichier de contacts.
+    ContactImportTooManyCards,
+    /// Fichier de contacts d'un format inconnu (ni vCard, ni CSV reconnu,
+    /// ni LDIF).
+    ContactImportUnknownFormat,
+    /// Lecture du fichier de contacts impossible (`detail` : erreur brute
+    /// du système).
+    ContactImportReadFailed,
+    /// Aperçu d'import périmé (remplacé par un autre, ou déjà importé).
+    ContactImportExpired,
     /// Erreur interne (journalisée).
     Internal,
 }
@@ -1390,4 +1402,94 @@ pub struct ExpandedListDto {
     /// Champ où les ranger, décidé par le domaine : la copie cachée pour
     /// une liste « en Cci », quel que soit le champ de saisie.
     pub field: RecipientFieldDto,
+}
+
+/// Format reconnu d'un fichier de contacts importé.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum ContactImportFormatDto {
+    Vcard,
+    GoogleCsv,
+    OutlookCsv,
+    ThunderbirdCsv,
+    Ldif,
+}
+
+/// Que faire d'une fiche déjà dans le carnet.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum DuplicatePolicyDto {
+    /// L'ignorer.
+    Skip,
+    /// Compléter le contact existant sans rien écraser.
+    Complete,
+}
+
+/// Raison du rejet d'une fiche importée.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum ImportRejectReasonDto {
+    /// Fiche illisible (encodage, champ démesuré).
+    Unreadable,
+    /// Liste de diffusion : non importée.
+    List,
+    /// Fiche sans adresse électronique.
+    NoAddress,
+    /// Adresse électronique invalide.
+    InvalidAddress,
+    /// Champ trop long.
+    TooLong,
+    /// Champ avec un caractère interdit.
+    InvalidField,
+    /// Trop d'adresses ou de téléphones.
+    TooManyValues,
+}
+
+/// Fiche rejetée par l'import.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
+pub struct ImportRejectionDto {
+    /// Rang de la fiche dans le fichier, à partir de 1.
+    pub card: u32,
+    /// Nom ou adresse de la fiche (texte du fichier, nettoyé et borné).
+    pub hint: String,
+    pub reason: ImportRejectReasonDto,
+}
+
+/// Bilan d'un import selon une politique de doublons.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Type)]
+pub struct ImportCountsDto {
+    /// Contacts créés.
+    pub create: u32,
+    /// Contacts existants complétés.
+    pub complete: u32,
+    /// Fiches en double laissées de côté.
+    pub duplicates: u32,
+}
+
+/// Aperçu d'un import : à confirmer par `apply_contact_import(token, …)`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
+pub struct ContactImportPreviewDto {
+    pub token: u32,
+    /// Nom du fichier choisi.
+    pub file_name: String,
+    pub format: ContactImportFormatDto,
+    /// Fiches lues dans le fichier.
+    pub cards: u32,
+    /// Bilan si les doublons sont ignorés.
+    pub skip: ImportCountsDto,
+    /// Bilan si les contacts existants sont complétés.
+    pub complete: ImportCountsDto,
+    /// Fiches dont un nom imitant une adresse sera retiré.
+    pub renamed: u32,
+    /// Nombre total de fiches rejetées.
+    pub rejected_total: u32,
+    /// Les premières fiches rejetées (au plus 100).
+    pub rejected: Vec<ImportRejectionDto>,
+}
+
+/// Bilan d'un import écrit.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Type)]
+pub struct ContactImportOutcomeDto {
+    pub created: u32,
+    pub completed: u32,
 }

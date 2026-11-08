@@ -560,4 +560,20 @@ est majoritairement écrit par Claude et relu par le mainteneur.
     propriété de la liste, choisie dans son dialogue ; les listes sont
     proposées par une commande à part (`suggest_contact_lists`),
     `suggest_contacts` restant inchangé ;
+  - import (lot 6) : **écarts au plan validés par le mainteneur le
+    2026-11-08**. La forme NFC des noms importés est décidée par
+    `plan_import` à travers un port `TextNormalizer` (le domaine
+    n'embarque pas les tables Unicode), implémenté dans `contacts-io` par
+    `icu_normalizer`, déjà présent dans l'arbre (`idna`, licence
+    Unicode-3.0) ; un nom importé qui imite une adresse est **retiré**, la
+    fiche gardée (les exports de Gmail mettent souvent l'adresse comme
+    nom) ; les caractères invisibles (Cf, Zl, Zp, sélecteurs de variante,
+    remplisseurs) font rejeter une fiche **importée** seulement : la
+    saisie et les fiches existantes gardent la règle de
+    `ContactDraft::new`. Les deux politiques de doublons (« ignorer »,
+    « compléter » sans rien écraser) sont livrées, choisies dans
+    l'aperçu ; les listes d'un fichier ne sont pas importées ; jeux
+    d'essai **reconstitués** dans la structure des exports réels avec des
+    données fictives, et non de vrais exports anonymisés (écart validé
+    par le mainteneur après coup, le 2026-11-08) ;
   - photos de contact et CardDAV restent au backlog.

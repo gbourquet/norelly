@@ -33,6 +33,7 @@
   import ContactCard from "./components/ContactCard.svelte";
   import ContactDialog from "./components/ContactDialog.svelte";
   import DeleteContactsDialog from "./components/DeleteContactsDialog.svelte";
+  import ContactImportDialog from "./components/ContactImportDialog.svelte";
   import ContactListCard from "./components/ContactListCard.svelte";
   import ContactListDialog from "./components/ContactListDialog.svelte";
   import AddToListDialog from "./components/AddToListDialog.svelte";
@@ -49,6 +50,7 @@
     compose,
     contactDeletion,
     contactForm,
+    contactImport,
     contacts,
     listDeletion,
     listForm,
@@ -687,6 +689,23 @@
     app.close();
     mail.notice = { text: m.contacts_notice_deleted({ count }), undoable: false };
     void contacts.removed(ids);
+  }}
+/>
+<ContactImportDialog
+  open={app.dialog === "contact-import"}
+  form={contactImport}
+  onClose={() => {
+    contactImport.close();
+    app.close();
+  }}
+  onImported={(outcome) => {
+    app.close();
+    mail.notice = {
+      text: m.contacts_import_notice({ created: outcome.created, completed: outcome.completed }),
+      undoable: false,
+    };
+    void contacts.load();
+    if (app.view === "mail") void mail.reload();
   }}
 />
 <ContactListDialog

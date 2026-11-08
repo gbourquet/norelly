@@ -40,6 +40,9 @@ import {
   type UpdateStatusDto_Serialize,
   type ContactCursorDto,
   type ContactDto,
+  type ContactImportOutcomeDto,
+  type ContactImportPreviewDto,
+  type DuplicatePolicyDto,
   type ContactFieldsDto,
   type ContactPageDto_Serialize,
   type ContactListCursorDto,
@@ -54,6 +57,11 @@ import {
 import { IpcFailure } from "../errors";
 
 export type {
+  ContactImportFormatDto,
+  ContactImportOutcomeDto,
+  ContactImportPreviewDto,
+  DuplicatePolicyDto,
+  ImportRejectReasonDto,
   ContactListCursorDto,
   ContactListFieldsDto,
   ContactListItemDto,
@@ -318,6 +326,20 @@ export const api = {
 
   /** Supprime des fiches ; renvoie le nombre de fiches supprimées. */
   deleteContacts: (ids: number[]): Promise<number> => unwrap(commands.deleteContacts(ids)),
+
+  /**
+   * Ouvre le sélecteur de fichiers (titre et nom du filtre localisés), lit
+   * le fichier choisi et en chiffre l'import ; `null` si l'utilisateur
+   * annule.
+   */
+  previewContactImport: (title: string, filter: string): Promise<ContactImportPreviewDto | null> =>
+    unwrap(commands.previewContactImport(title, filter)),
+
+  /** Importe les fiches de l'aperçu `token` en une transaction. */
+  applyContactImport: (
+    token: number,
+    policy: DuplicatePolicyDto,
+  ): Promise<ContactImportOutcomeDto> => unwrap(commands.applyContactImport(token, policy)),
 
   /** Page des listes de diffusion filtrée sur le nom (vide : toutes). */
   listContactLists: (

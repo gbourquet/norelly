@@ -31,6 +31,8 @@ Les versions exactes font foi dans `Cargo.toml` (workspace),
 | `rusqlite` (SQLite embarqué) | 0.40 (`bundled`) | Une base globale, WAL, FTS5 ; `rusqlite_migration` 2.6 | ADR-003 |
 | `zstd` | 0.13 | Compression des messages bruts (`.eml.zst`) | ADR-003 |
 | `reqwest`, `quick-xml`, `hickory-resolver` | 0.13 / 0.42 / 0.26 | Autoconfiguration (HTTPS), XML, SRV | ADR-002 |
+| `csv` | 1.4 | Lecture des exports CSV de contacts (guillemets, champs sur plusieurs lignes) ; vCard et LDIF écrits pour le projet | ADR-012 |
+| `icu_normalizer` | 2.4 (`compiled_data` seule, déjà tirée par `idna`) | Normalisation NFC des noms importés, derrière le port `TextNormalizer` | ADR-012 |
 | `keyring-core` + magasins Secret Service et Windows | 1 | Trousseau du système | ADR-002 |
 | `tokio` | 1.54 | Asynchrone | — |
 | `tracing` | 0.1 (plafonné à DEBUG à la compilation) | Journaux ; TRACE supprimé car `imap-next` y journaliserait les mots de passe | ADR-002 |
@@ -56,8 +58,8 @@ et CSS scopé (ADR-005).
 | Outil | Rôle | ADR |
 |---|---|---|
 | `cargo nextest` | Exécution des tests Rust, profils `default`, `integration`, `stalwart` | ADR-007 |
-| `proptest` | Propriétés (synchronisation, conversations, recherche, rédaction) | ADR-007 |
-| `cargo-fuzz` | Fuzzing nocturne (MIME, HTML, CSS, autoconfig, requêtes) | ADR-007 |
+| `proptest` | Propriétés (synchronisation, conversations, recherche, rédaction, fichiers de contacts) | ADR-007 |
+| `cargo-fuzz` | Fuzzing nocturne (MIME, HTML, CSS, autoconfig, requêtes, fichiers de contacts) | ADR-007 |
 | `testcontainers` | Dovecot, Mailpit, Toxiproxy, Stalwart en conteneurs | ADR-007 |
 | `criterion` | Bancs de performance (liste et recherche sur 50 000 messages) | ADR-007 |
 | `cargo-llvm-cov`, `@vitest/coverage-v8` | Couverture avec seuils | — |

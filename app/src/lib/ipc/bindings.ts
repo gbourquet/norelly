@@ -206,6 +206,17 @@ export const commands = {
 	 */
 	deleteContacts: (ids: number[]) => typedError<number, IpcError_Serialize>(__TAURI_INVOKE("delete_contacts", { ids })),
 	/**
+	 *  Ouvre le sélecteur du système (titre et nom du filtre localisés par
+	 *  l'interface), lit le fichier choisi et en chiffre l'import ; `None` si
+	 *  l'utilisateur annule. L'aperçu précédent est périmé.
+	 */
+	previewContactImport: (title: string, filter: string) => typedError<ContactImportPreviewDto | null, IpcError_Serialize>(__TAURI_INVOKE("preview_contact_import", { title, filter })),
+	/**
+	 *  Importe les fiches de l'aperçu `token` en une transaction, selon
+	 *  `policy` ; le plan est recalculé contre le carnet du moment.
+	 */
+	applyContactImport: (token: number, policy: DuplicatePolicyDto) => typedError<ContactImportOutcomeDto, IpcError_Serialize>(__TAURI_INVOKE("apply_contact_import", { token, policy })),
+	/**
 	 *  Une page des listes filtrée sur le nom (`text` vide : toutes), après
 	 *  `cursor`.
 	 */
@@ -433,6 +444,35 @@ export type ContactFieldsDto = {
 	emails: ContactEmailDto[],
 	phones: ContactPhoneDto[],
 	favorite: boolean,
+};
+
+/**  Format reconnu d'un fichier de contacts importé. */
+export type ContactImportFormatDto = "vcard" | "google_csv" | "outlook_csv" | "thunderbird_csv" | "ldif";
+
+/**  Bilan d'un import écrit. */
+export type ContactImportOutcomeDto = {
+	created: number,
+	completed: number,
+};
+
+/**  Aperçu d'un import : à confirmer par `apply_contact_import(token, …)`. */
+export type ContactImportPreviewDto = {
+	token: number,
+	/**  Nom du fichier choisi. */
+	file_name: string,
+	format: ContactImportFormatDto,
+	/**  Fiches lues dans le fichier. */
+	cards: number,
+	/**  Bilan si les doublons sont ignorés. */
+	skip: ImportCountsDto,
+	/**  Bilan si les contacts existants sont complétés. */
+	complete: ImportCountsDto,
+	/**  Fiches dont un nom imitant une adresse sera retiré. */
+	renamed: number,
+	/**  Nombre total de fiches rejetées. */
+	rejected_total: number,
+	/**  Les premières fiches rejetées (au plus 100). */
+	rejected: ImportRejectionDto[],
 };
 
 /**  Ligne de la liste des contacts. */
@@ -737,6 +777,13 @@ export type DraftsDto = {
 	remote: RemoteDraftDto[],
 };
 
+/**  Que faire d'une fiche déjà dans le carnet. */
+export type DuplicatePolicyDto = 
+/**  L'ignorer. */
+"skip" | 
+/**  Compléter le contact existant sans rien écraser. */
+"complete";
+
 /**  Point de connexion (consentement au clair, exception de certificat). */
 export type EndpointDto = {
 	host: string,
@@ -883,6 +930,22 @@ export type ErrorCodeDto =
 "contact_list_empty" | 
 /**  Liste introuvable (supprimée entre-temps). */
 "contact_list_not_found" | 
+/**  Fichier de contacts trop gros pour être importé. */
+"contact_import_too_large" | 
+/**  Trop de fiches dans le fichier de contacts. */
+"contact_import_too_many_cards" | 
+/**
+ *  Fichier de contacts d'un format inconnu (ni vCard, ni CSV reconnu,
+ *  ni LDIF).
+ */
+"contact_import_unknown_format" | 
+/**
+ *  Lecture du fichier de contacts impossible (`detail` : erreur brute
+ *  du système).
+ */
+"contact_import_read_failed" | 
+/**  Aperçu d'import périmé (remplacé par un autre, ou déjà importé). */
+"contact_import_expired" | 
 /**  Erreur interne (journalisée). */
 "internal";
 
@@ -939,6 +1002,42 @@ export type FolderDto = {
 	selectable: boolean,
 	total: number,
 	unread: number,
+};
+
+/**  Bilan d'un import selon une politique de doublons. */
+export type ImportCountsDto = {
+	/**  Contacts créés. */
+	create: number,
+	/**  Contacts existants complétés. */
+	complete: number,
+	/**  Fiches en double laissées de côté. */
+	duplicates: number,
+};
+
+/**  Raison du rejet d'une fiche importée. */
+export type ImportRejectReasonDto = 
+/**  Fiche illisible (encodage, champ démesuré). */
+"unreadable" | 
+/**  Liste de diffusion : non importée. */
+"list" | 
+/**  Fiche sans adresse électronique. */
+"no_address" | 
+/**  Adresse électronique invalide. */
+"invalid_address" | 
+/**  Champ trop long. */
+"too_long" | 
+/**  Champ avec un caractère interdit. */
+"invalid_field" | 
+/**  Trop d'adresses ou de téléphones. */
+"too_many_values";
+
+/**  Fiche rejetée par l'import. */
+export type ImportRejectionDto = {
+	/**  Rang de la fiche dans le fichier, à partir de 1. */
+	card: number,
+	/**  Nom ou adresse de la fiche (texte du fichier, nettoyé et borné). */
+	hint: string,
+	reason: ImportRejectReasonDto,
 };
 
 /**

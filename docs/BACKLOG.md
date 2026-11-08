@@ -209,6 +209,11 @@ quand le mainteneur l'abandonne (avec la raison).
   remplie reste proposée comme fiche gardée ; pistes : proposer la plus
   ancienne, ne rien cocher d'office, ne pas réunir le favori d'une fiche
   importée.
+- **Captures e2e en sombre et au survol** : `pnpm -C app e2e` ne capture
+  qu'en clair (WebKitWebDriver n'émule ni `prefers-color-scheme` ni le
+  survol) ; lancer les captures avec `GTK_THEME=Adwaita:dark` et des
+  déplacements de souris, pour que la vérification du plan (clair,
+  sombre, survol, menus) se fasse dans l'application réelle.
 
 - **Délai du marquage comme lu dans la fenêtre des réglages** : le réglage
   existe de bout en bout (`Settings::mark_seen_delay_secs`, 5 s par défaut,

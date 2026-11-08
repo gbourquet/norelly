@@ -629,5 +629,11 @@ est majoritairement écrit par Claude et relu par le mainteneur.
     les fiches cochées (aperçu qui signale aussi une fusion trop grosse).
     Conséquence vue sur les captures, validée **après coup** : « Plus… »
     est désormais toujours dans l'en-tête de la vue Contacts, et à
-    1 280 px « Export… » y passe aussi en anglais (gardé tel quel) ;
+    1 280 px « Export… » y passe aussi en anglais (gardé tel quel).
+    Vérification de l'interface, écart de méthode validé **après coup**
+    par le mainteneur : les e2e ne capturent qu'en clair ; le sombre, le
+    survol, le menu « Plus… » et les libellés à 1 280 px ont été vérifiés
+    en montant seuls la fenêtre des doublons et l'en-tête de la vue
+    Contacts (vrais composants, données factices) dans Chrome sans
+    interface, et non dans `tauri dev` ;
   - photos de contact et CardDAV restent au backlog.

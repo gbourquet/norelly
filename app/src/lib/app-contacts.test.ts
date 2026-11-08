@@ -24,6 +24,7 @@ vi.mock("./ipc/api", () => ({
       return picked.result;
     }),
     exportContacts: vi.fn(async () => null),
+    findContactDuplicates: vi.fn(async () => []),
     getContact: vi.fn(async (id: number) => ({
       id,
       name: "Alice",
@@ -45,6 +46,7 @@ vi.mock("./ipc/api", () => ({
 const {
   app,
   contactForm,
+  contactDuplicates,
   contactExport,
   contactImport,
   contacts,
@@ -319,6 +321,16 @@ describe("personnes d'un message et carnet", () => {
     expect(contactExport.selection).toEqual({ kind: "contacts", ids: [5, 3] });
     app.close();
     contacts.clearMarks();
+  });
+
+  it("rechercher les doublons : ouvre la vue Contacts et la fenêtre, recherche lancée", async () => {
+    app.showMail();
+    expect(enabled("contacts.find-duplicates")).toBe(true);
+    await registry.execute("contacts.find-duplicates", app.context());
+    expect(app.view).toBe("contacts");
+    expect(app.dialog).toBe("contact-duplicates");
+    expect(contactDuplicates.finished).toBe(true);
+    app.close();
   });
 
   it("revenir au courrier relit la liste (noms du carnet à jour)", async () => {

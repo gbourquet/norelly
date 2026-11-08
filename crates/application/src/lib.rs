@@ -5,6 +5,7 @@ pub mod accounts;
 pub mod actions;
 pub mod compose;
 pub mod compose_worker;
+pub mod contact_duplicates;
 pub mod contact_export;
 pub mod contact_import;
 pub mod contact_lists;

@@ -444,6 +444,11 @@ Fiche : [contacts.md](../fonctionnel/contacts.md). Décision : ADR-012.
 | Cas d'usage `PrepareContactExport` (vide refusé, au-delà de 25 000 refusé) ; commande IPC `export_contacts` : sélection revalidée, fichier produit hors des fils asynchrones avant le sélecteur d'enregistrement natif, chemin choisi par le système seulement, écriture atomique (`write_atomic` : temporaire voisin créé en exclusivité, synchronisé, renommé, lien remplacé sans être suivi, borne revérifiée) ; codes `contact_export_empty`, `contact_export_too_large`, `write_failed` | `crates/application/src/contact_export.rs`, `app/src-tauri/src/contact_export.rs`, `app/src-tauri/src/ipc.rs` |
 | Interface : « Exporter… » dans l'en-tête de la vue (replié dans « Plus… » le premier) et dans la barre des contacts cochés ; fenêtre du format (vCard 4.0 par défaut, format repris la fois suivante), enregistrement annulé = fenêtre gardée, erreur gardée pour réessayer, message du nombre exporté | `app/src/lib/contact-export.svelte.ts`, `ContactExportDialog.svelte`, `visible-actions.ts` (`contactsHeaderActions`, `contactBulkActions`) |
 | Interface : « Importer… » dans l'en-tête de la vue (repli dans « Plus… ») et dans le carnet vide ; aperçu (fichier, format, ajoutés, complétés, doublons, rejetés et leur raison, noms retirés), choix du sort des doublons proposé seulement s'il y en a, import impossible sans rien à écrire, erreur gardée pour réessayer | `app/src/lib/contact-import.svelte.ts`, `ContactImportDialog.svelte`, `ContactList.svelte`, `visible-actions.ts` (`contactsHeaderActions`) |
+| Doublons (`find_duplicates`) : même nom (`name_key` : nom affiché en NFC par le port `TextNormalizer`, minuscules, mots triés ; fiche sans nom ou nom imitant une adresse écartés) ou même numéro (`phone_key`, `MIN_DUPLICATE_PHONE_DIGITS` = 6 chiffres), groupes par transitivité (union-find), raisons du groupe ; fiche proposée = la plus complète (`completeness`), puis favorite, puis la plus ancienne ; groupes dans l'ordre du nom de leur première fiche ; au plus `MAX_DUPLICATE_GROUPS` (500) groupes de `MAX_DUPLICATE_GROUP_SIZE` (20) fiches, les plus complètes, groupe signalé tronqué | `crates/domain/src/contact_duplicates.rs` |
+| Fusion (`merge_contacts`) : champs vides de la fiche gardée complétés dans l'ordre, rien d'écrasé ; adresses réunies (préférée de la fiche gardée), téléphones réunis au chiffre près, notes distinctes bout à bout, favori si l'une l'est ; bornes d'une fiche revérifiées (`ContactDraft::new`) ; demande revalidée (`MergeSelection` : identifiants valides, 1 à `MAX_MERGED_CONTACTS` fiches absorbées distinctes, sans la fiche gardée) | `crates/domain/src/contact_duplicates.rs` |
+| Fusion en une transaction (`ContactBook::merge`) : fiches relues et comparées à celles qui ont servi au calcul (changée entre-temps : `Conflict`, rien n'est écrit), fiche gardée réécrite, listes de diffusion reportées (à la place de la fiche absorbée, sans doublon de membre), fiches absorbées supprimées ; fiche inconnue ou adresse d'un contact étranger à la fusion : rien n'est écrit | `crates/adapters/sqlite/src/contacts.rs`, `crates/test-support/src/contact_lists_contracts.rs` (`contact_merge_contract`) |
+| Cas d'usage `FindDuplicates` (carnet lu d'un bloc, au-delà de `MAX_DUPLICATE_SCAN` = 25 000 refusé), `PreviewMerge` (fusion calculée sans écriture) et `MergeContacts` (fiches relues, fusion recalculée par le domaine) ; commandes IPC `find_contact_duplicates` (fiches réduites aux champs affichés, sans les notes), `preview_contact_merge` (nom et adresse préférée gardés), `merge_contacts` (l'interface ne désigne que des identifiants) ; codes `contact_duplicates_too_many`, `contact_merge_too_large`, `contact_merge_conflict`, `contact_not_found` | `crates/application/src/contact_duplicates.rs`, `app/src-tauri/src/contact_duplicates.rs`, `app/src-tauri/src/ipc.rs` |
+| Interface : « Rechercher les doublons… » toujours dans « Plus… » de l'en-tête de la vue ; fenêtre « Doublons possibles », un groupe à la fois (« Groupe n sur N », raisons), fiche gardée choisie (cochée d'office), fiches à réunir cochées, aperçu « Après la fusion » (nom, adresse préférée) redemandé à chaque changement, réponse périmée ignorée, « Fusionner » (au moins deux fiches et un aperçu valide), groupe tronqué signalé, « Passer », erreur gardée pour réessayer, message du nombre de groupes fusionnés | `app/src/lib/contact-duplicates.svelte.ts`, `ContactDuplicatesDialog.svelte`, `visible-actions.ts` (`contactsHeaderActions`) |
 
 ### Clés des messages
 
@@ -458,7 +463,9 @@ Fiche : [contacts.md](../fonctionnel/contacts.md). Décision : ADR-012.
 `field_list_name`, `field_list_description`, `contacts_filter_lists`,
 `contacts_import_*`, `contacts_header_actions`, `cmd_contacts_import*`,
 `err_contact_import_*`, `contacts_export_*`, `cmd_contacts_export*`,
-`err_contact_export_*`.
+`err_contact_export_*`, `contacts_duplicates_*`,
+`cmd_contacts_find_duplicates*`, `err_contact_duplicates_*`,
+`err_contact_merge_*`.
 
 ### Commandes
 
@@ -466,7 +473,7 @@ Fiche : [contacts.md](../fonctionnel/contacts.md). Décision : ADR-012.
 `contacts.favorite`, `contacts.delete`, `contacts.clear-selection`,
 `contacts.add-person`, `contacts.show-person`, `contacts.add-to-list`,
 `lists.new`, `lists.edit`, `lists.write`, `lists.delete`, `contacts.import`,
-`contacts.export`, `contacts.export-selected`.
+`contacts.export`, `contacts.export-selected`, `contacts.find-duplicates`.
 
 ### Vérifications et compléments
 
@@ -488,6 +495,11 @@ Fiche : [contacts.md](../fonctionnel/contacts.md). Décision : ADR-012.
   `crates/adapters/contacts-io/tests/roundtrip.rs` ; cible de fuzzing
   `contact_export` (fichier quelconque lu, fiches validées, exportées et
   relues à l'identique).
+- Scénario de bout en bout des doublons
+  (`app/e2e/specs/contacts-duplicates.e2e.mjs`) : deux homonymes (prénom
+  et nom inversés) et un contact au même téléphone, « Rechercher les
+  doublons… » dans « Plus… », fiche la plus complète gardée, fiche
+  décochée laissée de côté, fusion, puis nouvelle recherche.
 - Scénario de bout en bout de l'export
   (`app/e2e/specs/contacts-export.e2e.mjs`) : tout le carnet en vCard 4.0
   depuis l'en-tête, contact coché en CSV depuis la barre de sélection,

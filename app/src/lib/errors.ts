@@ -213,6 +213,12 @@ function codeText(code: ErrorCodeDto, field: FieldDto | null): string {
       return m.err_contact_export_empty();
     case "contact_export_too_large":
       return m.err_contact_export_too_large();
+    case "contact_duplicates_too_many":
+      return m.err_contact_duplicates_too_many();
+    case "contact_merge_too_large":
+      return m.err_contact_merge_too_large();
+    case "contact_merge_conflict":
+      return m.err_contact_merge_conflict();
     case "contact_list_not_found":
       return m.err_contact_list_not_found();
     case "internal":

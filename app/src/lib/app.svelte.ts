@@ -16,6 +16,7 @@ import { ComposeState } from "./compose.svelte";
 import { MailState } from "./mail.svelte";
 import { ContactFormState, ContactsState, DeleteContactsState } from "./contacts.svelte";
 import { ContactExportState } from "./contact-export.svelte";
+import { ContactDuplicatesState } from "./contact-duplicates.svelte";
 import { ContactImportState } from "./contact-import.svelte";
 import {
   AddToListState,
@@ -56,7 +57,8 @@ export type DialogName =
   | "delete-contact-list"
   | "add-to-list"
   | "contact-import"
-  | "contact-export";
+  | "contact-export"
+  | "contact-duplicates";
 
 export interface AppContext {
   selectedAccount: AccountDto | null;
@@ -425,6 +427,7 @@ export const contactForm = new ContactFormState(api);
 export const contactDeletion = new DeleteContactsState(api);
 export const contactImport = new ContactImportState(api);
 export const contactExport = new ContactExportState(api);
+export const contactDuplicates = new ContactDuplicatesState(api);
 
 /** Listes de diffusion (section « Listes » de la vue Contacts). */
 export const lists = new ContactListsState(api);
@@ -823,6 +826,17 @@ export function registerAppCommands(): () => void {
         if (ids.length === 0) return;
         contactExport.open({ kind: "contacts", ids });
         app.open("contact-export");
+      },
+    }),
+    registry.register({
+      id: "contacts.find-duplicates",
+      title: m.cmd_contacts_find_duplicates(),
+      group: m.group_contacts(),
+      keywords: words(m.cmd_contacts_find_duplicates_keywords()),
+      run: async () => {
+        if (app.view !== "contacts") await app.showContacts();
+        app.open("contact-duplicates");
+        await contactDuplicates.open();
       },
     }),
     registry.register({

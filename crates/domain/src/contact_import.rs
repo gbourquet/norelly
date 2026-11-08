@@ -432,7 +432,7 @@ fn hint(input: &ContactInput) -> String {
 
 /// Clé de comparaison d'un numéro : ses chiffres et `+` (« 01 23 » et
 /// « 0123 » sont le même numéro), sinon le numéro en minuscules.
-fn phone_key(number: &str) -> String {
+pub(crate) fn phone_key(number: &str) -> String {
     let digits: String = number
         .chars()
         .filter(|c| c.is_ascii_digit() || *c == '+')

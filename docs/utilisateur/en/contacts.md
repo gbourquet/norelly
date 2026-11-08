@@ -163,6 +163,28 @@ spreadsheet, a number starting with “+” shows with an apostrophe in front:
 this is on purpose, so that the spreadsheet does not take it for a
 formula.
 
+## Merging duplicates
+
+If the same person appears several times in your contacts (after an
+import, for example):
+
+1. In **Contacts**, click **More…** at the top of the list, then **Find
+   duplicates…**.
+2. Norelly shows, one group at a time, the contacts that share the same
+   name or the same phone number. Check that they really are the same
+   person; uncheck a card to leave it out.
+3. Choose the card to keep (**Keep this card**), then click **Merge**.
+   Under the kept card, Norelly shows the name and preferred address the
+   contact will have after merging. Or click **Skip** to see the next
+   group without changing anything.
+
+![Finding duplicates: two cards for Alice Martin](captures/contacts-duplicates.png)
+
+The kept card receives the addresses, phone numbers and notes of the
+others, and fills in its empty fields; nothing it already held is
+replaced. It takes their place in your mailing lists, then the other
+cards are deleted.
+
 ## Deleting contacts
 
 - One contact: on their card, click **Delete contact**, then confirm.

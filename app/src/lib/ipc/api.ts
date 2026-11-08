@@ -40,6 +40,8 @@ import {
   type UpdateStatusDto_Serialize,
   type ContactCursorDto,
   type ContactDto,
+  type ContactDuplicateGroupDto,
+  type ContactMergePreviewDto,
   type ContactImportOutcomeDto,
   type ContactImportPreviewDto,
   type ContactExportFormatDto,
@@ -74,6 +76,10 @@ export type {
   ExpandedListDto,
   ContactCursorDto,
   ContactDto,
+  ContactDuplicateGroupDto,
+  ContactMergePreviewDto,
+  DuplicateCardDto,
+  DuplicateReasonDto,
   ContactEmailDto,
   ContactFieldsDto,
   ContactPhoneDto,
@@ -359,6 +365,19 @@ export const api = {
     filter: string,
   ): Promise<ContactExportOutcomeDto | null> =>
     unwrap(commands.exportContacts(selection, format, title, filter)),
+
+  /** Groupes de doublons du carnet, la fiche proposée à garder d'abord. */
+  findContactDuplicates: (): Promise<ContactDuplicateGroupDto[]> =>
+    unwrap(commands.findContactDuplicates()),
+
+  /** Nom et adresse préférée que garderait `keep` après la fusion des
+   * fiches `others`, sans rien écrire. */
+  previewContactMerge: (keep: number, others: number[]): Promise<ContactMergePreviewDto> =>
+    unwrap(commands.previewContactMerge(keep, others)),
+
+  /** Fusionne les fiches `others` dans `keep` ; renvoie la fiche gardée. */
+  mergeContacts: (keep: number, others: number[]): Promise<ContactDto> =>
+    unwrap(commands.mergeContacts(keep, others)),
 
   /** Page des listes de diffusion filtrée sur le nom (vide : toutes). */
   listContactLists: (

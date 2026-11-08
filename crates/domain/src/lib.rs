@@ -20,6 +20,7 @@
 //! - [`search`] : syntaxe des requêtes de recherche, surlignage ;
 //! - [`contacts`] : carnet d'adresses (fiche, nom affiché, filtre) ;
 //! - [`contact_import`] : plan d'import d'un carnet (doublons, rejets) ;
+//! - [`contact_duplicates`] : doublons du carnet et fusion des fiches ;
 //! - [`contact_lists`] : listes de diffusion (nom unique, expansion) ;
 //! - [`sender`] : nom affiché d'un correspondant (carnet, en-tête) ;
 //! - [`ports`] : traits implémentés par les adaptateurs.
@@ -31,6 +32,7 @@ pub mod auth;
 pub mod capabilities;
 pub mod compose;
 pub mod connection;
+pub mod contact_duplicates;
 pub mod contact_export;
 pub mod contact_import;
 pub mod contact_lists;

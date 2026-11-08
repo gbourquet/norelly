@@ -3,14 +3,15 @@
 //! ([`InMemoryContactBook`]) et contre SQLite : les listes vivent dans le
 //! carnet, à côté des contacts qu'elles regroupent.
 
+use norelly_domain::address::EmailAddress;
 use norelly_domain::contact_lists::{
     ContactList, ContactListDraft, ContactListFilter, ContactListId, ContactListInput,
 };
-use norelly_domain::contacts::{ContactId, MAX_CONTACT_NAME_CHARS};
+use norelly_domain::contacts::{AddressKey, ContactId, MAX_CONTACT_NAME_CHARS};
 use norelly_domain::ports::{
     ContactBook, ContactDirectory, ContactListBook, ContactListCursor, ContactListDirectory,
-    ContactListPage, ContactListStoreError, ContactListSummary, MAX_CONTACT_LIST_SORT_KEY_CHARS,
-    MAX_PAGE_SIZE, StoreError,
+    ContactListPage, ContactListStoreError, ContactListSummary, ContactStoreError,
+    MAX_CONTACT_LIST_SORT_KEY_CHARS, MAX_PAGE_SIZE, StoreError,
 };
 
 use crate::contacts_contracts::{InMemoryContactBook, sample_contact};
@@ -280,6 +281,136 @@ where
     Ok(())
 }
 
+/// Contrat de la fusion de contacts ([`ContactBook::merge`]) : listes de
+/// diffusion reportées, tout ou rien (carnet vide au départ).
+pub async fn contact_merge_contract<B>(book: &B) -> Result<(), ContactListStoreError>
+where
+    B: ContactBook + ContactDirectory + ContactListBook + ContactListDirectory,
+{
+    let store = |e: ContactStoreError| ContactListStoreError::Store(StoreError(e.to_string()));
+    let contact = |name: &'static str, addresses: &'static [&'static str]| async move {
+        book.create(&sample_contact(name, addresses))
+            .await
+            .map_err(store)
+    };
+    let first_read = contact("Alice", &["a1@example.com", "a1b@example.com"]).await?;
+    let second_read = contact("Alice", &["a2@example.com"]).await?;
+    let third_stale = contact("Alice", &["a3@example.com"]).await?;
+    let (first, second, third) = (first_read.id(), second_read.id(), third_stale.id());
+    let bob = contact("Bob", &["bob@example.net"]).await?.id();
+    let club = book
+        .create_list(&sample_list("Club", &[bob, second, third], false))
+        .await?;
+    let famille = book
+        .create_list(&sample_list("Famille", &[first, second], true))
+        .await?;
+    let voisins = book
+        .create_list(&sample_list("Voisins", &[third], false))
+        .await?;
+    let members = |list: ContactListId| async move {
+        book.get_list(list)
+            .await
+            .map(|l| l.map(|l| l.draft().members().to_vec()).unwrap_or_default())
+    };
+    let merged = sample_contact(
+        "Alice Martin",
+        &[
+            "a1@example.com",
+            "a1b@example.com",
+            "a2@example.com",
+            "a3@example.com",
+            "a3b@example.com",
+        ],
+    );
+    let unknown = sample_contact("Inconnue", &["x@example.com"])
+        .with_id(ContactId::new(i64::MAX).unwrap_or_else(|| panic!("id")));
+    // La troisième fiche change après avoir été lue.
+    let third_read = book
+        .update(
+            third,
+            &sample_contact("Alice", &["a3@example.com", "a3b@example.com"]),
+        )
+        .await
+        .map_err(store)?;
+
+    // Tout ou rien : fiche inconnue, fiche changée depuis sa lecture ou
+    // adresse d'un contact étranger à la fusion, et rien ne change.
+    assert_eq!(
+        book.merge(
+            &first_read,
+            &merged,
+            &[second_read.clone(), unknown.clone()]
+        )
+        .await,
+        Err(ContactStoreError::NotFound)
+    );
+    assert_eq!(
+        book.merge(&unknown, &merged, std::slice::from_ref(&second_read))
+            .await,
+        Err(ContactStoreError::NotFound)
+    );
+    assert_eq!(
+        book.merge(
+            &first_read,
+            &merged,
+            &[second_read.clone(), third_stale.clone()]
+        )
+        .await,
+        Err(ContactStoreError::Conflict)
+    );
+    let first_stale = sample_contact("Alice", &["a1@example.com"]).with_id(first);
+    assert_eq!(
+        book.merge(
+            &first_stale,
+            &merged,
+            &[second_read.clone(), third_read.clone()]
+        )
+        .await,
+        Err(ContactStoreError::Conflict)
+    );
+    let stolen = sample_contact("Alice", &["a1@example.com", "BOB@example.net"]);
+    assert_eq!(
+        book.merge(&first_read, &stolen, std::slice::from_ref(&second_read))
+            .await,
+        Err(ContactStoreError::DuplicateAddress(
+            EmailAddress::parse("BOB@example.net").unwrap_or_else(|e| panic!("{e}"))
+        ))
+    );
+    for id in [first, second, third] {
+        assert!(book.get(id).await?.is_some(), "fiche touchée par un refus");
+    }
+    assert_eq!(book.get(first).await?, Some(first_read.clone()));
+    assert_eq!(book.get(third).await?, Some(third_read.clone()));
+    assert_eq!(members(club.id()).await?, [bob, second, third]);
+    assert_eq!(members(famille.id()).await?, [first, second]);
+
+    // Fusion : la fiche gardée prend le contenu et les adresses des autres,
+    // qui disparaissent ; elle les remplace dans leurs listes, à leur
+    // place, sans y figurer deux fois.
+    let kept = book
+        .merge(&first_read, &merged, &[second_read, third_read])
+        .await
+        .map_err(store)?;
+    assert_eq!(kept, merged.clone().with_id(first));
+    assert_eq!(book.get(first).await?, Some(kept.clone()));
+    assert_eq!(book.get(second).await?, None);
+    assert_eq!(book.get(third).await?, None);
+    let owner = book
+        .by_addresses(&[AddressKey::parse("a3b@example.com").unwrap_or_else(|e| panic!("{e}"))])
+        .await?;
+    assert_eq!(owner, [kept]);
+    assert_eq!(members(club.id()).await?, [bob, first]);
+    assert_eq!(members(famille.id()).await?, [first]);
+    assert_eq!(members(voisins.id()).await?, [first]);
+    assert_eq!(
+        book.get_list(famille.id()).await?.map(|l| l.draft().bcc()),
+        Some(true),
+        "liste modifiée au-delà de ses membres"
+    );
+    assert!(book.get(bob).await?.is_some());
+    Ok(())
+}
+
 /// Refus d'une écriture : nom pris par une autre liste que `except`, ou
 /// membre absent du carnet.
 fn refused(
@@ -392,5 +523,10 @@ mod tests {
     #[tokio::test]
     async fn in_memory_contact_lists_pass_contract() -> Result<(), ContactListStoreError> {
         contact_list_contract(&InMemoryContactBook::default()).await
+    }
+
+    #[tokio::test]
+    async fn in_memory_contact_merge_passes_contract() -> Result<(), ContactListStoreError> {
+        contact_merge_contract(&InMemoryContactBook::default()).await
     }
 }

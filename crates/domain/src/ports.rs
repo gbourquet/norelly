@@ -1288,6 +1288,9 @@ pub enum ContactStoreError {
     DuplicateAddress(EmailAddress),
     #[error("contact inconnu")]
     NotFound,
+    /// Une fiche a changé depuis sa lecture (fusion).
+    #[error("contact modifié entre-temps")]
+    Conflict,
     #[error("données de contact corrompues : {0}")]
     Corrupted(String),
     #[error(transparent)]
@@ -1335,6 +1338,22 @@ pub trait ContactBook: Send + Sync {
         create: &[ContactDraft],
         complete: &[Contact],
     ) -> impl Future<Output = Result<ImportOutcome, ContactStoreError>> + Send;
+
+    /// Fusionne en une transaction ([`crate::contact_duplicates`]) : la
+    /// fiche `keep` prend le contenu `draft`, elle remplace chaque fiche
+    /// `absorbed` dans ses listes de diffusion (à sa place, sauf si `keep`
+    /// y figure déjà), puis les fiches `absorbed` sont supprimées. `keep`
+    /// et `absorbed` sont les fiches telles que lues pour calculer
+    /// `draft`. Tout ou rien : une fiche inconnue (`NotFound`), une fiche
+    /// qui a changé depuis (`Conflict`) ou une adresse de `draft` portée
+    /// par un contact étranger à la fusion (`DuplicateAddress`) annule
+    /// tout.
+    fn merge(
+        &self,
+        keep: &Contact,
+        draft: &ContactDraft,
+        absorbed: &[Contact],
+    ) -> impl Future<Output = Result<Contact, ContactStoreError>> + Send;
 }
 
 /// Bilan d'un import écrit dans le carnet.

@@ -30,13 +30,6 @@ quand le mainteneur l'abandonne (avec la raison).
 
 ## Interface et fonctionnalités
 
-- **Carnet d'adresses** : epic planifiée dans
-  [plans/carnet-adresses.md](plans/carnet-adresses.md) (ADR-012) ; lots 1
-  (modèle, ports, stockage, cas d'usage), 2 (vue Contacts : ajouter,
-  modifier, supprimer, favoris, écrire), 3 (nom du carnet dans le
-  courrier, « Ajouter au carnet », « Voir le contact ») et 4 (suggestions
-  de destinataires depuis le carnet, saisie lue en Rust) et 5 (listes de
-  diffusion) livrés, lots 6 à 8 à faire.
 - **Carnet : découvert au lot 5** :
   - l'expansion d'une liste relit ses membres un par un
     (`ContactDirectory::get`, 100 lectures au plus) : un port qui rend des
@@ -198,6 +191,22 @@ quand le mainteneur l'abandonne (avec la raison).
 - **Photos de contact** : `PHOTO` des vCard ignorée à l'import ; une image
   venue d'un fichier tiers passe par le même contrôle que les pièces
   jointes et le rendu (revue de sécurité) ; initiales en attendant.
+- **Doublons du carnet : groupes écartés et critères** (lot 8) : un groupe
+  « passé » est reproposé à chaque recherche ; retenir les paires écartées
+  (migration, effacées quand une fiche change ou disparaît). Critères
+  laissés de côté : noms sans les accents (tables Unicode hors du
+  domaine), équivalences d'adresses propres à un fournisseur (Gmail :
+  points, `googlemail.com`). Revue de sécurité (basse, traitée en
+  partie : l'aperçu montre le nom et l'adresse préférée gardés) : pour un
+  groupe rapproché par le seul téléphone, une fiche importée hostile très
+  remplie reste proposée comme fiche gardée ; pistes : proposer la plus
+  ancienne, ne rien cocher d'office, ne pas réunir le favori d'une fiche
+  importée.
+- **Captures e2e en sombre et au survol** : `pnpm -C app e2e` ne capture
+  qu'en clair (WebKitWebDriver n'émule ni `prefers-color-scheme` ni le
+  survol) ; lancer les captures avec `GTK_THEME=Adwaita:dark` et des
+  déplacements de souris, pour que la vérification du plan (clair,
+  sombre, survol, menus) se fasse dans l'application réelle.
 
 - **Délai du marquage comme lu dans la fenêtre des réglages** : le réglage
   existe de bout en bout (`Settings::mark_seen_delay_secs`, 5 s par défaut,

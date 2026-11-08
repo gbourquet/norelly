@@ -598,4 +598,42 @@ est majoritairement écrit par Claude et relu par le mainteneur.
     une fenêtre ; listes de diffusion non exportées. Conséquence vue sur
     les captures, validée **après coup** : à 1 280 px, « Importer… »
     passe aussi dans « Plus… » de l'en-tête (gardé tel quel) ;
+  - doublons (lot 8) : **règles validées par le mainteneur le
+    2026-11-08, avant le code**. Écart au plan : deux contacts ne
+    partagent jamais une adresse (index unique, l'import « ignorer »
+    écarte la fiche entière), le critère « adresses qui se recoupent »
+    est remplacé par le **téléphone**. Sont proposés comme doublons les
+    contacts de **même nom** (nom affiché comparé mot à mot en NFC, sans
+    casse ni ordre des mots, un seul mot suffit ; fiche sans nom ou nom
+    imitant une adresse écartés) ou de **même numéro** (chiffres et `+`,
+    au moins 6 chiffres), regroupés par transitivité. La **fusion**
+    garde la fiche choisie par l'utilisateur (par défaut la plus
+    complète), complète ses champs vides par les autres fiches sans rien
+    écraser, réunit adresses (la préférée reste celle de la fiche
+    gardée) et téléphones (au chiffre près), met les notes distinctes
+    bout à bout (ligne vide entre deux), garde le favori si l'une l'est,
+    reporte les listes de diffusion des fiches absorbées et supprime
+    celles-ci, en une transaction. Une fusion qui dépasserait les bornes
+    d'une fiche (20 adresses, 20 téléphones, 10 000 caractères de notes)
+    est refusée. « Rechercher les doublons… » dans « Plus… » de l'en-tête
+    de la vue Contacts ouvre une fenêtre qui présente les groupes un par
+    un (« Fusionner », « Passer ») ; un groupe passé n'est pas mémorisé
+    (backlog). Suites de la revue de sécurité, **validées par le
+    mainteneur le 2026-11-08, avant le code** : un groupe garde au plus
+    20 fiches (les plus complètes ; groupe signalé « tronqué »), une
+    recherche renvoie au plus 500 groupes, et l'écran ne reçoit que les
+    champs affichés (pas les notes) ; la fusion relit les fiches dans sa
+    transaction et refuse sans rien écrire si l'une a changé depuis la
+    recherche (`Conflict`) ; avant de fusionner, la fenêtre montre le nom
+    et l'adresse préférée que gardera la fiche, calculés par Rust pour
+    les fiches cochées (aperçu qui signale aussi une fusion trop grosse).
+    Conséquence vue sur les captures, validée **après coup** : « Plus… »
+    est désormais toujours dans l'en-tête de la vue Contacts, et à
+    1 280 px « Export… » y passe aussi en anglais (gardé tel quel).
+    Vérification de l'interface, écart de méthode validé **après coup**
+    par le mainteneur : les e2e ne capturent qu'en clair ; le sombre, le
+    survol, le menu « Plus… » et les libellés à 1 280 px ont été vérifiés
+    en montant seuls la fenêtre des doublons et l'en-tête de la vue
+    Contacts (vrais composants, données factices) dans Chrome sans
+    interface, et non dans `tauri dev` ;
   - photos de contact et CardDAV restent au backlog.

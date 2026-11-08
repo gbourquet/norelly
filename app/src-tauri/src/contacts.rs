@@ -37,7 +37,7 @@ fn field_dto(field: ContactField) -> FieldDto {
 
 /// Échec d'un cas d'usage du carnet, en code ; une adresse refusée est
 /// citée d'après la saisie `typed` (adresses dans l'ordre reçu).
-fn contact_error(e: ContactFailure, typed: &[String]) -> IpcError {
+pub(crate) fn contact_error(e: ContactFailure, typed: &[String]) -> IpcError {
     let quoted = |code: ErrorCodeDto, index: usize| {
         let e = IpcError::new(code);
         match typed.get(index) {
@@ -73,6 +73,7 @@ fn contact_error(e: ContactFailure, typed: &[String]) -> IpcError {
                 IpcError::new(ErrorCodeDto::ContactDuplicateAddress).with_detail(address)
             }
             ContactStoreError::NotFound => IpcError::new(ErrorCodeDto::ContactNotFound),
+            ContactStoreError::Conflict => IpcError::new(ErrorCodeDto::ContactMergeConflict),
             ContactStoreError::Corrupted(e) => IpcError::storage(e),
             ContactStoreError::Store(e) => IpcError::storage(e),
         },
@@ -120,7 +121,7 @@ fn input_of(dto: ContactFieldsDto) -> ContactInput {
     }
 }
 
-fn contact_dto(contact: &Contact) -> Result<ContactDto, IpcError> {
+pub(crate) fn contact_dto(contact: &Contact) -> Result<ContactDto, IpcError> {
     let draft = contact.draft();
     let input = draft.to_input();
     Ok(ContactDto {

@@ -623,6 +623,66 @@ impl ContactBook for InMemoryContactBook {
         })
     }
 
+    async fn merge(
+        &self,
+        keep: &Contact,
+        draft: &ContactDraft,
+        absorbed: &[Contact],
+    ) -> Result<Contact, ContactStoreError> {
+        let read: Vec<Contact> = std::iter::once(keep).chain(absorbed).cloned().collect();
+        let keep = keep.id();
+        let absorbed: Vec<ContactId> = absorbed.iter().map(Contact::id).collect();
+        let mut state = self.lock();
+        let known = |id: &ContactId| state.1.iter().any(|c| c.id() == *id);
+        if !known(&keep) || !absorbed.iter().all(known) {
+            return Err(ContactStoreError::NotFound);
+        }
+        // Chaque fiche telle qu'elle a été lue pour calculer la fusion.
+        if read
+            .iter()
+            .any(|r| state.1.iter().find(|c| c.id() == r.id()) != Some(r))
+        {
+            return Err(ContactStoreError::Conflict);
+        }
+        let others: Vec<Contact> = state
+            .1
+            .iter()
+            .filter(|c| c.id() != keep && !absorbed.contains(&c.id()))
+            .cloned()
+            .collect();
+        if let Some(address) = taken(&others, draft, None) {
+            return Err(ContactStoreError::DuplicateAddress(address));
+        }
+        let mut lists = self.lock_lists();
+        for list in &mut lists.1 {
+            let mut members: Vec<ContactId> = list.draft().members().to_vec();
+            for gone in &absorbed {
+                let Some(at) = members.iter().position(|m| m == gone) else {
+                    continue;
+                };
+                if members.contains(&keep) {
+                    members.remove(at);
+                } else {
+                    members[at] = keep;
+                }
+            }
+            if members != list.draft().members() {
+                let draft = ContactListDraft::new(ContactListInput {
+                    members: members.iter().map(|m| m.get()).collect(),
+                    ..list.draft().to_input()
+                })
+                .map_err(|e| ContactStoreError::Corrupted(e.to_string()))?;
+                *list = draft.with_id(list.id());
+            }
+        }
+        state.1.retain(|c| !absorbed.contains(&c.id()));
+        let contact = draft.clone().with_id(keep);
+        if let Some(slot) = state.1.iter_mut().find(|c| c.id() == keep) {
+            *slot = contact.clone();
+        }
+        Ok(contact)
+    }
+
     async fn delete_many(&self, ids: &[ContactId]) -> Result<usize, ContactStoreError> {
         let mut state = self.lock();
         let before = state.1.len();

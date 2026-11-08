@@ -27,6 +27,7 @@ import ListPlusIcon from "@lucide/svelte/icons/list-plus";
 import DownloadIcon from "@lucide/svelte/icons/download";
 import ImportIcon from "@lucide/svelte/icons/import";
 import PencilIcon from "@lucide/svelte/icons/pencil";
+import UsersIcon from "@lucide/svelte/icons/users";
 import { m } from "./paraglide/messages.js";
 
 export interface VisibleAction {
@@ -283,7 +284,8 @@ export function contactListMenuActions(): VisibleAction[] {
 }
 
 /** En-tête de la vue Contacts, à côté de « Nouveau contact » : « Exporter… »
- * puis « Importer… » passent dans « Plus… » si la place manque. */
+ * puis « Importer… » passent dans « Plus… » si la place manque ;
+ * « Rechercher les doublons… », rare, y est toujours. */
 export function contactsHeaderActions(): { primary: VisibleAction[]; more: VisibleAction[] } {
   return {
     primary: [
@@ -301,6 +303,6 @@ export function contactsHeaderActions(): { primary: VisibleAction[]; more: Visib
         priority: 3,
       },
     ],
-    more: [],
+    more: [{ command: "contacts.find-duplicates", icon: UsersIcon }],
   };
 }

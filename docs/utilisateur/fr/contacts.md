@@ -169,6 +169,28 @@ fichier CSV ouvert avec un tableur, un numéro commençant par « + »
 apparaît précédé d'une apostrophe : c'est voulu, pour que le tableur ne le
 prenne pas pour un calcul.
 
+## Fusionner les doublons
+
+Si une même personne figure plusieurs fois dans vos contacts (après un
+import, par exemple) :
+
+1. Dans **Contacts**, cliquez sur **Plus…**, en haut de la liste, puis
+   sur **Rechercher les doublons…**.
+2. Norelly présente, un groupe à la fois, les contacts qui portent le même
+   nom ou le même numéro de téléphone. Vérifiez qu'il s'agit bien de la
+   même personne ; décochez une fiche pour la laisser de côté.
+3. Choisissez la fiche à garder (**Garder cette fiche**), puis cliquez sur
+   **Fusionner**. Sous la fiche gardée, Norelly indique le nom et
+   l'adresse préférée que le contact aura après la fusion. Ou cliquez sur
+   **Passer** pour voir le groupe suivant sans rien changer.
+
+![La recherche des doublons : deux fiches d'Alice Martin](captures/contacts-duplicates.png)
+
+La fiche gardée reçoit les adresses, les téléphones et les notes des
+autres, et complète ses champs vides ; rien de ce qu'elle contenait n'est
+remplacé. Elle prend leur place dans vos listes de diffusion, puis les
+autres fiches sont supprimées.
+
 ## Supprimer des contacts
 
 - Un contact : sur sa fiche, cliquez sur **Supprimer le contact**, puis

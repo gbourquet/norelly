@@ -19,7 +19,7 @@ use norelly_domain::ports::{
     ContactBook, ContactCursor, ContactDirectory, ContactListItem, ContactPage, ContactStoreError,
     ImportOutcome, MAX_CONTACT_LOOKUP, MAX_PAGE_SIZE, StoreError,
 };
-use rusqlite::{Connection, Row, Transaction, params};
+use rusqlite::{Connection, OptionalExtension, Row, Transaction, params};
 
 use crate::{Database, store_error};
 
@@ -369,6 +369,78 @@ impl ContactBook for SqliteContactBook {
                     created: create.len(),
                     completed: complete.len(),
                 }))
+            })
+            .await?
+    }
+
+    async fn merge(
+        &self,
+        keep: &Contact,
+        draft: &ContactDraft,
+        absorbed: &[Contact],
+    ) -> Result<Contact, ContactStoreError> {
+        let read: Vec<Contact> = std::iter::once(keep).chain(absorbed).cloned().collect();
+        let keep = keep.id();
+        let absorbed: Vec<ContactId> = absorbed.iter().map(Contact::id).collect();
+        let draft = draft.clone();
+        self.db
+            .run(move |c| {
+                let tx = c.transaction().map_err(store_error)?;
+                // Sans commit, la transaction est annulée à sa fermeture.
+                let mut exists = tx
+                    .prepare_cached("SELECT 1 FROM contacts WHERE id = ?1")
+                    .map_err(store_error)?;
+                for id in std::iter::once(&keep).chain(&absorbed) {
+                    if !exists.exists(params![id.get()]).map_err(store_error)? {
+                        return Ok(Err(ContactStoreError::NotFound));
+                    }
+                }
+                drop(exists);
+                // Chaque fiche telle qu'elle a été lue pour calculer la
+                // fusion : une modification entre-temps serait perdue.
+                let ids: Vec<i64> = read.iter().map(|c| c.id().get()).collect();
+                let current = load(&tx, &ids)?;
+                if read
+                    .iter()
+                    .any(|r| current.iter().find(|c| c.id() == r.id()) != Some(r))
+                {
+                    return Ok(Err(ContactStoreError::Conflict));
+                }
+                let mut owner = tx
+                    .prepare_cached("SELECT contact_id FROM contact_emails WHERE address_key = ?1")
+                    .map_err(store_error)?;
+                for email in draft.emails() {
+                    let found: Option<i64> = owner
+                        .query_row(params![email.key().as_str()], |row| row.get(0))
+                        .optional()
+                        .map_err(store_error)?;
+                    let foreign = found.is_some_and(|id| {
+                        id != keep.get() && !absorbed.iter().any(|a| a.get() == id)
+                    });
+                    if foreign {
+                        return Ok(Err(ContactStoreError::DuplicateAddress(
+                            email.address().clone(),
+                        )));
+                    }
+                }
+                drop(owner);
+                for gone in &absorbed {
+                    // La fiche gardée prend la place de la fiche absorbée
+                    // dans les listes où elle ne figure pas encore ; les
+                    // autres lignes partent avec la fiche absorbée.
+                    tx.execute(
+                        "UPDATE contact_list_members SET contact_id = ?1 \
+                         WHERE contact_id = ?2 AND list_id NOT IN \
+                         (SELECT list_id FROM contact_list_members WHERE contact_id = ?1)",
+                        params![keep.get(), gone.get()],
+                    )
+                    .map_err(store_error)?;
+                    tx.execute("DELETE FROM contacts WHERE id = ?1", params![gone.get()])
+                        .map_err(store_error)?;
+                }
+                write(&tx, keep.get(), &draft)?;
+                tx.commit().map_err(store_error)?;
+                Ok(Ok(draft.with_id(keep)))
             })
             .await?
     }

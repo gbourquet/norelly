@@ -19,6 +19,7 @@ use crate::compose::ReplySource;
 use crate::compose::draft::{ComposeError, Draft, DraftSync, Recipient, RemoteCopy};
 use crate::compose::outbox::OutboxEntry;
 use crate::connection::ConnectionError;
+use crate::contact_import::DecodedContacts;
 use crate::contact_lists::{ContactList, ContactListDraft, ContactListFilter, ContactListId};
 use crate::contacts::{
     AddressKey, Contact, ContactDraft, ContactFilter, ContactId, MAX_CONTACT_NAME_CHARS,
@@ -1322,6 +1323,57 @@ pub trait ContactBook: Send + Sync {
         &self,
         ids: &[ContactId],
     ) -> impl Future<Output = Result<usize, ContactStoreError>> + Send;
+
+    /// Importe en une transaction : enregistre les fiches `create`,
+    /// remplace le contenu des contacts `complete` (identifiant existant,
+    /// nouveau contenu). Tout ou rien : une adresse déjà portée par un
+    /// autre contact (`DuplicateAddress`) ou un contact inconnu
+    /// (`NotFound`) annule tout l'import.
+    fn import(
+        &self,
+        create: &[ContactDraft],
+        complete: &[Contact],
+    ) -> impl Future<Output = Result<ImportOutcome, ContactStoreError>> + Send;
+}
+
+/// Bilan d'un import écrit dans le carnet.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ImportOutcome {
+    /// Fiches créées.
+    pub created: usize,
+    /// Contacts existants complétés.
+    pub completed: usize,
+}
+
+/// Fichier de contacts refusé en entier.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum ContactCodecError {
+    /// Plus de [`crate::contact_import::MAX_IMPORT_FILE_BYTES`] octets.
+    #[error("fichier de contacts trop gros")]
+    TooLarge,
+    /// Plus de [`crate::contact_import::MAX_IMPORT_CARDS`] fiches.
+    #[error("trop de fiches dans le fichier")]
+    TooManyCards,
+    /// Ni vCard, ni LDIF, ni CSV d'un format reconnu.
+    #[error("format de fichier de contacts inconnu")]
+    UnknownFormat,
+}
+
+/// Traduction d'un fichier de contacts (vCard, CSV, LDIF) en fiches à
+/// importer (adaptateur `contacts-io`). Ne décide rien : les fiches
+/// rendues sont revalidées, dédoublonnées et normalisées par
+/// [`crate::contact_import::plan_import`].
+pub trait ContactCodec: Send + Sync {
+    /// Fiches du fichier, dans son ordre ; une fiche illisible est rendue
+    /// comme telle (sans arrêter la lecture des suivantes).
+    fn decode(&self, bytes: &[u8]) -> Result<DecodedContacts, ContactCodecError>;
+}
+
+/// Normalisation Unicode d'un texte (forme NFC), fournie au domaine qui
+/// n'embarque pas les tables Unicode.
+pub trait TextNormalizer: Send + Sync {
+    /// Le texte en forme normalisée NFC (composée).
+    fn nfc(&self, text: &str) -> String;
 }
 
 /// Position dans la liste des contacts, triée par [`ContactDraft::sort_key`]

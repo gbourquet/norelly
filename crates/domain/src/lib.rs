@@ -19,6 +19,7 @@
 //! - [`settings`] : paramètres de l'application ;
 //! - [`search`] : syntaxe des requêtes de recherche, surlignage ;
 //! - [`contacts`] : carnet d'adresses (fiche, nom affiché, filtre) ;
+//! - [`contact_import`] : plan d'import d'un carnet (doublons, rejets) ;
 //! - [`contact_lists`] : listes de diffusion (nom unique, expansion) ;
 //! - [`sender`] : nom affiché d'un correspondant (carnet, en-tête) ;
 //! - [`ports`] : traits implémentés par les adaptateurs.
@@ -30,6 +31,7 @@ pub mod auth;
 pub mod capabilities;
 pub mod compose;
 pub mod connection;
+pub mod contact_import;
 pub mod contact_lists;
 pub mod contacts;
 pub mod conversation;

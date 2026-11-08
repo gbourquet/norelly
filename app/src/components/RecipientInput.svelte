@@ -1,41 +1,81 @@
 <script lang="ts">
   // Champ de destinataires : puces retirables, saisie validée par Entrée,
-  // virgule ou tabulation, suggestions (contacts du carnet, signalés, puis
-  // adresses déjà utilisées ; liste accessible au clavier). La saisie est
-  // lue et validée en Rust, qui écarte aussi tout nom imitant une adresse.
+  // virgule ou tabulation, suggestions (listes de diffusion du carnet,
+  // contacts du carnet, signalés, puis adresses déjà utilisées ; liste
+  // accessible au clavier). La saisie est lue et validée en Rust, qui
+  // écarte aussi tout nom imitant une adresse ; une liste choisie est
+  // dépliée par Rust en puces.
   import BookUserIcon from "@lucide/svelte/icons/book-user";
+  import UsersIcon from "@lucide/svelte/icons/users";
   import XIcon from "@lucide/svelte/icons/x";
-  import type { RecipientDto, RecipientSuggestion } from "../lib/ipc/api";
+  import type { ContactListItemDto, RecipientDto, RecipientSuggestion } from "../lib/ipc/api";
   import { m } from "../lib/paraglide/messages.js";
 
   interface Props {
     label: string;
     recipients: RecipientDto[];
     suggestions: RecipientSuggestion[];
+    /** Listes de diffusion proposées (avant les personnes). */
+    lists?: ContactListItemDto[];
     /** Résout `false` si la saisie est refusée. */
     onAdd: (raw: string) => Promise<boolean>;
+    /** Liste choisie ; résout `false` si elle est refusée. */
+    onAddList?: (id: number) => Promise<boolean>;
     onRemove: (index: number) => void;
     onQuery: (text: string) => void;
   }
 
-  let { label, recipients, suggestions, onAdd, onRemove, onQuery }: Props = $props();
+  let {
+    label,
+    recipients,
+    suggestions,
+    lists = [],
+    onAdd,
+    onAddList = async () => false,
+    onRemove,
+    onQuery,
+  }: Props = $props();
+
+  /** Proposition : une liste à déplier, ou une personne. */
+  type Option =
+    | { kind: "list"; key: string; list: ContactListItemDto }
+    | { kind: "person"; key: string; person: RecipientSuggestion };
 
   const id = $props.id();
   let text = $state("");
   let focused = $state(false);
   let highlighted = $state(-1);
-  const shown = $derived(focused && text.trim() !== "" ? suggestions : []);
+  const shown = $derived<Option[]>(
+    focused && text.trim() !== ""
+      ? [
+          ...lists.map((list) => ({ kind: "list" as const, key: `list-${list.id}`, list })),
+          ...suggestions.map((person) => ({
+            kind: "person" as const,
+            key: `person-${person.address}`,
+            person,
+          })),
+        ]
+      : [],
+  );
+
+  /** Saisie vidée après un ajout accepté (sauf si elle a changé entre-temps). */
+  async function accepted(typed: string, pending: Promise<boolean>): Promise<void> {
+    if (!(await pending)) return;
+    // Saisie poursuivie pendant la lecture : gardée.
+    if (text !== typed) return;
+    text = "";
+    highlighted = -1;
+    onQuery("");
+  }
 
   async function commit(raw: string): Promise<void> {
     if (raw.trim() === "") return;
-    const typed = text;
-    if (await onAdd(raw)) {
-      // Saisie poursuivie pendant la lecture : gardée.
-      if (text !== typed) return;
-      text = "";
-      highlighted = -1;
-      onQuery("");
-    }
+    await accepted(text, onAdd(raw));
+  }
+
+  async function choose(option: Option): Promise<void> {
+    if (option.kind === "list") await accepted(text, onAddList(option.list.id));
+    else await commit(format(option.person));
   }
 
   /** « Nom <adresse> », ou l'adresse seule si Rust n'a pas gardé de nom. */
@@ -52,7 +92,7 @@
     } else if (e.key === "Enter" || e.key === "," || (e.key === "Tab" && text.trim() !== "")) {
       const choice = shown[highlighted];
       if (choice !== undefined || text.trim() !== "") e.preventDefault();
-      void commit(choice !== undefined ? format(choice) : text);
+      void (choice !== undefined ? choose(choice) : commit(text));
     } else if (e.key === "Backspace" && text === "" && recipients.length > 0) {
       onRemove(recipients.length - 1);
     }
@@ -93,25 +133,43 @@
   </div>
   {#if shown.length > 0}
     <ul id="{id}-list" role="listbox" aria-label={m.compose_suggestions()}>
-      {#each shown as s, i (s.address)}
+      {#each shown as option, i (option.key)}
         <li role="option" aria-selected={i === highlighted}>
-          <button
-            type="button"
-            tabindex="-1"
-            title={s.address}
-            onmousedown={(e) => e.preventDefault()}
-            onclick={() => void commit(format(s))}
-          >
-            <!-- Nom seul tronqué : l'adresse reste toujours entière. -->
-            {#if s.name}<span class="who">{s.name}</span>{/if}
-            <span class="address">{s.name ? `<${s.address}>` : s.address}</span>
-            {#if s.contact != null}
-              <span class="in-contacts">
-                <BookUserIcon size={12} aria-hidden="true" />
-                {m.compose_suggestion_contact()}
-              </span>
-            {/if}
-          </button>
+          {#if option.kind === "list"}
+            {@const l = option.list}
+            <button
+              type="button"
+              tabindex="-1"
+              title={m.compose_list_option({ name: l.name, count: l.members })}
+              onmousedown={(e) => e.preventDefault()}
+              onclick={() => void choose(option)}
+            >
+              <UsersIcon size={14} aria-hidden="true" />
+              <span class="who">{l.name}</span>
+              <span class="address">{m.lists_members_count({ count: l.members })}</span>
+              {#if l.bcc}<span class="tag">{m.lists_bcc_tag()}</span>{/if}
+              <span class="in-contacts">{m.compose_suggestion_list()}</span>
+            </button>
+          {:else}
+            {@const s = option.person}
+            <button
+              type="button"
+              tabindex="-1"
+              title={s.address}
+              onmousedown={(e) => e.preventDefault()}
+              onclick={() => void choose(option)}
+            >
+              <!-- Nom seul tronqué : l'adresse reste toujours entière. -->
+              {#if s.name}<span class="who">{s.name}</span>{/if}
+              <span class="address">{s.name ? `<${s.address}>` : s.address}</span>
+              {#if s.contact != null}
+                <span class="in-contacts">
+                  <BookUserIcon size={12} aria-hidden="true" />
+                  {m.compose_suggestion_contact()}
+                </span>
+              {/if}
+            </button>
+          {/if}
         </li>
       {/each}
     </ul>
@@ -204,6 +262,15 @@
   .address {
     flex-shrink: 0;
     color: var(--color-text-muted);
+  }
+
+  .tag {
+    flex-shrink: 0;
+    padding: 0 var(--space-1);
+    border: var(--border-width) solid var(--color-border);
+    border-radius: var(--radius-sm);
+    color: var(--color-text-muted);
+    font-size: var(--font-size-xs);
   }
 
   .in-contacts {

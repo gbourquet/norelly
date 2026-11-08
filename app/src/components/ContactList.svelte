@@ -1,30 +1,41 @@
 <script lang="ts" generics="C">
   import { m } from "../lib/paraglide/messages.js";
   // Liste virtualisée du carnet d'adresses : recherche, filtre des
-  // favoris, cases à cocher et menu contextuel de chaque ligne.
+  // favoris, cases à cocher et menu contextuel de chaque ligne ; section
+  // « Listes » (listes de diffusion) à la place des contacts.
   import StarIcon from "@lucide/svelte/icons/star";
+  import UsersIcon from "@lucide/svelte/icons/users";
+  import ListPlusIcon from "@lucide/svelte/icons/list-plus";
   import XIcon from "@lucide/svelte/icons/x";
   import SearchIcon from "@lucide/svelte/icons/search";
   import UserPlusIcon from "@lucide/svelte/icons/user-plus";
   import { ContextMenu } from "bits-ui";
   import { untrack } from "svelte";
   import type { ContactsState } from "../lib/contacts.svelte";
+  import type { ContactListsState } from "../lib/contact-lists.svelte";
   import type { CommandRegistry } from "../lib/commands/registry";
   import { RegistryWatch } from "../lib/commands/watch.svelte";
   import { describeCommand } from "../lib/commands/describe";
-  import { contactBulkActions, contactMenuActions } from "../lib/visible-actions";
+  import {
+    contactBulkActions,
+    contactListMenuActions,
+    contactMenuActions,
+  } from "../lib/visible-actions";
   import ActionBar from "./ActionBar.svelte";
   import { VirtualList } from "../lib/virtual-list.svelte";
 
   interface Props {
     contacts: ContactsState;
+    lists: ContactListsState;
     registry: CommandRegistry<C>;
     context: C;
     /** Contact visé par le menu contextuel (`null` : menu fermé). */
     onPoint: (id: number | null) => void;
+    /** Liste visée par le menu contextuel (`null` : menu fermé). */
+    onPointList: (id: number | null) => void;
   }
 
-  let { contacts, registry, context, onPoint }: Props = $props();
+  let { contacts, lists, registry, context, onPoint, onPointList }: Props = $props();
 
   // Le registre n'est pas réactif : relecture à chaque modification.
   const watch = new RegistryWatch(() => registry);
@@ -36,60 +47,95 @@
 
   const bulk = contactBulkActions();
   const create = $derived(describe("contacts.new"));
+  const createList = $derived(describe("lists.new"));
 
-  /** Contact dont le menu contextuel est ouvert. */
+  /** Contact (ou liste) dont le menu contextuel est ouvert. */
   let pointed = $state<number | null>(null);
   const menu = $derived(
-    contactMenuActions({
-      favorite: contacts.items.find((i) => i.id === pointed)?.favorite ?? false,
-    }),
+    lists.shown
+      ? contactListMenuActions()
+      : contactMenuActions({
+          favorite: contacts.items.find((i) => i.id === pointed)?.favorite ?? false,
+        }),
   );
+  /** Lignes affichées : les listes, ou les contacts. */
+  const count = $derived(lists.shown ? lists.items.length : contacts.items.length);
+  const hasMore = $derived(lists.shown ? lists.hasMore : contacts.hasMore);
 
   const ROW_HEIGHT = 52;
   let scroller: HTMLElement | null = $state(null);
   const list = new VirtualList(() => scroller, ROW_HEIGHT);
 
   $effect(() => list.mount());
-  $effect(() => list.setCount(contacts.items.length));
+  $effect(() => list.setCount(count));
   $effect(() => {
     const last = list.items.at(-1);
-    if (last !== undefined && contacts.hasMore && last.index >= contacts.items.length - 20) {
-      void contacts.loadMore();
+    if (last !== undefined && hasMore && last.index >= count - 20) {
+      void (lists.shown ? lists.loadMore() : contacts.loadMore());
     }
   });
 
   // Saisie de la recherche : liste relue après une courte pause.
   // Texte en cours de saisie, parti du filtre en place à l'affichage.
-  let typed = $state(untrack(() => contacts.text));
+  let typed = $state(untrack(() => (lists.shown ? lists.text : contacts.text)));
   let timer: ReturnType<typeof setTimeout> | null = null;
   function onInput(): void {
     if (timer !== null) clearTimeout(timer);
     timer = setTimeout(() => {
       timer = null;
-      void contacts.search(typed);
+      void (lists.shown ? lists.search(typed) : contacts.search(typed));
     }, 200);
+  }
+
+  /** Filtre choisi : tous les contacts, les favoris, ou les listes ; la
+   * recherche en cours s'applique à la nouvelle section. */
+  async function section(choice: "all" | "favorites" | "lists"): Promise<void> {
+    if (choice === "lists") {
+      lists.text = typed;
+      await lists.show(true);
+      return;
+    }
+    if (lists.shown) await lists.show(false);
+    contacts.text = typed;
+    await contacts.showFavorites(choice === "favorites");
   }
 
   function point(id: number | null): void {
     pointed = id;
-    onPoint(id);
+    if (lists.shown) onPointList(id);
+    else onPoint(id);
   }
 
-  const selectedIndex = $derived(contacts.items.findIndex((i) => i.id === contacts.selectedId));
+  const selectedIndex = $derived(
+    lists.shown
+      ? lists.items.findIndex((i) => i.id === lists.selectedId)
+      : contacts.items.findIndex((i) => i.id === contacts.selectedId),
+  );
 </script>
 
 <div class="contacts">
   <header>
     <h2>{m.contacts_title()}</h2>
-    <button
-      class="btn btn-primary"
-      type="button"
-      title={create?.tooltip}
-      onclick={() => void registry.execute("contacts.new", context)}
-    >
-      <UserPlusIcon size={16} aria-hidden="true" />
-      <span>{create?.label}</span>
-    </button>
+    <div class="create">
+      <button
+        class="btn btn-primary"
+        type="button"
+        title={create?.tooltip}
+        onclick={() => void registry.execute("contacts.new", context)}
+      >
+        <UserPlusIcon size={16} aria-hidden="true" />
+        <span>{create?.label}</span>
+      </button>
+      <button
+        class="btn"
+        type="button"
+        title={createList?.tooltip}
+        onclick={() => void registry.execute("lists.new", context)}
+      >
+        <ListPlusIcon size={16} aria-hidden="true" />
+        <span>{createList?.label}</span>
+      </button>
+    </div>
   </header>
   <div class="filters">
     <label class="search">
@@ -97,8 +143,8 @@
       <input
         class="input"
         type="search"
-        placeholder={m.contacts_search_placeholder()}
-        aria-label={m.contacts_search_label()}
+        placeholder={lists.shown ? m.lists_search_placeholder() : m.contacts_search_placeholder()}
+        aria-label={lists.shown ? m.lists_search_label() : m.contacts_search_label()}
         bind:value={typed}
         oninput={onInput}
       />
@@ -107,21 +153,30 @@
       <button
         class="btn"
         type="button"
-        aria-pressed={!contacts.favoritesOnly}
-        onclick={() => void contacts.showFavorites(false)}>{m.contacts_filter_all()}</button
+        aria-pressed={!lists.shown && !contacts.favoritesOnly}
+        onclick={() => void section("all")}>{m.contacts_filter_all()}</button
       >
       <button
         class="btn"
         type="button"
-        aria-pressed={contacts.favoritesOnly}
-        onclick={() => void contacts.showFavorites(true)}
+        aria-pressed={!lists.shown && contacts.favoritesOnly}
+        onclick={() => void section("favorites")}
       >
         <StarIcon size={14} aria-hidden="true" />
         <span>{m.contacts_filter_favorites()}</span>
       </button>
+      <button
+        class="btn"
+        type="button"
+        aria-pressed={lists.shown}
+        onclick={() => void section("lists")}
+      >
+        <UsersIcon size={14} aria-hidden="true" />
+        <span>{m.contacts_filter_lists()}</span>
+      </button>
     </div>
   </div>
-  {#if contacts.marked.length > 0}
+  {#if !lists.shown && contacts.marked.length > 0}
     {@const clear = describe("contacts.clear-selection")}
     <section class="bulk" aria-label={m.contacts_selection()}>
       <div class="bulk-head">
@@ -147,15 +202,24 @@
       />
     </section>
   {/if}
-  {#if contacts.error}
-    <p class="error" role="alert">{contacts.error}</p>
-  {/if}
-  {#if contacts.items.length === 0 && !contacts.loading}
-    <p class="empty">
-      {contacts.text !== "" || contacts.favoritesOnly
-        ? m.contacts_none_found()
-        : m.contacts_empty()}
-    </p>
+  {#if lists.shown}
+    {#if lists.error}
+      <p class="error" role="alert">{lists.error}</p>
+    {/if}
+    {#if lists.items.length === 0 && !lists.loading}
+      <p class="empty">{lists.text !== "" ? m.lists_none_found() : m.lists_empty()}</p>
+    {/if}
+  {:else}
+    {#if contacts.error}
+      <p class="error" role="alert">{contacts.error}</p>
+    {/if}
+    {#if contacts.items.length === 0 && !contacts.loading}
+      <p class="empty">
+        {contacts.text !== "" || contacts.favoritesOnly
+          ? m.contacts_none_found()
+          : m.contacts_empty()}
+      </p>
+    {/if}
   {/if}
   <ContextMenu.Root onOpenChange={(open) => (open ? undefined : point(null))}>
     <ContextMenu.Trigger>
@@ -165,17 +229,52 @@
           class="scroller"
           bind:this={scroller}
           role="listbox"
-          aria-label={m.contacts_list()}
-          aria-multiselectable={contacts.marked.length > 0 ? "true" : undefined}
+          aria-label={lists.shown ? m.lists_list() : m.contacts_list()}
+          aria-multiselectable={!lists.shown && contacts.marked.length > 0 ? "true" : undefined}
           tabindex="0"
-          aria-activedescendant={contacts.selectedId !== null
-            ? `contact-${contacts.selectedId}`
-            : undefined}
+          aria-activedescendant={lists.shown
+            ? lists.selectedId !== null
+              ? `list-${lists.selectedId}`
+              : undefined
+            : contacts.selectedId !== null
+              ? `contact-${contacts.selectedId}`
+              : undefined}
         >
           <div class="spacer" style:height="{list.totalSize}px">
             {#each list.items as row (row.key)}
-              {@const c = contacts.items[row.index]}
-              {#if c !== undefined}
+              {@const l = lists.shown ? lists.items[row.index] : undefined}
+              {@const c = lists.shown ? undefined : contacts.items[row.index]}
+              {#if l !== undefined}
+                <div
+                  id="list-{l.id}"
+                  class="row"
+                  class:selected={row.index === selectedIndex}
+                  role="option"
+                  aria-selected={row.index === selectedIndex}
+                  tabindex="-1"
+                  style:height="{ROW_HEIGHT}px"
+                  style:transform="translateY({row.start}px)"
+                  onclick={() => void lists.select(l.id)}
+                  oncontextmenu={() => point(l.id)}
+                  onkeydown={(e) => {
+                    if (e.key === " " || e.key === "Enter") {
+                      e.preventDefault();
+                      void lists.select(l.id);
+                    }
+                  }}
+                >
+                  <span class="list-icon"><UsersIcon size={16} aria-hidden="true" /></span>
+                  <div class="content">
+                    <div class="line">
+                      <span class="name">{l.name}</span>
+                      {#if l.bcc}<span class="tag">{m.lists_bcc_tag()}</span>{/if}
+                    </div>
+                    <div class="line">
+                      <span class="detail">{m.lists_members_count({ count: l.members })}</span>
+                    </div>
+                  </div>
+                </div>
+              {:else if c !== undefined}
                 <div
                   id="contact-{c.id}"
                   class="row"
@@ -231,7 +330,10 @@
       {/snippet}
     </ContextMenu.Trigger>
     <ContextMenu.Portal>
-      <ContextMenu.Content class="menu" aria-label={m.contacts_context_menu()}>
+      <ContextMenu.Content
+        class="menu"
+        aria-label={lists.shown ? m.lists_context_menu() : m.contacts_context_menu()}
+      >
         {#each menu as action, i (action.command)}
           {@const e = describe(action.command, action.label?.())}
           {@const Icon = action.icon}
@@ -270,6 +372,28 @@
     gap: var(--space-2);
     padding: var(--space-3) var(--space-4);
     border-bottom: var(--border-width) solid var(--color-border);
+  }
+
+  .create {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: var(--space-2);
+  }
+
+  .list-icon {
+    display: inline-flex;
+    flex: none;
+    color: var(--color-text-muted);
+  }
+
+  .tag {
+    flex: none;
+    padding: 0 var(--space-1);
+    border: var(--border-width) solid var(--color-border);
+    border-radius: var(--radius-sm);
+    color: var(--color-text-muted);
+    font-size: var(--font-size-xs);
   }
 
   h2 {

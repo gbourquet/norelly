@@ -58,6 +58,28 @@ describe("traduction des erreurs IPC", () => {
     expect(errorText(new IpcFailure("contact_not_found"))).toBe("Ce contact n'existe plus.");
   });
 
+  it("explique les refus des listes de diffusion", () => {
+    expect(errorText(new IpcFailure("contact_list_no_name", "list_name"))).toBe(
+      "Donnez un nom à la liste.",
+    );
+    expect(errorText(new IpcFailure("contact_list_duplicate_name", "list_name", "Famille"))).toBe(
+      "Une autre liste porte déjà ce nom. (« Famille »)",
+    );
+    expect(errorText(new IpcFailure("contact_list_too_long", "list_description"))).toBe(
+      "Texte trop long dans la liste : description de la liste.",
+    );
+    expect(errorText(new IpcFailure("contact_list_invalid", "list_name"))).toBe(
+      "Valeur refusée dans la liste : nom de la liste.",
+    );
+    expect(errorText(new IpcFailure("contact_list_too_many_members"))).toBe(
+      "Une liste compte au plus 100 membres.",
+    );
+    expect(errorText(new IpcFailure("contact_list_empty"))).toBe(
+      "Cette liste n'a aucun membre : rien à ajouter.",
+    );
+    expect(errorText(new IpcFailure("contact_list_not_found"))).toBe("Cette liste n'existe plus.");
+  });
+
   it("cite le détail technique tel quel, sans le traduire", () => {
     expect(errorText(new IpcFailure("open_failed", null, "No such file"))).toBe(
       "Ouverture impossible. (« No such file »)",
@@ -120,6 +142,13 @@ describe("traduction des erreurs IPC", () => {
       contact_repeated_address: true,
       contact_duplicate_address: true,
       contact_not_found: true,
+      contact_list_no_name: true,
+      contact_list_invalid: true,
+      contact_list_too_long: true,
+      contact_list_duplicate_name: true,
+      contact_list_too_many_members: true,
+      contact_list_empty: true,
+      contact_list_not_found: true,
       internal: true,
     } satisfies Record<ErrorCodeDto, true>;
     const fields = {
@@ -152,6 +181,9 @@ describe("traduction des erreurs IPC", () => {
       nickname: true,
       organization: true,
       notes: true,
+      contact_list: true,
+      list_name: true,
+      list_description: true,
     } satisfies Record<FieldDto, true>;
     const kinds = {
       network: true,

@@ -62,7 +62,9 @@
             label={label()}
             recipients={draft[field]}
             suggestions={compose.suggestions}
+            lists={compose.listSuggestions}
             onAdd={(raw) => compose.addRecipient(field, raw)}
+            onAddList={(id) => compose.addList(field, id)}
             onRemove={(i) => compose.removeRecipient(field, i)}
             onQuery={(text) => compose.query(text)}
           />

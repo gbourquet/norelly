@@ -4,6 +4,8 @@ import {
   contactBulkActions,
   contactMenuActions,
   contactsToolbar,
+  contactListMenuActions,
+  contactListToolbar,
   fitByPriority,
   menuActions,
   personActions,
@@ -108,7 +110,7 @@ describe("actions de la vue Contacts", () => {
   it("barre de la fiche : écrire, modifier, supprimer ; favori dans « Plus… »", () => {
     const { primary, more } = contactsToolbar({ favorite: false });
     expect(ids(primary)).toEqual(["contacts.write", "contacts.edit", "contacts.delete"]);
-    expect(ids(more)).toEqual(["contacts.favorite"]);
+    expect(ids(more)).toEqual(["contacts.favorite", "contacts.add-to-list"]);
     const byPriority = [...primary].sort((a, b) => (a.priority ?? 0) - (b.priority ?? 0));
     expect(ids(byPriority)[0]).toBe("contacts.write");
   });
@@ -127,14 +129,30 @@ describe("actions de la vue Contacts", () => {
       "contacts.edit",
       "contacts.write",
       "contacts.favorite",
+      "contacts.add-to-list",
       "contacts.delete",
     ]);
-    expect(actions.map((a) => a.section ?? 0)).toEqual([0, 0, 0, 1]);
+    expect(actions.map((a) => a.section ?? 0)).toEqual([0, 0, 0, 0, 1]);
     expect(actions[2]?.label?.()).toBe("Retirer des favoris");
   });
 
-  it("barre des contacts cochés : écrire, supprimer", () => {
+  it("barre des contacts cochés : écrire, supprimer, puis ajouter à une liste", () => {
     expect(ids(contactBulkActions().primary)).toEqual(["contacts.write", "contacts.delete"]);
+    expect(ids(contactBulkActions().more)).toEqual(["contacts.add-to-list"]);
+  });
+
+  it("barre d'une liste : écrire, modifier, supprimer, écrire gardé en dernier", () => {
+    const { primary, more } = contactListToolbar();
+    expect(ids(primary)).toEqual(["lists.write", "lists.edit", "lists.delete"]);
+    expect(more).toEqual([]);
+    const byPriority = [...primary].sort((a, b) => (a.priority ?? 0) - (b.priority ?? 0));
+    expect(ids(byPriority)[0]).toBe("lists.write");
+  });
+
+  it("menu contextuel d'une liste : modifier, écrire, puis supprimer", () => {
+    const actions = contactListMenuActions();
+    expect(ids(actions)).toEqual(["lists.edit", "lists.write", "lists.delete"]);
+    expect(actions.map((a) => a.section ?? 0)).toEqual([0, 0, 1]);
   });
 });
 

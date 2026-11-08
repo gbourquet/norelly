@@ -1176,3 +1176,161 @@ async fn senders_in_the_book_are_named_from_their_card() {
         ("Émilie Durand", Some(emilie.id))
     );
 }
+
+fn list_fields(name: &str, members: &[u32], bcc: bool) -> crate::ipc::ContactListFieldsDto {
+    crate::ipc::ContactListFieldsDto {
+        name: name.to_owned(),
+        description: String::new(),
+        members: members.to_vec(),
+        bcc,
+    }
+}
+
+#[tokio::test]
+async fn contact_lists_are_managed_suggested_and_expanded() {
+    use crate::contact_lists::{
+        add_to_contact_list, create_contact_list, delete_contact_list, expand_contact_list,
+        get_contact_list, list_contact_lists, suggest_contact_lists, update_contact_list,
+    };
+    use crate::contacts::{create_contact, delete_contacts};
+    let t = test_app().await;
+    let ana = create_contact(t.state(), card("Ana", "Lima", &["ana@example.com"]))
+        .await
+        .unwrap_or_else(fail);
+    let bo = create_contact(t.state(), card("Bo", "", &["bo@example.net"]))
+        .await
+        .unwrap_or_else(fail);
+
+    // Création revalidée (nom rogné), membres relus avec leur fiche.
+    let club = create_contact_list(t.state(), list_fields(" Club ", &[bo.id, ana.id], true))
+        .await
+        .unwrap_or_else(fail);
+    assert_eq!(club.fields.name, "Club");
+    assert_eq!(club.fields.members, [bo.id, ana.id]);
+    assert_eq!(
+        club.members
+            .iter()
+            .map(|m| (m.name.as_str(), m.address.as_str()))
+            .collect::<Vec<_>>(),
+        [("Bo", "bo@example.net"), ("Ana Lima", "ana@example.com")]
+    );
+    assert_eq!(
+        get_contact_list(t.state(), club.id)
+            .await
+            .unwrap_or_else(fail),
+        club
+    );
+
+    // Refus : nom pris (casse ignorée), nom vide, membre inconnu,
+    // identifiants invalides.
+    let refused = create_contact_list(t.state(), list_fields("CLUB", &[], false)).await;
+    let Err(e) = refused else {
+        panic!("nom en double accepté");
+    };
+    assert_eq!(
+        (e.code, e.detail.as_deref()),
+        (ErrorCodeDto::ContactListDuplicateName, Some("CLUB"))
+    );
+    assert_eq!(
+        code(create_contact_list(t.state(), list_fields("  ", &[], false)).await),
+        (ErrorCodeDto::ContactListNoName, Some(FieldDto::ListName))
+    );
+    assert_eq!(
+        code(create_contact_list(t.state(), list_fields("X", &[999], false)).await),
+        (ErrorCodeDto::ContactNotFound, None)
+    );
+    assert_eq!(
+        code(create_contact_list(t.state(), list_fields("X", &[0], false)).await),
+        (ErrorCodeDto::InvalidInput, Some(FieldDto::Contact))
+    );
+    assert_eq!(
+        code(get_contact_list(t.state(), 0).await),
+        (ErrorCodeDto::InvalidInput, Some(FieldDto::ContactList))
+    );
+    assert_eq!(
+        code(get_contact_list(t.state(), 777).await),
+        (ErrorCodeDto::ContactListNotFound, None)
+    );
+    assert_eq!(
+        code(add_to_contact_list(t.state(), club.id, vec![0]).await),
+        (ErrorCodeDto::InvalidInput, Some(FieldDto::Contact))
+    );
+
+    // Liste, suggestions (listes vides écartées), expansion en Cci.
+    let empty = create_contact_list(t.state(), list_fields("Clubbers", &[], false))
+        .await
+        .unwrap_or_else(fail);
+    let page = list_contact_lists(t.state(), "club".into(), None, 10)
+        .await
+        .unwrap_or_else(fail);
+    assert_eq!(
+        page.items
+            .iter()
+            .map(|i| (i.name.as_str(), i.members))
+            .collect::<Vec<_>>(),
+        [("Club", 2), ("Clubbers", 0)]
+    );
+    let found = suggest_contact_lists(t.state(), "CLU".into())
+        .await
+        .unwrap_or_else(fail);
+    assert_eq!(found.iter().map(|l| l.id).collect::<Vec<_>>(), [club.id]);
+    let expanded = expand_contact_list(t.state(), club.id, crate::ipc::RecipientFieldDto::To)
+        .await
+        .unwrap_or_else(fail);
+    assert_eq!(
+        expanded.field,
+        crate::ipc::RecipientFieldDto::Bcc,
+        "liste en Cci"
+    );
+    assert_eq!(
+        expanded.recipients,
+        [
+            RecipientDto {
+                name: "Bo".into(),
+                address: "bo@example.net".into()
+            },
+            RecipientDto {
+                name: "Ana Lima".into(),
+                address: "ana@example.com".into()
+            }
+        ]
+    );
+    assert_eq!(
+        code(expand_contact_list(t.state(), empty.id, crate::ipc::RecipientFieldDto::Cc).await),
+        (ErrorCodeDto::ContactListEmpty, None)
+    );
+
+    // Ajout depuis une fiche, modification, contact supprimé retiré.
+    let added = add_to_contact_list(t.state(), empty.id, vec![ana.id, ana.id])
+        .await
+        .unwrap_or_else(fail);
+    assert_eq!(added.fields.members, [ana.id]);
+    let renamed = update_contact_list(
+        t.state(),
+        club.id,
+        list_fields("Club lecture", &[ana.id], false),
+    )
+    .await
+    .unwrap_or_else(fail);
+    assert_eq!(renamed.fields.name, "Club lecture");
+    delete_contacts(t.state(), vec![ana.id])
+        .await
+        .unwrap_or_else(fail);
+    let after = get_contact_list(t.state(), club.id)
+        .await
+        .unwrap_or_else(fail);
+    assert!(after.members.is_empty());
+
+    // Suppression : la liste disparaît, ses contacts restent.
+    assert!(
+        delete_contact_list(t.state(), club.id)
+            .await
+            .unwrap_or_else(fail)
+    );
+    assert!(
+        !delete_contact_list(t.state(), club.id)
+            .await
+            .unwrap_or_else(fail)
+    );
+    assert!(crate::contacts::get_contact(t.state(), bo.id).await.is_ok());
+}

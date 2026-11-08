@@ -88,6 +88,11 @@ suggested address, `Enter` or `,` confirms it.
 | Clear contact selection | palette |
 | Add to address book | palette |
 | View contact | palette |
+| Add to a list… | palette |
+| New list | palette |
+| Edit list | palette |
+| Write to list | palette |
+| Delete list | palette |
 
 In the **Contacts** view, these actions apply to the contact shown on the
 right, or to all checked contacts. `N` works everywhere: it opens the
@@ -95,6 +100,9 @@ contacts and a new contact card. **Add to address book** and **View
 contact** apply to the person whose menu is open (click a name in a
 message, right-click a conversation), otherwise to the sender of the last
 message of the open conversation.
+
+Mailing list actions apply to the list shown on the right in the **Lists**
+section (or to the list whose menu is open with a right-click).
 
 ## Accounts
 

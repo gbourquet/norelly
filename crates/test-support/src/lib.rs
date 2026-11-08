@@ -8,6 +8,7 @@
 //! - [`reading_contracts`] : conversations et préférences de lecture ;
 //! - [`search_contracts`] : recherche plein texte ;
 //! - [`contacts_contracts`] : carnet d'adresses ;
+//! - [`contact_lists_contracts`] : listes de diffusion du carnet ;
 //! - [`synthetic`] : générateur de boîtes synthétiques (bench) ;
 //! - [`imap_control`] et [`session_contract`] : contrat de la session IMAP
 //!   (faux serveur et Dovecot).
@@ -19,6 +20,7 @@
 pub mod actions_contracts;
 pub mod certs;
 pub mod compose_contracts;
+pub mod contact_lists_contracts;
 pub mod contacts_contracts;
 pub mod containers;
 pub mod contracts;

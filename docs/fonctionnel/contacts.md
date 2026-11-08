@@ -9,7 +9,8 @@ enregistrer un contact avec son nom, ses adresses et ses téléphones, le
 corriger, le marquer comme favori, lui écrire en un clic et le supprimer ;
 voir ses contacts sous le nom qu'on leur a donné dans le courrier,
 les retrouver en premier en écrivant un message, et ajouter au carnet une
-personne rencontrée dans un message.
+personne rencontrée dans un message ; regrouper des contacts dans des
+listes de diffusion pour leur écrire en une fois.
 Le carnet est **unique** pour tous les comptes et reste **sur
 l'ordinateur** : rien n'est envoyé à un serveur.
 
@@ -156,6 +157,46 @@ l'ordinateur** : rien n'est envoyé à un serveur.
   et dans **Plus…** du message ouvert. Palette de commandes : elle vise
   l'expéditeur du dernier message de la conversation ouverte.
 
+### Listes de diffusion
+
+- Une liste regroupe des **contacts du carnet** sous un nom
+  (« Famille », « Club de lecture »), avec une description facultative.
+  Elle ne garde pas d'adresses : chaque membre reçoit le message à son
+  adresse **préférée du moment**. Changer l'adresse préférée d'un contact
+  vaut donc pour toutes ses listes.
+- Accès : bouton **Listes** à côté de **Tous** et **Favoris** dans la vue
+  Contacts ; la colonne montre alors les listes (nom, nombre de membres,
+  mention « Cci »), triées par nom, avec la même recherche (sur le nom).
+  La liste choisie s'affiche à droite : description, envoi en copie
+  cachée, membres avec l'adresse à laquelle chacun sera écrit.
+- **Nouvelle liste** (bouton en haut de la vue, palette de commandes)
+  ouvre une fenêtre : nom, description, case **Envoyer aux membres en
+  copie cachée (Cci)**, et membres choisis en cherchant un contact par son
+  nom ou son adresse ; un contact déjà membre est signalé, un membre se
+  retire d'un clic. Une liste peut être enregistrée vide.
+- Deux listes ne peuvent pas porter le même nom, majuscules comprises
+  (« Famille » et « FAMILLE ») : la fenêtre reste ouverte et l'explique.
+  Une liste compte au plus autant de membres qu'un message peut avoir de
+  destinataires.
+- Sur la liste ouverte : **Écrire à la liste**, **Modifier la liste**,
+  **Supprimer la liste** (avec confirmation), aussi dans le menu du clic
+  droit sur une ligne. Supprimer une liste garde ses contacts ; supprimer
+  un contact le retire de toutes ses listes.
+- **Ajouter à une liste…** (dans **Plus…** de la fiche d'un contact, le
+  menu du clic droit sur un contact et la barre des contacts cochés)
+  ouvre le choix de la liste ; les contacts qui en font déjà partie ne
+  sont pas ajoutés deux fois.
+- En écrivant un message, les listes dont le nom contient la saisie sont
+  proposées en tête des suggestions, avec leur nombre de membres et la
+  mention « Cci » le cas échéant ; une liste vide n'est pas proposée.
+  Choisie, la liste est remplacée par une pastille par membre (chacun une
+  fois, même s'il figurait déjà parmi les destinataires), comme si chaque
+  adresse avait été saisie.
+- Une liste « en Cci » range toujours ses membres en **copie cachée**,
+  même choisie dans le champ À : aucun membre ne voit l'adresse des
+  autres. Les pastilles se modifient ensuite comme les autres
+  destinataires.
+
 ## Sécurité
 
 - Tout ce qui est saisi est affiché comme du **texte**, jamais interprété.
@@ -173,5 +214,5 @@ l'ordinateur** : rien n'est envoyé à un serveur.
   message.
 - Un nom de fiche qui ressemble à une adresse est accepté à la saisie
   (il est seulement écarté à l'affichage).
-- Pas encore de listes de diffusion, d'import ni d'export (vCard, CSV,
-  LDIF), ni de recherche des doublons.
+- Pas encore d'import ni d'export (vCard, CSV, LDIF), ni de recherche
+  des doublons ; les listes ne s'importent ni ne s'exportent.

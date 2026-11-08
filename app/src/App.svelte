@@ -33,17 +33,26 @@
   import ContactCard from "./components/ContactCard.svelte";
   import ContactDialog from "./components/ContactDialog.svelte";
   import DeleteContactsDialog from "./components/DeleteContactsDialog.svelte";
+  import ContactListCard from "./components/ContactListCard.svelte";
+  import ContactListDialog from "./components/ContactListDialog.svelte";
+  import AddToListDialog from "./components/AddToListDialog.svelte";
+  import DeleteContactListDialog from "./components/DeleteContactListDialog.svelte";
+  import UsersIcon from "@lucide/svelte/icons/users";
   import PersonMenu from "./components/PersonMenu.svelte";
   import BookUserIcon from "@lucide/svelte/icons/book-user";
   import { notificationText } from "./lib/notifications";
   import { readerActions } from "./lib/visible-actions";
   import { describeCommand } from "./lib/commands/describe";
   import {
+    addToList,
     app,
     compose,
     contactDeletion,
     contactForm,
     contacts,
+    listDeletion,
+    listForm,
+    lists,
     mail,
     moveAccount,
     openSelectedHit,
@@ -198,6 +207,22 @@
     return contacts.items.find((c) => c.id === id)?.name ?? null;
   });
 
+  /** Nom de la liste dont la suppression est demandée. */
+  const listDeletionName = $derived.by(() => {
+    const id = app.listToDelete;
+    if (id === null) return "";
+    if (lists.selected?.id === id) return lists.selected.fields.name;
+    return lists.items.find((l) => l.id === id)?.name ?? "";
+  });
+
+  /** Nom du contact à ajouter à une liste, s'il est seul. */
+  const addToListName = $derived.by(() => {
+    const [id, ...others] = app.contactsToAdd;
+    if (id === undefined || others.length > 0) return null;
+    if (contacts.selected?.id === id) return contacts.selected.name;
+    return contacts.items.find((c) => c.id === id)?.name ?? null;
+  });
+
   const archiveFolders = $derived(
     app.selectedAccountId === null ? [] : (mail.folders[app.selectedAccountId] ?? []),
   );
@@ -345,9 +370,11 @@
     {#if app.view === "contacts"}
       <ContactList
         {contacts}
+        {lists}
         {registry}
         context={app.context()}
         onPoint={(id) => (app.contactTarget = id)}
+        onPointList={(id) => (app.listTarget = id)}
       />
     {:else if search.active}
       <SearchPanel {search} onOpen={() => void openSelectedHit()} />
@@ -366,7 +393,16 @@
     {/if}
   {/snippet}
   {#snippet reader()}
-    {#if app.view === "contacts"}
+    {#if app.view === "contacts" && lists.shown}
+      {#if lists.selected !== null}
+        <ContactListCard list={lists.selected} {registry} context={app.context()} />
+      {:else}
+        <div class="placeholder">
+          <UsersIcon size={40} aria-hidden="true" />
+          <p>{m.lists_pick()}</p>
+        </div>
+      {/if}
+    {:else if app.view === "contacts"}
       {#if contacts.selected !== null}
         <ContactCard contact={contacts.selected} {registry} context={app.context()} />
       {:else}
@@ -651,6 +687,47 @@
     app.close();
     mail.notice = { text: m.contacts_notice_deleted({ count }), undoable: false };
     void contacts.removed(ids);
+  }}
+/>
+<ContactListDialog
+  open={app.dialog === "contact-list"}
+  form={listForm}
+  onClose={() => app.close()}
+  onSaved={(list) => {
+    const created = listForm.id === null;
+    app.close();
+    mail.notice = {
+      text: created
+        ? m.lists_notice_created({ name: list.fields.name })
+        : m.lists_notice_saved({ name: list.fields.name }),
+      undoable: false,
+    };
+    void lists.saved(list);
+  }}
+/>
+<AddToListDialog
+  open={app.dialog === "add-to-list"}
+  ids={app.contactsToAdd}
+  name={addToListName}
+  form={addToList}
+  onClose={() => app.close()}
+  onAdded={(list) => {
+    app.close();
+    mail.notice = { text: m.lists_notice_added({ name: list.fields.name }), undoable: false };
+    if (lists.shown) void lists.load();
+  }}
+/>
+<DeleteContactListDialog
+  open={app.dialog === "delete-contact-list"}
+  id={app.listToDelete}
+  name={listDeletionName}
+  form={listDeletion}
+  onClose={() => app.close()}
+  onDeleted={(id) => {
+    const name = listDeletionName;
+    app.close();
+    mail.notice = { text: m.lists_notice_deleted({ name }), undoable: false };
+    void lists.removed(id);
   }}
 />
 <RemoveAccountDialog

@@ -1,12 +1,15 @@
 import { describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/svelte";
 import RecipientInput from "./RecipientInput.svelte";
-import type { RecipientSuggestion } from "../lib/ipc/api";
+import type { ContactListItemDto, RecipientSuggestion } from "../lib/ipc/api";
 
-function setup(suggestions: RecipientSuggestion[] = []) {
+function setup(suggestions: RecipientSuggestion[] = [], lists: ContactListItemDto[] = []) {
   const onAdd = vi.fn(async () => true);
+  const onAddList = vi.fn(async () => true);
   const onQuery = vi.fn();
   render(RecipientInput, {
+    lists,
+    onAddList,
     label: "À",
     recipients: [
       { name: "Bob Dupont", address: "bob@example.com" },
@@ -17,7 +20,7 @@ function setup(suggestions: RecipientSuggestion[] = []) {
     onRemove: vi.fn(),
     onQuery,
   });
-  return { onAdd, onQuery, input: screen.getByRole("combobox", { name: "À" }) };
+  return { onAdd, onAddList, onQuery, input: screen.getByRole("combobox", { name: "À" }) };
 }
 
 describe("destinataires", () => {
@@ -65,5 +68,39 @@ describe("destinataires", () => {
     expect(onAdd).toHaveBeenCalledWith("Alice Martin <alice@example.com>");
     await waitFor(() => expect(input).toHaveValue(""));
     expect(onQuery).toHaveBeenLastCalledWith("");
+  });
+
+  it("propose les listes du carnet en tête, avec leur nombre de membres et leur Cci", async () => {
+    const { input } = setup(
+      [{ name: "Fanny", address: "fanny@example.com", contact: null }],
+      [
+        { id: 5, name: "Famille", members: 4, bcc: true },
+        { id: 6, name: "Fanfare", members: 1, bcc: false },
+      ],
+    );
+    await fireEvent.focus(input);
+    await fireEvent.input(input, { target: { value: "fa" } });
+    const [family, band, person] = screen.getAllByRole("option");
+    expect(family).toHaveAccessibleName(/Famille.*4 membre\(s\).*Cci/);
+    expect(band).toHaveAccessibleName(/Fanfare.*1 membre\(s\)/);
+    expect(band).not.toHaveTextContent("Cci");
+    expect(person).toHaveAccessibleName("Fanny <fanny@example.com>");
+  });
+
+  it("déplie la liste choisie à la souris ou au clavier, puis vide la saisie", async () => {
+    const { input, onAddList, onAdd } = setup(
+      [],
+      [{ id: 5, name: "Famille", members: 2, bcc: false }],
+    );
+    await fireEvent.focus(input);
+    await fireEvent.input(input, { target: { value: "fam" } });
+    await fireEvent.click(screen.getByRole("button", { name: /Famille/ }));
+    expect(onAddList).toHaveBeenCalledWith(5);
+    expect(onAdd).not.toHaveBeenCalled();
+    await waitFor(() => expect(input).toHaveValue(""));
+    await fireEvent.input(input, { target: { value: "fam" } });
+    await fireEvent.keyDown(input, { key: "ArrowDown" });
+    await fireEvent.keyDown(input, { key: "Enter" });
+    expect(onAddList).toHaveBeenCalledTimes(2);
   });
 });

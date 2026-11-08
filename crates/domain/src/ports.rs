@@ -19,6 +19,7 @@ use crate::compose::ReplySource;
 use crate::compose::draft::{ComposeError, Draft, DraftSync, Recipient, RemoteCopy};
 use crate::compose::outbox::OutboxEntry;
 use crate::connection::ConnectionError;
+use crate::contact_lists::{ContactList, ContactListDraft, ContactListFilter, ContactListId};
 use crate::contacts::{
     AddressKey, Contact, ContactDraft, ContactFilter, ContactId, MAX_CONTACT_NAME_CHARS,
 };
@@ -1416,6 +1417,136 @@ pub trait ContactDirectory: Send + Sync {
         &self,
         keys: &[AddressKey],
     ) -> impl Future<Output = Result<Vec<Contact>, StoreError>> + Send;
+}
+
+// ---------------------------------------------------------------------------
+// Listes de diffusion (ADR-012)
+// ---------------------------------------------------------------------------
+
+/// Erreur des listes de diffusion.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum ContactListStoreError {
+    /// Une autre liste porte déjà ce nom, à la casse près (nom refusé
+    /// cité tel que saisi).
+    #[error("liste déjà dans le carnet : {0}")]
+    DuplicateName(String),
+    /// Un membre n'est pas (ou plus) dans le carnet.
+    #[error("contact inconnu : {0}")]
+    UnknownContact(ContactId),
+    #[error("liste inconnue")]
+    NotFound,
+    #[error(transparent)]
+    Store(#[from] StoreError),
+}
+
+/// Écritures des listes de diffusion du carnet.
+///
+/// Un nom n'appartient qu'à une liste, à la casse près
+/// ([`ContactListDraft::name_key`]) ; les membres sont des contacts du
+/// carnet. Une écriture refusée est sans effet. Supprimer un contact le
+/// retire de toutes les listes ; supprimer une liste ne supprime aucun
+/// contact.
+pub trait ContactListBook: Send + Sync {
+    /// Enregistre une nouvelle liste.
+    fn create_list(
+        &self,
+        draft: &ContactListDraft,
+    ) -> impl Future<Output = Result<ContactList, ContactListStoreError>> + Send;
+
+    /// Remplace le contenu de la liste `id` (membres compris). `NotFound`
+    /// si elle n'existe pas.
+    fn update_list(
+        &self,
+        id: ContactListId,
+        draft: &ContactListDraft,
+    ) -> impl Future<Output = Result<ContactList, ContactListStoreError>> + Send;
+
+    /// Supprime des listes en une fois (inconnues ignorées) ; renvoie le
+    /// nombre de listes supprimées.
+    fn delete_lists(
+        &self,
+        ids: &[ContactListId],
+    ) -> impl Future<Output = Result<usize, ContactListStoreError>> + Send;
+}
+
+/// Position dans la liste des listes, triée par
+/// [`ContactListDraft::name_key`] puis par identifiant.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ContactListCursor {
+    pub sort_key: String,
+    pub id: ContactListId,
+}
+
+/// Longueur maximale d'une clé de tri de liste reçue dans un curseur, en
+/// caractères (le passage en minuscules peut allonger le nom).
+pub const MAX_CONTACT_LIST_SORT_KEY_CHARS: usize = 3 * MAX_CONTACT_NAME_CHARS;
+
+impl ContactListCursor {
+    /// Curseur reçu de l'interface : identifiant valide, clé de tri
+    /// bornée à [`MAX_CONTACT_LIST_SORT_KEY_CHARS`] ; sinon `None`.
+    #[must_use]
+    pub fn parse(sort_key: String, id: i64) -> Option<Self> {
+        let id = ContactListId::new(id)?;
+        (sort_key.chars().count() <= MAX_CONTACT_LIST_SORT_KEY_CHARS)
+            .then_some(Self { sort_key, id })
+    }
+
+    /// Position de la liste.
+    #[must_use]
+    pub fn of(list: &ContactList) -> Self {
+        Self {
+            sort_key: list.draft().name_key(),
+            id: list.id(),
+        }
+    }
+}
+
+/// Ligne de la liste des listes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ContactListSummary {
+    pub id: ContactListId,
+    pub name: String,
+    /// Nombre de membres.
+    pub members: usize,
+    pub bcc: bool,
+}
+
+impl From<&ContactList> for ContactListSummary {
+    fn from(list: &ContactList) -> Self {
+        let draft = list.draft();
+        Self {
+            id: list.id(),
+            name: draft.name().to_owned(),
+            members: draft.members().len(),
+            bcc: draft.bcc(),
+        }
+    }
+}
+
+/// Une page de listes.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ContactListPage {
+    pub items: Vec<ContactListSummary>,
+    /// Curseur de la page suivante ; `None` à la fin.
+    pub next: Option<ContactListCursor>,
+}
+
+/// Lectures d'écran des listes de diffusion.
+pub trait ContactListDirectory: Send + Sync {
+    /// Au plus `limit` listes (borné à [`MAX_PAGE_SIZE`]) qui passent
+    /// `filter`, après `cursor`, dans l'ordre de [`ContactListCursor`].
+    fn list_page(
+        &self,
+        filter: &ContactListFilter,
+        cursor: Option<ContactListCursor>,
+        limit: u32,
+    ) -> impl Future<Output = Result<ContactListPage, StoreError>> + Send;
+
+    /// Liste complète (membres dans leur ordre).
+    fn get_list(
+        &self,
+        id: ContactListId,
+    ) -> impl Future<Output = Result<Option<ContactList>, StoreError>> + Send;
 }
 
 // ---------------------------------------------------------------------------

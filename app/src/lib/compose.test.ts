@@ -50,6 +50,20 @@ function fakeApi(): ComposeApi & { saved: Draft[] } {
     suggestContacts: vi.fn(async (_a: number, text: string) => [
       { name: "Alice", address: `${text}@example.com`, contact: 3 },
     ]),
+    suggestContactLists: vi.fn(async (text: string) =>
+      text.startsWith("fa") ? [{ id: 5, name: "Famille", members: 2, bcc: false }] : [],
+    ),
+    // Champ décidé par Rust : la liste 6 est « en Cci ».
+    expandContactList: vi.fn(async (id: number, field: "to" | "cc" | "bcc") => {
+      if (id === 404) throw new IpcFailure("contact_list_empty");
+      return {
+        recipients: [
+          { name: "Bo", address: "bo@example.net" },
+          { name: "Ana", address: "ana@example.com" },
+        ],
+        field: id === 6 ? ("bcc" as const) : field,
+      };
+    }),
     pickAttachments: vi.fn(async () => [attachment]),
     attachDropped: vi.fn(async () => [attachment]),
   };
@@ -143,6 +157,71 @@ describe("rédaction", () => {
     c.query("");
     await vi.advanceTimersByTimeAsync(SUGGEST_MS);
     expect(c.suggestions).toEqual([]);
+  });
+
+  it("propose les listes du carnet avec les autres suggestions", async () => {
+    const api = fakeApi();
+    const c = new ComposeState(api);
+    await c.open(1, "new", null);
+    c.query("fam");
+    await vi.advanceTimersByTimeAsync(SUGGEST_MS);
+    expect(api.suggestContactLists).toHaveBeenCalledWith("fam");
+    expect(c.listSuggestions).toEqual([{ id: 5, name: "Famille", members: 2, bcc: false }]);
+    c.query("");
+    expect(c.listSuggestions).toEqual([]);
+  });
+
+  it("déplie une liste choisie en puces relues par Rust, chacune une fois", async () => {
+    const api = fakeApi();
+    const c = new ComposeState(api);
+    await c.open(1, "new", null);
+    await c.addRecipient("to", "ana@example.com");
+    expect(await c.addList("to", 5)).toBe(true);
+    expect(api.expandContactList).toHaveBeenCalledWith(5, "to");
+    expect(api.parseRecipient).toHaveBeenCalledWith("Bo <bo@example.net>");
+    expect(c.draft?.to).toEqual([
+      { name: "", address: "ana@example.com" },
+      { name: "Bo", address: "bo@example.net" },
+    ]);
+    expect(c.listSuggestions).toEqual([]);
+  });
+
+  it("range en Cci les membres d'une liste « en Cci », quel que soit le champ", async () => {
+    const api = fakeApi();
+    const c = new ComposeState(api);
+    await c.open(1, "new", null);
+    expect(await c.addList("to", 6)).toBe(true);
+    expect(c.draft?.to).toEqual([]);
+    expect(c.draft?.bcc.map((r) => r.address)).toEqual(["bo@example.net", "ana@example.com"]);
+  });
+
+  it("n'ajoute pas les membres d'une liste à un autre brouillon ouvert entre-temps", async () => {
+    const api = fakeApi();
+    let release: () => void = () => undefined;
+    const pending = new Promise<void>((resolve) => (release = resolve));
+    const parse = api.parseRecipient;
+    api.parseRecipient = vi.fn(async (raw: string) => {
+      await pending;
+      return parse(raw);
+    });
+    const c = new ComposeState(api);
+    await c.open(1, "new", null);
+    const adding = c.addList("to", 5);
+    await vi.advanceTimersByTimeAsync(0);
+    await c.open(1, "reply", message);
+    release();
+    await adding;
+    expect(c.draft?.to).toEqual([]);
+    expect(c.draft?.bcc).toEqual([]);
+  });
+
+  it("affiche le refus d'une liste vide", async () => {
+    const api = fakeApi();
+    const c = new ComposeState(api);
+    await c.open(1, "new", null);
+    expect(await c.addList("cc", 404)).toBe(false);
+    expect(c.error).toBe("Cette liste n'a aucun membre : rien à ajouter.");
+    expect(c.draft?.cc).toEqual([]);
   });
 
   it("préremplit les destinataires (« Écrire à »), chacun une fois", async () => {

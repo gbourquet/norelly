@@ -423,6 +423,15 @@ Fiche : [contacts.md](../fonctionnel/contacts.md). Décision : ADR-012.
 | Suggestions de destinataires (`recipient_suggestions`) : contacts d'abord (favoris, puis ordre du carnet), nom du carnet ; trouvé par un nom, toutes ses adresses (la préférée d'abord), sinon les adresses qui contiennent la saisie ; puis adresses collectées ; une fois par `AddressKey`, le carnet l'emporte ; adresses invalides écartées ; `MAX_CONTACT_SUGGESTIONS` au plus | `crates/domain/src/suggestions.rs` |
 | Cas d'usage `SuggestRecipients` : carnet lu par `ContactDirectory::page` (favoris, puis tous) puis fiche par fiche, sans jointure SQL avec les messages (ADR-012, écart du lot 4) ; carnet illisible : adresses collectées seules | `crates/application/src/contacts.rs` |
 | Commande `suggest_contacts` : DTO `RecipientSuggestionDto.contact` ; pastille « Dans vos contacts » (icône et texte, pas la couleur seule) | `app/src-tauri/src/compose.rs`, `app/src-tauri/src/ipc.rs`, `RecipientInput.svelte` |
+| Liste de diffusion validée (`ContactListDraft::new`) : nom obligatoire, borné, sans caractère de contrôle ni de mise en forme ; description d'une ligne, bornée ; membres = contacts (identifiants valides), chacun une fois, `MAX_CONTACT_LIST_MEMBERS` (100, la limite d'un envoi) au plus ; liste vide permise | `crates/domain/src/contact_lists.rs` |
+| Nom unique sans la casse (`name_key`, minuscules Unicode) : écriture refusée sans effet (`ContactListStoreError::DuplicateName`) ; membre absent du carnet refusé (`UnknownContact`) ; supprimer un contact le retire de ses listes, supprimer une liste garde ses contacts | `contact_lists.rs`, `crates/adapters/sqlite/src/contact_lists.rs`, `0012_contact_lists.sql` |
+| Expansion (`expand`) : chaque membre encore au carnet, à son **adresse préférée du moment**, sous son nom du carnet (vide s'il n'en a pas ou s'il imite une adresse) ; une fois par `AddressKey` ; liste sans destinataire refusée (`Empty`) ; choix « en Cci » gardé | `contact_lists.rs` |
+| Ajout de contacts à une liste (`with_members`) : absents ajoutés à la suite, borne respectée | `contact_lists.rs`, `crates/application/src/contact_lists.rs` (`AddToContactList`) |
+| Listes proposées à la saisie (`list_suggestions`) : nom qui contient la saisie, listes vides écartées, `MAX_LIST_SUGGESTIONS` (5) au plus | `contact_lists.rs`, `SuggestContactLists` |
+| Commandes IPC `list_contact_lists`, `get_contact_list`, `create_contact_list`, `update_contact_list`, `delete_contact_list`, `add_to_contact_list`, `expand_contact_list`, `suggest_contact_lists` : entrées revalidées (`ContactListId`, `contact_selection`, `ContactListCursor::parse`), refus traduits en codes (`contact_list_no_name`, `contact_list_invalid`, `contact_list_too_long`, `contact_list_duplicate_name`, `contact_list_too_many_members`, `contact_list_empty`, `contact_list_not_found`, `contact_not_found`) | `app/src-tauri/src/contact_lists.rs`, `app/src-tauri/src/ipc.rs` |
+| Liste choisie à la rédaction : dépliée par Rust (`expand_contact_list`), qui décide aussi du champ (`Expansion::field` : la copie cachée pour une liste « en Cci », quel que soit le champ de saisie) ; chaque membre relu comme une saisie (`parse_recipient`), adresse déjà présente ignorée ; rien n'est ajouté si le brouillon a été refermé ou remplacé entre-temps | `crates/domain/src/contact_lists.rs`, `app/src-tauri/src/contact_lists.rs`, `app/src/lib/compose.svelte.ts` (`addList`), `RecipientInput.svelte` |
+| Section « Listes » de la vue Contacts : 3e filtre, liste ouverte à droite, commandes des contacts neutralisées pendant ce temps ; listes visées : menu d'une ligne, sinon liste ouverte | `app/src/lib/contact-lists.svelte.ts`, `app/src/lib/app.svelte.ts`, `ContactList.svelte`, `ContactListCard.svelte` |
+| Actions visibles : bouton « Nouvelle liste », barre de la liste ouverte, menu contextuel d'une ligne, « Ajouter à une liste… » dans « Plus… » de la fiche, le menu d'un contact et la barre des contacts cochés | `visible-actions.ts` (`contactListToolbar`, `contactListMenuActions`), `ContactListDialog.svelte`, `AddToListDialog.svelte`, `DeleteContactListDialog.svelte` |
 
 ### Clés des messages
 
@@ -431,13 +440,17 @@ Fiche : [contacts.md](../fonctionnel/contacts.md). Décision : ADR-012.
 `field_nickname`, `field_organization`, `field_notes`, `sidebar_contacts`,
 `key_delete`, `cmd_person_*`, `person_menu`, `person_in_contacts`,
 `conversation_to_label`, `conversation_message_toggle`,
-`compose_suggestions`, `compose_suggestion_contact`.
+`compose_suggestions`, `compose_suggestion_contact`, `compose_suggestion_list`,
+`compose_list_option`, `lists_*`, `list_*`, `add_to_list_*`,
+`delete_list_*`, `err_contact_list_*`, `field_contact_list`,
+`field_list_name`, `field_list_description`, `contacts_filter_lists`.
 
 ### Commandes
 
 `contacts.open`, `contacts.new`, `contacts.edit`, `contacts.write`,
 `contacts.favorite`, `contacts.delete`, `contacts.clear-selection`,
-`contacts.add-person`, `contacts.show-person`.
+`contacts.add-person`, `contacts.show-person`, `contacts.add-to-list`,
+`lists.new`, `lists.edit`, `lists.write`, `lists.delete`.
 
 ### Vérifications et compléments
 
@@ -454,6 +467,15 @@ Fiche : [contacts.md](../fonctionnel/contacts.md). Décision : ADR-012.
   imite une adresse, « Voir le contact », « Ajouter au carnet
   d'adresses » et les suggestions de destinataires (contact d'abord, une
   fois par adresse, destinataire collé imitant une adresse).
+- Contrat des listes de diffusion joué contre le faux et SQLite
+  (`crates/test-support/src/contact_lists_contracts.rs`) : nom unique sans
+  la casse, membres inconnus refusés, contact supprimé retiré de ses
+  listes, pagination ; schéma et lignes corrompues
+  (`crates/adapters/sqlite/src/contact_lists.rs`).
+- Scénario de bout en bout des listes (`app/e2e/specs/contact-lists.e2e.mjs`) :
+  création à la souris, nom en double refusé, « Ajouter à une liste… »,
+  « Écrire à la liste », liste proposée à la saisie, dépliée en Cci et
+  envoyée vers Mailpit (membres en copie cachée seulement), suppression.
 - Nom des correspondants sur l'application factice : liste, conversation,
   recherche (`command_tests.rs`, `senders_in_the_book_are_named_from_their_card`).
 

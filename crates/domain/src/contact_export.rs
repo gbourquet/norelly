@@ -181,14 +181,15 @@ const RESERVED_VCARD_TYPES: &[&str] = &[
 ];
 
 /// Étiquette écrite en type vCard : en minuscules, les caractères de la
-/// syntaxe vCard (`"`, `,`, `;`, `:`, `\`, `=`) remplacés par une espace,
+/// syntaxe vCard (`"`, `,`, `;`, `:`, `\`, `=`, et `^` qui échappe les
+/// paramètres en 4.0, RFC 6868) remplacés par une espace,
 /// espaces resserrées ; aucune si elle est vide ou réservée.
 fn vcard_type(label: &str) -> Option<String> {
     let cleaned: String = label
         .to_lowercase()
         .chars()
         .map(|c| match c {
-            '"' | ',' | ';' | ':' | '\\' | '=' => ' ',
+            '"' | ',' | ';' | ':' | '\\' | '=' | '^' => ' ',
             c => c,
         })
         .collect();
@@ -219,8 +220,11 @@ fn ldif_phone_label(label: Option<&str>) -> &'static str {
     }
 }
 
-/// Premiers caractères qu'un tableur lit comme le début d'une formule.
-const FORMULA_STARTS: [char; 6] = ['=', '+', '-', '@', '\t', '\r'];
+/// Premiers caractères qu'un tableur lit comme le début d'une formule,
+/// avec leurs formes pleine chasse, que certains assimilent.
+const FORMULA_STARTS: [char; 10] = [
+    '=', '+', '-', '@', '\t', '\r', '\u{FF1D}', '\u{FF0B}', '\u{FF0D}', '\u{FF20}',
+];
 
 /// La valeur, apostrophes de tête passées, commence-t-elle comme une
 /// formule ?
@@ -230,8 +234,8 @@ fn formula_like(cell: &str) -> bool {
 
 /// Neutralise une cellule CSV qu'un tableur lirait comme une formule :
 /// une apostrophe est ajoutée devant une valeur qui commence, après
-/// d'éventuelles apostrophes, par `=`, `+`, `-`, `@`, une tabulation ou un
-/// retour chariot. [`restore_csv_cell`] la retire.
+/// d'éventuelles apostrophes, par `=`, `+`, `-`, `@` (ou leur forme pleine
+/// chasse), une tabulation ou un retour chariot. [`restore_csv_cell`] la retire.
 #[must_use]
 pub fn neutralize_csv_cell(cell: &str) -> Cow<'_, str> {
     if formula_like(cell) {

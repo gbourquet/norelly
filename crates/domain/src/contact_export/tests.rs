@@ -229,6 +229,8 @@ fn vcard_labels_drop_reserved_words_and_unsafe_characters() {
     );
     assert_eq!(labeled("Maison à l'île").as_deref(), Some("maison à l'île"));
     assert_eq!(labeled(",;").as_deref(), None);
+    // Caret : échappement des paramètres en vCard 4.0 (RFC 6868).
+    assert_eq!(labeled("a^nb").as_deref(), Some("a nb"));
 }
 
 #[test]
@@ -307,6 +309,11 @@ fn csv_cells_that_look_like_formulas_are_neutralized() {
         ("@SUM(A1)", "'@SUM(A1)"),
         ("\tx", "'\tx"),
         ("\rx", "'\rx"),
+        // Signes pleine chasse, que certains tableurs assimilent.
+        ("＝1", "'＝1"),
+        ("＋33", "'＋33"),
+        ("－x", "'－x"),
+        ("＠x", "'＠x"),
         // Une apostrophe déjà là serait retirée à la relecture : doublée.
         ("'=x", "''=x"),
         ("''+x", "'''+x"),

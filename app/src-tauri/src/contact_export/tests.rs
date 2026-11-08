@@ -139,3 +139,28 @@ fn write_atomic_replaces_a_link_without_following_it() {
     assert_eq!(std::fs::read(&path).ok().as_deref(), Some(&b"export"[..]));
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[cfg(unix)]
+#[test]
+fn write_atomic_keeps_the_book_private() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = scratch("droits");
+    let mode = |p: &Path| {
+        std::fs::metadata(p)
+            .map(|m| m.permissions().mode() & 0o777)
+            .unwrap_or(0)
+    };
+    // Nouveau fichier : lisible par son propriétaire seulement.
+    let fresh = dir.join("nouveau.vcf");
+    assert!(write_atomic(&fresh, b"x").is_ok());
+    assert_eq!(mode(&fresh), 0o600);
+    // Fichier remplacé : ses droits sont repris.
+    let kept = dir.join("garde.vcf");
+    std::fs::write(&kept, b"ancien").unwrap_or_else(|e| panic!("{e}"));
+    std::fs::set_permissions(&kept, std::fs::Permissions::from_mode(0o640))
+        .unwrap_or_else(|e| panic!("{e}"));
+    assert!(write_atomic(&kept, b"nouveau").is_ok());
+    assert_eq!(mode(&kept), 0o640);
+    let _ = std::fs::remove_dir_all(&dir);
+}

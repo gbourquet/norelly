@@ -62,7 +62,8 @@ pub(crate) fn codec_error(e: ContactCodecError) -> IpcError {
 
 /// Écrit `bytes` (au plus [`MAX_EXPORT_FILE_BYTES`]) dans `path`, de
 /// façon atomique : un fichier temporaire du même dossier, créé en
-/// exclusivité, écrit et synchronisé, puis renommé sur `path` (un lien à
+/// exclusivité (droits du propriétaire seul sous Unix, ou ceux du fichier
+/// remplacé), écrit et synchronisé, puis renommé sur `path` (un lien à
 /// cet emplacement est remplacé, jamais suivi). En cas d'échec, `path`
 /// est intact et le temporaire retiré.
 pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
@@ -82,11 +83,13 @@ pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
         temp_name.push(name);
         temp_name.push(format!(".{}-{n}.tmp", std::process::id()));
         let temp = dir.join(temp_name);
-        match std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&temp)
-        {
+        let mut options = std::fs::OpenOptions::new();
+        options.write(true).create_new(true);
+        // Le carnet est une donnée personnelle : lisible par son
+        // propriétaire seulement.
+        #[cfg(unix)]
+        std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+        match options.open(&temp) {
             Ok(file) => {
                 created = Some((temp, file));
                 break;
@@ -99,6 +102,10 @@ pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
         created.ok_or_else(|| std::io::Error::other("trop de fichiers temporaires"))?;
     let result = (|| {
         file.write_all(bytes)?;
+        // Un fichier remplacé garde ses droits.
+        if let Ok(existing) = std::fs::metadata(path) {
+            file.set_permissions(existing.permissions())?;
+        }
         file.sync_all()?;
         drop(file);
         std::fs::rename(&temp, path)?;

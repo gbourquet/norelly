@@ -1,7 +1,9 @@
 // Outils partagés des scénarios end-to-end : ajout de compte par
 // l'interface, dépôt de messages sur Dovecot (APPEND), compteur du
-// serveur canari.
+// serveur canari, choix d'un fichier dans le sélecteur natif.
+import { execFile } from "node:child_process";
 import tls from "node:tls";
+import { promisify } from "node:util";
 import { $, browser, expect } from "@wdio/globals";
 
 export const password = process.env.NORELLY_E2E_PASSWORD ?? "";
@@ -194,4 +196,32 @@ export async function mailpitMessage(id) {
 export async function mailpitHeaders(id) {
   const response = await fetch(`${mailpit}/api/v1/message/${id}/headers`);
   return response.json();
+}
+
+const xdotool = (...args) => promisify(execFile)("xdotool", args, { timeout: 30000 });
+
+/**
+ * Choisit `file` (chemin absolu) dans le sélecteur de fichiers du système
+ * (GTK) titré `title`, que WebDriver ne voit pas : xdotool donne le focus
+ * à sa fenêtre, ouvre la saisie d'un emplacement (Ctrl+L), tape le chemin
+ * et valide, comme le ferait l'utilisateur au clavier.
+ */
+export async function pickFile(title, file) {
+  // La fenêtre peut être trouvée avant d'être affichée (focus refusé) :
+  // fenêtres visibles seulement, quelques essais.
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      await xdotool("search", "--sync", "--onlyvisible", "--name", title, "windowfocus", "--sync");
+      break;
+    } catch (e) {
+      if (attempt >= 10) throw e;
+      await browser.pause(500);
+    }
+  }
+  await browser.pause(500);
+  await xdotool("key", "--clearmodifiers", "ctrl+l");
+  await browser.pause(300);
+  await xdotool("type", "--delay", "20", file);
+  await browser.pause(300);
+  await xdotool("key", "Return");
 }

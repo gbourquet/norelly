@@ -399,8 +399,8 @@ pub async fn contact_import_contract<B: ContactBook + ContactDirectory>(
     let bob_id = listed[1].id;
 
     // Création et complément ensemble.
-    let completed = sample_contact("Alice", &["alice@example.com", "alice@work.example"])
-        .with_id(alice.id());
+    let completed =
+        sample_contact("Alice", &["alice@example.com", "alice@work.example"]).with_id(alice.id());
     let outcome = book
         .import(
             &[sample_contact("Carole", &["carole@example.org"])],
@@ -419,11 +419,14 @@ pub async fn contact_import_contract<B: ContactBook + ContactDirectory>(
 
     // Un complément qui prendrait l'adresse d'un autre contact, ou un
     // contact inconnu, annule tout l'import.
-    let stolen = sample_contact("Alice", &["alice@example.com", "BOB@example.net"])
-        .with_id(alice.id());
+    let stolen =
+        sample_contact("Alice", &["alice@example.com", "BOB@example.net"]).with_id(alice.id());
     assert_eq!(
-        book.import(&[sample_contact("Denis", &["denis@example.org"])], &[stolen])
-            .await,
+        book.import(
+            &[sample_contact("Denis", &["denis@example.org"])],
+            &[stolen]
+        )
+        .await,
         Err(ContactStoreError::DuplicateAddress(address(
             "BOB@example.net"
         )))
@@ -431,14 +434,17 @@ pub async fn contact_import_contract<B: ContactBook + ContactDirectory>(
     let unknown = sample_contact("Zoé", &["zoe@example.org"])
         .with_id(ContactId::new(i64::MAX).unwrap_or_else(|| panic!("id")));
     assert_eq!(
-        book.import(&[sample_contact("Denis", &["denis@example.org"])], &[unknown])
-            .await,
+        book.import(
+            &[sample_contact("Denis", &["denis@example.org"])],
+            &[unknown]
+        )
+        .await,
         Err(ContactStoreError::NotFound)
     );
     // Une création qui reprend une adresse complétée dans le même import
     // est refusée aussi.
-    let again = sample_contact("Alice", &["alice@example.com", "a3@example.com"])
-        .with_id(alice.id());
+    let again =
+        sample_contact("Alice", &["alice@example.com", "a3@example.com"]).with_id(alice.id());
     assert_eq!(
         book.import(&[sample_contact("Autre", &["A3@example.com"])], &[again])
             .await,

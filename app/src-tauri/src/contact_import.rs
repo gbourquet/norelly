@@ -16,8 +16,7 @@ use norelly_application::contact_import::{
 };
 use norelly_domain::connection::server_text;
 use norelly_domain::contact_import::{
-    ContactFormat, DuplicatePolicy, ImportPlan, ImportedCard, MAX_IMPORT_FILE_BYTES,
-    RejectReason,
+    ContactFormat, DuplicatePolicy, ImportPlan, ImportedCard, MAX_IMPORT_FILE_BYTES, RejectReason,
 };
 use norelly_domain::contacts::ContactError;
 use norelly_domain::ports::{ContactCodecError, ContactStoreError};
@@ -25,9 +24,8 @@ use tauri::{AppHandle, State};
 use tauri_plugin_dialog::DialogExt;
 
 use crate::ipc::{
-    ContactImportFormatDto, ContactImportOutcomeDto, ContactImportPreviewDto,
-    DuplicatePolicyDto, ErrorCodeDto, ImportCountsDto, ImportRejectReasonDto,
-    ImportRejectionDto, IpcError,
+    ContactImportFormatDto, ContactImportOutcomeDto, ContactImportPreviewDto, DuplicatePolicyDto,
+    ErrorCodeDto, ImportCountsDto, ImportRejectReasonDto, ImportRejectionDto, IpcError,
 };
 use crate::state::AppState;
 

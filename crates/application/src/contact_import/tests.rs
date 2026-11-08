@@ -57,7 +57,11 @@ async fn preview_plans_both_policies_against_the_book() -> Result<(), ImportFail
     assert_eq!(preview.format, ContactFormat::VCard);
     assert_eq!(preview.cards.len(), 3);
     assert_eq!(
-        (preview.skip.create.len(), preview.skip.complete.len(), preview.skip.duplicates),
+        (
+            preview.skip.create.len(),
+            preview.skip.complete.len(),
+            preview.skip.duplicates
+        ),
         (1, 0, 1)
     );
     assert_eq!(
@@ -110,7 +114,10 @@ async fn apply_writes_the_plan_of_the_chosen_policy() -> Result<(), ImportFailur
         assert_eq!(outcome.created, 1);
         assert_eq!(outcome.completed, alice_addresses - 1);
         assert_eq!(names(&book).await?, ["Alice", "Bob"]);
-        let alice = book.get(alice.id()).await?.unwrap_or_else(|| panic!("Alice"));
+        let alice = book
+            .get(alice.id())
+            .await?
+            .unwrap_or_else(|| panic!("Alice"));
         assert_eq!(alice.draft().emails().len(), alice_addresses, "{policy:?}");
     }
     Ok(())

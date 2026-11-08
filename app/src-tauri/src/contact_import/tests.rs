@@ -9,9 +9,7 @@ use norelly_domain::ports::{ContactCodecError, ContactStoreError, StoreError};
 use norelly_test_support::contacts_contracts::sample_contact;
 
 use super::*;
-use crate::ipc::{
-    ContactImportFormatDto, ErrorCodeDto, ImportCountsDto, ImportRejectReasonDto,
-};
+use crate::ipc::{ContactImportFormatDto, ErrorCodeDto, ImportCountsDto, ImportRejectReasonDto};
 
 fn rejection(card: usize, reason: RejectReason) -> ImportRejection {
     ImportRejection {
@@ -50,12 +48,18 @@ fn preview_counts_both_policies_and_lists_reasons() -> Result<(), IpcError> {
     let reasons = [
         (RejectReason::Unreadable, ImportRejectReasonDto::Unreadable),
         (RejectReason::List, ImportRejectReasonDto::List),
-        (invalid(ContactError::NoAddress), ImportRejectReasonDto::NoAddress),
+        (
+            invalid(ContactError::NoAddress),
+            ImportRejectReasonDto::NoAddress,
+        ),
         (
             invalid(ContactError::DuplicateAddress { index: 1 }),
             ImportRejectReasonDto::InvalidAddress,
         ),
-        (invalid(ContactError::SeveralPreferred), ImportRejectReasonDto::InvalidAddress),
+        (
+            invalid(ContactError::SeveralPreferred),
+            ImportRejectReasonDto::InvalidAddress,
+        ),
         (
             invalid(ContactError::TooLong(ContactField::Notes)),
             ImportRejectReasonDto::TooLong,
@@ -68,8 +72,14 @@ fn preview_counts_both_policies_and_lists_reasons() -> Result<(), IpcError> {
             invalid(ContactError::EmptyPhone { index: 0 }),
             ImportRejectReasonDto::InvalidField,
         ),
-        (invalid(ContactError::TooManyAddresses), ImportRejectReasonDto::TooManyValues),
-        (invalid(ContactError::TooManyPhones), ImportRejectReasonDto::TooManyValues),
+        (
+            invalid(ContactError::TooManyAddresses),
+            ImportRejectReasonDto::TooManyValues,
+        ),
+        (
+            invalid(ContactError::TooManyPhones),
+            ImportRejectReasonDto::TooManyValues,
+        ),
     ];
     let rejected = reasons
         .iter()
@@ -180,7 +190,10 @@ fn contact_file_is_read_within_bounds() -> Result<(), Box<dyn std::error::Error>
     std::fs::create_dir_all(&dir)?;
     let small = dir.join("petit.vcf");
     std::fs::write(&small, b"BEGIN:VCARD")?;
-    assert_eq!(read_contact_file(&small).map_err(|e| e.to_string())?, b"BEGIN:VCARD");
+    assert_eq!(
+        read_contact_file(&small).map_err(|e| e.to_string())?,
+        b"BEGIN:VCARD"
+    );
 
     let big = dir.join("gros.vcf");
     let mut file = std::fs::File::create(&big)?;

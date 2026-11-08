@@ -90,8 +90,11 @@ mod tests {
             Just(&b"\xEF\xBB\xBF\xFF\xFE\xE9"[..]),
         ]
         .prop_map(<[u8]>::to_vec);
-        prop::collection::vec(prop_oneof![piece, prop::collection::vec(any::<u8>(), 0..8)], 0..40)
-            .prop_map(|parts| parts.concat())
+        prop::collection::vec(
+            prop_oneof![piece, prop::collection::vec(any::<u8>(), 0..8)],
+            0..40,
+        )
+        .prop_map(|parts| parts.concat())
     }
 
     proptest! {

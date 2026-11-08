@@ -3154,6 +3154,7 @@ name = "norelly-application"
 version = "0.1.0"
 dependencies = [
  "norelly-blobs",
+ "norelly-contacts-io",
  "norelly-domain",
  "norelly-imap",
  "norelly-render",

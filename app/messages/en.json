@@ -677,5 +677,7 @@
   "contacts_export_notice": "{count} contact(s) exported to “{name}”.",
   "err_contact_export_empty": "No contacts to export.",
   "err_contact_export_too_large": "Too many contacts for a single file (25,000 and 20 MB at most): check some of them to export a part.",
+  "err_contact_duplicates_too_many": "The address book has too many contacts to look for duplicates (25,000 at most).",
+  "err_contact_merge_too_large": "These cards do not fit in a single contact (20 addresses, 20 phone numbers and 10,000 characters of notes at most): uncheck one, or trim them before merging.",
   "contacts_header_actions": "Create, import or export"
 }

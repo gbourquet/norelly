@@ -56,6 +56,8 @@ const APP_COMMANDS: &[&str] = &[
     "preview_contact_import",
     "apply_contact_import",
     "export_contacts",
+    "find_contact_duplicates",
+    "merge_contacts",
     "list_contact_lists",
     "get_contact_list",
     "create_contact_list",

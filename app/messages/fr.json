@@ -677,5 +677,7 @@
   "contacts_export_notice": "{count} contact(s) exporté(s) dans « {name} ».",
   "err_contact_export_empty": "Aucun contact à exporter.",
   "err_contact_export_too_large": "Trop de contacts pour un seul fichier (25 000 au plus, 20 Mo au plus) : exportez-en une partie en les cochant.",
+  "err_contact_duplicates_too_many": "Le carnet compte trop de contacts pour y chercher les doublons (25 000 au plus).",
+  "err_contact_merge_too_large": "Ces fiches ne tiennent pas dans un seul contact (20 adresses, 20 téléphones et 10 000 caractères de notes au plus) : décochez-en une, ou allégez-les avant de les fusionner.",
   "contacts_header_actions": "Créer, importer ou exporter"
 }

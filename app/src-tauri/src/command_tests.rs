@@ -1334,3 +1334,102 @@ async fn contact_lists_are_managed_suggested_and_expanded() {
     );
     assert!(crate::contacts::get_contact(t.state(), bo.id).await.is_ok());
 }
+
+#[tokio::test]
+async fn duplicates_are_found_and_merged_with_their_lists() {
+    use crate::contact_duplicates::{find_contact_duplicates, merge_contacts};
+    use crate::contact_lists::{create_contact_list, get_contact_list};
+    use crate::contacts::{create_contact, get_contact};
+    use crate::ipc::{ContactListFieldsDto, DuplicateReasonDto};
+    let t = test_app().await;
+    let first = create_contact(t.state(), card("Alice", "Martin", &["a1@example.com"]))
+        .await
+        .unwrap_or_else(fail);
+    let mut fields = card("martin", "alice", &["a2@example.com"]);
+    fields.notes = "Rencontrée à Lyon".into();
+    let second = create_contact(t.state(), fields).await.unwrap_or_else(fail);
+    create_contact(t.state(), card("Bob", "", &["bob@example.com"]))
+        .await
+        .unwrap_or_else(fail);
+    let list = create_contact_list(
+        t.state(),
+        ContactListFieldsDto {
+            name: "Club".into(),
+            members: vec![second.id],
+            ..ContactListFieldsDto::default()
+        },
+    )
+    .await
+    .unwrap_or_else(fail);
+
+    let groups = find_contact_duplicates(t.state())
+        .await
+        .unwrap_or_else(fail);
+    assert_eq!(groups.len(), 1);
+    // La plus complète d'abord (notes).
+    let ids: Vec<u32> = groups[0].contacts.iter().map(|c| c.id).collect();
+    assert_eq!(ids, [second.id, first.id]);
+    assert_eq!(groups[0].reasons, [DuplicateReasonDto::SameName]);
+
+    // Fusion recalculée en Rust ; la fiche absorbée disparaît et sa place
+    // dans la liste revient à la fiche gardée.
+    let kept = merge_contacts(t.state(), first.id, vec![second.id])
+        .await
+        .unwrap_or_else(fail);
+    assert_eq!(kept.id, first.id);
+    let addresses: Vec<&str> = kept
+        .fields
+        .emails
+        .iter()
+        .map(|e| e.address.as_str())
+        .collect();
+    assert_eq!(addresses, ["a1@example.com", "a2@example.com"]);
+    assert_eq!(kept.fields.notes, "Rencontrée à Lyon");
+    assert_eq!(
+        code(get_contact(t.state(), second.id).await),
+        (ErrorCodeDto::ContactNotFound, None)
+    );
+    let members = get_contact_list(t.state(), list.id)
+        .await
+        .unwrap_or_else(fail)
+        .fields
+        .members;
+    assert_eq!(members, [first.id]);
+    assert!(
+        find_contact_duplicates(t.state())
+            .await
+            .unwrap_or_else(fail)
+            .is_empty()
+    );
+}
+
+#[tokio::test]
+async fn merge_requests_are_revalidated() {
+    use crate::contact_duplicates::merge_contacts;
+    use crate::contacts::create_contact;
+    let t = test_app().await;
+    let alice = create_contact(t.state(), card("Alice", "", &["a@example.com"]))
+        .await
+        .unwrap_or_else(fail);
+    let invalid = (ErrorCodeDto::InvalidInput, Some(FieldDto::Contact));
+    assert_eq!(
+        code(merge_contacts(t.state(), 0, vec![alice.id]).await),
+        invalid
+    );
+    assert_eq!(
+        code(merge_contacts(t.state(), alice.id, vec![]).await),
+        invalid
+    );
+    assert_eq!(
+        code(merge_contacts(t.state(), alice.id, vec![alice.id]).await),
+        invalid
+    );
+    assert_eq!(
+        code(merge_contacts(t.state(), alice.id, (100..140).collect()).await),
+        invalid
+    );
+    assert_eq!(
+        code(merge_contacts(t.state(), alice.id, vec![999]).await),
+        (ErrorCodeDto::ContactNotFound, None)
+    );
+}

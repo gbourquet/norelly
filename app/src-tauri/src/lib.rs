@@ -8,6 +8,7 @@ pub mod actions;
 mod command_tests;
 pub mod commands;
 pub mod compose;
+pub mod contact_duplicates;
 pub mod contact_export;
 pub mod contact_import;
 pub mod contact_lists;
@@ -88,6 +89,8 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             contact_import::preview_contact_import,
             contact_import::apply_contact_import,
             contact_export::export_contacts,
+            contact_duplicates::find_contact_duplicates,
+            contact_duplicates::merge_contacts,
             contact_lists::list_contact_lists,
             contact_lists::get_contact_list,
             contact_lists::create_contact_list,

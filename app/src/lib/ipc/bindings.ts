@@ -223,6 +223,16 @@ export const commands = {
 	 */
 	exportContacts: (selection: ContactExportSelectionDto, format: ContactExportFormatDto, title: string, filter: string) => typedError<ContactExportOutcomeDto | null, IpcError_Serialize>(__TAURI_INVOKE("export_contacts", { selection, format, title, filter })),
 	/**
+	 *  Groupes de doublons du carnet, dans l'ordre du nom de leur première
+	 *  fiche.
+	 */
+	findContactDuplicates: () => typedError<ContactDuplicateGroupDto[], IpcError_Serialize>(__TAURI_INVOKE("find_contact_duplicates")),
+	/**
+	 *  Fusionne les fiches `others` dans la fiche `keep` ; renvoie la fiche
+	 *  gardée.
+	 */
+	mergeContacts: (keep: number, others: number[]) => typedError<ContactDto, IpcError_Serialize>(__TAURI_INVOKE("merge_contacts", { keep, others })),
+	/**
 	 *  Une page des listes filtrée sur le nom (`text` vide : toutes), après
 	 *  `cursor`.
 	 */
@@ -426,6 +436,12 @@ export type ContactDto = {
 	/**  Nom à afficher (règle du domaine). */
 	name: string,
 	fields: ContactFieldsDto,
+};
+
+/**  Groupe de doublons : la fiche proposée à garder d'abord. */
+export type ContactDuplicateGroupDto = {
+	contacts: ContactDto[],
+	reasons: DuplicateReasonDto[],
 };
 
 /**  Adresse d'une fiche contact (saisie, ou fiche relue). */
@@ -808,6 +824,9 @@ export type DuplicatePolicyDto =
 /**  Compléter le contact existant sans rien écraser. */
 "complete";
 
+/**  Ce qui rapproche les contacts d'un groupe de doublons. */
+export type DuplicateReasonDto = "same_name" | "same_phone";
+
 /**  Point de connexion (consentement au clair, exception de certificat). */
 export type EndpointDto = {
 	host: string,
@@ -977,6 +996,13 @@ export type ErrorCodeDto =
  *  trop lourd) : exporter une sélection.
  */
 "contact_export_too_large" | 
+/**  Carnet trop grand pour y chercher les doublons. */
+"contact_duplicates_too_many" | 
+/**
+ *  Fusion refusée : la fiche obtenue dépasserait les bornes d'une
+ *  fiche (adresses, téléphones ou notes).
+ */
+"contact_merge_too_large" | 
 /**  Erreur interne (journalisée). */
 "internal";
 

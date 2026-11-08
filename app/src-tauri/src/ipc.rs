@@ -154,6 +154,11 @@ pub enum ErrorCodeDto {
     /// Export trop gros pour être réimporté (trop de contacts, ou fichier
     /// trop lourd) : exporter une sélection.
     ContactExportTooLarge,
+    /// Carnet trop grand pour y chercher les doublons.
+    ContactDuplicatesTooMany,
+    /// Fusion refusée : la fiche obtenue dépasserait les bornes d'une
+    /// fiche (adresses, téléphones ou notes).
+    ContactMergeTooLarge,
     /// Erreur interne (journalisée).
     Internal,
 }
@@ -1517,6 +1522,21 @@ pub enum ContactExportFormatDto {
     Vcard3,
     GoogleCsv,
     Ldif,
+}
+
+/// Ce qui rapproche les contacts d'un groupe de doublons.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum DuplicateReasonDto {
+    SameName,
+    SamePhone,
+}
+
+/// Groupe de doublons : la fiche proposée à garder d'abord.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
+pub struct ContactDuplicateGroupDto {
+    pub contacts: Vec<ContactDto>,
+    pub reasons: Vec<DuplicateReasonDto>,
 }
 
 /// Bilan d'un export écrit.

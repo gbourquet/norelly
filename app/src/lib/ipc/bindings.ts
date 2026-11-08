@@ -217,6 +217,12 @@ export const commands = {
 	 */
 	applyContactImport: (token: number, policy: DuplicatePolicyDto) => typedError<ContactImportOutcomeDto, IpcError_Serialize>(__TAURI_INVOKE("apply_contact_import", { token, policy })),
 	/**
+	 *  Prépare et produit le fichier, ouvre le sélecteur d'enregistrement du
+	 *  système (titre et nom du filtre localisés par l'interface) et écrit le
+	 *  fichier choisi ; `None` si l'utilisateur annule.
+	 */
+	exportContacts: (selection: ContactExportSelectionDto, format: ContactExportFormatDto, title: string, filter: string) => typedError<ContactExportOutcomeDto | null, IpcError_Serialize>(__TAURI_INVOKE("export_contacts", { selection, format, title, filter })),
+	/**
 	 *  Une page des listes filtrée sur le nom (`text` vide : toutes), après
 	 *  `cursor`.
 	 */
@@ -428,6 +434,24 @@ export type ContactEmailDto = {
 	label: string,
 	preferred: boolean,
 };
+
+/**  Format d'un export. */
+export type ContactExportFormatDto = "vcard4" | "vcard3" | "google_csv" | "ldif";
+
+/**  Bilan d'un export écrit. */
+export type ContactExportOutcomeDto = {
+	/**  Contacts écrits. */
+	exported: number,
+	/**  Nom du fichier écrit. */
+	file_name: string,
+};
+
+/**  Contacts à exporter. */
+export type ContactExportSelectionDto = 
+/**  Tout le carnet. */
+{ kind: "all" } | 
+/**  Les contacts cochés. */
+{ kind: "contacts"; ids: number[] };
 
 /**
  *  Champs d'une fiche contact : saisie envoyée par l'interface (revalidée
@@ -946,6 +970,13 @@ export type ErrorCodeDto =
 "contact_import_read_failed" | 
 /**  Aperçu d'import périmé (remplacé par un autre, ou déjà importé). */
 "contact_import_expired" | 
+/**  Aucun contact à exporter (carnet vide, sélection supprimée). */
+"contact_export_empty" | 
+/**
+ *  Export trop gros pour être réimporté (trop de contacts, ou fichier
+ *  trop lourd) : exporter une sélection.
+ */
+"contact_export_too_large" | 
 /**  Erreur interne (journalisée). */
 "internal";
 

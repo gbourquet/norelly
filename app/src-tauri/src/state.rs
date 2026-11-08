@@ -7,6 +7,7 @@ use std::sync::{Mutex, PoisonError};
 use norelly_application::discover_settings::DiscoverSettings;
 use norelly_application::test_connection::TestConnection;
 use norelly_blobs::{FsAccountDataStore, FsBlobStore};
+use norelly_contacts_io::{ContactsIo, IcuNfc};
 use norelly_discovery::{HickorySrvResolver, HttpAutoconfigClient, TcpPortProber};
 use norelly_domain::credentials::Secret;
 use norelly_domain::discovery::{SrvRecord, SrvService};
@@ -22,6 +23,7 @@ use norelly_sqlite::contacts::SqliteContactBook;
 use norelly_sqlite::{Database, SqliteAccountRepository, SqliteCertificateExceptionStore};
 use norelly_tls::TlsClientFactory;
 
+use crate::contact_import::PendingImport;
 use crate::mail::MailServices;
 use crate::remote_images::RemoteImageProxy;
 
@@ -157,6 +159,15 @@ pub type AppTestConnection =
     TestConnection<ImapConnector, SmtpSender, SqliteCertificateExceptionStore>;
 pub type AppDiscoverSettings = DiscoverSettings<AppAutoconfig, AppSrvResolver, TcpPortProber>;
 
+/// Import d'un carnet (ADR-012) : lecture des fichiers, normalisation
+/// NFC, aperçu en attente de confirmation.
+#[derive(Debug, Default)]
+pub struct ContactImports {
+    pub codec: ContactsIo,
+    pub nfc: IcuNfc,
+    pub pending: PendingImport,
+}
+
 /// État partagé par les commandes.
 #[derive(Debug)]
 pub struct AppState {
@@ -165,6 +176,7 @@ pub struct AppState {
     pub exceptions: SqliteCertificateExceptionStore,
     /// Carnet d'adresses, commun à tous les comptes (ADR-012).
     pub contacts: SqliteContactBook,
+    pub imports: ContactImports,
     pub secrets: AppSecretStore,
     pub local_data: FsAccountDataStore,
     pub test: AppTestConnection,
@@ -241,6 +253,7 @@ impl AppState {
         Ok(Self {
             mail,
             contacts: SqliteContactBook::new(db.clone()),
+            imports: ContactImports::default(),
             accounts: SqliteAccountRepository::new(db),
             test: TestConnection::new(
                 ImapConnector::new(tls.clone()),

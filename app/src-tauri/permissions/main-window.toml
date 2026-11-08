@@ -55,6 +55,8 @@ permissions = [
   "allow-create-contact",
   "allow-update-contact",
   "allow-delete-contacts",
+  "allow-preview-contact-import",
+  "allow-apply-contact-import",
   "allow-list-contact-lists",
   "allow-get-contact-list",
   "allow-create-contact-list",

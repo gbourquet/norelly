@@ -299,7 +299,9 @@ impl ContactListDirectory for SqliteContactBook {
 #[cfg(test)]
 mod tests {
     use norelly_domain::ports::ContactBook;
-    use norelly_test_support::contact_lists_contracts::{contact_list_contract, sample_list};
+    use norelly_test_support::contact_lists_contracts::{
+        contact_list_contract, contact_merge_contract, sample_list,
+    };
     use norelly_test_support::contacts_contracts::sample_contact;
 
     use super::*;
@@ -312,6 +314,11 @@ mod tests {
     #[tokio::test]
     async fn contact_lists_pass_contract() -> Result<(), ContactListStoreError> {
         contact_list_contract(&book()).await
+    }
+
+    #[tokio::test]
+    async fn contact_merge_passes_contract() -> Result<(), ContactListStoreError> {
+        contact_merge_contract(&book()).await
     }
 
     async fn with_list(book: &SqliteContactBook) -> Result<ContactList, ContactListStoreError> {

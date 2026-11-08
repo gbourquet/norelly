@@ -1335,6 +1335,20 @@ pub trait ContactBook: Send + Sync {
         create: &[ContactDraft],
         complete: &[Contact],
     ) -> impl Future<Output = Result<ImportOutcome, ContactStoreError>> + Send;
+
+    /// Fusionne en une transaction ([`crate::contact_duplicates`]) : la
+    /// fiche `keep` prend le contenu `draft`, elle remplace chaque fiche
+    /// `absorbed` dans ses listes de diffusion (à sa place, sauf si `keep`
+    /// y figure déjà), puis les fiches `absorbed` sont supprimées. Tout ou
+    /// rien : une fiche inconnue (`NotFound`) ou une adresse de `draft`
+    /// portée par un contact étranger à la fusion (`DuplicateAddress`)
+    /// annule tout.
+    fn merge(
+        &self,
+        keep: ContactId,
+        draft: &ContactDraft,
+        absorbed: &[ContactId],
+    ) -> impl Future<Output = Result<Contact, ContactStoreError>> + Send;
 }
 
 /// Bilan d'un import écrit dans le carnet.

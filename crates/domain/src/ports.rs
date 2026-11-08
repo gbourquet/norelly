@@ -19,6 +19,7 @@ use crate::compose::ReplySource;
 use crate::compose::draft::{ComposeError, Draft, DraftSync, Recipient, RemoteCopy};
 use crate::compose::outbox::OutboxEntry;
 use crate::connection::ConnectionError;
+use crate::contact_export::ContactSelection;
 use crate::contact_import::DecodedContacts;
 use crate::contact_lists::{ContactList, ContactListDraft, ContactListFilter, ContactListId};
 use crate::contacts::{
@@ -1468,6 +1469,14 @@ pub trait ContactDirectory: Send + Sync {
     fn by_addresses(
         &self,
         keys: &[AddressKey],
+    ) -> impl Future<Output = Result<Vec<Contact>, StoreError>> + Send;
+
+    /// Fiches complètes de `selection` (inconnues omises), dans l'ordre
+    /// de [`ContactCursor`], au plus `limit` (export).
+    fn contacts(
+        &self,
+        selection: &ContactSelection,
+        limit: usize,
     ) -> impl Future<Output = Result<Vec<Contact>, StoreError>> + Send;
 }
 

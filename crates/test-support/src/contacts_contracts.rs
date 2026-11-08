@@ -5,6 +5,7 @@
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use norelly_domain::address::EmailAddress;
+use norelly_domain::contact_export::ContactSelection;
 use norelly_domain::contact_lists::{ContactList, ContactListDraft, ContactListInput};
 use norelly_domain::contacts::{
     AddressKey, Contact, ContactDraft, ContactFilter, ContactId, ContactInput, EmailInput,
@@ -348,6 +349,39 @@ pub async fn contact_book_contract<B: ContactBook + ContactDirectory>(
     Ok(())
 }
 
+/// Contrat de la lecture en bloc des fiches (export), carnet vide au
+/// départ : tout le carnet ou une sélection, fiches complètes dans l'ordre
+/// de la liste, inconnues omises, au plus `limit`.
+pub async fn contact_selection_contract<B: ContactBook + ContactDirectory>(
+    book: &B,
+) -> Result<(), ContactStoreError> {
+    assert!(book.contacts(&ContactSelection::All, 10).await?.is_empty());
+    let bob = book
+        .create(&sample_contact("Bob", &["bob@example.net"]))
+        .await?;
+    let alice = book.create(&full_contact()).await?;
+    let carole = book
+        .create(&sample_contact("Carole", &["carole@example.org"]))
+        .await?;
+
+    let all = book.contacts(&ContactSelection::All, 10).await?;
+    assert_eq!(all, vec![alice.clone(), bob.clone(), carole.clone()]);
+    assert_eq!(
+        book.contacts(&ContactSelection::All, 2).await?,
+        vec![alice.clone(), bob.clone()]
+    );
+    assert!(book.contacts(&ContactSelection::All, 0).await?.is_empty());
+
+    let unknown = ContactId::new(carole.id().get() + 1000).unwrap_or_else(|| panic!("id"));
+    let chosen = ContactSelection::Contacts(vec![carole.id(), unknown, alice.id()]);
+    assert_eq!(
+        book.contacts(&chosen, 10).await?,
+        vec![alice.clone(), carole.clone()]
+    );
+    assert_eq!(book.contacts(&chosen, 1).await?, vec![alice]);
+    Ok(())
+}
+
 /// Contrat de l'import en une transaction ([`ContactBook::import`]),
 /// carnet vide au départ : tout ou rien.
 pub async fn contact_import_contract<B: ContactBook + ContactDirectory>(
@@ -655,6 +689,21 @@ impl ContactDirectory for InMemoryContactBook {
             .filter(|c| keys.iter().any(|k| c.draft().has_address(k)))
             .collect())
     }
+
+    async fn contacts(
+        &self,
+        selection: &ContactSelection,
+        limit: usize,
+    ) -> Result<Vec<Contact>, StoreError> {
+        Ok(sorted(&self.lock().1)
+            .into_iter()
+            .filter(|c| match selection {
+                ContactSelection::All => true,
+                ContactSelection::Contacts(ids) => ids.contains(&c.id()),
+            })
+            .take(limit)
+            .collect())
+    }
 }
 
 #[cfg(test)]
@@ -669,5 +718,10 @@ mod tests {
     #[tokio::test]
     async fn in_memory_contact_book_passes_import_contract() -> Result<(), ContactStoreError> {
         contact_import_contract(&InMemoryContactBook::default()).await
+    }
+
+    #[tokio::test]
+    async fn in_memory_contact_book_passes_selection_contract() -> Result<(), ContactStoreError> {
+        contact_selection_contract(&InMemoryContactBook::default()).await
     }
 }

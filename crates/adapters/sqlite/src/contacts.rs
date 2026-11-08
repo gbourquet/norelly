@@ -10,6 +10,7 @@
 use std::collections::HashMap;
 
 use norelly_domain::address::EmailAddress;
+use norelly_domain::contact_export::ContactSelection;
 use norelly_domain::contacts::{
     AddressKey, Contact, ContactDraft, ContactFilter, ContactId, ContactInput, EmailInput,
     PhoneInput,
@@ -476,12 +477,47 @@ impl ContactDirectory for SqliteContactBook {
             })
             .await
     }
+
+    async fn contacts(
+        &self,
+        selection: &ContactSelection,
+        limit: usize,
+    ) -> Result<Vec<Contact>, StoreError> {
+        let limit = i64::try_from(limit).unwrap_or(i64::MAX);
+        let chosen = match selection {
+            ContactSelection::All => None,
+            ContactSelection::Contacts(ids) => Some(json_list(
+                &ids.iter().map(|id| id.get()).collect::<Vec<_>>(),
+            )?),
+        };
+        self.db
+            .read(move |c| {
+                let ids: Vec<i64> = match &chosen {
+                    None => c
+                        .prepare_cached("SELECT id FROM contacts ORDER BY sort_key, id LIMIT ?1")
+                        .and_then(|mut s| s.query_map(params![limit], |r| r.get(0))?.collect()),
+                    Some(list) => c
+                        .prepare_cached(
+                            "SELECT id FROM contacts \
+                              WHERE id IN (SELECT value FROM json_each(?1)) \
+                              ORDER BY sort_key, id LIMIT ?2",
+                        )
+                        .and_then(|mut s| {
+                            s.query_map(params![list, limit], |r| r.get(0))?.collect()
+                        }),
+                }
+                .map_err(store_error)?;
+                load(c, &ids)
+            })
+            .await
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use norelly_test_support::contacts_contracts::{
-        contact_book_contract, contact_import_contract, full_contact, sample_contact,
+        contact_book_contract, contact_import_contract, contact_selection_contract, full_contact,
+        sample_contact,
     };
 
     use super::*;
@@ -498,6 +534,11 @@ mod tests {
     #[tokio::test]
     async fn contact_book_passes_import_contract() -> Result<(), ContactStoreError> {
         contact_import_contract(&book()).await
+    }
+
+    #[tokio::test]
+    async fn contact_book_passes_selection_contract() -> Result<(), ContactStoreError> {
+        contact_selection_contract(&book()).await
     }
 
     fn count(c: &rusqlite::Connection, table: &'static str) -> Result<i64, StoreError> {

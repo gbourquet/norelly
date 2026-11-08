@@ -183,15 +183,7 @@ fn vcard_full_name(draft: &ContactDraft) -> Option<String> {
 /// lecture de la carte (préférence, encodage) ou sont des types
 /// techniques que l'import écarte.
 const RESERVED_VCARD_TYPES: &[&str] = &[
-    "pref",
-    "internet",
-    "x400",
-    "voice",
-    "text",
-    "base64",
-    "b",
-    "8bit",
-    "7bit",
+    "pref", "internet", "x400", "voice", "text", "base64", "b", "8bit", "7bit",
 ];
 
 /// Étiquette écrite en type vCard : en minuscules, les caractères de la

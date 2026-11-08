@@ -572,5 +572,8 @@ est majoritairement écrit par Claude et relu par le mainteneur.
     saisie et les fiches existantes gardent la règle de
     `ContactDraft::new`. Les deux politiques de doublons (« ignorer »,
     « compléter » sans rien écraser) sont livrées, choisies dans
-    l'aperçu ; les listes d'un fichier ne sont pas importées ;
+    l'aperçu ; les listes d'un fichier ne sont pas importées ; jeux
+    d'essai **reconstitués** dans la structure des exports réels avec des
+    données fictives, et non de vrais exports anonymisés (écart validé
+    par le mainteneur après coup, le 2026-11-08) ;
   - photos de contact et CardDAV restent au backlog.

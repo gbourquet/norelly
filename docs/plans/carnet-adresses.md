@@ -189,7 +189,8 @@ sensible (SQL, IPC, fichiers, rendu).
   refusés à l'import seulement ; aperçu chiffré pour les deux politiques,
   choix dans la fenêtre ; « Importer… » dans l'en-tête de la vue (repli
   dans « Plus… ») et dans le carnet vide. Jeux d'essai reconstitués dans
-  la structure des exports, données fictives.
+  la structure des exports, données fictives (écart validé après coup :
+  le remplacement par de vrais exports anonymisés est au backlog).
 
 ### Lot 7 — `export/contacts` : export vCard, CSV, LDIF
 - `ContactCodec::encode` : vCard 4.0 (et 3.0 au choix pour les vieux

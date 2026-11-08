@@ -50,6 +50,10 @@ quand le mainteneur l'abandonne (avec la raison).
   - import et export des listes (vCard `KIND:group`, LDIF
     `groupOfNames`) à prévoir avec les lots 6 et 7.
 - **Carnet : découvert au lot 6** :
+  - remplacer les jeux d'essai reconstitués
+    (`crates/adapters/contacts-io/tests/data`) par de vrais exports
+    anonymisés de Gmail, Outlook, Thunderbird et Apple, comme le prévoyait
+    le plan ;
   - les étiquettes importées gardent le mot du fichier (`work`, `home`,
     `cell` des vCard, « Travail » d'un export Google français) : les
     traduire à l'affichage, et lire les étiquettes `X-ABLabel` d'Apple

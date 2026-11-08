@@ -198,6 +198,12 @@ quand le mainteneur l'abandonne (avec la raison).
 - **Photos de contact** : `PHOTO` des vCard ignorée à l'import ; une image
   venue d'un fichier tiers passe par le même contrôle que les pièces
   jointes et le rendu (revue de sécurité) ; initiales en attendant.
+- **Doublons du carnet : groupes écartés et critères** (lot 8) : un groupe
+  « passé » est reproposé à chaque recherche ; retenir les paires écartées
+  (migration, effacées quand une fiche change ou disparaît). Critères
+  laissés de côté : noms sans les accents (tables Unicode hors du
+  domaine), équivalences d'adresses propres à un fournisseur (Gmail :
+  points, `googlemail.com`).
 
 - **Délai du marquage comme lu dans la fenêtre des réglages** : le réglage
   existe de bout en bout (`Settings::mark_seen_delay_secs`, 5 s par défaut,

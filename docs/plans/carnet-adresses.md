@@ -212,6 +212,15 @@ sensible (SQL, IPC, fichiers, rendu).
   contrainte ; doublons = même nom normalisé ou adresses qui se
   recoupent après import en mode « ignorer ») et règle de fusion.
 - UI : « Rechercher les doublons… » dans « Plus… » de la vue Contacts.
+  *Réalisé* (règles validées par le mainteneur avant le code, consignées
+  dans l'ADR-012) : deux contacts ne partagent jamais une adresse, le
+  second critère est donc le téléphone (même nom en NFC sans casse ni
+  ordre des mots, ou même numéro d'au moins 6 chiffres, par
+  transitivité) ; fusion dans la fiche choisie (la plus complète par
+  défaut), champs vides complétés, adresses et téléphones réunis, notes
+  bout à bout, listes reportées, en une transaction
+  (`ContactBook::merge`) ; fenêtre qui présente les groupes un par un
+  (« Fusionner », « Passer ») ; groupe passé non mémorisé (backlog).
 
 ## Fichiers critiques
 - `crates/domain/src/ports.rs`, `crates/domain/src/contacts.rs` (nouveau),

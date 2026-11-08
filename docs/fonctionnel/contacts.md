@@ -271,6 +271,41 @@ l'ordinateur** : rien n'est envoyé à un serveur.
   contacts (25 000) ou de données (20 Mo) qu'un import n'en accepte ; il
   faut alors en cocher une partie.
 
+### Fusionner les doublons
+
+- But : réunir en une seule fiche une personne enregistrée plusieurs fois
+  (après un import, ou une adresse personnelle et une adresse de travail
+  saisies séparément).
+- **Rechercher les doublons…** se trouve dans le menu **Plus…** en haut de
+  la vue Contacts, et dans la palette de commandes.
+- Sont proposés ensemble les contacts qui portent le **même nom** (sans
+  tenir compte des majuscules, des espaces ni de l'ordre des mots :
+  « Martin Alice » et « alice martin » se ressemblent) ou le **même numéro
+  de téléphone** (« 06 12 34 56 78 » et « 0612345678 » sont le même
+  numéro ; un numéro très court ne compte pas). Un contact sans nom n'est
+  jamais rapproché par son nom. Deux contacts proches d'un même troisième
+  forment un seul groupe.
+- Une fenêtre présente les groupes un par un (« Groupe 1 sur 3 ») et dit
+  ce qui rapproche les fiches. Pour chaque fiche : son nom, ses adresses,
+  ses téléphones, une case pour la réunir aux autres (toutes cochées au
+  départ) et le choix **Garder cette fiche** (la plus complète est
+  proposée).
+- **Fusionner** réunit les fiches cochées dans la fiche gardée : ses
+  champs vides sont complétés par les autres fiches, sans rien remplacer ;
+  toutes les adresses et tous les téléphones sont gardés (un numéro écrit
+  deux fois ne l'est qu'une fois) ; l'adresse préférée reste celle de la
+  fiche gardée ; les notes différentes sont mises bout à bout ; le contact
+  est favori si l'une des fiches l'était ; il remplace les autres fiches
+  dans leurs listes de diffusion. Les autres fiches sont ensuite
+  supprimées. Tout se fait d'un coup : en cas d'échec, rien ne change.
+- **Passer** laisse le groupe tel quel et présente le suivant ; il sera de
+  nouveau proposé à la prochaine recherche.
+- Fusion refusée, avec un message clair, si la fiche obtenue dépasserait
+  ce qu'une fiche peut contenir (adresses, téléphones ou notes) : il faut
+  alors décocher une fiche ou en alléger une.
+- En fermant la fenêtre, un message annonce le nombre de groupes
+  fusionnés.
+
 ## Sécurité
 
 - Tout ce qui est saisi est affiché comme du **texte**, jamais interprété.
@@ -295,6 +330,6 @@ l'ordinateur** : rien n'est envoyé à un serveur.
   message.
 - Un nom de fiche qui ressemble à une adresse est accepté à la saisie
   (il est seulement écarté à l'affichage) ; l'import ne le reprend pas.
-- Pas encore de recherche des doublons déjà présents ; les listes ne
-  s'importent ni ne s'exportent, les favoris ne s'exportent pas. Photos,
+- Un groupe passé n'est pas retenu : il est proposé de nouveau à chaque
+  recherche. Les listes ne s'importent ni ne s'exportent, les favoris ne s'exportent pas. Photos,
   adresses postales et anniversaires d'un fichier importé sont ignorés.

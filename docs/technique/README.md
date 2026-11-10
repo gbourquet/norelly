@@ -21,6 +21,5 @@ Voir aussi :
   modification ;
 - [DECISIONS.md](../DECISIONS.md) : décisions d'architecture (ADR), qui
   font foi ;
-- [Linear](https://linear.app/stroach/project/norelly-184c1980f708) : sujets ouverts ;
 - [la documentation fonctionnelle](../fonctionnel/README.md) : ce que fait
   chaque fonctionnalité et ses règles métier.

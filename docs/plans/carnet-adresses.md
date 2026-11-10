@@ -41,8 +41,8 @@ sensible (SQL, IPC, fichiers, rendu).
 - `docs/DECISIONS.md` : **ADR-012 Carnet d'adresses** (local, unique,
   modèle vCard, codecs dans un adaptateur, CardDAV différé, dépendance
   `csv`) — acceptée le 2026-11-07.
-- Linear, epic « Carnet d'adresses : import, export et nouvelles
-  fonctions » : « Synchronisation CardDAV », « Photos de contact ».
+- Suites prévues hors de ce plan : « Synchronisation CardDAV », « Photos
+  de contact ».
 
 ### Lot 1 — `domaine/contacts` : modèle, port, stockage
 - `crates/domain/src/contacts.rs` (nouveau module, déclaré dans `lib.rs`) :

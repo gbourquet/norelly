@@ -106,7 +106,7 @@ mesure unitaire.
 |---|---|---|
 | Liste : première page et changement de dossier, 50 000 messages (requête seule) | `cargo bench -p norelly-sqlite -- --test` | < 50 ms (mesuré ≈ 0,2 ms) |
 | Recherche, 50 000 messages de 300 mots | même commande (bancs `message_list` et `search`) | < 100 ms (mesuré 0,3 à 89 ms) |
-| Démarrage de bout en bout | `NORELLY_E2E_PERF=1 pnpm -C app e2e` | < 400 ms (seuil porté par le mainteneur, à trancher : Linear NOR-83) |
+| Démarrage de bout en bout | `NORELLY_E2E_PERF=1 pnpm -C app e2e` | < 400 ms (seuil porté par le mainteneur) |
 | Changement de dossier de bout en bout | idem | < 200 ms (mesuré 13 à 16 ms) |
 
 Les bancs de bout en bout tournent dans le job nocturne

@@ -8,8 +8,6 @@ Merci de votre intérêt ! Ce fichier résume l'essentiel ; le détail est dans
 - Lisez [l'architecture](docs/technique/architecture.md) et
   [DECISIONS.md](docs/DECISIONS.md) : les décisions d'architecture font foi.
   Une dérogation se discute (issue) **avant** d'être codée.
-- Les sujets ouverts sont suivis par le mainteneur dans
-  [Linear](https://linear.app/stroach/project/norelly-184c1980f708).
 - Une question, un bogue : ouvrez une issue. **Une vulnérabilité** : voir
   [SECURITY.md](SECURITY.md) (signalement privé), jamais une issue
   publique.

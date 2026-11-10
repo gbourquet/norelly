@@ -158,7 +158,7 @@
   "add_server_imap": "Incoming server (IMAP): ",
   "add_server_smtp": "Outgoing server (SMTP): ",
   "add_fail_authentication": "{prefix}credentials rejected. Check the username and password (an app password is sometimes required).",
-  "add_fail_google_app_password": "{prefix}Google rejected this password: a Google account requires an app password.",
+  "add_fail_google_app_password": "{prefix}credentials rejected: a Google account requires an app password.",
   "add_app_password_title": "Create a Google app password",
   "add_app_password_step_2fa": "Turn on 2-Step Verification for your Google account, if it is not on already.",
   "add_app_password_step_create": "Open Google's app passwords page and create one, for example named “Norelly”.",

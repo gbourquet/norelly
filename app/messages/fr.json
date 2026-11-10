@@ -158,7 +158,7 @@
   "add_server_imap": "Serveur de réception (IMAP) : ",
   "add_server_smtp": "Serveur d'envoi (SMTP) : ",
   "add_fail_authentication": "{prefix}identifiants refusés. Vérifiez le nom d'utilisateur et le mot de passe (un mot de passe d'application est parfois nécessaire).",
-  "add_fail_google_app_password": "{prefix}Google refuse ce mot de passe : un compte Google demande un mot de passe d'application.",
+  "add_fail_google_app_password": "{prefix}identifiants refusés : un compte Google demande un mot de passe d'application.",
   "add_app_password_title": "Créer un mot de passe d'application Google",
   "add_app_password_step_2fa": "Activez la validation en deux étapes de votre compte Google, si ce n'est pas déjà fait.",
   "add_app_password_step_create": "Ouvrez la page Google des mots de passe d'application et créez-en un, par exemple nommé « Norelly ».",

@@ -27,8 +27,47 @@ quand le mainteneur l'abandonne (avec la raison).
   captures suivies de `docs/utilisateur/*/captures`, donc lancer les e2e
   modifie le dépôt. Ajouter une variable d'environnement pour ne pas les
   recopier ? (`app/e2e/run.sh`)
+- **« Se connecter avec Google » (OAuth2)** : Gmail refuse le mot de passe
+  du compte en IMAP et SMTP. Le scope nécessaire (`https://mail.google.com/`)
+  est *restreint* : sans vérification par Google, 100 utilisateurs au plus
+  et un écran « Application non validée » ; en mode test, jetons expirés
+  au bout de 7 jours. Distribuer au public exige la vérification de
+  l'application (marque, domaine, politique de confidentialité, vidéo) et
+  un audit de sécurité annuel payant (CASA, laboratoire agréé). Accepter ce
+  coût et ces démarches, ou s'en tenir au mot de passe d'application ?
+  Dépend de l'élément XOAUTH2 ci-dessous.
 
 ## Interface et fonctionnalités
+
+- **Gmail : guider vers le mot de passe d'application** : quand la
+  connexion à un compte Google échoue (authentification refusée), expliquer
+  à l'écran qu'il faut activer la validation en deux étapes et créer un
+  mot de passe d'application (myaccount.google.com/apppasswords), puis le
+  saisir à la place du mot de passe. Norelly l'accepte déjà tel quel
+  (PLAIN/LOGIN). Vérifier d'abord que Google le permet toujours pour les
+  comptes personnels (un administrateur Workspace peut le bloquer).
+  Code d'erreur dédié reconnu par l'autodécouverte (domaine du compte ou
+  serveur `imap.gmail.com`), textes dans les deux catalogues, aide
+  utilisateur fr/en.
+- **Authentification XOAUTH2 (Microsoft d'abord, puis Google)** :
+  Outlook.com et Hotmail refusent aussi le mot de passe. Déclaration de
+  l'application gratuite chez Microsoft (Entra ID, sans audit payant) ; le
+  même code servira à Google si la vérification est acceptée (voir
+  « À trancher »). ADR et nouvelles dépendances (par exemple `oauth2`) à
+  valider avant de commencer. À prévoir :
+  - domaine : chaîne XOAUTH2 (`user=…\x01auth=Bearer …\x01\x01`), règle de
+    rafraîchissement d'un jeton expiré, choix du mécanisme selon le
+    fournisseur (`crates/domain/src/auth.rs`, aujourd'hui `Unsupported`) ;
+  - port d'obtention et de rafraîchissement des jetons (HTTPS, PKCE,
+    redirection vers `127.0.0.1` sur un port libre), ouverture du
+    navigateur du système ; faux et suite de contrat (faux serveur OAuth) ;
+  - jeton de rafraîchissement dans le trousseau (`SecretStore`), jamais
+    dans SQLite ni les journaux ; identifiant client public (application
+    de bureau, secret non confidentiel) ;
+  - autodécouverte : comptes Microsoft et Google marqués OAuth ;
+  - interface : bouton « Se connecter avec Microsoft / Google » à l'ajout
+    de compte, état « reconnexion nécessaire » sur le compte ;
+  - revue `security-reviewer` (trousseau, TLS, IMAP, SMTP, autodécouverte).
 
 - **Carnet : découvert au lot 5** :
   - l'expansion d'une liste relit ses membres un par un

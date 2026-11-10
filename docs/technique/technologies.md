@@ -37,7 +37,7 @@ Les versions exactes font foi dans `Cargo.toml` (workspace),
 | `tokio` | 1.54 | Asynchrone | — |
 | `tracing` | 0.1 (plafonné à DEBUG à la compilation) | Journaux ; TRACE supprimé car `imap-next` y journaliserait les mots de passe | ADR-002 |
 | `tauri-specta`, `specta` | =2.0.0-rc.26 (figées) | Génération des types TypeScript du contrat IPC | ADR-005 |
-| `notify-rust` | — | Notifications natives sans zbus (zbus 5 a des avis RUSTSEC) | [BACKLOG](../BACKLOG.md) (dérogation à consigner) |
+| `notify-rust` | — | Notifications natives sans zbus (zbus 5 a des avis RUSTSEC) | dérogation à consigner (Linear NOR-74) |
 | `tauri-plugin-dialog`, `tauri-plugin-updater` | 2.6 / 2 | Sélecteurs de fichiers (appelés depuis Rust) ; mises à jour signées minisign (NSIS seulement) | ADR-004, ADR-006 |
 
 ## Interface

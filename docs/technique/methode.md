@@ -30,13 +30,14 @@ Règles :
 
 **Interdit** : ramollir, désactiver ou contourner un test, affaiblir
 `scripts/check.sh`, `deny.toml` ou un seuil de couverture. Un blocage se
-documente dans la PR (ou dans [BACKLOG.md](../BACKLOG.md)), et on s'arrête.
+documente dans la PR (ou dans un ticket Linear), et on s'arrête.
 
 ## Maintenance
 
 Le projet est en maintenance : nouvelles
 fonctionnalités, interface, corrections, durcissement. Les sujets ouverts
-sont dans [BACKLOG.md](../BACKLOG.md). Une modification est prête pour une
+sont suivis dans [Linear](https://linear.app/stroach/project/norelly-184c1980f708) (conventions dans
+`CLAUDE.md`, « Suivi des sujets »). Une modification est prête pour une
 PR quand :
 
 1. `./scripts/check.sh full` passe, ainsi que les e2e ou les bancs si elle
@@ -45,8 +46,9 @@ PR quand :
    nouveau comportement ;
 3. si elle touche une zone sensible, la revue `security-reviewer` est faite,
    constats critiques et hauts corrigés, rapport résumé dans la PR et autres
-   constats reportés dans [BACKLOG.md](../BACKLOG.md) ;
-4. l'élément traité est retiré de [BACKLOG.md](../BACKLOG.md).
+   constats reportés en tickets Linear ;
+4. la PR cite le ticket traité ; ce qui a été découvert et laissé de côté
+   fait l'objet d'un nouveau ticket.
 
 Les choix d'architecture font foi dans [DECISIONS.md](../DECISIONS.md) :
 toute dérogation est validée par le mainteneur **avant** d'être

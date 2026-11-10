@@ -130,8 +130,8 @@ Signalés au mainteneur dans chaque PR qui les touche (ADR-008) :
 
 Toute modification d'une zone sensible passe par une revue de l'agent
 `security-reviewer` (`.claude/agents/security-reviewer.md`) ; les constats
-critiques et hauts sont corrigés avant la PR, les autres reportés dans
-[BACKLOG.md](../BACKLOG.md).
+critiques et hauts sont corrigés avant la PR, les autres reportés en
+tickets Linear (label `revue-sécurité` et leur gravité).
 
 Signaler une vulnérabilité : voir [SECURITY.md](../../SECURITY.md)
 (signalement privé GitHub), jamais dans une issue publique.

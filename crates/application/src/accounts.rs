@@ -12,7 +12,7 @@ use norelly_domain::account::{
 };
 use norelly_domain::address::EmailAddress;
 use norelly_domain::credentials::{Credentials, Secret};
-use norelly_domain::discovery::Discovery;
+use norelly_domain::discovery::{AuthenticationAdvice, Discovery, authentication_advice};
 use norelly_domain::endpoint::{Protocol, ServerEndpoint};
 use norelly_domain::ports::{
     AccountDataStore, AccountRepository, AccountStoreError, AutoconfigClient,
@@ -53,6 +53,9 @@ pub enum AddAccountOutcome {
     ConnectionFailed {
         protocol: Protocol,
         outcome: TestConnectionOutcome,
+        /// Conseil du domaine quand les identifiants sont refusés (compte
+        /// Google : mot de passe d'application).
+        advice: Option<AuthenticationAdvice>,
     },
     /// Paramètres invalides (nom d'utilisateur, mot de passe…).
     Invalid(String),
@@ -125,7 +128,17 @@ where
                 })
                 .await;
             if !matches!(outcome, TestConnectionOutcome::Success { .. }) {
-                return AddAccountOutcome::ConnectionFailed { protocol, outcome };
+                let advice = match &outcome {
+                    TestConnectionOutcome::Authentication(error) => {
+                        authentication_advice(draft.address(), server.endpoint.host(), error)
+                    }
+                    _ => None,
+                };
+                return AddAccountOutcome::ConnectionFailed {
+                    protocol,
+                    outcome,
+                    advice,
+                };
             }
         }
 

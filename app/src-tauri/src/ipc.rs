@@ -682,7 +682,7 @@ impl AddAccountResultDto {
                     port: e.port(),
                 },
             },
-            AddAccountOutcome::ConnectionFailed { protocol, outcome } => {
+            AddAccountOutcome::ConnectionFailed { protocol, outcome, .. } => {
                 connection_failure(*protocol, outcome)
             }
             AddAccountOutcome::Invalid(m) => failed_internal(FailureKindDto::InvalidInput, m),

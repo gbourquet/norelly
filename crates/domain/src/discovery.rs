@@ -25,6 +25,7 @@ use std::fmt;
 use serde::{Deserialize, Serialize};
 
 use crate::address::EmailAddress;
+use crate::auth::AuthError;
 use crate::credentials::{CredentialsError, Username};
 use crate::endpoint::{Host, Protocol, Security, ServerEndpoint};
 
@@ -475,6 +476,44 @@ impl Discovery {
     }
 }
 
+/// Conseil à afficher quand un serveur refuse les identifiants d'un compte.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum AuthenticationAdvice {
+    /// Google refuse le mot de passe du compte en IMAP et en SMTP : il faut
+    /// activer la validation en deux étapes, créer un mot de passe
+    /// d'application et le saisir à la place.
+    GoogleAppPassword,
+}
+
+/// Domaines des adresses Gmail grand public.
+const GOOGLE_MAIL_DOMAINS: [&str; 2] = ["gmail.com", "googlemail.com"];
+
+/// Serveurs IMAP et SMTP de Google, aussi utilisés par les comptes Google
+/// Workspace sous un autre domaine.
+const GOOGLE_MAIL_SERVERS: [&str; 2] = ["imap.gmail.com", "smtp.gmail.com"];
+
+/// Conseil pour un refus d'authentification de `server` sur le compte
+/// `address`.
+///
+/// Un compte Google est reconnu à son adresse (`gmail.com`,
+/// `googlemail.com`) ou à son serveur (`imap.gmail.com`, `smtp.gmail.com`),
+/// par égalité exacte : un nom qui ne fait que ressembler n'est pas
+/// reconnu. Seul un refus des identifiants appelle le conseil ; un
+/// mécanisme d'authentification impossible est un autre problème.
+#[must_use]
+pub fn authentication_advice(
+    address: &EmailAddress,
+    server: &Host,
+    error: &AuthError,
+) -> Option<AuthenticationAdvice> {
+    if !matches!(error, AuthError::Rejected { .. }) {
+        return None;
+    }
+    let google = GOOGLE_MAIL_DOMAINS.contains(&address.domain().as_str())
+        || GOOGLE_MAIL_SERVERS.contains(&server.as_str());
+    google.then_some(AuthenticationAdvice::GoogleAppPassword)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -799,5 +838,74 @@ mod tests {
         ));
         d.record(DiscoverySource::MozillaIspdb, &servers);
         assert_eq!(d.imap().map(|s| s.requires_confirmation), Some(false));
+    }
+
+    fn rejected() -> AuthError {
+        AuthError::Rejected {
+            message: "[AUTHENTICATIONFAILED] Invalid credentials".into(),
+        }
+    }
+
+    #[test]
+    fn gmail_addresses_are_guided_to_an_app_password() {
+        for (a, server) in [
+            ("alice@gmail.com", "imap.gmail.com"),
+            ("alice@GMail.com", "smtp.gmail.com"),
+            ("alice@googlemail.com", "imap.gmail.com"),
+            // Réglages saisis à la main : l'adresse suffit.
+            ("alice@gmail.com", "imap.example.net"),
+        ] {
+            assert_eq!(
+                authentication_advice(&address(a), &host(server), &rejected()),
+                Some(AuthenticationAdvice::GoogleAppPassword),
+                "{a} sur {server}"
+            );
+        }
+    }
+
+    #[test]
+    fn google_workspace_is_recognized_by_its_servers() {
+        for server in ["imap.gmail.com", "smtp.gmail.com", "IMAP.GMAIL.COM."] {
+            assert_eq!(
+                authentication_advice(&address("alice@exemple.fr"), &host(server), &rejected()),
+                Some(AuthenticationAdvice::GoogleAppPassword),
+                "{server}"
+            );
+        }
+    }
+
+    #[test]
+    fn other_providers_and_lookalikes_get_no_advice() {
+        for (a, server) in [
+            ("alice@example.com", "imap.example.com"),
+            ("alice@notgmail.com", "imap.notgmail.com"),
+            ("alice@gmail.com.example.net", "imap.example.net"),
+            ("alice@example.com", "imap.gmail.com.example.net"),
+            ("alice@example.com", "evilgmail.com"),
+        ] {
+            assert_eq!(
+                authentication_advice(&address(a), &host(server), &rejected()),
+                None,
+                "{a} sur {server}"
+            );
+        }
+    }
+
+    #[test]
+    fn only_rejected_credentials_call_for_an_app_password() {
+        let gmail = address("alice@gmail.com");
+        let server = host("imap.gmail.com");
+        for error in [
+            AuthError::LoginDisabled,
+            AuthError::NoSupportedMechanism { offered: vec![] },
+            AuthError::UnexpectedChallenge { step: 1 },
+            AuthError::Unsupported(crate::auth::AuthMechanism::XOAuth2),
+        ] {
+            assert_eq!(
+                authentication_advice(&gmail, &server, &error),
+                None,
+                "{error}"
+            );
+        }
     }
 }

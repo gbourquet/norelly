@@ -115,7 +115,7 @@ acceptés) sont supprimées. **Rien n'est supprimé sur le serveur.**
 | Connexion non chiffrée | La connexion à {host}:{port} ne serait pas chiffrée : … |
 | Aucun trousseau | Aucun trousseau du système … ne répond. … fichier non chiffré … |
 | Identifiants refusés | {prefix}identifiants refusés. … (un mot de passe d'application est parfois nécessaire). |
-| Compte Google refusé | {prefix}Google refuse ce mot de passe : un compte Google demande un mot de passe d'application. Puis « Créer un mot de passe d'application Google » : validation en deux étapes, création du mot de passe (« Ouvrir la page Google »), collage à la place du mot de passe habituel. |
+| Compte Google refusé | {prefix}identifiants refusés : un compte Google demande un mot de passe d'application. Puis « Créer un mot de passe d'application Google » : validation en deux étapes, création du mot de passe (« Ouvrir la page Google »), collage à la place du mot de passe habituel. |
 | Serveur injoignable | {prefix}serveur injoignable. Vérifiez le nom et le port. |
 | Refus de sécurité | {prefix}connexion refusée par sécurité. |
 | Compte existant | Un compte existe déjà pour cette adresse. |

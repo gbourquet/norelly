@@ -90,7 +90,7 @@ passe d'application.
 ### Gmail
 
 Si vous avez tapé votre mot de passe habituel, Norelly le remarque :
-Google le refuse, et Norelly affiche à la place les étapes ci-dessous,
+la connexion est refusée et Norelly affiche les étapes ci-dessous,
 avec un bouton **Ouvrir la page Google** qui ouvre directement la bonne
 page dans votre navigateur. Le champ **Mot de passe** est vidé : collez-y
 le mot de passe d'application, puis cliquez à nouveau sur **Continuer**

@@ -38,6 +38,14 @@ quand le mainteneur l'abandonne (avec la raison).
   (`crates/domain/src/discovery.rs`) n'est donné qu'à l'ajout du compte
   (`crates/application/src/accounts.rs`) : le rebrancher dans l'acteur
   (`account_actor.rs`) et l'état de connexion de l'interface.
+- **Connexion : conseil Google déclenché par le seul domaine de
+  l'adresse** (revue sécurité du 2026-11-10) : le message n'attribue plus
+  le refus à Google, mais l'aide s'affiche même quand le serveur qui a
+  refusé n'est pas celui de Google (réglages saisis à la main) : un
+  serveur hostile peut ainsi recueillir un mot de passe d'application
+  créé pour lui. NOR-9 demande les deux déclencheurs (domaine ou
+  serveur) ; ne conseiller que sur les serveurs de Google
+  (`imap.gmail.com`, `smtp.gmail.com`) est une décision à trancher.
 - **Carnet : découvert au lot 5** :
   - l'expansion d'une liste relit ses membres un par un
     (`ContactDirectory::get`, 100 lectures au plus) : un port qui rend des

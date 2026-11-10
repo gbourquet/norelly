@@ -82,11 +82,11 @@ Norelly's access, you just delete this app password.
 
 ### Gmail
 
-If you typed your usual password, Norelly notices: Google rejects it, and
-Norelly shows the steps below instead, with an **Open the Google page**
-button that opens the right page in your browser. The **Password** field
-is cleared: paste the app password into it, then click **Continue** (or
-**Test and add**) again.
+If you typed your usual password, Norelly notices: the sign-in is
+rejected, and Norelly shows the steps below instead, with an **Open the
+Google page** button that opens the right page in your browser. The
+**Password** field is cleared: paste the app password into it, then click
+**Continue** (or **Test and add**) again.
 
 ![The "Create a Google app password" help: three steps and the "Open the Google page" button](captures/google-app-password.png)
 

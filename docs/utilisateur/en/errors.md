@@ -56,11 +56,11 @@ browser), ask for a synchronisation: click the **⋯** button next to the
 account's address, then **Synchronise**. If that is not enough, your provider may have a temporary
 problem: try again later.
 
-## Google rejected this password
+## Google account: app password required
 
-**What you see**: "Incoming server (IMAP): Google rejected this password:
-a Google account requires an app password", then the **Create a Google
-app password** box.
+**What you see**: "Incoming server (IMAP): credentials rejected: a Google
+account requires an app password", then the **Create a Google app
+password** box.
 
 **What it means**: your address is with Google (Gmail, or a work address
 managed by Google), and Google refuses your usual password in an email

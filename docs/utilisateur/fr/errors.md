@@ -61,11 +61,11 @@ le bouton **⋯** à côté de l'adresse du compte, puis sur **Synchroniser**. S
 pas, votre fournisseur a peut-être un problème passager : réessayez plus
 tard.
 
-## Google refuse ce mot de passe
+## Compte Google : mot de passe d'application nécessaire
 
-**Ce que vous voyez** : « Serveur de réception (IMAP) : Google refuse ce
-mot de passe : un compte Google demande un mot de passe d'application »,
-puis l'encadré **Créer un mot de passe d'application Google**.
+**Ce que vous voyez** : « Serveur de réception (IMAP) : identifiants
+refusés : un compte Google demande un mot de passe d'application », puis
+l'encadré **Créer un mot de passe d'application Google**.
 
 **Ce que cela veut dire** : votre adresse est chez Google (Gmail, ou une
 adresse d'entreprise gérée par Google), et Google refuse votre mot de

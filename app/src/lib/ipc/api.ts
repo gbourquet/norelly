@@ -437,4 +437,5 @@ export type AccountApi = Pick<
   | "trustCertificate"
   | "removeAccount"
   | "allowFileSecrets"
+  | "openExternal"
 >;

@@ -62,6 +62,7 @@ function fakeApi(discovery: Discovery, results: AddAccountResult[]) {
     trustCertificate: vi.fn(async () => undefined),
     removeAccount: vi.fn(async () => undefined),
     allowFileSecrets: vi.fn(async () => undefined),
+    openExternal: vi.fn(async () => undefined),
   };
   return { api, calls };
 }
@@ -213,6 +214,60 @@ describe("parcours d'ajout de compte", () => {
     expect(f.message).toMatch(/identifiants refusés/);
     // Détail du serveur cité tel quel.
     expect(f.message).toContain("« 535 refusé »");
+  });
+
+  it("compte Google refusé : guide vers le mot de passe d'application", async () => {
+    const { api } = fakeApi(found, [
+      {
+        kind: "failed",
+        protocol: "imap",
+        failure: "google_app_password",
+        detail: "Invalid credentials",
+      },
+    ]);
+    const f = flow(api);
+    f.displayName = "Alice";
+    await f.submit();
+    // Retour au premier écran : seul le mot de passe est à ressaisir.
+    expect(f.step).toBe("form");
+    expect(f.appPasswordHelp).toBe(true);
+    expect(f.password).toBe("");
+    expect(f.address.trim()).toBe("alice@example.com");
+    expect(f.displayName).toBe("Alice");
+    expect(f.message).toMatch(/mot de passe d'application/);
+    expect(f.message).toContain("« Invalid credentials »");
+    await f.openAppPasswords();
+    expect(api.openExternal).toHaveBeenCalledWith("https://myaccount.google.com/apppasswords");
+  });
+
+  it("compte Google refusé en saisie manuelle : les serveurs saisis sont gardés", async () => {
+    const { api } = fakeApi(found, [
+      { kind: "failed", protocol: "smtp", failure: "google_app_password", detail: null },
+    ]);
+    const f = flow(api);
+    f.step = "manual";
+    f.imap = { ...imap, host: "imap.gmail.com" };
+    await f.submitManual();
+    expect(f.step).toBe("manual");
+    expect(f.imap.host).toBe("imap.gmail.com");
+    expect(f.password).toBe("");
+    expect(f.appPasswordHelp).toBe(true);
+  });
+
+  it("l'aide au mot de passe d'application disparaît au nouvel essai", async () => {
+    const { api } = fakeApi(found, [
+      { kind: "failed", protocol: "imap", failure: "google_app_password", detail: null },
+      { kind: "added", account },
+    ]);
+    const f = flow(api);
+    await f.submit();
+    f.password = "abcd efgh ijkl mnop";
+    await f.submit();
+    expect(f.appPasswordHelp).toBe(false);
+    expect(f.step).toBe("done");
+    f.appPasswordHelp = true;
+    f.reset();
+    expect(f.appPasswordHelp).toBe(false);
   });
 
   it("compte existant", async () => {

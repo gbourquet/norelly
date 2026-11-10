@@ -239,6 +239,8 @@ export function failureText(failure: FailureKindDto): string {
       return m.failure_network();
     case "authentication":
       return m.failure_authentication();
+    case "google_app_password":
+      return m.failure_google_app_password();
     case "security":
       return m.failure_security();
     case "protocol":

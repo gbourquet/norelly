@@ -92,6 +92,10 @@ describe("traduction des erreurs IPC", () => {
     expect(failureText("network")).toBe("server unreachable");
   });
 
+  it("compte Google refusé : libellé du mot de passe d'application", () => {
+    expect(failureText("google_app_password")).toBe("mot de passe d'application Google nécessaire");
+  });
+
   it("une erreur inattendue n'expose pas son texte", () => {
     expect(errorText(new Error("pile interne"))).toBe("Erreur inattendue.");
   });
@@ -198,6 +202,7 @@ describe("traduction des erreurs IPC", () => {
     const kinds = {
       network: true,
       authentication: true,
+      google_app_password: true,
       security: true,
       protocol: true,
       invalid_input: true,

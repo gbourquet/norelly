@@ -82,6 +82,14 @@ Norelly's access, you just delete this app password.
 
 ### Gmail
 
+If you typed your usual password, Norelly notices: Google rejects it, and
+Norelly shows the steps below instead, with an **Open the Google page**
+button that opens the right page in your browser. The **Password** field
+is cleared: paste the app password into it, then click **Continue** (or
+**Test and add**) again.
+
+![The "Create a Google app password" help: three steps and the "Open the Google page" button](captures/google-app-password.png)
+
 1. First turn on **2-Step Verification** for your Google account, if not
    already done: in your browser, open
    <https://myaccount.google.com/security>, then **2-Step Verification**,
@@ -94,6 +102,11 @@ Norelly's access, you just delete this app password.
    **Password** field. Spaces do not matter.
 5. Click **Done** at Google: this password will never be shown again. That
    is fine: if you lose it, create another one.
+
+Cannot find the option at Google? It does not exist for an account
+protected only by a security key, nor for an account under "Advanced
+Protection". For a work or school address managed by Google, its
+administrator may have turned it off: ask them.
 
 ### Outlook.com (and Hotmail, Live)
 

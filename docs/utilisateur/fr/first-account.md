@@ -89,6 +89,15 @@ passe d'application.
 
 ### Gmail
 
+Si vous avez tapé votre mot de passe habituel, Norelly le remarque :
+Google le refuse, et Norelly affiche à la place les étapes ci-dessous,
+avec un bouton **Ouvrir la page Google** qui ouvre directement la bonne
+page dans votre navigateur. Le champ **Mot de passe** est vidé : collez-y
+le mot de passe d'application, puis cliquez à nouveau sur **Continuer**
+(ou **Tester et ajouter**).
+
+![L'aide « Créer un mot de passe d'application Google » : trois étapes et le bouton « Ouvrir la page Google »](captures/google-app-password.png)
+
 1. Activez d'abord la **validation en deux étapes** de votre compte
    Google, si ce n'est pas déjà fait : dans votre navigateur, ouvrez
    <https://myaccount.google.com/security>, puis **Validation en deux
@@ -104,6 +113,11 @@ passe d'application.
    espaces n'ont pas d'importance.
 5. Cliquez sur **OK** chez Google : ce mot de passe ne sera plus jamais
    affiché. Ce n'est pas grave : si vous le perdez, créez-en un autre.
+
+Vous ne trouvez pas l'option chez Google ? Elle n'existe pas pour un
+compte protégé uniquement par une clé de sécurité, ni pour un compte en
+« Protection avancée ». Pour une adresse d'entreprise ou d'école gérée par
+Google, son administrateur a pu la désactiver : demandez-lui.
 
 ### Outlook.com (et Hotmail, Live)
 

@@ -30,6 +30,14 @@ quand le mainteneur l'abandonne (avec la raison).
 
 ## Interface et fonctionnalités
 
+- **Connexion : compte Google déjà ajouté, mot de passe d'application
+  révoqué** : Google révoque les mots de passe d'application quand le mot
+  de passe du compte change ; la synchronisation du compte n'affiche alors
+  que « identifiants refusés », sans les étapes du mot de passe
+  d'application. Le conseil `authentication_advice`
+  (`crates/domain/src/discovery.rs`) n'est donné qu'à l'ajout du compte
+  (`crates/application/src/accounts.rs`) : le rebrancher dans l'acteur
+  (`account_actor.rs`) et l'état de connexion de l'interface.
 - **Carnet : découvert au lot 5** :
   - l'expansion d'une liste relit ses membres un par un
     (`ContactDirectory::get`, 100 lectures au plus) : un port qui rend des

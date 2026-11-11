@@ -176,6 +176,29 @@ pub trait SecretStore: Send + Sync {
     fn delete(&self, key: &SecretKey) -> impl Future<Output = Result<(), SecretStoreError>> + Send;
 }
 
+/// Un trousseau partagé est aussi un trousseau (gestionnaire de jetons et
+/// commandes).
+impl<T: SecretStore> SecretStore for std::sync::Arc<T> {
+    fn get(
+        &self,
+        key: &SecretKey,
+    ) -> impl Future<Output = Result<Option<Secret>, SecretStoreError>> + Send {
+        (**self).get(key)
+    }
+
+    fn set(
+        &self,
+        key: &SecretKey,
+        secret: &Secret,
+    ) -> impl Future<Output = Result<(), SecretStoreError>> + Send {
+        (**self).set(key, secret)
+    }
+
+    fn delete(&self, key: &SecretKey) -> impl Future<Output = Result<(), SecretStoreError>> + Send {
+        (**self).delete(key)
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Exceptions de certificats
 // ---------------------------------------------------------------------------

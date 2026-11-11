@@ -79,8 +79,8 @@ pub struct MailServices {
     pub proxy: Option<RemoteImageProxy>,
     /// Dossier privé des pièces jointes ouvertes.
     pub open_dir: PathBuf,
-    imap: Arc<ImapConnector>,
-    smtp: Arc<SmtpSender>,
+    imap: Arc<crate::state::AppImap>,
+    smtp: Arc<crate::state::AppSmtp>,
     /// Brouillons et file d'envoi.
     pub compose: Arc<SqliteComposeStore>,
     composer: Arc<MimeComposer>,
@@ -99,8 +99,8 @@ impl MailServices {
     pub fn new(
         db: &Database,
         blobs: FsBlobStore,
-        imap: ImapConnector,
-        smtp: SmtpSender,
+        imap: crate::state::AppImap,
+        smtp: crate::state::AppSmtp,
         proxy: Option<RemoteImageProxy>,
         open_dir: PathBuf,
     ) -> Self {

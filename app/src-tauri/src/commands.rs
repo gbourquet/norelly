@@ -5,6 +5,9 @@
 use norelly_application::accounts::{
     AddAccount, AddAccountOutcome, AddAccountRequest, RemoveAccount, trust_certificate as trust,
 };
+use norelly_application::accounts::{
+    AddOAuthAccount, AddOAuthAccountRequest, ReconnectError, reconnect_oauth_account,
+};
 use norelly_application::test_connection::TestConnectionOutcome;
 use norelly_domain::account::{AccountId, DisplayName, ServerSettings};
 use norelly_domain::address::EmailAddress;
@@ -19,6 +22,7 @@ use crate::ipc::{
     AccountDto, AddAccountInput, AddAccountResultDto, DiscoveryDto, DiscoverySourceDto,
     ErrorCodeDto, FieldDto, IpcError, SecretsBackendDto, ServerDto,
 };
+use crate::ipc::{AddOAuthAccountInput, OAuthProviderDto};
 use crate::state::AppState;
 
 /// Comptes enregistrés.
@@ -71,6 +75,8 @@ fn server_settings(protocol: Protocol, dto: &ServerDto) -> Result<ServerSettings
 fn add_request(input: AddAccountInput) -> Result<AddAccountRequest, IpcError> {
     let address =
         EmailAddress::parse(&input.address).map_err(|_| IpcError::invalid(FieldDto::Address))?;
+    let provider = norelly_domain::oauth::OAuthProvider::parse(&input.provider)
+        .ok_or_else(|| IpcError::invalid(FieldDto::Address))?;
     let display_name = match input.display_name.as_deref().map(str::trim) {
         None | Some("") => None,
         Some(name) => {
@@ -151,6 +157,96 @@ pub async fn add_account(
         tracing::warn!(error = %e, "synchronisation non démarrée");
     }
     Ok(AddAccountResultDto::from_outcome(&outcome))
+}
+
+/// Fournisseur OAuth d'une adresse (décidé par le domaine) : l'interface
+/// propose alors « Se connecter avec … ».
+#[tauri::command]
+#[specta::specta]
+pub fn oauth_provider_for(address: String) -> Option<OAuthProviderDto> {
+    let address = EmailAddress::parse(&address).ok()?;
+    norelly_domain::oauth::OAuthProvider::for_address(&address).map(Into::into)
+}
+
+/// Ajoute un compte par « Se connecter avec … » : navigateur du système,
+/// test des connexions avec le jeton, persistance, jeton de
+/// rafraîchissement dans le trousseau.
+#[tauri::command]
+#[specta::specta]
+pub async fn add_oauth_account(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    input: AddOAuthAccountInput,
+) -> Result<AddAccountResultDto, IpcError> {
+    let address =
+        EmailAddress::parse(&input.address).map_err(|_| IpcError::invalid(FieldDto::Address))?;
+    let display_name = match input.display_name.as_deref().map(str::trim) {
+        None | Some("") => None,
+        Some(name) => {
+            Some(DisplayName::parse(name).map_err(|_| IpcError::invalid(FieldDto::DisplayName))?)
+        }
+    };
+    if !state.secrets.usable().await {
+        return Ok(AddAccountResultDto::SecretStorageConsentRequired {
+            path: state.secrets_file().display().to_string(),
+        });
+    }
+    let outcome = AddOAuthAccount {
+        test: &state.test,
+        broker: state.tokens.as_ref(),
+        accounts: &state.accounts,
+    }
+    .execute(AddOAuthAccountRequest {
+        address,
+        display_name,
+        provider,
+    })
+    .await;
+    if let AddAccountOutcome::Added(account) = &outcome
+        && let Err(e) = state
+            .mail
+            .start(&app, account, &state.secrets, &state.exceptions)
+            .await
+    {
+        tracing::warn!(error = %e, "synchronisation non démarrée");
+    }
+    Ok(AddAccountResultDto::from_outcome(&outcome))
+}
+
+/// Se reconnecte chez le fournisseur OAuth d'un compte (« Reconnexion
+/// nécessaire ») ; la synchronisation reprend avec le nouveau jeton.
+#[tauri::command]
+#[specta::specta]
+pub async fn reconnect_account(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    account: u32,
+) -> Result<AddAccountResultDto, IpcError> {
+    let id =
+        AccountId::new(i64::from(account)).map_err(|_| IpcError::invalid(FieldDto::Account))?;
+    match reconnect_oauth_account(state.tokens.as_ref(), &state.accounts, id).await {
+        Ok(account) => {
+            if let Err(e) = state
+                .mail
+                .start(&app, &account, &state.secrets, &state.exceptions)
+                .await
+            {
+                tracing::warn!(error = %e, "synchronisation non relancée");
+            }
+            Ok(AddAccountResultDto::from_outcome(
+                &AddAccountOutcome::Added(account),
+            ))
+        }
+        Err(ReconnectError::OAuth(e)) => Ok(crate::ipc::oauth_failure(&e)),
+        Err(ReconnectError::NotFound | ReconnectError::NotOAuth) => {
+            Err(IpcError::new(ErrorCodeDto::NotFound))
+        }
+        Err(ReconnectError::SecretStore(e)) => Err(IpcError {
+            detail: Some(e),
+            ..IpcError::new(ErrorCodeDto::SecretStore)
+        }),
+        Err(ReconnectError::Storage(e)) => Err(IpcError::storage(e)),
+    }
 }
 
 /// Fait confiance au certificat refusé `fingerprint` pour `host`. Seul un

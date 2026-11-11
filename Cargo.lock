@@ -3126,6 +3126,7 @@ dependencies = [
  "norelly-domain",
  "norelly-imap",
  "norelly-keyring",
+ "norelly-oauth",
  "norelly-render",
  "norelly-smtp",
  "norelly-sqlite",

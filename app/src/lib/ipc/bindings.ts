@@ -9,7 +9,7 @@ import * as __TAURI_EVENT from "@tauri-apps/api/event";
 /** Commands */
 export const commands = {
 	/**  Comptes enregistrés. */
-	listAccounts: () => typedError<AccountDto[], IpcError_Serialize>(__TAURI_INVOKE("list_accounts")),
+	listAccounts: () => typedError<AccountDto_Serialize[], IpcError_Serialize>(__TAURI_INVOKE("list_accounts")),
 	/**
 	 *  Découvre les serveurs d'une adresse ; `on_progress` reçoit chaque
 	 *  source essayée.
@@ -17,6 +17,22 @@ export const commands = {
 	discoverSettings: (address: string, onProgress: Channel<DiscoverySourceDto>) => typedError<DiscoveryDto_Serialize, IpcError_Serialize>(__TAURI_INVOKE("discover_settings", { address, onProgress })),
 	/**  Ajoute un compte : test des connexions, trousseau, persistance. */
 	addAccount: (input: AddAccountInput_Deserialize) => typedError<AddAccountResultDto_Serialize, IpcError_Serialize>(__TAURI_INVOKE("add_account", { input })),
+	/**
+	 *  Fournisseur OAuth d'une adresse (décidé par le domaine) : l'interface
+	 *  propose alors « Se connecter avec … ».
+	 */
+	oauthProviderFor: (address: string) => __TAURI_INVOKE<OAuthProviderDto | null>("oauth_provider_for", { address }),
+	/**
+	 *  Ajoute un compte par « Se connecter avec … » : navigateur du système,
+	 *  test des connexions avec le jeton, persistance, jeton de
+	 *  rafraîchissement dans le trousseau.
+	 */
+	addOauthAccount: (input: AddOAuthAccountInput_Deserialize) => typedError<AddAccountResultDto_Serialize, IpcError_Serialize>(__TAURI_INVOKE("add_oauth_account", { input })),
+	/**
+	 *  Se reconnecte chez le fournisseur OAuth d'un compte (« Reconnexion
+	 *  nécessaire ») ; la synchronisation reprend avec le nouveau jeton.
+	 */
+	reconnectAccount: (account: number) => typedError<AddAccountResultDto_Serialize, IpcError_Serialize>(__TAURI_INVOKE("reconnect_account", { account })),
 	/**
 	 *  Fait confiance au certificat refusé `fingerprint` pour `host`. Seul un
 	 *  refus effectivement présenté à l'utilisateur peut être accepté.
@@ -287,12 +303,28 @@ export const events = {
 
 /* Types */
 /**  Compte enregistré. */
-export type AccountDto = {
+export type AccountDto = AccountDto_Serialize | AccountDto_Deserialize;
+
+/**  Compte enregistré. */
+export type AccountDto_Deserialize = {
 	id: number,
 	address: string,
 	display_name: string,
 	imap: ServerDto,
 	smtp: ServerDto,
+	/**  Fournisseur d'un compte connecté par OAuth. */
+	oauth_provider?: OAuthProviderDto | null,
+};
+
+/**  Compte enregistré. */
+export type AccountDto_Serialize = {
+	id: number,
+	address: string,
+	display_name: string,
+	imap: ServerDto,
+	smtp: ServerDto,
+	/**  Fournisseur d'un compte connecté par OAuth. */
+	oauth_provider: OAuthProviderDto | null,
 };
 
 /**  Action demandée par l'interface (revalidée par le domaine). */
@@ -348,7 +380,7 @@ export type AddAccountInput_Serialize = {
 export type AddAccountResultDto = AddAccountResultDto_Serialize | AddAccountResultDto_Deserialize;
 
 /**  Résultat d'un ajout de compte. */
-export type AddAccountResultDto_Deserialize = { kind: "added"; account: AccountDto } | { kind: "already_exists" } | { kind: "needs_review"; discovery: DiscoveryDto_Deserialize } | { kind: "plaintext_consent_required"; endpoint: EndpointDto } | 
+export type AddAccountResultDto_Deserialize = { kind: "added"; account: AccountDto_Deserialize } | { kind: "already_exists" } | { kind: "needs_review"; discovery: DiscoveryDto_Deserialize } | { kind: "plaintext_consent_required"; endpoint: EndpointDto } | 
 /**
  *  Aucun trousseau du système ne répond : l'utilisateur doit accepter
  *  que le mot de passe soit enregistré dans un fichier non chiffré
@@ -367,7 +399,7 @@ export type AddAccountResultDto_Deserialize = { kind: "added"; account: AccountD
 { kind: "failed"; protocol?: ProtocolDto | null; failure: FailureKindDto; detail?: string | null };
 
 /**  Résultat d'un ajout de compte. */
-export type AddAccountResultDto_Serialize = { kind: "added"; account: AccountDto } | { kind: "already_exists" } | { kind: "needs_review"; discovery: DiscoveryDto_Serialize } | { kind: "plaintext_consent_required"; endpoint: EndpointDto } | 
+export type AddAccountResultDto_Serialize = { kind: "added"; account: AccountDto_Serialize } | { kind: "already_exists" } | { kind: "needs_review"; discovery: DiscoveryDto_Serialize } | { kind: "plaintext_consent_required"; endpoint: EndpointDto } | 
 /**
  *  Aucun trousseau du système ne répond : l'utilisateur doit accepter
  *  que le mot de passe soit enregistré dans un fichier non chiffré
@@ -384,6 +416,23 @@ export type AddAccountResultDto_Serialize = { kind: "added"; account: AccountDto
  *  serveur), jamais traduit.
  */
 { kind: "failed"; protocol: ProtocolDto | null; failure: FailureKindDto; detail: string | null };
+
+/**  Ajout d'un compte par « Se connecter avec … ». */
+export type AddOAuthAccountInput = AddOAuthAccountInput_Serialize | AddOAuthAccountInput_Deserialize;
+
+/**  Ajout d'un compte par « Se connecter avec … ». */
+export type AddOAuthAccountInput_Deserialize = {
+	address: string,
+	display_name?: string | null,
+	provider: OAuthProviderDto,
+};
+
+/**  Ajout d'un compte par « Se connecter avec … ». */
+export type AddOAuthAccountInput_Serialize = {
+	address: string,
+	display_name: string | null,
+	provider: OAuthProviderDto,
+};
 
 /**  Pièce jointe d'un message ouvert. */
 export type AttachmentDto = {
@@ -1060,7 +1109,21 @@ export type FailureKindDto = "network" | "authentication" |
  *  Identifiants refusés sur un compte Google : il faut un mot de passe
  *  d'application.
  */
-"google_app_password" | "security" | "protocol" | 
+"google_app_password" | 
+/**  Compte Microsoft dont l'envoi (SMTP) est désactivé sur la boîte. */
+"microsoft_smtp_disabled" | 
+/**
+ *  Compte OAuth : le jeton ne peut plus être rafraîchi, il faut se
+ *  reconnecter chez le fournisseur.
+ */
+"reauth_required" | 
+/**
+ *  Connexion chez le fournisseur abandonnée ou refusée par
+ *  l'utilisateur.
+ */
+"oauth_cancelled" | 
+/**  Connexion chez le fournisseur impossible (réseau, réponse invalide). */
+"oauth" | "security" | "protocol" | 
 /**  Paramètres refusés par le domaine. */
 "invalid_input" | 
 /**  Trousseau du système. */
@@ -1204,6 +1267,9 @@ export type MessageViewDto_Serialize = {
 	blocked_images: number,
 	attachments: AttachmentDto[],
 };
+
+/**  Fournisseur OAuth. */
+export type OAuthProviderDto = "microsoft";
 
 /**  Message de la file d'envoi. */
 export type OutboxItemDto = {

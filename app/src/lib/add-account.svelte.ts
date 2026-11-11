@@ -353,6 +353,14 @@ function failureMessage(
         return m.add_fail_authentication({ prefix });
       case "google_app_password":
         return m.add_fail_google_app_password({ prefix });
+      case "microsoft_smtp_disabled":
+        return m.add_fail_microsoft_smtp_disabled({ prefix });
+      case "reauth_required":
+        return m.add_fail_reauth_required();
+      case "oauth_cancelled":
+        return m.add_fail_oauth_cancelled();
+      case "oauth":
+        return m.add_fail_oauth();
       case "network":
         return m.add_fail_network({ prefix });
       case "security":

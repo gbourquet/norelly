@@ -14,6 +14,7 @@ import type {
   DiscoverySourceDto,
   EndpointDto,
   FailureKindDto,
+  SecretsBackendDto,
   ServerDto,
 } from "./ipc/api";
 import { m } from "./paraglide/messages.js";
@@ -99,6 +100,9 @@ export class AddAccountFlow {
   confirmed = $state<string[]>([]);
   /** Compte Google refusé : étapes du mot de passe d'application. */
   appPasswordHelp = $state(false);
+  /** Où Rust conservera le mot de passe ; `null` tant qu'il n'a pas
+   *  répondu : aucune garantie n'est affichée avant. */
+  secretsBackend = $state<SecretsBackendDto | null>(null);
   /** Le dernier essai vient de la saisie manuelle des serveurs. */
   #manual = false;
   #consents: EndpointDto[] = [];
@@ -124,6 +128,7 @@ export class AddAccountFlow {
     this.unconfirmed = [];
     this.confirmed = [];
     this.appPasswordHelp = false;
+    this.secretsBackend = null;
     this.#manual = false;
     this.#consents = [];
   }
@@ -148,6 +153,17 @@ export class AddAccountFlow {
       await this.#api.openExternal(GOOGLE_APP_PASSWORDS_URL);
     } catch (e) {
       this.message = errorText(e);
+    }
+  }
+
+  /** Demande à Rust où le mot de passe sera conservé : trousseau du
+   *  système ou fichier non chiffré. Sans réponse, aucune garantie n'est
+   *  affichée (fausse garantie pire que silence). */
+  async loadSecretsBackend(): Promise<void> {
+    try {
+      this.secretsBackend = await this.#api.secretsBackend();
+    } catch {
+      this.secretsBackend = null;
     }
   }
 

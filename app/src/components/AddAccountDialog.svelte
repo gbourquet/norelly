@@ -39,6 +39,12 @@
       onAdded(account);
     }
   });
+
+  // La garantie « trousseau du système » n'est affichée que sur la
+  // réponse de Rust : avec le fichier de repli, elle serait fausse.
+  $effect(() => {
+    if (open) void flow.loadSecretsBackend();
+  });
 </script>
 
 <Modal {open} title={m.add_title()} onClose={close} locked={flow.busy} width="560px">
@@ -95,9 +101,11 @@
       />
       <label for="account-name">{m.add_display_name()}</label>
       <input id="account-name" class="input" bind:value={flow.displayName} autocomplete="name" />
-      <p class="hint">
-        {m.add_password_hint()}
-      </p>
+      {#if flow.secretsBackend === "system_keyring"}
+        <p class="hint">
+          {m.add_password_hint()}
+        </p>
+      {/if}
       <div class="actions">
         <button
           class="btn"

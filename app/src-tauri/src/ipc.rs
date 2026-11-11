@@ -609,6 +609,7 @@ fn auth_detail(a: &AuthError) -> Option<String> {
     match a {
         AuthError::Rejected { message } => Some(message.clone()),
         AuthError::NoSupportedMechanism { offered } => Some(offered.join(", ")),
+        AuthError::TokenDestinationRefused { host } => Some(host.clone()),
         AuthError::Unsupported(_)
         | AuthError::ReauthRequired
         | AuthError::LoginDisabled

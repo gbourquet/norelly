@@ -4,6 +4,21 @@
 
 use std::fmt;
 
+use crate::oauth::OAuthProvider;
+use crate::ports::SecretKey;
+
+/// Longueur maximale d'un jeton d'accès OAuth, en octets.
+pub const MAX_ACCESS_TOKEN_LEN: usize = 16 * 1024;
+
+fn is_b64token(token: &str) -> bool {
+    let body = token.trim_end_matches('=');
+    token.len() <= MAX_ACCESS_TOKEN_LEN
+        && !body.is_empty()
+        && body
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"-._~+/".contains(&b))
+}
+
 /// Longueur maximale acceptée pour un nom d'utilisateur.
 const MAX_USERNAME_LEN: usize = 512;
 
@@ -97,6 +112,9 @@ pub enum CredentialsError {
     EmptySecret,
     #[error("le mot de passe contient un caractère nul")]
     SecretNulCharacter,
+    /// Jeton d'accès hors du jeu `b64token` (RFC 6750) ou trop long.
+    #[error("jeton d'accès invalide")]
+    InvalidToken,
 }
 
 /// Nom d'utilisateur : non vide, sans caractère de contrôle (CR, LF et NUL
@@ -150,6 +168,15 @@ pub struct Credentials {
     username: Username,
     secret: Secret,
     kind: CredentialKind,
+    oauth: Option<OAuthBinding>,
+}
+
+/// Fournisseur d'un jeton OAuth et, pour un compte enregistré, clé de son
+/// jeton de rafraîchissement dans le trousseau.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct OAuthBinding {
+    pub provider: OAuthProvider,
+    pub refresh_key: Option<SecretKey>,
 }
 
 impl Credentials {
@@ -166,22 +193,61 @@ impl Credentials {
             username,
             secret,
             kind: CredentialKind::Password,
+            oauth: None,
         })
     }
 
-    /// Jeton d'accès OAuth : non vide, sans caractère de contrôle (il est
-    /// placé entre des séparateurs `\x01` dans la réponse XOAUTH2).
-    pub fn oauth2(username: Username, access_token: Secret) -> Result<Self, CredentialsError> {
+    /// Jeton d'accès OAuth de `provider` : jeu `b64token` de la RFC 6750
+    /// (`[A-Za-z0-9-._~+/]+=*`), [`MAX_ACCESS_TOKEN_LEN`] octets au plus.
+    pub fn oauth2(
+        username: Username,
+        access_token: Secret,
+        provider: OAuthProvider,
+    ) -> Result<Self, CredentialsError> {
         if access_token.is_empty() {
             return Err(CredentialsError::EmptySecret);
         }
-        if access_token.expose().chars().any(char::is_control) {
-            return Err(CredentialsError::SecretNulCharacter);
+        if !is_b64token(access_token.expose()) {
+            return Err(CredentialsError::InvalidToken);
         }
         Ok(Self {
             username,
             secret: access_token,
             kind: CredentialKind::OAuth2,
+            oauth: Some(OAuthBinding {
+                provider,
+                refresh_key: None,
+            }),
+        })
+    }
+
+    /// Rattache le jeton au jeton de rafraîchissement d'un compte (sans
+    /// effet sur un mot de passe).
+    #[must_use]
+    pub fn with_refresh_key(mut self, key: SecretKey) -> Self {
+        if let Some(binding) = &mut self.oauth {
+            binding.refresh_key = Some(key);
+        }
+        self
+    }
+
+    /// Fournisseur et clé de rafraîchissement d'un jeton OAuth.
+    #[must_use]
+    pub fn oauth(&self) -> Option<&OAuthBinding> {
+        self.oauth.as_ref()
+    }
+
+    /// Mêmes identifiants avec un nouveau jeton d'accès.
+    pub fn with_access_token(&self, access_token: Secret) -> Result<Self, CredentialsError> {
+        if access_token.is_empty() {
+            return Err(CredentialsError::EmptySecret);
+        }
+        if !is_b64token(access_token.expose()) {
+            return Err(CredentialsError::InvalidToken);
+        }
+        Ok(Self {
+            secret: access_token,
+            ..self.clone()
         })
     }
 
@@ -293,10 +359,63 @@ mod tests {
         // CR/LF sont admis dans un mot de passe : les adaptateurs les
         // transmettent en littéral ou en base64, jamais tels quels.
         assert!(Credentials::new(user.clone(), Secret::new("a\r\nb".to_owned())).is_ok());
-        assert!(Credentials::oauth2(user.clone(), Secret::new("a\x01b".to_owned())).is_err());
-        assert!(Credentials::oauth2(user.clone(), Secret::new(String::new())).is_err());
+        let ms = OAuthProvider::Microsoft;
+        let token = |t: &str| Credentials::oauth2(user.clone(), Secret::new(t.to_owned()), ms);
         assert_eq!(
-            Credentials::oauth2(user, Secret::new("jeton".to_owned())).map(|c| c.kind()),
+            token("a\x01b").map(|_| ()),
+            Err(CredentialsError::InvalidToken)
+        );
+        assert_eq!(
+            token("a b").map(|_| ()),
+            Err(CredentialsError::InvalidToken)
+        );
+        assert_eq!(token("é").map(|_| ()), Err(CredentialsError::InvalidToken));
+        assert_eq!(
+            token("a=b").map(|_| ()),
+            Err(CredentialsError::InvalidToken)
+        );
+        assert_eq!(token("=").map(|_| ()), Err(CredentialsError::InvalidToken));
+        assert_eq!(token("").map(|_| ()), Err(CredentialsError::EmptySecret));
+        assert!(token("EwB.4a-_~+/Zz09==").is_ok());
+        assert!(token(&"a".repeat(MAX_ACCESS_TOKEN_LEN)).is_ok());
+        assert_eq!(
+            token(&"a".repeat(MAX_ACCESS_TOKEN_LEN + 1)).map(|_| ()),
+            Err(CredentialsError::InvalidToken)
+        );
+        let Ok(id) = crate::account::AccountId::new(3) else {
+            panic!("identifiant valide refusé");
+        };
+        let key = SecretKey::for_account(id, crate::endpoint::Protocol::Imap);
+        let Ok(bound) = token("t1").map(|c| c.with_refresh_key(key.clone())) else {
+            panic!("jeton valide refusé");
+        };
+        assert_eq!(
+            bound.oauth().and_then(|b| b.refresh_key.clone()),
+            Some(key.clone())
+        );
+        let renewed = bound.with_access_token(Secret::new("t2".to_owned()));
+        assert_eq!(renewed.as_ref().map(|c| c.secret().expose()), Ok("t2"));
+        assert_eq!(
+            renewed
+                .as_ref()
+                .ok()
+                .and_then(|c| c.oauth())
+                .map(|b| b.provider),
+            Some(ms)
+        );
+        assert_eq!(
+            bound
+                .with_access_token(Secret::new("a b".to_owned()))
+                .map(|_| ()),
+            Err(CredentialsError::InvalidToken)
+        );
+        assert_eq!(
+            Credentials::oauth2(
+                user,
+                Secret::new("jeton".to_owned()),
+                OAuthProvider::Microsoft
+            )
+            .map(|c| c.kind()),
             Ok(CredentialKind::OAuth2)
         );
     }

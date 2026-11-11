@@ -76,6 +76,10 @@ pub enum AuthError {
     UnexpectedChallenge { step: usize },
     #[error("identifiants refusés par le serveur : {message}")]
     Rejected { message: String },
+    /// Jeton OAuth destiné à un serveur qui n'est pas celui du fournisseur,
+    /// ou à une connexion en clair : il n'est pas envoyé.
+    #[error("jeton refusé pour {host} (serveur hors du fournisseur ou connexion en clair)")]
+    TokenDestinationRefused { host: String },
     /// Compte OAuth dont le jeton ne peut plus être rafraîchi.
     #[error("reconnexion nécessaire")]
     ReauthRequired,
@@ -282,7 +286,7 @@ mod tests {
         ) else {
             panic!("utilisateur valide refusé");
         };
-        let Ok(c) = Credentials::oauth2(u, t) else {
+        let Ok(c) = Credentials::oauth2(u, t, crate::oauth::OAuthProvider::Microsoft) else {
             panic!("jeton valide refusé");
         };
         c

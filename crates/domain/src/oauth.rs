@@ -262,6 +262,27 @@ pub fn xoauth2_initial_response(username: &str, access_token: &Secret) -> Secret
     SecretBytes::new(out)
 }
 
+/// Un jeton de `provider` ne part que vers ses serveurs IMAP et SMTP, en
+/// TLS ou STARTTLS : un serveur tiers pourrait le rejouer chez le
+/// fournisseur, et le clair l'exposerait sur le réseau.
+pub fn token_destination_allowed(
+    provider: OAuthProvider,
+    endpoint: &crate::endpoint::ServerEndpoint,
+) -> Result<(), crate::auth::AuthError> {
+    let config = provider.config();
+    let host = endpoint.host().as_str();
+    let known = [config.imap_host, config.smtp_host]
+        .iter()
+        .any(|h| h.eq_ignore_ascii_case(host));
+    if known && endpoint.security() != crate::endpoint::Security::Plain {
+        Ok(())
+    } else {
+        Err(crate::auth::AuthError::TokenDestinationRefused {
+            host: host.to_owned(),
+        })
+    }
+}
+
 /// Origine du jeton d'accès d'un compte OAuth : fournisseur et clé du
 /// jeton de rafraîchissement dans le trousseau.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

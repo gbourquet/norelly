@@ -248,6 +248,20 @@ pub struct ConnectRequest {
     pub plaintext: PlaintextPolicy,
 }
 
+impl ConnectRequest {
+    /// Refuse d'envoyer un jeton OAuth hors des serveurs de son
+    /// fournisseur ou en clair ([`crate::oauth::token_destination_allowed`]).
+    /// Les adaptateurs l'appellent avant toute authentification.
+    pub fn authorize_credentials(&self) -> Result<(), AuthError> {
+        match self.credentials.oauth() {
+            Some(binding) => {
+                crate::oauth::token_destination_allowed(binding.provider, &self.endpoint)
+            }
+            None => Ok(()),
+        }
+    }
+}
+
 /// Nombre maximal d'UID par requête `FETCH` d'en-têtes.
 pub const MAX_FETCH_BATCH: usize = 500;
 

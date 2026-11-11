@@ -161,6 +161,7 @@ impl SmtpSender {
     /// Connexion, TLS, EHLO ; capacités relues sur le canal final.
     async fn open(&self, request: &ConnectRequest) -> Result<Session, ConnectionError> {
         request.plaintext.authorize(&request.endpoint)?;
+        request.authorize_credentials()?;
         let endpoint = &request.endpoint;
         let exceptions = &request.certificate_exceptions;
         tracing::debug!(endpoint = %endpoint, "connexion SMTP");

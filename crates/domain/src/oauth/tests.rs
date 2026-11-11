@@ -188,3 +188,92 @@ fn smtp_oauth_disabled_is_detected() {
         "535 5.7.3 Authentication unsuccessful"
     ));
 }
+
+#[test]
+fn token_goes_only_to_provider_servers_over_tls() {
+    use crate::auth::AuthError;
+    use crate::endpoint::{Host, Security, ServerEndpoint};
+    let endpoint = |host: &str, port: u16, security: Security| {
+        let Ok(h) = Host::parse(host) else {
+            panic!("hôte valide refusé : {host}");
+        };
+        let Ok(e) = ServerEndpoint::new(h, port, security) else {
+            panic!("point d'accès valide refusé");
+        };
+        e
+    };
+    let ms = OAuthProvider::Microsoft;
+    let c = ms.config();
+    assert_eq!(
+        token_destination_allowed(ms, &endpoint(c.imap_host, 993, Security::Tls)),
+        Ok(())
+    );
+    assert_eq!(
+        token_destination_allowed(ms, &endpoint(c.smtp_host, 587, Security::StartTls)),
+        Ok(())
+    );
+    assert_eq!(
+        token_destination_allowed(ms, &endpoint("OUTLOOK.Office365.com", 993, Security::Tls)),
+        Ok(()),
+        "nom d'hôte insensible à la casse"
+    );
+    for (host, security) in [
+        ("imap.attaquant.example", Security::Tls),
+        ("outlook.office365.com.attaquant.example", Security::Tls),
+        (c.imap_host, Security::Plain),
+        (c.smtp_host, Security::Plain),
+    ] {
+        assert_eq!(
+            token_destination_allowed(ms, &endpoint(host, 993, security)),
+            Err(AuthError::TokenDestinationRefused {
+                host: host.to_owned()
+            }),
+            "{host} {security:?}"
+        );
+    }
+}
+
+#[test]
+fn connect_request_refuses_token_for_foreign_host() {
+    use crate::auth::AuthError;
+    use crate::credentials::{Credentials, Username};
+    use crate::endpoint::{Host, Security, ServerEndpoint};
+    use crate::ports::ConnectRequest;
+    use crate::security::PlaintextPolicy;
+    let request = |host: &str, oauth: bool| {
+        let (Ok(h), Ok(u)) = (Host::parse(host), Username::parse("alice@outlook.com")) else {
+            panic!("valeurs valides refusées");
+        };
+        let Ok(endpoint) = ServerEndpoint::new(h, 993, Security::Tls) else {
+            panic!("point d'accès valide refusé");
+        };
+        let credentials = if oauth {
+            Credentials::oauth2(u, secret("t"), OAuthProvider::Microsoft)
+        } else {
+            Credentials::new(u, secret("pw"))
+        };
+        let Ok(credentials) = credentials else {
+            panic!("identifiants valides refusés");
+        };
+        ConnectRequest {
+            endpoint,
+            credentials,
+            certificate_exceptions: Vec::new(),
+            plaintext: PlaintextPolicy::deny_all(),
+        }
+    };
+    assert_eq!(
+        request("imap.attaquant.example", true).authorize_credentials(),
+        Err(AuthError::TokenDestinationRefused {
+            host: "imap.attaquant.example".to_owned()
+        })
+    );
+    assert_eq!(
+        request("outlook.office365.com", true).authorize_credentials(),
+        Ok(())
+    );
+    assert_eq!(
+        request("imap.attaquant.example", false).authorize_credentials(),
+        Ok(())
+    );
+}

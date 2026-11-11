@@ -40,6 +40,7 @@ function fakeApi(results: AddAccountResult[]): AccountApi {
     trustCertificate: vi.fn(async () => undefined),
     removeAccount: vi.fn(),
     allowFileSecrets: vi.fn(async () => undefined),
+    openExternal: vi.fn(async () => undefined),
   };
 }
 
@@ -87,5 +88,27 @@ describe("fenêtre d'ajout de compte", () => {
     await fireEvent.click(screen.getByRole("button", { name: "Continuer" }));
     expect(await screen.findByRole("alert")).toBeInTheDocument();
     expect(api.addAccount).toHaveBeenCalledTimes(1);
+  });
+
+  it("compte Google refusé : étapes du mot de passe d'application et lien vers Google", async () => {
+    const api = fakeApi([
+      { kind: "failed", protocol: "imap", failure: "google_app_password", detail: null },
+    ]);
+    render(AddAccountDialog, { open: true, api, onClose: vi.fn(), onAdded: vi.fn() });
+    await fireEvent.input(document.querySelector("#account-address") as HTMLInputElement, {
+      target: { value: "alice@gmail.com" },
+    });
+    await fireEvent.input(document.querySelector("#account-password") as HTMLInputElement, {
+      target: { value: "mot-de-passe-du-compte" },
+    });
+    await fireEvent.click(screen.getByRole("button", { name: "Continuer" }));
+    const help = await screen.findByRole("region", {
+      name: "Créer un mot de passe d'application Google",
+    });
+    expect(help.querySelectorAll("ol > li")).toHaveLength(3);
+    // Le champ du mot de passe attend le nouveau code, vide.
+    expect((document.querySelector("#account-password") as HTMLInputElement).value).toBe("");
+    await fireEvent.click(screen.getByRole("button", { name: "Ouvrir la page Google" }));
+    expect(api.openExternal).toHaveBeenCalledWith("https://myaccount.google.com/apppasswords");
   });
 });

@@ -29,6 +29,7 @@ Fiche : [comptes.md](../fonctionnel/comptes.md).
 | Un certificat autosigné reste une « autorité inconnue » même marqué autorité (`CA:TRUE`, `openssl req -x509` par défaut), que webpki refuse comme `CaUsedAsEndEntity` | `crates/adapters/tls/src/lib.rs` (`certificate_issue`) |
 | Clair refusé sans consentement explicite par serveur ; STARTTLS obligatoire s'il est annoncé ou demandé (aucun repli silencieux) ; capacités relues après TLS | `security.rs` (`PlaintextPolicy`), `capabilities.rs` |
 | Authentification : `AUTHENTICATE PLAIN` ou `LOGIN` selon les capacités, `LOGINDISABLED` respecté ; `XOAUTH2` non pris en charge | `crates/domain/src/auth.rs` |
+| Compte Google (domaine `gmail.com` ou `googlemail.com`, ou serveur `imap.gmail.com` ou `smtp.gmail.com`, égalité exacte) dont les identifiants sont refusés (`AuthError::Rejected` seulement) : conseil `GoogleAppPassword`, joint par `AddAccount` à l'échec, projeté en `FailureKindDto::GoogleAppPassword` ; l'interface revient à l'écran de l'essai, mot de passe vidé, et montre les trois étapes avec un bouton vers `myaccount.google.com/apppasswords` (`open_external`, revalidé en Rust) | `crates/domain/src/discovery.rs` (`authentication_advice`), `crates/application/src/accounts.rs`, `app/src-tauri/src/ipc.rs`, `app/src/lib/add-account.svelte.ts`, `AddAccountDialog.svelte` |
 | Le secret n'est jamais dans `Debug`, n'a pas de `Display`, n'est pas sérialisable | `crates/domain/src/credentials.rs` |
 | Le mot de passe n'appartient pas au compte : il vit dans le trousseau, sous des clés propres au compte | `crates/domain/src/account.rs` |
 | Fichier de secrets non chiffré (droits 0600) seulement si aucun trousseau ne répond, après consentement (dérogation ADR-002) | `crates/adapters/keyring/src/file.rs` |
@@ -39,7 +40,7 @@ Cas d'usage : `DiscoverSettings`, `TestConnection`, `AddAccount`,
 
 ### Clés des messages
 
-`add_discovering`, `add_testing`, `add_msg_incomplete`, `add_msg_dns_outside`, `add_cert_title`, `add_issue_*`, `add_cert_changed`, `add_plain_warning`, `add_secrets_warning_*`, `add_fail_authentication`, `add_fail_network`, `add_fail_security`, `add_msg_already_exists`, `remove_explanation_*`.
+`add_discovering`, `add_testing`, `add_msg_incomplete`, `add_msg_dns_outside`, `add_cert_title`, `add_issue_*`, `add_cert_changed`, `add_plain_warning`, `add_secrets_warning_*`, `add_fail_authentication`, `add_fail_google_app_password`, `add_app_password_*`, `add_fail_network`, `add_fail_security`, `add_msg_already_exists`, `remove_explanation_*`.
 
 ### Commandes
 

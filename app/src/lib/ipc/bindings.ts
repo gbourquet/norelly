@@ -1049,7 +1049,12 @@ export type ExpandedListDto = {
 	field: RecipientFieldDto,
 };
 
-export type FailureKindDto = "network" | "authentication" | "security" | "protocol" | 
+export type FailureKindDto = "network" | "authentication" | 
+/**
+ *  Identifiants refusés sur un compte Google : il faut un mot de passe
+ *  d'application.
+ */
+"google_app_password" | "security" | "protocol" | 
 /**  Paramètres refusés par le domaine. */
 "invalid_input" | 
 /**  Trousseau du système. */

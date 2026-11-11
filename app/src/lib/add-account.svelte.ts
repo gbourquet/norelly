@@ -19,6 +19,9 @@ import type {
 import { m } from "./paraglide/messages.js";
 import { errorText, withDetail } from "./errors";
 
+/** Page Google de création des mots de passe d'application. */
+export const GOOGLE_APP_PASSWORDS_URL = "https://myaccount.google.com/apppasswords";
+
 export type Step =
   "form" | "discovering" | "testing" | "manual" | "certificate" | "plaintext" | "secrets" | "done";
 
@@ -94,6 +97,10 @@ export class AddAccountFlow {
   unconfirmed = $state<{ host: string; source: DiscoverySourceDto }[]>([]);
   /** Hôtes confirmés explicitement par l'utilisateur. */
   confirmed = $state<string[]>([]);
+  /** Compte Google refusé : étapes du mot de passe d'application. */
+  appPasswordHelp = $state(false);
+  /** Le dernier essai vient de la saisie manuelle des serveurs. */
+  #manual = false;
   #consents: EndpointDto[] = [];
   #api: AccountApi;
 
@@ -116,6 +123,8 @@ export class AddAccountFlow {
     this.added = null;
     this.unconfirmed = [];
     this.confirmed = [];
+    this.appPasswordHelp = false;
+    this.#manual = false;
     this.#consents = [];
   }
 
@@ -133,9 +142,20 @@ export class AddAccountFlow {
     this.confirmed = value ? [...others, host] : others;
   }
 
+  /** Ouvre la page Google de création des mots de passe d'application. */
+  async openAppPasswords(): Promise<void> {
+    try {
+      await this.#api.openExternal(GOOGLE_APP_PASSWORDS_URL);
+    } catch (e) {
+      this.message = errorText(e);
+    }
+  }
+
   /** Étape 1 : découverte, puis test et ajout si tout est trouvé. */
   async submit(): Promise<void> {
     this.message = null;
+    this.appPasswordHelp = false;
+    this.#manual = false;
     if (!this.address.trim() || !this.password) {
       this.message = m.add_msg_missing_fields();
       return;
@@ -177,6 +197,8 @@ export class AddAccountFlow {
   /** Saisie manuelle validée. */
   async submitManual(): Promise<void> {
     this.message = null;
+    this.appPasswordHelp = false;
+    this.#manual = true;
     const pending = this.pendingConfirmations;
     if (pending.length > 0) {
       this.message = m.add_msg_confirm_first({ hosts: pending.join(", ") });
@@ -287,7 +309,15 @@ export class AddAccountFlow {
         this.step = "plaintext";
         break;
       case "failed":
-        this.step = "manual";
+        if (result.failure === "google_app_password") {
+          // Seul le mot de passe est à changer : retour à l'écran d'où
+          // vient l'essai, champ du mot de passe vidé.
+          this.step = this.#manual ? "manual" : "form";
+          this.password = "";
+          this.appPasswordHelp = true;
+        } else {
+          this.step = "manual";
+        }
         this.message = failureMessage(result.failure, result.protocol, result.detail);
         break;
     }
@@ -305,6 +335,8 @@ function failureMessage(
     switch (failure) {
       case "authentication":
         return m.add_fail_authentication({ prefix });
+      case "google_app_password":
+        return m.add_fail_google_app_password({ prefix });
       case "network":
         return m.add_fail_network({ prefix });
       case "security":

@@ -6,7 +6,9 @@ use std::sync::Mutex;
 use norelly_domain::account::{AccountDraft, ServerSettings};
 use norelly_domain::auth::AuthError;
 use norelly_domain::connection::ConnectionError;
-use norelly_domain::discovery::{DiscoveredServers, ServerCandidate, UsernameTemplate};
+use norelly_domain::discovery::{
+    AuthenticationAdvice, DiscoveredServers, ServerCandidate, UsernameTemplate,
+};
 use norelly_domain::ports::{SecretKey, SecretStoreError};
 use norelly_domain::security::{CertificateFingerprint, CertificateIssue, PlaintextConsent};
 use norelly_test_support::contracts::{
@@ -258,6 +260,7 @@ async fn certificate_problem_is_reported_then_trusted() {
         AddAccountOutcome::ConnectionFailed {
             protocol: Protocol::Imap,
             outcome: TestConnectionOutcome::Certificate(rejection.clone()),
+            advice: None,
         }
     );
     assert_eq!(w.keyring.len(), 0, "secret écrit malgré l'échec");
@@ -296,6 +299,34 @@ async fn smtp_authentication_failure_is_reported() {
         AddAccountOutcome::ConnectionFailed {
             protocol: Protocol::Smtp,
             outcome: TestConnectionOutcome::Authentication(auth),
+            advice: None,
+        }
+    );
+    assert_eq!(w.keyring.len(), 0);
+}
+
+#[tokio::test]
+async fn gmail_rejection_advises_an_app_password() {
+    let w = World::new();
+    let draft = sample_account("alice@gmail.com", false);
+    let auth = AuthError::Rejected {
+        message: "[AUTHENTICATIONFAILED] Invalid credentials".into(),
+    };
+    w.servers.set(
+        &draft.imap().endpoint,
+        Err(ConnectionError::Authentication(auth.clone())),
+    );
+    let gmail = AddAccountRequest {
+        address: EmailAddress::parse("alice@gmail.com").unwrap_or_else(|_| panic!("adresse")),
+        ..request(Some(servers_of(&draft)))
+    };
+    let outcome = w.add(gmail).await;
+    assert_eq!(
+        outcome,
+        AddAccountOutcome::ConnectionFailed {
+            protocol: Protocol::Imap,
+            outcome: TestConnectionOutcome::Authentication(auth),
+            advice: Some(AuthenticationAdvice::GoogleAppPassword),
         }
     );
     assert_eq!(w.keyring.len(), 0);

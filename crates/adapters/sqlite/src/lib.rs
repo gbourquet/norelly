@@ -192,7 +192,7 @@ impl Database {
     pub(crate) async fn read_for_tests<T, F>(&self, f: F) -> Result<T, StoreError>
     where
         T: Send + 'static,
-        F: FnOnce(&Connection) -> Result<T, StoreError> + Send + 'static,
+        F: FnOnce(&mut Connection) -> Result<T, StoreError> + Send + 'static,
     {
         self.read(f).await
     }
@@ -214,10 +214,12 @@ impl Database {
 
     /// Exécute une lecture sur une connexion du pool (le rédacteur s'il
     /// n'y en a pas). Les lecteurs voient le dernier état validé (WAL).
+    /// La connexion est prétée en exclusivité : les réglages ponctuels
+    /// (limite de temps d'une recherche) sont permis, puis retirés.
     async fn read<T, F>(&self, f: F) -> Result<T, StoreError>
     where
         T: Send + 'static,
-        F: FnOnce(&Connection) -> Result<T, StoreError> + Send + 'static,
+        F: FnOnce(&mut Connection) -> Result<T, StoreError> + Send + 'static,
     {
         let Some(readers) = &self.readers else {
             return self.run(move |c| f(c)).await;
@@ -233,12 +235,12 @@ impl Database {
             .unwrap_or_else(PoisonError::into_inner)
             .pop();
         // Connexion perdue (tâche interrompue) : repli sur le rédacteur.
-        let Some(conn) = taken else {
+        let Some(mut conn) = taken else {
             return self.run(move |c| f(c)).await;
         };
         let pool = Arc::clone(readers);
         tokio::task::spawn_blocking(move || {
-            let result = f(&conn);
+            let result = f(&mut conn);
             pool.conns
                 .lock()
                 .unwrap_or_else(PoisonError::into_inner)

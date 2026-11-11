@@ -3247,6 +3247,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "norelly-oauth"
+version = "0.1.0"
+dependencies = [
+ "getrandom 0.3.4",
+ "norelly-domain",
+ "norelly-test-support",
+ "norelly-tls",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tokio",
+ "tracing",
+ "wiremock",
+]
+
+[[package]]
 name = "norelly-render"
 version = "0.1.0"
 dependencies = [

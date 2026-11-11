@@ -188,7 +188,7 @@ impl MailSender for Smtp {
             }
             .into());
         }
-        Ok(ServerCapabilities::from_smtp_ehlo(&["AUTH XOAUTH2"]))
+        Ok(ServerCapabilities::from_smtp_ehlo(["AUTH XOAUTH2"]))
     }
     async fn send(&self, request: &ConnectRequest, _: &OutgoingMessage) -> Result<(), SendError> {
         self.verify(request).await.map(|_| ())?;

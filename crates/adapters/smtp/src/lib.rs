@@ -207,9 +207,11 @@ impl SmtpSender {
         request: &ConnectRequest,
     ) -> Result<Session, ConnectionError> {
         let mut session = self.open(request).await?;
-        let mechanism = match select_smtp_auth_mechanism(&session.capabilities)? {
+        let kind = request.credentials.kind();
+        let mechanism = match select_smtp_auth_mechanism(&session.capabilities, kind)? {
             AuthMechanism::Plain => Mechanism::Plain,
             AuthMechanism::Login => Mechanism::Login,
+            AuthMechanism::XOAuth2 => Mechanism::Xoauth2,
             other => return Err(AuthError::Unsupported(other).into()),
         };
         let credentials = &request.credentials;

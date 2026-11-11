@@ -189,7 +189,7 @@ impl RemoteMailboxConnector for ImapConnector {
         let (mut conn, caps, preauth) = self.open(request).await?;
         if !preauth {
             let credentials = &request.credentials;
-            match select_imap_auth_method(&caps)? {
+            match select_imap_auth_method(&caps, credentials.kind())? {
                 AuthMethod::ImapLogin => {
                     tracing::debug!(user = %credentials.username(), "authentification par LOGIN");
                     conn.login(credentials).await?;

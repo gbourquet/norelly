@@ -610,6 +610,7 @@ fn auth_detail(a: &AuthError) -> Option<String> {
         AuthError::Rejected { message } => Some(message.clone()),
         AuthError::NoSupportedMechanism { offered } => Some(offered.join(", ")),
         AuthError::Unsupported(_)
+        | AuthError::ReauthRequired
         | AuthError::LoginDisabled
         | AuthError::UnexpectedChallenge { .. } => None,
     }

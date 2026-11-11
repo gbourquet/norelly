@@ -12,6 +12,7 @@ pub mod contact_lists;
 pub mod contacts;
 pub mod discover_settings;
 pub mod folders;
+pub mod oauth;
 pub mod reading;
 pub mod sync;
 pub mod test_connection;

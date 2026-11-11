@@ -75,8 +75,6 @@ fn server_settings(protocol: Protocol, dto: &ServerDto) -> Result<ServerSettings
 fn add_request(input: AddAccountInput) -> Result<AddAccountRequest, IpcError> {
     let address =
         EmailAddress::parse(&input.address).map_err(|_| IpcError::invalid(FieldDto::Address))?;
-    let provider = norelly_domain::oauth::OAuthProvider::parse(&input.provider)
-        .ok_or_else(|| IpcError::invalid(FieldDto::Address))?;
     let display_name = match input.display_name.as_deref().map(str::trim) {
         None | Some("") => None,
         Some(name) => {
@@ -186,6 +184,8 @@ pub async fn add_oauth_account(
             Some(DisplayName::parse(name).map_err(|_| IpcError::invalid(FieldDto::DisplayName))?)
         }
     };
+    let provider = norelly_domain::oauth::OAuthProvider::parse(&input.provider)
+        .ok_or_else(|| IpcError::invalid(FieldDto::Address))?;
     if !state.secrets.usable().await {
         return Ok(AddAccountResultDto::SecretStorageConsentRequired {
             path: state.secrets_file().display().to_string(),

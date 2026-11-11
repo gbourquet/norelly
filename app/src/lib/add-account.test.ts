@@ -27,6 +27,7 @@ const account: AccountDto = {
   display_name: "alice",
   imap,
   smtp,
+  oauth_provider: null,
 };
 const found: Discovery = {
   imap: { server: imap, source: "mozilla_ispdb", requires_confirmation: false },

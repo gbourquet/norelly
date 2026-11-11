@@ -424,14 +424,16 @@ export type AddOAuthAccountInput = AddOAuthAccountInput_Serialize | AddOAuthAcco
 export type AddOAuthAccountInput_Deserialize = {
 	address: string,
 	display_name?: string | null,
-	provider: OAuthProviderDto,
+	/**  Nom du fournisseur (`microsoft`), revalidé par le domaine. */
+	provider: string,
 };
 
 /**  Ajout d'un compte par « Se connecter avec … ». */
 export type AddOAuthAccountInput_Serialize = {
 	address: string,
 	display_name: string | null,
-	provider: OAuthProviderDto,
+	/**  Nom du fournisseur (`microsoft`), revalidé par le domaine. */
+	provider: string,
 };
 
 /**  Pièce jointe d'un message ouvert. */

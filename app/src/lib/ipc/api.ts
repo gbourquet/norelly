@@ -6,7 +6,7 @@ import { Channel } from "@tauri-apps/api/core";
 import {
   commands,
   events,
-  type AccountDto,
+  type AccountDto_Serialize,
   type ConversationCursorDto,
   type ConversationDto_Serialize,
   type ConversationMessageDto_Serialize,
@@ -93,7 +93,6 @@ export type {
   RecipientDto,
   SavedDraftDto,
   SendFailureDto,
-  AccountDto,
   ActionDto,
   ActionResultDto,
   AttachmentDto,
@@ -124,6 +123,7 @@ export type {
   UpdateEventDto,
 } from "./bindings";
 export type AddAccountInput = AddAccountInput_Deserialize;
+export type AccountDto = AccountDto_Serialize;
 export type AddAccountResult = AddAccountResultDto_Serialize;
 export type Discovery = DiscoveryDto_Serialize;
 export type ConversationPage = ConversationPageDto_Serialize;

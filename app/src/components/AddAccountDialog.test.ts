@@ -15,6 +15,7 @@ const account: AccountDto = {
   display_name: "Alice",
   imap: server("imap.example.com", 993),
   smtp: server("smtp.example.com", 465),
+  oauth_provider: null,
 };
 
 function fakeApi(results: AddAccountResult[]): AccountApi {

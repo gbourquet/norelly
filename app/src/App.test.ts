@@ -227,6 +227,7 @@ function bobWithProjets(): void {
     display_name: "Bob",
     imap: server,
     smtp: server,
+    oauth_provider: null,
   });
   vi.mocked(api.listFolders).mockResolvedValue([
     {
@@ -284,6 +285,7 @@ describe("App", () => {
       display_name: "Alice",
       imap: server,
       smtp: server,
+      oauth_provider: null,
     });
     render(App);
     expect(await screen.findByText("Alice")).toBeInTheDocument();
@@ -327,6 +329,7 @@ describe("App", () => {
       display_name: "Bob",
       imap: server,
       smtp: server,
+      oauth_provider: null,
     });
     vi.mocked(api.listFolders).mockResolvedValue([
       {
@@ -610,6 +613,7 @@ describe("App", () => {
       display_name: "Bob",
       imap: server,
       smtp: server,
+      oauth_provider: null,
     });
     render(App);
     await openAccountMenu("bob@example.org");
@@ -636,6 +640,7 @@ describe("App", () => {
       display_name: "Alice",
       imap: server,
       smtp: server,
+      oauth_provider: null,
     } as AccountDto);
     render(App);
     await screen.findAllByText("alice@example.com");
@@ -672,6 +677,7 @@ describe("App", () => {
       display_name: "Alice",
       imap: server,
       smtp: server,
+      oauth_provider: null,
     } as AccountDto);
     const found = (n: number, subject: string) => ({
       message: n,
@@ -739,6 +745,7 @@ describe("App", () => {
       display_name: "Alice",
       imap: server,
       smtp: server,
+      oauth_provider: null,
     } as AccountDto);
     render(App);
     await screen.findAllByText("alice@example.com");
@@ -792,6 +799,7 @@ describe("App", () => {
       display_name: "Alice",
       imap: server,
       smtp: server,
+      oauth_provider: null,
     } as AccountDto);
     const focus = vi.spyOn(document, "hasFocus").mockReturnValue(false);
     render(App);
@@ -824,6 +832,7 @@ describe("App", () => {
       display_name: "Alice",
       imap: server,
       smtp: server,
+      oauth_provider: null,
     } as AccountDto);
     render(App);
     await screen.findAllByText("alice@example.com");
@@ -849,6 +858,7 @@ describe("App", () => {
       display_name: "Alice",
       imap: server,
       smtp: server,
+      oauth_provider: null,
     } as AccountDto);
     render(App);
     await screen.findAllByText("alice@example.com");
@@ -867,6 +877,7 @@ describe("App", () => {
       display_name: "Alice",
       imap: server,
       smtp: server,
+      oauth_provider: null,
     } as AccountDto);
     render(App);
     await screen.findAllByText("alice@example.com");
@@ -894,6 +905,7 @@ describe("App", () => {
       display_name: "Alice",
       imap: server,
       smtp: server,
+      oauth_provider: null,
     } as AccountDto);
     vi.mocked(api.outbox).mockResolvedValue([
       {
@@ -924,6 +936,7 @@ describe("App", () => {
       display_name: "Alice",
       imap: server,
       smtp: server,
+      oauth_provider: null,
     } as AccountDto);
     vi.mocked(api.prepareCompose).mockResolvedValueOnce({
       ...savedDraft(7),
@@ -961,8 +974,22 @@ describe("App", () => {
 
   it("barre latérale : nouveau message, menu du compte, paramètres", async () => {
     accounts.push(
-      { id: 7, address: "alice@example.com", display_name: "Alice", imap: server, smtp: server },
-      { id: 8, address: "bob@example.org", display_name: "Bob", imap: server, smtp: server },
+      {
+        id: 7,
+        address: "alice@example.com",
+        display_name: "Alice",
+        imap: server,
+        smtp: server,
+        oauth_provider: null,
+      },
+      {
+        id: 8,
+        address: "bob@example.org",
+        display_name: "Bob",
+        imap: server,
+        smtp: server,
+        oauth_provider: null,
+      },
     );
     render(App);
     const nav = await screen.findByRole("navigation", { name: "Comptes et dossiers" });
@@ -1053,6 +1080,7 @@ describe("App", () => {
       display_name: "Alice",
       imap: server,
       smtp: server,
+      oauth_provider: null,
     });
     render(App);
     const nav = await screen.findByRole("navigation", { name: "Comptes et dossiers" });

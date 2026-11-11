@@ -77,7 +77,7 @@ hickory-resolver = { version = "0.26.3", default-features = false, features = ["
 wiremock = "0.6.5"
 proptest = { version = "1.7", default-features = false, features = ["std"] }
 # Stockage (ADR-003) : SQLite embarqué ; rusqlite aligné sur rusqlite_migration.
-rusqlite = { version = "0.40", features = ["bundled", "hooks"] }
+rusqlite = { version = "0.41", features = ["bundled", "hooks"] }
 rusqlite_migration = "2.6"
 # Fichiers de contacts (ADR-012) : CSV par la crate `csv` (MIT ou
 # Unlicense) ; NFC par icu_normalizer (Unicode-3.0), déjà tirée par idna.

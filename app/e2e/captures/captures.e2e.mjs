@@ -236,6 +236,34 @@ describe(`captures d'écran (${lang})`, () => {
     await entry.waitForDisplayed({ timeout: 60000 });
   });
 
+  it("compte Google refusé : mot de passe d'application", async () => {
+    // Adresse Gmail sur les serveurs de test (réseau sans Internet : la
+    // découverte échoue), mot de passe refusé par Dovecot : l'aide au mot de
+    // passe d'application s'affiche. Les certificats sont déjà approuvés.
+    await $("nav")
+      .$(`button=${msg("welcome_add_account")}`)
+      .click();
+    await $("#account-address").setValue(`${user}@gmail.com`);
+    await $("#account-password").setValue("mot-de-passe-du-compte");
+    await $(`button=${msg("common_continue")}`).click();
+    await $("#imap-host").waitForDisplayed({ timeout: 90000 });
+    await $("#imap-host").setValue("imap.norelly.test");
+    await $("#imap-port").setValue("31993");
+    await $("#imap-username").setValue(user);
+    await $("#smtp-host").setValue("smtp.norelly.test");
+    await $("#smtp-port").setValue("1025");
+    await $("#smtp-username").setValue("norelly");
+    await $(`button=${msg("add_test_and_add")}`).click();
+    const help = $(`//section[.//h3[normalize-space()="${msg("add_app_password_title")}"]]`);
+    await help.waitForDisplayed({ timeout: 60000 });
+    await expect(help.$$("ol > li")).toBeElementsArrayOfSize(3);
+    await expect($(`button=${msg("add_app_password_open")}`)).toBeDisplayed();
+    await expect($("#manual-password")).toHaveValue("");
+    await capture("google-app-password");
+    await browser.keys("Escape");
+    await $("#imap-host").waitForDisplayed({ reverse: true });
+  });
+
   it("liste et lecture", async () => {
     const first = $(`span=${content.messages[0][1]}`);
     await first.waitForDisplayed({ timeout: 90000 });

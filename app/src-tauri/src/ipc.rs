@@ -13,7 +13,9 @@ use norelly_application::test_connection::TestConnectionOutcome;
 use norelly_domain::account::{Account, ServerSettings};
 use norelly_domain::auth::AuthError;
 use norelly_domain::connection::{ConnectionError, FailureCategory};
-use norelly_domain::discovery::{DiscoveredServer, Discovery, DiscoverySource};
+use norelly_domain::discovery::{
+    AuthenticationAdvice, DiscoveredServer, Discovery, DiscoverySource,
+};
 use norelly_domain::endpoint::{Protocol, Security};
 use norelly_domain::security::CertificateIssue;
 use serde::{Deserialize, Serialize};
@@ -559,6 +561,9 @@ pub struct CertificateProblemDto {
 pub enum FailureKindDto {
     Network,
     Authentication,
+    /// Identifiants refusés sur un compte Google : il faut un mot de passe
+    /// d'application.
+    GoogleAppPassword,
     Security,
     Protocol,
     /// Paramètres refusés par le domaine.
@@ -682,9 +687,11 @@ impl AddAccountResultDto {
                     port: e.port(),
                 },
             },
-            AddAccountOutcome::ConnectionFailed { protocol, outcome } => {
-                connection_failure(*protocol, outcome)
-            }
+            AddAccountOutcome::ConnectionFailed {
+                protocol,
+                outcome,
+                advice,
+            } => connection_failure(*protocol, outcome, *advice),
             AddAccountOutcome::Invalid(m) => failed_internal(FailureKindDto::InvalidInput, m),
             AddAccountOutcome::SecretStoreFailed(m) => {
                 failed_internal(FailureKindDto::SecretStore, m)
@@ -694,7 +701,11 @@ impl AddAccountResultDto {
     }
 }
 
-fn connection_failure(protocol: Protocol, outcome: &TestConnectionOutcome) -> AddAccountResultDto {
+fn connection_failure(
+    protocol: Protocol,
+    outcome: &TestConnectionOutcome,
+    advice: Option<AuthenticationAdvice>,
+) -> AddAccountResultDto {
     let p = Some(protocol);
     match outcome {
         TestConnectionOutcome::Certificate(r) => AddAccountResultDto::Certificate {
@@ -708,7 +719,11 @@ fn connection_failure(protocol: Protocol, outcome: &TestConnectionOutcome) -> Ad
             },
         },
         TestConnectionOutcome::Authentication(e) => {
-            failed(p, FailureKindDto::Authentication, auth_detail(e))
+            let kind = match advice {
+                Some(AuthenticationAdvice::GoogleAppPassword) => FailureKindDto::GoogleAppPassword,
+                None => FailureKindDto::Authentication,
+            };
+            failed(p, kind, auth_detail(e))
         }
         TestConnectionOutcome::Network(e) => {
             failed(p, FailureKindDto::Network, connection_detail(e))
@@ -1256,6 +1271,32 @@ mod error_tests {
         assert_eq!(detail, None);
         let (kind, _) = connection_failure_of(&ConnectionError::Tls("handshake".into()));
         assert_eq!(kind, FailureKindDto::Security);
+    }
+
+    #[test]
+    fn google_rejection_has_its_own_failure_kind() {
+        use norelly_application::accounts::AddAccountOutcome;
+        use norelly_domain::discovery::AuthenticationAdvice;
+        let rejected = |advice| AddAccountOutcome::ConnectionFailed {
+            protocol: Protocol::Smtp,
+            outcome: TestConnectionOutcome::Authentication(AuthError::Rejected {
+                message: "535-5.7.8 Username and Password not accepted".into(),
+            }),
+            advice,
+        };
+        let json = |o: &AddAccountOutcome| {
+            serde_json::to_value(AddAccountResultDto::from_outcome(o)).unwrap_or_default()
+        };
+        assert_eq!(
+            json(&rejected(Some(AuthenticationAdvice::GoogleAppPassword))),
+            serde_json::json!({
+                "kind": "failed",
+                "protocol": "smtp",
+                "failure": "google_app_password",
+                "detail": "535-5.7.8 Username and Password not accepted",
+            })
+        );
+        assert_eq!(json(&rejected(None))["failure"], "authentication");
     }
 }
 

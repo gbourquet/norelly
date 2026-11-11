@@ -275,7 +275,7 @@ pub const SEARCH_BUDGET: std::time::Duration = std::time::Duration::from_secs(2)
 
 /// Recherche interrompue à l'instant `deadline`.
 fn search_until(
-    c: &Connection,
+    c: &mut Connection,
     request: &SearchRequest,
     deadline: std::time::Instant,
 ) -> Result<SearchPage, StoreError> {

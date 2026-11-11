@@ -56,6 +56,21 @@ browser), ask for a synchronisation: click the **⋯** button next to the
 account's address, then **Synchronise**. If that is not enough, your provider may have a temporary
 problem: try again later.
 
+## Google account: app password required
+
+**What you see**: "Incoming server (IMAP): credentials rejected: a Google
+account requires an app password", then the **Create a Google app
+password** box.
+
+**What it means**: your address is with Google (Gmail, or a work address
+managed by Google), and Google refuses your usual password in an email
+program.
+
+**What to do**: follow the three steps in the box. The **Open the Google
+page** button opens the page where you create the app password; then
+paste it into the **Password** field, which was cleared for it. Details
+are in [Adding your email address](first-account.md#gmail).
+
 ## Credentials rejected (password refused)
 
 **What you see**: "Incoming server (IMAP): credentials rejected. Check the

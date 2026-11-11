@@ -637,3 +637,46 @@ est majoritairement écrit par Claude et relu par le mainteneur.
     Contacts (vrais composants, données factices) dans Chrome sans
     interface, et non dans `tauri dev` ;
   - photos de contact et CardDAV restent au backlog.
+
+## ADR-013 : connexion OAuth 2.0 (XOAUTH2)
+
+- **Statut** : Acceptée (2026-11-11), validée par le mainteneur avant le
+  code (ticket « Se connecter avec Microsoft »).
+- **Contexte** : Outlook.com et Hotmail refusent le mot de passe en IMAP
+  et SMTP, et Microsoft ne propose pas de mot de passe d'application aux
+  comptes personnels. Google suivra (même mécanisme).
+- **Options** :
+  - bibliothèque `oauth2` ; flux écrit pour le projet sur les dépendances
+    existantes ;
+  - redirection : schéma d'URL propre à l'application ; boucle locale
+    (RFC 8252) ;
+  - stockage : jeton d'accès persistant ; jeton de rafraîchissement seul,
+    dans le trousseau.
+- **Décision** :
+  - flux « code d'autorisation + PKCE » (RFC 7636) **écrit pour le
+    projet** : règles (URL, formulaires, contrôle du retour, expiration,
+    classement des erreurs, destination du jeton) dans le domaine
+    (`oauth.rs`) ; adaptateur `crates/adapters/oauth` sur `reqwest` +
+    `norelly-tls`, `sha2`, `getrandom` et `serde_json`, déjà au workspace :
+    **aucune dépendance nouvelle** ;
+  - navigateur du système (crate `open`, déjà utilisée), redirection
+    `http://localhost:<port>/` écoutée sur `127.0.0.1`, port éphémère ;
+  - configuration par fournisseur, valeur du domaine : Microsoft
+    (`consumers`, scopes `outlook.office.com` IMAP et SMTP,
+    `offline_access`, identifiant client public de l'inscription
+    Entra ID) ; Google ne sera qu'une configuration de plus ;
+  - jeton de rafraîchissement dans le trousseau, sous la clé IMAP du
+    compte ; jeton d'accès en mémoire ; fournisseur enregistré sur le
+    compte (migration 13) ;
+  - un jeton n'est présenté qu'aux serveurs du fournisseur, en TLS ou
+    STARTTLS (suite de la revue de sécurité) ;
+  - le jeton est renouvelé avant chaque connexion par une enveloppe des
+    connecteurs IMAP et SMTP (`FreshTokens`), posée au point d'assemblage :
+    l'acteur de compte et l'envoi restent inchangés.
+- **Conséquences** :
+  - « Reconnexion nécessaire » quand le jeton de rafraîchissement est
+    refusé : bouton « Se reconnecter » visible sur le compte ;
+  - la page renvoyée au navigateur après la connexion est le seul texte
+    affiché hors de l'interface, neutre et bilingue, sans donnée ;
+  - un compte OAuth ne passe jamais par l'autodécouverte ni la saisie
+    manuelle des serveurs.

@@ -90,11 +90,13 @@ de passe.
 
 1. Vérifiez le mot de passe : la touche **Verr. Maj** (majuscules) est-elle
    activée ? Le clavier est-il dans la bonne langue ?
-2. **Gmail, Outlook.com** : utilisez un **mot de passe d'application**, pas
-   votre mot de passe habituel (voir
-   [Ajouter votre adresse](first-account.md#gmail-et-outlookcom--le-mot-de-passe-dapplication)).
-   Si vous avez changé votre mot de passe Google ou Microsoft, les anciens
-   mots de passe d'application ont pu être annulés : créez-en un nouveau.
+2. **Gmail** : utilisez un **mot de passe d'application**, pas votre mot
+   de passe habituel (voir
+   [Ajouter votre adresse](first-account.md#gmail--le-mot-de-passe-dapplication)).
+   Si vous avez changé votre mot de passe Google, les anciens mots de passe
+   d'application ont pu être annulés : créez-en un nouveau.
+   **Outlook.com, Hotmail** : utilisez **Se connecter avec Microsoft**
+   (voir [Outlook.com et Hotmail](first-account.md#outlookcom-et-hotmail--se-connecter-avec-microsoft)).
 3. Si Norelly montre les réglages des serveurs, vérifiez le champ
    **Utilisateur** : c'est souvent l'adresse complète
    (`marie.durand@exemple.fr`), pas seulement `marie.durand`.

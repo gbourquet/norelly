@@ -70,9 +70,9 @@ Norelly est un client de messagerie **IMAP/SMTP** de bureau, pour
 ### Ce que Norelly ne fait pas (aujourd'hui)
 
 - **Pas de POP3, ni d'Exchange, ni de JMAP** : IMAP et SMTP uniquement.
-- **Pas de connexion OAuth2** (« authentification moderne ») : les
-  fournisseurs qui l'exigent (Outlook.com, de plus en plus) ne sont pas
-  utilisables ; Gmail l'est par mot de passe d'application.
+- **Connexion OAuth2 (« authentification moderne ») chez Microsoft
+  seulement** (Outlook.com, Hotmail) ; Gmail passe par un mot de passe
+  d'application.
 - **Pas de chiffrement de bout en bout** (OpenPGP, S/MIME), ni de signature
   des messages.
 - **Pas de chiffrement des données locales par Norelly** : elles sont

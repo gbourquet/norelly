@@ -37,7 +37,7 @@ Description complète, modules et flux : `docs/technique/architecture.md`.
 |---|---|---|
 | `crates/domain` | Règles métier pures, valeurs validées, ports (traits). **Aucune E/S**, ni async runtime, ni horloge, ni aléa : ce qui en a besoin le reçoit en paramètre. Zone de relecture prioritaire du mainteneur. | `thiserror`, `serde` seulement (`scripts/check-domain-deps.sh`) |
 | `crates/application` | Cas d'usage async qui orchestrent les ports (acteur par compte, synchronisation, rédaction, actions). **Aucune règle métier propre.** | `domain` (+ `tokio`, `tracing`) |
-| `crates/adapters/*` | Implémentations des ports : `tls`, `imap`, `smtp`, `sqlite` (seul à dépendre de `rusqlite`), `blobs`, `keyring`, `discovery`, `render`, `contacts-io`. Traduisent entre le monde extérieur et les types du domaine, sans décider. | `domain` ; `tls` pour `imap`, `smtp`, `discovery` ; jamais un autre adaptateur |
+| `crates/adapters/*` | Implémentations des ports : `tls`, `imap`, `smtp`, `sqlite` (seul à dépendre de `rusqlite`), `blobs`, `keyring`, `discovery`, `oauth`, `render`, `contacts-io`. Traduisent entre le monde extérieur et les types du domaine, sans décider. | `domain` ; `tls` pour `imap`, `smtp`, `discovery`, `oauth` ; jamais un autre adaptateur |
 | `app/src-tauri` | Adaptateur entrant (commandes IPC, protocoles `mailview://`, `mailpart://`, `remote-img://`) et point d'assemblage : `state.rs` est le **seul** endroit qui choisit les implémentations. | tout |
 | `app/src` | Interface Svelte 5. Présentation seulement : **toute décision de sécurité est prise en Rust.** | IPC seulement |
 | `crates/test-support` | Conteneurs, faux serveurs IMAP/SMTP, faux des ports, suites de contrat. | dev-dependency uniquement |

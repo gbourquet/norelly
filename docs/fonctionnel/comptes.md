@@ -37,6 +37,20 @@ navigation, ou depuis l'accueil quand il n'y a aucun compte.
    - **serveur situé hors du domaine** de l'adresse : case à cocher de
      confirmation.
 
+### Se connecter avec Microsoft
+
+Pour une adresse Outlook.com, Hotmail, Live ou MSN, le formulaire ne
+demande pas de mot de passe : il propose **Se connecter avec Microsoft**.
+
+1. Le navigateur du système s'ouvre sur la page de Microsoft ; l'utilisateur
+   s'y connecte et accepte l'accès de Norelly.
+2. De retour dans Norelly, la réception et l'envoi sont testés, puis le
+   compte est enregistré et la synchronisation démarre.
+3. Si l'autorisation cesse de fonctionner (mot de passe Microsoft changé,
+   accès retiré), le compte affiche « Reconnexion nécessaire » et un
+   bouton **Se reconnecter**, visible à côté du compte et présent dans son
+   menu « ⋯ ». La réception reprend après la reconnexion.
+
 ### Retrait
 
 Depuis le menu « ⋯ » du compte (panneau de gauche, entrée « Supprimer ce
@@ -92,8 +106,14 @@ acceptés) sont supprimées. **Rien n'est supprimé sur le serveur.**
 - Changement d'empreinte d'un serveur déjà accepté : avertissement renforcé
   et case « J'ai vérifié auprès de l'administrateur » obligatoire.
 - Annulation pendant le test : retour à la saisie.
-- Gmail et Outlook.com exigent un mot de passe d'application ; Outlook.com
-  peut refuser tout accès par mot de passe (OAuth2 non pris en charge).
+- Gmail exige un mot de passe d'application. Outlook.com et Hotmail ne
+  passent que par « Se connecter avec Microsoft ».
+- Connexion chez Microsoft refusée ou abandonnée dans le navigateur : retour
+  au formulaire, avec une explication ; rien n'est enregistré.
+- Envoi désactivé par Microsoft sur la boîte, alors que la réception
+  fonctionne : le compte n'est pas ajouté et l'écran l'explique.
+- L'autorisation Microsoft n'est jamais envoyée à un autre serveur que ceux
+  de Microsoft, ni sur une connexion non chiffrée.
 - Compte Google refusé (adresse Gmail, ou serveurs de Google pour une
   adresse d'entreprise) : Norelly explique comment créer un mot de passe
   d'application, en trois étapes, avec un bouton qui ouvre la page de
@@ -119,6 +139,11 @@ acceptés) sont supprimées. **Rien n'est supprimé sur le serveur.**
 | Identifiants refusés | {prefix}identifiants refusés. … (un mot de passe d'application est parfois nécessaire). |
 | Compte Google refusé | {prefix}identifiants refusés : un compte Google demande un mot de passe d'application. Puis « Créer un mot de passe d'application Google » : validation en deux étapes, création du mot de passe (« Ouvrir la page Google »), collage à la place du mot de passe habituel. |
 | Serveur injoignable | {prefix}serveur injoignable. Vérifiez le nom et le port. |
+| Adresse Microsoft | Outlook.com et Hotmail n'acceptent pas de mot de passe ici : connectez-vous chez Microsoft dans votre navigateur. Norelly ne voit jamais votre mot de passe. |
+| Attente du navigateur | Connectez-vous dans la fenêtre de votre navigateur, puis revenez ici. |
+| Connexion annulée | La connexion a été annulée dans le navigateur. |
+| Envoi désactivé (Microsoft) | {prefix}l'envoi de messages est désactivé sur ce compte Microsoft. Activez-le dans les réglages de votre compte Outlook.com, puis réessayez. |
+| Reconnexion nécessaire | Bouton « Se reconnecter » à côté du compte ; infobulle « Reconnexion nécessaire : {address} » ; « Compte reconnecté. » après succès. |
 | Refus de sécurité | {prefix}connexion refusée par sécurité. |
 | Compte existant | Un compte existe déjà pour cette adresse. |
 | Retrait | … son mot de passe est effacé du trousseau et ses données locales sont supprimées. Les messages restent sur le serveur. |

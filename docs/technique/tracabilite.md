@@ -28,7 +28,14 @@ Fiche : [comptes.md](../fonctionnel/comptes.md).
 | Certificat : valide pour la plateforme, ou exception mémorisée (hôte + empreinte SHA-256) ; sinon rejet avec un `CertificateIssue` détaillé ; une empreinte différente de l'exception est signalée comme changement | `crates/domain/src/security.rs` (`TlsTrustPolicy`) |
 | Un certificat autosigné reste une « autorité inconnue » même marqué autorité (`CA:TRUE`, `openssl req -x509` par défaut), que webpki refuse comme `CaUsedAsEndEntity` | `crates/adapters/tls/src/lib.rs` (`certificate_issue`) |
 | Clair refusé sans consentement explicite par serveur ; STARTTLS obligatoire s'il est annoncé ou demandé (aucun repli silencieux) ; capacités relues après TLS | `security.rs` (`PlaintextPolicy`), `capabilities.rs` |
-| Authentification : `AUTHENTICATE PLAIN` ou `LOGIN` selon les capacités, `LOGINDISABLED` respecté ; `XOAUTH2` non pris en charge | `crates/domain/src/auth.rs` |
+| Authentification : `AUTHENTICATE PLAIN` ou `LOGIN` selon les capacités, `LOGINDISABLED` respecté ; avec un jeton OAuth, `XOAUTH2` seulement (jamais de repli PLAIN ou LOGIN), et un mot de passe n'est jamais envoyé comme jeton | `crates/domain/src/auth.rs` |
+| Comptes Microsoft personnels reconnus au domaine de l'adresse (égalité exacte) ; configuration du fournisseur (`consumers`, scopes `outlook.office.com`, identifiant client public) ; URL d'autorisation PKCE S256 + `state` ; retour du navigateur : `state` vérifié d'abord, doublons refusés ; réponse `user=…\x01auth=Bearer …\x01\x01` ; jeton au format `b64token` (RFC 6750), 16 Kio au plus | `crates/domain/src/oauth.rs`, `credentials.rs` |
+| Un jeton OAuth ne part que vers les serveurs IMAP et SMTP de son fournisseur, en TLS ou STARTTLS, vérifié par les adaptateurs avant toute authentification | `oauth.rs` (`token_destination_allowed`), `ports.rs` (`ConnectRequest::authorize_credentials`), `crates/adapters/imap/src/lib.rs`, `crates/adapters/smtp/src/lib.rs` |
+| Jeton d'accès en mémoire jusqu'à son expiration (horloge murale, marge de 120 s), un verrou par compte, rafraîchissement borné à 30 s ; jeton de rafraîchissement dans le trousseau seulement, remplacé à chaque rotation ; `invalid_grant` ou jeton absent : « reconnexion nécessaire » | `crates/application/src/oauth.rs` (`TokenBroker`) |
+| Avant chaque connexion d'un compte OAuth (synchronisation, envoi), jeton renouvelé ; après un refus du serveur, jeton oublié et une seule nouvelle tentative | `crates/application/src/oauth.rs` (`FreshTokens`), `app/src-tauri/src/state.rs` |
+| « Se connecter avec Microsoft » : serveurs du fournisseur (IMAP 993 TLS, SMTP 587 STARTTLS), tests IMAP et SMTP avec le jeton, compte enregistré avec son fournisseur, puis jeton de rafraîchissement ; sans jeton de rafraîchissement, refus ; `535 5.7.139` : conseil `MicrosoftSmtpDisabled` | `crates/application/src/accounts.rs` (`AddOAuthAccount`, `reconnect_oauth_account`), `oauth.rs` (`is_smtp_oauth_disabled`) |
+| Navigateur du système, redirection `http://localhost:<port>/` écoutée sur `127.0.0.1` ; retour au mauvais `state` ou illisible ignoré (l'attente continue, 5 min au plus) ; code échangé avec le vérificateur PKCE ; erreurs du fournisseur classées sans reprendre le corps | `crates/adapters/oauth/src/lib.rs` |
+| L'interface propose « Se connecter avec Microsoft » quand Rust reconnaît l'adresse (`oauth_provider_for`) ; « Se reconnecter » visible sur la ligne du compte quand la synchronisation signale `reauth_required`, et dans le menu « ⋯ » des seuls comptes OAuth | `app/src/lib/add-account.svelte.ts`, `AddAccountDialog.svelte`, `app/src/lib/mail.svelte.ts`, `Sidebar.svelte` |
 | Compte Google (domaine `gmail.com` ou `googlemail.com`, ou serveur `imap.gmail.com` ou `smtp.gmail.com`, égalité exacte) dont les identifiants sont refusés (`AuthError::Rejected` seulement) : conseil `GoogleAppPassword`, joint par `AddAccount` à l'échec, projeté en `FailureKindDto::GoogleAppPassword` ; l'interface revient à l'écran de l'essai, mot de passe vidé, et montre les trois étapes avec un bouton vers `myaccount.google.com/apppasswords` (`open_external`, revalidé en Rust) | `crates/domain/src/discovery.rs` (`authentication_advice`), `crates/application/src/accounts.rs`, `app/src-tauri/src/ipc.rs`, `app/src/lib/add-account.svelte.ts`, `AddAccountDialog.svelte` |
 | Le secret n'est jamais dans `Debug`, n'a pas de `Display`, n'est pas sérialisable | `crates/domain/src/credentials.rs` |
 | Le mot de passe n'appartient pas au compte : il vit dans le trousseau, sous des clés propres au compte | `crates/domain/src/account.rs` |
@@ -36,16 +43,17 @@ Fiche : [comptes.md](../fonctionnel/comptes.md).
 | L'écran d'ajout n'annonce « trousseau du système » que sur la réponse de `secrets_backend` (sonde du trousseau) : avec le fichier de repli, ou sans réponse, aucune garantie n'est affichée | `app/src-tauri/src/state.rs` (`AppSecretStore::stores_in_system_keyring`), `app/src-tauri/src/commands.rs` (`secrets_backend`), `app/src/lib/add-account.svelte.ts`, `AddAccountDialog.svelte` |
 
 Cas d'usage : `DiscoverSettings`, `TestConnection`, `AddAccount`,
-`RemoveAccount` (`crates/application/src/accounts.rs`,
+`AddOAuthAccount`, `reconnect_oauth_account`, `TokenBroker`,
+`RemoveAccount` (`crates/application/src/accounts.rs`, `oauth.rs`,
 `discover_settings.rs`, `test_connection.rs`).
 
 ### Clés des messages
 
-`add_discovering`, `add_testing`, `add_msg_incomplete`, `add_msg_dns_outside`, `add_cert_title`, `add_issue_*`, `add_cert_changed`, `add_plain_warning`, `add_secrets_warning_*`, `add_fail_authentication`, `add_fail_google_app_password`, `add_app_password_*`, `add_fail_network`, `add_fail_security`, `add_msg_already_exists`, `remove_explanation_*`.
+`add_discovering`, `add_testing`, `add_msg_incomplete`, `add_msg_dns_outside`, `add_cert_title`, `add_issue_*`, `add_cert_changed`, `add_plain_warning`, `add_secrets_warning_*`, `add_fail_authentication`, `add_fail_google_app_password`, `add_app_password_*`, `add_fail_network`, `add_fail_security`, `add_msg_already_exists`, `add_oauth_*`, `add_fail_microsoft_smtp_disabled`, `add_fail_reauth_required`, `add_fail_oauth_cancelled`, `add_fail_oauth`, `sidebar_reconnect`, `sidebar_reauth_required`, `notice_reconnected`, `remove_explanation_*`.
 
 ### Commandes
 
-`account.add`, `account.remove`.
+`account.add`, `account.reconnect`, `account.remove`.
 
 ## Synchronisation
 

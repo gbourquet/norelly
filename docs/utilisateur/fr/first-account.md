@@ -9,9 +9,11 @@ adresse pour une association).
 ## Ce qu'il vous faut
 
 - votre **adresse électronique**, par exemple `marie.durand@exemple.fr` ;
-- son **mot de passe**. Pour Gmail et Outlook.com, ce n'est pas votre mot
-  de passe habituel mais un **mot de passe d'application** : lisez d'abord
-  [la partie qui les concerne](#gmail-et-outlookcom--le-mot-de-passe-dapplication).
+- son **mot de passe**. Pour Gmail, ce n'est pas votre mot de passe
+  habituel mais un **mot de passe d'application** : lisez d'abord
+  [la partie Gmail](#gmail--le-mot-de-passe-dapplication). Pour
+  Outlook.com et Hotmail, aucun mot de passe n'est demandé : voir
+  [Outlook.com et Hotmail](#outlookcom-et-hotmail--se-connecter-avec-microsoft).
 
 ## Étape par étape
 
@@ -75,19 +77,17 @@ Ne cliquez sur **Faire confiance à ce serveur** que pour un serveur que
 vous connaissez (un serveur personnel, celui de votre entreprise), et si
 son administrateur vous a confirmé l'**empreinte** affichée.
 
-## Gmail et Outlook.com : le mot de passe d'application
+## Gmail : le mot de passe d'application
 
-Gmail et Outlook.com refusent votre mot de passe habituel dans un
-programme comme Norelly. Ils vous demandent de créer un **mot de passe
-d'application** : un mot de passe spécial, fait de 16 lettres, réservé à
-Norelly. Vous le créez une seule fois, sur le site de votre fournisseur,
-puis vous le collez dans Norelly à la place de votre mot de passe.
+Gmail refuse votre mot de passe habituel dans un programme comme Norelly.
+Google vous demande de créer un **mot de passe d'application** : un mot
+de passe spécial, fait de 16 lettres, réservé à Norelly. Vous le créez une
+seule fois, sur le site de Google, puis vous le collez dans Norelly à la
+place de votre mot de passe.
 
 Avantage : si vous changez un jour votre mot de passe habituel, ou si
 vous voulez couper l'accès de Norelly, il suffit de supprimer ce mot de
 passe d'application.
-
-### Gmail
 
 Si vous avez tapé votre mot de passe habituel, Norelly le remarque :
 la connexion est refusée et Norelly affiche les étapes ci-dessous,
@@ -119,22 +119,42 @@ compte protégé uniquement par une clé de sécurité, ni pour un compte en
 « Protection avancée ». Pour une adresse d'entreprise ou d'école gérée par
 Google, son administrateur a pu la désactiver : demandez-lui.
 
-### Outlook.com (et Hotmail, Live)
+## Outlook.com et Hotmail : se connecter avec Microsoft
 
-1. Activez la **vérification en deux étapes** : dans votre navigateur,
-   ouvrez <https://account.microsoft.com/security>, puis **Options de
-   sécurité avancées**, et activez **Vérification en deux étapes**.
-2. Sur la même page, sous **Mots de passe d'application**, cliquez sur
-   **Créer un nouveau mot de passe d'application**.
-3. Copiez le mot de passe affiché et collez-le dans le champ **Mot de
-   passe** de Norelly.
+Outlook.com, Hotmail, Live et MSN n'acceptent pas de mot de passe dans un
+programme comme Norelly. Vous vous connectez à la place sur la page de
+Microsoft, dans votre navigateur :
 
-> **À savoir** : Microsoft limite de plus en plus l'accès des programmes
-> de messagerie par mot de passe, au profit d'une connexion par sa propre
-> page (que Norelly ne sait pas encore faire). Si Norelly affiche
-> « identifiants refusés » malgré un mot de passe d'application correct,
-> Microsoft refuse cette méthode pour votre compte : voir
-> [les questions fréquentes](faq.md#outlookcom-refuse-mon-mot-de-passe-dapplication).
+1. Dans la fenêtre **Ajouter un compte**, tapez votre adresse (par exemple
+   `marie.durand@outlook.fr`). Le champ **Mot de passe** disparaît et le
+   bouton **Se connecter avec Microsoft** apparaît.
+2. Cliquez sur **Se connecter avec Microsoft**. Votre navigateur s'ouvre
+   sur la page de Microsoft : connectez-vous comme d'habitude, puis
+   acceptez que Norelly accède à vos messages.
+3. Le navigateur affiche « vous pouvez fermer cette page » : revenez dans
+   Norelly. Le compte apparaît dans la colonne de gauche.
+
+![La fenêtre d'ajout avec une adresse Outlook.com : pas de champ mot de passe, bouton « Se connecter avec Microsoft »](captures/microsoft-sign-in.png)
+
+Norelly ne voit jamais votre mot de passe Microsoft. Il reçoit une
+autorisation, rangée dans le trousseau du système, qu'il renouvelle tout
+seul.
+
+### Se reconnecter
+
+Si vous changez votre mot de passe Microsoft, ou si vous retirez l'accès
+de Norelly sur le site de Microsoft, l'autorisation cesse de fonctionner.
+Un bouton **Se reconnecter** apparaît alors à côté du compte, dans la
+colonne de gauche (l'entrée existe aussi dans le menu **⋯** du compte).
+Cliquez dessus et reconnectez-vous dans le navigateur : la réception
+reprend.
+
+### Si l'envoi est refusé
+
+Sur certains comptes Outlook.com, Microsoft désactive l'envoi de messages
+depuis les programmes de messagerie, alors que la réception fonctionne.
+Norelly vous le dit à l'ajout du compte : activez l'envoi dans les réglages
+de votre compte Outlook.com, puis réessayez.
 
 ## Retirer un compte
 

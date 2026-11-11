@@ -69,13 +69,14 @@ the images you have allowed and, if you accepted it on Windows, to
 GitHub (which hosts Norelly) to check for updates: GitHub then sees your IP
 address, but no identifier is sent.
 
-## Outlook.com refuses my app password
+## How do I add an Outlook.com or Hotmail account?
 
-Microsoft increasingly restricts password access by email programs and
-asks for sign-in through its own page ("modern authentication"), which
-Norelly cannot do yet. If Norelly says "credentials rejected" with a
-correct app password, your Outlook.com account cannot be used in Norelly
-yet. This kind of sign-in is planned for a future version.
+Type your address in the add window, then click **Sign in with
+Microsoft**: you sign in on Microsoft's page, in your browser, without a
+password in Norelly. See
+[Outlook.com and Hotmail](first-account.md#outlookcom-and-hotmail-sign-in-with-microsoft).
+If a **Sign in again** button later appears next to the account, click it
+and sign in again.
 
 ## My provider is not found automatically
 

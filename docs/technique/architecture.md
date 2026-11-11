@@ -29,7 +29,7 @@ flowchart LR
     ports["ports.rs"]
   end
   subgraph Adapters["crates/adapters/*"]
-    imap & smtp & tls & sqlite & blobs & keyring & discovery & render
+    imap & smtp & tls & sqlite & blobs & keyring & discovery & render & oauth
   end
   UI -- "invoke (bindings TS générés)" --> ipc
   UI -- "iframe sandbox" --> proto
@@ -98,6 +98,7 @@ Orchestration async des ports, sans règle métier propre :
 | `blobs` | `BlobStore` : `.eml.zst` par compte et empreinte, écriture atomique | — |
 | `keyring` | `SecretStore` : Secret Service, Credential Manager ; fichier 0600 en dérogation | — |
 | `discovery` | `AutoconfigClient`, `SrvResolver`, `PortProber` | HTTPS seulement |
+| `oauth` | `OAuthClient` : navigateur du système (`BrowserOpener`), redirection locale sur `127.0.0.1` (port éphémère), PKCE S256, échange et rafraîchissement des jetons par HTTPS (`norelly-tls`) | `state` vérifié par le domaine, retour forgé ignoré, corps des réponses jamais recopié (ADR-013) |
 | `render` | Rendu MIME → vue, assainissement HTML et CSS, agent, construction MIME sortante, extraction du texte indexé | fichiers sensibles (`sanitize.rs`, `css.rs`, `agent.js`) |
 | `contacts-io` | `ContactCodec` (lecture vCard, CSV Google/Outlook/Thunderbird, LDIF ; écriture vCard 4.0/3.0, CSV Google, LDIF Thunderbird), `TextNormalizer` (NFC) | entrées et sorties bornées, fuzzé (`contact_import`, `contact_export`) ; fichier lu et écrit par le shell, jamais d'URL suivie |
 

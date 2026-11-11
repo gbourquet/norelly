@@ -82,10 +82,12 @@ username and password (an app password is sometimes required)."
 
 1. Check the password: is **Caps Lock** on? Is the keyboard in the right
    language?
-2. **Gmail, Outlook.com**: use an **app password**, not your usual password
-   (see [Adding your address](first-account.md#gmail-and-outlookcom-the-app-password)).
-   If you changed your Google or Microsoft password, older app passwords may
-   have been revoked: create a new one.
+2. **Gmail**: use an **app password**, not your usual password
+   (see [Adding your address](first-account.md#gmail-the-app-password)).
+   If you changed your Google password, older app passwords may have been
+   revoked: create a new one.
+   **Outlook.com, Hotmail**: use **Sign in with Microsoft**
+   (see [Outlook.com and Hotmail](first-account.md#outlookcom-and-hotmail-sign-in-with-microsoft)).
 3. If Norelly shows the server settings, check the **Username** field: it is
    often the full address (`mary.smith@example.com`), not just `mary.smith`.
 4. Try signing in on your provider's website: your account may be

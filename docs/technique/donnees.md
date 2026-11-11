@@ -48,6 +48,7 @@ système.
 | 10 | `0010_scheduled_send.sql` | envoi différé : échéance et contenu du brouillon dans `outbox` |
 | 11 | `0011_contacts.sql` | carnet d'adresses unique (ADR-012) : `contacts` (champs vCard, favori, `sort_key` et `search_text` calculés par le domaine, index de tri), `contact_emails` (`address_key` unique dans le carnet, une seule préférée par contact), `contact_phones` ; cascade à la suppression d'un contact |
 | 12 | `0012_contact_lists.sql` | listes de diffusion du carnet (ADR-012) : `contact_lists` (`name_key`, nom en minuscules calculé par le domaine, unique et ordonnant la liste ; `bcc`), `contact_list_members` (contacts dans l'ordre de la liste, chacun une fois) ; cascade à la suppression d'une liste ou d'un contact |
+| 13 | `0013_oauth_accounts.sql` | `accounts.oauth_provider` (`microsoft`, ou `NULL` pour un compte à mot de passe) : compte connecté par OAuth ; le jeton de rafraîchissement reste dans le trousseau, sous la clé IMAP du compte |
 
 Le schéma courant complet est la somme de ces fichiers ; ils sont commentés
 en tête et à chaque table.

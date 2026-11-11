@@ -1021,6 +1021,14 @@ export function registerAppCommands(): () => void {
       run: (ctx) => (ctx.selectedAccount ? api.syncAccount(ctx.selectedAccount.id) : undefined),
     }),
     registry.register({
+      id: "account.reconnect",
+      title: m.cmd_account_reconnect(),
+      group: m.group_accounts(),
+      keywords: words(m.cmd_account_reconnect_keywords()),
+      when: (ctx) => (ctx.selectedAccount?.oauth_provider ?? null) !== null,
+      run: (ctx) => (ctx.selectedAccount ? mail.reconnect(ctx.selectedAccount.id) : undefined),
+    }),
+    registry.register({
       id: "account.remove",
       title: m.cmd_account_remove(),
       group: m.group_accounts(),

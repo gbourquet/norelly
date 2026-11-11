@@ -76,6 +76,7 @@ vi.mock("./lib/ipc/api", () => ({
     readingPreferences: vi.fn(async () => ({ prefer_plain_text: false })),
     setPreferPlainText: vi.fn(),
     syncAccount: vi.fn(),
+    reconnectAccount: vi.fn(async () => ({ kind: "already_exists" })),
     openExternal: vi.fn(),
     saveAttachment: vi.fn(),
     openAttachment: vi.fn(),
@@ -823,6 +824,30 @@ describe("App", () => {
     await new Promise((r) => setTimeout(r, 20));
     expect(api.showNotification).not.toHaveBeenCalled();
     focus.mockRestore();
+  });
+
+  it("compte Microsoft à reconnecter : bouton visible et entrée du menu", async () => {
+    accounts.push({
+      id: 9,
+      address: "carol@outlook.com",
+      display_name: "Carol",
+      imap: server,
+      smtp: server,
+      oauth_provider: "microsoft",
+    } as AccountDto);
+    render(App);
+    await screen.findAllByText("carol@outlook.com");
+    expect(screen.queryByRole("button", { name: "Se reconnecter" })).toBeNull();
+    await waitFor(() => expect(syncListeners.length).toBeGreaterThan(0));
+    for (const l of syncListeners) {
+      l({ kind: "offline", account: 9, failure: "reauth_required", detail: null });
+    }
+    const button = await screen.findByRole("button", { name: "Se reconnecter" });
+    expect(button).toHaveAttribute("title", "Reconnexion nécessaire : carol@outlook.com");
+    await fireEvent.click(button);
+    await waitFor(() => expect(api.reconnectAccount).toHaveBeenCalledWith(9));
+    const menu = await openAccountMenu("carol@outlook.com");
+    expect(within(menu).getByRole("menuitem", { name: "Se reconnecter" })).toBeEnabled();
   });
 
   it("donne un nom accessible à chaque contrôle (passe d'accessibilité)", async () => {

@@ -350,6 +350,7 @@
       accounts={app.accounts}
       folders={mail.folders}
       offline={mail.offline}
+      reauth={mail.reauth}
       scope={mail.scope}
       selectedId={app.selectedAccountId}
       onScope={selectScope}

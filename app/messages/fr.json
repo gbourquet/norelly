@@ -715,5 +715,13 @@
   "add_fail_microsoft_smtp_disabled": "{prefix}l'envoi de messages est désactivé sur ce compte Microsoft. Activez-le dans les réglages de votre compte Outlook.com, puis réessayez.",
   "add_fail_reauth_required": "La connexion a expiré : reconnectez-vous.",
   "add_fail_oauth_cancelled": "La connexion a été annulée dans le navigateur.",
-  "add_fail_oauth": "Connexion au fournisseur impossible. Vérifiez votre connexion à Internet, puis réessayez."
+  "add_fail_oauth": "Connexion au fournisseur impossible. Vérifiez votre connexion à Internet, puis réessayez.",
+  "add_oauth_sign_in_microsoft": "Se connecter avec Microsoft",
+  "add_oauth_hint_microsoft": "Outlook.com et Hotmail n'acceptent pas de mot de passe ici : connectez-vous chez Microsoft dans votre navigateur. Norelly ne voit jamais votre mot de passe.",
+  "add_oauth_waiting_microsoft": "Connectez-vous dans la fenêtre de votre navigateur, puis revenez ici.",
+  "cmd_account_reconnect": "Se reconnecter au compte sélectionné",
+  "cmd_account_reconnect_keywords": "reconnexion connexion microsoft outlook jeton expiré",
+  "sidebar_reconnect": "Se reconnecter",
+  "sidebar_reauth_required": "Reconnexion nécessaire : {address}",
+  "notice_reconnected": "Compte reconnecté."
 }

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { AddAccountFlow, defaultServers } from "./add-account.svelte";
 import type {
+  AddOAuthAccountInput,
   AccountDto,
   AddAccountInput,
   AddAccountResult,
@@ -47,8 +48,18 @@ const certificate: AddAccountResult = {
 
 function fakeApi(discovery: Discovery, results: AddAccountResult[]) {
   const calls: AddAccountInput[] = [];
+  const oauthCalls: AddOAuthAccountInput[] = [];
   const api: AccountApi = {
     listAccounts: vi.fn(async () => []),
+    oauthProviderFor: vi.fn(async (address: string) =>
+      address.trim().endsWith("@outlook.com") ? ("microsoft" as const) : null,
+    ),
+    addOAuthAccount: vi.fn(async (input: AddOAuthAccountInput) => {
+      oauthCalls.push(structuredClone(input));
+      const next = results.shift();
+      if (next === undefined) throw new Error("appel inattendu");
+      return next;
+    }),
     discoverSettings: vi.fn(async (_address, onProgress) => {
       onProgress("provider_autoconfig");
       onProgress("mozilla_ispdb");
@@ -66,7 +77,7 @@ function fakeApi(discovery: Discovery, results: AddAccountResult[]) {
     secretsBackend: vi.fn(async () => "system_keyring" as const),
     openExternal: vi.fn(async () => undefined),
   };
-  return { api, calls };
+  return { api, calls, oauthCalls };
 }
 
 function flow(api: AccountApi): AddAccountFlow {
@@ -349,5 +360,75 @@ describe("serveurs DNS hors domaine", () => {
     const f = flow(api);
     await f.loadSecretsBackend();
     expect(f.secretsBackend).toBeNull();
+  });
+});
+
+describe("se connecter avec Microsoft", () => {
+  function outlook(api: AccountApi): AddAccountFlow {
+    const f = new AddAccountFlow(api);
+    f.address = " alice@outlook.com ";
+    return f;
+  }
+
+  it("reconnaît une adresse Microsoft (décision de Rust)", async () => {
+    const { api } = fakeApi(found, []);
+    const f = outlook(api);
+    await f.detectProvider();
+    expect(api.oauthProviderFor).toHaveBeenCalledWith("alice@outlook.com");
+    expect(f.oauthProvider).toBe("microsoft");
+    f.address = "alice@example.com";
+    await f.detectProvider();
+    expect(f.oauthProvider).toBeNull();
+  });
+
+  it("ajoute le compte sans mot de passe ni découverte", async () => {
+    const { api, oauthCalls } = fakeApi(found, [{ kind: "added", account }]);
+    const f = outlook(api);
+    await f.detectProvider();
+    f.displayName = " Alice ";
+    await f.signInWithProvider();
+    expect(oauthCalls).toEqual([
+      { address: "alice@outlook.com", display_name: "Alice", provider: "microsoft" },
+    ]);
+    expect(api.discoverSettings).not.toHaveBeenCalled();
+    expect(api.addAccount).not.toHaveBeenCalled();
+    expect(f.step).toBe("done");
+  });
+
+  it("connexion annulée : retour au formulaire avec une explication", async () => {
+    const { api } = fakeApi(found, [
+      { kind: "failed", protocol: null, failure: "oauth_cancelled", detail: null },
+    ]);
+    const f = outlook(api);
+    await f.detectProvider();
+    await f.signInWithProvider();
+    expect(f.step).toBe("form");
+    expect(f.message).toBe("La connexion a été annulée dans le navigateur.");
+  });
+
+  it("envoi désactivé sur la boîte : message clair", async () => {
+    const { api } = fakeApi(found, [
+      { kind: "failed", protocol: "smtp", failure: "microsoft_smtp_disabled", detail: null },
+    ]);
+    const f = outlook(api);
+    await f.detectProvider();
+    await f.signInWithProvider();
+    expect(f.step).toBe("form");
+    expect(f.message).toContain("Outlook.com");
+  });
+
+  it("fichier des secrets accepté : la connexion reprend par Microsoft", async () => {
+    const { api, oauthCalls } = fakeApi(found, [
+      { kind: "secret_storage_consent_required", path: "/tmp/mots-de-passe.json" },
+      { kind: "added", account },
+    ]);
+    const f = outlook(api);
+    await f.detectProvider();
+    await f.signInWithProvider();
+    expect(f.step).toBe("secrets");
+    await f.allowFileSecrets();
+    expect(oauthCalls).toHaveLength(2);
+    expect(api.addAccount).not.toHaveBeenCalled();
+    expect(f.step).toBe("done");
   });
 });

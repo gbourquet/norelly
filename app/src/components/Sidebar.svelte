@@ -1,4 +1,5 @@
 <script lang="ts" generics="C">
+  import LogInIcon from "@lucide/svelte/icons/log-in";
   import { m } from "../lib/paraglide/messages.js";
   import { folderLabel, folderServerName } from "../lib/folder-label";
   // Panneau de navigation : « Nouveau message », boîte de réception
@@ -37,6 +38,8 @@
     accounts: AccountDto[];
     folders: Record<number, FolderDto[]>;
     offline: Record<number, string>;
+    /** Comptes OAuth à reconnecter (bouton visible sur la ligne). */
+    reauth?: Record<number, true>;
     scope: ScopeDto;
     selectedId: number | null;
     onScope: (scope: ScopeDto, account: number | null) => void;
@@ -61,6 +64,7 @@
     accounts,
     folders,
     offline,
+    reauth = {},
     scope,
     selectedId,
     onScope,
@@ -102,6 +106,7 @@
   /** Menu d'un compte : actions qui visent le compte sélectionné. */
   const accountActions: VisibleAction[] = [
     { command: "account.sync", icon: RefreshIcon, label: m.sidebar_sync, section: 0 },
+    { command: "account.reconnect", icon: LogInIcon, label: m.sidebar_reconnect, section: 0 },
     { command: "drafts.open", icon: FileIcon, section: 0 },
     { command: "compose.outbox", icon: OutboxIcon, section: 0 },
     { command: "account.new-folder", icon: FolderPlusIcon, section: 1 },
@@ -208,8 +213,21 @@
                 <WifiOffIcon size={14} aria-label={m.common_offline()} />
               </span>
             {/if}
+            {#if reauth[account.id]}
+              <button
+                class="btn reconnect"
+                type="button"
+                title={m.sidebar_reauth_required({ address: account.address })}
+                onclick={() => void registry.execute("account.reconnect", onAccount(account.id))}
+              >
+                <LogInIcon size={14} aria-hidden="true" />
+                {m.sidebar_reconnect()}
+              </button>
+            {/if}
             <CommandMenu
-              actions={accountActions}
+              actions={account.oauth_provider === null
+                ? accountActions.filter((a) => a.command !== "account.reconnect")
+                : accountActions}
               {registry}
               {context}
               label={m.sidebar_account_menu({ address: account.address })}
@@ -417,6 +435,13 @@
   .address {
     color: var(--color-text-muted);
     font-size: var(--font-size-sm);
+  }
+
+  .reconnect {
+    padding: var(--space-1) var(--space-2);
+    font-size: var(--font-size-sm);
+    gap: var(--space-1);
+    white-space: nowrap;
   }
 
   .offline {

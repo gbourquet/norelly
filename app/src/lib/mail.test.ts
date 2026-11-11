@@ -30,6 +30,7 @@ function fakeApi(total: number, unread: number[] = []): MailApi & { calls: Scope
   let removed: ConversationDto[] = [];
   return {
     calls,
+    reconnectAccount: vi.fn(async () => ({ kind: "already_exists" as const })),
     performAction: vi.fn(async (ids: number[], _scope: ScopeDto, action: ActionDto) => {
       if (action.kind === "move" || action.kind === "delete" || action.kind === "archive") {
         removed = all.filter((c) => ids.includes(c.id));
@@ -561,5 +562,62 @@ describe("expéditeur visé par le menu d'une ligne", () => {
     mail.toggleMarkAt(0);
     mail.toggleMarkAt(1);
     expect(mail.targetSender()).toBeNull();
+  });
+});
+
+describe("reconnexion d'un compte OAuth", () => {
+  it("signale la reconnexion nécessaire, puis la lève après reconnexion", async () => {
+    const api = fakeApi(1);
+    const mail = new MailState(api, noAutoSeen);
+    await mail.onSyncEvent({
+      kind: "offline",
+      account: 1,
+      failure: "reauth_required",
+      detail: null,
+    });
+    expect(mail.reauth[1]).toBe(true);
+    expect(mail.offline[1]).toBe("reconnexion nécessaire");
+    api.reconnectAccount = vi.fn(async () => ({
+      kind: "added" as const,
+      account: {
+        id: 1,
+        address: "alice@outlook.com",
+        display_name: "Alice",
+        imap: { host: "outlook.office365.com", port: 993, security: "tls" as const, username: "a" },
+        smtp: {
+          host: "smtp-mail.outlook.com",
+          port: 587,
+          security: "starttls" as const,
+          username: "a",
+        },
+        oauth_provider: "microsoft" as const,
+      },
+    }));
+    await mail.reconnect(1);
+    expect(api.reconnectAccount).toHaveBeenCalledWith(1);
+    expect(mail.reauth[1]).toBeUndefined();
+    expect(mail.notice?.text).toBe("Compte reconnecté.");
+  });
+
+  it("reconnexion annulée : l'état reste, la raison est affichée", async () => {
+    const api = fakeApi(1);
+    api.reconnectAccount = vi.fn(async () => ({
+      kind: "failed" as const,
+      protocol: null,
+      failure: "oauth_cancelled" as const,
+      detail: null,
+    }));
+    const mail = new MailState(api, noAutoSeen);
+    await mail.onSyncEvent({
+      kind: "offline",
+      account: 1,
+      failure: "reauth_required",
+      detail: null,
+    });
+    await mail.reconnect(1);
+    expect(mail.reauth[1]).toBe(true);
+    expect(mail.notice?.text).toBe("connexion annulée");
+    await mail.onSyncEvent({ kind: "online", account: 1 });
+    expect(mail.reauth[1]).toBeUndefined();
   });
 });

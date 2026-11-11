@@ -14,6 +14,7 @@ import type {
   DiscoverySourceDto,
   EndpointDto,
   FailureKindDto,
+  OAuthProviderDto,
   SecretsBackendDto,
   ServerDto,
 } from "./ipc/api";
@@ -103,8 +104,14 @@ export class AddAccountFlow {
   /** Où Rust conservera le mot de passe ; `null` tant qu'il n'a pas
    *  répondu : aucune garantie n'est affichée avant. */
   secretsBackend = $state<SecretsBackendDto | null>(null);
+  /** Fournisseur OAuth de l'adresse saisie (décidé par Rust) : le
+   *  formulaire propose alors « Se connecter avec … » au lieu du mot de
+   *  passe. */
+  oauthProvider = $state<OAuthProviderDto | null>(null);
   /** Le dernier essai vient de la saisie manuelle des serveurs. */
   #manual = false;
+  /** Le dernier essai passe par le fournisseur OAuth. */
+  #oauth = false;
   #consents: EndpointDto[] = [];
   #api: AccountApi;
 
@@ -130,6 +137,7 @@ export class AddAccountFlow {
     this.appPasswordHelp = false;
     this.secretsBackend = null;
     this.#manual = false;
+    this.#oauth = false;
     this.#consents = [];
   }
 
@@ -145,6 +153,48 @@ export class AddAccountFlow {
   setConfirmed(host: string, value: boolean): void {
     const others = this.confirmed.filter((h) => h !== host);
     this.confirmed = value ? [...others, host] : others;
+  }
+
+  /** Demande à Rust si l'adresse relève d'un fournisseur OAuth. */
+  async detectProvider(): Promise<void> {
+    const address = this.address.trim();
+    try {
+      const provider = address ? await this.#api.oauthProviderFor(address) : null;
+      // Réponse périmée : l'adresse a changé pendant l'appel.
+      if (this.address.trim() === address) this.oauthProvider = provider;
+    } catch {
+      this.oauthProvider = null;
+    }
+  }
+
+  /** « Se connecter avec … » : le navigateur du système s'ouvre, Rust
+   *  attend le retour, teste les serveurs et ajoute le compte. */
+  async signInWithProvider(): Promise<void> {
+    const provider = this.oauthProvider;
+    if (provider === null) return;
+    this.message = null;
+    this.appPasswordHelp = false;
+    this.#oauth = true;
+    this.#manual = false;
+    this.step = "testing";
+    let result: AddAccountResult;
+    try {
+      result = await this.#api.addOAuthAccount({
+        address: this.address.trim(),
+        display_name: this.displayName.trim() || null,
+        provider,
+      });
+    } catch (e) {
+      this.step = "form";
+      this.message = errorText(e);
+      return;
+    }
+    this.apply(result);
+  }
+
+  /** Vrai pendant l'attente du retour du navigateur. */
+  get waitingForBrowser(): boolean {
+    return this.#oauth && this.step === "testing";
   }
 
   /** Ouvre la page Google de création des mots de passe d'application. */
@@ -257,7 +307,11 @@ export class AddAccountFlow {
       return;
     }
     this.secretsFile = null;
-    await this.connect();
+    if (this.#oauth) {
+      await this.signInWithProvider();
+    } else {
+      await this.connect();
+    }
   }
 
   /** Refus d'un avertissement : retour à la saisie manuelle. */
@@ -265,11 +319,12 @@ export class AddAccountFlow {
     this.certificate = null;
     this.plaintextEndpoint = null;
     this.secretsFile = null;
-    this.step = "manual";
+    this.step = this.#oauth ? "form" : "manual";
     this.message = m.add_msg_cancelled();
   }
 
   async connect(): Promise<void> {
+    this.#oauth = false;
     this.step = "testing";
     let result: AddAccountResult;
     try {
@@ -332,7 +387,8 @@ export class AddAccountFlow {
           this.password = "";
           this.appPasswordHelp = true;
         } else {
-          this.step = "manual";
+          // Connexion par le fournisseur : aucun serveur à corriger.
+          this.step = this.#oauth ? "form" : "manual";
         }
         this.message = failureMessage(result.failure, result.protocol, result.detail);
         break;

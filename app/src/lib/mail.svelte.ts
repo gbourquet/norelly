@@ -48,6 +48,7 @@ export type MailApi = Pick<
   | "performAction"
   | "markOpenedSeen"
   | "undoActions"
+  | "reconnectAccount"
 >;
 
 /** Information affichée après une action (annulable ou non). */
@@ -84,6 +85,8 @@ export class MailState {
   folders = $state<Record<number, FolderDto[]>>({});
   /** Comptes hors ligne (raison). */
   offline = $state<Record<number, string>>({});
+  /** Comptes OAuth dont le jeton ne peut plus être rafraîchi. */
+  reauth = $state<Record<number, true>>({});
   scope = $state<ScopeDto>(UNIFIED_INBOX);
   conversations = $state<ConversationDto[]>([]);
   #next: ConversationCursorDto | null = null;
@@ -447,10 +450,30 @@ export class MailState {
       }
       case "online":
         this.offline = without(this.offline, event.account);
+        this.reauth = without(this.reauth, event.account);
         break;
       case "offline":
         this.offline[event.account] = withDetail(failureText(event.failure), event.detail);
+        if (event.failure === "reauth_required") this.reauth[event.account] = true;
         break;
+    }
+  }
+
+  /** Reconnexion chez le fournisseur OAuth du compte (navigateur). */
+  async reconnect(account: number): Promise<void> {
+    try {
+      const result = await this.#api.reconnectAccount(account);
+      if (result.kind === "added") {
+        this.reauth = without(this.reauth, account);
+        this.notice = { text: m.notice_reconnected(), undoable: false };
+      } else if (result.kind === "failed") {
+        this.notice = {
+          text: withDetail(failureText(result.failure), result.detail),
+          undoable: false,
+        };
+      }
+    } catch (e) {
+      this.notice = { text: errorText(e), undoable: false };
     }
   }
 }

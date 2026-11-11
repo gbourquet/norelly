@@ -7,6 +7,8 @@ import {
   commands,
   events,
   type AccountDto_Serialize,
+  type AddOAuthAccountInput_Deserialize,
+  type OAuthProviderDto,
   type ConversationCursorDto,
   type ConversationDto_Serialize,
   type ConversationMessageDto_Serialize,
@@ -63,6 +65,7 @@ import {
 import { IpcFailure } from "../errors";
 
 export type {
+  OAuthProviderDto,
   ContactExportFormatDto,
   ContactExportOutcomeDto,
   ContactExportSelectionDto,
@@ -123,6 +126,7 @@ export type {
   UpdateEventDto,
 } from "./bindings";
 export type AddAccountInput = AddAccountInput_Deserialize;
+export type AddOAuthAccountInput = AddOAuthAccountInput_Deserialize;
 export type AccountDto = AccountDto_Serialize;
 export type AddAccountResult = AddAccountResultDto_Serialize;
 export type Discovery = DiscoveryDto_Serialize;
@@ -172,6 +176,18 @@ export const api = {
 
   addAccount: (input: AddAccountInput): Promise<AddAccountResult> =>
     unwrap(commands.addAccount(input)),
+
+  /** Fournisseur OAuth de l'adresse (décidé par Rust), `null` sinon. */
+  oauthProviderFor: (address: string): Promise<OAuthProviderDto | null> =>
+    commands.oauthProviderFor(address),
+
+  /** « Se connecter avec … » : ouvre le navigateur du système. */
+  addOAuthAccount: (input: AddOAuthAccountInput): Promise<AddAccountResult> =>
+    unwrap(commands.addOauthAccount(input)),
+
+  /** Reconnexion chez le fournisseur d'un compte OAuth. */
+  reconnectAccount: (account: number): Promise<AddAccountResult> =>
+    unwrap(commands.reconnectAccount(account)),
 
   trustCertificate: (host: string, fingerprint: string): Promise<void> =>
     unwrap(commands.trustCertificate(host, fingerprint)).then(() => undefined),
@@ -440,6 +456,8 @@ export type AccountApi = Pick<
   | "listAccounts"
   | "discoverSettings"
   | "addAccount"
+  | "oauthProviderFor"
+  | "addOAuthAccount"
   | "trustCertificate"
   | "removeAccount"
   | "allowFileSecrets"

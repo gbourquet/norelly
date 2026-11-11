@@ -715,5 +715,13 @@
   "add_fail_microsoft_smtp_disabled": "{prefix}sending messages is disabled on this Microsoft account. Turn it on in your Outlook.com account settings, then try again.",
   "add_fail_reauth_required": "Your sign-in has expired: please sign in again.",
   "add_fail_oauth_cancelled": "Sign-in was cancelled in the browser.",
-  "add_fail_oauth": "Cannot reach the provider. Check your Internet connection, then try again."
+  "add_fail_oauth": "Cannot reach the provider. Check your Internet connection, then try again.",
+  "add_oauth_sign_in_microsoft": "Sign in with Microsoft",
+  "add_oauth_hint_microsoft": "Outlook.com and Hotmail do not accept a password here: sign in with Microsoft in your browser. Norelly never sees your password.",
+  "add_oauth_waiting_microsoft": "Sign in in your browser window, then come back here.",
+  "cmd_account_reconnect": "Sign in again to the selected account",
+  "cmd_account_reconnect_keywords": "reconnect sign in microsoft outlook expired token",
+  "sidebar_reconnect": "Sign in again",
+  "sidebar_reauth_required": "Sign-in required: {address}",
+  "notice_reconnected": "Account reconnected."
 }

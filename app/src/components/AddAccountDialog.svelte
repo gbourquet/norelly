@@ -77,7 +77,7 @@
     <form
       onsubmit={(e) => {
         e.preventDefault();
-        void flow.submit();
+        void (flow.oauthProvider ? flow.signInWithProvider() : flow.submit());
       }}
     >
       <label for="account-address">{m.add_address()}</label>
@@ -86,22 +86,27 @@
         class="input"
         type="email"
         bind:value={flow.address}
+        oninput={() => void flow.detectProvider()}
         autocomplete="email"
         spellcheck="false"
         required
       />
-      <label for="account-password">{m.add_password()}</label>
-      <input
-        id="account-password"
-        class="input"
-        type="password"
-        bind:value={flow.password}
-        autocomplete="current-password"
-        required
-      />
+      {#if flow.oauthProvider === null}
+        <label for="account-password">{m.add_password()}</label>
+        <input
+          id="account-password"
+          class="input"
+          type="password"
+          bind:value={flow.password}
+          autocomplete="current-password"
+          required
+        />
+      {/if}
       <label for="account-name">{m.add_display_name()}</label>
       <input id="account-name" class="input" bind:value={flow.displayName} autocomplete="name" />
-      {#if flow.secretsBackend === "system_keyring"}
+      {#if flow.oauthProvider !== null}
+        <p class="hint">{m.add_oauth_hint_microsoft()}</p>
+      {:else if flow.secretsBackend === "system_keyring"}
         <p class="hint">
           {m.add_password_hint()}
         </p>
@@ -114,7 +119,11 @@
             flow.step = "manual";
           }}>{m.add_manual()}</button
         >
-        <button class="btn btn-primary" type="submit">{m.common_continue()}</button>
+        {#if flow.oauthProvider !== null}
+          <button class="btn btn-primary" type="submit">{m.add_oauth_sign_in_microsoft()}</button>
+        {:else}
+          <button class="btn btn-primary" type="submit">{m.common_continue()}</button>
+        {/if}
       </div>
     </form>
   {:else if flow.step === "discovering" || flow.step === "testing"}
@@ -133,6 +142,11 @@
             </li>
           {/each}
         </ul>
+      {:else if flow.waitingForBrowser}
+        <p>
+          <LoaderIcon size={14} class="spin" aria-hidden="true" />
+          {m.add_oauth_waiting_microsoft()}
+        </p>
       {:else}
         <p>
           <LoaderIcon size={14} class="spin" aria-hidden="true" />

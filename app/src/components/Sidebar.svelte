@@ -213,17 +213,6 @@
                 <WifiOffIcon size={14} aria-label={m.common_offline()} />
               </span>
             {/if}
-            {#if reauth[account.id]}
-              <button
-                class="btn reconnect"
-                type="button"
-                title={m.sidebar_reauth_required({ address: account.address })}
-                onclick={() => void registry.execute("account.reconnect", onAccount(account.id))}
-              >
-                <LogInIcon size={14} aria-hidden="true" />
-                {m.sidebar_reconnect()}
-              </button>
-            {/if}
             <CommandMenu
               actions={account.oauth_provider === null
                 ? accountActions.filter((a) => a.command !== "account.reconnect")
@@ -247,6 +236,20 @@
               {/snippet}
             </CommandMenu>
           </div>
+          {#if reauth[account.id]}
+            <div class="reauth" role="status">
+              <span>{m.sidebar_reauth_hint()}</span>
+              <button
+                class="btn reconnect"
+                type="button"
+                title={m.sidebar_reauth_required({ address: account.address })}
+                onclick={() => void registry.execute("account.reconnect", onAccount(account.id))}
+              >
+                <LogInIcon size={14} aria-hidden="true" />
+                {m.sidebar_reconnect()}
+              </button>
+            </div>
+          {/if}
           <ul class="folders" aria-label={m.sidebar_folders_of({ address: account.address })}>
             {#each folders[account.id] ?? [] as f (f.id)}
               {@const Icon = icon(f.role)}
@@ -437,11 +440,23 @@
     font-size: var(--font-size-sm);
   }
 
+  .reauth {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2);
+    margin: 0 var(--space-2) var(--space-2);
+    padding: var(--space-2);
+    border-radius: var(--radius);
+    background: var(--color-warning-bg);
+    color: var(--color-warning);
+    font-size: var(--font-size-sm);
+  }
+
   .reconnect {
     padding: var(--space-1) var(--space-2);
     font-size: var(--font-size-sm);
     gap: var(--space-1);
-    white-space: nowrap;
   }
 
   .offline {

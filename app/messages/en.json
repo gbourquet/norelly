@@ -723,5 +723,6 @@
   "cmd_account_reconnect_keywords": "reconnect sign in microsoft outlook expired token",
   "sidebar_reconnect": "Sign in again",
   "sidebar_reauth_required": "Sign-in required: {address}",
-  "notice_reconnected": "Account reconnected."
+  "notice_reconnected": "Account reconnected.",
+  "sidebar_reauth_hint": "Sign-in required"
 }

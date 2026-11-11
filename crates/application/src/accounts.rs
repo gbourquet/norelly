@@ -287,6 +287,10 @@ pub async fn trust_certificate<E: CertificateExceptionStore>(
         .map_err(|e| TrustCertificateError::Storage(e.to_string()))
 }
 
+/// Jeton provisoire d'un compte OAuth, remplacé avant toute connexion par
+/// [`crate::oauth::FreshTokens`] (refusé par le serveur sinon).
+pub const UNFETCHED_TOKEN: &str = "unfetched";
+
 /// Accès impossible aux paramètres de connexion d'un compte.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum ConnectRequestError {
@@ -310,13 +314,26 @@ pub async fn connect_request<K: SecretStore, E: CertificateExceptionStore>(
     exceptions: &E,
 ) -> Result<ConnectRequest, ConnectRequestError> {
     let server = account.server(protocol);
-    let secret = secrets
-        .get(&account.secret_key(protocol))
-        .await
-        .map_err(|e| ConnectRequestError::Secrets(e.to_string()))?
-        .ok_or(ConnectRequestError::MissingSecret)?;
-    let credentials = Credentials::new(server.username.clone(), secret)
-        .map_err(|e| ConnectRequestError::Credentials(e.to_string()))?;
+    let credentials = match account.oauth_provider() {
+        // Compte OAuth : le jeton d'accès est placé avant chaque connexion
+        // par [`crate::oauth::FreshTokens`], à partir du jeton de
+        // rafraîchissement rangé sous la clé IMAP du compte.
+        Some(provider) => Credentials::oauth2(
+            server.username.clone(),
+            Secret::new(UNFETCHED_TOKEN.to_owned()),
+            provider,
+        )
+        .map(|c| c.with_refresh_key(account.secret_key(Protocol::Imap))),
+        None => {
+            let secret = secrets
+                .get(&account.secret_key(protocol))
+                .await
+                .map_err(|e| ConnectRequestError::Secrets(e.to_string()))?
+                .ok_or(ConnectRequestError::MissingSecret)?;
+            Credentials::new(server.username.clone(), secret)
+        }
+    }
+    .map_err(|e| ConnectRequestError::Credentials(e.to_string()))?;
     let certificate_exceptions = exceptions
         .exceptions_for(server.endpoint.host())
         .await

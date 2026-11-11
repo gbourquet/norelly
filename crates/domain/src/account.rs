@@ -9,6 +9,7 @@ use std::fmt;
 use crate::address::EmailAddress;
 use crate::credentials::Username;
 use crate::endpoint::{Protocol, Security, ServerEndpoint};
+use crate::oauth::OAuthProvider;
 use crate::ports::SecretKey;
 use crate::security::{PlaintextConsent, PlaintextPolicy};
 
@@ -123,6 +124,7 @@ pub struct AccountDraft {
     address: EmailAddress,
     imap: ServerSettings,
     smtp: ServerSettings,
+    oauth: Option<OAuthProvider>,
 }
 
 impl AccountDraft {
@@ -151,6 +153,7 @@ impl AccountDraft {
             address,
             imap,
             smtp,
+            oauth: None,
         })
     }
 
@@ -164,6 +167,22 @@ impl AccountDraft {
     ) -> Result<Self, AccountError> {
         let consents = plaintext_policy_for([&imap, &smtp]);
         Self::new(display_name, address, imap, smtp, &consents)
+    }
+
+    /// Compte connecté par OAuth chez `provider` (jeton au lieu du mot de
+    /// passe).
+    #[must_use]
+    pub fn with_oauth(self, provider: OAuthProvider) -> Self {
+        Self {
+            oauth: Some(provider),
+            ..self
+        }
+    }
+
+    /// Fournisseur OAuth du compte, `None` pour un compte à mot de passe.
+    #[must_use]
+    pub fn oauth_provider(&self) -> Option<OAuthProvider> {
+        self.oauth
     }
 
     #[must_use]

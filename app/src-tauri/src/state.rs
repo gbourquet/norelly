@@ -34,23 +34,32 @@ use crate::remote_images::RemoteImageProxy;
 /// deux (un trousseau installé après coup ne fait pas perdre les secrets
 /// du fichier).
 #[derive(Debug)]
-pub struct AppSecretStore {
-    system: Result<SystemSecretStore, SecretStoreError>,
+pub struct AppSecretStore<S> {
+    system: Result<S, SecretStoreError>,
     file: FileSecretStore,
 }
 
-impl AppSecretStore {
+impl<S: SecretStore> AppSecretStore<S> {
     #[must_use]
-    pub fn new(system: Result<SystemSecretStore, SecretStoreError>, file: FileSecretStore) -> Self {
+    pub fn new(system: Result<S, SecretStoreError>, file: FileSecretStore) -> Self {
         Self { system, file }
     }
 
     /// Vrai si un secret peut être enregistré sans demander de
     /// consentement : trousseau joignable, ou fichier déjà consenti.
     pub async fn usable(&self) -> bool {
-        if self.file.consented() {
-            return true;
-        }
+        self.file.consented() || self.system_reachable().await
+    }
+
+    /// Vrai si c'est le trousseau du système, et non le fichier de
+    /// repli, qui enregistrera les nouveaux secrets : seule réponse qui
+    /// autorise l'interface à annoncer la garantie du trousseau.
+    pub async fn stores_in_system_keyring(&self) -> bool {
+        self.system_reachable().await
+    }
+
+    /// Sonde le trousseau du système : ouvert, et joignable ?
+    async fn system_reachable(&self) -> bool {
         let Ok(system) = &self.system else {
             return false;
         };
@@ -75,7 +84,7 @@ impl AppSecretStore {
     }
 }
 
-impl SecretStore for AppSecretStore {
+impl<S: SecretStore> SecretStore for AppSecretStore<S> {
     async fn get(&self, key: &SecretKey) -> Result<Option<Secret>, SecretStoreError> {
         let system = match &self.system {
             Ok(s) => s.get(key).await,
@@ -177,10 +186,10 @@ pub struct AppState {
     /// Carnet d'adresses, commun à tous les comptes (ADR-012).
     pub contacts: SqliteContactBook,
     pub imports: ContactImports,
-    pub secrets: AppSecretStore,
     pub local_data: FsAccountDataStore,
     pub test: AppTestConnection,
     pub discover: AppDiscoverSettings,
+    pub secrets: AppSecretStore<SystemSecretStore>,
     /// Certificats refusés lors des derniers tests de connexion : seuls
     /// ceux-là peuvent faire l'objet d'une exception (l'interface ne peut
     /// pas faire accepter une empreinte arbitraire).
@@ -341,6 +350,7 @@ impl AppState {
 #[cfg(test)]
 mod tests {
     use norelly_domain::security::{CertificateFingerprint, CertificateIssue};
+    use norelly_keyring::InMemorySecretStore;
 
     use super::*;
 
@@ -386,7 +396,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("norelly-secrets-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let _ = std::fs::create_dir_all(&dir);
-        let store = AppSecretStore::new(
+        let store: AppSecretStore<SystemSecretStore> = AppSecretStore::new(
             Err(SecretStoreError::Unavailable("pas de trousseau".into())),
             FileSecretStore::new(dir.join("mots-de-passe.json")),
         );
@@ -412,6 +422,35 @@ mod tests {
         );
         assert!(store.delete(&key).await.is_ok());
         assert!(store.get(&key).await.ok().flatten().is_none());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn the_keyring_guarantee_is_true_only_when_the_keyring_answers() {
+        let dir = std::env::temp_dir().join(format!(
+            "norelly-secrets-guarantee-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::create_dir_all(&dir);
+        let file = || FileSecretStore::new(dir.join("mots-de-passe.json"));
+
+        // Sans trousseau : les nouveaux secrets iraient dans le fichier,
+        // la garantie du trousseau serait fausse.
+        let without: AppSecretStore<SystemSecretStore> = AppSecretStore::new(
+            Err(SecretStoreError::Unavailable("pas de trousseau".into())),
+            file(),
+        );
+        assert!(!without.stores_in_system_keyring().await);
+
+        // Trousseau qui répond : c'est lui qui garde les nouveaux secrets.
+        let with = AppSecretStore::new(Ok(InMemorySecretStore::default()), file());
+        assert!(with.stores_in_system_keyring().await);
+        // Et le fichier déjà consenti ne change pas cette réponse.
+        assert!(with.consent_to_file().is_ok());
+        assert!(with.stores_in_system_keyring().await);
+
         let _ = std::fs::remove_dir_all(&dir);
     }
 

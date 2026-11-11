@@ -62,6 +62,7 @@ function fakeApi(discovery: Discovery, results: AddAccountResult[]) {
     trustCertificate: vi.fn(async () => undefined),
     removeAccount: vi.fn(async () => undefined),
     allowFileSecrets: vi.fn(async () => undefined),
+    secretsBackend: vi.fn(async () => "system_keyring" as const),
     openExternal: vi.fn(async () => undefined),
   };
   return { api, calls };
@@ -330,5 +331,22 @@ describe("serveurs DNS hors domaine", () => {
     await f.submit();
     expect(f.step).toBe("manual");
     expect(f.pendingConfirmations).toEqual(["imap.example.com"]);
+  });
+
+  it("demande à Rust où sera conservé le mot de passe", async () => {
+    const { api } = fakeApi(found, []);
+    vi.mocked(api.secretsBackend).mockResolvedValue("file");
+    const f = flow(api);
+    await f.loadSecretsBackend();
+    expect(api.secretsBackend).toHaveBeenCalled();
+    expect(f.secretsBackend).toBe("file");
+  });
+
+  it("sans réponse de Rust, aucune garantie n'est affichée", async () => {
+    const { api } = fakeApi(found, []);
+    vi.mocked(api.secretsBackend).mockRejectedValue(new Error("ipc"));
+    const f = flow(api);
+    await f.loadSecretsBackend();
+    expect(f.secretsBackend).toBeNull();
   });
 });

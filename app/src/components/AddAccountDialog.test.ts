@@ -40,6 +40,7 @@ function fakeApi(results: AddAccountResult[]): AccountApi {
     trustCertificate: vi.fn(async () => undefined),
     removeAccount: vi.fn(),
     allowFileSecrets: vi.fn(async () => undefined),
+    secretsBackend: vi.fn(async () => "system_keyring" as const),
     openExternal: vi.fn(async () => undefined),
   };
 }
@@ -110,5 +111,19 @@ describe("fenêtre d'ajout de compte", () => {
     expect((document.querySelector("#account-password") as HTMLInputElement).value).toBe("");
     await fireEvent.click(screen.getByRole("button", { name: "Ouvrir la page Google" }));
     expect(api.openExternal).toHaveBeenCalledWith("https://myaccount.google.com/apppasswords");
+  });
+
+  it("fichier non chiffré : la garantie du trousseau n'est pas affichée", async () => {
+    const api = fakeApi([]);
+    vi.mocked(api.secretsBackend).mockResolvedValue("file");
+    render(AddAccountDialog, { open: true, api, onClose: vi.fn(), onAdded: vi.fn() });
+    await waitFor(() => expect(api.secretsBackend).toHaveBeenCalled());
+    expect(screen.queryByText(/jamais dans les fichiers de Norelly/)).toBeNull();
+  });
+
+  it("trousseau du système : la garantie du trousseau est affichée", async () => {
+    const api = fakeApi([]);
+    render(AddAccountDialog, { open: true, api, onClose: vi.fn(), onAdded: vi.fn() });
+    expect(await screen.findByText(/jamais dans les fichiers de Norelly/)).toBeInTheDocument();
   });
 });

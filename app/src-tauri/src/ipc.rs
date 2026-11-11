@@ -615,6 +615,20 @@ fn auth_detail(a: &AuthError) -> Option<String> {
     }
 }
 
+/// Où les mots de passe seront conservés : le trousseau du système, ou le
+/// fichier non chiffré accepté par l'utilisateur à défaut de trousseau.
+/// Décidé par Rust : l'interface n'annonce la garantie du trousseau que
+/// sur cette réponse.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum SecretsBackendDto {
+    /// Trousseau du système (Gestionnaire d'identification, Secret
+    /// Service…).
+    SystemKeyring,
+    /// Fichier non chiffré, lisible par le seul utilisateur.
+    File,
+}
+
 /// Résultat d'un ajout de compte.
 #[derive(Debug, Clone, Serialize, Type)]
 #[serde(tag = "kind", rename_all = "snake_case")]

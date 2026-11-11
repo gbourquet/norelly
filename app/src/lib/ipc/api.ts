@@ -58,6 +58,7 @@ import {
   type ExpandedListDto,
   type RecipientFieldDto,
   type CorrespondentDto_Serialize,
+  type SecretsBackendDto,
 } from "./bindings";
 import { IpcFailure } from "../errors";
 
@@ -70,6 +71,7 @@ export type {
   ContactImportPreviewDto,
   DuplicatePolicyDto,
   ImportRejectReasonDto,
+  SecretsBackendDto,
   ContactListCursorDto,
   ContactListFieldsDto,
   ContactListItemDto,
@@ -178,6 +180,10 @@ export const api = {
     unwrap(commands.removeAccount(id)).then(() => undefined),
 
   allowFileSecrets: (): Promise<void> => unwrap(commands.allowFileSecrets()).then(() => undefined),
+
+  /** Où Rust conservera les mots de passe : décide de la garantie
+   *  affichée à l'ajout d'un compte. */
+  secretsBackend: (): Promise<SecretsBackendDto> => unwrap(commands.secretsBackend()),
 
   listFolders: (account: number): Promise<FolderDto[]> => unwrap(commands.listFolders(account)),
 
@@ -437,5 +443,6 @@ export type AccountApi = Pick<
   | "trustCertificate"
   | "removeAccount"
   | "allowFileSecrets"
+  | "secretsBackend"
   | "openExternal"
 >;

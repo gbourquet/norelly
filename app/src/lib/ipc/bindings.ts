@@ -27,6 +27,12 @@ export const commands = {
 	 *  chiffré, lisible par l'utilisateur seul, faute de trousseau du système.
 	 */
 	allowFileSecrets: () => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("allow_file_secrets")),
+	/**
+	 *  Où les mots de passe seront conservés. Décidé ici, pas deviné par
+	 *  l'interface : elle n'annonce le trousseau du système que s'il est
+	 *  vraiment utilisé (sinon la garantie serait fausse avec le fichier).
+	 */
+	secretsBackend: () => typedError<SecretsBackendDto, IpcError_Serialize>(__TAURI_INVOKE("secrets_backend")),
 	/**  Supprime un compte, ses mots de passe et ses données locales. */
 	removeAccount: (id: number) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("remove_account", { id })),
 	/**  Dossiers d'un compte. */
@@ -1330,6 +1336,21 @@ export type SearchPageDto_Serialize = {
 
 /**  Où chercher. */
 export type SearchScopeDto = { kind: "all" } | { kind: "account"; id: number } | { kind: "mailbox"; id: number };
+
+/**
+ *  Où les mots de passe seront conservés : le trousseau du système, ou le
+ *  fichier non chiffré accepté par l'utilisateur à défaut de trousseau.
+ *  Décidé par Rust : l'interface n'annonce la garantie du trousseau que
+ *  sur cette réponse.
+ */
+export type SecretsBackendDto = 
+/**
+ *  Trousseau du système (Gestionnaire d'identification, Secret
+ *  Service…).
+ */
+"system_keyring" | 
+/**  Fichier non chiffré, lisible par le seul utilisateur. */
+"file";
 
 export type SecurityDto = "tls" | "starttls" | "plain";
 

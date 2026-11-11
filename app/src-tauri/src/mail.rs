@@ -26,6 +26,7 @@ use norelly_domain::ports::ConnectRequest;
 use norelly_domain::ports::{FetchedBody, MessageId, RemoteBodyFetcher, SettingsStore};
 use norelly_domain::reading::RemoteContent;
 use norelly_imap::ImapConnector;
+use norelly_keyring::SystemSecretStore;
 use norelly_render::compose::MimeComposer;
 use norelly_render::{PartContent, Protocols, RenderNotice, RenderRequest, Rendered, Source};
 use norelly_smtp::SmtpSender;
@@ -129,7 +130,7 @@ impl MailServices {
         &self,
         app: &AppHandle<R>,
         account: &Account,
-        secrets: &AppSecretStore,
+        secrets: &AppSecretStore<SystemSecretStore>,
         exceptions: &SqliteCertificateExceptionStore,
     ) -> Result<(), String> {
         let mut actors = self.actors.lock().await;
@@ -199,7 +200,7 @@ impl MailServices {
         app: &AppHandle<R>,
         account: &Account,
         imap: ConnectRequest,
-        secrets: &AppSecretStore,
+        secrets: &AppSecretStore<SystemSecretStore>,
         exceptions: &SqliteCertificateExceptionStore,
     ) -> Result<(), String> {
         let mut workers = self.workers.lock().await;

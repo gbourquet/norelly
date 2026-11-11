@@ -78,7 +78,9 @@ acceptés) sont supprimées. **Rien n'est supprimé sur le serveur.**
   journaux.
 - **Sans trousseau** : les mots de passe peuvent être gardés dans un fichier
   non chiffré, lisible par le seul utilisateur, et seulement après son
-  consentement. Le trousseau reste prioritaire.
+  consentement. Le trousseau reste prioritaire. Dans ce cas, la mention
+  « conservé dans le trousseau du système » n'apparaît pas à l'ajout :
+  l'écran n'annonce que des garanties vraies.
 
 ## Cas limites
 

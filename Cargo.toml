@@ -36,6 +36,7 @@ norelly-sqlite = { path = "crates/adapters/sqlite" }
 norelly-blobs = { path = "crates/adapters/blobs" }
 norelly-render = { path = "crates/adapters/render" }
 norelly-contacts-io = { path = "crates/adapters/contacts-io" }
+norelly-oauth = { path = "crates/adapters/oauth" }
 # Infra
 tokio = { version = "1.54", features = ["rt-multi-thread", "macros", "net", "io-util", "time", "sync"] }
 testcontainers = "0.28"

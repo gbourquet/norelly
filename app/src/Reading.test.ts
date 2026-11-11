@@ -8,6 +8,7 @@ const account: AccountDto = {
   display_name: "Alice",
   imap: { host: "imap.example.com", port: 993, security: "tls", username: "alice" },
   smtp: { host: "smtp.example.com", port: 465, security: "tls", username: "alice" },
+  oauth_provider: null,
 };
 
 function conversation(id: number): ConversationDto {

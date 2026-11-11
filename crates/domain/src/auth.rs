@@ -1,12 +1,13 @@
 //! Authentification : choix de la méthode selon les capacités et
-//! mécanismes SASL (PLAIN, LOGIN ; XOAUTH2 prévu mais non pris en charge).
+//! mécanismes SASL (PLAIN, LOGIN, XOAUTH2).
 
 use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
 use crate::capabilities::ServerCapabilities;
-use crate::credentials::{Credentials, SecretBytes};
+use crate::credentials::{CredentialKind, Credentials, SecretBytes};
+use crate::oauth::xoauth2_initial_response;
 use crate::ports::Authenticator;
 
 /// Nombre maximal d'échanges défi/réponse acceptés dans un échange SASL.
@@ -75,6 +76,13 @@ pub enum AuthError {
     UnexpectedChallenge { step: usize },
     #[error("identifiants refusés par le serveur : {message}")]
     Rejected { message: String },
+    /// Jeton OAuth destiné à un serveur qui n'est pas celui du fournisseur,
+    /// ou à une connexion en clair : il n'est pas envoyé.
+    #[error("jeton refusé pour {host} (serveur hors du fournisseur ou connexion en clair)")]
+    TokenDestinationRefused { host: String },
+    /// Compte OAuth dont le jeton ne peut plus être rafraîchi.
+    #[error("reconnexion nécessaire")]
+    ReauthRequired,
 }
 
 /// Choisit la méthode d'authentification IMAP.
@@ -82,7 +90,14 @@ pub enum AuthError {
 /// Ordre : `AUTHENTICATE PLAIN` si annoncé ; sinon `LOGIN` sauf
 /// `LOGINDISABLED` ; sinon `AUTHENTICATE LOGIN` si annoncé. XOAUTH2 seul
 /// donne [`AuthError::Unsupported`].
-pub fn select_imap_auth_method(caps: &ServerCapabilities) -> Result<AuthMethod, AuthError> {
+/// Avec un jeton OAuth, seul `AUTHENTICATE XOAUTH2` convient.
+pub fn select_imap_auth_method(
+    caps: &ServerCapabilities,
+    kind: CredentialKind,
+) -> Result<AuthMethod, AuthError> {
+    if kind == CredentialKind::OAuth2 {
+        return xoauth2_offered(caps).map(AuthMethod::Sasl);
+    }
     if caps.supports_auth(&AuthMechanism::Plain) {
         return Ok(AuthMethod::Sasl(AuthMechanism::Plain));
     }
@@ -99,7 +114,14 @@ pub fn select_imap_auth_method(caps: &ServerCapabilities) -> Result<AuthMethod, 
 }
 
 /// Choisit le mécanisme SMTP : PLAIN, puis LOGIN.
-pub fn select_smtp_auth_mechanism(caps: &ServerCapabilities) -> Result<AuthMechanism, AuthError> {
+/// Avec un jeton OAuth, seul XOAUTH2 convient.
+pub fn select_smtp_auth_mechanism(
+    caps: &ServerCapabilities,
+    kind: CredentialKind,
+) -> Result<AuthMechanism, AuthError> {
+    if kind == CredentialKind::OAuth2 {
+        return xoauth2_offered(caps);
+    }
     for mechanism in [AuthMechanism::Plain, AuthMechanism::Login] {
         if caps.supports_auth(&mechanism) {
             return Ok(mechanism);
@@ -111,6 +133,16 @@ pub fn select_smtp_auth_mechanism(caps: &ServerCapabilities) -> Result<AuthMecha
     Err(AuthError::NoSupportedMechanism {
         offered: caps.auth_mechanisms().map(|m| m.to_string()).collect(),
     })
+}
+
+fn xoauth2_offered(caps: &ServerCapabilities) -> Result<AuthMechanism, AuthError> {
+    if caps.supports_auth(&AuthMechanism::XOAuth2) {
+        Ok(AuthMechanism::XOAuth2)
+    } else {
+        Err(AuthError::NoSupportedMechanism {
+            offered: caps.auth_mechanisms().map(|m| m.to_string()).collect(),
+        })
+    }
 }
 
 /// SASL PLAIN (RFC 4616) : une seule réponse `\0utilisateur\0secret`.
@@ -177,7 +209,9 @@ impl Authenticator for LoginAuthenticator {
     }
 }
 
-/// XOAUTH2 : prévu (comptes Google, Microsoft), pas encore pris en charge.
+/// XOAUTH2 (comptes Microsoft) : réponse initiale avec le jeton d'accès ;
+/// un défi ensuite porte l'erreur du serveur (JSON), à laquelle on répond
+/// par une réponse vide pour obtenir le refus final.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct XOAuth2Authenticator;
 
@@ -190,8 +224,23 @@ impl Authenticator for XOAuth2Authenticator {
         true
     }
 
-    fn respond(&self, _: &Credentials, _: usize, _: &[u8]) -> Result<SecretBytes, AuthError> {
-        Err(AuthError::Unsupported(AuthMechanism::XOAuth2))
+    fn respond(
+        &self,
+        credentials: &Credentials,
+        step: usize,
+        _challenge: &[u8],
+    ) -> Result<SecretBytes, AuthError> {
+        if credentials.kind() != CredentialKind::OAuth2 {
+            return Err(AuthError::Unsupported(AuthMechanism::XOAuth2));
+        }
+        match step {
+            0 => Ok(xoauth2_initial_response(
+                credentials.username().as_str(),
+                credentials.secret(),
+            )),
+            1 => Ok(SecretBytes::default()),
+            _ => Err(AuthError::UnexpectedChallenge { step }),
+        }
     }
 }
 
@@ -200,9 +249,8 @@ pub fn authenticator_for(mechanism: &AuthMechanism) -> Result<Box<dyn Authentica
     match mechanism {
         AuthMechanism::Plain => Ok(Box::new(PlainAuthenticator)),
         AuthMechanism::Login => Ok(Box::new(LoginAuthenticator)),
-        AuthMechanism::XOAuth2 | AuthMechanism::Other(_) => {
-            Err(AuthError::Unsupported(mechanism.clone()))
-        }
+        AuthMechanism::XOAuth2 => Ok(Box::new(XOAuth2Authenticator)),
+        AuthMechanism::Other(_) => Err(AuthError::Unsupported(mechanism.clone())),
     }
 }
 
@@ -221,6 +269,29 @@ mod tests {
         c
     }
 
+    fn select_imap_auth_method_pw(caps: &ServerCapabilities) -> Result<AuthMethod, AuthError> {
+        select_imap_auth_method(caps, CredentialKind::Password)
+    }
+
+    fn select_smtp_auth_mechanism_pw(
+        caps: &ServerCapabilities,
+    ) -> Result<AuthMechanism, AuthError> {
+        select_smtp_auth_mechanism(caps, CredentialKind::Password)
+    }
+
+    fn oauth_creds() -> Credentials {
+        let (Ok(u), t) = (
+            Username::parse("alice@outlook.com"),
+            Secret::new("tok".to_owned()),
+        ) else {
+            panic!("utilisateur valide refusé");
+        };
+        let Ok(c) = Credentials::oauth2(u, t, crate::oauth::OAuthProvider::Microsoft) else {
+            panic!("jeton valide refusé");
+        };
+        c
+    }
+
     fn imap(tokens: &[&str]) -> ServerCapabilities {
         ServerCapabilities::from_imap(tokens)
     }
@@ -228,7 +299,7 @@ mod tests {
     #[test]
     fn imap_prefers_authenticate_plain() {
         assert_eq!(
-            select_imap_auth_method(&imap(&["IMAP4rev1", "AUTH=PLAIN", "AUTH=LOGIN"])),
+            select_imap_auth_method_pw(&imap(&["IMAP4rev1", "AUTH=PLAIN", "AUTH=LOGIN"])),
             Ok(AuthMethod::Sasl(AuthMechanism::Plain))
         );
     }
@@ -236,7 +307,7 @@ mod tests {
     #[test]
     fn imap_falls_back_to_login_command() {
         assert_eq!(
-            select_imap_auth_method(&imap(&["IMAP4rev1"])),
+            select_imap_auth_method_pw(&imap(&["IMAP4rev1"])),
             Ok(AuthMethod::ImapLogin)
         );
     }
@@ -244,15 +315,15 @@ mod tests {
     #[test]
     fn imap_respects_logindisabled() {
         assert_eq!(
-            select_imap_auth_method(&imap(&["IMAP4rev1", "LOGINDISABLED"])),
+            select_imap_auth_method_pw(&imap(&["IMAP4rev1", "LOGINDISABLED"])),
             Err(AuthError::LoginDisabled)
         );
         assert_eq!(
-            select_imap_auth_method(&imap(&["LOGINDISABLED", "AUTH=LOGIN"])),
+            select_imap_auth_method_pw(&imap(&["LOGINDISABLED", "AUTH=LOGIN"])),
             Ok(AuthMethod::Sasl(AuthMechanism::Login))
         );
         assert_eq!(
-            select_imap_auth_method(&imap(&["LOGINDISABLED", "AUTH=XOAUTH2"])),
+            select_imap_auth_method_pw(&imap(&["LOGINDISABLED", "AUTH=XOAUTH2"])),
             Err(AuthError::Unsupported(AuthMechanism::XOAuth2))
         );
     }
@@ -261,25 +332,25 @@ mod tests {
     fn smtp_selection() {
         let smtp = |l: &[&str]| ServerCapabilities::from_smtp_ehlo(l);
         assert_eq!(
-            select_smtp_auth_mechanism(&smtp(&["AUTH LOGIN PLAIN"])),
+            select_smtp_auth_mechanism_pw(&smtp(&["AUTH LOGIN PLAIN"])),
             Ok(AuthMechanism::Plain)
         );
         assert_eq!(
-            select_smtp_auth_mechanism(&smtp(&["AUTH LOGIN"])),
+            select_smtp_auth_mechanism_pw(&smtp(&["AUTH LOGIN"])),
             Ok(AuthMechanism::Login)
         );
         assert_eq!(
-            select_smtp_auth_mechanism(&smtp(&["AUTH XOAUTH2"])),
+            select_smtp_auth_mechanism_pw(&smtp(&["AUTH XOAUTH2"])),
             Err(AuthError::Unsupported(AuthMechanism::XOAuth2))
         );
         assert_eq!(
-            select_smtp_auth_mechanism(&smtp(&["AUTH CRAM-MD5"])),
+            select_smtp_auth_mechanism_pw(&smtp(&["AUTH CRAM-MD5"])),
             Err(AuthError::NoSupportedMechanism {
                 offered: vec!["CRAM-MD5".to_owned()]
             })
         );
         assert_eq!(
-            select_smtp_auth_mechanism(&smtp(&["PIPELINING"])),
+            select_smtp_auth_mechanism_pw(&smtp(&["PIPELINING"])),
             Err(AuthError::NoSupportedMechanism { offered: vec![] })
         );
     }
@@ -316,20 +387,54 @@ mod tests {
     }
 
     #[test]
-    fn xoauth2_is_unsupported() {
+    fn oauth_credentials_require_xoauth2() {
+        let kind = oauth_creds().kind();
+        assert_eq!(kind, CredentialKind::OAuth2);
         assert_eq!(
-            XOAuth2Authenticator.respond(&creds(), 0, b""),
-            Err(AuthError::Unsupported(AuthMechanism::XOAuth2))
+            select_imap_auth_method(&imap(&["IMAP4rev1", "AUTH=PLAIN", "AUTH=XOAUTH2"]), kind),
+            Ok(AuthMethod::Sasl(AuthMechanism::XOAuth2))
         );
-        assert!(matches!(
-            authenticator_for(&AuthMechanism::XOAuth2),
-            Err(AuthError::Unsupported(AuthMechanism::XOAuth2))
-        ));
-        assert!(authenticator_for(&AuthMechanism::Other("CRAM-MD5".into())).is_err());
+        assert_eq!(
+            select_imap_auth_method(&imap(&["IMAP4rev1", "AUTH=PLAIN"]), kind),
+            Err(AuthError::NoSupportedMechanism {
+                offered: vec!["PLAIN".to_owned()]
+            })
+        );
+        let smtp = |l: &[&str]| ServerCapabilities::from_smtp_ehlo(l);
+        assert_eq!(
+            select_smtp_auth_mechanism(&smtp(&["AUTH LOGIN XOAUTH2"]), kind),
+            Ok(AuthMechanism::XOAuth2)
+        );
+        assert!(select_smtp_auth_mechanism(&smtp(&["AUTH LOGIN"]), kind).is_err());
+    }
+
+    #[test]
+    fn xoauth2_answers_with_bearer_then_empty() {
+        let a = XOAuth2Authenticator;
+        assert_eq!(
+            a.respond(&oauth_creds(), 0, b"")
+                .map(|s| s.expose().to_vec()),
+            Ok(b"user=alice@outlook.com\x01auth=Bearer tok\x01\x01".to_vec())
+        );
+        assert_eq!(
+            a.respond(&oauth_creds(), 1, b"{\"status\":\"401\"}")
+                .map(|s| s.expose().to_vec()),
+            Ok(Vec::new())
+        );
+        assert_eq!(
+            a.respond(&oauth_creds(), 2, b""),
+            Err(AuthError::UnexpectedChallenge { step: 2 })
+        );
+        assert_eq!(
+            a.respond(&creds(), 0, b""),
+            Err(AuthError::Unsupported(AuthMechanism::XOAuth2)),
+            "un mot de passe n'est jamais envoyé comme jeton"
+        );
         assert!(
-            authenticator_for(&AuthMechanism::Login)
-                .is_ok_and(|a| a.mechanism() == AuthMechanism::Login)
+            authenticator_for(&AuthMechanism::XOAuth2)
+                .is_ok_and(|a| a.mechanism() == AuthMechanism::XOAuth2)
         );
+        assert!(authenticator_for(&AuthMechanism::Other("CRAM-MD5".into())).is_err());
     }
 
     #[test]

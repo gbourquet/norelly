@@ -25,11 +25,9 @@ use norelly_domain::mailbox::{MailboxName, Uid};
 use norelly_domain::ports::ConnectRequest;
 use norelly_domain::ports::{FetchedBody, MessageId, RemoteBodyFetcher, SettingsStore};
 use norelly_domain::reading::RemoteContent;
-use norelly_imap::ImapConnector;
 use norelly_keyring::SystemSecretStore;
 use norelly_render::compose::MimeComposer;
 use norelly_render::{PartContent, Protocols, RenderNotice, RenderRequest, Rendered, Source};
-use norelly_smtp::SmtpSender;
 use norelly_sqlite::compose::SqliteComposeStore;
 use norelly_sqlite::mail::SqliteMailStore;
 use norelly_sqlite::preferences::{SqliteReadingPreferences, SqliteSettingsStore};
@@ -79,8 +77,8 @@ pub struct MailServices {
     pub proxy: Option<RemoteImageProxy>,
     /// Dossier privé des pièces jointes ouvertes.
     pub open_dir: PathBuf,
-    imap: Arc<ImapConnector>,
-    smtp: Arc<SmtpSender>,
+    imap: Arc<crate::state::AppImap>,
+    smtp: Arc<crate::state::AppSmtp>,
     /// Brouillons et file d'envoi.
     pub compose: Arc<SqliteComposeStore>,
     composer: Arc<MimeComposer>,
@@ -99,8 +97,8 @@ impl MailServices {
     pub fn new(
         db: &Database,
         blobs: FsBlobStore,
-        imap: ImapConnector,
-        smtp: SmtpSender,
+        imap: crate::state::AppImap,
+        smtp: crate::state::AppSmtp,
         proxy: Option<RemoteImageProxy>,
         open_dir: PathBuf,
     ) -> Self {

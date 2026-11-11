@@ -29,6 +29,7 @@ use norelly_domain::account::{Account, AccountDraft, AccountId, DisplayName, Ser
 use norelly_domain::address::EmailAddress;
 use norelly_domain::credentials::Username;
 use norelly_domain::endpoint::{Host, Protocol, Security, ServerEndpoint};
+use norelly_domain::oauth::OAuthProvider;
 use norelly_domain::ports::{
     AccountRepository, AccountStoreError, CertificateExceptionStore, StoreError,
 };
@@ -52,6 +53,7 @@ fn migrations() -> Migrations<'static> {
         M::up(include_str!("../migrations/0010_scheduled_send.sql")),
         M::up(include_str!("../migrations/0011_contacts.sql")),
         M::up(include_str!("../migrations/0012_contact_lists.sql")),
+        M::up(include_str!("../migrations/0013_oauth_accounts.sql")),
     ])
 }
 
@@ -292,7 +294,7 @@ impl SqliteAccountRepository {
 
 const ACCOUNT_COLUMNS: &str = "id, address, display_name, \
      imap_host, imap_port, imap_security, imap_username, \
-     smtp_host, smtp_port, smtp_security, smtp_username";
+     smtp_host, smtp_port, smtp_security, smtp_username, oauth_provider";
 
 /// Ligne brute, validée ensuite par le domaine.
 struct AccountRow {
@@ -300,6 +302,7 @@ struct AccountRow {
     address: String,
     display_name: String,
     servers: [(String, i64, String, String); 2],
+    oauth_provider: Option<String>,
 }
 
 impl AccountRow {
@@ -312,6 +315,7 @@ impl AccountRow {
                 (row.get(3)?, row.get(4)?, row.get(5)?, row.get(6)?),
                 (row.get(7)?, row.get(8)?, row.get(9)?, row.get(10)?),
             ],
+            oauth_provider: row.get(11)?,
         })
     }
 
@@ -342,8 +346,13 @@ impl AccountRow {
         let (Some(smtp), Some(imap)) = (settings.pop(), settings.pop()) else {
             return Err(corrupted("serveurs", &"incomplets"));
         };
-        let draft = AccountDraft::restore(name, address, imap, smtp)
+        let mut draft = AccountDraft::restore(name, address, imap, smtp)
             .map_err(|e| corrupted("compte", &e))?;
+        if let Some(raw) = &self.oauth_provider {
+            let provider = OAuthProvider::parse(raw)
+                .ok_or_else(|| corrupted("fournisseur OAuth", &raw.as_str()))?;
+            draft = draft.with_oauth(provider);
+        }
         Ok(draft.with_id(id))
     }
 }
@@ -408,8 +417,8 @@ impl AccountRepository for SqliteAccountRepository {
                 let inserted = c.execute(
                     "INSERT INTO accounts (address, display_name, \
                      imap_host, imap_port, imap_security, imap_username, \
-                     smtp_host, smtp_port, smtp_security, smtp_username) \
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10) \
+                     smtp_host, smtp_port, smtp_security, smtp_username, oauth_provider) \
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11) \
                      ON CONFLICT (address) DO NOTHING",
                     params![
                         d.address().to_string(),
@@ -422,6 +431,7 @@ impl AccountRepository for SqliteAccountRepository {
                         smtp.endpoint.port(),
                         security_str(smtp.endpoint.security()),
                         smtp.username.as_str(),
+                        d.oauth_provider().map(OAuthProvider::as_str),
                     ],
                 );
                 match inserted.map_err(store_error)? {
@@ -604,6 +614,8 @@ mod tests {
         "INSERT INTO contact_lists (name, name_key, description, bcc) \
          VALUES ('V12', 'v12', NULL, 1); \
          INSERT INTO contact_list_members (list_id, position, contact_id) VALUES (1, 0, 1);",
+        // v13 : fournisseur OAuth d'un compte.
+        "UPDATE accounts SET oauth_provider = 'microsoft' WHERE id = 1;",
     ];
 
     /// Montée de version depuis chaque version précédente, données

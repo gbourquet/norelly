@@ -653,6 +653,7 @@ impl Connection {
         let mechanism = match authenticator.mechanism() {
             AuthMechanism::Plain => ImapMechanism::Plain,
             AuthMechanism::Login => ImapMechanism::Login,
+            AuthMechanism::XOAuth2 => ImapMechanism::XOAuth2,
             other => return Err(AuthError::Unsupported(other).into()),
         };
         let mut step = 0;

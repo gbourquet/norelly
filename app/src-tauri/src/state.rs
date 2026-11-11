@@ -2,22 +2,27 @@
 //! d'usage.
 
 use std::path::Path;
-use std::sync::{Mutex, PoisonError};
+use std::sync::{Arc, Mutex, PoisonError};
 
 use norelly_application::discover_settings::DiscoverSettings;
+use norelly_application::oauth::{FreshTokens, TokenBroker};
 use norelly_application::test_connection::TestConnection;
 use norelly_blobs::{FsAccountDataStore, FsBlobStore};
 use norelly_contacts_io::{ContactsIo, IcuNfc};
 use norelly_discovery::{HickorySrvResolver, HttpAutoconfigClient, TcpPortProber};
+use norelly_domain::address::EmailAddress;
 use norelly_domain::credentials::Secret;
 use norelly_domain::discovery::{SrvRecord, SrvService};
 use norelly_domain::endpoint::Host;
+use norelly_domain::oauth::{OAuthProvider, TokenError};
 use norelly_domain::ports::{
     DiscoveryError, SecretKey, SecretStore, SecretStoreError, SrvResolver,
 };
+use norelly_domain::ports::{OAuthClient, OAuthGrant};
 use norelly_domain::security::CertificateRejection;
 use norelly_imap::ImapConnector;
 use norelly_keyring::{FileSecretStore, SystemSecretStore};
+use norelly_oauth::{BrowserOpener, HttpOAuthClient};
 use norelly_smtp::SmtpSender;
 use norelly_sqlite::contacts::SqliteContactBook;
 use norelly_sqlite::{Database, SqliteAccountRepository, SqliteCertificateExceptionStore};
@@ -170,6 +175,62 @@ impl norelly_domain::ports::AutoconfigClient for AppAutoconfig {
 
 pub type AppTestConnection =
     TestConnection<ImapConnector, SmtpSender, SqliteCertificateExceptionStore>;
+
+/// Navigateur du système (xdg-open, ShellExecute).
+#[derive(Debug, Clone, Copy, Default)]
+pub struct SystemBrowser;
+
+impl BrowserOpener for SystemBrowser {
+    fn open(&self, url: &str) -> Result<(), String> {
+        open::that_detached(url).map_err(|e| e.to_string())
+    }
+}
+
+/// Client OAuth, ou la raison de son absence (TLS indisponible).
+#[derive(Debug)]
+pub enum AppOAuth {
+    Http(HttpOAuthClient<SystemBrowser>),
+    Unavailable(String),
+}
+
+impl OAuthClient for AppOAuth {
+    async fn authorize(
+        &self,
+        provider: OAuthProvider,
+        login_hint: &EmailAddress,
+    ) -> Result<OAuthGrant, TokenError> {
+        match self {
+            Self::Http(c) => c.authorize(provider, login_hint).await,
+            Self::Unavailable(e) => Err(TokenError::Network(e.clone())),
+        }
+    }
+
+    async fn refresh(
+        &self,
+        provider: OAuthProvider,
+        refresh_token: &Secret,
+    ) -> Result<OAuthGrant, TokenError> {
+        match self {
+            Self::Http(c) => c.refresh(provider, refresh_token).await,
+            Self::Unavailable(e) => Err(TokenError::Network(e.clone())),
+        }
+    }
+}
+
+pub type AppSecrets = Arc<AppSecretStore<SystemSecretStore>>;
+pub type AppTokens = TokenBroker<AppOAuth, AppSecrets>;
+/// Connecteurs de la synchronisation et de l'envoi : jeton OAuth renouvelé
+/// avant chaque connexion.
+pub type AppImap = FreshTokens<ImapConnector, AppOAuth, AppSecrets>;
+pub type AppSmtp = FreshTokens<SmtpSender, AppOAuth, AppSecrets>;
+
+/// Horloge murale en secondes depuis 1970.
+fn wall_clock() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
 pub type AppDiscoverSettings = DiscoverSettings<AppAutoconfig, AppSrvResolver, TcpPortProber>;
 
 /// Import et export d'un carnet (ADR-012) : lecture et écriture des
@@ -193,7 +254,9 @@ pub struct AppState {
     pub local_data: FsAccountDataStore,
     pub test: AppTestConnection,
     pub discover: AppDiscoverSettings,
-    pub secrets: AppSecretStore<SystemSecretStore>,
+    pub secrets: AppSecrets,
+    /// Jetons des comptes OAuth.
+    pub tokens: Arc<AppTokens>,
     /// Certificats refusés lors des derniers tests de connexion : seuls
     /// ceux-là peuvent faire l'objet d'une exception (l'interface ne peut
     /// pas faire accepter une empreinte arbitraire).
@@ -244,10 +307,19 @@ impl AppState {
             Ok(r) => AppSrvResolver::System(Box::new(r)),
             Err(e) => AppSrvResolver::Unavailable(e),
         };
-        let secrets = AppSecretStore::new(
+        let secrets = Arc::new(AppSecretStore::new(
             SystemSecretStore::open(),
             FileSecretStore::new(data_dir.join("mots-de-passe.json")),
-        );
+        ));
+        let oauth = match HttpOAuthClient::new(&tls, SystemBrowser) {
+            Ok(c) => AppOAuth::Http(c),
+            Err(e) => AppOAuth::Unavailable(e.to_string()),
+        };
+        let tokens = Arc::new(TokenBroker::new(
+            oauth,
+            Arc::clone(&secrets),
+            Arc::new(wall_clock),
+        ));
         let proxy = match RemoteImageProxy::new(&tls) {
             Ok(p) => Some(p),
             Err(e) => {
@@ -258,8 +330,14 @@ impl AppState {
         let mail = MailServices::new(
             &db,
             FsBlobStore::new(data_dir.join("accounts")),
-            ImapConnector::new(tls.clone()),
-            SmtpSender::new(tls.clone()),
+            FreshTokens {
+                inner: ImapConnector::new(tls.clone()),
+                broker: Arc::clone(&tokens),
+            },
+            FreshTokens {
+                inner: SmtpSender::new(tls.clone()),
+                broker: Arc::clone(&tokens),
+            },
             proxy,
             open_dir,
         );
@@ -275,6 +353,7 @@ impl AppState {
             ),
             exceptions,
             secrets,
+            tokens,
             local_data: FsAccountDataStore::new(data_dir.join("accounts")),
             discover: DiscoverSettings::new(autoconfig, srv, TcpPortProber::default()),
             pending_rejections: Mutex::new(Vec::new()),

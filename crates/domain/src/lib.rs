@@ -22,6 +22,7 @@
 //! - [`contact_import`] : plan d'import d'un carnet (doublons, rejets) ;
 //! - [`contact_duplicates`] : doublons du carnet et fusion des fiches ;
 //! - [`contact_lists`] : listes de diffusion (nom unique, expansion) ;
+//! - [`oauth`] : connexion OAuth (fournisseurs, PKCE, XOAUTH2) ;
 //! - [`sender`] : nom affiché d'un correspondant (carnet, en-tête) ;
 //! - [`ports`] : traits implémentés par les adaptateurs.
 
@@ -44,6 +45,7 @@ pub mod endpoint;
 pub mod fetch_policy;
 pub mod mailbox;
 pub mod notify;
+pub mod oauth;
 pub mod ports;
 pub mod reading;
 pub mod search;

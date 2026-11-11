@@ -15,6 +15,7 @@ Rust**, l'interface ne fait que présenter (ADR-001, ADR-008).
 | **Réseau hostile** (Wi-Fi public, FAI) | Intercepte, modifie, rejoue le trafic ; falsifie le DNS | Lire le mot de passe ou les messages (STARTTLS retiré, certificat substitué, injection avant la poignée de main), rediriger l'autodécouverte |
 | **Serveur hostile ou défaillant** | Réponses IMAP/SMTP arbitraires, tronquées, énormes | Plantage, boucle, consommation mémoire, corruption de l'état local |
 | **Autoconfiguration falsifiée** | Réponse XML ou SRV choisie par l'attaquant | Envoyer le mot de passe à un serveur tiers |
+| **Page ou programme local** | Envoie des requêtes à la redirection OAuth locale ; lit l'URL d'autorisation | Faire accepter un code forgé (CSRF), annuler la connexion, voler le code d'autorisation |
 | **Chaîne d'approvisionnement** | Dépendance ou action CI compromise, mise à jour substituée | Exécuter du code chez l'utilisateur |
 
 Hors périmètre : un attaquant qui contrôle déjà la session de l'utilisateur
@@ -40,6 +41,26 @@ n'est pas chiffrée (ADR-003) : on s'appuie sur le chiffrement du disque.
   les mots de passe ; test `credentials_never_appear_in_logs_or_debug`.
 - Secrets : type `Secret` sans `Display`, `Debug` masqué, non sérialisable,
   effacé (`zeroize`) ; stockés dans le trousseau du système.
+
+### Connexion OAuth (ADR-013)
+
+- Jeton d'accès porteur : il n'est envoyé qu'aux serveurs IMAP et SMTP de
+  son fournisseur, en TLS ou STARTTLS, jamais en clair, même consenti
+  (`crates/domain/src/oauth.rs`, `token_destination_allowed`, vérifié par
+  les adaptateurs IMAP et SMTP avant toute authentification) ; un compte
+  OAuth n'utilise que XOAUTH2.
+- Code d'autorisation protégé par PKCE S256 ; `state` aléatoire
+  (128 bits) vérifié avant tout le reste ; retour forgé ou illisible
+  ignoré sans annuler la connexion ; redirection écoutée sur
+  `127.0.0.1` seulement, port éphémère, requête bornée
+  (`crates/adapters/oauth`).
+- Identifiant client public embarqué (application de bureau, sans
+  secret). Jeton de rafraîchissement dans le trousseau seulement ; jeton
+  d'accès en mémoire ; aucun jeton dans les journaux, les erreurs ni
+  `Debug` ; le corps des réponses du fournisseur n'est jamais recopié, et
+  un code d'erreur n'est repris que s'il est court et imprimable.
+- Point d'accès des jetons en HTTPS, vérificateur de la plateforme, sans
+  redirection ; rafraîchissement borné à 30 s, un verrou par compte.
 
 ### Autodécouverte
 
@@ -111,7 +132,8 @@ reçus de l'interface ; types MIME recalculés.
 Signalés au mainteneur dans chaque PR qui les touche (ADR-008) :
 
 - `crates/domain/src/security.rs`, `discovery.rs`, `reading.rs`,
-  `credentials.rs` ;
+  `credentials.rs`, `oauth.rs`, `auth.rs` ;
+- `crates/adapters/oauth/src/lib.rs`, `crates/application/src/oauth.rs` ;
 - `crates/adapters/tls/src/lib.rs`, `crates/adapters/imap/src/connection.rs`,
   `crates/adapters/smtp/src/stream.rs` ;
 - `crates/adapters/render/src/sanitize.rs`, `css.rs`, `compose.rs`,

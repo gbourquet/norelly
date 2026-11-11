@@ -79,14 +79,14 @@ si vous l'avez accepté sous Windows, à GitHub (qui héberge Norelly) pour
 vérifier les mises à jour : GitHub voit alors votre adresse IP, mais aucun
 identifiant n'est envoyé.
 
-## Outlook.com refuse mon mot de passe d'application
+## Comment ajouter un compte Outlook.com ou Hotmail ?
 
-Microsoft restreint de plus en plus l'accès des programmes de messagerie
-par mot de passe et demande une connexion par sa propre page
-(« authentification moderne »), que Norelly ne sait pas encore faire. Si
-Norelly affiche « identifiants refusés » avec un mot de passe d'application
-correct, votre compte Outlook.com ne peut pas encore être utilisé dans
-Norelly. Cette connexion est prévue dans une prochaine version.
+Tapez votre adresse dans la fenêtre d'ajout, puis cliquez sur **Se
+connecter avec Microsoft** : la connexion se fait sur la page de Microsoft,
+dans votre navigateur, sans mot de passe dans Norelly. Voir
+[Outlook.com et Hotmail](first-account.md#outlookcom-et-hotmail--se-connecter-avec-microsoft).
+Si un bouton **Se reconnecter** apparaît plus tard à côté du compte,
+cliquez dessus et reconnectez-vous.
 
 ## Mon fournisseur n'est pas trouvé automatiquement
 

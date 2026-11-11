@@ -241,6 +241,14 @@ export function failureText(failure: FailureKindDto): string {
       return m.failure_authentication();
     case "google_app_password":
       return m.failure_google_app_password();
+    case "microsoft_smtp_disabled":
+      return m.failure_microsoft_smtp_disabled();
+    case "reauth_required":
+      return m.failure_reauth_required();
+    case "oauth_cancelled":
+      return m.failure_oauth_cancelled();
+    case "oauth":
+      return m.failure_oauth();
     case "security":
       return m.failure_security();
     case "protocol":

@@ -264,6 +264,23 @@ describe(`captures d'écran (${lang})`, () => {
     await $("#imap-host").waitForDisplayed({ reverse: true });
   });
 
+  it("compte Microsoft : se connecter avec Microsoft", async () => {
+    // Adresse Outlook.com : Rust la reconnaît, le formulaire propose la
+    // connexion par Microsoft au lieu du mot de passe. Le bouton n'est pas
+    // cliqué (réseau de test sans Internet).
+    await $("nav")
+      .$(`button=${msg("welcome_add_account")}`)
+      .click();
+    await $("#account-address").setValue(`${user}@outlook.com`);
+    const signIn = $(`button=${msg("add_oauth_sign_in_microsoft")}`);
+    await signIn.waitForDisplayed({ timeout: 10000 });
+    await expect($("#account-password")).not.toBeDisplayed();
+    await expect($(`p=${msg("add_oauth_hint_microsoft")}`)).toBeDisplayed();
+    await capture("microsoft-sign-in");
+    await browser.keys("Escape");
+    await $("#account-address").waitForDisplayed({ reverse: true });
+  });
+
   it("liste et lecture", async () => {
     const first = $(`span=${content.messages[0][1]}`);
     await first.waitForDisplayed({ timeout: 90000 });

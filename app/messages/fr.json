@@ -707,5 +707,22 @@
   "err_contact_duplicates_too_many": "Le carnet compte trop de contacts pour y chercher les doublons (25 000 au plus).",
   "err_contact_merge_too_large": "Ces fiches ne tiennent pas dans un seul contact (20 adresses, 20 téléphones et 10 000 caractères de notes au plus) : décochez-en une, ou allégez-les avant de les fusionner.",
   "err_contact_merge_conflict": "Une de ces fiches a été modifiée entre-temps : rien n'a été fusionné. Fermez la fenêtre et relancez la recherche des doublons.",
-  "contacts_header_actions": "Créer, importer ou exporter"
+  "contacts_header_actions": "Créer, importer ou exporter",
+  "failure_microsoft_smtp_disabled": "envoi désactivé sur ce compte Microsoft",
+  "failure_reauth_required": "reconnexion nécessaire",
+  "failure_oauth_cancelled": "connexion annulée",
+  "failure_oauth": "connexion au fournisseur impossible",
+  "add_fail_microsoft_smtp_disabled": "{prefix}l'envoi de messages est désactivé sur ce compte Microsoft. Activez-le dans les réglages de votre compte Outlook.com, puis réessayez.",
+  "add_fail_reauth_required": "La connexion a expiré : reconnectez-vous.",
+  "add_fail_oauth_cancelled": "La connexion a été annulée dans le navigateur.",
+  "add_fail_oauth": "Connexion au fournisseur impossible. Vérifiez votre connexion à Internet, puis réessayez.",
+  "add_oauth_sign_in_microsoft": "Se connecter avec Microsoft",
+  "add_oauth_hint_microsoft": "Outlook.com et Hotmail n'acceptent pas de mot de passe ici : connectez-vous chez Microsoft dans votre navigateur. Norelly ne voit jamais votre mot de passe.",
+  "add_oauth_waiting_microsoft": "Connectez-vous dans la fenêtre de votre navigateur, puis revenez ici.",
+  "cmd_account_reconnect": "Se reconnecter au compte sélectionné",
+  "cmd_account_reconnect_keywords": "reconnexion connexion microsoft outlook jeton expiré",
+  "sidebar_reconnect": "Se reconnecter",
+  "sidebar_reauth_required": "Reconnexion nécessaire : {address}",
+  "notice_reconnected": "Compte reconnecté.",
+  "sidebar_reauth_hint": "Reconnexion nécessaire"
 }

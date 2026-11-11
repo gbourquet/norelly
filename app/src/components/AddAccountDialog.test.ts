@@ -15,11 +15,20 @@ const account: AccountDto = {
   display_name: "Alice",
   imap: server("imap.example.com", 993),
   smtp: server("smtp.example.com", 465),
+  oauth_provider: null,
 };
 
 function fakeApi(results: AddAccountResult[]): AccountApi {
   return {
     listAccounts: vi.fn(async () => []),
+    oauthProviderFor: vi.fn(async (address: string) =>
+      address.trim().endsWith("@outlook.com") ? ("microsoft" as const) : null,
+    ),
+    addOAuthAccount: vi.fn(async () => {
+      const next = results.shift();
+      if (next === undefined) throw new Error("appel inattendu");
+      return next;
+    }),
     discoverSettings: vi.fn(async () => ({
       imap: {
         server: account.imap,

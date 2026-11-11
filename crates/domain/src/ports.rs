@@ -69,6 +69,40 @@ pub trait Authenticator: fmt::Debug + Send + Sync {
 }
 
 // ---------------------------------------------------------------------------
+// OAuth
+// ---------------------------------------------------------------------------
+
+/// Jetons délivrés par un fournisseur OAuth. `Debug` masque les jetons.
+#[derive(Debug, Clone)]
+pub struct OAuthGrant {
+    pub access_token: crate::credentials::Secret,
+    /// Durée de validité du jeton d'accès, en secondes.
+    pub expires_in: u64,
+    /// Nouveau jeton de rafraîchissement, quand le fournisseur en délivre
+    /// un (connexion, rotation au rafraîchissement).
+    pub refresh_token: Option<crate::credentials::Secret>,
+}
+
+/// Obtention et rafraîchissement des jetons OAuth (navigateur du système,
+/// redirection locale, HTTPS).
+pub trait OAuthClient: Send + Sync {
+    /// Connexion interactive : ouvre le navigateur du système et attend le
+    /// retour de l'utilisateur.
+    fn authorize(
+        &self,
+        provider: crate::oauth::OAuthProvider,
+        login_hint: &crate::address::EmailAddress,
+    ) -> impl Future<Output = Result<OAuthGrant, crate::oauth::TokenError>> + Send;
+
+    /// Nouveau jeton d'accès à partir du jeton de rafraîchissement.
+    fn refresh(
+        &self,
+        provider: crate::oauth::OAuthProvider,
+        refresh_token: &crate::credentials::Secret,
+    ) -> impl Future<Output = Result<OAuthGrant, crate::oauth::TokenError>> + Send;
+}
+
+// ---------------------------------------------------------------------------
 // Trousseau
 // ---------------------------------------------------------------------------
 
@@ -142,6 +176,29 @@ pub trait SecretStore: Send + Sync {
     fn delete(&self, key: &SecretKey) -> impl Future<Output = Result<(), SecretStoreError>> + Send;
 }
 
+/// Un trousseau partagé est aussi un trousseau (gestionnaire de jetons et
+/// commandes).
+impl<T: SecretStore> SecretStore for std::sync::Arc<T> {
+    fn get(
+        &self,
+        key: &SecretKey,
+    ) -> impl Future<Output = Result<Option<Secret>, SecretStoreError>> + Send {
+        (**self).get(key)
+    }
+
+    fn set(
+        &self,
+        key: &SecretKey,
+        secret: &Secret,
+    ) -> impl Future<Output = Result<(), SecretStoreError>> + Send {
+        (**self).set(key, secret)
+    }
+
+    fn delete(&self, key: &SecretKey) -> impl Future<Output = Result<(), SecretStoreError>> + Send {
+        (**self).delete(key)
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Exceptions de certificats
 // ---------------------------------------------------------------------------
@@ -212,6 +269,20 @@ pub struct ConnectRequest {
     /// Consentements au clair ; l'adaptateur vérifie à nouveau avant toute
     /// connexion (défense en profondeur).
     pub plaintext: PlaintextPolicy,
+}
+
+impl ConnectRequest {
+    /// Refuse d'envoyer un jeton OAuth hors des serveurs de son
+    /// fournisseur ou en clair ([`crate::oauth::token_destination_allowed`]).
+    /// Les adaptateurs l'appellent avant toute authentification.
+    pub fn authorize_credentials(&self) -> Result<(), AuthError> {
+        match self.credentials.oauth() {
+            Some(binding) => {
+                crate::oauth::token_destination_allowed(binding.provider, &self.endpoint)
+            }
+            None => Ok(()),
+        }
+    }
 }
 
 /// Nombre maximal d'UID par requête `FETCH` d'en-têtes.

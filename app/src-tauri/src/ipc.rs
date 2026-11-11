@@ -17,6 +17,7 @@ use norelly_domain::discovery::{
     AuthenticationAdvice, DiscoveredServer, Discovery, DiscoverySource,
 };
 use norelly_domain::endpoint::{Protocol, Security};
+use norelly_domain::oauth::{OAuthProvider, TokenError};
 use norelly_domain::security::CertificateIssue;
 use serde::{Deserialize, Serialize};
 use specta::Type;
@@ -395,6 +396,32 @@ pub struct AccountDto {
     pub display_name: String,
     pub imap: ServerDto,
     pub smtp: ServerDto,
+    /// Fournisseur d'un compte connecté par OAuth.
+    pub oauth_provider: Option<OAuthProviderDto>,
+}
+
+/// Fournisseur OAuth.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum OAuthProviderDto {
+    Microsoft,
+}
+
+impl From<OAuthProvider> for OAuthProviderDto {
+    fn from(p: OAuthProvider) -> Self {
+        match p {
+            OAuthProvider::Microsoft => Self::Microsoft,
+        }
+    }
+}
+
+/// Ajout d'un compte par « Se connecter avec … ».
+#[derive(Debug, Clone, Deserialize, Type)]
+pub struct AddOAuthAccountInput {
+    pub address: String,
+    pub display_name: Option<String>,
+    /// Nom du fournisseur (`microsoft`), revalidé par le domaine.
+    pub provider: String,
 }
 
 impl TryFrom<&Account> for AccountDto {
@@ -406,6 +433,7 @@ impl TryFrom<&Account> for AccountDto {
             display_name: a.display_name().to_string(),
             imap: a.imap().into(),
             smtp: a.smtp().into(),
+            oauth_provider: a.oauth_provider().map(Into::into),
         })
     }
 }
@@ -564,6 +592,16 @@ pub enum FailureKindDto {
     /// Identifiants refusés sur un compte Google : il faut un mot de passe
     /// d'application.
     GoogleAppPassword,
+    /// Compte Microsoft dont l'envoi (SMTP) est désactivé sur la boîte.
+    MicrosoftSmtpDisabled,
+    /// Compte OAuth : le jeton ne peut plus être rafraîchi, il faut se
+    /// reconnecter chez le fournisseur.
+    ReauthRequired,
+    /// Connexion chez le fournisseur abandonnée ou refusée par
+    /// l'utilisateur.
+    OauthCancelled,
+    /// Connexion chez le fournisseur impossible (réseau, réponse invalide).
+    Oauth,
     Security,
     Protocol,
     /// Paramètres refusés par le domaine.
@@ -579,6 +617,12 @@ pub enum FailureKindDto {
 /// d'un échec de connexion.
 #[must_use]
 pub fn connection_failure_of(e: &ConnectionError) -> (FailureKindDto, Option<String>) {
+    if matches!(
+        e,
+        ConnectionError::Authentication(AuthError::ReauthRequired)
+    ) {
+        return (FailureKindDto::ReauthRequired, None);
+    }
     let kind = match e.category() {
         FailureCategory::Network => FailureKindDto::Network,
         FailureCategory::Authentication => FailureKindDto::Authentication,
@@ -609,7 +653,9 @@ fn auth_detail(a: &AuthError) -> Option<String> {
     match a {
         AuthError::Rejected { message } => Some(message.clone()),
         AuthError::NoSupportedMechanism { offered } => Some(offered.join(", ")),
+        AuthError::TokenDestinationRefused { host } => Some(host.clone()),
         AuthError::Unsupported(_)
+        | AuthError::ReauthRequired
         | AuthError::LoginDisabled
         | AuthError::UnexpectedChallenge { .. } => None,
     }
@@ -711,6 +757,18 @@ impl AddAccountResultDto {
                 failed_internal(FailureKindDto::SecretStore, m)
             }
             AddAccountOutcome::StorageFailed(m) => failed_internal(FailureKindDto::Storage, m),
+            AddAccountOutcome::OAuthFailed(e) => oauth_failure(e),
+        }
+    }
+}
+
+/// Échec de la connexion chez le fournisseur OAuth.
+pub fn oauth_failure(e: &TokenError) -> AddAccountResultDto {
+    match e {
+        TokenError::Cancelled(_) => failed(None, FailureKindDto::OauthCancelled, None),
+        TokenError::ReauthRequired => failed(None, FailureKindDto::ReauthRequired, None),
+        TokenError::Network(d) | TokenError::Protocol(d) => {
+            failed(None, FailureKindDto::Oauth, Some(d.clone()))
         }
     }
 }
@@ -735,6 +793,9 @@ fn connection_failure(
         TestConnectionOutcome::Authentication(e) => {
             let kind = match advice {
                 Some(AuthenticationAdvice::GoogleAppPassword) => FailureKindDto::GoogleAppPassword,
+                Some(AuthenticationAdvice::MicrosoftSmtpDisabled) => {
+                    FailureKindDto::MicrosoftSmtpDisabled
+                }
                 None => FailureKindDto::Authentication,
             };
             failed(p, kind, auth_detail(e))

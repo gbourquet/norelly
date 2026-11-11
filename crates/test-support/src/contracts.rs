@@ -184,6 +184,22 @@ pub async fn account_repository_contract<R: AccountRepository>(
 ) -> Result<(), AccountStoreError> {
     assert!(repo.list().await?.is_empty(), "dépôt non vide au départ");
 
+    // Compte OAuth : le fournisseur est conservé.
+    let oauth = sample_account("carol@outlook.com", false)
+        .with_oauth(norelly_domain::oauth::OAuthProvider::Microsoft);
+    let stored = repo.insert(&oauth).await?;
+    assert_eq!(
+        stored.oauth_provider(),
+        Some(norelly_domain::oauth::OAuthProvider::Microsoft)
+    );
+    let reread = repo.get(stored.id()).await?;
+    assert_eq!(
+        reread.as_ref().map(|a| a.draft()),
+        Some(&oauth),
+        "fournisseur perdu"
+    );
+    repo.delete(stored.id()).await?;
+
     let a = sample_account("alice@example.com", false);
     let b = sample_account("bob@example.org", true);
     let stored_a = repo.insert(&a).await?;
@@ -327,4 +343,71 @@ mod tests {
     async fn in_memory_account_repository_passes_contract() -> Result<(), AccountStoreError> {
         account_repository_contract(&InMemoryAccountRepository::default()).await
     }
+}
+
+/// Faux client OAuth : jeton de rafraîchissement « r1 » accepté (rotation
+/// en « r2 »), tout autre refusé ; connexion interactive réglable.
+#[derive(Debug, Default)]
+pub struct FakeOAuthClient {
+    /// Réponse de la connexion interactive ; `None` : refus de
+    /// l'utilisateur.
+    pub grant: Mutex<Option<norelly_domain::ports::OAuthGrant>>,
+    pub authorizations: Mutex<Vec<String>>,
+}
+
+impl norelly_domain::ports::OAuthClient for FakeOAuthClient {
+    async fn authorize(
+        &self,
+        _: norelly_domain::oauth::OAuthProvider,
+        login_hint: &EmailAddress,
+    ) -> Result<norelly_domain::ports::OAuthGrant, norelly_domain::oauth::TokenError> {
+        if let Ok(mut seen) = self.authorizations.lock() {
+            seen.push(login_hint.to_string());
+        }
+        self.grant
+            .lock()
+            .ok()
+            .and_then(|g| g.clone())
+            .ok_or_else(|| norelly_domain::oauth::TokenError::Cancelled("access_denied".into()))
+    }
+
+    async fn refresh(
+        &self,
+        _: norelly_domain::oauth::OAuthProvider,
+        refresh_token: &Secret,
+    ) -> Result<norelly_domain::ports::OAuthGrant, norelly_domain::oauth::TokenError> {
+        if refresh_token.expose() != "r1" {
+            return Err(norelly_domain::oauth::TokenError::ReauthRequired);
+        }
+        Ok(norelly_domain::ports::OAuthGrant {
+            access_token: Secret::new("acc2".to_owned()),
+            expires_in: 3599,
+            refresh_token: Some(Secret::new("r2".to_owned())),
+        })
+    }
+}
+
+/// Contrat du rafraîchissement : « r1 » donne un jeton d'accès et un
+/// nouveau jeton de rafraîchissement ; un jeton révoqué impose une
+/// reconnexion.
+pub async fn oauth_client_contract<C: norelly_domain::ports::OAuthClient>(client: &C) {
+    use norelly_domain::oauth::{OAuthProvider, TokenError};
+    let grant = client
+        .refresh(OAuthProvider::Microsoft, &Secret::new("r1".to_owned()))
+        .await;
+    let Ok(grant) = grant else {
+        panic!("rafraîchissement refusé : {grant:?}");
+    };
+    assert!(!grant.access_token.is_empty());
+    assert!(grant.expires_in > 0);
+    assert!(grant.refresh_token.is_some(), "rotation attendue");
+    let revoked = client
+        .refresh(OAuthProvider::Microsoft, &Secret::new("revoked".to_owned()))
+        .await;
+    assert_eq!(revoked.map(|_| ()), Err(TokenError::ReauthRequired));
+}
+
+#[tokio::test]
+async fn fake_oauth_client_passes_contract() {
+    oauth_client_contract(&FakeOAuthClient::default()).await;
 }

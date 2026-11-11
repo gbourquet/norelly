@@ -615,3 +615,169 @@ async fn connect_request_uses_keyring_exceptions_and_plaintext_consent() {
     assert_eq!(request.certificate_exceptions, [exception]);
     assert_eq!(request.plaintext, account.plaintext_policy());
 }
+
+// ---------------------------------------------------------------------------
+// Comptes OAuth
+// ---------------------------------------------------------------------------
+
+mod oauth {
+    use std::sync::Arc;
+
+    use norelly_domain::oauth::{OAuthProvider, TokenError};
+    use norelly_domain::ports::OAuthGrant;
+    use norelly_test_support::contracts::FakeOAuthClient;
+
+    use super::*;
+    use crate::oauth::TokenBroker;
+
+    fn outlook() -> EmailAddress {
+        EmailAddress::parse("alice@outlook.com").unwrap_or_else(|_| panic!("adresse"))
+    }
+
+    fn broker(grant: Option<OAuthGrant>) -> TokenBroker<FakeOAuthClient, Keyring> {
+        let client = FakeOAuthClient::default();
+        if let Ok(mut g) = client.grant.lock() {
+            *g = grant;
+        }
+        TokenBroker::new(client, Keyring::default(), Arc::new(|| 1_000))
+    }
+
+    fn grant() -> Option<OAuthGrant> {
+        Some(OAuthGrant {
+            access_token: Secret::new("acc".to_owned()),
+            expires_in: 3_600,
+            refresh_token: Some(Secret::new("r1".to_owned())),
+        })
+    }
+
+    async fn add(w: &World, b: &TokenBroker<FakeOAuthClient, Keyring>) -> AddAccountOutcome {
+        let test = TestConnection::new(w.servers.clone(), w.servers.clone(), &w.exceptions);
+        AddOAuthAccount {
+            test: &test,
+            broker: b,
+            accounts: &w.accounts,
+        }
+        .execute(AddOAuthAccountRequest {
+            address: outlook(),
+            display_name: None,
+            provider: OAuthProvider::Microsoft,
+        })
+        .await
+    }
+
+    #[tokio::test]
+    async fn adds_microsoft_account_with_provider_servers_and_token() {
+        let w = World::new();
+        let b = broker(grant());
+        let AddAccountOutcome::Added(account) = add(&w, &b).await else {
+            panic!("compte non ajouté");
+        };
+        assert_eq!(account.oauth_provider(), Some(OAuthProvider::Microsoft));
+        assert_eq!(
+            account.imap().endpoint.host().as_str(),
+            "outlook.office365.com"
+        );
+        assert_eq!(account.smtp().endpoint.security(), Security::StartTls);
+        assert_eq!(account.imap().username.as_str(), "alice@outlook.com");
+        let tested = w.servers.requests();
+        assert_eq!(tested.len(), 2, "IMAP et SMTP testés");
+        assert!(
+            tested
+                .iter()
+                .all(|(_, r)| r.credentials.secret().expose() == "acc"
+                    && r.credentials.kind() == norelly_domain::credentials::CredentialKind::OAuth2)
+        );
+        let key = account.secret_key(Protocol::Imap);
+        assert_eq!(
+            b.access_token(&OAuthSource {
+                provider: OAuthProvider::Microsoft,
+                refresh_key: key.clone(),
+            })
+            .await
+            .map(|t| t.expose().to_owned()),
+            Ok("acc".to_owned())
+        );
+    }
+
+    #[tokio::test]
+    async fn refused_sign_in_adds_nothing() {
+        let w = World::new();
+        assert_eq!(
+            add(&w, &broker(None)).await,
+            AddAccountOutcome::OAuthFailed(TokenError::Cancelled("access_denied".to_owned()))
+        );
+        assert!(w.accounts.list().await.is_ok_and(|l| l.is_empty()));
+        let without_refresh = Some(OAuthGrant {
+            refresh_token: None,
+            ..grant().unwrap_or_else(|| panic!())
+        });
+        assert!(matches!(
+            add(&w, &broker(without_refresh)).await,
+            AddAccountOutcome::OAuthFailed(TokenError::Protocol(_))
+        ));
+        assert!(w.accounts.list().await.is_ok_and(|l| l.is_empty()));
+    }
+
+    #[tokio::test]
+    async fn smtp_disabled_on_mailbox_is_explained() {
+        let w = World::new();
+        let (_, smtp) =
+            oauth_servers(OAuthProvider::Microsoft, &outlook()).unwrap_or_else(|e| panic!("{e}"));
+        w.servers.set(
+            &smtp.endpoint,
+            Err(ConnectionError::Authentication(AuthError::Rejected {
+                message:
+                    "535 5.7.139 Authentication unsuccessful, SmtpClientAuthentication is disabled"
+                        .to_owned(),
+            })),
+        );
+        let outcome = add(&w, &broker(grant())).await;
+        assert!(
+            matches!(
+                outcome,
+                AddAccountOutcome::ConnectionFailed {
+                    protocol: Protocol::Smtp,
+                    advice: Some(AuthenticationAdvice::MicrosoftSmtpDisabled),
+                    ..
+                }
+            ),
+            "{outcome:?}"
+        );
+        assert!(w.accounts.list().await.is_ok_and(|l| l.is_empty()));
+    }
+
+    #[tokio::test]
+    async fn reconnect_replaces_refresh_token() {
+        let w = World::new();
+        let b = broker(grant());
+        let AddAccountOutcome::Added(account) = add(&w, &b).await else {
+            panic!("compte non ajouté");
+        };
+        if let Ok(mut g) = b.client().grant.lock() {
+            *g = Some(OAuthGrant {
+                access_token: Secret::new("neuf".to_owned()),
+                expires_in: 3_600,
+                refresh_token: Some(Secret::new("r-neuf".to_owned())),
+            });
+        }
+        let reconnected = reconnect_oauth_account(&b, &w.accounts, account.id()).await;
+        assert_eq!(reconnected.map(|a| a.id()), Ok(account.id()));
+        let source = OAuthSource {
+            provider: OAuthProvider::Microsoft,
+            refresh_key: account.secret_key(Protocol::Imap),
+        };
+        assert_eq!(
+            b.access_token(&source).await.map(|t| t.expose().to_owned()),
+            Ok("neuf".to_owned())
+        );
+        let Ok(missing) = AccountId::new(999) else {
+            panic!()
+        };
+        assert_eq!(
+            reconnect_oauth_account(&b, &w.accounts, missing)
+                .await
+                .map(|_| ()),
+            Err(ReconnectError::NotFound)
+        );
+    }
+}

@@ -14,6 +14,8 @@ tokio.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]
+# Horloge virtuelle (expiration des jetons OAuth).
+tokio = { workspace = true, features = ["test-util"] }
 norelly-test-support.workspace = true
 # Tests d'intégration de bout en bout (Dovecot, Toxiproxy).
 norelly-imap.workspace = true

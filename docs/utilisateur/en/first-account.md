@@ -8,9 +8,10 @@ several (for example a personal address and one for a club).
 ## What you need
 
 - your **email address**, for example `mary.smith@example.com`;
-- its **password**. For Gmail and Outlook.com, this is not your usual
-  password but an **app password**: first read
-  [the section about them](#gmail-and-outlookcom-the-app-password).
+- its **password**. For Gmail, this is not your usual password but an
+  **app password**: first read [the Gmail section](#gmail-the-app-password).
+  For Outlook.com and Hotmail, no password is asked: see
+  [Outlook.com and Hotmail](#outlookcom-and-hotmail-sign-in-with-microsoft).
 
 ## Step by step
 
@@ -70,17 +71,15 @@ Only click **Trust this server** for a server you know (a personal server,
 your company's), and if its administrator has confirmed the
 **fingerprint** shown.
 
-## Gmail and Outlook.com: the app password
+## Gmail: the app password
 
-Gmail and Outlook.com refuse your usual password in a program like
-Norelly. They ask you to create an **app password**: a special password of
-16 letters, reserved for Norelly. You create it once, on your provider's
-website, then paste it into Norelly instead of your password.
+Gmail refuses your usual password in a program like Norelly. Google asks
+you to create an **app password**: a special password of 16 letters,
+reserved for Norelly. You create it once, on Google's website, then paste
+it into Norelly instead of your password.
 
 The benefit: if one day you change your usual password, or want to cut off
 Norelly's access, you just delete this app password.
-
-### Gmail
 
 If you typed your usual password, Norelly notices: the sign-in is
 rejected, and Norelly shows the steps below instead, with an **Open the
@@ -108,20 +107,38 @@ protected only by a security key, nor for an account under "Advanced
 Protection". For a work or school address managed by Google, its
 administrator may have turned it off: ask them.
 
-### Outlook.com (and Hotmail, Live)
+## Outlook.com and Hotmail: sign in with Microsoft
 
-1. Turn on **two-step verification**: in your browser, open
-   <https://account.microsoft.com/security>, then **Advanced security
-   options**, and turn on **Two-step verification**.
-2. On the same page, under **App passwords**, click **Create a new app
-   password**.
-3. Copy the password shown and paste it into Norelly's **Password** field.
+Outlook.com, Hotmail, Live and MSN do not accept a password in a program
+like Norelly. Instead, you sign in on Microsoft's page, in your browser:
 
-> **Good to know**: Microsoft increasingly restricts password access by
-> email programs, in favour of signing in through its own page (which
-> Norelly cannot do yet). If Norelly says "credentials rejected" despite a
-> correct app password, Microsoft refuses this method for your account: see
-> [frequently asked questions](faq.md#outlookcom-refuses-my-app-password).
+1. In the **Add an account** window, type your address (for example
+   `mary.smith@outlook.com`). The **Password** field disappears and the
+   **Sign in with Microsoft** button appears.
+2. Click **Sign in with Microsoft**. Your browser opens Microsoft's page:
+   sign in as usual, then allow Norelly to access your messages.
+3. The browser shows "you can close this page": come back to Norelly. The
+   account appears in the left column.
+
+![The add window with an Outlook.com address: no password field, "Sign in with Microsoft" button](captures/microsoft-sign-in.png)
+
+Norelly never sees your Microsoft password. It receives an authorization,
+kept in the system keyring, which it renews on its own.
+
+### Signing in again
+
+If you change your Microsoft password, or remove Norelly's access on
+Microsoft's website, the authorization stops working. A **Sign in again**
+button then appears next to the account, in the left column (the entry is
+also in the account's **⋯** menu). Click it and sign in again in the
+browser: receiving resumes.
+
+### If sending is refused
+
+On some Outlook.com accounts, Microsoft turns off sending from email
+programs, while receiving works. Norelly tells you so when adding the
+account: turn sending on in your Outlook.com account settings, then try
+again.
 
 ## Removing an account
 

@@ -483,6 +483,10 @@ pub enum AuthenticationAdvice {
     /// activer la validation en deux étapes, créer un mot de passe
     /// d'application et le saisir à la place.
     GoogleAppPassword,
+    /// Compte Microsoft dont l'envoi authentifié (SMTP) est désactivé :
+    /// la lecture fonctionne, l'envoi doit être activé dans les réglages
+    /// du compte Outlook.com.
+    MicrosoftSmtpDisabled,
 }
 
 /// Domaines des adresses Gmail grand public.

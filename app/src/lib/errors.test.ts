@@ -209,6 +209,10 @@ describe("traduction des erreurs IPC", () => {
       secret_store: true,
       storage: true,
       internal: true,
+      microsoft_smtp_disabled: true,
+      reauth_required: true,
+      oauth_cancelled: true,
+      oauth: true,
     } satisfies Record<FailureKindDto, true>;
     const texts = (Object.keys(codes) as ErrorCodeDto[]).map((c) =>
       errorText(new IpcFailure(c, "address")),

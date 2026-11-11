@@ -707,5 +707,22 @@
   "err_contact_duplicates_too_many": "The address book has too many contacts to look for duplicates (25,000 at most).",
   "err_contact_merge_too_large": "These cards do not fit in a single contact (20 addresses, 20 phone numbers and 10,000 characters of notes at most): uncheck one, or trim them before merging.",
   "err_contact_merge_conflict": "One of these cards was changed in the meantime: nothing was merged. Close the window and search for duplicates again.",
-  "contacts_header_actions": "Create, import or export"
+  "contacts_header_actions": "Create, import or export",
+  "failure_microsoft_smtp_disabled": "sending disabled on this Microsoft account",
+  "failure_reauth_required": "sign-in required",
+  "failure_oauth_cancelled": "sign-in cancelled",
+  "failure_oauth": "cannot reach the provider",
+  "add_fail_microsoft_smtp_disabled": "{prefix}sending messages is disabled on this Microsoft account. Turn it on in your Outlook.com account settings, then try again.",
+  "add_fail_reauth_required": "Your sign-in has expired: please sign in again.",
+  "add_fail_oauth_cancelled": "Sign-in was cancelled in the browser.",
+  "add_fail_oauth": "Cannot reach the provider. Check your Internet connection, then try again.",
+  "add_oauth_sign_in_microsoft": "Sign in with Microsoft",
+  "add_oauth_hint_microsoft": "Outlook.com and Hotmail do not accept a password here: sign in with Microsoft in your browser. Norelly never sees your password.",
+  "add_oauth_waiting_microsoft": "Sign in in your browser window, then come back here.",
+  "cmd_account_reconnect": "Sign in again to the selected account",
+  "cmd_account_reconnect_keywords": "reconnect sign in microsoft outlook expired token",
+  "sidebar_reconnect": "Sign in again",
+  "sidebar_reauth_required": "Sign-in required: {address}",
+  "notice_reconnected": "Account reconnected.",
+  "sidebar_reauth_hint": "Sign-in required"
 }

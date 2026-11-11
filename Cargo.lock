@@ -3126,6 +3126,7 @@ dependencies = [
  "norelly-domain",
  "norelly-imap",
  "norelly-keyring",
+ "norelly-oauth",
  "norelly-render",
  "norelly-smtp",
  "norelly-sqlite",
@@ -3244,6 +3245,23 @@ dependencies = [
  "tracing",
  "windows-native-keyring-store",
  "zeroize",
+]
+
+[[package]]
+name = "norelly-oauth"
+version = "0.1.0"
+dependencies = [
+ "getrandom 0.3.4",
+ "norelly-domain",
+ "norelly-test-support",
+ "norelly-tls",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tokio",
+ "tracing",
+ "wiremock",
 ]
 
 [[package]]

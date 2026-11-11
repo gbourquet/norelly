@@ -42,6 +42,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::add_account,
             commands::trust_certificate,
             commands::allow_file_secrets,
+            commands::secrets_backend,
             commands::remove_account,
             reading::list_folders,
             reading::list_conversations,

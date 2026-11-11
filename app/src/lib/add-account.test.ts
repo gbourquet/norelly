@@ -62,6 +62,7 @@ function fakeApi(discovery: Discovery, results: AddAccountResult[]) {
     trustCertificate: vi.fn(async () => undefined),
     removeAccount: vi.fn(async () => undefined),
     allowFileSecrets: vi.fn(async () => undefined),
+    secretsBackend: vi.fn(async () => "system_keyring" as const),
     openExternal: vi.fn(async () => undefined),
   };
   return { api, calls };

@@ -17,7 +17,7 @@ use tauri::ipc::Channel;
 
 use crate::ipc::{
     AccountDto, AddAccountInput, AddAccountResultDto, DiscoveryDto, DiscoverySourceDto,
-    ErrorCodeDto, FieldDto, IpcError, ServerDto,
+    ErrorCodeDto, FieldDto, IpcError, SecretsBackendDto, ServerDto,
 };
 use crate::state::AppState;
 
@@ -179,6 +179,19 @@ pub async fn allow_file_secrets(state: State<'_, AppState>) -> Result<(), IpcErr
         .secrets
         .consent_to_file()
         .map_err(|e| IpcError::new(ErrorCodeDto::SecretStore).with_detail(e))
+}
+
+/// Où les mots de passe seront conservés. Décidé ici, pas deviné par
+/// l'interface : elle n'annonce le trousseau du système que s'il est
+/// vraiment utilisé (sinon la garantie serait fausse avec le fichier).
+#[tauri::command]
+#[specta::specta]
+pub async fn secrets_backend(state: State<'_, AppState>) -> Result<SecretsBackendDto, IpcError> {
+    Ok(if state.secrets.stores_in_system_keyring().await {
+        SecretsBackendDto::SystemKeyring
+    } else {
+        SecretsBackendDto::File
+    })
 }
 
 /// Supprime un compte, ses mots de passe et ses données locales.

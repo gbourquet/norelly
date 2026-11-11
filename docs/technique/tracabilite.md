@@ -544,7 +544,7 @@ Fiche : [notifications.md](../fonctionnel/notifications.md).
 | Arrivées d'une synchronisation **regroupées** : un nombre et, au plus, le message le plus récent | `notify.rs` |
 | Confidentialité : contenu retiré **en Rust** (`NewMail::without_content`) avant d'atteindre l'interface | `notify.rs`, `app/src-tauri/src/settings.rs` (`new_mail_event`) |
 | Texte composé par l'interface dans la langue de l'utilisateur, revalidé par la commande `show_notification` (balisage freedesktop neutralisé) | ADR-011, `app/src-tauri/src/settings.rs` |
-| Affichage par `notify-rust` (sans zbus) depuis Rust seulement | dérogation à consigner ([BACKLOG](../BACKLOG.md)) |
+| Affichage par `notify-rust` (sans zbus) depuis Rust seulement | dérogation à consigner |
 
 ### Clés des messages
 

@@ -77,6 +77,12 @@ conversation. Les scénarios passent donc par `openMenu` et
 exact, hors de la copie invisible de mesure des barres d'actions
 (`aria-hidden`).
 
+**Règle permanente** : à chaque montée de version de Tauri, rejouer
+`reading-security.e2e.mjs`, qui vérifie qu'aucun accès à l'IPC n'est
+possible depuis l'iframe `mailview://`. La capability ne distingue pas
+l'iframe de lecture, et `tauri::test` n'enregistre pas les protocoles :
+seul l'e2e le prouve.
+
 Les captures ne sont recopiées dans `docs/` que si tous les scénarios ont
 réussi. Elles ne se modifient jamais à la main : relancer
 `pnpm -C app e2e`, puis commiter les PNG modifiés.
@@ -100,7 +106,7 @@ mesure unitaire.
 |---|---|---|
 | Liste : première page et changement de dossier, 50 000 messages (requête seule) | `cargo bench -p norelly-sqlite -- --test` | < 50 ms (mesuré ≈ 0,2 ms) |
 | Recherche, 50 000 messages de 300 mots | même commande (bancs `message_list` et `search`) | < 100 ms (mesuré 0,3 à 89 ms) |
-| Démarrage de bout en bout | `NORELLY_E2E_PERF=1 pnpm -C app e2e` | < 400 ms (seuil porté par le mainteneur, voir [BACKLOG](../BACKLOG.md)) |
+| Démarrage de bout en bout | `NORELLY_E2E_PERF=1 pnpm -C app e2e` | < 400 ms (seuil porté par le mainteneur) |
 | Changement de dossier de bout en bout | idem | < 200 ms (mesuré 13 à 16 ms) |
 
 Les bancs de bout en bout tournent dans le job nocturne

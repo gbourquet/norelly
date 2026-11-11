@@ -4,7 +4,7 @@ Client IMAP/SMTP pour Windows et Linux : rapide, utilisable entièrement
 à la souris par un débutant, raccourcis clavier en accélérateurs, sans
 télémétrie. Le projet est en **maintenance** : nouvelles
 fonctionnalités, interface, corrections, durcissement. Les sujets ouverts
-sont dans `docs/BACKLOG.md`.
+sont suivis dans Linear (voir « Suivi des sujets »).
 
 Les choix d'architecture font foi dans `docs/DECISIONS.md` (ADR) : toute
 dérogation est validée par le mainteneur **avant** d'être implémentée, puis
@@ -115,7 +115,7 @@ Règles :
 ## Règles non négociables
 - **Ne jamais ramollir, désactiver ou contourner un test**, ni affaiblir
   `scripts/check.sh`, `deny.toml` ou un seuil de couverture. Un blocage se
-  documente dans la PR (ou `docs/BACKLOG.md`), puis on s'arrête.
+  documente dans la PR (ou un ticket Linear), puis on s'arrête.
 - Rust : pas d'`unwrap`/`expect` sur des données externes (lint
   `unwrap_used`) ; `unsafe` interdit dans tout le workspace.
 - Secrets : uniquement dans le trousseau (`SecretStore`), jamais dans
@@ -173,6 +173,24 @@ Règles :
   branche `<zone>/<sujet>` (par exemple `ui/bouton-repondre`), la pousser,
   ouvrir une PR vers `master` avec `gh pr create`. Seul le mainteneur
   valide et merge ; ne jamais merger soi-même.
+- La description de la PR cite le ticket traité (`NOR-12`) pour que
+  Linear les relie.
+
+## Suivi des sujets (Linear)
+Équipe **Norelly** (`NOR`), projet **Norelly**, par le serveur MCP
+`linear` (`.mcp.json`).
+- Chaque ticket est le sous-ticket d'une epic (ticket parent au label
+  `Epic`) et porte un type : `Feature`, `Bug` ou `Improvement`.
+- Labels : un seul label de `Zone` (`connexion`, `carnet`, `dossiers`,
+  `lecture`, `interface`, `chaîne-appro`, `docs`) ; `revue-sécurité` avec
+  une `Gravité` (`moyen`, `bas`, `info`) pour un constat laissé de côté ;
+  `à-trancher` quand une décision du mainteneur est attendue (ne pas
+  commencer) ; `tâche-humaine` pour ce qu'un agent ne peut pas faire.
+- États : `Backlog` (à trier), `Todo` (priorisé), `In Progress`, `Done`,
+  `Canceled`. Passer le ticket en `In Progress` en commençant.
+- Description : une partie lisible (constat, attendu), puis les fichiers et
+  le plan dans une section repliable « Agent notes ».
+- Avant de créer un ticket, chercher s'il existe déjà.
 
 ## Fin de tâche
 - `./scripts/check.sh full` passe (plus les e2e ou les bancs si la
@@ -182,14 +200,16 @@ Règles :
   ADR, objectifs plutôt que seuils), `docs/technique/tracabilite.md`,
   `docs/utilisateur/{fr,en}/` (mêmes pages dans les deux langues). Les
   captures sont régénérées par les e2e, jamais retouchées à la main.
-- `docs/BACKLOG.md` : retirer l'élément traité ; ajouter ce qui a été
-  découvert et laissé de côté.
+- Linear : lier la PR au ticket traité (il passe en `Done` au merge) ;
+  créer un ticket, sous l'epic concernée, pour ce qui a été découvert et
+  laissé de côté.
 - Revue de sécurité : lancer le sous-agent `security-reviewer` dès que la
   branche touche une zone sensible (rendu HTML et protocoles, TLS, IMAP,
   SMTP, autodécouverte, trousseau, SQL, pièces jointes et fichiers, IPC et
   capabilities Tauri, dépendances, CI, empaquetage ; liste des fichiers
   dans `docs/technique/securite.md#fichiers-sensibles`). Corriger les
   constats critiques et hauts avant la PR, résumer le rapport dans sa
-  description, reporter les autres dans `docs/BACKLOG.md`.
+  description, reporter les autres en tickets Linear (`revue-sécurité` et
+  leur `Gravité`).
 - Récapitulatif : fait, reste, fichiers à relire en priorité (y compris les
   fichiers d'infra sensibles).

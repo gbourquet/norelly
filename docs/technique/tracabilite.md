@@ -33,6 +33,7 @@ Fiche : [comptes.md](../fonctionnel/comptes.md).
 | Le secret n'est jamais dans `Debug`, n'a pas de `Display`, n'est pas sérialisable | `crates/domain/src/credentials.rs` |
 | Le mot de passe n'appartient pas au compte : il vit dans le trousseau, sous des clés propres au compte | `crates/domain/src/account.rs` |
 | Fichier de secrets non chiffré (droits 0600) seulement si aucun trousseau ne répond, après consentement (dérogation ADR-002) | `crates/adapters/keyring/src/file.rs` |
+| L'écran d'ajout n'annonce « trousseau du système » que sur la réponse de `secrets_backend` (sonde du trousseau) : avec le fichier de repli, ou sans réponse, aucune garantie n'est affichée | `app/src-tauri/src/state.rs` (`AppSecretStore::stores_in_system_keyring`), `app/src-tauri/src/commands.rs` (`secrets_backend`), `app/src/lib/add-account.svelte.ts`, `AddAccountDialog.svelte` |
 
 Cas d'usage : `DiscoverSettings`, `TestConnection`, `AddAccount`,
 `RemoveAccount` (`crates/application/src/accounts.rs`,

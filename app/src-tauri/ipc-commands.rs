@@ -9,6 +9,7 @@ const APP_COMMANDS: &[&str] = &[
     "add_account",
     "trust_certificate",
     "allow_file_secrets",
+    "secrets_backend",
     "remove_account",
     "list_folders",
     "list_conversations",

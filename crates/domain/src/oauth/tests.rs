@@ -277,3 +277,14 @@ fn connect_request_refuses_token_for_foreign_host() {
         Ok(())
     );
 }
+
+#[test]
+fn microsoft_mailbox_not_connected_is_detected() {
+    assert!(is_mailbox_not_connected(
+        "User is authenticated but not connected."
+    ));
+    assert!(is_mailbox_not_connected(
+        "BAD User is Authenticated but not Connected"
+    ));
+    assert!(!is_mailbox_not_connected("AUTHENTICATE failed."));
+}

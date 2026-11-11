@@ -724,5 +724,7 @@
   "sidebar_reconnect": "Sign in again",
   "sidebar_reauth_required": "Sign-in required: {address}",
   "notice_reconnected": "Account reconnected.",
-  "sidebar_reauth_hint": "Sign-in required"
+  "sidebar_reauth_hint": "Sign-in required",
+  "failure_microsoft_imap_unavailable": "mailbox unavailable at Microsoft (IMAP access)",
+  "add_fail_microsoft_imap_unavailable": "{prefix}your Microsoft account is signed in, but Outlook.com refuses access to the mailbox. Check that IMAP access is turned on in Outlook.com (Settings, Mail, Forwarding and IMAP), then try again in a few minutes."
 }

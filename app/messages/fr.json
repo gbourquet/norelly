@@ -724,5 +724,7 @@
   "sidebar_reconnect": "Se reconnecter",
   "sidebar_reauth_required": "Reconnexion nécessaire : {address}",
   "notice_reconnected": "Compte reconnecté.",
-  "sidebar_reauth_hint": "Reconnexion nécessaire"
+  "sidebar_reauth_hint": "Reconnexion nécessaire",
+  "failure_microsoft_imap_unavailable": "boîte inaccessible chez Microsoft (accès IMAP)",
+  "add_fail_microsoft_imap_unavailable": "{prefix}votre compte Microsoft est bien connecté, mais Outlook.com refuse l'accès à la boîte. Vérifiez que l'accès IMAP est activé dans Outlook.com (Paramètres, Courrier, Transfert et IMAP), puis réessayez dans quelques minutes."
 }

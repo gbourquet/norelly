@@ -487,6 +487,10 @@ pub enum AuthenticationAdvice {
     /// la lecture fonctionne, l'envoi doit être activé dans les réglages
     /// du compte Outlook.com.
     MicrosoftSmtpDisabled,
+    /// Compte Microsoft dont la boîte reste inaccessible en IMAP malgré un
+    /// jeton accepté : vérifier que l'accès IMAP est activé dans
+    /// Outlook.com, puis réessayer.
+    MicrosoftImapUnavailable,
 }
 
 /// Domaines des adresses Gmail grand public.

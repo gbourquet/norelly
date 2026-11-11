@@ -1115,6 +1115,11 @@ export type FailureKindDto = "network" | "authentication" |
 /**  Compte Microsoft dont l'envoi (SMTP) est désactivé sur la boîte. */
 "microsoft_smtp_disabled" | 
 /**
+ *  Compte Microsoft dont la boîte reste inaccessible en IMAP malgré un
+ *  jeton accepté.
+ */
+"microsoft_imap_unavailable" | 
+/**
  *  Compte OAuth : le jeton ne peut plus être rafraîchi, il faut se
  *  reconnecter chez le fournisseur.
  */

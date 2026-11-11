@@ -36,6 +36,8 @@ fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 #[derive(Debug, Clone, Default)]
 pub struct FakeMailServers {
     results: Arc<Mutex<BTreeMap<String, Result<ServerCapabilities, ConnectionError>>>>,
+    /// Échecs à renvoyer d'abord, un par connexion, avant `results`.
+    failures: Arc<Mutex<BTreeMap<String, Vec<ConnectionError>>>>,
     seen: Arc<Mutex<Vec<(Protocol, ConnectRequest)>>>,
     imap: FakeImap,
 }
@@ -65,6 +67,13 @@ impl FakeMailServers {
         lock(&self.results).insert(endpoint.to_string(), result);
     }
 
+    /// Les prochaines connexions à `endpoint` échouent avec `errors`, une
+    /// par connexion, puis la réponse de [`Self::set`] (ou par défaut)
+    /// reprend.
+    pub fn fail_first(&self, endpoint: &ServerEndpoint, errors: Vec<ConnectionError>) {
+        lock(&self.failures).insert(endpoint.to_string(), errors);
+    }
+
     /// Connexions tentées.
     #[must_use]
     pub fn requests(&self) -> Vec<(Protocol, ConnectRequest)> {
@@ -79,6 +88,11 @@ impl FakeMailServers {
         lock(&self.seen).push((protocol, request.clone()));
         // Défense en profondeur, comme les vrais adaptateurs.
         request.plaintext.authorize(&request.endpoint)?;
+        if let Some(queue) = lock(&self.failures).get_mut(&request.endpoint.to_string())
+            && !queue.is_empty()
+        {
+            return Err(queue.remove(0));
+        }
         lock(&self.results)
             .get(&request.endpoint.to_string())
             .cloned()

@@ -335,6 +335,17 @@ pub fn classify_token_error(status: u16, error_code: Option<&str>) -> TokenError
     }
 }
 
+/// Vrai si le serveur IMAP de Microsoft a accepté le jeton sans pouvoir
+/// rattacher la session à la boîte (« User is authenticated but not
+/// connected ») : défaillance intermittente du côté de Microsoft, ou accès
+/// IMAP désactivé sur la boîte.
+#[must_use]
+pub fn is_mailbox_not_connected(server_message: &str) -> bool {
+    server_message
+        .to_ascii_lowercase()
+        .contains("authenticated but not connected")
+}
+
 /// Vrai si un refus SMTP indique que l'envoi authentifié par OAuth est
 /// désactivé sur la boîte (Outlook.com : `535 5.7.139`), alors que l'IMAP
 /// fonctionne.

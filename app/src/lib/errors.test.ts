@@ -210,6 +210,7 @@ describe("traduction des erreurs IPC", () => {
       storage: true,
       internal: true,
       microsoft_smtp_disabled: true,
+      microsoft_imap_unavailable: true,
       reauth_required: true,
       oauth_cancelled: true,
       oauth: true,

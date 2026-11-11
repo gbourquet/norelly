@@ -149,6 +149,16 @@ colonne de gauche (l'entrée existe aussi dans le menu **⋯** du compte).
 Cliquez dessus et reconnectez-vous dans le navigateur : la réception
 reprend.
 
+### Si la réception est refusée
+
+Il arrive que Microsoft accepte la connexion mais refuse l'accès à la
+boîte. Norelly réessaie alors plusieurs fois de lui-même. Si le refus
+persiste, Norelly vous demande de vérifier que l'**accès IMAP** est activé
+dans Outlook.com : sur le site d'Outlook.com, ouvrez **Paramètres**, puis
+**Courrier**, puis **Transfert et IMAP**, et activez l'accès IMAP.
+Réessayez ensuite dans quelques minutes : chez Microsoft, ce refus est
+parfois passager.
+
 ### Si l'envoi est refusé
 
 Sur certains comptes Outlook.com, Microsoft désactive l'envoi de messages

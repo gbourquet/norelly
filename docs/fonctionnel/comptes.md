@@ -112,6 +112,10 @@ acceptés) sont supprimées. **Rien n'est supprimé sur le serveur.**
   au formulaire, avec une explication ; rien n'est enregistré.
 - Envoi désactivé par Microsoft sur la boîte, alors que la réception
   fonctionne : le compte n'est pas ajouté et l'écran l'explique.
+- Connexion Microsoft acceptée mais boîte inaccessible en réception (refus
+  parfois passager chez Microsoft) : Norelly réessaie plusieurs fois ; si
+  le refus persiste, il demande de vérifier que l'accès IMAP est activé
+  dans Outlook.com, sans parler de mot de passe.
 - L'autorisation Microsoft n'est jamais envoyée à un autre serveur que ceux
   de Microsoft, ni sur une connexion non chiffrée.
 - Compte Google refusé (adresse Gmail, ou serveurs de Google pour une
@@ -142,6 +146,7 @@ acceptés) sont supprimées. **Rien n'est supprimé sur le serveur.**
 | Adresse Microsoft | Outlook.com et Hotmail n'acceptent pas de mot de passe ici : connectez-vous chez Microsoft dans votre navigateur. Norelly ne voit jamais votre mot de passe. |
 | Attente du navigateur | Connectez-vous dans la fenêtre de votre navigateur, puis revenez ici. |
 | Connexion annulée | La connexion a été annulée dans le navigateur. |
+| Boîte inaccessible (Microsoft) | {prefix}votre compte Microsoft est bien connecté, mais Outlook.com refuse l'accès à la boîte. Vérifiez que l'accès IMAP est activé dans Outlook.com (Paramètres, Courrier, Transfert et IMAP), puis réessayez dans quelques minutes. |
 | Envoi désactivé (Microsoft) | {prefix}l'envoi de messages est désactivé sur ce compte Microsoft. Activez-le dans les réglages de votre compte Outlook.com, puis réessayez. |
 | Reconnexion nécessaire | Bouton « Se reconnecter » à côté du compte ; infobulle « Reconnexion nécessaire : {address} » ; « Compte reconnecté. » après succès. |
 | Refus de sécurité | {prefix}connexion refusée par sécurité. |

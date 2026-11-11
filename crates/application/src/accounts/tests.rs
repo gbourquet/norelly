@@ -746,6 +746,58 @@ mod oauth {
         assert!(w.accounts.list().await.is_ok_and(|l| l.is_empty()));
     }
 
+    fn not_connected() -> ConnectionError {
+        ConnectionError::Authentication(AuthError::Rejected {
+            message: "User is authenticated but not connected.".to_owned(),
+        })
+    }
+
+    fn imap_endpoint() -> norelly_domain::endpoint::ServerEndpoint {
+        let (imap, _) =
+            oauth_servers(OAuthProvider::Microsoft, &outlook()).unwrap_or_else(|e| panic!("{e}"));
+        imap.endpoint
+    }
+
+    fn imap_attempts(w: &World) -> usize {
+        w.servers
+            .requests()
+            .iter()
+            .filter(|(p, _)| *p == Protocol::Imap)
+            .count()
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn intermittent_mailbox_binding_failure_is_retried() {
+        let w = World::new();
+        w.servers
+            .fail_first(&imap_endpoint(), vec![not_connected(), not_connected()]);
+        assert!(matches!(
+            add(&w, &broker(grant())).await,
+            AddAccountOutcome::Added(_)
+        ));
+        assert_eq!(imap_attempts(&w), 3);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn persistent_mailbox_binding_failure_is_explained() {
+        let w = World::new();
+        w.servers.set(&imap_endpoint(), Err(not_connected()));
+        let outcome = add(&w, &broker(grant())).await;
+        assert!(
+            matches!(
+                outcome,
+                AddAccountOutcome::ConnectionFailed {
+                    protocol: Protocol::Imap,
+                    advice: Some(AuthenticationAdvice::MicrosoftImapUnavailable),
+                    ..
+                }
+            ),
+            "{outcome:?}"
+        );
+        assert_eq!(imap_attempts(&w), OAUTH_IMAP_ATTEMPTS);
+        assert!(w.accounts.list().await.is_ok_and(|l| l.is_empty()));
+    }
+
     #[tokio::test]
     async fn reconnect_replaces_refresh_token() {
         let w = World::new();

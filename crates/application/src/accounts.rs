@@ -24,7 +24,9 @@ use norelly_domain::security::{CertificateException, CertificateRejection, Plain
 use norelly_domain::auth::AuthError;
 use norelly_domain::credentials::Username;
 use norelly_domain::endpoint::{Host, Security};
-use norelly_domain::oauth::{OAuthProvider, OAuthSource, TokenError, is_smtp_oauth_disabled};
+use norelly_domain::oauth::{
+    OAuthProvider, OAuthSource, TokenError, is_mailbox_not_connected, is_smtp_oauth_disabled,
+};
 use norelly_domain::ports::OAuthClient;
 
 use crate::discover_settings::DiscoverSettings;
@@ -278,21 +280,31 @@ where
                 Ok(c) => c,
                 Err(e) => return AddAccountOutcome::Invalid(e.to_string()),
             };
-            let outcome = self
-                .test
-                .execute(TestConnectionParams {
-                    protocol,
-                    endpoint: server.endpoint.clone(),
-                    credentials,
-                    plaintext: PlaintextPolicy::deny_all(),
-                })
-                .await;
+            let params = TestConnectionParams {
+                protocol,
+                endpoint: server.endpoint.clone(),
+                credentials,
+                plaintext: PlaintextPolicy::deny_all(),
+            };
+            let mut outcome = self.test.execute(params.clone()).await;
+            // Microsoft accepte parfois le jeton sans rattacher la session à
+            // la boîte, de façon intermittente : quelques nouveaux essais.
+            for _ in 1..OAUTH_IMAP_ATTEMPTS {
+                if !mailbox_not_connected(&outcome) {
+                    break;
+                }
+                tokio::time::sleep(OAUTH_IMAP_RETRY_DELAY).await;
+                outcome = self.test.execute(params.clone()).await;
+            }
             if !matches!(outcome, TestConnectionOutcome::Success { .. }) {
                 let advice = match &outcome {
                     TestConnectionOutcome::Authentication(AuthError::Rejected { message })
                         if protocol == Protocol::Smtp && is_smtp_oauth_disabled(message) =>
                     {
                         Some(AuthenticationAdvice::MicrosoftSmtpDisabled)
+                    }
+                    _ if mailbox_not_connected(&outcome) => {
+                        Some(AuthenticationAdvice::MicrosoftImapUnavailable)
                     }
                     _ => None,
                 };
@@ -318,6 +330,21 @@ where
         }
         AddAccountOutcome::Added(account)
     }
+}
+
+/// Essais du test IMAP d'un compte OAuth quand Microsoft accepte le jeton
+/// sans rattacher la session à la boîte (défaillance intermittente).
+pub const OAUTH_IMAP_ATTEMPTS: usize = 3;
+
+/// Attente entre deux essais du test IMAP d'un compte OAuth.
+const OAUTH_IMAP_RETRY_DELAY: std::time::Duration = std::time::Duration::from_secs(1);
+
+fn mailbox_not_connected(outcome: &TestConnectionOutcome) -> bool {
+    matches!(
+        outcome,
+        TestConnectionOutcome::Authentication(AuthError::Rejected { message })
+            if is_mailbox_not_connected(message)
+    )
 }
 
 /// Serveurs d'un compte OAuth : ceux du fournisseur, en TLS (IMAP 993) et

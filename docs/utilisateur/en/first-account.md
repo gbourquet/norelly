@@ -133,6 +133,15 @@ button then appears next to the account, in the left column (the entry is
 also in the account's **⋯** menu). Click it and sign in again in the
 browser: receiving resumes.
 
+### If receiving is refused
+
+Microsoft sometimes accepts the sign-in but refuses access to the mailbox.
+Norelly then tries again a few times on its own. If the refusal persists,
+Norelly asks you to check that **IMAP access** is turned on in
+Outlook.com: on the Outlook.com website, open **Settings**, then **Mail**,
+then **Forwarding and IMAP**, and turn on IMAP access. Then try again in a
+few minutes: on Microsoft's side, this refusal is sometimes temporary.
+
 ### If sending is refused
 
 On some Outlook.com accounts, Microsoft turns off sending from email

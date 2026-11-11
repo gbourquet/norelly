@@ -417,6 +417,23 @@ describe("se connecter avec Microsoft", () => {
     expect(f.message).toContain("Outlook.com");
   });
 
+  it("boîte inaccessible en IMAP : conseil de vérifier l'accès IMAP", async () => {
+    const { api } = fakeApi(found, [
+      {
+        kind: "failed",
+        protocol: "imap",
+        failure: "microsoft_imap_unavailable",
+        detail: "User is authenticated but not connected.",
+      },
+    ]);
+    const f = outlook(api);
+    await f.detectProvider();
+    await f.signInWithProvider();
+    expect(f.step).toBe("form");
+    expect(f.message).toContain("Transfert et IMAP");
+    expect(f.message).not.toContain("mot de passe d'application");
+  });
+
   it("fichier des secrets accepté : la connexion reprend par Microsoft", async () => {
     const { api, oauthCalls } = fakeApi(found, [
       { kind: "secret_storage_consent_required", path: "/tmp/mots-de-passe.json" },

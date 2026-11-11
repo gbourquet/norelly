@@ -411,6 +411,8 @@ function failureMessage(
         return m.add_fail_google_app_password({ prefix });
       case "microsoft_smtp_disabled":
         return m.add_fail_microsoft_smtp_disabled({ prefix });
+      case "microsoft_imap_unavailable":
+        return m.add_fail_microsoft_imap_unavailable({ prefix });
       case "reauth_required":
         return m.add_fail_reauth_required();
       case "oauth_cancelled":

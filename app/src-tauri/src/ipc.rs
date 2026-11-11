@@ -594,6 +594,9 @@ pub enum FailureKindDto {
     GoogleAppPassword,
     /// Compte Microsoft dont l'envoi (SMTP) est désactivé sur la boîte.
     MicrosoftSmtpDisabled,
+    /// Compte Microsoft dont la boîte reste inaccessible en IMAP malgré un
+    /// jeton accepté.
+    MicrosoftImapUnavailable,
     /// Compte OAuth : le jeton ne peut plus être rafraîchi, il faut se
     /// reconnecter chez le fournisseur.
     ReauthRequired,
@@ -795,6 +798,9 @@ fn connection_failure(
                 Some(AuthenticationAdvice::GoogleAppPassword) => FailureKindDto::GoogleAppPassword,
                 Some(AuthenticationAdvice::MicrosoftSmtpDisabled) => {
                     FailureKindDto::MicrosoftSmtpDisabled
+                }
+                Some(AuthenticationAdvice::MicrosoftImapUnavailable) => {
+                    FailureKindDto::MicrosoftImapUnavailable
                 }
                 None => FailureKindDto::Authentication,
             };
@@ -1372,6 +1378,12 @@ mod error_tests {
             })
         );
         assert_eq!(json(&rejected(None))["failure"], "authentication");
+        assert_eq!(
+            json(&rejected(Some(
+                AuthenticationAdvice::MicrosoftImapUnavailable
+            )))["failure"],
+            "microsoft_imap_unavailable"
+        );
     }
 }
 

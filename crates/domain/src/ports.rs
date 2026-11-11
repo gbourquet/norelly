@@ -69,6 +69,40 @@ pub trait Authenticator: fmt::Debug + Send + Sync {
 }
 
 // ---------------------------------------------------------------------------
+// OAuth
+// ---------------------------------------------------------------------------
+
+/// Jetons délivrés par un fournisseur OAuth. `Debug` masque les jetons.
+#[derive(Debug, Clone)]
+pub struct OAuthGrant {
+    pub access_token: crate::credentials::Secret,
+    /// Durée de validité du jeton d'accès, en secondes.
+    pub expires_in: u64,
+    /// Nouveau jeton de rafraîchissement, quand le fournisseur en délivre
+    /// un (connexion, rotation au rafraîchissement).
+    pub refresh_token: Option<crate::credentials::Secret>,
+}
+
+/// Obtention et rafraîchissement des jetons OAuth (navigateur du système,
+/// redirection locale, HTTPS).
+pub trait OAuthClient: Send + Sync {
+    /// Connexion interactive : ouvre le navigateur du système et attend le
+    /// retour de l'utilisateur.
+    fn authorize(
+        &self,
+        provider: crate::oauth::OAuthProvider,
+        login_hint: &crate::address::EmailAddress,
+    ) -> impl Future<Output = Result<OAuthGrant, crate::oauth::TokenError>> + Send;
+
+    /// Nouveau jeton d'accès à partir du jeton de rafraîchissement.
+    fn refresh(
+        &self,
+        provider: crate::oauth::OAuthProvider,
+        refresh_token: &crate::credentials::Secret,
+    ) -> impl Future<Output = Result<OAuthGrant, crate::oauth::TokenError>> + Send;
+}
+
+// ---------------------------------------------------------------------------
 // Trousseau
 // ---------------------------------------------------------------------------
 

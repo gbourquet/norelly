@@ -133,6 +133,15 @@ impl fmt::Display for Username {
     }
 }
 
+/// Nature du secret présenté au serveur.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum CredentialKind {
+    /// Mot de passe (PLAIN, LOGIN).
+    Password,
+    /// Jeton d'accès OAuth 2.0 (XOAUTH2).
+    OAuth2,
+}
+
 /// Nom d'utilisateur et secret.
 ///
 /// `Debug` masque le secret ; `Display` n'affiche que l'utilisateur.
@@ -140,6 +149,7 @@ impl fmt::Display for Username {
 pub struct Credentials {
     username: Username,
     secret: Secret,
+    kind: CredentialKind,
 }
 
 impl Credentials {
@@ -152,7 +162,32 @@ impl Credentials {
         if secret.expose().contains('\0') {
             return Err(CredentialsError::SecretNulCharacter);
         }
-        Ok(Self { username, secret })
+        Ok(Self {
+            username,
+            secret,
+            kind: CredentialKind::Password,
+        })
+    }
+
+    /// Jeton d'accès OAuth : non vide, sans caractère de contrôle (il est
+    /// placé entre des séparateurs `\x01` dans la réponse XOAUTH2).
+    pub fn oauth2(username: Username, access_token: Secret) -> Result<Self, CredentialsError> {
+        if access_token.is_empty() {
+            return Err(CredentialsError::EmptySecret);
+        }
+        if access_token.expose().chars().any(char::is_control) {
+            return Err(CredentialsError::SecretNulCharacter);
+        }
+        Ok(Self {
+            username,
+            secret: access_token,
+            kind: CredentialKind::OAuth2,
+        })
+    }
+
+    #[must_use]
+    pub fn kind(&self) -> CredentialKind {
+        self.kind
     }
 
     #[must_use]
@@ -171,6 +206,7 @@ impl fmt::Debug for Credentials {
         f.debug_struct("Credentials")
             .field("username", &self.username.as_str())
             .field("secret", &self.secret)
+            .field("kind", &self.kind)
             .finish()
     }
 }
@@ -256,7 +292,13 @@ mod tests {
         ));
         // CR/LF sont admis dans un mot de passe : les adaptateurs les
         // transmettent en littéral ou en base64, jamais tels quels.
-        assert!(Credentials::new(user, Secret::new("a\r\nb".to_owned())).is_ok());
+        assert!(Credentials::new(user.clone(), Secret::new("a\r\nb".to_owned())).is_ok());
+        assert!(Credentials::oauth2(user.clone(), Secret::new("a\x01b".to_owned())).is_err());
+        assert!(Credentials::oauth2(user.clone(), Secret::new(String::new())).is_err());
+        assert_eq!(
+            Credentials::oauth2(user, Secret::new("jeton".to_owned())).map(|c| c.kind()),
+            Ok(CredentialKind::OAuth2)
+        );
     }
 
     #[test]

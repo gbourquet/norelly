@@ -1,13 +1,15 @@
-//! Tests du gestionnaire de jetons, sur faux client et faux trousseau.
+//! Tests des jetons OAuth, sur faux client, faux trousseau et faux SMTP.
 
 use std::collections::BTreeMap;
 use std::sync::Mutex as StdMutex;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 
 use norelly_domain::account::AccountId;
 use norelly_domain::address::EmailAddress;
-use norelly_domain::endpoint::Protocol;
+use norelly_domain::credentials::{Credentials, Username};
+use norelly_domain::endpoint::{Host, Protocol, Security, ServerEndpoint};
 use norelly_domain::oauth::OAuthProvider;
+use norelly_domain::security::PlaintextPolicy;
 
 use super::*;
 
@@ -38,11 +40,12 @@ impl SecretStore for Keyring {
     }
 }
 
-/// Faux fournisseur : accepte le jeton de rafraîchissement « r1 » et le
-/// fait tourner en « r2 » ; refuse tout autre jeton (`invalid_grant`).
+/// Faux fournisseur : accepte le jeton de rafraîchissement « r1 », le fait
+/// tourner en « r2 » et délivre « a1 », « a2 »… ; refuse tout autre jeton.
 #[derive(Debug, Default)]
 struct Provider {
     refreshes: AtomicUsize,
+    hang: bool,
 }
 
 impl OAuthClient for Provider {
@@ -54,8 +57,11 @@ impl OAuthClient for Provider {
         Err(TokenError::Cancelled("non utilisé".to_owned()))
     }
     async fn refresh(&self, _: OAuthProvider, refresh: &Secret) -> Result<OAuthGrant, TokenError> {
+        if self.hang {
+            std::future::pending::<()>().await;
+        }
         let n = self.refreshes.fetch_add(1, Ordering::SeqCst) + 1;
-        if refresh.expose() != "r1" {
+        if !matches!(refresh.expose(), "r1" | "r2") {
             return Err(TokenError::ReauthRequired);
         }
         Ok(OAuthGrant {
@@ -66,78 +72,213 @@ impl OAuthClient for Provider {
     }
 }
 
-fn source() -> OAuthSource {
+fn key() -> SecretKey {
     let Ok(id) = AccountId::new(7) else {
         panic!("identifiant valide refusé");
     };
+    SecretKey::for_account(id, Protocol::Imap)
+}
+
+fn source() -> OAuthSource {
     OAuthSource {
         provider: OAuthProvider::Microsoft,
-        refresh_key: SecretKey::for_account(id, Protocol::Imap),
+        refresh_key: key(),
     }
 }
 
-async fn broker_with_refresh(token: &str) -> TokenBroker<Provider, Keyring> {
-    let keyring = Keyring::default();
-    let _ = keyring
-        .set(&source().refresh_key, &Secret::new(token.to_owned()))
-        .await;
-    TokenBroker::new(Provider::default(), keyring)
+struct Fixture {
+    broker: Arc<TokenBroker<Provider, Keyring>>,
+    now: Arc<AtomicU64>,
 }
 
-#[tokio::test(start_paused = true)]
+async fn fixture(refresh: Option<&str>, provider: Provider) -> Fixture {
+    let keyring = Keyring::default();
+    if let Some(r) = refresh {
+        let _ = keyring.set(&key(), &Secret::new(r.to_owned())).await;
+    }
+    let now = Arc::new(AtomicU64::new(1_000_000));
+    let clock = Arc::clone(&now);
+    let broker = TokenBroker::new(
+        provider,
+        keyring,
+        Arc::new(move || clock.load(Ordering::SeqCst)),
+    );
+    Fixture {
+        broker: Arc::new(broker),
+        now,
+    }
+}
+
+async fn token(f: &Fixture) -> Result<String, AuthError> {
+    f.broker
+        .access_token(&source())
+        .await
+        .map(|s| s.expose().to_owned())
+}
+
+#[tokio::test]
 async fn refreshes_once_then_serves_from_memory() {
-    let broker = broker_with_refresh("r1").await;
-    let first = broker
-        .access_token(&source())
-        .await
-        .map(|s| s.expose().to_owned());
-    assert_eq!(first, Ok("a1".to_owned()));
-    let again = broker
-        .access_token(&source())
-        .await
-        .map(|s| s.expose().to_owned());
-    assert_eq!(again, Ok("a1".to_owned()));
-    assert_eq!(broker.client().refreshes.load(Ordering::SeqCst), 1);
+    let f = fixture(Some("r1"), Provider::default()).await;
+    assert_eq!(token(&f).await, Ok("a1".to_owned()));
+    assert_eq!(token(&f).await, Ok("a1".to_owned()));
+    assert_eq!(f.broker.client().refreshes.load(Ordering::SeqCst), 1);
     assert_eq!(
-        broker.secrets.read(&source().refresh_key).as_deref(),
+        f.broker.secrets.read(&key()).as_deref(),
         Some("r2"),
         "jeton de rafraîchissement remplacé par celui du fournisseur"
     );
 }
 
-#[tokio::test(start_paused = true)]
-async fn expired_token_is_refreshed() {
-    let broker = TokenBroker::new(Provider::default(), Keyring::default());
+#[tokio::test]
+async fn expiry_follows_the_wall_clock() {
+    let f = fixture(None, Provider::default()).await;
     let grant = OAuthGrant {
         access_token: Secret::new("initial".to_owned()),
         expires_in: 600,
         refresh_token: Some(Secret::new("r1".to_owned())),
     };
-    assert_eq!(broker.store_grant(&source(), grant).await, Ok(()));
-    let t = broker
-        .access_token(&source())
-        .await
-        .map(|s| s.expose().to_owned());
-    assert_eq!(t, Ok("initial".to_owned()));
-    tokio::time::advance(std::time::Duration::from_secs(600)).await;
-    let t = broker
-        .access_token(&source())
-        .await
-        .map(|s| s.expose().to_owned());
-    assert_eq!(t, Ok("a1".to_owned()));
+    assert_eq!(f.broker.store_grant(&source(), grant).await, Ok(()));
+    assert_eq!(token(&f).await, Ok("initial".to_owned()));
+    // Mise en veille de deux heures : l'horloge murale a avancé.
+    f.now.fetch_add(7_200, Ordering::SeqCst);
+    assert_eq!(token(&f).await, Ok("a1".to_owned()));
+}
+
+#[tokio::test]
+async fn refused_or_missing_refresh_token_requires_reauth() {
+    let f = fixture(Some("révoqué"), Provider::default()).await;
+    assert_eq!(token(&f).await, Err(AuthError::ReauthRequired));
+    let empty = fixture(None, Provider::default()).await;
+    assert_eq!(token(&empty).await, Err(AuthError::ReauthRequired));
+    assert_eq!(empty.broker.client().refreshes.load(Ordering::SeqCst), 0);
 }
 
 #[tokio::test(start_paused = true)]
-async fn refused_or_missing_refresh_token_requires_reauth() {
-    let broker = broker_with_refresh("révoqué").await;
-    assert_eq!(
-        broker.access_token(&source()).await.map(|_| ()),
-        Err(AuthError::ReauthRequired)
-    );
-    let empty = TokenBroker::new(Provider::default(), Keyring::default());
-    assert_eq!(
-        empty.access_token(&source()).await.map(|_| ()),
-        Err(AuthError::ReauthRequired)
-    );
-    assert_eq!(empty.client().refreshes.load(Ordering::SeqCst), 0);
+async fn hanging_provider_times_out() {
+    let f = fixture(
+        Some("r1"),
+        Provider {
+            hang: true,
+            ..Provider::default()
+        },
+    )
+    .await;
+    assert!(matches!(token(&f).await, Err(AuthError::Rejected { .. })));
+}
+
+/// Faux SMTP : refuse les jetons de `refused`, retient les jetons reçus.
+#[derive(Debug, Default)]
+struct Smtp {
+    refused: Vec<&'static str>,
+    seen: StdMutex<Vec<String>>,
+}
+
+impl MailSender for Smtp {
+    async fn verify(
+        &self,
+        request: &ConnectRequest,
+    ) -> Result<ServerCapabilities, ConnectionError> {
+        let t = request.credentials.secret().expose().to_owned();
+        if let Ok(mut seen) = self.seen.lock() {
+            seen.push(t.clone());
+        }
+        if self.refused.contains(&t.as_str()) {
+            return Err(AuthError::Rejected {
+                message: "535 5.7.3".to_owned(),
+            }
+            .into());
+        }
+        Ok(ServerCapabilities::from_smtp_ehlo(&["AUTH XOAUTH2"]))
+    }
+    async fn send(&self, request: &ConnectRequest, _: &OutgoingMessage) -> Result<(), SendError> {
+        self.verify(request).await.map(|_| ())?;
+        Ok(())
+    }
+}
+
+fn oauth_request() -> ConnectRequest {
+    let (Ok(h), Ok(u)) = (
+        Host::parse("smtp-mail.outlook.com"),
+        Username::parse("a@outlook.com"),
+    ) else {
+        panic!("valeurs valides refusées");
+    };
+    let Ok(endpoint) = ServerEndpoint::new(h, 587, Security::StartTls) else {
+        panic!("point d'accès valide refusé");
+    };
+    let Ok(credentials) = Credentials::oauth2(
+        u,
+        Secret::new("perime".to_owned()),
+        OAuthProvider::Microsoft,
+    ) else {
+        panic!("jeton valide refusé");
+    };
+    ConnectRequest {
+        endpoint,
+        credentials: credentials.with_refresh_key(key()),
+        certificate_exceptions: Vec::new(),
+        plaintext: PlaintextPolicy::deny_all(),
+    }
+}
+
+fn seen(s: &FreshTokens<Smtp, Provider, Keyring>) -> Vec<String> {
+    s.inner.seen.lock().map(|v| v.clone()).unwrap_or_default()
+}
+
+#[tokio::test]
+async fn connection_gets_a_fresh_token() {
+    let f = fixture(Some("r1"), Provider::default()).await;
+    let smtp = FreshTokens {
+        inner: Smtp::default(),
+        broker: f.broker,
+    };
+    assert!(smtp.verify(&oauth_request()).await.is_ok());
+    assert_eq!(seen(&smtp), vec!["a1".to_owned()]);
+}
+
+#[tokio::test]
+async fn token_refused_by_server_is_refreshed_once() {
+    let f = fixture(Some("r1"), Provider::default()).await;
+    let smtp = FreshTokens {
+        inner: Smtp {
+            refused: vec!["a1"],
+            ..Smtp::default()
+        },
+        broker: f.broker,
+    };
+    let message = OutgoingMessage {
+        from: "a@outlook.com".to_owned(),
+        recipients: vec!["b@example.com".to_owned()],
+        raw: b"x".to_vec(),
+    };
+    assert_eq!(smtp.send(&oauth_request(), &message).await, Ok(()));
+    assert_eq!(seen(&smtp), vec!["a1".to_owned(), "a2".to_owned()]);
+    let always = FreshTokens {
+        inner: Smtp {
+            refused: vec!["a1", "a2", "a3"],
+            ..Smtp::default()
+        },
+        broker: fixture(Some("r1"), Provider::default()).await.broker,
+    };
+    assert!(always.verify(&oauth_request()).await.is_err());
+    assert_eq!(seen(&always).len(), 2, "une seule nouvelle tentative");
+}
+
+#[tokio::test]
+async fn password_requests_pass_through() {
+    let f = fixture(None, Provider::default()).await;
+    let smtp = FreshTokens {
+        inner: Smtp::default(),
+        broker: f.broker,
+    };
+    let mut request = oauth_request();
+    let (Ok(u),) = (Username::parse("a@example.com"),) else {
+        panic!("utilisateur valide refusé");
+    };
+    let Ok(pw) = Credentials::new(u, Secret::new("pw".to_owned())) else {
+        panic!("identifiants valides refusés");
+    };
+    request.credentials = pw;
+    assert!(smtp.verify(&request).await.is_ok());
+    assert_eq!(seen(&smtp), vec!["pw".to_owned()]);
 }

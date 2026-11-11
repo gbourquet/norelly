@@ -58,7 +58,11 @@ impl<S: SecretStore> AppSecretStore<S> {
         self.system_reachable().await
     }
 
-    /// Sonde le trousseau du système : ouvert, et joignable ?
+    /// Sonde le trousseau du système : ouvert, et joignable ? Une erreur
+    /// autre que l'indisponibilité (refus d'accès, par exemple) compte
+    /// comme joignable : le mot de passe n'ira quand même pas dans un
+    /// fichier, car le repli n'a lieu que sur indisponibilité, avec
+    /// consentement.
     async fn system_reachable(&self) -> bool {
         let Ok(system) = &self.system else {
             return false;

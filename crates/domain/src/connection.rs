@@ -262,6 +262,7 @@ mod tests {
         for e in [
             ConnectionError::Timeout(TimeoutStage::TlsHandshake),
             ConnectionError::Timeout(TimeoutStage::Response),
+            ConnectionError::Timeout(TimeoutStage::Write),
             ConnectionError::Closed,
         ] {
             assert!(e.send_check_can_wait(), "{e:?}");
@@ -273,6 +274,24 @@ mod tests {
             ConnectionError::from(StartTlsUnavailable),
             ConnectionError::Tls("x".into()),
             ConnectionError::Protocol("x".into()),
+            ConnectionError::Rejected("x".into()),
+            ConnectionError::StartTlsRejected("454".into()),
+            ConnectionError::PlaintextInjection,
+            ConnectionError::from(PlaintextRefused {
+                host: crate::endpoint::Host::parse("smtp.example.com")
+                    .unwrap_or_else(|_| panic!("hôte")),
+                port: 587,
+            }),
+            ConnectionError::from(AuthError::Rejected {
+                message: "535 5.7.8".into(),
+            }),
+            ConnectionError::Certificate(crate::security::CertificateRejection {
+                host: crate::endpoint::Host::parse("smtp.example.com")
+                    .unwrap_or_else(|_| panic!("hôte")),
+                fingerprint: crate::security::CertificateFingerprint::from_bytes([1; 32]),
+                issue: crate::security::CertificateIssue::UnknownIssuer,
+                fingerprint_changed: false,
+            }),
         ] {
             assert!(!e.send_check_can_wait(), "{e:?}");
         }

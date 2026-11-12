@@ -305,18 +305,24 @@ async fn smtp_authentication_failure_is_reported() {
     assert_eq!(w.keyring.len(), 0);
 }
 
+/// Serveurs saisis ou découverts : un port ou un chiffrement faux fait
+/// aussi taire le serveur d'envoi, l'ajout exige donc un envoi vérifié.
 #[tokio::test(start_paused = true)]
-async fn silent_send_server_still_adds_the_account() {
+async fn silent_send_server_blocks_a_password_account() {
     let w = World::new();
     let draft = sample_account("alice@example.com", false);
     w.servers
         .set(&draft.smtp().endpoint, Err(ConnectionError::Closed));
     let outcome = w.add(request(Some(servers_of(&draft)))).await;
-    assert!(
-        matches!(outcome, AddAccountOutcome::AddedSendUnchecked(_)),
-        "{outcome:?}"
+    assert_eq!(
+        outcome,
+        AddAccountOutcome::ConnectionFailed {
+            protocol: Protocol::Smtp,
+            outcome: TestConnectionOutcome::Network(ConnectionError::Closed),
+            advice: None,
+        }
     );
-    assert_eq!(w.keyring.len(), 2);
+    assert_eq!(w.keyring.len(), 0);
 }
 
 #[tokio::test(start_paused = true)]

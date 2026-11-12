@@ -110,8 +110,8 @@ Norelly found the server, but it did not answer in time or cut the
 connection. Norelly has already tried again several times before showing
 this message.
 
-If only the sending server is not responding, Norelly adds the account
-anyway: "Account added. Sending could not be checked…". You receive your
+For an Outlook.com or Hotmail account, if only the sending server is not
+responding, Norelly adds the account anyway: "Account added. Sending could not be checked…". You receive your
 messages right away; sending will be tried with your first message, and a
 message that does not go out stays in the **outbox**.
 

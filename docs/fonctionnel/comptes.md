@@ -124,11 +124,12 @@ acceptés) sont supprimées. **Rien n'est supprimé sur le serveur.**
   réseau instable) : un nouvel essai pour la même adresse, dans les dix
   minutes, réutilise cette connexion sans rouvrir le navigateur. Elle n'est
   gardée qu'en mémoire, jamais enregistrée, et ne sert qu'une fois.
-- Réception vérifiée, mais serveur d'envoi joint qui ne répond pas ou
-  coupe la connexion : le compte est ajouté quand même, et un message dit
-  que l'envoi n'a pas pu être vérifié ; il le sera au premier message. Un
-  serveur d'envoi introuvable (nom ou port faux), un refus ou une
-  protection empêchent toujours l'ajout.
+- Compte Microsoft : réception vérifiée, mais serveur d'envoi de Microsoft
+  qui ne répond pas ou coupe la connexion : le compte est ajouté quand
+  même, et un message dit que l'envoi n'a pas pu être vérifié ; il le sera
+  au premier message. Un refus ou une protection empêchent toujours
+  l'ajout. Pour un compte ajouté avec un mot de passe, l'envoi doit être
+  vérifié : un port ou un chiffrement faux fait lui aussi taire le serveur.
 - Serveur qui ne répond pas : le message ne met en cause ni le nom ni le
   port, il invite à vérifier la connexion à Internet puis à réessayer.
 - L'autorisation Microsoft n'est jamais envoyée à un autre serveur que ceux

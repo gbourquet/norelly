@@ -51,8 +51,8 @@ pub struct AddAccountRequest {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AddAccountOutcome {
     Added(Account),
-    /// Compte ajouté, réception vérifiée ; le serveur d'envoi a été joint
-    /// mais ne répondait pas ([`ConnectionError::send_check_can_wait`]) :
+    /// Compte OAuth ajouté, réception vérifiée ; le serveur d'envoi du
+    /// fournisseur ne répondait pas ([`ConnectionError::send_check_can_wait`]) :
     /// l'envoi sera vérifié au premier message.
     AddedSendUnchecked(Account),
     /// Un compte existe déjà pour cette adresse.
@@ -138,7 +138,6 @@ where
             Err(e) => return AddAccountOutcome::Invalid(e.to_string()),
         };
 
-        let mut send_unchecked = false;
         for protocol in [Protocol::Imap, Protocol::Smtp] {
             let server = draft.server(protocol);
             let credentials =
@@ -155,10 +154,6 @@ where
                     plaintext: request.plaintext.clone(),
                 })
                 .await;
-            if send_check_can_wait(protocol, &outcome) {
-                send_unchecked = true;
-                continue;
-            }
             if !matches!(outcome, TestConnectionOutcome::Success { .. }) {
                 let advice = match &outcome {
                     TestConnectionOutcome::Authentication(error) => {
@@ -196,11 +191,7 @@ where
                 return AddAccountOutcome::SecretStoreFailed(e.to_string());
             }
         }
-        if send_unchecked {
-            AddAccountOutcome::AddedSendUnchecked(account)
-        } else {
-            AddAccountOutcome::Added(account)
-        }
+        AddAccountOutcome::Added(account)
     }
 
     /// Serveurs découverts, s'ils sont complets et ne demandent pas de
@@ -388,8 +379,9 @@ pub const OAUTH_IMAP_ATTEMPTS: usize = 3;
 /// Attente entre deux essais du test IMAP d'un compte OAuth.
 const OAUTH_IMAP_RETRY_DELAY: std::time::Duration = std::time::Duration::from_secs(1);
 
-/// Échec du test d'envoi qui n'empêche pas l'ajout : la réception a réussi
-/// et le serveur d'envoi, joint, ne répondait pas.
+/// Échec du test d'envoi qui n'empêche pas l'ajout d'un compte OAuth : la
+/// réception a réussi et le serveur d'envoi, imposé par le fournisseur (ni
+/// port ni chiffrement à mal saisir), ne répondait pas.
 fn send_check_can_wait(protocol: Protocol, outcome: &TestConnectionOutcome) -> bool {
     protocol == Protocol::Smtp
         && matches!(outcome, TestConnectionOutcome::Network(e) if e.send_check_can_wait())

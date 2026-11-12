@@ -131,9 +131,10 @@ impl ConnectionError {
         matches!(self, Self::Network(_) | Self::Timeout(_) | Self::Closed)
     }
 
-    /// Vrai si le serveur a été joint puis s'est tu ou a coupé la connexion
-    /// (par opposition à un serveur introuvable ou qui refuse la
-    /// connexion) : le nom et le port ne sont pas en cause.
+    /// Vrai si le serveur a été joint puis s'est tu ou a coupé la connexion,
+    /// par opposition à un serveur introuvable ou qui refuse la connexion.
+    /// Réseau instable le plus souvent ; un port ou un chiffrement faux
+    /// produit aussi ce silence.
     #[must_use]
     pub fn is_unresponsive(&self) -> bool {
         matches!(
@@ -144,11 +145,13 @@ impl ConnectionError {
         )
     }
 
-    /// Vrai si un compte peut être ajouté malgré cet échec du test d'envoi,
-    /// la réception ayant réussi : le serveur d'envoi a été joint puis s'est
-    /// tu ou a coupé la connexion (réseau instable). L'envoi sera vérifié au
-    /// premier message. Un serveur introuvable (nom ou port faux), un refus
-    /// ou une protection bloquent l'ajout.
+    /// Vrai si un compte dont les serveurs sont imposés par le fournisseur
+    /// (OAuth) peut être ajouté malgré cet échec du test d'envoi, la
+    /// réception ayant réussi : le serveur d'envoi a été joint puis s'est tu
+    /// ou a coupé la connexion (réseau instable). L'envoi sera vérifié au
+    /// premier message. Un serveur introuvable, un refus ou une protection
+    /// bloquent l'ajout. Pour des serveurs saisis, un port ou un chiffrement
+    /// faux produit le même silence : cette règle ne s'y applique pas.
     #[must_use]
     pub fn send_check_can_wait(&self) -> bool {
         self.is_unresponsive()

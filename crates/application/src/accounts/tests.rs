@@ -864,6 +864,61 @@ mod oauth {
         assert_eq!(browser_sign_ins(&b), 2);
     }
 
+    #[tokio::test(start_paused = true)]
+    async fn refused_sign_in_is_not_kept() {
+        let w = World::new();
+        let (b, _) = broker_with_clock(grant());
+        w.servers.set(
+            &imap_endpoint(),
+            Err(ConnectionError::Authentication(AuthError::Rejected {
+                message: "AUTHENTICATE failed.".to_owned(),
+            })),
+        );
+        assert!(matches!(
+            add(&w, &b).await,
+            AddAccountOutcome::ConnectionFailed { .. }
+        ));
+        assert!(!b.has_pending(OAuthProvider::Microsoft, &outlook()));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn reused_sign_in_is_not_kept_again() {
+        let w = World::new();
+        let (b, _) = broker_with_clock(grant());
+        silent_imap(&w);
+        assert!(matches!(
+            add(&w, &b).await,
+            AddAccountOutcome::ConnectionFailed { .. }
+        ));
+        silent_imap(&w);
+        assert!(matches!(
+            add(&w, &b).await,
+            AddAccountOutcome::ConnectionFailed { .. }
+        ));
+        assert!(!b.has_pending(OAuthProvider::Microsoft, &outlook()));
+        assert!(matches!(add(&w, &b).await, AddAccountOutcome::Added(_)));
+        assert_eq!(browser_sign_ins(&b), 2);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn kept_sign_in_age_counts_from_the_browser_sign_in() {
+        let w = World::new();
+        let (b, now) = broker_with_clock(grant());
+        // L'horloge avance pendant les essais : 9 min après la connexion
+        // dans le navigateur, puis encore 2 min avant le nouvel essai.
+        let clock = Arc::clone(&now);
+        w.servers.on_connect(move || {
+            clock.fetch_add(180, std::sync::atomic::Ordering::SeqCst);
+        });
+        silent_imap(&w);
+        assert!(matches!(
+            add(&w, &b).await,
+            AddAccountOutcome::ConnectionFailed { .. }
+        ));
+        now.fetch_add(120, std::sync::atomic::Ordering::SeqCst);
+        assert!(!b.has_pending(OAuthProvider::Microsoft, &outlook()));
+    }
+
     #[tokio::test]
     async fn reconnect_replaces_refresh_token() {
         let w = World::new();

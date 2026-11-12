@@ -242,19 +242,21 @@ where
             Err(e) => return AddAccountOutcome::Invalid(e),
         };
         // Un essai précédent a pu échouer après la connexion chez le
-        // fournisseur (serveur muet) : elle resservira sans navigateur.
-        let grant = match self.broker.take_pending(request.provider, &request.address) {
-            Some(grant) => grant,
-            None => match self
-                .broker
-                .client()
-                .authorize(request.provider, &request.address)
-                .await
-            {
-                Ok(grant) => grant,
-                Err(e) => return AddAccountOutcome::OAuthFailed(e),
-            },
-        };
+        // fournisseur (serveur muet) : elle resservira, une seule fois, sans
+        // navigateur.
+        let (grant, fresh_since) =
+            match self.broker.take_pending(request.provider, &request.address) {
+                Some(grant) => (grant, None),
+                None => match self
+                    .broker
+                    .client()
+                    .authorize(request.provider, &request.address)
+                    .await
+                {
+                    Ok(grant) => (grant, Some(self.broker.now())),
+                    Err(e) => return AddAccountOutcome::OAuthFailed(e),
+                },
+            };
         if grant.refresh_token.is_none() {
             // Accès hors ligne refusé : le compte cesserait de fonctionner
             // dans l'heure.
@@ -313,8 +315,15 @@ where
                     }
                     _ => None,
                 };
-                self.broker
-                    .keep_pending(request.provider, draft.address(), grant);
+                // Gardée seulement pour un échec passager : un refus
+                // (mauvais compte choisi dans le navigateur…) doit repasser
+                // par le navigateur.
+                if let Some(obtained_at) = fresh_since
+                    && worth_retrying(&outcome)
+                {
+                    self.broker
+                        .keep_pending(request.provider, draft.address(), grant, obtained_at);
+                }
                 return AddAccountOutcome::ConnectionFailed {
                     protocol,
                     outcome,
@@ -345,6 +354,14 @@ pub const OAUTH_IMAP_ATTEMPTS: usize = 3;
 
 /// Attente entre deux essais du test IMAP d'un compte OAuth.
 const OAUTH_IMAP_RETRY_DELAY: std::time::Duration = std::time::Duration::from_secs(1);
+
+/// Échec qu'un nouvel essai avec la même connexion chez le fournisseur peut
+/// surmonter : réseau instable, serveur muet, boîte momentanément non
+/// rattachée.
+fn worth_retrying(outcome: &TestConnectionOutcome) -> bool {
+    matches!(outcome, TestConnectionOutcome::Network(e) if e.is_transient())
+        || mailbox_not_connected(outcome)
+}
 
 fn mailbox_not_connected(outcome: &TestConnectionOutcome) -> bool {
     matches!(

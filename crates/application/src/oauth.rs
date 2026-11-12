@@ -61,15 +61,26 @@ impl<O: OAuthClient, K: SecretStore> TokenBroker<O, K> {
         }
     }
 
+    /// Heure de l'horloge murale du gestionnaire (secondes).
+    pub fn now(&self) -> u64 {
+        (self.clock)()
+    }
+
     /// Garde la connexion d'un ajout de compte qui a échoué après la
-    /// connexion chez le fournisseur : le prochain essai pour la même
-    /// adresse la réutilise ([`Self::take_pending`]). Remplace la
-    /// précédente.
-    pub fn keep_pending(&self, provider: OAuthProvider, address: &EmailAddress, grant: OAuthGrant) {
+    /// connexion chez le fournisseur, obtenue à `obtained_at`
+    /// ([`Self::now`]) : le prochain essai pour la même adresse la
+    /// réutilise ([`Self::take_pending`]). Remplace la précédente.
+    pub fn keep_pending(
+        &self,
+        provider: OAuthProvider,
+        address: &EmailAddress,
+        grant: OAuthGrant,
+        obtained_at: u64,
+    ) {
         let pending = PendingAuthorization {
             provider,
             address: address.clone(),
-            obtained_at: (self.clock)(),
+            obtained_at,
             expires_in: grant.expires_in,
         };
         *self.pending.lock().unwrap_or_else(PoisonError::into_inner) = Some((pending, grant));

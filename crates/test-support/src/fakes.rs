@@ -40,9 +40,25 @@ pub struct FakeMailServers {
     failures: Arc<Mutex<BTreeMap<String, Vec<ConnectionError>>>>,
     seen: Arc<Mutex<Vec<(Protocol, ConnectRequest)>>>,
     imap: FakeImap,
+    on_connect: ConnectHook,
+}
+
+/// Action jouée à chaque connexion (faire avancer une horloge…).
+#[derive(Clone, Default)]
+struct ConnectHook(Arc<Mutex<Option<Arc<dyn Fn() + Send + Sync>>>>);
+
+impl std::fmt::Debug for ConnectHook {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("ConnectHook")
+    }
 }
 
 impl FakeMailServers {
+    /// Joue `hook` à chaque connexion tentée.
+    pub fn on_connect(&self, hook: impl Fn() + Send + Sync + 'static) {
+        *lock(&self.on_connect.0) = Some(Arc::new(hook));
+    }
+
     /// Faux serveur IMAP derrière les sessions ouvertes.
     #[must_use]
     pub fn imap(&self) -> &FakeImap {
@@ -86,6 +102,10 @@ impl FakeMailServers {
         request: &ConnectRequest,
     ) -> Result<ServerCapabilities, ConnectionError> {
         lock(&self.seen).push((protocol, request.clone()));
+        let hook = lock(&self.on_connect.0).clone();
+        if let Some(hook) = hook {
+            hook();
+        }
         // Défense en profondeur, comme les vrais adaptateurs.
         request.plaintext.authorize(&request.endpoint)?;
         if let Some(queue) = lock(&self.failures).get_mut(&request.endpoint.to_string())

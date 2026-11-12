@@ -421,6 +421,8 @@ function failureMessage(
         return m.add_fail_oauth();
       case "network":
         return m.add_fail_network({ prefix });
+      case "unresponsive":
+        return m.add_fail_unresponsive({ prefix });
       case "security":
         return m.add_fail_security({ prefix });
       case "invalid_input":

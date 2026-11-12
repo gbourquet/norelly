@@ -587,7 +587,10 @@ pub struct CertificateProblemDto {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Type)]
 #[serde(rename_all = "snake_case")]
 pub enum FailureKindDto {
+    /// Serveur introuvable ou qui refuse la connexion.
     Network,
+    /// Serveur joint, puis muet ou qui coupe la connexion.
+    Unresponsive,
     Authentication,
     /// Identifiants refusés sur un compte Google : il faut un mot de passe
     /// d'application.
@@ -627,12 +630,22 @@ pub fn connection_failure_of(e: &ConnectionError) -> (FailureKindDto, Option<Str
         return (FailureKindDto::ReauthRequired, None);
     }
     let kind = match e.category() {
-        FailureCategory::Network => FailureKindDto::Network,
+        FailureCategory::Network => network_kind(e),
         FailureCategory::Authentication => FailureKindDto::Authentication,
         FailureCategory::Certificate | FailureCategory::Security => FailureKindDto::Security,
         FailureCategory::Protocol => FailureKindDto::Protocol,
     };
     (kind, connection_detail(e))
+}
+
+/// Serveur muet ou introuvable : le nom et le port ne sont en cause que
+/// dans le second cas.
+fn network_kind(e: &ConnectionError) -> FailureKindDto {
+    if e.is_unresponsive() {
+        FailureKindDto::Unresponsive
+    } else {
+        FailureKindDto::Network
+    }
 }
 
 fn connection_detail(e: &ConnectionError) -> Option<String> {
@@ -806,9 +819,7 @@ fn connection_failure(
             };
             failed(p, kind, auth_detail(e))
         }
-        TestConnectionOutcome::Network(e) => {
-            failed(p, FailureKindDto::Network, connection_detail(e))
-        }
+        TestConnectionOutcome::Network(e) => failed(p, network_kind(e), connection_detail(e)),
         TestConnectionOutcome::Security(e) => {
             failed(p, FailureKindDto::Security, connection_detail(e))
         }
@@ -1352,6 +1363,28 @@ mod error_tests {
         assert_eq!(detail, None);
         let (kind, _) = connection_failure_of(&ConnectionError::Tls("handshake".into()));
         assert_eq!(kind, FailureKindDto::Security);
+    }
+
+    #[test]
+    fn unresponsive_server_is_not_reported_as_unreachable() {
+        use norelly_application::accounts::AddAccountOutcome;
+        let silent = ConnectionError::Timeout(norelly_domain::connection::TimeoutStage::Response);
+        assert_eq!(
+            connection_failure_of(&silent).0,
+            FailureKindDto::Unresponsive
+        );
+        assert_eq!(
+            connection_failure_of(&ConnectionError::Network("nom inconnu".into())).0,
+            FailureKindDto::Network
+        );
+        let outcome = AddAccountOutcome::ConnectionFailed {
+            protocol: Protocol::Imap,
+            outcome: TestConnectionOutcome::Network(ConnectionError::Closed),
+            advice: None,
+        };
+        let json =
+            serde_json::to_value(AddAccountResultDto::from_outcome(&outcome)).unwrap_or_default();
+        assert_eq!(json["failure"], "unresponsive", "{json}");
     }
 
     #[test]

@@ -237,6 +237,8 @@ export function failureText(failure: FailureKindDto): string {
   switch (failure) {
     case "network":
       return m.failure_network();
+    case "unresponsive":
+      return m.failure_unresponsive();
     case "authentication":
       return m.failure_authentication();
     case "google_app_password":

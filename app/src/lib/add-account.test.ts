@@ -434,6 +434,19 @@ describe("se connecter avec Microsoft", () => {
     expect(f.message).not.toContain("mot de passe d'application");
   });
 
+  it("serveur muet : ni « injoignable » ni nom et port mis en cause", async () => {
+    const { api } = fakeApi(found, [
+      { kind: "failed", protocol: "imap", failure: "unresponsive", detail: null },
+    ]);
+    const f = outlook(api);
+    await f.detectProvider();
+    await f.signInWithProvider();
+    expect(f.step).toBe("form");
+    expect(f.message).toBe(
+      "Serveur de réception (IMAP) : le serveur ne répond pas. Vérifiez votre connexion à Internet, puis réessayez.",
+    );
+  });
+
   it("fichier des secrets accepté : la connexion reprend par Microsoft", async () => {
     const { api, oauthCalls } = fakeApi(found, [
       { kind: "secret_storage_consent_required", path: "/tmp/mots-de-passe.json" },

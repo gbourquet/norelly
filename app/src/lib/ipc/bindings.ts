@@ -1106,7 +1106,11 @@ export type ExpandedListDto = {
 	field: RecipientFieldDto,
 };
 
-export type FailureKindDto = "network" | "authentication" | 
+export type FailureKindDto = 
+/**  Serveur introuvable ou qui refuse la connexion. */
+"network" | 
+/**  Serveur joint, puis muet ou qui coupe la connexion. */
+"unresponsive" | "authentication" | 
 /**
  *  Identifiants refusés sur un compte Google : il faut un mot de passe
  *  d'application.

@@ -166,6 +166,7 @@
   "add_app_password_open": "Ouvrir la page Google",
   "add_app_password_unavailable": "Option absente chez Google ? Un compte d'entreprise ou d'école peut l'avoir désactivée : demandez à son administrateur.",
   "add_oauth_testing_microsoft": "Connexion à votre messagerie Microsoft…",
+  "notice_send_unchecked": "Compte ajouté. L'envoi n'a pas pu être vérifié, le serveur ne répondait pas : Norelly réessaiera à votre premier message.",
   "add_fail_unresponsive": "{prefix}le serveur ne répond pas. Vérifiez votre connexion à Internet, puis réessayez.",
   "add_fail_network": "{prefix}serveur injoignable. Vérifiez le nom et le port.",
   "add_fail_security": "{prefix}connexion refusée par sécurité.",

@@ -490,8 +490,9 @@
   open={app.dialog === "add-account"}
   {api}
   onClose={() => app.close()}
-  onAdded={(account) => {
+  onAdded={(account, notice) => {
     app.close();
+    if (notice !== null) mail.notice = { text: notice, undoable: false };
     app.selectedAccountId = account.id;
     void app.refreshAccounts().then(() => mail.reload());
   }}

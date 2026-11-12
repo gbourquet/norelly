@@ -16,7 +16,8 @@
     open: boolean;
     api: AccountApi;
     onClose: () => void;
-    onAdded: (account: AccountDto) => void;
+    /** `notice` : message à montrer après l'ajout (envoi non vérifié). */
+    onAdded: (account: AccountDto, notice: string | null) => void;
   }
 
   let { open, api, onClose, onAdded }: Props = $props();
@@ -35,8 +36,9 @@
   $effect(() => {
     if (flow.step === "done" && flow.added !== null) {
       const account = flow.added;
+      const notice = flow.addedNotice;
       flow.reset();
-      onAdded(account);
+      onAdded(account, notice);
     }
   });
 

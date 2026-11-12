@@ -69,7 +69,7 @@ describe("fenêtre d'ajout de compte", () => {
           can_trust: true,
         },
       },
-      { kind: "added", account },
+      { kind: "added", account, send_unchecked: false },
     ]);
     const onAdded = vi.fn();
     render(AddAccountDialog, { open: true, api, onClose: vi.fn(), onAdded });
@@ -83,7 +83,7 @@ describe("fenêtre d'ajout de compte", () => {
     await fireEvent.click(screen.getByRole("button", { name: "Continuer" }));
     expect(await screen.findByText(/AA:BB/)).toBeInTheDocument();
     await fireEvent.click(screen.getByRole("button", { name: "Faire confiance à ce serveur" }));
-    await waitFor(() => expect(onAdded).toHaveBeenCalledWith(account));
+    await waitFor(() => expect(onAdded).toHaveBeenCalledWith(account, null));
     expect(api.trustCertificate).toHaveBeenCalledWith("imap.example.com", "AA:BB");
   });
 

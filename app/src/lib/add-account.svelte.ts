@@ -111,6 +111,8 @@ export class AddAccountFlow {
   /** Le dernier essai vient de la saisie manuelle des serveurs. */
   #manual = false;
   /** Le dernier essai passe par le fournisseur OAuth. */
+  /** Message à montrer après l'ajout (envoi non vérifié), ou `null`. */
+  addedNotice = $state<string | null>(null);
   #oauth = false;
   #browser = true;
   #consents: EndpointDto[] = [];
@@ -133,6 +135,7 @@ export class AddAccountFlow {
     this.certificate = null;
     this.plaintextEndpoint = null;
     this.added = null;
+    this.addedNotice = null;
     this.unconfirmed = [];
     this.confirmed = [];
     this.appPasswordHelp = false;
@@ -359,6 +362,7 @@ export class AddAccountFlow {
     switch (result.kind) {
       case "added":
         this.added = result.account;
+        this.addedNotice = result.send_unchecked ? m.notice_send_unchecked() : null;
         this.password = "";
         this.step = "done";
         break;

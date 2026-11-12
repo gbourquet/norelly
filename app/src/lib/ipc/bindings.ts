@@ -386,7 +386,12 @@ export type AddAccountInput_Serialize = {
 export type AddAccountResultDto = AddAccountResultDto_Serialize | AddAccountResultDto_Deserialize;
 
 /**  Résultat d'un ajout de compte. */
-export type AddAccountResultDto_Deserialize = { kind: "added"; account: AccountDto_Deserialize } | { kind: "already_exists" } | { kind: "needs_review"; discovery: DiscoveryDto_Deserialize } | { kind: "plaintext_consent_required"; endpoint: EndpointDto } | 
+export type AddAccountResultDto_Deserialize = { kind: "added"; account: AccountDto_Deserialize; 
+/**
+ *  Envoi non vérifié à l'ajout (serveur d'envoi muet) : il le sera
+ *  au premier message.
+ */
+send_unchecked: boolean } | { kind: "already_exists" } | { kind: "needs_review"; discovery: DiscoveryDto_Deserialize } | { kind: "plaintext_consent_required"; endpoint: EndpointDto } | 
 /**
  *  Aucun trousseau du système ne répond : l'utilisateur doit accepter
  *  que le mot de passe soit enregistré dans un fichier non chiffré
@@ -405,7 +410,12 @@ export type AddAccountResultDto_Deserialize = { kind: "added"; account: AccountD
 { kind: "failed"; protocol?: ProtocolDto | null; failure: FailureKindDto; detail?: string | null };
 
 /**  Résultat d'un ajout de compte. */
-export type AddAccountResultDto_Serialize = { kind: "added"; account: AccountDto_Serialize } | { kind: "already_exists" } | { kind: "needs_review"; discovery: DiscoveryDto_Serialize } | { kind: "plaintext_consent_required"; endpoint: EndpointDto } | 
+export type AddAccountResultDto_Serialize = { kind: "added"; account: AccountDto_Serialize; 
+/**
+ *  Envoi non vérifié à l'ajout (serveur d'envoi muet) : il le sera
+ *  au premier message.
+ */
+send_unchecked: boolean } | { kind: "already_exists" } | { kind: "needs_review"; discovery: DiscoveryDto_Serialize } | { kind: "plaintext_consent_required"; endpoint: EndpointDto } | 
 /**
  *  Aucun trousseau du système ne répond : l'utilisateur doit accepter
  *  que le mot de passe soit enregistré dans un fichier non chiffré

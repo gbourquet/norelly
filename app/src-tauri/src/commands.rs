@@ -146,7 +146,7 @@ pub async fn add_account(
     {
         state.remember_rejection(rejection.clone());
     }
-    if let AddAccountOutcome::Added(account) = &outcome
+    if let Some(account) = outcome.added_account()
         && let Err(e) = state
             .mail
             .start(&app, account, &state.secrets, &state.exceptions)
@@ -217,7 +217,7 @@ pub async fn add_oauth_account(
         provider,
     })
     .await;
-    if let AddAccountOutcome::Added(account) = &outcome
+    if let Some(account) = outcome.added_account()
         && let Err(e) = state
             .mail
             .start(&app, account, &state.secrets, &state.exceptions)

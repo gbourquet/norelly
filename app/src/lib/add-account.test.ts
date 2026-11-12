@@ -90,7 +90,7 @@ function flow(api: AccountApi): AddAccountFlow {
 
 describe("parcours d'ajout de compte", () => {
   it("découverte complète : test puis ajout, mot de passe effacé", async () => {
-    const { api, calls } = fakeApi(found, [{ kind: "added", account }]);
+    const { api, calls } = fakeApi(found, [{ kind: "added", account, send_unchecked: false }]);
     const f = flow(api);
     await f.submit();
     expect(f.progress).toEqual(["provider_autoconfig", "mozilla_ispdb"]);
@@ -136,7 +136,10 @@ describe("parcours d'ajout de compte", () => {
   });
 
   it("certificat refusé : avertissement, confiance explicite, nouvel essai", async () => {
-    const { api, calls } = fakeApi(found, [certificate, { kind: "added", account }]);
+    const { api, calls } = fakeApi(found, [
+      certificate,
+      { kind: "added", account, send_unchecked: false },
+    ]);
     const f = flow(api);
     await f.submit();
     expect(f.step).toBe("certificate");
@@ -176,7 +179,7 @@ describe("parcours d'ajout de compte", () => {
     const endpoint = { host: "mail.legacy.example", port: 143 };
     const { api, calls } = fakeApi(found, [
       { kind: "plaintext_consent_required", endpoint },
-      { kind: "added", account },
+      { kind: "added", account, send_unchecked: false },
     ]);
     const f = flow(api);
     await f.submit();
@@ -193,7 +196,7 @@ describe("parcours d'ajout de compte", () => {
         kind: "secret_storage_consent_required",
         path: "/home/a/.local/share/x/mots-de-passe.json",
       },
-      { kind: "added", account },
+      { kind: "added", account, send_unchecked: false },
     ]);
     const f = flow(api);
     await f.submit();
@@ -271,7 +274,7 @@ describe("parcours d'ajout de compte", () => {
   it("l'aide au mot de passe d'application disparaît au nouvel essai", async () => {
     const { api } = fakeApi(found, [
       { kind: "failed", protocol: "imap", failure: "google_app_password", detail: null },
-      { kind: "added", account },
+      { kind: "added", account, send_unchecked: false },
     ]);
     const f = flow(api);
     await f.submit();
@@ -307,7 +310,7 @@ describe("serveurs DNS hors domaine", () => {
   it("avertit même si la découverte est partielle, et bloque sans confirmation", async () => {
     const { api, calls } = fakeApi(
       { imap: { server: hostile, source: "dns_srv", requires_confirmation: true }, smtp: null },
-      [{ kind: "added", account }],
+      [{ kind: "added", account, send_unchecked: false }],
     );
     const f = flow(api);
     await f.submit();
@@ -329,7 +332,7 @@ describe("serveurs DNS hors domaine", () => {
         imap: { server: hostile, source: "dns_srv", requires_confirmation: true },
         smtp: found.smtp,
       },
-      [{ kind: "added", account }],
+      [{ kind: "added", account, send_unchecked: false }],
     );
     const f = flow(api);
     await f.submit();
@@ -383,7 +386,7 @@ describe("se connecter avec Microsoft", () => {
   });
 
   it("ajoute le compte sans mot de passe ni découverte", async () => {
-    const { api, oauthCalls } = fakeApi(found, [{ kind: "added", account }]);
+    const { api, oauthCalls } = fakeApi(found, [{ kind: "added", account, send_unchecked: false }]);
     const f = outlook(api);
     await f.detectProvider();
     f.displayName = " Alice ";
@@ -437,8 +440,8 @@ describe("se connecter avec Microsoft", () => {
 
   it("nouvel essai avec la connexion gardée : le navigateur n'est pas annoncé", async () => {
     const { api } = fakeApi(found, [
-      { kind: "added", account },
-      { kind: "added", account },
+      { kind: "added", account, send_unchecked: false },
+      { kind: "added", account, send_unchecked: false },
     ]);
     const f = outlook(api);
     await f.detectProvider();
@@ -454,6 +457,22 @@ describe("se connecter avec Microsoft", () => {
     expect(shown).toEqual([true, false]);
     expect(f.reusingSignIn).toBe(false);
     expect(api.oauthSignInKept).toHaveBeenCalledWith("alice@outlook.com", "microsoft");
+  });
+
+  it("envoi non vérifié à l'ajout : un message le dit", async () => {
+    const { api } = fakeApi(found, [
+      { kind: "added", account, send_unchecked: true },
+      { kind: "added", account, send_unchecked: false },
+    ]);
+    const f = outlook(api);
+    await f.detectProvider();
+    await f.signInWithProvider();
+    expect(f.step).toBe("done");
+    expect(f.addedNotice).toBe(
+      "Compte ajouté. L'envoi n'a pas pu être vérifié, le serveur ne répondait pas : Norelly réessaiera à votre premier message.",
+    );
+    await f.signInWithProvider();
+    expect(f.addedNotice).toBeNull();
   });
 
   it("serveur muet : ni « injoignable » ni nom et port mis en cause", async () => {
@@ -472,7 +491,7 @@ describe("se connecter avec Microsoft", () => {
   it("fichier des secrets accepté : la connexion reprend par Microsoft", async () => {
     const { api, oauthCalls } = fakeApi(found, [
       { kind: "secret_storage_consent_required", path: "/tmp/mots-de-passe.json" },
-      { kind: "added", account },
+      { kind: "added", account, send_unchecked: false },
     ]);
     const f = outlook(api);
     await f.detectProvider();

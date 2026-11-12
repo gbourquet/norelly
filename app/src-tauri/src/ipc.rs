@@ -697,6 +697,9 @@ pub enum SecretsBackendDto {
 pub enum AddAccountResultDto {
     Added {
         account: AccountDto,
+        /// Envoi non vérifié à l'ajout (serveur d'envoi muet) : il le sera
+        /// au premier message.
+        send_unchecked: bool,
     },
     AlreadyExists,
     NeedsReview {
@@ -749,10 +752,15 @@ fn failed_internal(failure: FailureKindDto, error: impl fmt::Display) -> AddAcco
 impl AddAccountResultDto {
     pub fn from_outcome(outcome: &AddAccountOutcome) -> Self {
         match outcome {
-            AddAccountOutcome::Added(account) => match AccountDto::try_from(account) {
-                Ok(account) => Self::Added { account },
-                Err(e) => failed_internal(FailureKindDto::Internal, e),
-            },
+            AddAccountOutcome::Added(account) | AddAccountOutcome::AddedSendUnchecked(account) => {
+                match AccountDto::try_from(account) {
+                    Ok(account) => Self::Added {
+                        account,
+                        send_unchecked: matches!(outcome, AddAccountOutcome::AddedSendUnchecked(_)),
+                    },
+                    Err(e) => failed_internal(FailureKindDto::Internal, e),
+                }
+            }
             AddAccountOutcome::AlreadyExists => Self::AlreadyExists,
             AddAccountOutcome::NeedsReview(d) => Self::NeedsReview {
                 discovery: d.into(),
@@ -1363,6 +1371,24 @@ mod error_tests {
         assert_eq!(detail, None);
         let (kind, _) = connection_failure_of(&ConnectionError::Tls("handshake".into()));
         assert_eq!(kind, FailureKindDto::Security);
+    }
+
+    #[test]
+    fn account_added_without_send_check_says_so() {
+        use norelly_application::accounts::AddAccountOutcome;
+        let id = norelly_domain::account::AccountId::new(1).unwrap_or_else(|_| panic!("id"));
+        let account =
+            norelly_test_support::contracts::sample_account("alice@example.com", false).with_id(id);
+        let json = |o: &AddAccountOutcome| {
+            serde_json::to_value(AddAccountResultDto::from_outcome(o)).unwrap_or_default()
+        };
+        let unchecked = json(&AddAccountOutcome::AddedSendUnchecked(account.clone()));
+        assert_eq!(unchecked["kind"], "added", "{unchecked}");
+        assert_eq!(unchecked["send_unchecked"], true, "{unchecked}");
+        assert_eq!(
+            json(&AddAccountOutcome::Added(account))["send_unchecked"],
+            false
+        );
     }
 
     #[test]

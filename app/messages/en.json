@@ -166,6 +166,7 @@
   "add_app_password_open": "Open the Google page",
   "add_app_password_unavailable": "Option missing at Google? A work or school account may have it turned off: ask its administrator.",
   "add_oauth_testing_microsoft": "Connecting to your Microsoft mailbox…",
+  "notice_send_unchecked": "Account added. Sending could not be checked, the server was not responding: Norelly will try again with your first message.",
   "add_fail_unresponsive": "{prefix}the server is not responding. Check your internet connection, then try again.",
   "add_fail_network": "{prefix}server unreachable. Check the name and port.",
   "add_fail_security": "{prefix}connection refused for security reasons.",

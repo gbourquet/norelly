@@ -579,6 +579,7 @@ describe("reconnexion d'un compte OAuth", () => {
     expect(mail.offline[1]).toBe("reconnexion nécessaire");
     api.reconnectAccount = vi.fn(async () => ({
       kind: "added" as const,
+      send_unchecked: false,
       account: {
         id: 1,
         address: "alice@outlook.com",

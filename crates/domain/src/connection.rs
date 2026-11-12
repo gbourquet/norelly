@@ -123,7 +123,34 @@ impl ConnectionError {
             Self::Protocol(_) | Self::Rejected(_) => FailureCategory::Protocol,
         }
     }
+    /// Vrai si l'échec est passager (serveur muet, connexion coupée, réseau
+    /// instable) : une nouvelle connexion a des chances d'aboutir. Un refus
+    /// du serveur, un certificat ou une protection ne se réessaient pas.
+    #[must_use]
+    pub fn is_transient(&self) -> bool {
+        matches!(self, Self::Network(_) | Self::Timeout(_) | Self::Closed)
+    }
+
+    /// Vrai si le serveur a été joint puis s'est tu ou a coupé la connexion
+    /// (par opposition à un serveur introuvable ou qui refuse la
+    /// connexion) : le nom et le port ne sont pas en cause.
+    #[must_use]
+    pub fn is_unresponsive(&self) -> bool {
+        matches!(
+            self,
+            Self::Timeout(
+                TimeoutStage::TlsHandshake | TimeoutStage::Response | TimeoutStage::Write
+            ) | Self::Closed
+        )
+    }
 }
+
+/// Essais d'une connexion dont l'échec est passager
+/// ([`ConnectionError::is_transient`]), le premier compris.
+pub const CONNECTION_ATTEMPTS: usize = 3;
+
+/// Attente entre deux essais d'une connexion.
+pub const CONNECTION_RETRY_DELAY: std::time::Duration = std::time::Duration::from_secs(1);
 
 #[cfg(test)]
 mod tests {
@@ -172,5 +199,48 @@ mod tests {
             ConnectionError::Protocol("x".into()).category(),
             FailureCategory::Protocol
         );
+    }
+
+    #[test]
+    fn transient_failures_are_retried() {
+        for e in [
+            ConnectionError::Network("connexion réinitialisée".into()),
+            ConnectionError::Timeout(TimeoutStage::Connect),
+            ConnectionError::Timeout(TimeoutStage::TlsHandshake),
+            ConnectionError::Timeout(TimeoutStage::Response),
+            ConnectionError::Timeout(TimeoutStage::Write),
+            ConnectionError::Closed,
+        ] {
+            assert!(e.is_transient(), "{e:?}");
+        }
+        for e in [
+            ConnectionError::from(AuthError::LoginDisabled),
+            ConnectionError::Tls("x".into()),
+            ConnectionError::from(StartTlsUnavailable),
+            ConnectionError::PlaintextInjection,
+            ConnectionError::Protocol("x".into()),
+            ConnectionError::Rejected("x".into()),
+        ] {
+            assert!(!e.is_transient(), "{e:?}");
+        }
+    }
+
+    #[test]
+    fn unresponsive_server_was_reached() {
+        for e in [
+            ConnectionError::Timeout(TimeoutStage::TlsHandshake),
+            ConnectionError::Timeout(TimeoutStage::Response),
+            ConnectionError::Timeout(TimeoutStage::Write),
+            ConnectionError::Closed,
+        ] {
+            assert!(e.is_unresponsive(), "{e:?}");
+        }
+        for e in [
+            ConnectionError::Network("nom inconnu".into()),
+            ConnectionError::Timeout(TimeoutStage::Connect),
+            ConnectionError::from(AuthError::LoginDisabled),
+        ] {
+            assert!(!e.is_unresponsive(), "{e:?}");
+        }
     }
 }

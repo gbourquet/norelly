@@ -34,8 +34,11 @@ use tokio_rustls::client::TlsStream;
 
 pub use rustls;
 
-/// Délai par défaut de la poignée de main TLS.
-pub const DEFAULT_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(30);
+/// Délai par défaut de la poignée de main TLS. Une poignée de main saine
+/// dure moins d'une seconde, même sur une liaison lente : au-delà, elle est
+/// bloquée, et une nouvelle connexion aboutit plus sûrement qu'une longue
+/// attente (`ConnectionError::is_transient`).
+pub const DEFAULT_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Empreinte SHA-256 d'un certificat DER.
 #[must_use]

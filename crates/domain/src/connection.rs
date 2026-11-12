@@ -143,6 +143,16 @@ impl ConnectionError {
             ) | Self::Closed
         )
     }
+
+    /// Vrai si un compte peut être ajouté malgré cet échec du test d'envoi,
+    /// la réception ayant réussi : le serveur d'envoi a été joint puis s'est
+    /// tu ou a coupé la connexion (réseau instable). L'envoi sera vérifié au
+    /// premier message. Un serveur introuvable (nom ou port faux), un refus
+    /// ou une protection bloquent l'ajout.
+    #[must_use]
+    pub fn send_check_can_wait(&self) -> bool {
+        self.is_unresponsive()
+    }
 }
 
 /// Essais d'une connexion dont l'échec est passager
@@ -241,6 +251,27 @@ mod tests {
             ConnectionError::from(AuthError::LoginDisabled),
         ] {
             assert!(!e.is_unresponsive(), "{e:?}");
+        }
+    }
+
+    #[test]
+    fn only_a_silent_send_server_lets_the_account_be_added() {
+        for e in [
+            ConnectionError::Timeout(TimeoutStage::TlsHandshake),
+            ConnectionError::Timeout(TimeoutStage::Response),
+            ConnectionError::Closed,
+        ] {
+            assert!(e.send_check_can_wait(), "{e:?}");
+        }
+        for e in [
+            ConnectionError::Network("nom inconnu".into()),
+            ConnectionError::Timeout(TimeoutStage::Connect),
+            ConnectionError::from(AuthError::LoginDisabled),
+            ConnectionError::from(StartTlsUnavailable),
+            ConnectionError::Tls("x".into()),
+            ConnectionError::Protocol("x".into()),
+        ] {
+            assert!(!e.send_check_can_wait(), "{e:?}");
         }
     }
 }

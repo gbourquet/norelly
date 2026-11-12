@@ -305,6 +305,38 @@ async fn smtp_authentication_failure_is_reported() {
     assert_eq!(w.keyring.len(), 0);
 }
 
+#[tokio::test(start_paused = true)]
+async fn silent_send_server_still_adds_the_account() {
+    let w = World::new();
+    let draft = sample_account("alice@example.com", false);
+    w.servers
+        .set(&draft.smtp().endpoint, Err(ConnectionError::Closed));
+    let outcome = w.add(request(Some(servers_of(&draft)))).await;
+    assert!(
+        matches!(outcome, AddAccountOutcome::AddedSendUnchecked(_)),
+        "{outcome:?}"
+    );
+    assert_eq!(w.keyring.len(), 2);
+}
+
+#[tokio::test(start_paused = true)]
+async fn unreachable_send_server_blocks_the_account() {
+    let w = World::new();
+    let draft = sample_account("alice@example.com", false);
+    let unknown = ConnectionError::Network("nom inconnu".into());
+    w.servers.set(&draft.smtp().endpoint, Err(unknown.clone()));
+    let outcome = w.add(request(Some(servers_of(&draft)))).await;
+    assert_eq!(
+        outcome,
+        AddAccountOutcome::ConnectionFailed {
+            protocol: Protocol::Smtp,
+            outcome: TestConnectionOutcome::Network(unknown),
+            advice: None,
+        }
+    );
+    assert_eq!(w.keyring.len(), 0);
+}
+
 #[tokio::test]
 async fn gmail_rejection_advises_an_app_password() {
     let w = World::new();
@@ -917,6 +949,27 @@ mod oauth {
         ));
         now.fetch_add(120, std::sync::atomic::Ordering::SeqCst);
         assert!(!b.has_pending(OAuthProvider::Microsoft, &outlook()));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn silent_send_server_still_adds_the_oauth_account() {
+        let w = World::new();
+        let (b, _) = broker_with_clock(grant());
+        let (_, smtp) =
+            oauth_servers(OAuthProvider::Microsoft, &outlook()).unwrap_or_else(|e| panic!("{e}"));
+        w.servers.set(
+            &smtp.endpoint,
+            Err(ConnectionError::Timeout(
+                norelly_domain::connection::TimeoutStage::TlsHandshake,
+            )),
+        );
+        let outcome = add(&w, &b).await;
+        assert!(
+            matches!(outcome, AddAccountOutcome::AddedSendUnchecked(_)),
+            "{outcome:?}"
+        );
+        assert!(!b.has_pending(OAuthProvider::Microsoft, &outlook()));
+        assert!(w.accounts.list().await.is_ok_and(|l| l.len() == 1));
     }
 
     #[tokio::test]

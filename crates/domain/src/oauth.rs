@@ -303,7 +303,46 @@ impl AccessToken {
     /// Vrai si le jeton peut encore être présenté à `now`, marge comprise.
     #[must_use]
     pub fn is_fresh(&self, now: u64) -> bool {
-        now.saturating_add(ACCESS_TOKEN_MARGIN_SECS) < self.expires_at
+        is_fresh(self.expires_at, now)
+    }
+}
+
+/// Vrai si un jeton qui expire à `expires_at` peut encore être présenté à
+/// `now`, marge comprise.
+fn is_fresh(expires_at: u64, now: u64) -> bool {
+    now.saturating_add(ACCESS_TOKEN_MARGIN_SECS) < expires_at
+}
+
+/// Durée pendant laquelle une connexion chez le fournisseur reste
+/// réutilisable après un ajout de compte échoué (serveur muet, réseau
+/// instable) : « Réessayer » ne repasse pas par le navigateur.
+pub const PENDING_AUTHORIZATION_MAX_AGE_SECS: u64 = 600;
+
+/// Connexion chez le fournisseur obtenue pour un ajout de compte qui n'a
+/// pas abouti. Les jetons eux-mêmes restent chez l'appelant, en mémoire.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PendingAuthorization {
+    pub provider: OAuthProvider,
+    pub address: EmailAddress,
+    /// Instant d'obtention (secondes, horloge choisie par l'appelant).
+    pub obtained_at: u64,
+    /// Durée de validité du jeton d'accès, en secondes.
+    pub expires_in: u64,
+}
+
+impl PendingAuthorization {
+    /// Vrai si la connexion peut resservir à `now` pour ajouter `address`
+    /// chez `provider` : même fournisseur et même adresse, obtenue depuis
+    /// moins de [`PENDING_AUTHORIZATION_MAX_AGE_SECS`], jeton d'accès encore
+    /// valable (marge comprise).
+    #[must_use]
+    pub fn usable_for(&self, provider: OAuthProvider, address: &EmailAddress, now: u64) -> bool {
+        self.provider == provider
+            && self.address == *address
+            // Horloge revenue en arrière : âge inconnu.
+            && now >= self.obtained_at
+            && now - self.obtained_at < PENDING_AUTHORIZATION_MAX_AGE_SECS
+            && is_fresh(self.obtained_at.saturating_add(self.expires_in), now)
     }
 }
 

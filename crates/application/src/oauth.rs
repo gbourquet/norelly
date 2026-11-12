@@ -11,11 +11,14 @@ use std::collections::HashMap;
 use std::sync::{Arc, PoisonError};
 use std::time::Duration;
 
+use norelly_domain::address::EmailAddress;
 use norelly_domain::auth::AuthError;
 use norelly_domain::capabilities::ServerCapabilities;
 use norelly_domain::connection::ConnectionError;
 use norelly_domain::credentials::Secret;
-use norelly_domain::oauth::{AccessToken, OAuthSource, TokenError};
+use norelly_domain::oauth::{
+    AccessToken, OAuthProvider, OAuthSource, PendingAuthorization, TokenError,
+};
 use norelly_domain::ports::{
     ConnectRequest, MailSender, OAuthClient, OAuthGrant, OutgoingMessage, RemoteMailboxConnector,
     SecretKey, SecretStore, SecretStoreError, SendError,
@@ -36,6 +39,9 @@ pub struct TokenBroker<O, K> {
     /// Un verrou par jeton de rafraîchissement : la rotation d'un compte est
     /// sérialisée sans bloquer les autres comptes.
     slots: std::sync::Mutex<HashMap<SecretKey, Arc<Mutex<Option<AccessToken>>>>>,
+    /// Connexion d'un ajout de compte qui n'a pas abouti, en mémoire
+    /// seulement, jusqu'au prochain essai.
+    pending: std::sync::Mutex<Option<(PendingAuthorization, OAuthGrant)>>,
 }
 
 impl<O, K> std::fmt::Debug for TokenBroker<O, K> {
@@ -51,7 +57,50 @@ impl<O: OAuthClient, K: SecretStore> TokenBroker<O, K> {
             secrets,
             clock,
             slots: std::sync::Mutex::new(HashMap::new()),
+            pending: std::sync::Mutex::new(None),
         }
+    }
+
+    /// Garde la connexion d'un ajout de compte qui a échoué après la
+    /// connexion chez le fournisseur : le prochain essai pour la même
+    /// adresse la réutilise ([`Self::take_pending`]). Remplace la
+    /// précédente.
+    pub fn keep_pending(&self, provider: OAuthProvider, address: &EmailAddress, grant: OAuthGrant) {
+        let pending = PendingAuthorization {
+            provider,
+            address: address.clone(),
+            obtained_at: (self.clock)(),
+            expires_in: grant.expires_in,
+        };
+        *self.pending.lock().unwrap_or_else(PoisonError::into_inner) = Some((pending, grant));
+    }
+
+    /// Vrai si une connexion gardée peut resservir pour ajouter `address`
+    /// chez `provider` (l'écran n'annonce alors pas le navigateur).
+    pub fn has_pending(&self, provider: OAuthProvider, address: &EmailAddress) -> bool {
+        self.pending
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .as_ref()
+            .is_some_and(|(pending, _)| pending.usable_for(provider, address, (self.clock)()))
+    }
+
+    /// Connexion gardée pour ajouter `address` chez `provider`, si elle
+    /// peut resservir. Elle est oubliée dans tous les cas.
+    pub fn take_pending(
+        &self,
+        provider: OAuthProvider,
+        address: &EmailAddress,
+    ) -> Option<OAuthGrant> {
+        let kept = self
+            .pending
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .take()?;
+        let (pending, grant) = kept;
+        pending
+            .usable_for(provider, address, (self.clock)())
+            .then_some(grant)
     }
 
     /// Client OAuth (connexion interactive).

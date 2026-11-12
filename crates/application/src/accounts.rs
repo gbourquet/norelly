@@ -241,14 +241,19 @@ where
             Ok(servers) => servers,
             Err(e) => return AddAccountOutcome::Invalid(e),
         };
-        let grant = match self
-            .broker
-            .client()
-            .authorize(request.provider, &request.address)
-            .await
-        {
-            Ok(grant) => grant,
-            Err(e) => return AddAccountOutcome::OAuthFailed(e),
+        // Un essai précédent a pu échouer après la connexion chez le
+        // fournisseur (serveur muet) : elle resservira sans navigateur.
+        let grant = match self.broker.take_pending(request.provider, &request.address) {
+            Some(grant) => grant,
+            None => match self
+                .broker
+                .client()
+                .authorize(request.provider, &request.address)
+                .await
+            {
+                Ok(grant) => grant,
+                Err(e) => return AddAccountOutcome::OAuthFailed(e),
+            },
         };
         if grant.refresh_token.is_none() {
             // Accès hors ligne refusé : le compte cesserait de fonctionner
@@ -308,6 +313,8 @@ where
                     }
                     _ => None,
                 };
+                self.broker
+                    .keep_pending(request.provider, draft.address(), grant);
                 return AddAccountOutcome::ConnectionFailed {
                     protocol,
                     outcome,

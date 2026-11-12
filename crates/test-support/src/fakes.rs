@@ -43,9 +43,12 @@ pub struct FakeMailServers {
     on_connect: ConnectHook,
 }
 
+/// Action jouée à chaque connexion.
+type Hook = Arc<dyn Fn() + Send + Sync>;
+
 /// Action jouée à chaque connexion (faire avancer une horloge…).
 #[derive(Clone, Default)]
-struct ConnectHook(Arc<Mutex<Option<Arc<dyn Fn() + Send + Sync>>>>);
+struct ConnectHook(Arc<Mutex<Option<Hook>>>);
 
 impl std::fmt::Debug for ConnectHook {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

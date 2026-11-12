@@ -112,9 +112,31 @@ fn lettre_error(e: &lettre::transport::smtp::Error) -> ConnectionError {
         ConnectionError::Timeout(TimeoutStage::Response)
     } else if e.is_response() || e.is_permanent() || e.is_transient() {
         ConnectionError::Protocol(server_text(e.to_string().as_bytes()))
+    } else if connection_cut(e) {
+        ConnectionError::Closed
     } else {
         ConnectionError::Network(server_text(e.to_string().as_bytes()))
     }
+}
+
+/// Vrai si l'erreur vient d'une connexion coupée par le serveur ou le
+/// réseau (réinitialisée, fermée) : le serveur avait été joint.
+fn connection_cut(e: &lettre::transport::smtp::Error) -> bool {
+    let mut source = std::error::Error::source(e);
+    while let Some(cause) = source {
+        if let Some(io) = cause.downcast_ref::<std::io::Error>() {
+            return matches!(
+                io.kind(),
+                std::io::ErrorKind::UnexpectedEof
+                    | std::io::ErrorKind::ConnectionReset
+                    | std::io::ErrorKind::ConnectionAborted
+                    | std::io::ErrorKind::BrokenPipe
+                    | std::io::ErrorKind::NotConnected
+            );
+        }
+        source = cause.source();
+    }
+    false
 }
 
 impl SmtpSender {

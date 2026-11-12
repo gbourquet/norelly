@@ -56,6 +56,9 @@ pub enum Step {
     Wait(Duration),
     /// Fermeture de la connexion par le serveur.
     Close,
+    /// Réinitialisation brutale de la connexion (TCP RST), comme un
+    /// équipement réseau qui coupe la connexion.
+    Reset,
 }
 
 /// Script d'un faux serveur, construit par chaînage.
@@ -143,6 +146,12 @@ impl Script {
     #[must_use]
     pub fn close(mut self) -> Self {
         self.steps.push(Step::Close);
+        self
+    }
+
+    #[must_use]
+    pub fn reset(mut self) -> Self {
+        self.steps.push(Step::Reset);
         self
     }
 }
@@ -340,6 +349,19 @@ impl Connection {
                 }
                 Step::Wait(d) => tokio::time::sleep(d).await,
                 Step::Close => {
+                    self.stream = ServerStream::Upgrading;
+                    return Ok(());
+                }
+                Step::Reset => {
+                    let tcp = match &self.stream {
+                        ServerStream::Plain(tcp) => Some(tcp),
+                        ServerStream::Tls(tls) => Some(tls.get_ref().0),
+                        ServerStream::Upgrading => None,
+                    };
+                    if let Some(tcp) = tcp {
+                        // Fermeture sans attente : le noyau envoie un RST.
+                        tcp.set_zero_linger()?;
+                    }
                     self.stream = ServerStream::Upgrading;
                     return Ok(());
                 }

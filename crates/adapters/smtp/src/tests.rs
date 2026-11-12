@@ -447,3 +447,31 @@ async fn malformed_replies_do_not_panic() -> TestResult {
     }
     Ok(())
 }
+
+/// Connexion réinitialisée par le serveur après STARTTLS (équipement
+/// réseau instable) : le serveur a été joint, la connexion est coupée.
+#[tokio::test]
+async fn reset_after_starttls_is_a_closed_connection() -> TestResult {
+    let ca = TestCa::new()?;
+    let cert = ca.issue(&["localhost"])?;
+    let script = Script::new()
+        .send(smtp::greeting())
+        .expect("EHLO")
+        .send(smtp::ehlo(&["STARTTLS"]))
+        .expect("STARTTLS")
+        .send("220 2.0.0 Pret\r\n")
+        .starttls()
+        .expect("EHLO")
+        .reset();
+    let server = ScriptedServer::start(script, Some(cert.server_config()?)).await?;
+    let result = sender(&ca)
+        .verify(&request(
+            server.port(),
+            Security::StartTls,
+            PlaintextPolicy::deny_all(),
+        ))
+        .await;
+    assert!(matches!(result, Err(ConnectionError::Closed)), "{result:?}");
+    let _ = server.finish().await;
+    Ok(())
+}

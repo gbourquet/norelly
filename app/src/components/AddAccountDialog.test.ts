@@ -24,6 +24,7 @@ function fakeApi(results: AddAccountResult[]): AccountApi {
     oauthProviderFor: vi.fn(async (address: string) =>
       address.trim().endsWith("@outlook.com") ? ("microsoft" as const) : null,
     ),
+    oauthSignInKept: vi.fn(async () => false),
     addOAuthAccount: vi.fn(async () => {
       const next = results.shift();
       if (next === undefined) throw new Error("appel inattendu");

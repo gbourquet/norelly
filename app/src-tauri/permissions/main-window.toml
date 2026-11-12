@@ -10,6 +10,7 @@ permissions = [
   "allow-discover-settings",
   "allow-add-account",
   "allow-oauth-provider-for",
+  "allow-oauth-sign-in-kept",
   "allow-add-oauth-account",
   "allow-reconnect-account",
   "allow-trust-certificate",

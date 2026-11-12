@@ -23,6 +23,12 @@ export const commands = {
 	 */
 	oauthProviderFor: (address: string) => __TAURI_INVOKE<OAuthProviderDto | null>("oauth_provider_for", { address }),
 	/**
+	 *  Vrai si l'essai suivant de « Se connecter avec … » pour cette adresse
+	 *  réutilisera la connexion d'un ajout qui a échoué, sans navigateur
+	 *  (l'écran ne l'annonce alors pas). Entrée invalide : faux.
+	 */
+	oauthSignInKept: (address: string, provider: string) => __TAURI_INVOKE<boolean>("oauth_sign_in_kept", { address, provider }),
+	/**
 	 *  Ajoute un compte par « Se connecter avec … » : navigateur du système,
 	 *  test des connexions avec le jeton, persistance, jeton de
 	 *  rafraîchissement dans le trousseau.

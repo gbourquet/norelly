@@ -54,6 +54,7 @@ function fakeApi(discovery: Discovery, results: AddAccountResult[]) {
     oauthProviderFor: vi.fn(async (address: string) =>
       address.trim().endsWith("@outlook.com") ? ("microsoft" as const) : null,
     ),
+    oauthSignInKept: vi.fn(async () => false),
     addOAuthAccount: vi.fn(async (input: AddOAuthAccountInput) => {
       oauthCalls.push(structuredClone(input));
       const next = results.shift();
@@ -432,6 +433,27 @@ describe("se connecter avec Microsoft", () => {
     expect(f.step).toBe("form");
     expect(f.message).toContain("Transfert et IMAP");
     expect(f.message).not.toContain("mot de passe d'application");
+  });
+
+  it("nouvel essai avec la connexion gardée : le navigateur n'est pas annoncé", async () => {
+    const { api } = fakeApi(found, [
+      { kind: "added", account },
+      { kind: "added", account },
+    ]);
+    const f = outlook(api);
+    await f.detectProvider();
+    const shown: boolean[] = [];
+    const add = api.addOAuthAccount;
+    api.addOAuthAccount = vi.fn(async (input: AddOAuthAccountInput) => {
+      shown.push(f.waitingForBrowser);
+      return add(input);
+    });
+    await f.signInWithProvider();
+    api.oauthSignInKept = vi.fn(async () => true);
+    await f.signInWithProvider();
+    expect(shown).toEqual([true, false]);
+    expect(f.reusingSignIn).toBe(false);
+    expect(api.oauthSignInKept).toHaveBeenCalledWith("alice@outlook.com", "microsoft");
   });
 
   it("serveur muet : ni « injoignable » ni nom et port mis en cause", async () => {

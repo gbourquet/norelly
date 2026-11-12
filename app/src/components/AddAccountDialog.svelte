@@ -147,6 +147,11 @@
           <LoaderIcon size={14} class="spin" aria-hidden="true" />
           {m.add_oauth_waiting_microsoft()}
         </p>
+      {:else if flow.reusingSignIn}
+        <p>
+          <LoaderIcon size={14} class="spin" aria-hidden="true" />
+          {m.add_oauth_testing_microsoft()}
+        </p>
       {:else}
         <p>
           <LoaderIcon size={14} class="spin" aria-hidden="true" />

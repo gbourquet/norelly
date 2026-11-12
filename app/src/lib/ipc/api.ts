@@ -181,6 +181,11 @@ export const api = {
   oauthProviderFor: (address: string): Promise<OAuthProviderDto | null> =>
     commands.oauthProviderFor(address),
 
+  /** Vrai si le prochain « Se connecter avec … » pour cette adresse se
+   * passera du navigateur (connexion d'un essai échoué gardée par Rust). */
+  oauthSignInKept: (address: string, provider: OAuthProviderDto): Promise<boolean> =>
+    commands.oauthSignInKept(address, provider),
+
   /** « Se connecter avec … » : ouvre le navigateur du système. */
   addOAuthAccount: (input: AddOAuthAccountInput): Promise<AddAccountResult> =>
     unwrap(commands.addOauthAccount(input)),
@@ -458,6 +463,7 @@ export type AccountApi = Pick<
   | "addAccount"
   | "oauthProviderFor"
   | "addOAuthAccount"
+  | "oauthSignInKept"
   | "trustCertificate"
   | "removeAccount"
   | "allowFileSecrets"

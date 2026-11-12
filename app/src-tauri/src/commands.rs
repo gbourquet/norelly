@@ -166,6 +166,21 @@ pub fn oauth_provider_for(address: String) -> Option<OAuthProviderDto> {
     norelly_domain::oauth::OAuthProvider::for_address(&address).map(Into::into)
 }
 
+/// Vrai si l'essai suivant de « Se connecter avec … » pour cette adresse
+/// réutilisera la connexion d'un ajout qui a échoué, sans navigateur
+/// (l'écran ne l'annonce alors pas). Entrée invalide : faux.
+#[tauri::command]
+#[specta::specta]
+pub fn oauth_sign_in_kept(state: State<'_, AppState>, address: String, provider: String) -> bool {
+    let (Ok(address), Some(provider)) = (
+        EmailAddress::parse(&address),
+        norelly_domain::oauth::OAuthProvider::parse(&provider),
+    ) else {
+        return false;
+    };
+    state.tokens.has_pending(provider, &address)
+}
+
 /// Ajoute un compte par « Se connecter avec … » : navigateur du système,
 /// test des connexions avec le jeton, persistance, jeton de
 /// rafraîchissement dans le trousseau.

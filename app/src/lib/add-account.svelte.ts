@@ -112,6 +112,7 @@ export class AddAccountFlow {
   #manual = false;
   /** Le dernier essai passe par le fournisseur OAuth. */
   #oauth = false;
+  #browser = true;
   #consents: EndpointDto[] = [];
   #api: AccountApi;
 
@@ -176,6 +177,10 @@ export class AddAccountFlow {
     this.appPasswordHelp = false;
     this.#oauth = true;
     this.#manual = false;
+    // Rust dit si la connexion d'un essai échoué resservira, sans navigateur.
+    this.#browser = !(await this.#api
+      .oauthSignInKept(this.address.trim(), provider)
+      .catch(() => false));
     this.step = "testing";
     let result: AddAccountResult;
     try {
@@ -194,7 +199,12 @@ export class AddAccountFlow {
 
   /** Vrai pendant l'attente du retour du navigateur. */
   get waitingForBrowser(): boolean {
-    return this.#oauth && this.step === "testing";
+    return this.#oauth && this.#browser && this.step === "testing";
+  }
+
+  /** Vrai pendant un nouvel essai qui réutilise la connexion gardée. */
+  get reusingSignIn(): boolean {
+    return this.#oauth && !this.#browser && this.step === "testing";
   }
 
   /** Ouvre la page Google de création des mots de passe d'application. */

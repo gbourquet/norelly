@@ -475,3 +475,22 @@ async fn reset_after_starttls_is_a_closed_connection() -> TestResult {
     let _ = server.finish().await;
     Ok(())
 }
+
+/// Connexion réinitialisée pendant l'échange en clair, avant STARTTLS :
+/// même classement qu'une fermeture.
+#[tokio::test]
+async fn reset_before_starttls_is_a_closed_connection() -> TestResult {
+    let ca = TestCa::new()?;
+    let script = Script::new().send(smtp::greeting()).expect("EHLO").reset();
+    let server = ScriptedServer::start(script, None).await?;
+    let result = sender(&ca)
+        .verify(&request(
+            server.port(),
+            Security::StartTls,
+            PlaintextPolicy::deny_all(),
+        ))
+        .await;
+    assert!(matches!(result, Err(ConnectionError::Closed)), "{result:?}");
+    let _ = server.finish().await;
+    Ok(())
+}

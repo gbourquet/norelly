@@ -63,7 +63,7 @@ impl PlainSession {
             let n = tokio::time::timeout(self.timeout, self.tcp.read(&mut chunk))
                 .await
                 .map_err(|_| ConnectionError::Timeout(TimeoutStage::Response))?
-                .map_err(|e| ConnectionError::Network(e.to_string()))?;
+                .map_err(|e| crate::io_failure(&e))?;
             if n == 0 {
                 return Err(ConnectionError::Closed);
             }
@@ -108,7 +108,7 @@ impl PlainSession {
         tokio::time::timeout(self.timeout, self.tcp.write_all(command))
             .await
             .map_err(|_| ConnectionError::Timeout(TimeoutStage::Write))?
-            .map_err(|e| ConnectionError::Network(e.to_string()))?;
+            .map_err(|e| crate::io_failure(&e))?;
         self.read_reply().await
     }
 

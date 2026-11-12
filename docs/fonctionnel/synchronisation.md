@@ -64,7 +64,7 @@ redevient identique au serveur après toute interruption.
 |---|---|
 | Compte injoignable | Hors ligne |
 | Survol de l'icône | Hors ligne : {reason} |
-| Raison | serveur injoignable, identifiants refusés, connexion refusée par sécurité, réponse du serveur non conforme… |
+| Raison | serveur injoignable, le serveur ne répond pas, identifiants refusés, connexion refusée par sécurité, réponse du serveur non conforme… |
 | Contenu pas encore téléchargé | Le contenu de ce message n'est pas encore disponible. |
 
 ## Raccourcis

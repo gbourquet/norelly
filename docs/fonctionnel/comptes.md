@@ -116,6 +116,12 @@ acceptés) sont supprimées. **Rien n'est supprimé sur le serveur.**
   parfois passager chez Microsoft) : Norelly réessaie plusieurs fois ; si
   le refus persiste, il demande de vérifier que l'accès IMAP est activé
   dans Outlook.com, sans parler de mot de passe.
+- Réseau instable, ou serveur joint mais qui ne répond pas ou coupe la
+  connexion : Norelly réessaie seul, sur une nouvelle connexion, avant
+  d'annoncer un échec. Un refus du serveur (identifiants, sécurité) ne se
+  réessaie pas.
+- Serveur qui ne répond pas : le message ne met en cause ni le nom ni le
+  port, il invite à vérifier la connexion à Internet puis à réessayer.
 - L'autorisation Microsoft n'est jamais envoyée à un autre serveur que ceux
   de Microsoft, ni sur une connexion non chiffrée.
 - Compte Google refusé (adresse Gmail, ou serveurs de Google pour une
@@ -143,6 +149,7 @@ acceptés) sont supprimées. **Rien n'est supprimé sur le serveur.**
 | Identifiants refusés | {prefix}identifiants refusés. … (un mot de passe d'application est parfois nécessaire). |
 | Compte Google refusé | {prefix}identifiants refusés : un compte Google demande un mot de passe d'application. Puis « Créer un mot de passe d'application Google » : validation en deux étapes, création du mot de passe (« Ouvrir la page Google »), collage à la place du mot de passe habituel. |
 | Serveur injoignable | {prefix}serveur injoignable. Vérifiez le nom et le port. |
+| Serveur qui ne répond pas | {prefix}le serveur ne répond pas. Vérifiez votre connexion à Internet, puis réessayez. |
 | Adresse Microsoft | Outlook.com et Hotmail n'acceptent pas de mot de passe ici : connectez-vous chez Microsoft dans votre navigateur. Norelly ne voit jamais votre mot de passe. |
 | Attente du navigateur | Connectez-vous dans la fenêtre de votre navigateur, puis revenez ici. |
 | Connexion annulée | La connexion a été annulée dans le navigateur. |

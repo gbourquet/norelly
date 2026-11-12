@@ -113,6 +113,20 @@ montre les réglages des serveurs, comparez le **Serveur** et le **Port**
 avec la page d'aide de votre fournisseur : une seule lettre de travers
 suffit à empêcher la connexion.
 
+## Le serveur ne répond pas
+
+**Ce que vous voyez** : « le serveur ne répond pas. Vérifiez votre
+connexion à Internet, puis réessayez. »
+
+Norelly a bien trouvé le serveur, mais celui-ci n'a pas répondu à temps
+ou a coupé la connexion. Norelly a déjà réessayé plusieurs fois avant
+d'afficher ce message.
+
+**Quoi faire** : vérifiez votre connexion à Internet, attendez quelques
+minutes, puis cliquez de nouveau sur le bouton. Si le problème dure, essayez
+depuis une autre connexion (par exemple le partage de connexion de votre
+téléphone) : certains réseaux ont du mal à joindre certains fournisseurs.
+
 ## Envoi impossible
 
 **Ce que vous voyez** : en bas de la fenêtre, « Envoi impossible : « sujet

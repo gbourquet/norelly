@@ -101,6 +101,20 @@ username and password (an app password is sometimes required)."
 settings, compare **Server** and **Port** with your provider's help page: a
 single wrong letter is enough to prevent the connection.
 
+## The server is not responding
+
+**What you see**: "the server is not responding. Check your internet
+connection, then try again."
+
+Norelly found the server, but it did not answer in time or cut the
+connection. Norelly has already tried again several times before showing
+this message.
+
+**What to do**: check your Internet connection, wait a few minutes, then
+click the button again. If the problem persists, try from another
+connection (for example your phone's hotspot): some networks have trouble
+reaching some providers.
+
 ## Could not send
 
 **What you see**: at the bottom of the window, "Could not send "message

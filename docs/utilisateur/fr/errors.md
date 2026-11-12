@@ -122,6 +122,11 @@ Norelly a bien trouvé le serveur, mais celui-ci n'a pas répondu à temps
 ou a coupé la connexion. Norelly a déjà réessayé plusieurs fois avant
 d'afficher ce message.
 
+Si seul le serveur d'envoi ne répond pas, Norelly ajoute quand même le
+compte : « Compte ajouté. L'envoi n'a pas pu être vérifié… ». Vous recevez
+vos messages tout de suite ; l'envoi sera essayé à votre premier message,
+et un message qui ne part pas reste dans la **boîte d'envoi**.
+
 **Quoi faire** : vérifiez votre connexion à Internet, attendez quelques
 minutes, puis cliquez de nouveau sur le bouton. Si le problème dure, essayez
 depuis une autre connexion (par exemple le partage de connexion de votre

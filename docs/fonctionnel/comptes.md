@@ -124,6 +124,11 @@ acceptés) sont supprimées. **Rien n'est supprimé sur le serveur.**
   réseau instable) : un nouvel essai pour la même adresse, dans les dix
   minutes, réutilise cette connexion sans rouvrir le navigateur. Elle n'est
   gardée qu'en mémoire, jamais enregistrée, et ne sert qu'une fois.
+- Réception vérifiée, mais serveur d'envoi joint qui ne répond pas ou
+  coupe la connexion : le compte est ajouté quand même, et un message dit
+  que l'envoi n'a pas pu être vérifié ; il le sera au premier message. Un
+  serveur d'envoi introuvable (nom ou port faux), un refus ou une
+  protection empêchent toujours l'ajout.
 - Serveur qui ne répond pas : le message ne met en cause ni le nom ni le
   port, il invite à vérifier la connexion à Internet puis à réessayer.
 - L'autorisation Microsoft n'est jamais envoyée à un autre serveur que ceux
@@ -157,6 +162,7 @@ acceptés) sont supprimées. **Rien n'est supprimé sur le serveur.**
 | Adresse Microsoft | Outlook.com et Hotmail n'acceptent pas de mot de passe ici : connectez-vous chez Microsoft dans votre navigateur. Norelly ne voit jamais votre mot de passe. |
 | Attente du navigateur | Connectez-vous dans la fenêtre de votre navigateur, puis revenez ici. |
 | Nouvel essai sans navigateur | Connexion à votre messagerie Microsoft… |
+| Envoi non vérifié à l'ajout | Compte ajouté. L'envoi n'a pas pu être vérifié, le serveur ne répondait pas : Norelly réessaiera à votre premier message. |
 | Connexion annulée | La connexion a été annulée dans le navigateur. |
 | Boîte inaccessible (Microsoft) | {prefix}votre compte Microsoft est bien connecté, mais Outlook.com refuse l'accès à la boîte. Vérifiez que l'accès IMAP est activé dans Outlook.com (Paramètres, Courrier, Transfert et IMAP), puis réessayez dans quelques minutes. |
 | Envoi désactivé (Microsoft) | {prefix}l'envoi de messages est désactivé sur ce compte Microsoft. Activez-le dans les réglages de votre compte Outlook.com, puis réessayez. |

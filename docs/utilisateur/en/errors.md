@@ -110,6 +110,11 @@ Norelly found the server, but it did not answer in time or cut the
 connection. Norelly has already tried again several times before showing
 this message.
 
+If only the sending server is not responding, Norelly adds the account
+anyway: "Account added. Sending could not be checked…". You receive your
+messages right away; sending will be tried with your first message, and a
+message that does not go out stays in the **outbox**.
+
 **What to do**: check your Internet connection, wait a few minutes, then
 click the button again. If the problem persists, try from another
 connection (for example your phone's hotspot): some networks have trouble

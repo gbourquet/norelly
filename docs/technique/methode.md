@@ -111,14 +111,18 @@ bureau (Linux), `svelte-check`, lint et tests du front avec couverture.
 `./scripts/check.sh full` ajoute le build du workspace et les tests
 d'intégration.
 
-Caches de la CI (10 Go par dépôt sur GitHub), **enregistrés depuis
-`master` seulement** : une PR lit ceux de `master` sans pouvoir les
-remplacer, ni les évincer par les siens.
+Caches de la CI (10 Go par dépôt sur GitHub) : ceux des jobs Rust et
+end-to-end ne sont **enregistrés que depuis `master`**, pour ne pas
+évincer ceux de `master` par des caches de PR. Une PR ne peut de toute
+façon écrire que dans sa propre portée, jamais lue par `master` ni par une
+autre PR.
 
 - Compilation Rust des jobs `check.sh` : `Swatinem/rust-cache`.
 - End-to-end : l'image Docker (clé : `app/e2e/Dockerfile` et la semaine,
   pour suivre Rust stable) et le dossier de build `~/.cache/norelly-e2e`
-  (clé : la même, plus `Cargo.lock`), sans le dossier `incremental`. Le
+  (clé : la même, plus `Cargo.lock`), réduit à `target/` (sans
+  `incremental`) et aux archives `.crate` ; une image restaurée n'est
+  acceptée que sous son tag attendu. Le
   build y est fait sans compilation incrémentale ni informations de
   débogage (`CARGO_INCREMENTAL=0`, `CARGO_PROFILE_DEV_DEBUG=0`, transmis
   au conteneur par `app/e2e/run.sh`).

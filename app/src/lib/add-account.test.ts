@@ -410,6 +410,19 @@ describe("se connecter avec Microsoft", () => {
     expect(f.message).toBe("La connexion a été annulée dans le navigateur.");
   });
 
+  it("autre compte choisi dans le navigateur : retour au formulaire, message clair", async () => {
+    const { api } = fakeApi(found, [
+      { kind: "failed", protocol: null, failure: "oauth_wrong_account", detail: null },
+    ]);
+    const f = outlook(api);
+    await f.detectProvider();
+    await f.signInWithProvider();
+    expect(f.step).toBe("form");
+    expect(f.message).toBe(
+      "Le compte choisi dans le navigateur n'est pas celui de cette adresse. Réessayez en choisissant le compte de alice@outlook.com.",
+    );
+  });
+
   it("envoi désactivé sur la boîte : message clair", async () => {
     const { api } = fakeApi(found, [
       { kind: "failed", protocol: "smtp", failure: "microsoft_smtp_disabled", detail: null },

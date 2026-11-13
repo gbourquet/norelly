@@ -606,6 +606,8 @@ pub enum FailureKindDto {
     /// Connexion chez le fournisseur abandonnée ou refusée par
     /// l'utilisateur.
     OauthCancelled,
+    /// Le compte choisi dans le navigateur n'est pas celui de l'adresse.
+    OauthWrongAccount,
     /// Connexion chez le fournisseur impossible (réseau, réponse invalide).
     Oauth,
     Security,
@@ -791,6 +793,7 @@ pub fn oauth_failure(e: &TokenError) -> AddAccountResultDto {
     match e {
         TokenError::Cancelled(_) => failed(None, FailureKindDto::OauthCancelled, None),
         TokenError::ReauthRequired => failed(None, FailureKindDto::ReauthRequired, None),
+        TokenError::WrongAccount => failed(None, FailureKindDto::OauthWrongAccount, None),
         TokenError::Network(d) | TokenError::Protocol(d) => {
             failed(None, FailureKindDto::Oauth, Some(d.clone()))
         }
@@ -1442,6 +1445,21 @@ mod error_tests {
                 AuthenticationAdvice::MicrosoftImapUnavailable
             )))["failure"],
             "microsoft_imap_unavailable"
+        );
+    }
+
+    #[test]
+    fn sign_in_with_another_account_has_its_own_failure_kind() {
+        let json =
+            serde_json::to_value(oauth_failure(&TokenError::WrongAccount)).unwrap_or_default();
+        assert_eq!(
+            json,
+            serde_json::json!({
+                "kind": "failed",
+                "protocol": null,
+                "failure": "oauth_wrong_account",
+                "detail": null,
+            })
         );
     }
 }

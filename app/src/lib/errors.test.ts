@@ -214,6 +214,7 @@ describe("traduction des erreurs IPC", () => {
       microsoft_imap_unavailable: true,
       reauth_required: true,
       oauth_cancelled: true,
+      oauth_wrong_account: true,
       oauth: true,
       unresponsive: true,
     } satisfies Record<FailureKindDto, true>;

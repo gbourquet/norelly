@@ -404,7 +404,12 @@ export class AddAccountFlow {
           // Connexion par le fournisseur : aucun serveur à corriger.
           this.step = this.#oauth ? "form" : "manual";
         }
-        this.message = failureMessage(result.failure, result.protocol, result.detail);
+        this.message = failureMessage(
+          result.failure,
+          result.protocol,
+          result.detail,
+          this.address.trim(),
+        );
         break;
     }
   }
@@ -414,6 +419,7 @@ function failureMessage(
   failure: FailureKindDto,
   protocol: string | null,
   detail: string | null,
+  address: string,
 ): string {
   const prefix =
     protocol === "imap" ? m.add_server_imap() : protocol === "smtp" ? m.add_server_smtp() : "";
@@ -431,6 +437,8 @@ function failureMessage(
         return m.add_fail_reauth_required();
       case "oauth_cancelled":
         return m.add_fail_oauth_cancelled();
+      case "oauth_wrong_account":
+        return m.add_fail_oauth_wrong_account({ address });
       case "oauth":
         return m.add_fail_oauth();
       case "network":

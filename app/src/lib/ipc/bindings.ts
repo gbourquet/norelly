@@ -1149,6 +1149,8 @@ export type FailureKindDto =
  *  l'utilisateur.
  */
 "oauth_cancelled" | 
+/**  Le compte choisi dans le navigateur n'est pas celui de l'adresse. */
+"oauth_wrong_account" | 
 /**  Connexion chez le fournisseur impossible (réseau, réponse invalide). */
 "oauth" | "security" | "protocol" | 
 /**  Paramètres refusés par le domaine. */

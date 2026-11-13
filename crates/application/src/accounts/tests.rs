@@ -758,10 +758,10 @@ mod oauth {
             refresh_token: None,
             ..grant().unwrap_or_else(|| panic!())
         });
-        assert!(matches!(
+        assert_eq!(
             add(&w, &broker(without_refresh)).await,
-            AddAccountOutcome::OAuthFailed(TokenError::Protocol(_))
-        ));
+            AddAccountOutcome::OAuthFailed(TokenError::OfflineAccessRefused)
+        );
         assert!(w.accounts.list().await.is_ok_and(|l| l.is_empty()));
     }
 
@@ -1011,6 +1011,18 @@ mod oauth {
         assert_eq!(
             b.access_token(&source).await.map(|t| t.expose().to_owned()),
             Ok("neuf".to_owned())
+        );
+        if let Ok(mut g) = b.client().grant.lock() {
+            *g = Some(OAuthGrant {
+                refresh_token: None,
+                ..grant().unwrap_or_else(|| panic!())
+            });
+        }
+        assert_eq!(
+            reconnect_oauth_account(&b, &w.accounts, account.id())
+                .await
+                .map(|_| ()),
+            Err(ReconnectError::OAuth(TokenError::OfflineAccessRefused))
         );
         let Ok(missing) = AccountId::new(999) else {
             panic!()

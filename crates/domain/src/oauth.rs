@@ -393,6 +393,15 @@ pub fn verify_identity(
     }
 }
 
+/// Refuse une connexion interactive sans jeton de rafraîchissement : sans
+/// lui, le compte ne pourrait plus se connecter une fois le jeton d'accès
+/// expiré.
+pub fn require_offline_access(refresh_token: Option<&Secret>) -> Result<(), TokenError> {
+    refresh_token
+        .map(|_| ())
+        .ok_or(TokenError::OfflineAccessRefused)
+}
+
 /// Échec d'obtention ou de rafraîchissement d'un jeton. Ne contient jamais
 /// de jeton.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -404,6 +413,11 @@ pub enum TokenError {
     /// Le compte choisi dans le navigateur n'est pas celui de l'adresse.
     #[error("compte connecté différent de l'adresse")]
     WrongAccount,
+    /// Le fournisseur n'a pas délivré de jeton de rafraîchissement (accès
+    /// hors ligne refusé dans sa page) : le compte cesserait de fonctionner
+    /// à l'expiration du jeton d'accès.
+    #[error("accès hors ligne refusé")]
+    OfflineAccessRefused,
     /// L'utilisateur a refusé ou abandonné la connexion.
     #[error("connexion annulée : {0}")]
     Cancelled(String),

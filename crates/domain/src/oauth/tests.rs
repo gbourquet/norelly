@@ -153,6 +153,15 @@ fn missing_identity_is_refused() {
 }
 
 #[test]
+fn sign_in_without_refresh_token_is_refused() {
+    assert_eq!(
+        require_offline_access(None),
+        Err(TokenError::OfflineAccessRefused)
+    );
+    assert_eq!(require_offline_access(Some(&secret("r1"))), Ok(()));
+}
+
+#[test]
 fn callback_returns_code_when_state_matches() {
     let code = parse_callback("/?code=M.C%2B1-ab&state=xyz", "xyz");
     assert_eq!(

@@ -40,6 +40,15 @@ if [ ! -d app/node_modules ]; then
   exit 1
 fi
 
+# Cache de build (monté dans le conteneur) : une configuration de cargo
+# n'y a pas sa place, elle pourrait lancer un programme (rustc-wrapper,
+# runner) aux étapes suivantes. La CI ne garde d'une exécution à l'autre
+# que target/ et les archives .crate.
+if compgen -G "$cache/cargo/config*" >/dev/null; then
+  echo "Configuration cargo inattendue dans $cache/cargo : la supprimer" >&2
+  exit 1
+fi
+
 if ! docker image inspect "$image" >/dev/null 2>&1; then
   echo "==> Construction de l'image $image"
   docker build -t "$image" app/e2e

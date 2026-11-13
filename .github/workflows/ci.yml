@@ -88,15 +88,29 @@ jobs:
         with:
           path: ${{ runner.temp }}/e2e-image.tar
           key: e2e-image-${{ hashFiles('app/e2e/Dockerfile') }}-${{ steps.keys.outputs.week }}
+      # L'archive ne doit apporter que l'image attendue, sous son tag.
       - name: Image e2e depuis le cache
         if: steps.image.outputs.cache-hit == 'true'
-        run: docker load -i "$RUNNER_TEMP/e2e-image.tar"
+        env:
+          TAG: ${{ steps.keys.outputs.tag }}
+        run: |
+          loaded=$(docker load -i "$RUNNER_TEMP/e2e-image.tar" | sed -n 's/^Loaded image: //p')
+          if [ "$loaded" != "$TAG" ]; then
+            echo "Archive d'image inattendue : « $loaded » au lieu de « $TAG »" >&2
+            exit 1
+          fi
       # Build de l'application (dépendances compilées) : clé = Cargo.lock et
-      # image ; à défaut, le cache le plus récent sert de base.
+      # image ; à défaut, le cache le plus récent sert de base. Seuls les
+      # artefacts de compilation et les archives .crate (revérifiées par
+      # cargo contre Cargo.lock) sont gardés : ni configuration de cargo, ni
+      # binaires installés, ni sources extraites, ni HOME du conteneur.
       - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         id: build
         with:
-          path: ~/.cache/norelly-e2e
+          path: |
+            ~/.cache/norelly-e2e/target
+            ~/.cache/norelly-e2e/cargo/registry/cache
+            ~/.cache/norelly-e2e/cargo/registry/index
           key: e2e-build-${{ hashFiles('app/e2e/Dockerfile') }}-${{ steps.keys.outputs.week }}-${{ hashFiles('Cargo.lock') }}
           restore-keys: |
             e2e-build-${{ hashFiles('app/e2e/Dockerfile') }}-${{ steps.keys.outputs.week }}-
@@ -120,7 +134,10 @@ jobs:
       - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         if: env.SAVE_CACHES == 'true' && steps.build.outputs.cache-hit != 'true'
         with:
-          path: ~/.cache/norelly-e2e
+          path: |
+            ~/.cache/norelly-e2e/target
+            ~/.cache/norelly-e2e/cargo/registry/cache
+            ~/.cache/norelly-e2e/cargo/registry/index
           key: ${{ steps.build.outputs.cache-primary-key }}
 
   windows:

@@ -186,8 +186,11 @@ Règles :
   une `Gravité` (`moyen`, `bas`, `info`) pour un constat laissé de côté ;
   `à-trancher` quand une décision du mainteneur est attendue (ne pas
   commencer) ; `tâche-humaine` pour ce qu'un agent ne peut pas faire.
-- États : `Backlog` (à trier), `Todo` (priorisé), `In Progress`, `Done`,
-  `Canceled`. Passer le ticket en `In Progress` en commençant.
+- États : `Backlog` (à trier), `Todo` (priorisé), `In Progress`,
+  `In Review`, `Done`, `Canceled`. Toujours, pour tout ticket traité :
+  `In Progress` **avant** de commencer, `In Review` **dès** que la PR est
+  ouverte ; seul le mainteneur merge : quand il annonce un merge, passer
+  le ticket en `Done` s'il n'y est pas déjà.
 - Description : une partie lisible (constat, attendu), puis les fichiers et
   le plan dans une section repliable « Agent notes ».
 - Avant de créer un ticket, chercher s'il existe déjà.
@@ -200,9 +203,12 @@ Règles :
   ADR, objectifs plutôt que seuils), `docs/technique/tracabilite.md`,
   `docs/utilisateur/{fr,en}/` (mêmes pages dans les deux langues). Les
   captures sont régénérées par les e2e, jamais retouchées à la main.
-- Linear : lier la PR au ticket traité (il passe en `Done` au merge) ;
-  créer un ticket, sous l'epic concernée, pour ce qui a été découvert et
-  laissé de côté.
+- Linear : lier la PR au ticket traité et le passer en `In Review`. Ce
+  qui reste à faire pour la PR se traite
+  dans la même PR : ticket repassé en `In Progress`, ajustements sur la
+  même branche, PR mise à jour, ticket repassé en `In Review`. Un nouveau
+  ticket, sous l'epic concernée, seulement pour un sujet distinct laissé
+  de côté ; en cas de doute, demander au mainteneur.
 - Revue de sécurité : lancer le sous-agent `security-reviewer` dès que la
   branche touche une zone sensible (rendu HTML et protocoles, TLS, IMAP,
   SMTP, autodécouverte, trousseau, SQL, pièces jointes et fichiers, IPC et

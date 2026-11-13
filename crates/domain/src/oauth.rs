@@ -30,6 +30,9 @@ pub struct OAuthConfig {
     pub token_url: &'static str,
     pub client_id: &'static str,
     pub scopes: &'static [&'static str],
+    /// Scopes OpenID demandés à la seule connexion interactive : l'identité
+    /// du compte choisi dans le navigateur revient dans l'`id_token`.
+    pub identity_scopes: &'static [&'static str],
     pub imap_host: &'static str,
     pub smtp_host: &'static str,
 }
@@ -43,6 +46,7 @@ const MICROSOFT: OAuthConfig = OAuthConfig {
         "https://outlook.office.com/SMTP.Send",
         "offline_access",
     ],
+    identity_scopes: &["openid", "email", "profile"],
     imap_host: "outlook.office365.com",
     smtp_host: "smtp-mail.outlook.com",
 };
@@ -121,7 +125,7 @@ pub fn authorization_url(config: &OAuthConfig, request: &AuthorizationRequest<'_
         ("response_type", "code"),
         ("client_id", config.client_id),
         ("redirect_uri", request.redirect_uri),
-        ("scope", &config.scopes.join(" ")),
+        ("scope", &authorization_scopes(config)),
         ("state", request.state),
         ("code_challenge", request.code_challenge),
         ("code_challenge_method", "S256"),
@@ -129,6 +133,17 @@ pub fn authorization_url(config: &OAuthConfig, request: &AuthorizationRequest<'_
         ("prompt", "select_account"),
     ];
     format!("{}?{}", config.authorize_url, encode_pairs(&params))
+}
+
+/// Scopes de la connexion interactive : messagerie, puis identité.
+fn authorization_scopes(config: &OAuthConfig) -> String {
+    config
+        .scopes
+        .iter()
+        .chain(config.identity_scopes)
+        .copied()
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 fn encode_pairs(pairs: &[(&str, &str)]) -> String {
@@ -346,6 +361,38 @@ impl PendingAuthorization {
     }
 }
 
+/// Identité du compte connecté, lue dans l'`id_token` reçu du point
+/// d'accès des jetons.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct OAuthIdentity {
+    pub preferred_username: Option<String>,
+    pub email: Option<String>,
+}
+
+/// Refuse les jetons d'un autre compte que celui de `address` : erreur de
+/// compte dans la page du fournisseur, ou code d'autorisation d'un autre
+/// compte injecté dans la redirection locale. Le compte est le bon si son
+/// identifiant de connexion (`preferred_username`) ou son adresse
+/// (`email`) est l'adresse, sans tenir compte de la casse. Sans identité,
+/// rien ne peut être vérifié : refus.
+pub fn verify_identity(
+    address: &EmailAddress,
+    identity: Option<&OAuthIdentity>,
+) -> Result<(), TokenError> {
+    let identity =
+        identity.ok_or_else(|| TokenError::Protocol("identité du compte absente".to_owned()))?;
+    let expected = address.to_string();
+    let matches = [&identity.preferred_username, &identity.email]
+        .into_iter()
+        .flatten()
+        .any(|claim| claim.trim().eq_ignore_ascii_case(&expected));
+    if matches {
+        Ok(())
+    } else {
+        Err(TokenError::WrongAccount)
+    }
+}
+
 /// Échec d'obtention ou de rafraîchissement d'un jeton. Ne contient jamais
 /// de jeton.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -354,6 +401,9 @@ pub enum TokenError {
     /// mot de passe changé) : l'utilisateur doit se reconnecter.
     #[error("reconnexion nécessaire")]
     ReauthRequired,
+    /// Le compte choisi dans le navigateur n'est pas celui de l'adresse.
+    #[error("compte connecté différent de l'adresse")]
+    WrongAccount,
     /// L'utilisateur a refusé ou abandonné la connexion.
     #[error("connexion annulée : {0}")]
     Cancelled(String),

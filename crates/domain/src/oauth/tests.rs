@@ -76,7 +76,7 @@ fn authorization_url_carries_pkce_state_and_encoded_parameters() {
         "code_challenge=ch-al_lenge",
         "code_challenge_method=S256",
         "login_hint=alice%2Btest%40outlook.com",
-        "scope=https%3A%2F%2Foutlook.office.com%2FIMAP.AccessAsUser.All%20https%3A%2F%2Foutlook.office.com%2FSMTP.Send%20offline_access",
+        "scope=https%3A%2F%2Foutlook.office.com%2FIMAP.AccessAsUser.All%20https%3A%2F%2Foutlook.office.com%2FSMTP.Send%20offline_access%20openid%20email%20profile",
     ] {
         assert!(params.contains(&expected), "{expected} absent de {url}");
     }
@@ -101,6 +101,55 @@ fn token_forms_are_encoded() {
         form.expose()
             .contains("&scope=https%3A%2F%2Foutlook.office.com")
     );
+    // Le rafraîchissement garde les scopes accordés aux comptes existants.
+    assert!(!form.expose().contains("openid"));
+}
+
+fn identity(preferred_username: Option<&str>, email: Option<&str>) -> OAuthIdentity {
+    OAuthIdentity {
+        preferred_username: preferred_username.map(str::to_owned),
+        email: email.map(str::to_owned),
+    }
+}
+
+#[test]
+fn identity_of_the_address_is_accepted() {
+    let alice = address("alice@outlook.com");
+    for id in [
+        identity(Some("alice@outlook.com"), None),
+        identity(Some("Alice@Outlook.COM"), None),
+        // Connexion par numéro de téléphone : l'adresse vient de `email`.
+        identity(Some("+33600000000"), Some("alice@outlook.com")),
+        identity(None, Some(" alice@outlook.com ")),
+    ] {
+        assert_eq!(verify_identity(&alice, Some(&id)), Ok(()), "{id:?}");
+    }
+}
+
+#[test]
+fn identity_of_another_account_is_refused() {
+    let alice = address("alice@outlook.com");
+    for id in [
+        identity(Some("mallory@outlook.com"), None),
+        identity(Some("mallory@outlook.com"), Some("mallory@hotmail.com")),
+        identity(Some("alice@outlook.com.evil.example"), None),
+        identity(Some(""), Some("")),
+        identity(None, None),
+    ] {
+        assert_eq!(
+            verify_identity(&alice, Some(&id)),
+            Err(TokenError::WrongAccount),
+            "{id:?}"
+        );
+    }
+}
+
+#[test]
+fn missing_identity_is_refused() {
+    assert!(matches!(
+        verify_identity(&address("alice@outlook.com"), None),
+        Err(TokenError::Protocol(_))
+    ));
 }
 
 #[test]

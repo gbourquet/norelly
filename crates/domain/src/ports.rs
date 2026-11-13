@@ -81,6 +81,9 @@ pub struct OAuthGrant {
     /// Nouveau jeton de rafraîchissement, quand le fournisseur en délivre
     /// un (connexion, rotation au rafraîchissement).
     pub refresh_token: Option<crate::credentials::Secret>,
+    /// Identité du compte connecté, quand le fournisseur l'a fournie
+    /// (connexion interactive).
+    pub identity: Option<crate::oauth::OAuthIdentity>,
 }
 
 /// Obtention et rafraîchissement des jetons OAuth (navigateur du système,

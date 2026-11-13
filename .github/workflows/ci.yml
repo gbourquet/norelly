@@ -33,6 +33,10 @@ jobs:
         with:
           components: rustfmt, clippy, llvm-tools-preview
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        with:
+          # Cache enregistré depuis master seulement : les caches de PR
+          # (2 Go chacun) évinçaient celui de master (10 Go par dépôt).
+          save-if: ${{ github.ref == 'refs/heads/master' }}
       - uses: taiki-e/install-action@c509219cf42fba86913069efd0ade2458c59337b # v2
         with:
           tool: cargo-nextest,cargo-deny,cargo-llvm-cov
@@ -46,8 +50,95 @@ jobs:
           cache-dependency-path: app/pnpm-lock.yaml
       - run: pnpm -C app install --frozen-lockfile
       - run: ./scripts/check.sh full
+
+  e2e:
+    name: Linux (end-to-end, tauri-driver)
+    runs-on: ubuntu-24.04
+    env:
+      # Build de l'application dans le conteneur (transmis par e2e/run.sh) :
+      # sans compilation incrémentale ni informations de débogage, inutiles
+      # aux scénarios, pour un cache plus petit et un build plus court.
+      CARGO_INCREMENTAL: "0"
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      # Caches écrits depuis master seulement : une PR lit ceux de master
+      # sans pouvoir les remplacer.
+      SAVE_CACHES: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6
+        with:
+          version: 10
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: app/pnpm-lock.yaml
+      - run: pnpm -C app install --frozen-lockfile
+      # Image e2e : clé = Dockerfile + semaine, pour suivre Rust stable
+      # (installé à la construction de l'image) au moins chaque semaine.
+      - name: Clés des caches e2e
+        id: keys
+        run: |
+          echo "week=$(date -u +%G-%V)" >> "$GITHUB_OUTPUT"
+          echo "tag=norelly-e2e:$(sha256sum app/e2e/Dockerfile | cut -c1-12)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: image
+        with:
+          path: ${{ runner.temp }}/e2e-image.tar
+          key: e2e-image-${{ hashFiles('app/e2e/Dockerfile') }}-${{ steps.keys.outputs.week }}
+      # L'archive ne doit apporter que l'image attendue, sous son tag.
+      - name: Image e2e depuis le cache
+        if: steps.image.outputs.cache-hit == 'true'
+        env:
+          TAG: ${{ steps.keys.outputs.tag }}
+        run: |
+          loaded=$(docker load -i "$RUNNER_TEMP/e2e-image.tar" | sed -n 's/^Loaded image: //p')
+          if [ "$loaded" != "$TAG" ]; then
+            echo "Archive d'image inattendue : « $loaded » au lieu de « $TAG »" >&2
+            exit 1
+          fi
+      # Build de l'application (dépendances compilées) : clé = Cargo.lock et
+      # image ; à défaut, le cache le plus récent sert de base. Seuls les
+      # artefacts de compilation et les archives .crate (revérifiées par
+      # cargo contre Cargo.lock) sont gardés : ni configuration de cargo, ni
+      # binaires installés, ni sources extraites, ni HOME du conteneur.
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: build
+        with:
+          path: |
+            ~/.cache/norelly-e2e/target
+            ~/.cache/norelly-e2e/cargo/registry/cache
+            ~/.cache/norelly-e2e/cargo/registry/index
+          key: e2e-build-${{ hashFiles('app/e2e/Dockerfile') }}-${{ steps.keys.outputs.week }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            e2e-build-${{ hashFiles('app/e2e/Dockerfile') }}-${{ steps.keys.outputs.week }}-
       - name: Tests end-to-end (tauri-driver, conteneur Ubuntu)
         run: pnpm -C app e2e
+      - name: Préparation des caches e2e (master)
+        if: env.SAVE_CACHES == 'true'
+        env:
+          TAG: ${{ steps.keys.outputs.tag }}
+          IMAGE_HIT: ${{ steps.image.outputs.cache-hit }}
+        run: |
+          rm -rf ~/.cache/norelly-e2e/target/debug/incremental
+          if [ "$IMAGE_HIT" != true ]; then
+            docker save -o "$RUNNER_TEMP/e2e-image.tar" "$TAG"
+          fi
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: env.SAVE_CACHES == 'true' && steps.image.outputs.cache-hit != 'true'
+        with:
+          path: ${{ runner.temp }}/e2e-image.tar
+          key: ${{ steps.image.outputs.cache-primary-key }}
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: env.SAVE_CACHES == 'true' && steps.build.outputs.cache-hit != 'true'
+        with:
+          path: |
+            ~/.cache/norelly-e2e/target
+            ~/.cache/norelly-e2e/cargo/registry/cache
+            ~/.cache/norelly-e2e/cargo/registry/index
+          key: ${{ steps.build.outputs.cache-primary-key }}
 
   windows:
     name: Windows (check rapide + build)
@@ -63,6 +154,10 @@ jobs:
         with:
           components: rustfmt, clippy, llvm-tools-preview
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        with:
+          # Cache enregistré depuis master seulement : les caches de PR
+          # (2 Go chacun) évinçaient celui de master (10 Go par dépôt).
+          save-if: ${{ github.ref == 'refs/heads/master' }}
       - uses: taiki-e/install-action@c509219cf42fba86913069efd0ade2458c59337b # v2
         with:
           tool: cargo-nextest,cargo-deny,cargo-llvm-cov

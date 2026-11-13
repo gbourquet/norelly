@@ -40,6 +40,15 @@ if [ ! -d app/node_modules ]; then
   exit 1
 fi
 
+# Cache de build (monté dans le conteneur) : une configuration de cargo
+# n'y a pas sa place, elle pourrait lancer un programme (rustc-wrapper,
+# runner) aux étapes suivantes. La CI ne garde d'une exécution à l'autre
+# que target/ et les archives .crate.
+if compgen -G "$cache/cargo/config*" >/dev/null; then
+  echo "Configuration cargo inattendue dans $cache/cargo : la supprimer" >&2
+  exit 1
+fi
+
 if ! docker image inspect "$image" >/dev/null 2>&1; then
   echo "==> Construction de l'image $image"
   docker build -t "$image" app/e2e
@@ -83,6 +92,11 @@ common=(
   --rm --user "$(id -u):$(id -g)"
   -e HOME=/cache/home -e CARGO_HOME=/cache/cargo -e CARGO_TARGET_DIR=/cache/target
   -e RUSTUP_HOME=/opt/rustup
+  # Réglages de compilation de la CI (sans compilation incrémentale ni
+  # informations de débogage) : transmis seulement s'ils sont définis, et
+  # aux deux étapes, pour que les scénarios ne recompilent rien.
+  ${CARGO_INCREMENTAL:+-e CARGO_INCREMENTAL}
+  ${CARGO_PROFILE_DEV_DEBUG:+-e CARGO_PROFILE_DEV_DEBUG}
   -v "$cache:/cache" -w /work
 )
 

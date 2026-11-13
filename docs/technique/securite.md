@@ -139,6 +139,13 @@ reçus de l'interface ; types MIME recalculés.
   environnement de publication séparé de la compilation ; délais bornés
   (`docs/CODE_SIGNING.md`).
 - Flatpak : autorisations minimales.
+- Caches de la CI enregistrés depuis `master` seulement, jamais utilisés
+  par `release.yml`. Cache de build de l'e2e réduit à `target/` et aux
+  archives `.crate` (aucune configuration de cargo, refusée aussi par
+  `app/e2e/run.sh`) ; image de l'e2e renouvelée chaque semaine et
+  acceptée seulement sous son tag attendu. Risque résiduel accepté : un
+  `target/` empoisonné depuis `master` (build script compromis) servirait
+  jusqu'à la semaine suivante, dans un job sans secret.
 
 ## Fichiers sensibles
 

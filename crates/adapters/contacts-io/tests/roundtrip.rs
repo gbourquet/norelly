@@ -5,6 +5,8 @@
 //! téléphones LDIF rangés dans les attributs de Thunderbird, nom complet
 //! d'une vCard toujours écrit. Le favori n'est porté par aucun format.
 
+use std::collections::HashSet;
+
 use norelly_contacts_io::{ContactsIo, IcuNfc};
 use norelly_domain::contact_export::{ExportCard, ExportFormat, export_card};
 use norelly_domain::contact_import::{DuplicatePolicy, ImportPlan, plan_import};
@@ -237,6 +239,22 @@ fn contact() -> impl Strategy<Value = ContactDraft> {
         )
 }
 
+/// Carnet valide : une adresse n'appartient qu'à un contact (règle du
+/// carnet, à la casse près). Deux fiches d'un même fichier qui partagent
+/// une adresse sont des doublons à l'import : un tel carnet ne peut pas
+/// exister, donc pas être exporté.
+fn valid_book() -> impl Strategy<Value = Vec<ContactDraft>> {
+    prop::collection::vec(contact(), 1..6).prop_filter(
+        "adresse partagée par deux contacts",
+        |book| {
+            let mut seen = HashSet::new();
+            book.iter()
+                .flat_map(ContactDraft::emails)
+                .all(|e| seen.insert(e.key().clone()))
+        },
+    )
+}
+
 fn format() -> impl Strategy<Value = ExportFormat> {
     prop::sample::select(EXPORT_FORMATS.to_vec())
 }
@@ -261,7 +279,7 @@ proptest! {
     /// n'enlève ou ne change rien de plus que la première fois.
     #[test]
     fn reexporting_a_reimported_book_is_stable(
-        book in prop::collection::vec(contact(), 1..6),
+        book in valid_book(),
         format in format(),
     ) {
         let first = round_trip(&book, format);

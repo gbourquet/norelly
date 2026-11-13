@@ -215,6 +215,7 @@ describe("traduction des erreurs IPC", () => {
       reauth_required: true,
       oauth_cancelled: true,
       oauth_wrong_account: true,
+      oauth_offline_access: true,
       oauth: true,
       unresponsive: true,
     } satisfies Record<FailureKindDto, true>;
@@ -227,6 +228,7 @@ describe("traduction des erreurs IPC", () => {
     expect(new Set(labels).size).toBe(labels.length);
     expect(fieldLabel(null)).toBe("?");
     const failures = (Object.keys(kinds) as FailureKindDto[]).map(failureText);
+    for (const t of failures) expect(t).toEqual(expect.any(String));
     expect(new Set(failures).size).toBe(failures.length);
   });
 });

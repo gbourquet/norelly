@@ -20,6 +20,7 @@
 //!   même d'une transmission interrompue sans réponse du serveur
 //!   ([`crate::ports::SendError::Interrupted`]).
 
+use crate::auth::AuthError;
 use crate::capabilities::ServerCapabilities;
 use crate::connection::{ConnectionError, TimeoutStage};
 use crate::ports::SendError;
@@ -76,7 +77,11 @@ impl SendFailure {
                 }
                 ConnectionError::Timeout(TimeoutStage::Response | TimeoutStage::Write)
                 | ConnectionError::Closed
-                | ConnectionError::Protocol(_) => Self::Temporary,
+                | ConnectionError::Protocol(_)
+                // Trousseau verrouillé : rien n'est parti.
+                | ConnectionError::Authentication(AuthError::SecretStoreUnavailable { .. }) => {
+                    Self::Temporary
+                }
                 ConnectionError::Rejected(_) => Self::Rejected,
                 ConnectionError::Authentication(_) => Self::Authentication,
                 ConnectionError::Certificate(_)
@@ -409,6 +414,15 @@ mod tests {
                 message: "535".into()
             })),
             SendFailure::Authentication
+        );
+        assert_eq!(
+            conn(ConnectionError::Authentication(
+                AuthError::SecretStoreUnavailable {
+                    message: "verrouillé".into()
+                }
+            )),
+            SendFailure::Temporary,
+            "trousseau verrouillé : rien n'est parti, réessayé plus tard"
         );
         for security in [
             ConnectionError::Tls("x".into()),

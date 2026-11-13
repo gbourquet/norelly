@@ -83,6 +83,12 @@ pub enum AuthError {
     /// Compte OAuth dont le jeton ne peut plus être rafraîchi.
     #[error("reconnexion nécessaire")]
     ReauthRequired,
+    /// Compte OAuth : le trousseau du système n'a pas pu fournir le jeton
+    /// de rafraîchissement (verrouillé, indisponible). Rien n'a été envoyé
+    /// au serveur ; un nouvel essai peut aboutir une fois le trousseau
+    /// disponible.
+    #[error("trousseau indisponible : {message}")]
+    SecretStoreUnavailable { message: String },
 }
 
 /// Choisit la méthode d'authentification IMAP.

@@ -506,7 +506,8 @@ Fiche : [contacts.md](../fonctionnel/contacts.md). Décision : ADR-012.
   (`contact_encoding_contract` : relu à l'identique dans chaque format,
   trop de fiches ou fichier trop gros refusés) ; aller-retour export puis
   import dans un carnet vide par format, favori non exporté, propriétés
-  (relecture à l'identique, réexport stable) dans
+  (relecture à l'identique, réexport stable d'un carnet valide, une
+  adresse n'appartenant qu'à un contact) dans
   `crates/adapters/contacts-io/tests/roundtrip.rs` ; cible de fuzzing
   `contact_export` (fichier quelconque lu, fiches validées, exportées et
   relues à l'identique).

@@ -99,7 +99,7 @@ fichier modifié par l'assistant.
 
 | Workflow | Déclencheur | Contenu |
 |---|---|---|
-| `ci.yml` | push sur `master`, PR | Linux : `./scripts/check.sh full` puis `pnpm -C app e2e` ; Windows : `./scripts/check.sh` puis `cargo build --workspace` |
+| `ci.yml` | push sur `master`, PR | trois jobs en parallèle : Linux `./scripts/check.sh full` ; Linux `pnpm -C app e2e` ; Windows `./scripts/check.sh` puis `cargo build --workspace` |
 | `nightly.yml` | chaque nuit | fuzzing (5 min par cible), bancs (liste 50k, démarrage de bout en bout), Stalwart en second serveur |
 | `release.yml` | tag de version | NSIS (Windows, mise à jour signée minisign dans un environnement séparé), .deb et .rpm, sommes SHA-256, manifeste `latest.json`, manifestes winget, brouillon de version |
 
@@ -110,3 +110,15 @@ domaine, contrôle SQL, **documentation** (`check-docs.sh`), métadonnées de
 bureau (Linux), `svelte-check`, lint et tests du front avec couverture.
 `./scripts/check.sh full` ajoute le build du workspace et les tests
 d'intégration.
+
+Caches de la CI (10 Go par dépôt sur GitHub), **enregistrés depuis
+`master` seulement** : une PR lit ceux de `master` sans pouvoir les
+remplacer, ni les évincer par les siens.
+
+- Compilation Rust des jobs `check.sh` : `Swatinem/rust-cache`.
+- End-to-end : l'image Docker (clé : `app/e2e/Dockerfile` et la semaine,
+  pour suivre Rust stable) et le dossier de build `~/.cache/norelly-e2e`
+  (clé : la même, plus `Cargo.lock`), sans le dossier `incremental`. Le
+  build y est fait sans compilation incrémentale ni informations de
+  débogage (`CARGO_INCREMENTAL=0`, `CARGO_PROFILE_DEV_DEBUG=0`, transmis
+  au conteneur par `app/e2e/run.sh`).

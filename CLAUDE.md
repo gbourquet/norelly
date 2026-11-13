@@ -189,7 +189,8 @@ Règles :
 - États : `Backlog` (à trier), `Todo` (priorisé), `In Progress`,
   `In Review`, `Done`, `Canceled`. Toujours, pour tout ticket traité :
   `In Progress` **avant** de commencer, `In Review` **dès** que la PR est
-  ouverte ; `Done` vient seul au merge.
+  ouverte ; seul le mainteneur merge : quand il annonce un merge, passer
+  le ticket en `Done` s'il n'y est pas déjà.
 - Description : une partie lisible (constat, attendu), puis les fichiers et
   le plan dans une section repliable « Agent notes ».
 - Avant de créer un ticket, chercher s'il existe déjà.
@@ -202,8 +203,8 @@ Règles :
   ADR, objectifs plutôt que seuils), `docs/technique/tracabilite.md`,
   `docs/utilisateur/{fr,en}/` (mêmes pages dans les deux langues). Les
   captures sont régénérées par les e2e, jamais retouchées à la main.
-- Linear : lier la PR au ticket traité et le passer en `In Review` (il
-  passe en `Done` au merge). Ce qui reste à faire pour la PR se traite
+- Linear : lier la PR au ticket traité et le passer en `In Review`. Ce
+  qui reste à faire pour la PR se traite
   dans la même PR : ticket repassé en `In Progress`, ajustements sur la
   même branche, PR mise à jour, ticket repassé en `In Review`. Un nouveau
   ticket, sous l'epic concernée, seulement pour un sujet distinct laissé

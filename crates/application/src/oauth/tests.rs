@@ -68,6 +68,7 @@ impl OAuthClient for Provider {
             access_token: Secret::new(format!("a{n}")),
             expires_in: 3_600,
             refresh_token: Some(Secret::new("r2".to_owned())),
+            identity: None,
         })
     }
 }
@@ -136,6 +137,7 @@ async fn expiry_follows_the_wall_clock() {
         access_token: Secret::new("initial".to_owned()),
         expires_in: 600,
         refresh_token: Some(Secret::new("r1".to_owned())),
+        identity: None,
     };
     assert_eq!(f.broker.store_grant(&source(), grant).await, Ok(()));
     assert_eq!(token(&f).await, Ok("initial".to_owned()));

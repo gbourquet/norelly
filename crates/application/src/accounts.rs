@@ -26,6 +26,7 @@ use norelly_domain::credentials::Username;
 use norelly_domain::endpoint::{Host, Security};
 use norelly_domain::oauth::{
     OAuthProvider, OAuthSource, TokenError, is_mailbox_not_connected, is_smtp_oauth_disabled,
+    verify_identity,
 };
 use norelly_domain::ports::OAuthClient;
 
@@ -272,6 +273,9 @@ where
                     Err(e) => return AddAccountOutcome::OAuthFailed(e),
                 },
             };
+        if let Err(e) = verify_identity(&request.address, grant.identity.as_ref()) {
+            return AddAccountOutcome::OAuthFailed(e);
+        }
         if grant.refresh_token.is_none() {
             // Accès hors ligne refusé : le compte cesserait de fonctionner
             // dans l'heure.
@@ -457,6 +461,7 @@ pub async fn reconnect_oauth_account<O: OAuthClient, K: SecretStore, D: AccountR
         .client()
         .authorize(provider, account.address())
         .await?;
+    verify_identity(account.address(), grant.identity.as_ref())?;
     if grant.refresh_token.is_none() {
         return Err(TokenError::Protocol("jeton de rafraîchissement absent".to_owned()).into());
     }

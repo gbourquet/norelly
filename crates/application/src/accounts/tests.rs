@@ -661,7 +661,7 @@ async fn connect_request_uses_keyring_exceptions_and_plaintext_consent() {
 mod oauth {
     use std::sync::Arc;
 
-    use norelly_domain::oauth::{OAuthProvider, TokenError};
+    use norelly_domain::oauth::{OAuthIdentity, OAuthProvider, TokenError};
     use norelly_domain::ports::OAuthGrant;
     use norelly_test_support::contracts::FakeOAuthClient;
 
@@ -681,10 +681,19 @@ mod oauth {
     }
 
     fn grant() -> Option<OAuthGrant> {
+        grant_of("alice@outlook.com")
+    }
+
+    /// Jetons du compte `login` (identité de l'`id_token`).
+    fn grant_of(login: &str) -> Option<OAuthGrant> {
         Some(OAuthGrant {
             access_token: Secret::new("acc".to_owned()),
             expires_in: 3_600,
             refresh_token: Some(Secret::new("r1".to_owned())),
+            identity: Some(OAuthIdentity {
+                preferred_username: Some(login.to_owned()),
+                email: None,
+            }),
         })
     }
 
@@ -990,6 +999,7 @@ mod oauth {
                 access_token: Secret::new("neuf".to_owned()),
                 expires_in: 3_600,
                 refresh_token: Some(Secret::new("r-neuf".to_owned())),
+                identity: grant().and_then(|g| g.identity),
             });
         }
         let reconnected = reconnect_oauth_account(&b, &w.accounts, account.id()).await;
@@ -1010,6 +1020,57 @@ mod oauth {
                 .await
                 .map(|_| ()),
             Err(ReconnectError::NotFound)
+        );
+    }
+
+    #[tokio::test]
+    async fn sign_in_with_another_account_adds_nothing() {
+        let w = World::new();
+        let b = broker(grant_of("mallory@outlook.com"));
+        assert_eq!(
+            add(&w, &b).await,
+            AddAccountOutcome::OAuthFailed(TokenError::WrongAccount)
+        );
+        assert!(w.accounts.list().await.is_ok_and(|l| l.is_empty()));
+        // Les jetons d'un autre compte ne resservent pas au prochain essai.
+        assert!(!b.has_pending(OAuthProvider::Microsoft, &outlook()));
+        let without_identity = Some(OAuthGrant {
+            identity: None,
+            ..grant().unwrap_or_else(|| panic!())
+        });
+        assert!(matches!(
+            add(&w, &broker(without_identity)).await,
+            AddAccountOutcome::OAuthFailed(TokenError::Protocol(_))
+        ));
+        assert!(w.accounts.list().await.is_ok_and(|l| l.is_empty()));
+    }
+
+    #[tokio::test]
+    async fn reconnect_with_another_account_keeps_the_old_token() {
+        let w = World::new();
+        let b = broker(grant());
+        let AddAccountOutcome::Added(account) = add(&w, &b).await else {
+            panic!("compte non ajouté");
+        };
+        if let Ok(mut g) = b.client().grant.lock() {
+            *g = Some(OAuthGrant {
+                access_token: Secret::new("autre".to_owned()),
+                ..grant_of("mallory@outlook.com").unwrap_or_else(|| panic!())
+            });
+        }
+        assert_eq!(
+            reconnect_oauth_account(&b, &w.accounts, account.id())
+                .await
+                .map(|a| a.id()),
+            Err(ReconnectError::OAuth(TokenError::WrongAccount))
+        );
+        let source = OAuthSource {
+            provider: OAuthProvider::Microsoft,
+            refresh_key: account.secret_key(Protocol::Imap),
+        };
+        assert_eq!(
+            b.access_token(&source).await.map(|t| t.expose().to_owned()),
+            Ok("acc".to_owned())
         );
     }
 }

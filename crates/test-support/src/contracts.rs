@@ -383,6 +383,7 @@ impl norelly_domain::ports::OAuthClient for FakeOAuthClient {
             access_token: Secret::new("acc2".to_owned()),
             expires_in: 3599,
             refresh_token: Some(Secret::new("r2".to_owned())),
+            identity: None,
         })
     }
 }

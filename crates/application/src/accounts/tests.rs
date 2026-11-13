@@ -1032,6 +1032,8 @@ mod oauth {
             AddAccountOutcome::OAuthFailed(TokenError::WrongAccount)
         );
         assert!(w.accounts.list().await.is_ok_and(|l| l.is_empty()));
+        // Le jeton d'un autre compte n'est présenté à aucun serveur.
+        assert!(w.servers.requests().is_empty());
         // Les jetons d'un autre compte ne resservent pas au prochain essai.
         assert!(!b.has_pending(OAuthProvider::Microsoft, &outlook()));
         let without_identity = Some(OAuthGrant {

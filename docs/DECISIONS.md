@@ -664,7 +664,8 @@ est majoritairement écrit par Claude et relu par le mainteneur.
   - configuration par fournisseur, valeur du domaine : Microsoft
     (`consumers`, scopes `outlook.office.com` IMAP et SMTP,
     `offline_access`, identifiant client public de l'inscription
-    Entra ID) ; Google ne sera qu'une configuration de plus ;
+    Entra ID ; `openid email profile` à la connexion interactive, pour
+    vérifier que le compte choisi est celui de l'adresse) ; Google ne sera qu'une configuration de plus ;
   - jeton de rafraîchissement dans le trousseau, sous la clé IMAP du
     compte ; jeton d'accès en mémoire ; fournisseur enregistré sur le
     compte (migration 13) ;

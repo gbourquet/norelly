@@ -237,12 +237,16 @@ export function failureText(failure: FailureKindDto): string {
   switch (failure) {
     case "network":
       return m.failure_network();
+    case "unresponsive":
+      return m.failure_unresponsive();
     case "authentication":
       return m.failure_authentication();
     case "google_app_password":
       return m.failure_google_app_password();
     case "microsoft_smtp_disabled":
       return m.failure_microsoft_smtp_disabled();
+    case "microsoft_imap_unavailable":
+      return m.failure_microsoft_imap_unavailable();
     case "reauth_required":
       return m.failure_reauth_required();
     case "oauth_cancelled":

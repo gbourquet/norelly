@@ -111,7 +111,10 @@ export class AddAccountFlow {
   /** Le dernier essai vient de la saisie manuelle des serveurs. */
   #manual = false;
   /** Le dernier essai passe par le fournisseur OAuth. */
+  /** Message à montrer après l'ajout (envoi non vérifié), ou `null`. */
+  addedNotice = $state<string | null>(null);
   #oauth = false;
+  #browser = true;
   #consents: EndpointDto[] = [];
   #api: AccountApi;
 
@@ -132,6 +135,7 @@ export class AddAccountFlow {
     this.certificate = null;
     this.plaintextEndpoint = null;
     this.added = null;
+    this.addedNotice = null;
     this.unconfirmed = [];
     this.confirmed = [];
     this.appPasswordHelp = false;
@@ -176,6 +180,10 @@ export class AddAccountFlow {
     this.appPasswordHelp = false;
     this.#oauth = true;
     this.#manual = false;
+    // Rust dit si la connexion d'un essai échoué resservira, sans navigateur.
+    this.#browser = !(await this.#api
+      .oauthSignInKept(this.address.trim(), provider)
+      .catch(() => false));
     this.step = "testing";
     let result: AddAccountResult;
     try {
@@ -194,7 +202,12 @@ export class AddAccountFlow {
 
   /** Vrai pendant l'attente du retour du navigateur. */
   get waitingForBrowser(): boolean {
-    return this.#oauth && this.step === "testing";
+    return this.#oauth && this.#browser && this.step === "testing";
+  }
+
+  /** Vrai pendant un nouvel essai qui réutilise la connexion gardée. */
+  get reusingSignIn(): boolean {
+    return this.#oauth && !this.#browser && this.step === "testing";
   }
 
   /** Ouvre la page Google de création des mots de passe d'application. */
@@ -349,6 +362,7 @@ export class AddAccountFlow {
     switch (result.kind) {
       case "added":
         this.added = result.account;
+        this.addedNotice = result.send_unchecked ? m.notice_send_unchecked() : null;
         this.password = "";
         this.step = "done";
         break;
@@ -411,6 +425,8 @@ function failureMessage(
         return m.add_fail_google_app_password({ prefix });
       case "microsoft_smtp_disabled":
         return m.add_fail_microsoft_smtp_disabled({ prefix });
+      case "microsoft_imap_unavailable":
+        return m.add_fail_microsoft_imap_unavailable({ prefix });
       case "reauth_required":
         return m.add_fail_reauth_required();
       case "oauth_cancelled":
@@ -419,6 +435,8 @@ function failureMessage(
         return m.add_fail_oauth();
       case "network":
         return m.add_fail_network({ prefix });
+      case "unresponsive":
+        return m.add_fail_unresponsive({ prefix });
       case "security":
         return m.add_fail_security({ prefix });
       case "invalid_input":

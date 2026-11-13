@@ -90,6 +90,7 @@ describe("traduction des erreurs IPC", () => {
     setLocale("en", { reload: false });
     expect(errorText(new IpcFailure("invalid_input", "port"))).toBe("Value rejected: port.");
     expect(failureText("network")).toBe("server unreachable");
+    expect(failureText("unresponsive")).toBe("server not responding");
   });
 
   it("compte Google refusé : libellé du mot de passe d'application", () => {
@@ -210,9 +211,11 @@ describe("traduction des erreurs IPC", () => {
       storage: true,
       internal: true,
       microsoft_smtp_disabled: true,
+      microsoft_imap_unavailable: true,
       reauth_required: true,
       oauth_cancelled: true,
       oauth: true,
+      unresponsive: true,
     } satisfies Record<FailureKindDto, true>;
     const texts = (Object.keys(codes) as ErrorCodeDto[]).map((c) =>
       errorText(new IpcFailure(c, "address")),

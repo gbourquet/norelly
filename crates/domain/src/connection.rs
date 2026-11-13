@@ -123,7 +123,47 @@ impl ConnectionError {
             Self::Protocol(_) | Self::Rejected(_) => FailureCategory::Protocol,
         }
     }
+    /// Vrai si l'échec est passager (serveur muet, connexion coupée, réseau
+    /// instable) : une nouvelle connexion a des chances d'aboutir. Un refus
+    /// du serveur, un certificat ou une protection ne se réessaient pas.
+    #[must_use]
+    pub fn is_transient(&self) -> bool {
+        matches!(self, Self::Network(_) | Self::Timeout(_) | Self::Closed)
+    }
+
+    /// Vrai si le serveur a été joint puis s'est tu ou a coupé la connexion,
+    /// par opposition à un serveur introuvable ou qui refuse la connexion.
+    /// Réseau instable le plus souvent ; un port ou un chiffrement faux
+    /// produit aussi ce silence.
+    #[must_use]
+    pub fn is_unresponsive(&self) -> bool {
+        matches!(
+            self,
+            Self::Timeout(
+                TimeoutStage::TlsHandshake | TimeoutStage::Response | TimeoutStage::Write
+            ) | Self::Closed
+        )
+    }
+
+    /// Vrai si un compte dont les serveurs sont imposés par le fournisseur
+    /// (OAuth) peut être ajouté malgré cet échec du test d'envoi, la
+    /// réception ayant réussi : le serveur d'envoi a été joint puis s'est tu
+    /// ou a coupé la connexion (réseau instable). L'envoi sera vérifié au
+    /// premier message. Un serveur introuvable, un refus ou une protection
+    /// bloquent l'ajout. Pour des serveurs saisis, un port ou un chiffrement
+    /// faux produit le même silence : cette règle ne s'y applique pas.
+    #[must_use]
+    pub fn send_check_can_wait(&self) -> bool {
+        self.is_unresponsive()
+    }
 }
+
+/// Essais d'une connexion dont l'échec est passager
+/// ([`ConnectionError::is_transient`]), le premier compris.
+pub const CONNECTION_ATTEMPTS: usize = 3;
+
+/// Attente entre deux essais d'une connexion.
+pub const CONNECTION_RETRY_DELAY: std::time::Duration = std::time::Duration::from_secs(1);
 
 #[cfg(test)]
 mod tests {
@@ -172,5 +212,88 @@ mod tests {
             ConnectionError::Protocol("x".into()).category(),
             FailureCategory::Protocol
         );
+    }
+
+    #[test]
+    fn transient_failures_are_retried() {
+        for e in [
+            ConnectionError::Network("connexion réinitialisée".into()),
+            ConnectionError::Timeout(TimeoutStage::Connect),
+            ConnectionError::Timeout(TimeoutStage::TlsHandshake),
+            ConnectionError::Timeout(TimeoutStage::Response),
+            ConnectionError::Timeout(TimeoutStage::Write),
+            ConnectionError::Closed,
+        ] {
+            assert!(e.is_transient(), "{e:?}");
+        }
+        for e in [
+            ConnectionError::from(AuthError::LoginDisabled),
+            ConnectionError::Tls("x".into()),
+            ConnectionError::from(StartTlsUnavailable),
+            ConnectionError::PlaintextInjection,
+            ConnectionError::Protocol("x".into()),
+            ConnectionError::Rejected("x".into()),
+        ] {
+            assert!(!e.is_transient(), "{e:?}");
+        }
+    }
+
+    #[test]
+    fn unresponsive_server_was_reached() {
+        for e in [
+            ConnectionError::Timeout(TimeoutStage::TlsHandshake),
+            ConnectionError::Timeout(TimeoutStage::Response),
+            ConnectionError::Timeout(TimeoutStage::Write),
+            ConnectionError::Closed,
+        ] {
+            assert!(e.is_unresponsive(), "{e:?}");
+        }
+        for e in [
+            ConnectionError::Network("nom inconnu".into()),
+            ConnectionError::Timeout(TimeoutStage::Connect),
+            ConnectionError::from(AuthError::LoginDisabled),
+        ] {
+            assert!(!e.is_unresponsive(), "{e:?}");
+        }
+    }
+
+    #[test]
+    fn only_a_silent_send_server_lets_the_account_be_added() {
+        for e in [
+            ConnectionError::Timeout(TimeoutStage::TlsHandshake),
+            ConnectionError::Timeout(TimeoutStage::Response),
+            ConnectionError::Timeout(TimeoutStage::Write),
+            ConnectionError::Closed,
+        ] {
+            assert!(e.send_check_can_wait(), "{e:?}");
+        }
+        for e in [
+            ConnectionError::Network("nom inconnu".into()),
+            ConnectionError::Timeout(TimeoutStage::Connect),
+            ConnectionError::from(AuthError::LoginDisabled),
+            ConnectionError::from(StartTlsUnavailable),
+            ConnectionError::Tls("x".into()),
+            ConnectionError::Protocol("x".into()),
+            ConnectionError::Rejected("x".into()),
+            ConnectionError::StartTlsRejected("454".into()),
+            ConnectionError::PlaintextInjection,
+            ConnectionError::from(PlaintextRefused {
+                host: crate::endpoint::Host::parse("smtp.example.com")
+                    .unwrap_or_else(|_| panic!("hôte")),
+                port: 587,
+            }),
+            ConnectionError::from(AuthError::Rejected {
+                message: "535 5.7.8".into(),
+            }),
+            ConnectionError::Certificate(crate::security::CertificateRejection {
+                host: crate::endpoint::Host::parse("smtp.example.com")
+                    .unwrap_or_else(|_| panic!("hôte")),
+                fingerprint: crate::security::CertificateFingerprint::from_bytes([1; 32]),
+                issue: crate::security::CertificateIssue::UnknownIssuer,
+                fingerprint_changed: false,
+            }),
+        ] {
+            assert!(!e.send_check_can_wait(), "{e:?}");
+        }
     }
 }

@@ -16,7 +16,8 @@
     open: boolean;
     api: AccountApi;
     onClose: () => void;
-    onAdded: (account: AccountDto) => void;
+    /** `notice` : message à montrer après l'ajout (envoi non vérifié). */
+    onAdded: (account: AccountDto, notice: string | null) => void;
   }
 
   let { open, api, onClose, onAdded }: Props = $props();
@@ -35,8 +36,9 @@
   $effect(() => {
     if (flow.step === "done" && flow.added !== null) {
       const account = flow.added;
+      const notice = flow.addedNotice;
       flow.reset();
-      onAdded(account);
+      onAdded(account, notice);
     }
   });
 
@@ -146,6 +148,11 @@
         <p>
           <LoaderIcon size={14} class="spin" aria-hidden="true" />
           {m.add_oauth_waiting_microsoft()}
+        </p>
+      {:else if flow.reusingSignIn}
+        <p>
+          <LoaderIcon size={14} class="spin" aria-hidden="true" />
+          {m.add_oauth_testing_microsoft()}
         </p>
       {:else}
         <p>

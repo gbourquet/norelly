@@ -165,6 +165,9 @@
   "add_app_password_step_paste": "Copy the 16-letter code Google shows and paste it into the “Password” field, instead of your usual password.",
   "add_app_password_open": "Open the Google page",
   "add_app_password_unavailable": "Option missing at Google? A work or school account may have it turned off: ask its administrator.",
+  "add_oauth_testing_microsoft": "Connecting to your Microsoft mailbox…",
+  "notice_send_unchecked": "Account added. Sending could not be checked, the server was not responding: Norelly will try again with your first message.",
+  "add_fail_unresponsive": "{prefix}the server is not responding. Check your internet connection, then try again.",
   "add_fail_network": "{prefix}server unreachable. Check the name and port.",
   "add_fail_security": "{prefix}connection refused for security reasons.",
   "add_fail_other": "{prefix}unable to connect.",
@@ -200,6 +203,7 @@
   "field_conversation": "conversation",
   "field_folder": "destination folder",
   "field_certificate": "certificate",
+  "failure_unresponsive": "server not responding",
   "failure_network": "server unreachable",
   "failure_authentication": "credentials rejected",
   "failure_google_app_password": "Google app password required",
@@ -724,5 +728,7 @@
   "sidebar_reconnect": "Sign in again",
   "sidebar_reauth_required": "Sign-in required: {address}",
   "notice_reconnected": "Account reconnected.",
-  "sidebar_reauth_hint": "Sign-in required"
+  "sidebar_reauth_hint": "Sign-in required",
+  "failure_microsoft_imap_unavailable": "mailbox unavailable at Microsoft (IMAP access)",
+  "add_fail_microsoft_imap_unavailable": "{prefix}your Microsoft account is signed in, but Outlook.com refuses access to the mailbox. Check that IMAP access is turned on in Outlook.com (Settings, Mail, Forwarding and IMAP), then try again in a few minutes."
 }

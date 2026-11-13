@@ -305,6 +305,44 @@ async fn smtp_authentication_failure_is_reported() {
     assert_eq!(w.keyring.len(), 0);
 }
 
+/// Serveurs saisis ou découverts : un port ou un chiffrement faux fait
+/// aussi taire le serveur d'envoi, l'ajout exige donc un envoi vérifié.
+#[tokio::test(start_paused = true)]
+async fn silent_send_server_blocks_a_password_account() {
+    let w = World::new();
+    let draft = sample_account("alice@example.com", false);
+    w.servers
+        .set(&draft.smtp().endpoint, Err(ConnectionError::Closed));
+    let outcome = w.add(request(Some(servers_of(&draft)))).await;
+    assert_eq!(
+        outcome,
+        AddAccountOutcome::ConnectionFailed {
+            protocol: Protocol::Smtp,
+            outcome: TestConnectionOutcome::Network(ConnectionError::Closed),
+            advice: None,
+        }
+    );
+    assert_eq!(w.keyring.len(), 0);
+}
+
+#[tokio::test(start_paused = true)]
+async fn unreachable_send_server_blocks_the_account() {
+    let w = World::new();
+    let draft = sample_account("alice@example.com", false);
+    let unknown = ConnectionError::Network("nom inconnu".into());
+    w.servers.set(&draft.smtp().endpoint, Err(unknown.clone()));
+    let outcome = w.add(request(Some(servers_of(&draft)))).await;
+    assert_eq!(
+        outcome,
+        AddAccountOutcome::ConnectionFailed {
+            protocol: Protocol::Smtp,
+            outcome: TestConnectionOutcome::Network(unknown),
+            advice: None,
+        }
+    );
+    assert_eq!(w.keyring.len(), 0);
+}
+
 #[tokio::test]
 async fn gmail_rejection_advises_an_app_password() {
     let w = World::new();
@@ -744,6 +782,200 @@ mod oauth {
             "{outcome:?}"
         );
         assert!(w.accounts.list().await.is_ok_and(|l| l.is_empty()));
+    }
+
+    fn not_connected() -> ConnectionError {
+        ConnectionError::Authentication(AuthError::Rejected {
+            message: "User is authenticated but not connected.".to_owned(),
+        })
+    }
+
+    fn imap_endpoint() -> norelly_domain::endpoint::ServerEndpoint {
+        let (imap, _) =
+            oauth_servers(OAuthProvider::Microsoft, &outlook()).unwrap_or_else(|e| panic!("{e}"));
+        imap.endpoint
+    }
+
+    fn imap_attempts(w: &World) -> usize {
+        w.servers
+            .requests()
+            .iter()
+            .filter(|(p, _)| *p == Protocol::Imap)
+            .count()
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn intermittent_mailbox_binding_failure_is_retried() {
+        let w = World::new();
+        w.servers
+            .fail_first(&imap_endpoint(), vec![not_connected(), not_connected()]);
+        assert!(matches!(
+            add(&w, &broker(grant())).await,
+            AddAccountOutcome::Added(_)
+        ));
+        assert_eq!(imap_attempts(&w), 3);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn persistent_mailbox_binding_failure_is_explained() {
+        let w = World::new();
+        w.servers.set(&imap_endpoint(), Err(not_connected()));
+        let outcome = add(&w, &broker(grant())).await;
+        assert!(
+            matches!(
+                outcome,
+                AddAccountOutcome::ConnectionFailed {
+                    protocol: Protocol::Imap,
+                    advice: Some(AuthenticationAdvice::MicrosoftImapUnavailable),
+                    ..
+                }
+            ),
+            "{outcome:?}"
+        );
+        assert_eq!(imap_attempts(&w), OAUTH_IMAP_ATTEMPTS);
+        assert!(w.accounts.list().await.is_ok_and(|l| l.is_empty()));
+    }
+
+    /// Gestionnaire de jetons dont l'horloge avance à la demande.
+    fn broker_with_clock(
+        grant: Option<OAuthGrant>,
+    ) -> (
+        TokenBroker<FakeOAuthClient, Keyring>,
+        Arc<std::sync::atomic::AtomicU64>,
+    ) {
+        let client = FakeOAuthClient::default();
+        if let Ok(mut g) = client.grant.lock() {
+            *g = grant;
+        }
+        let now = Arc::new(std::sync::atomic::AtomicU64::new(1_000));
+        let clock = Arc::clone(&now);
+        let broker = TokenBroker::new(
+            client,
+            Keyring::default(),
+            Arc::new(move || clock.load(std::sync::atomic::Ordering::SeqCst)),
+        );
+        (broker, now)
+    }
+
+    fn browser_sign_ins(b: &TokenBroker<FakeOAuthClient, Keyring>) -> usize {
+        b.client().authorizations.lock().map_or(0, |a| a.len())
+    }
+
+    fn silent_imap(w: &World) {
+        let silent = ConnectionError::Timeout(norelly_domain::connection::TimeoutStage::Response);
+        w.servers.fail_first(
+            &imap_endpoint(),
+            vec![silent; norelly_domain::connection::CONNECTION_ATTEMPTS],
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn retry_after_a_failed_add_does_not_reopen_the_browser() {
+        let w = World::new();
+        let (b, _) = broker_with_clock(grant());
+        silent_imap(&w);
+        assert!(matches!(
+            add(&w, &b).await,
+            AddAccountOutcome::ConnectionFailed { .. }
+        ));
+        assert!(b.has_pending(OAuthProvider::Microsoft, &outlook()));
+        assert!(matches!(add(&w, &b).await, AddAccountOutcome::Added(_)));
+        assert_eq!(browser_sign_ins(&b), 1);
+        assert!(!b.has_pending(OAuthProvider::Microsoft, &outlook()));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn kept_sign_in_expires() {
+        let w = World::new();
+        let (b, now) = broker_with_clock(grant());
+        silent_imap(&w);
+        assert!(matches!(
+            add(&w, &b).await,
+            AddAccountOutcome::ConnectionFailed { .. }
+        ));
+        now.fetch_add(
+            norelly_domain::oauth::PENDING_AUTHORIZATION_MAX_AGE_SECS,
+            std::sync::atomic::Ordering::SeqCst,
+        );
+        assert!(!b.has_pending(OAuthProvider::Microsoft, &outlook()));
+        assert!(matches!(add(&w, &b).await, AddAccountOutcome::Added(_)));
+        assert_eq!(browser_sign_ins(&b), 2);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn refused_sign_in_is_not_kept() {
+        let w = World::new();
+        let (b, _) = broker_with_clock(grant());
+        w.servers.set(
+            &imap_endpoint(),
+            Err(ConnectionError::Authentication(AuthError::Rejected {
+                message: "AUTHENTICATE failed.".to_owned(),
+            })),
+        );
+        assert!(matches!(
+            add(&w, &b).await,
+            AddAccountOutcome::ConnectionFailed { .. }
+        ));
+        assert!(!b.has_pending(OAuthProvider::Microsoft, &outlook()));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn reused_sign_in_is_not_kept_again() {
+        let w = World::new();
+        let (b, _) = broker_with_clock(grant());
+        silent_imap(&w);
+        assert!(matches!(
+            add(&w, &b).await,
+            AddAccountOutcome::ConnectionFailed { .. }
+        ));
+        silent_imap(&w);
+        assert!(matches!(
+            add(&w, &b).await,
+            AddAccountOutcome::ConnectionFailed { .. }
+        ));
+        assert!(!b.has_pending(OAuthProvider::Microsoft, &outlook()));
+        assert!(matches!(add(&w, &b).await, AddAccountOutcome::Added(_)));
+        assert_eq!(browser_sign_ins(&b), 2);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn kept_sign_in_age_counts_from_the_browser_sign_in() {
+        let w = World::new();
+        let (b, now) = broker_with_clock(grant());
+        // L'horloge avance pendant les essais : 9 min après la connexion
+        // dans le navigateur, puis encore 2 min avant le nouvel essai.
+        let clock = Arc::clone(&now);
+        w.servers.on_connect(move || {
+            clock.fetch_add(180, std::sync::atomic::Ordering::SeqCst);
+        });
+        silent_imap(&w);
+        assert!(matches!(
+            add(&w, &b).await,
+            AddAccountOutcome::ConnectionFailed { .. }
+        ));
+        now.fetch_add(120, std::sync::atomic::Ordering::SeqCst);
+        assert!(!b.has_pending(OAuthProvider::Microsoft, &outlook()));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn silent_send_server_still_adds_the_oauth_account() {
+        let w = World::new();
+        let (b, _) = broker_with_clock(grant());
+        let (_, smtp) =
+            oauth_servers(OAuthProvider::Microsoft, &outlook()).unwrap_or_else(|e| panic!("{e}"));
+        w.servers.set(
+            &smtp.endpoint,
+            Err(ConnectionError::Timeout(
+                norelly_domain::connection::TimeoutStage::TlsHandshake,
+            )),
+        );
+        let outcome = add(&w, &b).await;
+        assert!(
+            matches!(outcome, AddAccountOutcome::AddedSendUnchecked(_)),
+            "{outcome:?}"
+        );
+        assert!(!b.has_pending(OAuthProvider::Microsoft, &outlook()));
+        assert!(w.accounts.list().await.is_ok_and(|l| l.len() == 1));
     }
 
     #[tokio::test]

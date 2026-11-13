@@ -277,3 +277,52 @@ fn connect_request_refuses_token_for_foreign_host() {
         Ok(())
     );
 }
+
+#[test]
+fn microsoft_mailbox_not_connected_is_detected() {
+    assert!(is_mailbox_not_connected(
+        "User is authenticated but not connected."
+    ));
+    assert!(is_mailbox_not_connected(
+        "BAD User is Authenticated but not Connected"
+    ));
+    assert!(!is_mailbox_not_connected("AUTHENTICATE failed."));
+}
+
+fn pending(obtained_at: u64, expires_in: u64) -> PendingAuthorization {
+    PendingAuthorization {
+        provider: OAuthProvider::Microsoft,
+        address: address("alice@outlook.com"),
+        obtained_at,
+        expires_in,
+    }
+}
+
+#[test]
+fn pending_authorization_is_reused_for_the_same_address_shortly_after() {
+    let alice = address("alice@outlook.com");
+    let p = pending(1_000, 3_600);
+    assert!(p.usable_for(OAuthProvider::Microsoft, &alice, 1_000));
+    assert!(p.usable_for(
+        OAuthProvider::Microsoft,
+        &alice,
+        1_000 + PENDING_AUTHORIZATION_MAX_AGE_SECS - 1
+    ));
+}
+
+#[test]
+fn pending_authorization_is_not_reused_too_late_or_for_another_address() {
+    let alice = address("alice@outlook.com");
+    let p = pending(1_000, 3_600);
+    assert!(!p.usable_for(
+        OAuthProvider::Microsoft,
+        &alice,
+        1_000 + PENDING_AUTHORIZATION_MAX_AGE_SECS
+    ));
+    assert!(!p.usable_for(OAuthProvider::Microsoft, &address("bob@outlook.com"), 1_000));
+    assert!(!p.usable_for(OAuthProvider::Microsoft, &alice, 999));
+    // Jeton d'accès bientôt expiré : marge de rafraîchissement respectée.
+    let short = pending(1_000, ACCESS_TOKEN_MARGIN_SECS + 10);
+    assert!(short.usable_for(OAuthProvider::Microsoft, &alice, 1_009));
+    assert!(!short.usable_for(OAuthProvider::Microsoft, &alice, 1_010));
+}

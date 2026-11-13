@@ -23,6 +23,12 @@ export const commands = {
 	 */
 	oauthProviderFor: (address: string) => __TAURI_INVOKE<OAuthProviderDto | null>("oauth_provider_for", { address }),
 	/**
+	 *  Vrai si l'essai suivant de « Se connecter avec … » pour cette adresse
+	 *  réutilisera la connexion d'un ajout qui a échoué, sans navigateur
+	 *  (l'écran ne l'annonce alors pas). Entrée invalide : faux.
+	 */
+	oauthSignInKept: (address: string, provider: string) => __TAURI_INVOKE<boolean>("oauth_sign_in_kept", { address, provider }),
+	/**
 	 *  Ajoute un compte par « Se connecter avec … » : navigateur du système,
 	 *  test des connexions avec le jeton, persistance, jeton de
 	 *  rafraîchissement dans le trousseau.
@@ -380,7 +386,12 @@ export type AddAccountInput_Serialize = {
 export type AddAccountResultDto = AddAccountResultDto_Serialize | AddAccountResultDto_Deserialize;
 
 /**  Résultat d'un ajout de compte. */
-export type AddAccountResultDto_Deserialize = { kind: "added"; account: AccountDto_Deserialize } | { kind: "already_exists" } | { kind: "needs_review"; discovery: DiscoveryDto_Deserialize } | { kind: "plaintext_consent_required"; endpoint: EndpointDto } | 
+export type AddAccountResultDto_Deserialize = { kind: "added"; account: AccountDto_Deserialize; 
+/**
+ *  Envoi non vérifié à l'ajout (serveur d'envoi muet) : il le sera
+ *  au premier message.
+ */
+send_unchecked: boolean } | { kind: "already_exists" } | { kind: "needs_review"; discovery: DiscoveryDto_Deserialize } | { kind: "plaintext_consent_required"; endpoint: EndpointDto } | 
 /**
  *  Aucun trousseau du système ne répond : l'utilisateur doit accepter
  *  que le mot de passe soit enregistré dans un fichier non chiffré
@@ -399,7 +410,12 @@ export type AddAccountResultDto_Deserialize = { kind: "added"; account: AccountD
 { kind: "failed"; protocol?: ProtocolDto | null; failure: FailureKindDto; detail?: string | null };
 
 /**  Résultat d'un ajout de compte. */
-export type AddAccountResultDto_Serialize = { kind: "added"; account: AccountDto_Serialize } | { kind: "already_exists" } | { kind: "needs_review"; discovery: DiscoveryDto_Serialize } | { kind: "plaintext_consent_required"; endpoint: EndpointDto } | 
+export type AddAccountResultDto_Serialize = { kind: "added"; account: AccountDto_Serialize; 
+/**
+ *  Envoi non vérifié à l'ajout (serveur d'envoi muet) : il le sera
+ *  au premier message.
+ */
+send_unchecked: boolean } | { kind: "already_exists" } | { kind: "needs_review"; discovery: DiscoveryDto_Serialize } | { kind: "plaintext_consent_required"; endpoint: EndpointDto } | 
 /**
  *  Aucun trousseau du système ne répond : l'utilisateur doit accepter
  *  que le mot de passe soit enregistré dans un fichier non chiffré
@@ -1106,7 +1122,11 @@ export type ExpandedListDto = {
 	field: RecipientFieldDto,
 };
 
-export type FailureKindDto = "network" | "authentication" | 
+export type FailureKindDto = 
+/**  Serveur introuvable ou qui refuse la connexion. */
+"network" | 
+/**  Serveur joint, puis muet ou qui coupe la connexion. */
+"unresponsive" | "authentication" | 
 /**
  *  Identifiants refusés sur un compte Google : il faut un mot de passe
  *  d'application.
@@ -1114,6 +1134,11 @@ export type FailureKindDto = "network" | "authentication" |
 "google_app_password" | 
 /**  Compte Microsoft dont l'envoi (SMTP) est désactivé sur la boîte. */
 "microsoft_smtp_disabled" | 
+/**
+ *  Compte Microsoft dont la boîte reste inaccessible en IMAP malgré un
+ *  jeton accepté.
+ */
+"microsoft_imap_unavailable" | 
 /**
  *  Compte OAuth : le jeton ne peut plus être rafraîchi, il faut se
  *  reconnecter chez le fournisseur.

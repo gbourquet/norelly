@@ -4,7 +4,9 @@
 
 use norelly_domain::auth::AuthError;
 use norelly_domain::capabilities::ServerCapabilities;
-use norelly_domain::connection::{ConnectionError, FailureCategory};
+use norelly_domain::connection::{
+    CONNECTION_ATTEMPTS, CONNECTION_RETRY_DELAY, ConnectionError, FailureCategory,
+};
 use norelly_domain::credentials::Credentials;
 use norelly_domain::endpoint::{Protocol, ServerEndpoint};
 use norelly_domain::ports::{
@@ -99,21 +101,37 @@ where
             certificate_exceptions,
             plaintext: params.plaintext,
         };
-        let result = match params.protocol {
-            Protocol::Imap => match self.imap.connect(&request).await {
-                Ok(session) => {
-                    let capabilities = session.capabilities().clone();
-                    // Échec de LOGOUT sans importance : la connexion a réussi.
-                    let _ = session.logout().await;
-                    Ok(capabilities)
-                }
-                Err(e) => Err(e),
-            },
-            Protocol::Smtp => self.smtp.verify(&request).await,
-        };
+        let mut result = self.attempt(params.protocol, &request).await;
+        // Réseau instable ou serveur momentanément muet : de nouveaux essais,
+        // chacun sur une nouvelle connexion.
+        for _ in 1..CONNECTION_ATTEMPTS {
+            match &result {
+                Err(e) if e.is_transient() => {}
+                _ => break,
+            }
+            tokio::time::sleep(CONNECTION_RETRY_DELAY).await;
+            result = self.attempt(params.protocol, &request).await;
+        }
         match result {
             Ok(capabilities) => TestConnectionOutcome::Success { capabilities },
             Err(e) => e.into(),
+        }
+    }
+
+    async fn attempt(
+        &self,
+        protocol: Protocol,
+        request: &ConnectRequest,
+    ) -> Result<ServerCapabilities, ConnectionError> {
+        match protocol {
+            Protocol::Imap => {
+                let session = self.imap.connect(request).await?;
+                let capabilities = session.capabilities().clone();
+                // Échec de LOGOUT sans importance : la connexion a réussi.
+                let _ = session.logout().await;
+                Ok(capabilities)
+            }
+            Protocol::Smtp => self.smtp.verify(request).await,
         }
     }
 }
@@ -137,10 +155,15 @@ mod tests {
 
     type Seen = Arc<Mutex<Vec<ConnectRequest>>>;
 
-    /// Faux connecteur : renvoie un résultat fixé et mémorise les requêtes.
+    type Outcomes =
+        Arc<Mutex<std::collections::VecDeque<Result<ServerCapabilities, ConnectionError>>>>;
+
+    /// Faux connecteur : renvoie d'abord les résultats de `first`, un par
+    /// connexion, puis un résultat fixé ; mémorise les requêtes.
     #[derive(Debug, Clone)]
     struct FakeConnector {
         result: Result<ServerCapabilities, ConnectionError>,
+        first: Outcomes,
         seen: Seen,
     }
 
@@ -148,8 +171,23 @@ mod tests {
         fn new(result: Result<ServerCapabilities, ConnectionError>) -> Self {
             Self {
                 result,
+                first: Outcomes::default(),
                 seen: Seen::default(),
             }
+        }
+        fn first(self, results: Vec<Result<ServerCapabilities, ConnectionError>>) -> Self {
+            self.first
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .extend(results);
+            self
+        }
+        fn next_result(&self) -> Result<ServerCapabilities, ConnectionError> {
+            self.first
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .pop_front()
+                .unwrap_or_else(|| self.result.clone())
         }
         fn record(&self, request: &ConnectRequest) {
             self.seen
@@ -169,7 +207,7 @@ mod tests {
         type Session = FakeSession;
         async fn connect(&self, request: &ConnectRequest) -> Result<FakeSession, ConnectionError> {
             self.record(request);
-            let caps = self.result.clone()?;
+            let caps = self.next_result()?;
             FakeSession::new(caps, &FakeImap::new(), Some(ConnectionError::Closed))
         }
     }
@@ -180,7 +218,7 @@ mod tests {
             request: &ConnectRequest,
         ) -> Result<ServerCapabilities, ConnectionError> {
             self.record(request);
-            self.result.clone()
+            self.next_result()
         }
         async fn send(&self, _: &ConnectRequest, _: &OutgoingMessage) -> Result<(), SendError> {
             Ok(())
@@ -363,5 +401,56 @@ mod tests {
         assert_eq!(requests.len(), 1);
         assert_eq!(requests[0].certificate_exceptions, vec![mine]);
         Ok(())
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn transient_failure_is_retried_on_a_new_connection() {
+        let caps = ServerCapabilities::from_imap(["IMAP4rev1"]);
+        for protocol in [Protocol::Imap, Protocol::Smtp] {
+            let flaky = FakeConnector::new(Ok(caps.clone())).first(vec![
+                Err(ConnectionError::Timeout(TimeoutStage::TlsHandshake)),
+                Err(ConnectionError::Closed),
+            ]);
+            let uc = TestConnection::new(
+                flaky.clone(),
+                flaky.clone(),
+                InMemoryCertificateExceptionStore::default(),
+            );
+            assert_eq!(
+                uc.execute(params(protocol, Security::Tls)).await,
+                TestConnectionOutcome::Success {
+                    capabilities: caps.clone()
+                },
+                "{protocol:?}"
+            );
+            assert_eq!(flaky.requests().len(), 3, "{protocol:?}");
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn persistent_transient_failure_gives_up_after_the_last_attempt() {
+        let timeout = ConnectionError::Timeout(TimeoutStage::Response);
+        let (uc, imap, _) = use_case(Err(timeout.clone()), Err(ConnectionError::Closed));
+        assert_eq!(
+            uc.execute(params(Protocol::Imap, Security::Tls)).await,
+            TestConnectionOutcome::Network(timeout)
+        );
+        assert_eq!(
+            imap.requests().len(),
+            norelly_domain::connection::CONNECTION_ATTEMPTS
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn refusal_is_not_retried() {
+        let refused = ConnectionError::from(AuthError::Rejected {
+            message: "mauvais mot de passe".into(),
+        });
+        let (uc, imap, _) = use_case(Err(refused), Err(ConnectionError::Closed));
+        assert!(matches!(
+            uc.execute(params(Protocol::Imap, Security::Tls)).await,
+            TestConnectionOutcome::Authentication(_)
+        ));
+        assert_eq!(imap.requests().len(), 1);
     }
 }

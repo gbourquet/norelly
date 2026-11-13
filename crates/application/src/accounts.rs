@@ -24,7 +24,9 @@ use norelly_domain::security::{CertificateException, CertificateRejection, Plain
 use norelly_domain::auth::AuthError;
 use norelly_domain::credentials::Username;
 use norelly_domain::endpoint::{Host, Security};
-use norelly_domain::oauth::{OAuthProvider, OAuthSource, TokenError, is_smtp_oauth_disabled};
+use norelly_domain::oauth::{
+    OAuthProvider, OAuthSource, TokenError, is_mailbox_not_connected, is_smtp_oauth_disabled,
+};
 use norelly_domain::ports::OAuthClient;
 
 use crate::discover_settings::DiscoverSettings;
@@ -49,6 +51,10 @@ pub struct AddAccountRequest {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AddAccountOutcome {
     Added(Account),
+    /// Compte OAuth ajouté, réception vérifiée ; le serveur d'envoi du
+    /// fournisseur ne répondait pas ([`ConnectionError::send_check_can_wait`]) :
+    /// l'envoi sera vérifié au premier message.
+    AddedSendUnchecked(Account),
     /// Un compte existe déjà pour cette adresse.
     AlreadyExists,
     /// La découverte n'a pas tout trouvé, ou un serveur doit être confirmé
@@ -73,6 +79,17 @@ pub enum AddAccountOutcome {
     /// Connexion chez le fournisseur OAuth refusée, abandonnée ou
     /// impossible.
     OAuthFailed(TokenError),
+}
+
+impl AddAccountOutcome {
+    /// Compte ajouté, que l'envoi ait été vérifié ou non.
+    #[must_use]
+    pub fn added_account(&self) -> Option<&Account> {
+        match self {
+            Self::Added(account) | Self::AddedSendUnchecked(account) => Some(account),
+            _ => None,
+        }
+    }
 }
 
 /// Cas d'usage : ajouter un compte.
@@ -239,15 +256,22 @@ where
             Ok(servers) => servers,
             Err(e) => return AddAccountOutcome::Invalid(e),
         };
-        let grant = match self
-            .broker
-            .client()
-            .authorize(request.provider, &request.address)
-            .await
-        {
-            Ok(grant) => grant,
-            Err(e) => return AddAccountOutcome::OAuthFailed(e),
-        };
+        // Un essai précédent a pu échouer après la connexion chez le
+        // fournisseur (serveur muet) : elle resservira, une seule fois, sans
+        // navigateur.
+        let (grant, fresh_since) =
+            match self.broker.take_pending(request.provider, &request.address) {
+                Some(grant) => (grant, None),
+                None => match self
+                    .broker
+                    .client()
+                    .authorize(request.provider, &request.address)
+                    .await
+                {
+                    Ok(grant) => (grant, Some(self.broker.now())),
+                    Err(e) => return AddAccountOutcome::OAuthFailed(e),
+                },
+            };
         if grant.refresh_token.is_none() {
             // Accès hors ligne refusé : le compte cesserait de fonctionner
             // dans l'heure.
@@ -268,6 +292,7 @@ where
             Ok(draft) => draft.with_oauth(request.provider),
             Err(e) => return AddAccountOutcome::Invalid(e.to_string()),
         };
+        let mut send_unchecked = false;
         for protocol in [Protocol::Imap, Protocol::Smtp] {
             let server = draft.server(protocol);
             let credentials = match Credentials::oauth2(
@@ -278,15 +303,26 @@ where
                 Ok(c) => c,
                 Err(e) => return AddAccountOutcome::Invalid(e.to_string()),
             };
-            let outcome = self
-                .test
-                .execute(TestConnectionParams {
-                    protocol,
-                    endpoint: server.endpoint.clone(),
-                    credentials,
-                    plaintext: PlaintextPolicy::deny_all(),
-                })
-                .await;
+            let params = TestConnectionParams {
+                protocol,
+                endpoint: server.endpoint.clone(),
+                credentials,
+                plaintext: PlaintextPolicy::deny_all(),
+            };
+            let mut outcome = self.test.execute(params.clone()).await;
+            // Microsoft accepte parfois le jeton sans rattacher la session à
+            // la boîte, de façon intermittente : quelques nouveaux essais.
+            for _ in 1..OAUTH_IMAP_ATTEMPTS {
+                if !mailbox_not_connected(&outcome) {
+                    break;
+                }
+                tokio::time::sleep(OAUTH_IMAP_RETRY_DELAY).await;
+                outcome = self.test.execute(params.clone()).await;
+            }
+            if send_check_can_wait(protocol, &outcome) {
+                send_unchecked = true;
+                continue;
+            }
             if !matches!(outcome, TestConnectionOutcome::Success { .. }) {
                 let advice = match &outcome {
                     TestConnectionOutcome::Authentication(AuthError::Rejected { message })
@@ -294,8 +330,20 @@ where
                     {
                         Some(AuthenticationAdvice::MicrosoftSmtpDisabled)
                     }
+                    _ if mailbox_not_connected(&outcome) => {
+                        Some(AuthenticationAdvice::MicrosoftImapUnavailable)
+                    }
                     _ => None,
                 };
+                // Gardée seulement pour un échec passager : un refus
+                // (mauvais compte choisi dans le navigateur…) doit repasser
+                // par le navigateur.
+                if let Some(obtained_at) = fresh_since
+                    && worth_retrying(&outcome)
+                {
+                    self.broker
+                        .keep_pending(request.provider, draft.address(), grant, obtained_at);
+                }
                 return AddAccountOutcome::ConnectionFailed {
                     protocol,
                     outcome,
@@ -316,8 +364,43 @@ where
             let _ = self.accounts.delete(account.id()).await;
             return AddAccountOutcome::SecretStoreFailed(e.to_string());
         }
-        AddAccountOutcome::Added(account)
+        if send_unchecked {
+            AddAccountOutcome::AddedSendUnchecked(account)
+        } else {
+            AddAccountOutcome::Added(account)
+        }
     }
+}
+
+/// Essais du test IMAP d'un compte OAuth quand Microsoft accepte le jeton
+/// sans rattacher la session à la boîte (défaillance intermittente).
+pub const OAUTH_IMAP_ATTEMPTS: usize = 3;
+
+/// Attente entre deux essais du test IMAP d'un compte OAuth.
+const OAUTH_IMAP_RETRY_DELAY: std::time::Duration = std::time::Duration::from_secs(1);
+
+/// Échec du test d'envoi qui n'empêche pas l'ajout d'un compte OAuth : la
+/// réception a réussi et le serveur d'envoi, imposé par le fournisseur (ni
+/// port ni chiffrement à mal saisir), ne répondait pas.
+fn send_check_can_wait(protocol: Protocol, outcome: &TestConnectionOutcome) -> bool {
+    protocol == Protocol::Smtp
+        && matches!(outcome, TestConnectionOutcome::Network(e) if e.send_check_can_wait())
+}
+
+/// Échec qu'un nouvel essai avec la même connexion chez le fournisseur peut
+/// surmonter : réseau instable, serveur muet, boîte momentanément non
+/// rattachée.
+fn worth_retrying(outcome: &TestConnectionOutcome) -> bool {
+    matches!(outcome, TestConnectionOutcome::Network(e) if e.is_transient())
+        || mailbox_not_connected(outcome)
+}
+
+fn mailbox_not_connected(outcome: &TestConnectionOutcome) -> bool {
+    matches!(
+        outcome,
+        TestConnectionOutcome::Authentication(AuthError::Rejected { message })
+            if is_mailbox_not_connected(message)
+    )
 }
 
 /// Serveurs d'un compte OAuth : ceux du fournisseur, en TLS (IMAP 993) et

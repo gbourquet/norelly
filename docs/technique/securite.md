@@ -61,6 +61,10 @@ n'est pas chiffrée (ADR-003) : on s'appuie sur le chiffrement du disque.
   un code d'erreur n'est repris que s'il est court et imprimable.
 - Point d'accès des jetons en HTTPS, vérificateur de la plateforme, sans
   redirection ; rafraîchissement borné à 30 s, un verrou par compte.
+- Ajout de compte échoué après la connexion chez le fournisseur : jetons
+  gardés en mémoire seulement (jamais dans le trousseau ni sur disque), un
+  seul ajout à la fois, rendus une seule fois et pour la même adresse et le
+  même fournisseur, dix minutes au plus.
 
 ### Autodécouverte
 

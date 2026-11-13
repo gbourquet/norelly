@@ -8,6 +8,7 @@ const APP_COMMANDS: &[&str] = &[
     "discover_settings",
     "add_account",
     "oauth_provider_for",
+    "oauth_sign_in_kept",
     "add_oauth_account",
     "reconnect_account",
     "trust_certificate",

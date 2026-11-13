@@ -587,13 +587,19 @@ pub struct CertificateProblemDto {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Type)]
 #[serde(rename_all = "snake_case")]
 pub enum FailureKindDto {
+    /// Serveur introuvable ou qui refuse la connexion.
     Network,
+    /// Serveur joint, puis muet ou qui coupe la connexion.
+    Unresponsive,
     Authentication,
     /// Identifiants refusés sur un compte Google : il faut un mot de passe
     /// d'application.
     GoogleAppPassword,
     /// Compte Microsoft dont l'envoi (SMTP) est désactivé sur la boîte.
     MicrosoftSmtpDisabled,
+    /// Compte Microsoft dont la boîte reste inaccessible en IMAP malgré un
+    /// jeton accepté.
+    MicrosoftImapUnavailable,
     /// Compte OAuth : le jeton ne peut plus être rafraîchi, il faut se
     /// reconnecter chez le fournisseur.
     ReauthRequired,
@@ -624,12 +630,22 @@ pub fn connection_failure_of(e: &ConnectionError) -> (FailureKindDto, Option<Str
         return (FailureKindDto::ReauthRequired, None);
     }
     let kind = match e.category() {
-        FailureCategory::Network => FailureKindDto::Network,
+        FailureCategory::Network => network_kind(e),
         FailureCategory::Authentication => FailureKindDto::Authentication,
         FailureCategory::Certificate | FailureCategory::Security => FailureKindDto::Security,
         FailureCategory::Protocol => FailureKindDto::Protocol,
     };
     (kind, connection_detail(e))
+}
+
+/// Serveur muet ou introuvable : le nom et le port ne sont en cause que
+/// dans le second cas.
+fn network_kind(e: &ConnectionError) -> FailureKindDto {
+    if e.is_unresponsive() {
+        FailureKindDto::Unresponsive
+    } else {
+        FailureKindDto::Network
+    }
 }
 
 fn connection_detail(e: &ConnectionError) -> Option<String> {
@@ -681,6 +697,9 @@ pub enum SecretsBackendDto {
 pub enum AddAccountResultDto {
     Added {
         account: AccountDto,
+        /// Envoi non vérifié à l'ajout (serveur d'envoi muet) : il le sera
+        /// au premier message.
+        send_unchecked: bool,
     },
     AlreadyExists,
     NeedsReview {
@@ -733,10 +752,15 @@ fn failed_internal(failure: FailureKindDto, error: impl fmt::Display) -> AddAcco
 impl AddAccountResultDto {
     pub fn from_outcome(outcome: &AddAccountOutcome) -> Self {
         match outcome {
-            AddAccountOutcome::Added(account) => match AccountDto::try_from(account) {
-                Ok(account) => Self::Added { account },
-                Err(e) => failed_internal(FailureKindDto::Internal, e),
-            },
+            AddAccountOutcome::Added(account) | AddAccountOutcome::AddedSendUnchecked(account) => {
+                match AccountDto::try_from(account) {
+                    Ok(account) => Self::Added {
+                        account,
+                        send_unchecked: matches!(outcome, AddAccountOutcome::AddedSendUnchecked(_)),
+                    },
+                    Err(e) => failed_internal(FailureKindDto::Internal, e),
+                }
+            }
             AddAccountOutcome::AlreadyExists => Self::AlreadyExists,
             AddAccountOutcome::NeedsReview(d) => Self::NeedsReview {
                 discovery: d.into(),
@@ -796,13 +820,14 @@ fn connection_failure(
                 Some(AuthenticationAdvice::MicrosoftSmtpDisabled) => {
                     FailureKindDto::MicrosoftSmtpDisabled
                 }
+                Some(AuthenticationAdvice::MicrosoftImapUnavailable) => {
+                    FailureKindDto::MicrosoftImapUnavailable
+                }
                 None => FailureKindDto::Authentication,
             };
             failed(p, kind, auth_detail(e))
         }
-        TestConnectionOutcome::Network(e) => {
-            failed(p, FailureKindDto::Network, connection_detail(e))
-        }
+        TestConnectionOutcome::Network(e) => failed(p, network_kind(e), connection_detail(e)),
         TestConnectionOutcome::Security(e) => {
             failed(p, FailureKindDto::Security, connection_detail(e))
         }
@@ -1349,6 +1374,46 @@ mod error_tests {
     }
 
     #[test]
+    fn account_added_without_send_check_says_so() {
+        use norelly_application::accounts::AddAccountOutcome;
+        let id = norelly_domain::account::AccountId::new(1).unwrap_or_else(|_| panic!("id"));
+        let account =
+            norelly_test_support::contracts::sample_account("alice@example.com", false).with_id(id);
+        let json = |o: &AddAccountOutcome| {
+            serde_json::to_value(AddAccountResultDto::from_outcome(o)).unwrap_or_default()
+        };
+        let unchecked = json(&AddAccountOutcome::AddedSendUnchecked(account.clone()));
+        assert_eq!(unchecked["kind"], "added", "{unchecked}");
+        assert_eq!(unchecked["send_unchecked"], true, "{unchecked}");
+        assert_eq!(
+            json(&AddAccountOutcome::Added(account))["send_unchecked"],
+            false
+        );
+    }
+
+    #[test]
+    fn unresponsive_server_is_not_reported_as_unreachable() {
+        use norelly_application::accounts::AddAccountOutcome;
+        let silent = ConnectionError::Timeout(norelly_domain::connection::TimeoutStage::Response);
+        assert_eq!(
+            connection_failure_of(&silent).0,
+            FailureKindDto::Unresponsive
+        );
+        assert_eq!(
+            connection_failure_of(&ConnectionError::Network("nom inconnu".into())).0,
+            FailureKindDto::Network
+        );
+        let outcome = AddAccountOutcome::ConnectionFailed {
+            protocol: Protocol::Imap,
+            outcome: TestConnectionOutcome::Network(ConnectionError::Closed),
+            advice: None,
+        };
+        let json =
+            serde_json::to_value(AddAccountResultDto::from_outcome(&outcome)).unwrap_or_default();
+        assert_eq!(json["failure"], "unresponsive", "{json}");
+    }
+
+    #[test]
     fn google_rejection_has_its_own_failure_kind() {
         use norelly_application::accounts::AddAccountOutcome;
         use norelly_domain::discovery::AuthenticationAdvice;
@@ -1372,6 +1437,12 @@ mod error_tests {
             })
         );
         assert_eq!(json(&rejected(None))["failure"], "authentication");
+        assert_eq!(
+            json(&rejected(Some(
+                AuthenticationAdvice::MicrosoftImapUnavailable
+            )))["failure"],
+            "microsoft_imap_unavailable"
+        );
     }
 }
 

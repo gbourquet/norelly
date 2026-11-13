@@ -36,11 +36,32 @@ fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 #[derive(Debug, Clone, Default)]
 pub struct FakeMailServers {
     results: Arc<Mutex<BTreeMap<String, Result<ServerCapabilities, ConnectionError>>>>,
+    /// Échecs à renvoyer d'abord, un par connexion, avant `results`.
+    failures: Arc<Mutex<BTreeMap<String, Vec<ConnectionError>>>>,
     seen: Arc<Mutex<Vec<(Protocol, ConnectRequest)>>>,
     imap: FakeImap,
+    on_connect: ConnectHook,
+}
+
+/// Action jouée à chaque connexion.
+type Hook = Arc<dyn Fn() + Send + Sync>;
+
+/// Action jouée à chaque connexion (faire avancer une horloge…).
+#[derive(Clone, Default)]
+struct ConnectHook(Arc<Mutex<Option<Hook>>>);
+
+impl std::fmt::Debug for ConnectHook {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("ConnectHook")
+    }
 }
 
 impl FakeMailServers {
+    /// Joue `hook` à chaque connexion tentée.
+    pub fn on_connect(&self, hook: impl Fn() + Send + Sync + 'static) {
+        *lock(&self.on_connect.0) = Some(Arc::new(hook));
+    }
+
     /// Faux serveur IMAP derrière les sessions ouvertes.
     #[must_use]
     pub fn imap(&self) -> &FakeImap {
@@ -65,6 +86,13 @@ impl FakeMailServers {
         lock(&self.results).insert(endpoint.to_string(), result);
     }
 
+    /// Les prochaines connexions à `endpoint` échouent avec `errors`, une
+    /// par connexion, puis la réponse de [`Self::set`] (ou par défaut)
+    /// reprend.
+    pub fn fail_first(&self, endpoint: &ServerEndpoint, errors: Vec<ConnectionError>) {
+        lock(&self.failures).insert(endpoint.to_string(), errors);
+    }
+
     /// Connexions tentées.
     #[must_use]
     pub fn requests(&self) -> Vec<(Protocol, ConnectRequest)> {
@@ -77,8 +105,17 @@ impl FakeMailServers {
         request: &ConnectRequest,
     ) -> Result<ServerCapabilities, ConnectionError> {
         lock(&self.seen).push((protocol, request.clone()));
+        let hook = lock(&self.on_connect.0).clone();
+        if let Some(hook) = hook {
+            hook();
+        }
         // Défense en profondeur, comme les vrais adaptateurs.
         request.plaintext.authorize(&request.endpoint)?;
+        if let Some(queue) = lock(&self.failures).get_mut(&request.endpoint.to_string())
+            && !queue.is_empty()
+        {
+            return Err(queue.remove(0));
+        }
         lock(&self.results)
             .get(&request.endpoint.to_string())
             .cloned()

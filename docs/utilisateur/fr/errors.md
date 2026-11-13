@@ -113,6 +113,25 @@ montre les réglages des serveurs, comparez le **Serveur** et le **Port**
 avec la page d'aide de votre fournisseur : une seule lettre de travers
 suffit à empêcher la connexion.
 
+## Le serveur ne répond pas
+
+**Ce que vous voyez** : « le serveur ne répond pas. Vérifiez votre
+connexion à Internet, puis réessayez. »
+
+Norelly a bien trouvé le serveur, mais celui-ci n'a pas répondu à temps
+ou a coupé la connexion. Norelly a déjà réessayé plusieurs fois avant
+d'afficher ce message.
+
+Pour un compte Outlook.com ou Hotmail, si seul le serveur d'envoi ne
+répond pas, Norelly ajoute quand même le compte : « Compte ajouté. L'envoi n'a pas pu être vérifié… ». Vous recevez
+vos messages tout de suite ; l'envoi sera essayé à votre premier message,
+et un message qui ne part pas reste dans la **boîte d'envoi**.
+
+**Quoi faire** : vérifiez votre connexion à Internet, attendez quelques
+minutes, puis cliquez de nouveau sur le bouton. Si le problème dure, essayez
+depuis une autre connexion (par exemple le partage de connexion de votre
+téléphone) : certains réseaux ont du mal à joindre certains fournisseurs.
+
 ## Envoi impossible
 
 **Ce que vous voyez** : en bas de la fenêtre, « Envoi impossible : « sujet

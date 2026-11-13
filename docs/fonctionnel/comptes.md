@@ -110,6 +110,11 @@ acceptés) sont supprimées. **Rien n'est supprimé sur le serveur.**
   passent que par « Se connecter avec Microsoft ».
 - Connexion chez Microsoft refusée ou abandonnée dans le navigateur : retour
   au formulaire, avec une explication ; rien n'est enregistré.
+- Compte choisi dans la page de Microsoft différent de l'adresse saisie
+  (erreur de compte, ou retour de connexion substitué par un autre
+  programme) : refusé, à l'ajout comme à la reconnexion. Rien n'est
+  enregistré, l'autorisation précédente d'un compte reconnecté reste en
+  place, et l'écran demande de choisir le compte de l'adresse.
 - Envoi désactivé par Microsoft sur la boîte, alors que la réception
   fonctionne : le compte n'est pas ajouté et l'écran l'explique.
 - Connexion Microsoft acceptée mais boîte inaccessible en réception (refus
@@ -165,6 +170,7 @@ acceptés) sont supprimées. **Rien n'est supprimé sur le serveur.**
 | Nouvel essai sans navigateur | Connexion à votre messagerie Microsoft… |
 | Envoi non vérifié à l'ajout | Compte ajouté. L'envoi n'a pas pu être vérifié, le serveur ne répondait pas : Norelly réessaiera à votre premier message. |
 | Connexion annulée | La connexion a été annulée dans le navigateur. |
+| Autre compte choisi | Le compte choisi dans le navigateur n'est pas celui de cette adresse. Réessayez en choisissant le compte de {address}. (Reconnexion : « autre compte choisi dans le navigateur ».) |
 | Boîte inaccessible (Microsoft) | {prefix}votre compte Microsoft est bien connecté, mais Outlook.com refuse l'accès à la boîte. Vérifiez que l'accès IMAP est activé dans Outlook.com (Paramètres, Courrier, Transfert et IMAP), puis réessayez dans quelques minutes. |
 | Envoi désactivé (Microsoft) | {prefix}l'envoi de messages est désactivé sur ce compte Microsoft. Activez-le dans les réglages de votre compte Outlook.com, puis réessayez. |
 | Reconnexion nécessaire | Bouton « Se reconnecter » à côté du compte ; infobulle « Reconnexion nécessaire : {address} » ; « Compte reconnecté. » après succès. |

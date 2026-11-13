@@ -14,8 +14,8 @@ use std::time::Duration;
 use norelly_domain::address::EmailAddress;
 use norelly_domain::credentials::Secret;
 use norelly_domain::oauth::{
-    AuthorizationRequest, CallbackError, OAuthConfig, OAuthProvider, TokenError, authorization_url,
-    classify_token_error, code_exchange_form, parse_callback, refresh_form,
+    AuthorizationRequest, CallbackError, OAuthConfig, OAuthIdentity, OAuthProvider, TokenError,
+    authorization_url, classify_token_error, code_exchange_form, parse_callback, refresh_form,
 };
 use norelly_domain::ports::{OAuthClient, OAuthGrant};
 use norelly_tls::TlsClientFactory;
@@ -293,7 +293,33 @@ struct TokenResponse {
     access_token: Option<String>,
     expires_in: Option<u64>,
     refresh_token: Option<String>,
+    id_token: Option<String>,
     error: Option<String>,
+}
+
+/// Revendications utiles d'un `id_token` (OpenID Connect).
+#[derive(serde::Deserialize)]
+struct IdTokenClaims {
+    preferred_username: Option<String>,
+    email: Option<String>,
+}
+
+/// Identité portée par un `id_token` (JWT `en-tête.contenu.signature`).
+/// La signature n'est pas vérifiée : le jeton vient directement du point
+/// d'accès des jetons, en HTTPS vérifié, en échange du code et du
+/// vérificateur PKCE. `None` si le jeton est illisible.
+fn identity_of(id_token: &str) -> Option<OAuthIdentity> {
+    let mut parts = id_token.split('.');
+    let (Some(_), Some(payload), Some(_), None) =
+        (parts.next(), parts.next(), parts.next(), parts.next())
+    else {
+        return None;
+    };
+    let claims: IdTokenClaims = serde_json::from_slice(&base64url_decode(payload)?).ok()?;
+    Some(OAuthIdentity {
+        preferred_username: claims.preferred_username,
+        email: claims.email,
+    })
 }
 
 /// Réponse du point d'accès des jetons (RFC 6749, sections 5.1 et 5.2).
@@ -315,6 +341,7 @@ fn parse_token_response(status: u16, body: &[u8]) -> Result<OAuthGrant, TokenErr
             .refresh_token
             .filter(|t| !t.is_empty())
             .map(Secret::new),
+        identity: parsed.id_token.as_deref().and_then(identity_of),
     })
 }
 
@@ -333,6 +360,35 @@ fn random_token(bytes: usize) -> Result<String, TokenError> {
     let mut buf = vec![0u8; bytes];
     getrandom::fill(&mut buf).map_err(|e| TokenError::Network(e.to_string()))?;
     Ok(base64url(&buf))
+}
+
+/// Inverse de [`base64url`] : `None` si un caractère n'est pas de
+/// l'alphabet base64url (remplissage compris) ou si la longueur est
+/// impossible.
+fn base64url_decode(text: &str) -> Option<Vec<u8>> {
+    if text.len() % 4 == 1 {
+        return None;
+    }
+    let mut out = Vec::with_capacity(text.len() * 3 / 4);
+    let mut acc: u32 = 0;
+    let mut bits = 0;
+    for c in text.bytes() {
+        let value = match c {
+            b'A'..=b'Z' => c - b'A',
+            b'a'..=b'z' => c - b'a' + 26,
+            b'0'..=b'9' => c - b'0' + 52,
+            b'-' => 62,
+            b'_' => 63,
+            _ => return None,
+        };
+        acc = (acc << 6) | u32::from(value);
+        bits += 6;
+        if bits >= 8 {
+            bits -= 8;
+            out.push(((acc >> bits) & 0xff) as u8);
+        }
+    }
+    Some(out)
 }
 
 /// base64url sans remplissage (RFC 4648, section 5).

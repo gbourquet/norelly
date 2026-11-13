@@ -129,8 +129,10 @@ Microsoft, dans votre navigateur :
    `marie.durand@outlook.fr`). Le champ **Mot de passe** disparaît et le
    bouton **Se connecter avec Microsoft** apparaît.
 2. Cliquez sur **Se connecter avec Microsoft**. Votre navigateur s'ouvre
-   sur la page de Microsoft : connectez-vous comme d'habitude, puis
-   acceptez que Norelly accède à vos messages.
+   sur la page de Microsoft : connectez-vous comme d'habitude, avec le
+   compte de l'adresse tapée, puis acceptez que Norelly accède à vos
+   messages. Si vous choisissez un autre compte, Norelly le refuse et vous
+   invite à recommencer avec le bon.
 3. Le navigateur affiche « vous pouvez fermer cette page » : revenez dans
    Norelly. Le compte apparaît dans la colonne de gauche.
 

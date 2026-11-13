@@ -54,6 +54,15 @@ n'est pas chiffrée (ADR-003) : on s'appuie sur le chiffrement du disque.
   ignoré sans annuler la connexion ; redirection écoutée sur
   `127.0.0.1` seulement, port éphémère, requête bornée
   (`crates/adapters/oauth`).
+- Compte vérifié : la connexion interactive demande aussi `openid email
+  profile` ; l'`id_token` reçu du point d'accès des jetons (HTTPS vérifié,
+  en échange du code et du vérificateur PKCE, donc signature non
+  vérifiée) doit porter l'adresse du compte en `preferred_username` ou
+  `email`, sinon les jetons sont refusés avant tout test, stockage ou
+  remplacement, à l'ajout comme à la reconnexion
+  (`crates/domain/src/oauth.rs`, `verify_identity`). Un code d'un autre
+  compte injecté dans la redirection locale est ainsi refusé. Le
+  rafraîchissement garde les seuls scopes de messagerie.
 - Identifiant client public embarqué (application de bureau, sans
   secret). Jeton de rafraîchissement dans le trousseau seulement ; jeton
   d'accès en mémoire ; aucun jeton dans les journaux, les erreurs ni

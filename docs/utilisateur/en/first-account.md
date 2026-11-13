@@ -116,7 +116,9 @@ like Norelly. Instead, you sign in on Microsoft's page, in your browser:
    `mary.smith@outlook.com`). The **Password** field disappears and the
    **Sign in with Microsoft** button appears.
 2. Click **Sign in with Microsoft**. Your browser opens Microsoft's page:
-   sign in as usual, then allow Norelly to access your messages.
+   sign in as usual, with the account of the address you typed, then allow
+   Norelly to access your messages. If you choose another account, Norelly
+   refuses it and asks you to start again with the right one.
 3. The browser shows "you can close this page": come back to Norelly. The
    account appears in the left column.
 

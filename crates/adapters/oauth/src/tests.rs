@@ -75,16 +75,45 @@ impl BrowserOpener for Browser {
     }
 }
 
-async fn token_server() -> MockServer {
+/// `id_token` non signé portant `claims` (JSON).
+fn id_token(claims: &str) -> String {
+    format!(
+        "{}.{}.c2ln",
+        base64url(br#"{"alg":"RS256","typ":"JWT"}"#),
+        base64url(claims.as_bytes())
+    )
+}
+
+/// Vrai si le `code_verifier` du formulaire est celui dont le haché a été
+/// envoyé dans l'URL ouverte par `browser` (PKCE, RFC 7636).
+fn pkce_matches(browser: &Browser, request: &wiremock::Request) -> bool {
+    let url = browser.url();
+    let Some(challenge) = param(&url, "code_challenge") else {
+        return false;
+    };
+    let body = String::from_utf8_lossy(&request.body);
+    body.split('&')
+        .find_map(|p| p.strip_prefix("code_verifier="))
+        .is_some_and(|verifier| base64url(&Sha256::digest(verifier.as_bytes())) == challenge)
+}
+
+/// Point d'accès des jetons ; l'échange du code n'aboutit que si le
+/// vérificateur PKCE correspond à l'URL ouverte par `browser`.
+async fn token_server(browser: &Browser) -> MockServer {
     let server = MockServer::start().await;
+    let seen = browser.clone();
+    let body = format!(
+        r#"{{"access_token":"acc","expires_in":3599,"refresh_token":"r1","token_type":"Bearer","id_token":"{}"}}"#,
+        id_token(
+            r#"{"preferred_username":"alice@outlook.com","email":"alice@outlook.com","sub":"x"}"#
+        )
+    );
     Mock::given(method("POST"))
         .and(path("/token"))
         .and(body_string_contains("grant_type=authorization_code"))
         .and(body_string_contains("code=le-code"))
-        .and(body_string_contains("code_verifier="))
-        .respond_with(ResponseTemplate::new(200).set_body_string(
-            r#"{"access_token":"acc","expires_in":3599,"refresh_token":"r1","token_type":"Bearer"}"#,
-        ))
+        .and(move |r: &wiremock::Request| pkce_matches(&seen, r))
+        .respond_with(ResponseTemplate::new(200).set_body_string(body))
         .mount(&server)
         .await;
     Mock::given(method("POST"))
@@ -128,13 +157,13 @@ fn hint() -> EmailAddress {
 
 #[tokio::test]
 async fn authorize_opens_browser_and_exchanges_code() {
-    let server = token_server().await;
     // Un retour forgé (mauvais state) puis un favicon sont ignorés.
     let browser = Browser::new(vec![
         "/?code=forge&state=autre",
         "/favicon.ico",
         "/?code=le-code&state={state}",
     ]);
+    let server = token_server(&browser).await;
     let grant = client(&server, browser.clone())
         .authorize(OAuthProvider::Microsoft, &hint())
         .await;
@@ -144,7 +173,15 @@ async fn authorize_opens_browser_and_exchanges_code() {
     assert_eq!(grant.access_token.expose(), "acc");
     assert_eq!(grant.expires_in, 3599);
     assert_eq!(grant.refresh_token.as_ref().map(Secret::expose), Some("r1"));
+    assert_eq!(
+        grant.identity,
+        Some(OAuthIdentity {
+            preferred_username: Some("alice@outlook.com".to_owned()),
+            email: Some("alice@outlook.com".to_owned()),
+        })
+    );
     let url = browser.url();
+    assert!(param(&url, "scope").is_some_and(|s| s.contains("openid")));
     assert!(url.starts_with(OAuthProvider::Microsoft.config().authorize_url));
     assert_eq!(param(&url, "code_challenge_method"), Some("S256"));
     assert!(param(&url, "code_challenge").is_some_and(|c| c.len() == 43));
@@ -153,8 +190,8 @@ async fn authorize_opens_browser_and_exchanges_code() {
 
 #[tokio::test]
 async fn denied_authorization_is_cancelled() {
-    let server = token_server().await;
     let browser = Browser::new(vec!["/?error=access_denied&state={state}"]);
+    let server = token_server(&browser).await;
     let result = client(&server, browser)
         .authorize(OAuthProvider::Microsoft, &hint())
         .await;
@@ -166,8 +203,9 @@ async fn denied_authorization_is_cancelled() {
 
 #[tokio::test]
 async fn refresh_classifies_provider_errors_without_echoing_the_body() {
-    let server = token_server().await;
-    let c = client(&server, Browser::new(vec![]));
+    let browser = Browser::new(vec![]);
+    let server = token_server(&browser).await;
+    let c = client(&server, browser);
     let refreshed = c
         .refresh(OAuthProvider::Microsoft, &Secret::new("r1".to_owned()))
         .await;
@@ -183,8 +221,9 @@ async fn refresh_classifies_provider_errors_without_echoing_the_body() {
 
 #[tokio::test]
 async fn passes_oauth_client_contract() {
-    let server = token_server().await;
-    oauth_client_contract(&client(&server, Browser::new(vec![]))).await;
+    let browser = Browser::new(vec![]);
+    let server = token_server(&browser).await;
+    oauth_client_contract(&client(&server, browser)).await;
 }
 
 #[test]
@@ -202,6 +241,51 @@ fn token_response_parsing() {
         parse_token_response(500, b"<html>").map(|_| ()),
         Err(TokenError::Network("HTTP 500".to_owned()))
     );
+}
+
+#[test]
+fn id_token_gives_the_signed_in_identity() {
+    let body = |token: &str| {
+        format!(r#"{{"access_token":"a","refresh_token":"r","id_token":"{token}"}}"#).into_bytes()
+    };
+    let identity = |token: &str| parse_token_response(200, &body(token)).map(|g| g.identity);
+    assert_eq!(
+        identity(&id_token(
+            r#"{"preferred_username":"+33600000000","email":"Bob@Live.fr"}"#
+        )),
+        Ok(Some(OAuthIdentity {
+            preferred_username: Some("+33600000000".to_owned()),
+            email: Some("Bob@Live.fr".to_owned()),
+        }))
+    );
+    assert_eq!(
+        identity(&id_token(r#"{"sub":"x"}"#)),
+        Ok(Some(OAuthIdentity::default()))
+    );
+    // `id_token` illisible : pas d'identité, le cas d'usage refusera.
+    for broken in [
+        "",
+        "abc",
+        "a.!!!.c",
+        &format!("a.{}.c", base64url(b"pas du json")),
+    ] {
+        assert_eq!(identity(broken), Ok(None), "{broken}");
+    }
+    // Réponse de rafraîchissement, sans `id_token`.
+    assert_eq!(
+        parse_token_response(200, br#"{"access_token":"a"}"#).map(|g| g.identity),
+        Ok(None)
+    );
+}
+
+#[test]
+fn base64url_decoding_inverts_encoding() {
+    for data in [&b""[..], b"f", b"fo", b"foo", b"foob", &[0xfb, 0xff, 0x00]] {
+        assert_eq!(base64url_decode(&base64url(data)).as_deref(), Some(data));
+    }
+    assert_eq!(base64url_decode("Zg=="), None, "remplissage refusé");
+    assert_eq!(base64url_decode("Z+8"), None, "alphabet standard refusé");
+    assert_eq!(base64url_decode("Z"), None, "longueur impossible");
 }
 
 #[test]

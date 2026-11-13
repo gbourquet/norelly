@@ -203,9 +203,11 @@ Règles :
   `docs/utilisateur/{fr,en}/` (mêmes pages dans les deux langues). Les
   captures sont régénérées par les e2e, jamais retouchées à la main.
 - Linear : lier la PR au ticket traité et le passer en `In Review` (il
-  passe en `Done` au merge) ;
-  créer un ticket, sous l'epic concernée, pour ce qui a été découvert et
-  laissé de côté.
+  passe en `Done` au merge). Ce qui reste à faire pour la PR se traite
+  dans la même PR : ticket repassé en `In Progress`, ajustements sur la
+  même branche, PR mise à jour, ticket repassé en `In Review`. Un nouveau
+  ticket, sous l'epic concernée, seulement pour un sujet distinct laissé
+  de côté ; en cas de doute, demander au mainteneur.
 - Revue de sécurité : lancer le sous-agent `security-reviewer` dès que la
   branche touche une zone sensible (rendu HTML et protocoles, TLS, IMAP,
   SMTP, autodécouverte, trousseau, SQL, pièces jointes et fichiers, IPC et

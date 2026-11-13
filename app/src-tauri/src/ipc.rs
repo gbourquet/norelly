@@ -634,6 +634,9 @@ pub fn connection_failure_of(e: &ConnectionError) -> (FailureKindDto, Option<Str
     ) {
         return (FailureKindDto::ReauthRequired, None);
     }
+    if let ConnectionError::Authentication(AuthError::SecretStoreUnavailable { message }) = e {
+        return (FailureKindDto::SecretStore, Some(message.clone()));
+    }
     let kind = match e.category() {
         FailureCategory::Network => network_kind(e),
         FailureCategory::Authentication => FailureKindDto::Authentication,
@@ -675,6 +678,7 @@ fn auth_detail(a: &AuthError) -> Option<String> {
         AuthError::Rejected { message } => Some(message.clone()),
         AuthError::NoSupportedMechanism { offered } => Some(offered.join(", ")),
         AuthError::TokenDestinationRefused { host } => Some(host.clone()),
+        AuthError::SecretStoreUnavailable { message } => Some(message.clone()),
         AuthError::Unsupported(_)
         | AuthError::ReauthRequired
         | AuthError::LoginDisabled
@@ -1363,6 +1367,17 @@ mod error_tests {
             .code,
             ErrorCodeDto::Storage
         );
+    }
+
+    #[test]
+    fn unreadable_keyring_is_reported_as_a_keyring_failure() {
+        let (kind, detail) = connection_failure_of(&ConnectionError::Authentication(
+            AuthError::SecretStoreUnavailable {
+                message: "trousseau verrouillé".into(),
+            },
+        ));
+        assert_eq!(kind, FailureKindDto::SecretStore);
+        assert_eq!(detail.as_deref(), Some("trousseau verrouillé"));
     }
 
     #[test]

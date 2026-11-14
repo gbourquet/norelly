@@ -70,6 +70,24 @@ impl SecretStore for Keyring {
     }
 }
 
+/// Faux cache des jetons : retient les clés oubliées.
+#[derive(Debug, Default)]
+struct Tokens(std::sync::Mutex<Vec<String>>);
+
+impl Tokens {
+    fn discarded(&self) -> Vec<String> {
+        self.0.lock().map(|v| v.clone()).unwrap_or_default()
+    }
+}
+
+impl crate::oauth::TokenCache for Tokens {
+    async fn discard(&self, key: &SecretKey) {
+        if let Ok(mut v) = self.0.lock() {
+            v.push(key.as_str().to_owned());
+        }
+    }
+}
+
 const PASSWORD: &str = "mot-de-passe";
 
 struct World {
@@ -79,6 +97,7 @@ struct World {
     keyring: Keyring,
     accounts: InMemoryAccountRepository,
     data: RecordingAccountDataStore,
+    tokens: Tokens,
 }
 
 impl World {
@@ -90,6 +109,7 @@ impl World {
             keyring: Keyring::default(),
             accounts: InMemoryAccountRepository::default(),
             data: RecordingAccountDataStore::default(),
+            tokens: Tokens::default(),
         }
     }
 
@@ -116,6 +136,7 @@ impl World {
             secrets: &self.keyring,
             accounts: &self.accounts,
             local_data: &self.data,
+            tokens: &self.tokens,
         }
         .execute(id)
         .await
@@ -429,6 +450,12 @@ async fn remove_deletes_secrets_account_and_local_data() {
     );
     assert_eq!(w.accounts.list().await, Ok(vec![other]));
     assert_eq!(w.data.purged(), vec![account.id()]);
+    assert!(
+        w.tokens
+            .discarded()
+            .contains(&account.secret_key(Protocol::Imap).as_str().to_owned()),
+        "jetons OAuth gardés en mémoire oubliés"
+    );
     assert_eq!(
         w.remove(account.id()).await,
         Err(RemoveAccountError::NotFound)

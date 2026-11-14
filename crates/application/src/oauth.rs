@@ -27,7 +27,8 @@ use norelly_domain::ports::{
 };
 use tokio::sync::Mutex;
 
-/// Délai maximal d'un rafraîchissement (trousseau et fournisseur).
+/// Délai maximal d'un rafraîchissement : lecture du trousseau, fournisseur
+/// et enregistrement de la rotation, ensemble.
 pub const REFRESH_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Horloge murale en secondes (elle avance pendant la mise en veille).
@@ -53,6 +54,8 @@ struct Slot {
     /// Dernier jeton de rafraîchissement délivré, que le trousseau n'a pas
     /// encore accepté : il prime sur celui du trousseau, devenu périmé.
     unsaved_refresh: Option<Secret>,
+    /// Compte supprimé : plus aucun jeton n'est servi ni enregistré.
+    discarded: bool,
 }
 
 impl<O, K> std::fmt::Debug for TokenBroker<O, K> {
@@ -146,8 +149,12 @@ impl<O: OAuthClient, K: SecretStore> TokenBroker<O, K> {
         {
             return Ok(token.token.clone());
         }
+        if slot.discarded {
+            return Err(AuthError::ReauthRequired);
+        }
+        let deadline = tokio::time::Instant::now() + REFRESH_TIMEOUT;
         let unsaved = slot.unsaved_refresh.clone();
-        let grant = tokio::time::timeout(REFRESH_TIMEOUT, self.refresh(source, unsaved))
+        let grant = tokio::time::timeout_at(deadline, self.refresh(source, unsaved))
             .await
             .map_err(|_| auth_error_of(&TokenError::Network("délai dépassé".to_owned())))??;
         let token = grant.access_token.clone();
@@ -156,17 +163,24 @@ impl<O: OAuthClient, K: SecretStore> TokenBroker<O, K> {
             .clone()
             .or_else(|| slot.unsaved_refresh.take());
         if let Some(latest) = latest {
-            slot.unsaved_refresh = self.save_refresh(&source.refresh_key, latest).await;
+            slot.unsaved_refresh = self
+                .save_refresh(&source.refresh_key, latest, deadline)
+                .await;
         }
         slot.access = Some(self.access_of(grant));
         Ok(token)
     }
 
-    /// Enregistre `refresh` dans le trousseau, dans le délai maximal. Rend
-    /// le jeton s'il n'a pas pu l'être : le jeton d'accès reste utilisable,
-    /// et le jeton gardé en mémoire servira au prochain rafraîchissement.
-    async fn save_refresh(&self, key: &SecretKey, refresh: Secret) -> Option<Secret> {
-        match tokio::time::timeout(REFRESH_TIMEOUT, self.secrets.set(key, &refresh)).await {
+    /// Enregistre `refresh` dans le trousseau avant `deadline`. Rend le
+    /// jeton s'il n'a pas pu l'être : le jeton d'accès reste utilisable, et
+    /// le jeton gardé en mémoire servira au prochain rafraîchissement.
+    async fn save_refresh(
+        &self,
+        key: &SecretKey,
+        refresh: Secret,
+        deadline: tokio::time::Instant,
+    ) -> Option<Secret> {
+        match tokio::time::timeout_at(deadline, self.secrets.set(key, &refresh)).await {
             Ok(Ok(())) => None,
             Ok(Err(e)) => {
                 tracing::warn!(error = %e, "nouveau jeton de rafraîchissement non enregistré");
@@ -215,18 +229,20 @@ impl<O: OAuthClient, K: SecretStore> TokenBroker<O, K> {
         source: &OAuthSource,
         grant: OAuthGrant,
     ) -> Result<(), SecretStoreError> {
-        let saved_refresh = grant.refresh_token.is_some();
-        if let Some(refresh) = &grant.refresh_token {
-            self.secrets.set(&source.refresh_key, refresh).await?;
-        }
-        let access = self.access_of(grant);
+        // Verrou du compte pris d'abord : une rotation en cours ne peut pas
+        // écraser ensuite le jeton de cette connexion.
         let slot = self.slot(&source.refresh_key);
         let mut slot = slot.lock().await;
-        slot.access = Some(access);
-        if saved_refresh {
+        if slot.discarded {
+            // Compte supprimé pendant la connexion : rien n'est enregistré.
+            return Ok(());
+        }
+        if let Some(refresh) = &grant.refresh_token {
+            self.secrets.set(&source.refresh_key, refresh).await?;
             // Le trousseau contient désormais le jeton le plus récent.
             slot.unsaved_refresh = None;
         }
+        slot.access = Some(self.access_of(grant));
         Ok(())
     }
 
@@ -235,6 +251,32 @@ impl<O: OAuthClient, K: SecretStore> TokenBroker<O, K> {
     /// que le fournisseur accepte encore.
     pub async fn forget(&self, key: &SecretKey) {
         self.slot(key).lock().await.access = None;
+    }
+}
+
+/// Jetons d'un compte gardés en mémoire, à oublier quand le compte est
+/// supprimé.
+pub trait TokenCache: Sync {
+    /// Oublie les jetons gardés sous `key` ; un rafraîchissement en cours
+    /// pour cette clé s'achève avant que cette méthode ne rende la main.
+    fn discard(&self, key: &SecretKey) -> impl Future<Output = ()> + Send;
+}
+
+impl<O: OAuthClient, K: SecretStore> TokenCache for TokenBroker<O, K> {
+    async fn discard(&self, key: &SecretKey) {
+        let removed = self
+            .slots
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .remove(key);
+        if let Some(slot) = removed {
+            // Attend un rafraîchissement en cours, puis efface ses jetons ;
+            // une connexion qui détient encore ce compte n'en obtient plus.
+            *slot.lock().await = Slot {
+                discarded: true,
+                ..Slot::default()
+            };
+        }
     }
 }
 

@@ -64,6 +64,8 @@ struct Provider {
     refreshes: AtomicUsize,
     current: StdMutex<String>,
     hang: bool,
+    /// Temps de réponse du fournisseur.
+    delay: Duration,
 }
 
 impl Default for Provider {
@@ -72,6 +74,7 @@ impl Default for Provider {
             refreshes: AtomicUsize::new(0),
             current: StdMutex::new("r1".to_owned()),
             hang: false,
+            delay: Duration::ZERO,
         }
     }
 }
@@ -88,6 +91,7 @@ impl OAuthClient for Provider {
         if self.hang || refresh.expose() == "lent" {
             std::future::pending::<()>().await;
         }
+        tokio::time::sleep(self.delay).await;
         let n = self.refreshes.fetch_add(1, Ordering::SeqCst) + 1;
         if refresh.expose() == "panne" {
             return Err(TokenError::Network("HTTP 503".to_owned()));
@@ -301,6 +305,116 @@ async fn unsaved_rotation_is_kept_in_memory_and_saved_later() {
         token(&f).await,
         Ok("a4".to_owned()),
         "relu dans le trousseau"
+    );
+}
+
+#[tokio::test]
+async fn removed_account_tokens_are_discarded() {
+    let f = fixture(Some("r1"), Provider::default()).await;
+    f.broker.secrets.read_only.store(true, Ordering::SeqCst);
+    assert_eq!(token(&f).await, Ok("a1".to_owned()));
+    // Suppression du compte : jetons oubliés, puis trousseau vidé.
+    f.broker.discard(&key()).await;
+    f.broker.secrets.read_only.store(false, Ordering::SeqCst);
+    let _ = f.broker.secrets.delete(&key()).await;
+    assert_eq!(token(&f).await, Err(AuthError::ReauthRequired));
+    assert_eq!(
+        f.broker.client().refreshes.load(Ordering::SeqCst),
+        1,
+        "jeton gardé en mémoire jamais présenté après la suppression"
+    );
+    assert_eq!(f.broker.secrets.read(&key()), None, "rien réécrit");
+}
+
+#[tokio::test]
+async fn reconnection_replaces_an_unsaved_refresh_token() {
+    let f = fixture(Some("r1"), Provider::default()).await;
+    f.broker.secrets.read_only.store(true, Ordering::SeqCst);
+    assert_eq!(token(&f).await, Ok("a1".to_owned()));
+    // Reconnexion : nouvelle chaîne de jetons chez le fournisseur.
+    f.broker.secrets.read_only.store(false, Ordering::SeqCst);
+    if let Ok(mut current) = f.broker.client().current.lock() {
+        *current = "neuf".to_owned();
+    }
+    let grant = OAuthGrant {
+        access_token: Secret::new("reconnecté".to_owned()),
+        expires_in: 600,
+        refresh_token: Some(Secret::new("neuf".to_owned())),
+        identity: None,
+    };
+    assert_eq!(f.broker.store_grant(&source(), grant).await, Ok(()));
+    f.now.fetch_add(7_200, Ordering::SeqCst);
+    assert_eq!(
+        token(&f).await,
+        Ok("a2".to_owned()),
+        "jeton de la reconnexion présenté, pas l'ancien gardé en mémoire"
+    );
+}
+
+#[tokio::test]
+async fn server_refusal_keeps_the_unsaved_refresh_token() {
+    let f = fixture(Some("r1"), Provider::default()).await;
+    f.broker.secrets.read_only.store(true, Ordering::SeqCst);
+    let smtp = FreshTokens {
+        inner: Smtp {
+            refused: vec!["a1"],
+            ..Smtp::default()
+        },
+        broker: Arc::clone(&f.broker),
+    };
+    // « a1 » refusé : jeton oublié, nouveau rafraîchissement avec « r2 »,
+    // gardé en mémoire (le trousseau contient toujours « r1 », périmé).
+    assert!(smtp.verify(&oauth_request()).await.is_ok());
+    assert_eq!(seen(&smtp), vec!["a1".to_owned(), "a2".to_owned()]);
+}
+
+#[tokio::test]
+async fn refused_unsaved_refresh_token_requires_reauth() {
+    let f = fixture(Some("r1"), Provider::default()).await;
+    f.broker.secrets.read_only.store(true, Ordering::SeqCst);
+    assert_eq!(token(&f).await, Ok("a1".to_owned()));
+    // Accès retiré chez le fournisseur : plus aucun jeton accepté.
+    if let Ok(mut current) = f.broker.client().current.lock() {
+        *current = "révoqué".to_owned();
+    }
+    f.now.fetch_add(7_200, Ordering::SeqCst);
+    assert_eq!(token(&f).await, Err(AuthError::ReauthRequired));
+}
+
+/// Faux trousseau dont l'écriture ne répond jamais.
+#[derive(Debug, Default)]
+struct HangingWrites(Keyring);
+
+impl SecretStore for HangingWrites {
+    async fn get(&self, key: &SecretKey) -> Result<Option<Secret>, SecretStoreError> {
+        self.0.get(key).await
+    }
+    async fn set(&self, _: &SecretKey, _: &Secret) -> Result<(), SecretStoreError> {
+        std::future::pending().await
+    }
+    async fn delete(&self, key: &SecretKey) -> Result<(), SecretStoreError> {
+        self.0.delete(key).await
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn refresh_and_save_share_one_deadline() {
+    let keyring = HangingWrites::default();
+    if let Ok(mut m) = keyring.0.entries.lock() {
+        m.insert(key().as_str().to_owned(), "r1".to_owned());
+    }
+    let slow = Provider {
+        delay: Duration::from_secs(20),
+        ..Provider::default()
+    };
+    let broker = TokenBroker::new(slow, keyring, Arc::new(|| 1_000_000));
+    let started = tokio::time::Instant::now();
+    let token = broker.access_token(&source()).await;
+    assert_eq!(token.map(|t| t.expose().to_owned()), Ok("a1".to_owned()));
+    assert!(
+        started.elapsed() <= REFRESH_TIMEOUT,
+        "attente totale bornée à REFRESH_TIMEOUT : {:?}",
+        started.elapsed()
     );
 }
 

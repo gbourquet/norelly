@@ -31,7 +31,7 @@ use norelly_domain::oauth::{
 use norelly_domain::ports::OAuthClient;
 
 use crate::discover_settings::DiscoverSettings;
-use crate::oauth::TokenBroker;
+use crate::oauth::{TokenBroker, TokenCache};
 use crate::test_connection::{TestConnection, TestConnectionOutcome, TestConnectionParams};
 
 /// Demande d'ajout de compte.
@@ -487,19 +487,24 @@ pub enum RemoveAccountError {
 
 /// Cas d'usage : supprimer un compte, ses secrets et ses données locales.
 #[derive(Debug)]
-pub struct RemoveAccount<'a, K, D, L> {
+pub struct RemoveAccount<'a, K, D, L, T> {
     pub secrets: &'a K,
     pub accounts: &'a D,
     pub local_data: &'a L,
+    /// Jetons OAuth gardés en mémoire.
+    pub tokens: &'a T,
 }
 
-impl<K, D, L> RemoveAccount<'_, K, D, L>
+impl<K, D, L, T> RemoveAccount<'_, K, D, L, T>
 where
     K: SecretStore,
     D: AccountRepository,
     L: AccountDataStore,
+    T: TokenCache,
 {
-    /// Ordre : secrets d'abord (un échec laisse le compte intact, l'action
+    /// Ordre : jetons gardés en mémoire (un rafraîchissement en cours
+    /// s'achève avant, et ne peut donc pas réécrire le trousseau après son
+    /// effacement), puis secrets (un échec laisse le compte intact, l'action
     /// peut être relancée), puis la base, puis les fichiers.
     pub async fn execute(&self, id: AccountId) -> Result<(), RemoveAccountError> {
         let account = self
@@ -508,6 +513,9 @@ where
             .await
             .map_err(|e| RemoveAccountError::Storage(e.to_string()))?
             .ok_or(RemoveAccountError::NotFound)?;
+        for protocol in [Protocol::Imap, Protocol::Smtp] {
+            self.tokens.discard(&account.secret_key(protocol)).await;
+        }
         for protocol in [Protocol::Imap, Protocol::Smtp] {
             self.secrets
                 .delete(&account.secret_key(protocol))

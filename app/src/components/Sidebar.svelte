@@ -1,5 +1,6 @@
 <script lang="ts" generics="C">
   import LogInIcon from "@lucide/svelte/icons/log-in";
+  import KeyRoundIcon from "@lucide/svelte/icons/key-round";
   import { m } from "../lib/paraglide/messages.js";
   import { folderLabel, folderServerName } from "../lib/folder-label";
   // Panneau de navigation : « Nouveau message », boîte de réception
@@ -43,6 +44,8 @@
     syncing?: Record<number, { done: number; total: number }>;
     /** Comptes OAuth à reconnecter (bouton visible sur la ligne). */
     reauth?: Record<number, true>;
+    /** Comptes dont Google refuse le mot de passe d'application. */
+    appPassword?: Record<number, true>;
     scope: ScopeDto;
     selectedId: number | null;
     onScope: (scope: ScopeDto, account: number | null) => void;
@@ -69,6 +72,7 @@
     offline,
     syncing = {},
     reauth = {},
+    appPassword = {},
     scope,
     selectedId,
     onScope,
@@ -111,6 +115,12 @@
   const accountActions: VisibleAction[] = [
     { command: "account.sync", icon: RefreshIcon, label: m.sidebar_sync, section: 0 },
     { command: "account.reconnect", icon: LogInIcon, label: m.sidebar_reconnect, section: 0 },
+    {
+      command: "account.change-password",
+      icon: KeyRoundIcon,
+      label: m.sidebar_change_password,
+      section: 0,
+    },
     { command: "drafts.open", icon: FileIcon, section: 0 },
     { command: "compose.outbox", icon: OutboxIcon, section: 0 },
     { command: "account.new-folder", icon: FolderPlusIcon, section: 1 },
@@ -218,9 +228,13 @@
               </span>
             {/if}
             <CommandMenu
-              actions={account.oauth_provider === null
-                ? accountActions.filter((a) => a.command !== "account.reconnect")
-                : accountActions}
+              actions={accountActions.filter(
+                (a) =>
+                  a.command !==
+                  (account.oauth_provider === null
+                    ? "account.reconnect"
+                    : "account.change-password"),
+              )}
               {registry}
               {context}
               label={m.sidebar_account_menu({ address: account.address })}
@@ -276,6 +290,21 @@
               >
                 <LogInIcon size={14} aria-hidden="true" />
                 {m.sidebar_reconnect()}
+              </button>
+            </div>
+          {/if}
+          {#if appPassword[account.id]}
+            <div class="reauth" role="status">
+              <span>{m.sidebar_app_password_hint()}</span>
+              <button
+                class="btn reconnect"
+                type="button"
+                title={m.sidebar_app_password_required({ address: account.address })}
+                onclick={() =>
+                  void registry.execute("account.change-password", onAccount(account.id))}
+              >
+                <KeyRoundIcon size={14} aria-hidden="true" />
+                {m.sidebar_change_password()}
               </button>
             </div>
           {/if}

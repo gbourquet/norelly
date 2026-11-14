@@ -121,6 +121,7 @@ la section **Listes** (ou celle dont le menu est ouvert par un clic droit).
 | Choisir le dossier d'archives… | palette |
 | Synchroniser le compte sélectionné | palette |
 | Se reconnecter au compte sélectionné | palette |
+| Changer le mot de passe du compte sélectionné… | palette |
 | Supprimer le compte sélectionné… | palette |
 
 « palette » : pas de raccourci, ouvrez la palette (`Ctrl+K`) et tapez

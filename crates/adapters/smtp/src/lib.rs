@@ -24,15 +24,23 @@ mod stream;
 use std::net::{Ipv4Addr, SocketAddr};
 use std::time::Duration;
 
+use base64::Engine as _;
+use base64::engine::general_purpose::STANDARD as BASE64;
 use lettre::address::{Address, Envelope};
 use lettre::transport::smtp::authentication::{Credentials as LettreCredentials, Mechanism};
 use lettre::transport::smtp::client::AsyncSmtpConnection;
 use lettre::transport::smtp::extension::{ClientId, Extension, ServerInfo};
-use norelly_domain::auth::{AuthError, AuthMechanism, select_smtp_auth_mechanism};
+use lettre::transport::smtp::response::Severity;
+use norelly_domain::auth::{
+    AuthError, AuthMechanism, XOAuth2Authenticator, select_smtp_auth_mechanism,
+};
 use norelly_domain::capabilities::ServerCapabilities;
 use norelly_domain::connection::{ConnectionError, TimeoutStage, server_text};
+use norelly_domain::credentials::Credentials;
 use norelly_domain::endpoint::{Security, ServerEndpoint};
-use norelly_domain::ports::{ConnectRequest, MailSender, OutgoingMessage, SendError};
+use norelly_domain::ports::{
+    Authenticator, ConnectRequest, MailSender, OutgoingMessage, SendError,
+};
 use norelly_domain::security::{StartTlsDecision, decide_starttls};
 use norelly_tls::TlsClientFactory;
 use tokio::net::TcpStream;
@@ -99,6 +107,10 @@ impl Default for Timeouts {
 pub struct SmtpSender {
     tls: TlsClientFactory,
     timeouts: Timeouts,
+    /// Tests : adresse jointe à la place de l'hôte du point de connexion
+    /// (faux serveur local se présentant sous le nom d'un fournisseur).
+    #[cfg(test)]
+    test_address: Option<SocketAddr>,
 }
 
 /// Connexion SMTP authentifiée, capacités relues sur le canal final.
@@ -155,13 +167,80 @@ fn connection_cut(e: &lettre::transport::smtp::Error) -> bool {
     false
 }
 
+/// Refus du serveur pendant l'authentification (code SMTP) : refus des
+/// identifiants ; autre échec : erreur de connexion.
+fn auth_failure(e: &lettre::transport::smtp::Error) -> ConnectionError {
+    if e.is_permanent() || e.is_transient() {
+        AuthError::Rejected {
+            message: server_text(e.to_string().as_bytes()),
+        }
+        .into()
+    } else {
+        lettre_error(e)
+    }
+}
+
+/// Échange SASL XOAUTH2, mené ici plutôt que par `lettre` : à un jeton
+/// refusé, le serveur répond par un défi `334` portant l'erreur (JSON), et
+/// attend une réponse vide avant le refus final ; `lettre` n'y répond pas.
+/// Les réponses viennent de [`XOAuth2Authenticator`] ; un défi de trop est
+/// annulé par `*` (RFC 4954).
+async fn xoauth2(
+    conn: &mut AsyncSmtpConnection,
+    credentials: &Credentials,
+) -> Result<(), ConnectionError> {
+    let authenticator = XOAuth2Authenticator;
+    let initial = authenticator.respond(credentials, 0, b"")?;
+    let mut reply = conn
+        .command(format!(
+            "AUTH XOAUTH2 {}\r\n",
+            BASE64.encode(initial.expose())
+        ))
+        .await;
+    let mut step = 1;
+    loop {
+        let response = reply.map_err(|e| auth_failure(&e))?;
+        if !response.has_code(334) {
+            return if response.code().severity == Severity::PositiveCompletion {
+                Ok(())
+            } else {
+                Err(ConnectionError::Protocol(server_text(
+                    response.code().to_string().as_bytes(),
+                )))
+            };
+        }
+        match authenticator.respond(credentials, step, b"") {
+            Ok(answer) => {
+                reply = conn
+                    .command(format!("{}\r\n", BASE64.encode(answer.expose())))
+                    .await;
+            }
+            Err(e) => {
+                // Réponse au `*` sans importance : l'échange a échoué.
+                let _ = conn.command("*\r\n").await;
+                return Err(e.into());
+            }
+        }
+        step += 1;
+    }
+}
+
 impl SmtpSender {
     #[must_use]
     pub fn new(tls: TlsClientFactory) -> Self {
         Self {
             tls,
             timeouts: Timeouts::default(),
+            #[cfg(test)]
+            test_address: None,
         }
+    }
+
+    #[cfg(test)]
+    #[must_use]
+    pub(crate) fn connecting_to(mut self, address: SocketAddr) -> Self {
+        self.test_address = Some(address);
+        self
     }
 
     #[must_use]
@@ -185,8 +264,14 @@ impl SmtpSender {
         &self,
         endpoint: &ServerEndpoint,
     ) -> Result<(TcpStream, SocketAddr), ConnectionError> {
-        let address = (endpoint.host().as_str(), endpoint.port());
-        let tcp = tokio::time::timeout(self.timeouts.connect, TcpStream::connect(address))
+        let connect = async {
+            #[cfg(test)]
+            if let Some(address) = self.test_address {
+                return TcpStream::connect(address).await;
+            }
+            TcpStream::connect((endpoint.host().as_str(), endpoint.port())).await
+        };
+        let tcp = tokio::time::timeout(self.timeouts.connect, connect)
             .await
             .map_err(|_| ConnectionError::Timeout(TimeoutStage::Connect))?
             .map_err(|e| ConnectionError::Network(e.to_string()))?;
@@ -255,19 +340,17 @@ impl SmtpSender {
         };
         let credentials = &request.credentials;
         tracing::debug!(user = %credentials.username(), mechanism = ?mechanism, "authentification SMTP");
+        if mechanism == Mechanism::Xoauth2 {
+            self.timed(xoauth2(&mut session.conn, credentials), |e| e)
+                .await?;
+            return Ok(session);
+        }
         let lettre_credentials = LettreCredentials::new(
             credentials.username().as_str().to_owned(),
             credentials.secret().expose().to_owned(),
         );
         self.timed(session.conn.auth(&[mechanism], &lettre_credentials), |e| {
-            if e.is_permanent() || e.is_transient() {
-                AuthError::Rejected {
-                    message: server_text(e.to_string().as_bytes()),
-                }
-                .into()
-            } else {
-                lettre_error(&e)
-            }
+            auth_failure(&e)
         })
         .await?;
         Ok(session)

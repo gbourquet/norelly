@@ -70,6 +70,10 @@ pub struct ImapConnector {
     /// Capacités ignorées après authentification (voir
     /// [`ImapConnector::hiding_capabilities`]).
     hidden: Vec<String>,
+    /// Tests : adresse jointe à la place de l'hôte du point de connexion
+    /// (faux serveur local se présentant sous le nom d'un fournisseur).
+    #[cfg(test)]
+    test_address: Option<std::net::SocketAddr>,
 }
 
 impl ImapConnector {
@@ -79,7 +83,16 @@ impl ImapConnector {
             tls,
             timeouts: Timeouts::default(),
             hidden: Vec::new(),
+            #[cfg(test)]
+            test_address: None,
         }
+    }
+
+    #[cfg(test)]
+    #[must_use]
+    pub(crate) fn connecting_to(mut self, address: std::net::SocketAddr) -> Self {
+        self.test_address = Some(address);
+        self
     }
 
     /// Ignore des capacités annoncées par le serveur après
@@ -98,8 +111,14 @@ impl ImapConnector {
     }
 
     async fn tcp(&self, endpoint: &ServerEndpoint) -> Result<TcpStream, ConnectionError> {
-        let address = (endpoint.host().as_str(), endpoint.port());
-        tokio::time::timeout(self.timeouts.connect, TcpStream::connect(address))
+        let connect = async {
+            #[cfg(test)]
+            if let Some(address) = self.test_address {
+                return TcpStream::connect(address).await;
+            }
+            TcpStream::connect((endpoint.host().as_str(), endpoint.port())).await
+        };
+        tokio::time::timeout(self.timeouts.connect, connect)
             .await
             .map_err(|_| ConnectionError::Timeout(TimeoutStage::Connect))?
             .map_err(|e| ConnectionError::Network(e.to_string()))

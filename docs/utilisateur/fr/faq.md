@@ -70,6 +70,14 @@ mot de passe et, si possible, activez le chiffrement du disque de votre
 ordinateur (BitLocker sous Windows, chiffrement proposé à l'installation
 sous Linux).
 
+## Où trouver le journal de Norelly pour signaler un problème ?
+
+Dans ce même dossier de données : le fichier `norelly.log` (et
+`norelly.log.1`, le précédent). Il décrit ce que fait Norelly (connexions,
+synchronisation, erreurs) sans jamais contenir de mot de passe. Joignez-le
+à votre signalement : il aide à comprendre ce qui s'est passé. Il ne
+grossit pas indéfiniment : les deux fichiers restent petits.
+
 ## Norelly envoie-t-il des informations sur moi ?
 
 Non. Norelly ne contient aucun outil de statistiques ni de publicité. Il

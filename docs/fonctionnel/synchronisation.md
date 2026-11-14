@@ -11,7 +11,10 @@ redevient identique au serveur après toute interruption.
 ## Comportement attendu
 
 - Au démarrage de l'application (ou à l'ajout du compte), chaque compte
-  synchronise la liste de ses dossiers, puis chaque dossier.
+  synchronise la liste de ses dossiers, puis chaque dossier : la **boîte
+  de réception d'abord**, les dossiers virtuels qui répètent des messages
+  déjà présents ailleurs (« Tous les messages », « Suivis » chez Gmail) en
+  dernier.
 - Pendant une synchronisation complète (au démarrage, toutes les 10
   minutes, à la demande, après une reconnexion), une ligne
   « Synchronisation… » s'affiche sous le compte, avec le nombre de

@@ -86,7 +86,9 @@ n'est pas chiffrée (ADR-003) : on s'appuie sur le chiffrement du disque.
   applications installées) et ne protège rien : le code d'autorisation
   reste protégé par PKCE et `state`, et le jeton n'est présenté qu'aux
   serveurs de Gmail. Jeton de rafraîchissement dans le trousseau seulement ; jeton
-  d'accès en mémoire ; aucun jeton dans les journaux, les erreurs ni
+  d'accès en mémoire ; aucun jeton dans les journaux (fichier `norelly.log`
+  du dossier des données, borné, niveau INFO au plus, TRACE supprimé à la
+  compilation), les erreurs ni
   `Debug` ; le corps des réponses du fournisseur n'est jamais recopié, et
   un code d'erreur n'est repris que s'il est court et imprimable.
 - Point d'accès des jetons en HTTPS, vérificateur de la plateforme, sans

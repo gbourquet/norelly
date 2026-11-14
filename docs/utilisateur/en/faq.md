@@ -61,6 +61,14 @@ Norelly does not encrypt this folder: protect your session with a password
 and, if possible, turn on disk encryption on your computer (BitLocker on
 Windows, the encryption offered during installation on Linux).
 
+## Where can I find Norelly's log to report a problem?
+
+In the same data folder: the file `norelly.log` (and `norelly.log.1`, the
+previous one). It describes what Norelly does (connections, sync, errors)
+without ever containing a password. Attach it to your report: it helps
+understand what happened. It does not grow forever: both files stay
+small.
+
 ## Does Norelly send information about me?
 
 No. Norelly contains no statistics or advertising tools. It only connects

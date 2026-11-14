@@ -328,6 +328,14 @@ fn quick_opening(ca: &TestCa) -> SmtpSender {
     })
 }
 
+/// Silence d'un serveur lent, bien au-delà des délais d'ouverture de
+/// [`quick_opening`].
+const SLOW_SERVER: Duration = Duration::from_secs(9);
+/// Abandon attendu au délai d'ouverture : en deçà de [`SLOW_SERVER`] et du
+/// délai de transmission (10 s), avec la marge d'une machine lente (CI
+/// Windows, poignée de main TLS en mode debug).
+const ABANDONED_WITHIN: Duration = Duration::from_secs(6);
+
 /// Serveur muet après `AUTH` : abandon au délai d'ouverture, pas au délai
 /// de transmission.
 #[tokio::test]
@@ -336,7 +344,7 @@ async fn server_silent_after_auth_is_abandoned_at_the_opening_delay() -> TestRes
     let cert = ca.issue(&["localhost"])?;
     let script = ehlo_once(Script::new().send(smtp::greeting()), &["AUTH PLAIN"])
         .expect(format!("AUTH PLAIN {PLAIN_B64}"))
-        .wait(Duration::from_secs(4))
+        .wait(SLOW_SERVER)
         .send("235 2.7.0 Authentification reussie\r\n");
     let server = ScriptedServer::start_tls(script, cert.server_config()?).await?;
     let started = tokio::time::Instant::now();
@@ -356,8 +364,9 @@ async fn server_silent_after_auth_is_abandoned_at_the_opening_delay() -> TestRes
         ),
         "{result:?}"
     );
+    // Pas avant le plancher de l'authentification par mot de passe.
     assert!(
-        started.elapsed() < Duration::from_secs(3),
+        (Duration::from_millis(1500)..ABANDONED_WITHIN).contains(&started.elapsed()),
         "{:?}",
         started.elapsed()
     );
@@ -429,7 +438,7 @@ async fn trickled_banner_is_bounded_by_the_total_opening_delay() -> TestResult {
         "{result:?}"
     );
     assert!(
-        started.elapsed() < Duration::from_secs(3),
+        started.elapsed() < ABANDONED_WITHIN,
         "{:?}",
         started.elapsed()
     );
@@ -440,9 +449,7 @@ async fn trickled_banner_is_bounded_by_the_total_opening_delay() -> TestResult {
 #[tokio::test]
 async fn late_banner_is_abandoned_at_the_opening_delay() -> TestResult {
     let ca = TestCa::new()?;
-    let script = Script::new()
-        .wait(Duration::from_secs(4))
-        .send(smtp::greeting());
+    let script = Script::new().wait(SLOW_SERVER).send(smtp::greeting());
     let server = ScriptedServer::start(script, None).await?;
     let started = tokio::time::Instant::now();
     let result = quick_opening(&ca)
@@ -462,7 +469,7 @@ async fn late_banner_is_abandoned_at_the_opening_delay() -> TestResult {
         "{result:?}"
     );
     assert!(
-        started.elapsed() < Duration::from_secs(3),
+        started.elapsed() < ABANDONED_WITHIN,
         "{:?}",
         started.elapsed()
     );

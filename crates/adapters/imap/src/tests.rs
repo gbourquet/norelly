@@ -507,6 +507,14 @@ fn quick_opening(ca: &TestCa) -> ImapConnector {
     })
 }
 
+/// Silence d'un serveur lent, bien au-delà des délais d'ouverture de
+/// [`quick_opening`].
+const SLOW_SERVER: Duration = Duration::from_secs(9);
+/// Abandon attendu au délai d'ouverture : en deçà de [`SLOW_SERVER`] et du
+/// délai de réponse (10 s), avec la marge d'une machine lente (CI Windows,
+/// poignée de main TLS en mode debug).
+const ABANDONED_WITHIN: Duration = Duration::from_secs(6);
+
 /// Serveur muet après `AUTHENTICATE` : abandon au plancher de
 /// l'authentification par mot de passe, pas au délai de réponse.
 #[tokio::test]
@@ -516,7 +524,7 @@ async fn server_silent_after_authenticate_is_abandoned_at_the_opening_delay() ->
     let script = Script::new()
         .send(imap::greeting("IMAP4rev1 AUTH=PLAIN SASL-IR"))
         .expect(format!("AUTHENTICATE PLAIN {PLAIN_B64}"))
-        .wait(Duration::from_secs(4))
+        .wait(SLOW_SERVER)
         .send(imap::ok("authentifie"));
     let server = ScriptedServer::start_tls(after_auth(script), cert.server_config()?).await?;
     let started = tokio::time::Instant::now();
@@ -531,8 +539,9 @@ async fn server_silent_after_authenticate_is_abandoned_at_the_opening_delay() ->
         result.err(),
         Some(ConnectionError::Timeout(TimeoutStage::Response))
     );
+    // Pas avant le plancher de l'authentification par mot de passe.
     assert!(
-        started.elapsed() < Duration::from_secs(3),
+        (Duration::from_millis(1500)..ABANDONED_WITHIN).contains(&started.elapsed()),
         "{:?}",
         started.elapsed()
     );
@@ -550,7 +559,7 @@ async fn server_silent_on_capabilities_after_login_is_abandoned_early() -> TestR
         .expect(format!("AUTHENTICATE PLAIN {PLAIN_B64}"))
         .send(imap::ok("authentifie"))
         .expect("CAPABILITY")
-        .wait(Duration::from_secs(4))
+        .wait(SLOW_SERVER)
         .send(imap::capability("IMAP4rev1"));
     let server = ScriptedServer::start_tls(script, cert.server_config()?).await?;
     let started = tokio::time::Instant::now();
@@ -566,7 +575,7 @@ async fn server_silent_on_capabilities_after_login_is_abandoned_early() -> TestR
         Some(ConnectionError::Timeout(TimeoutStage::Response))
     );
     assert!(
-        started.elapsed() < Duration::from_secs(3),
+        started.elapsed() < ABANDONED_WITHIN,
         "{:?}",
         started.elapsed()
     );
@@ -637,7 +646,7 @@ async fn trickled_greeting_is_bounded_by_the_total_opening_delay() -> TestResult
         Some(ConnectionError::Timeout(TimeoutStage::Response))
     );
     assert!(
-        started.elapsed() < Duration::from_secs(3),
+        started.elapsed() < ABANDONED_WITHIN,
         "{:?}",
         started.elapsed()
     );
@@ -649,7 +658,7 @@ async fn trickled_greeting_is_bounded_by_the_total_opening_delay() -> TestResult
 async fn late_plaintext_greeting_is_abandoned_at_the_opening_delay() -> TestResult {
     let ca = TestCa::new()?;
     let script = Script::new()
-        .wait(Duration::from_secs(4))
+        .wait(SLOW_SERVER)
         .send(imap::greeting("IMAP4rev1 STARTTLS"));
     let server = ScriptedServer::start(script, None).await?;
     let started = tokio::time::Instant::now();
@@ -665,7 +674,7 @@ async fn late_plaintext_greeting_is_abandoned_at_the_opening_delay() -> TestResu
         Some(ConnectionError::Timeout(TimeoutStage::Response))
     );
     assert!(
-        started.elapsed() < Duration::from_secs(3),
+        started.elapsed() < ABANDONED_WITHIN,
         "{:?}",
         started.elapsed()
     );

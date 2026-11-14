@@ -812,7 +812,8 @@ where
                 .use_case()
                 .sync_mailbox(session, ext, id, &name)
                 .await?;
-            self.store.reapply(self.account).await?;
+            // Seul ce dossier vient d'être écrit.
+            self.store.reapply_mailbox(self.account, id).await?;
             // Avant l'événement : l'interface ne voit ni trou ni doublon.
             let purged = self
                 .store

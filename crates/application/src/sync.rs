@@ -372,7 +372,7 @@ impl<M: MailStore + PendingOpStore, B: BlobStore> SyncAccount<'_, M, B> {
                     // Les actions encore en attente gardent leur effet local
                     // dans ce que l'écran va relire (le lot vient d'écrire
                     // l'état du serveur).
-                    self.store.reapply(self.account).await?;
+                    self.store.reapply_mailbox(self.account, mailbox).await?;
                     on_headers();
                 }
             }

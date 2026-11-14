@@ -1162,6 +1162,14 @@ pub trait PendingOpStore: Send + Sync {
     /// (après une synchronisation qui a rapporté l'état du serveur).
     fn reapply(&self, account: AccountId) -> impl Future<Output = Result<(), StoreError>> + Send;
 
+    /// [`Self::reapply`] limité aux opérations sur des messages de
+    /// `mailbox` (après l'écriture d'un lot de ce dossier).
+    fn reapply_mailbox(
+        &self,
+        account: AccountId,
+        mailbox: MailboxId,
+    ) -> impl Future<Output = Result<(), StoreError>> + Send;
+
     /// Dossier de repli de « archiver » (compte sans `\Archive`).
     fn archive_fallback(
         &self,

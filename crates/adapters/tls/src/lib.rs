@@ -34,11 +34,18 @@ use tokio_rustls::client::TlsStream;
 
 pub use rustls;
 
-/// Délai par défaut de la poignée de main TLS. Une poignée de main saine
-/// dure moins d'une seconde, même sur une liaison lente : au-delà, elle est
-/// bloquée, et une nouvelle connexion aboutit plus sûrement qu'une longue
-/// attente (`ConnectionError::is_transient`).
-pub const DEFAULT_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
+/// Délai par défaut de la poignée de main TLS : synchronisation et envoi.
+/// Large, pour une liaison très dégradée (satellite, mobile avec pertes) où
+/// une poignée de main normale dépasse plusieurs secondes et où aucun
+/// nouvel essai n'est fait aussitôt.
+pub const DEFAULT_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Délai court de la poignée de main, pour un usage qui réessaie aussitôt
+/// sur une nouvelle connexion (test de connexion) : une poignée de main
+/// saine dure moins d'une seconde ; au-delà de quelques secondes, elle est
+/// en général bloquée, et une nouvelle connexion aboutit plus sûrement
+/// qu'une longue attente (`ConnectionError::is_transient`).
+pub const SHORT_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Empreinte SHA-256 d'un certificat DER.
 #[must_use]
@@ -220,6 +227,12 @@ impl TlsClientFactory {
     pub fn with_handshake_timeout(mut self, timeout: Duration) -> Self {
         self.handshake_timeout = timeout;
         self
+    }
+
+    /// Délai de la poignée de main.
+    #[must_use]
+    pub fn handshake_timeout(&self) -> Duration {
+        self.handshake_timeout
     }
 
     fn standard_verifier(&self) -> Result<Arc<dyn ServerCertVerifier>, TlsSetupError> {
@@ -537,6 +550,21 @@ mod tests {
             "{err:?}"
         );
         Ok(())
+    }
+
+    #[test]
+    fn default_handshake_delay_leaves_room_for_degraded_links() {
+        assert_eq!(
+            TlsClientFactory::platform().handshake_timeout(),
+            Duration::from_secs(30)
+        );
+        assert_eq!(SHORT_HANDSHAKE_TIMEOUT, Duration::from_secs(10));
+        assert_eq!(
+            TlsClientFactory::platform()
+                .with_handshake_timeout(SHORT_HANDSHAKE_TIMEOUT)
+                .handshake_timeout(),
+            SHORT_HANDSHAKE_TIMEOUT
+        );
     }
 
     #[test]

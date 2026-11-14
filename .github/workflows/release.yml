@@ -66,7 +66,14 @@ jobs:
         with:
           node-version: 24
       - run: pnpm -C app install --frozen-lockfile
-      - run: pnpm -C app tauri build --bundles deb,rpm -- --locked
+      - name: Build (identifiants client Google des secrets, ADR-013)
+        env:
+          NORELLY_GOOGLE_CLIENT_ID: ${{ secrets.NORELLY_GOOGLE_CLIENT_ID }}
+          NORELLY_GOOGLE_CLIENT_SECRET: ${{ secrets.NORELLY_GOOGLE_CLIENT_SECRET }}
+        run: |
+          test -n "$NORELLY_GOOGLE_CLIENT_ID" && test -n "$NORELLY_GOOGLE_CLIENT_SECRET" \
+            || { echo "secrets NORELLY_GOOGLE_CLIENT_ID/SECRET absents" >&2; exit 1; }
+          pnpm -C app tauri build --bundles deb,rpm -- --locked
       - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
         with:
           name: linux
@@ -96,10 +103,15 @@ jobs:
           node-version: 24
       - run: pnpm -C app install --frozen-lockfile
       - name: Build NSIS avec le module de mise à jour (sans la clé)
-        run: >
-          pnpm -C app tauri build --bundles nsis
-          --config src-tauri/tauri.updater.conf.json
-          --features updater -- --locked
+        env:
+          NORELLY_GOOGLE_CLIENT_ID: ${{ secrets.NORELLY_GOOGLE_CLIENT_ID }}
+          NORELLY_GOOGLE_CLIENT_SECRET: ${{ secrets.NORELLY_GOOGLE_CLIENT_SECRET }}
+        run: |
+          test -n "$NORELLY_GOOGLE_CLIENT_ID" && test -n "$NORELLY_GOOGLE_CLIENT_SECRET" \
+            || { echo "secrets NORELLY_GOOGLE_CLIENT_ID/SECRET absents" >&2; exit 1; }
+          pnpm -C app tauri build --bundles nsis \
+            --config src-tauri/tauri.updater.conf.json \
+            --features updater -- --locked
       - name: Signature minisign de l'installateur
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}

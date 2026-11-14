@@ -1501,3 +1501,140 @@ async fn utf8_refusal_text_is_received_as_a_refusal() -> TestResult {
     server.finish().await.result?;
     Ok(())
 }
+
+const TOKEN: &str = "tok-Abc.123";
+/// base64("user=alice@outlook.com\x01auth=Bearer tok-Abc.123\x01\x01").
+const XOAUTH2_B64: &str = "dXNlcj1hbGljZUBvdXRsb29rLmNvbQFhdXRoPUJlYXJlciB0b2stQWJjLjEyMwEB";
+/// Défi d'erreur de Microsoft (JSON en base64) après un jeton refusé.
+const XOAUTH2_ERROR_CHALLENGE: &str = "+ eyJzdGF0dXMiOiI0MDEiLCJzY2hlbWVzIjoiYmVhcmVyIiwic2NvcGUiOiJodHRwczovL291dGxvb2sub2ZmaWNlLmNvbS9JTUFQLkFjY2Vzc0FzVXNlci5BbGwifQ==\r\n";
+
+fn microsoft_imap_host() -> &'static str {
+    norelly_domain::oauth::OAuthProvider::Microsoft
+        .config()
+        .imap_host
+}
+
+/// Compte Microsoft : le point de connexion porte l'hôte IMAP du
+/// fournisseur (seule destination permise au jeton) ; la connexion TCP est
+/// redirigée vers le faux serveur local, dont le certificat est émis pour
+/// cet hôte.
+fn oauth_request(port: u16) -> ConnectRequest {
+    let host = Host::parse(microsoft_imap_host()).unwrap_or_else(|_| panic!("hote"));
+    ConnectRequest {
+        endpoint: ServerEndpoint::new(host, port, Security::Tls)
+            .unwrap_or_else(|_| panic!("point de connexion")),
+        credentials: Credentials::oauth2(
+            Username::parse("alice@outlook.com").unwrap_or_else(|_| panic!("utilisateur")),
+            Secret::new(TOKEN.to_owned()),
+            norelly_domain::oauth::OAuthProvider::Microsoft,
+        )
+        .unwrap_or_else(|_| panic!("identifiants")),
+        certificate_exceptions: vec![],
+        plaintext: PlaintextPolicy::deny_all(),
+    }
+}
+
+/// Connexion du compte Microsoft au faux serveur, puis `LOGOUT` si elle
+/// réussit ; renvoie le résultat et la transcription du serveur.
+async fn oauth_connect(
+    script: Script,
+) -> Result<(Result<(), ConnectionError>, Outcome), Box<dyn std::error::Error>> {
+    let f = fixture()?;
+    let cert = f.ca.issue(&[microsoft_imap_host()])?;
+    let server = ScriptedServer::start_tls(script, cert.server_config()?).await?;
+    let connector = f
+        .connector
+        .connecting_to(std::net::SocketAddr::from(([127, 0, 0, 1], server.port())));
+    let result = match connector.connect(&oauth_request(server.port())).await {
+        Ok(session) => session.logout().await,
+        Err(e) => Err(e),
+    };
+    Ok((result, server.finish().await))
+}
+
+#[tokio::test]
+async fn xoauth2_sends_the_initial_response_with_sasl_ir() -> TestResult {
+    let script = Script::new()
+        .send(imap::greeting("IMAP4rev1 AUTH=XOAUTH2 SASL-IR"))
+        .expect(format!("AUTHENTICATE XOAUTH2 {XOAUTH2_B64}"))
+        .send(imap::ok("authentifie"));
+    let (result, outcome) = oauth_connect(after_auth(script)).await?;
+    result?;
+    outcome.result?;
+    Ok(())
+}
+
+/// Sans SASL-IR, la réponse initiale part au premier défi (vide).
+#[tokio::test]
+async fn xoauth2_without_sasl_ir_answers_the_first_challenge() -> TestResult {
+    let script = Script::new()
+        .send(imap::greeting("IMAP4rev1 AUTH=XOAUTH2"))
+        .expect("AUTHENTICATE XOAUTH2")
+        .send("+ \r\n")
+        .expect_data_with(XOAUTH2_B64)
+        .send(imap::ok("authentifie"));
+    let (result, outcome) = oauth_connect(after_auth(script)).await?;
+    result?;
+    outcome.result?;
+    Ok(())
+}
+
+/// Jeton refusé : le serveur envoie l'erreur en JSON dans un défi ; le
+/// client répond par une ligne vide et obtient le refus, qui est un refus
+/// d'authentification (reconnexion nécessaire).
+#[tokio::test]
+async fn xoauth2_error_challenge_gets_an_empty_answer_then_is_a_rejection() -> TestResult {
+    let script = Script::new()
+        .send(imap::greeting("IMAP4rev1 AUTH=XOAUTH2 SASL-IR"))
+        .expect(format!("AUTHENTICATE XOAUTH2 {XOAUTH2_B64}"))
+        .send(XOAUTH2_ERROR_CHALLENGE)
+        .expect_data()
+        .send("{tag} NO [AUTHENTICATIONFAILED] AUTHENTICATE failed.\r\n")
+        .expect_eof();
+    let (result, outcome) = oauth_connect(script).await?;
+    match result {
+        Err(ConnectionError::Authentication(AuthError::Rejected { message })) => {
+            assert_eq!(message, "AUTHENTICATE failed.");
+        }
+        other => panic!("refus d'authentification attendu : {other:?}"),
+    }
+    assert!(
+        outcome
+            .transcript
+            .contains(format!("{XOAUTH2_B64}\r\n\r\n").as_bytes()),
+        "réponse vide au défi attendue :\n{}",
+        outcome.transcript.text()
+    );
+    outcome.result?;
+    Ok(())
+}
+
+/// Un compte OAuth sur un serveur qui ne propose pas XOAUTH2 n'envoie ni
+/// `AUTHENTICATE`, ni `LOGIN`, ni jeton.
+#[tokio::test]
+async fn oauth_account_sends_nothing_without_xoauth2() -> TestResult {
+    let script = Script::new()
+        .send(imap::greeting("IMAP4rev1 AUTH=PLAIN SASL-IR"))
+        .expect_eof();
+    let (result, outcome) = oauth_connect(script).await?;
+    assert!(
+        matches!(
+            result,
+            Err(ConnectionError::Authentication(
+                AuthError::NoSupportedMechanism { .. }
+            ))
+        ),
+        "{result:?}"
+    );
+    let text = outcome.transcript.text().to_uppercase();
+    for needle in [
+        "AUTHENTICATE",
+        "LOGIN",
+        &TOKEN.to_uppercase(),
+        &XOAUTH2_B64.to_uppercase(),
+    ] {
+        assert!(!text.contains(needle), "envoyé : {needle}\n{text}");
+    }
+    outcome.result?;
+    Ok(())
+}

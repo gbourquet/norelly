@@ -789,3 +789,30 @@ fn pending_authorization_is_not_reused_too_late_or_for_another_address() {
     assert!(short.usable_for(OAuthProvider::Microsoft, &alice, 1_009));
     assert!(!short.usable_for(OAuthProvider::Microsoft, &alice, 1_010));
 }
+
+#[test]
+fn provider_texts_are_bounded_and_filtered() {
+    // Un caractère de contrôle ou de mise en forme (U+202E retourne le
+    // texte affiché) devient une espace, comme pour les textes des serveurs.
+    assert_eq!(
+        parse_callback("/?error=refus%0D%0A%E2%80%AEtexte&state=xyz", "xyz")
+            .map(|c| c.expose().to_owned()),
+        Err(CallbackError::Denied("refus   texte".to_owned()))
+    );
+    let long = "x".repeat(10_000);
+    let Err(CallbackError::Denied(denied)) =
+        parse_callback(&format!("/?error={long}&state=xyz"), "xyz")
+    else {
+        panic!("refus attendu");
+    };
+    assert!(denied.chars().count() <= 201, "texte non borné");
+
+    assert_eq!(
+        classify_token_error(400, Some("invalid\u{1b}[31m_client")),
+        TokenError::Protocol("invalid [31m_client".to_owned())
+    );
+    let TokenError::Protocol(code) = classify_token_error(400, Some(&long)) else {
+        panic!("erreur de protocole attendue");
+    };
+    assert!(code.chars().count() <= 201, "texte non borné");
+}

@@ -340,7 +340,8 @@ pub enum CallbackError {
     /// `state` absent ou différent : retour forgé ou d'une autre demande.
     #[error("retour d'autorisation d'une autre demande")]
     StateMismatch,
-    /// L'utilisateur a refusé, ou le fournisseur signale une erreur.
+    /// L'utilisateur a refusé, ou le fournisseur signale une erreur (texte
+    /// du fournisseur borné et filtré comme celui d'un serveur).
     #[error("autorisation refusée : {0}")]
     Denied(String),
     #[error("retour d'autorisation sans code")]
@@ -374,7 +375,9 @@ pub fn parse_callback(target: &str, expected_state: &str) -> Result<Secret, Call
         _ => return Err(CallbackError::StateMismatch),
     }
     if let Some(error) = error {
-        return Err(CallbackError::Denied(error));
+        return Err(CallbackError::Denied(crate::connection::server_text(
+            error.as_bytes(),
+        )));
     }
     code.filter(|c| !c.is_empty())
         .map(Secret::new)
@@ -675,12 +678,13 @@ pub fn add_account_sign_in_error(provider: OAuthProvider, error: TokenError) -> 
 }
 
 /// Classe une réponse d'erreur du point d'accès des jetons (RFC 6749,
-/// section 5.2) : `invalid_grant` impose une reconnexion.
+/// section 5.2) : `invalid_grant` impose une reconnexion ; un autre code est
+/// gardé borné et filtré comme un texte de serveur.
 #[must_use]
 pub fn classify_token_error(status: u16, error_code: Option<&str>) -> TokenError {
     match error_code {
         Some("invalid_grant") => TokenError::ReauthRequired,
-        Some(code) => TokenError::Protocol(code.to_owned()),
+        Some(code) => TokenError::Protocol(crate::connection::server_text(code.as_bytes())),
         None => TokenError::Network(format!("HTTP {status}")),
     }
 }

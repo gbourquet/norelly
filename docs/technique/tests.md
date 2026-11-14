@@ -47,7 +47,12 @@ s'appelle toujours `tests/integration*.rs`.
 
 Contre Dovecot, les capacités sont masquées par le connecteur
 (`ImapConnector::hiding_capabilities`) pour tester les chemins sans MOVE ou
-sans UIDPLUS. Le trousseau réel (Secret Service) est testé dans le conteneur
+sans UIDPLUS. L'échange XOAUTH2 est joué contre les faux serveurs scriptés :
+un jeton ne part que vers l'hôte de son fournisseur, si bien que les tests
+gardent cet hôte dans le point de connexion (certificat de test émis pour
+lui) et redirigent seulement la connexion TCP vers le faux serveur local
+(`connecting_to`, compilé pour les tests seulement, dans `ImapConnector` et
+`SmtpSender`). Le trousseau réel (Secret Service) est testé dans le conteneur
 des e2e (`integration_secret_service.rs`), jamais sur le poste d'un
 développeur.
 

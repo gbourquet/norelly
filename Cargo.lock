@@ -3283,6 +3283,7 @@ dependencies = [
 name = "norelly-smtp"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
  "lettre",
  "norelly-domain",
  "norelly-test-support",
@@ -3290,6 +3291,7 @@ dependencies = [
  "tokio",
  "tokio-rustls",
  "tracing",
+ "zeroize",
 ]
 
 [[package]]

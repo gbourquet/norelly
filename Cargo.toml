@@ -67,6 +67,8 @@ ammonia = "4.2"
 getrandom = "0.3.4"
 sha2 = "0.10"
 lettre = { version = "0.11.23", default-features = false, features = ["smtp-transport", "tokio1"] }
+# Réponses SASL XOAUTH2 en SMTP (déjà présent par imap-codec).
+base64 = { version = "0.22.1", default-features = false, features = ["std"] }
 # Trousseau : keyring-core et magasins natifs choisis explicitement (le
 # crate `keyring` 4 impose zbus 5, dont des dépendances sont signalées non
 # maintenues : RUSTSEC-2026-0370 à 0372). Sous Linux, libdbus du système.

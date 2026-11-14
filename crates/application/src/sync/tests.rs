@@ -465,3 +465,12 @@ async fn folders_headers_and_progress_are_reported_as_they_arrive() -> Result<()
     assert_eq!(progress, vec![0, 1, 2, 3]);
     Ok(())
 }
+
+#[test]
+fn a_reset_mailbox_counts_as_changed() {
+    let report = MailboxReport {
+        reset: true,
+        ..MailboxReport::default()
+    };
+    assert!(report.changed());
+}

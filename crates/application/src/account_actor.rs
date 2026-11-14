@@ -349,6 +349,12 @@ impl LiveRefresh {
         true
     }
 
+    /// Vrai si un changement attend encore d'être signalé (fin du tour :
+    /// signalé une fois, sans attendre l'intervalle).
+    fn take_pending(&mut self) -> bool {
+        std::mem::take(&mut self.pending)
+    }
+
     /// Vrai si la progression `done` peut être signalée maintenant (le
     /// départ l'est toujours).
     fn progress_due(&mut self, done: usize) -> bool {
@@ -527,6 +533,9 @@ where
                 }
             })
             .await?;
+        if live.take_pending() {
+            self.emit(SyncEvent::FoldersChanged { account });
+        }
         // L'état du serveur vient d'être rapporté : les actions encore en
         // attente gardent leur effet local, et les copies provisoires des
         // déplacements déjà rejoués laissent la place aux vrais messages.

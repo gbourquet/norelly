@@ -338,7 +338,8 @@ async fn refreshes_during_the_sync_are_grouped() {
         .take_while(|e| !matches!(e, SyncEvent::FolderChanged { .. }))
         .filter(|e| refresh(e))
         .count();
-    assert_eq!(during, 1, "signaux pendant le tour : {seen:?}");
+    // Le premier lot, puis les lots regroupés signalés en fin de tour.
+    assert_eq!(during, 2, "signaux pendant le tour : {seen:?}");
     r.handle.shutdown().await;
 }
 

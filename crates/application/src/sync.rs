@@ -149,13 +149,15 @@ pub struct MailboxReport {
     pub removed: usize,
     pub flag_changes: usize,
     pub bodies: usize,
+    /// Copie locale réinitialisée (UIDVALIDITY changée), même vide.
+    pub reset: bool,
 }
 
 impl MailboxReport {
     /// Vrai si la boîte a changé localement.
     #[must_use]
     pub fn changed(&self) -> bool {
-        self.new + self.removed + self.flag_changes + self.bodies > 0
+        self.reset || self.new + self.removed + self.flag_changes + self.bodies > 0
     }
 }
 
@@ -322,6 +324,7 @@ impl<M: MailStore + PendingOpStore, B: BlobStore> SyncAccount<'_, M, B> {
             removed: outcome.removed.len(),
             flag_changes: outcome.flag_changes.len(),
             bodies: 0,
+            reset: outcome.reset,
         };
         tracing::debug!(
             mailbox = %name,

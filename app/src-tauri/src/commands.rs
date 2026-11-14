@@ -163,7 +163,24 @@ pub async fn add_account(
 #[specta::specta]
 pub fn oauth_provider_for(address: String) -> Option<OAuthProviderDto> {
     let address = EmailAddress::parse(&address).ok()?;
-    norelly_domain::oauth::OAuthProvider::for_address(&address).map(Into::into)
+    norelly_domain::oauth::OAuthProvider::offered_for(&address).map(Into::into)
+}
+
+/// Fournisseur d'un ajout par « Se connecter avec … », revalidé : il doit
+/// être celui que le domaine propose pour l'adresse (fournisseur de
+/// l'adresse, identifiants client compilés). Une demande de l'interface
+/// périmée (adresse changée pendant la saisie) est refusée.
+fn oauth_request_provider(
+    address: &EmailAddress,
+    provider: &str,
+) -> Result<norelly_domain::oauth::OAuthProvider, IpcError> {
+    let provider = norelly_domain::oauth::OAuthProvider::parse(provider)
+        .ok_or_else(|| IpcError::invalid(FieldDto::Address))?;
+    if norelly_domain::oauth::OAuthProvider::offered_for(address) == Some(provider) {
+        Ok(provider)
+    } else {
+        Err(IpcError::invalid(FieldDto::Address))
+    }
 }
 
 /// Vrai si l'essai suivant de « Se connecter avec … » pour cette adresse
@@ -199,8 +216,7 @@ pub async fn add_oauth_account(
             Some(DisplayName::parse(name).map_err(|_| IpcError::invalid(FieldDto::DisplayName))?)
         }
     };
-    let provider = norelly_domain::oauth::OAuthProvider::parse(&input.provider)
-        .ok_or_else(|| IpcError::invalid(FieldDto::Address))?;
+    let provider = oauth_request_provider(&address, &input.provider)?;
     if !state.secrets.usable().await {
         return Ok(AddAccountResultDto::SecretStorageConsentRequired {
             path: state.secrets_file().display().to_string(),
@@ -347,6 +363,33 @@ mod tests {
             security: SecurityDto::Tls,
             username: "alice".into(),
         }
+    }
+
+    #[test]
+    fn oauth_provider_must_be_the_one_offered_for_the_address() {
+        use norelly_domain::oauth::OAuthProvider;
+        let address = |raw: &str| EmailAddress::parse(raw).unwrap_or_else(|_| panic!("{raw}"));
+        assert_eq!(
+            oauth_request_provider(&address("alice@outlook.com"), "microsoft").ok(),
+            Some(OAuthProvider::Microsoft)
+        );
+        for (raw, provider) in [
+            ("alice@outlook.com", "google"),
+            ("alice@societe.fr", "google"),
+            ("alice@gmail.com", "microsoft"),
+            ("alice@outlook.com", "yahoo"),
+        ] {
+            assert!(
+                oauth_request_provider(&address(raw), provider).is_err(),
+                "{raw} {provider}"
+            );
+        }
+        // Google n'est accepté que si l'application a reçu ses identifiants
+        // client à la compilation.
+        assert_eq!(
+            oauth_request_provider(&address("alice@gmail.com"), "google").is_ok(),
+            OAuthProvider::Google.config().is_usable()
+        );
     }
 
     #[test]

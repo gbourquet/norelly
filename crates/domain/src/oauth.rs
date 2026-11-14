@@ -50,6 +50,25 @@ pub struct OAuthConfig {
     pub smtp_host: &'static str,
 }
 
+impl OAuthConfig {
+    /// Vrai si l'application a reçu, à la compilation, les identifiants
+    /// client du fournisseur : identifiant, et secret quand il en exige un.
+    #[must_use]
+    pub fn is_usable(&self) -> bool {
+        !self.client_id.is_empty() && self.client_secret.is_none_or(|s| !s.is_empty())
+    }
+}
+
+/// Fournisseur proposé pour « Se connecter avec … » : celui de l'adresse,
+/// s'il est utilisable (`usable`). Sinon, la connexion par mot de passe.
+#[must_use]
+pub fn offered_provider(
+    address: &EmailAddress,
+    usable: impl Fn(OAuthProvider) -> bool,
+) -> Option<OAuthProvider> {
+    OAuthProvider::for_address(address).filter(|p| usable(*p))
+}
+
 /// Sans le secret client : non confidentiel, il reste hors des journaux
 /// comme tout secret.
 impl fmt::Debug for OAuthConfig {
@@ -83,6 +102,11 @@ const MICROSOFT: OAuthConfig = OAuthConfig {
     smtp_host: "smtp-mail.outlook.com",
 };
 
+/// Identifiants du client Google « application de bureau », fournis à la
+/// compilation (`NORELLY_GOOGLE_CLIENT_ID`, `NORELLY_GOOGLE_CLIENT_SECRET`)
+/// et non écrits dans le dépôt (décision du mainteneur, ADR-013). Ils ne
+/// sont pas confidentiels : chaque copie de l'application les contient.
+/// Absents : « Se connecter avec Google » n'est pas proposé.
 const GOOGLE: OAuthConfig = OAuthConfig {
     authorize_url: "https://accounts.google.com/o/oauth2/v2/auth",
     token_url: "https://oauth2.googleapis.com/token",
@@ -161,6 +185,13 @@ impl OAuthProvider {
     #[must_use]
     pub fn serves(self, address: &EmailAddress) -> bool {
         Self::for_address(address) == Some(self)
+    }
+
+    /// Fournisseur proposé pour l'adresse avec la configuration compilée
+    /// (voir [`offered_provider`]).
+    #[must_use]
+    pub fn offered_for(address: &EmailAddress) -> Option<Self> {
+        offered_provider(address, |p| p.config().is_usable())
     }
 
     /// Fournisseur OAuth d'une adresse, d'après son domaine.

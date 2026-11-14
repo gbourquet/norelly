@@ -85,14 +85,64 @@ fn google_config_uses_google_endpoints_and_full_mail_scope() {
     assert_eq!(c.identity_scopes, &["openid", "email"]);
     assert_eq!(c.imap_host, "imap.gmail.com");
     assert_eq!(c.smtp_host, "smtp.gmail.com");
-    assert!(c.client_id.ends_with(".apps.googleusercontent.com"));
-    // Client « application de bureau » : secret non confidentiel exigé par
-    // le point d'accès des jetons de Google.
-    assert!(c.client_secret.is_some_and(|s| s.starts_with("GOCSPX-")));
+    // Client « application de bureau » : Google exige un secret client
+    // (non confidentiel), fourni à la compilation comme l'identifiant.
+    assert!(c.client_secret.is_some());
     assert_eq!(OAuthProvider::Microsoft.config().client_secret, None);
+    let configured = google_with("id.apps.googleusercontent.com", "GOCSPX-s3cr3t");
     assert!(
-        !format!("{c:?}").contains("GOCSPX"),
+        !format!("{configured:?}").contains("s3cr3t"),
         "secret client dans Debug"
+    );
+}
+
+/// Configuration Google complète, avec des valeurs de test.
+fn google_with(client_id: &'static str, client_secret: &'static str) -> OAuthConfig {
+    OAuthConfig {
+        client_id,
+        client_secret: Some(client_secret),
+        ..GOOGLE.clone()
+    }
+}
+
+#[test]
+fn a_provider_is_usable_only_with_its_client_identifiers() {
+    assert!(OAuthProvider::Microsoft.config().is_usable());
+    assert!(google_with("id.apps.googleusercontent.com", "GOCSPX-s").is_usable());
+    // Compilation sans les identifiants Google : fournisseur inutilisable.
+    assert!(!google_with("", "").is_usable());
+    assert!(!google_with("id.apps.googleusercontent.com", "").is_usable());
+    assert!(!google_with("", "GOCSPX-s").is_usable());
+}
+
+#[test]
+fn sign_in_is_offered_only_by_a_usable_provider() {
+    let gmail = address("alice@gmail.com");
+    assert_eq!(
+        offered_provider(&gmail, |_| true),
+        Some(OAuthProvider::Google)
+    );
+    // Google inutilisable : l'adresse Gmail garde le mot de passe.
+    assert_eq!(
+        offered_provider(&gmail, |p| p != OAuthProvider::Google),
+        None
+    );
+    assert_eq!(
+        offered_provider(&address("alice@outlook.com"), |p| p
+            != OAuthProvider::Google),
+        Some(OAuthProvider::Microsoft)
+    );
+    assert_eq!(
+        offered_provider(&address("alice@example.com"), |_| true),
+        None
+    );
+    // Sans le paramètre de test : décision de la configuration compilée.
+    assert_eq!(
+        OAuthProvider::offered_for(&gmail),
+        OAuthProvider::Google
+            .config()
+            .is_usable()
+            .then_some(OAuthProvider::Google)
     );
 }
 
@@ -149,10 +199,9 @@ fn microsoft_authorization_keeps_its_parameters() {
 
 #[test]
 fn google_token_forms_carry_the_client_secret() {
-    let c = OAuthProvider::Google.config();
-    let Some(client_secret) = c.client_secret else {
-        panic!("secret client Google absent");
-    };
+    let config = google_with("id.apps.googleusercontent.com", "GOCSPX-s3cr3t");
+    let c = &config;
+    let client_secret = "GOCSPX-s3cr3t";
     let form = code_exchange_form(c, &secret("4/0c"), "http://localhost:1/", &secret("v"));
     assert!(
         form.expose()

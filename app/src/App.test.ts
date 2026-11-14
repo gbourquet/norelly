@@ -759,6 +759,31 @@ describe("App", () => {
     await waitFor(() => expect(screen.queryByRole("searchbox")).toBeNull());
   });
 
+  it("recherche affichée relancée pendant la synchronisation (signal regroupé)", async () => {
+    vi.mocked(api.searchMessages).mockResolvedValue({ items: [], next: null });
+    accounts.push({
+      id: 7,
+      address: "alice@example.com",
+      display_name: "Alice",
+      imap: server,
+      smtp: server,
+      oauth_provider: null,
+    } as AccountDto);
+    render(App);
+    await screen.findAllByText("alice@example.com");
+    await fireEvent.click(screen.getByRole("button", { name: "Rechercher dans les messages" }));
+    const box = await screen.findByRole("searchbox", { name: "Rechercher dans les messages" });
+    await fireEvent.input(box, { target: { value: "facture" } });
+    await fireEvent.keyDown(box, { key: "Enter" });
+    await screen.findByText("Aucun message trouvé.");
+    const before = vi.mocked(api.searchMessages).mock.calls.length;
+    await waitFor(() => expect(syncListeners.length).toBeGreaterThan(0));
+    for (const l of syncListeners) l({ kind: "folders_changed", account: 7 });
+    await waitFor(() =>
+      expect(vi.mocked(api.searchMessages).mock.calls.length).toBeGreaterThan(before),
+    );
+  });
+
   it("demande au premier lancement s'il faut chercher les mises à jour (oui présélectionné)", async () => {
     storedSettings = { ...askedSettings, update_check: "not_asked" };
     render(App);
@@ -848,6 +873,31 @@ describe("App", () => {
     await waitFor(() => expect(api.reconnectAccount).toHaveBeenCalledWith(9));
     const menu = await openAccountMenu("carol@outlook.com");
     expect(within(menu).getByRole("menuitem", { name: "Se reconnecter" })).toBeEnabled();
+  });
+
+  it("synchronisation en cours : progression visible sous le compte, puis effacée", async () => {
+    accounts.push({
+      id: 8,
+      address: "dave@gmail.com",
+      display_name: "Dave",
+      imap: server,
+      smtp: server,
+      oauth_provider: null,
+    } as AccountDto);
+    render(App);
+    await screen.findAllByText("dave@gmail.com");
+    await waitFor(() => expect(syncListeners.length).toBeGreaterThan(0));
+    const send = (done: number) => {
+      for (const l of syncListeners) l({ kind: "sync_progress", account: 8, done, total: 61 });
+    };
+    send(12);
+    const status = await screen.findByRole("status", {
+      name: "Synchronisation de dave@gmail.com : 12 dossiers sur 61",
+    });
+    expect(status).toHaveTextContent("Synchronisation… 12 / 61");
+    send(61);
+    await waitFor(() => expect(screen.queryByText("Synchronisation… 61 / 61")).toBeNull());
+    expect(screen.queryByText(/Synchronisation…/)).toBeNull();
   });
 
   it("donne un nom accessible à chaque contrôle (passe d'accessibilité)", async () => {

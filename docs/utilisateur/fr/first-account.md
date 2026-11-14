@@ -32,7 +32,10 @@ adresse pour une association).
    adresse apparaît dans le panneau de gauche et vos messages arrivent.
    La première fois, le téléchargement de vos messages peut prendre
    quelques minutes si vous en avez beaucoup. Vous pouvez déjà lire les
-   premiers arrivés.
+   premiers arrivés : dossiers et messages apparaissent au fur et à
+   mesure. Tant que ce n'est pas fini, la ligne **Synchronisation…**
+   s'affiche sous votre adresse, avec le nombre de dossiers déjà traités
+   (par exemple « 12 / 61 »).
 
 Votre mot de passe est rangé dans le **trousseau** de votre système (le
 coffre-fort à mots de passe de Windows ou de Linux). Seule exception : sous

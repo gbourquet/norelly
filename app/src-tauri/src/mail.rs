@@ -152,6 +152,7 @@ impl MailServices {
             },
         );
         let mut events = handle.subscribe();
+        let relayed = account.id();
         let relay = app.clone();
         let settings_store = self.settings.clone();
         tauri::async_runtime::spawn(async move {
@@ -177,7 +178,11 @@ impl MailServices {
                             let _ = dto.emit(&relay);
                         }
                     }
-                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
+                        if let Some(dto) = lagged_event(relayed) {
+                            let _ = dto.emit(&relay);
+                        }
+                    }
                     Err(tokio::sync::broadcast::error::RecvError::Closed) => return,
                 }
             }
@@ -221,6 +226,7 @@ impl MailServices {
             composer: Arc::clone(&self.composer),
         });
         let mut events = handle.subscribe();
+        let relayed = account.id();
         let app = app.clone();
         tauri::async_runtime::spawn(async move {
             loop {
@@ -230,7 +236,11 @@ impl MailServices {
                             let _ = ComposeEventDto::OutboxChanged { account }.emit(&app);
                         }
                     }
-                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
+                        if let Some(dto) = outbox_lagged_event(relayed) {
+                            let _ = dto.emit(&app);
+                        }
+                    }
                     Err(tokio::sync::broadcast::error::RecvError::Closed) => return,
                 }
             }
@@ -524,6 +534,20 @@ impl RemoteBodyFetcher for MailServices {
     }
 }
 
+/// Événements perdus par un relais en retard : l'interface relit dossiers et
+/// liste du compte plutôt que de garder un état périmé.
+fn lagged_event(account: AccountId) -> Option<SyncEventDto> {
+    SyncEventDto::from_event(&SyncEvent::FoldersChanged { account })
+}
+
+/// Événements de la boîte d'envoi perdus par un relais en retard :
+/// l'interface la relit.
+fn outbox_lagged_event(account: AccountId) -> Option<ComposeEventDto> {
+    u32::try_from(account.get())
+        .ok()
+        .map(|account| ComposeEventDto::OutboxChanged { account })
+}
+
 impl SyncEventDto {
     fn from_event(event: &SyncEvent) -> Option<Self> {
         let id = |a: AccountId| u32::try_from(a.get()).ok();
@@ -537,6 +561,15 @@ impl SyncEventDto {
             },
             // Relayé à part, selon les paramètres de notification.
             SyncEvent::NewMail { .. } => return None,
+            SyncEvent::SyncProgress {
+                account,
+                done,
+                total,
+            } => Self::SyncProgress {
+                account: id(*account)?,
+                done: u32::try_from(*done).unwrap_or(u32::MAX),
+                total: u32::try_from(*total).unwrap_or(u32::MAX),
+            },
             SyncEvent::Online { account } => Self::Online {
                 account: id(*account)?,
             },
@@ -560,5 +593,48 @@ fn sync_failure_of(failure: &SyncFailure) -> (FailureKindDto, Option<String>) {
         SyncFailure::Connection(e) => connection_failure_of(e),
         SyncFailure::Store(_) => (FailureKindDto::Storage, None),
         SyncFailure::Reconcile { mailbox, .. } => (FailureKindDto::Protocol, Some(mailbox.clone())),
+    }
+}
+
+#[cfg(test)]
+mod sync_event_tests {
+    use super::*;
+
+    #[test]
+    fn lost_events_ask_the_interface_to_reread_the_account() {
+        let Ok(account) = AccountId::new(4) else {
+            panic!("identifiant valide refusé");
+        };
+        assert_eq!(
+            serde_json::to_value(lagged_event(account)).unwrap_or_default(),
+            serde_json::json!({ "kind": "folders_changed", "account": 4 })
+        );
+    }
+
+    #[test]
+    fn lost_outbox_events_ask_the_interface_to_reread_the_outbox() {
+        let Ok(account) = AccountId::new(5) else {
+            panic!("identifiant valide refusé");
+        };
+        assert_eq!(
+            serde_json::to_value(outbox_lagged_event(account)).unwrap_or_default(),
+            serde_json::json!({ "kind": "outbox_changed", "account": 5 })
+        );
+    }
+
+    #[test]
+    fn sync_progress_reaches_the_interface() {
+        let Ok(account) = AccountId::new(1) else {
+            panic!("identifiant valide refusé");
+        };
+        let dto = SyncEventDto::from_event(&SyncEvent::SyncProgress {
+            account,
+            done: 3,
+            total: 61,
+        });
+        assert_eq!(
+            serde_json::to_value(dto).unwrap_or_default(),
+            serde_json::json!({ "kind": "sync_progress", "account": 1, "done": 3, "total": 61 })
+        );
     }
 }

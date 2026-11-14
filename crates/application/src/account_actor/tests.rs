@@ -233,6 +233,116 @@ async fn provider_missing_from_this_version_stops_the_actor_without_retrying() {
     r.handle.shutdown().await;
 }
 
+/// Événements jusqu'à la fin du tour complet (progression `done == total`).
+async fn until_synced(r: &mut Running) -> Vec<SyncEvent> {
+    let mut seen = Vec::new();
+    loop {
+        let event = wait_for(&mut r.events, WAIT, |_| true).await;
+        let end = matches!(event, SyncEvent::SyncProgress { done, total, .. } if done == total);
+        seen.push(event);
+        if end {
+            return seen;
+        }
+    }
+}
+
+fn refresh(e: &SyncEvent) -> bool {
+    matches!(
+        e,
+        SyncEvent::FoldersChanged { .. } | SyncEvent::FolderChanged { .. }
+    )
+}
+
+#[tokio::test]
+async fn first_sync_reports_progress_and_shows_folders_and_messages_before_the_end() {
+    let imap = FakeImap::new();
+    imap.create_mailbox("Archives", &[]);
+    imap.append("INBOX", b"Subject: a\r\n\r\n", Flags::default(), 1);
+    imap.append("Archives", b"Subject: b\r\n\r\n", Flags::default(), 2);
+    let mut r = start(&imap);
+    let seen = until_synced(&mut r).await;
+    let position = |pred: &dyn Fn(&SyncEvent) -> bool| seen.iter().position(pred);
+    let started = position(&|e| matches!(e, SyncEvent::SyncProgress { done: 0, .. }));
+    let Some(started) = started else {
+        panic!("progression non annoncée : {seen:?}");
+    };
+    assert!(
+        seen[..started]
+            .iter()
+            .any(|e| matches!(e, SyncEvent::FoldersChanged { .. })),
+        "dossiers affichés dès le début : {seen:?}"
+    );
+    let last = seen.len() - 1;
+    let ends_of_mailboxes = position(&|e| matches!(e, SyncEvent::FolderChanged { .. }));
+    assert!(
+        seen[started + 1..last].iter().any(refresh),
+        "messages affichés avant la fin : {seen:?}"
+    );
+    // La fin n'est annoncée qu'après la mise à jour finale des dossiers.
+    assert!(
+        ends_of_mailboxes.is_some_and(|c| c < last),
+        "fin annoncée en dernier : {seen:?}"
+    );
+    assert_eq!(
+        seen.last().map(|e| matches!(
+            e,
+            SyncEvent::SyncProgress {
+                done: 2,
+                total: 2,
+                ..
+            }
+        )),
+        Some(true)
+    );
+    // Rien ne suit la fin annoncée : l'écran est déjà à jour.
+    let after = tokio::time::timeout(Duration::from_millis(300), async {
+        loop {
+            match r.events.recv().await {
+                Ok(e) if refresh(&e) => return e,
+                Ok(_) | Err(broadcast::error::RecvError::Lagged(_)) => {}
+                Err(e) => panic!("canal fermé : {e}"),
+            }
+        }
+    })
+    .await;
+    assert!(
+        after.is_err(),
+        "mise à jour après la fin annoncée : {after:?}"
+    );
+    r.handle.shutdown().await;
+}
+
+// Horloge en pause : tout le tour se passe dans le même instant.
+#[tokio::test(start_paused = true)]
+async fn refreshes_during_the_sync_are_grouped() {
+    let imap = FakeImap::new();
+    // Trois lots d'en-têtes (500 par lot) dans la même boîte.
+    for n in 1..=1_200_i64 {
+        imap.append(
+            "INBOX",
+            format!("Subject: m{n}\r\n\r\n").as_bytes(),
+            Flags::default(),
+            n,
+        );
+    }
+    let mut r = start(&imap);
+    let seen = until_synced(&mut r).await;
+    let started = seen
+        .iter()
+        .position(|e| matches!(e, SyncEvent::SyncProgress { done: 0, .. }))
+        .unwrap_or_else(|| panic!("progression non annoncée : {seen:?}"));
+    // Avant la rafale de fin (une mise à jour par boîte modifiée) : un seul
+    // signal dans le même instant, pas un par lot.
+    let during = seen[started..]
+        .iter()
+        .take_while(|e| !matches!(e, SyncEvent::FolderChanged { .. }))
+        .filter(|e| refresh(e))
+        .count();
+    // Le premier lot, puis les lots regroupés signalés en fin de tour.
+    assert_eq!(during, 2, "signaux pendant le tour : {seen:?}");
+    r.handle.shutdown().await;
+}
+
 #[tokio::test]
 async fn sync_now_and_shutdown() {
     let imap = FakeImap::new();
@@ -759,5 +869,42 @@ async fn deleted_folder_disappears_locally() {
     })
     .await;
     assert_eq!(local_total(&r, "Projets").await, None);
+    r.handle.shutdown().await;
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_change_is_signalled_at_most_once_per_interval_then_caught_up() {
+    let mut live = LiveRefresh::default();
+    assert!(!live.flush_due(), "rien à signaler");
+    live.note_change();
+    assert!(live.flush_due(), "premier changement signalé");
+    live.note_change();
+    assert!(!live.flush_due(), "regroupé : intervalle pas écoulé");
+    assert!(!live.flush_due(), "toujours en attente");
+    tokio::time::advance(LIVE_REFRESH_INTERVAL).await;
+    assert!(live.flush_due(), "rattrapé à l'étape suivante");
+    assert!(!live.flush_due(), "plus rien en attente");
+}
+
+#[tokio::test(start_paused = true)]
+async fn many_small_folders_do_not_burst_the_interface() {
+    let imap = FakeImap::new();
+    for n in 1..=50_i64 {
+        let name = format!("Dossier {n}");
+        imap.create_mailbox(&name, &[]);
+        imap.append(&name, b"Subject: x\r\n\r\n", Flags::default(), n);
+    }
+    let mut r = start(&imap);
+    let seen = until_synced(&mut r).await;
+    let started = seen
+        .iter()
+        .position(|e| matches!(e, SyncEvent::SyncProgress { done: 0, .. }))
+        .unwrap_or_else(|| panic!("progression non annoncée : {seen:?}"));
+    let during = seen[started..]
+        .iter()
+        .take_while(|e| !matches!(e, SyncEvent::FolderChanged { .. }))
+        .filter(|e| refresh(e))
+        .count();
+    assert!(during <= 2, "{during} signaux pendant le tour : {seen:?}");
     r.handle.shutdown().await;
 }

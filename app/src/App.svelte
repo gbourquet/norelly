@@ -95,7 +95,9 @@
         const off = await api.onSyncEvent((event) => {
           void mail.onSyncEvent(event);
           // Résultats affichés tenus à jour (index local modifié).
-          if (event.kind === "folder_changed") void search.refresh();
+          if (event.kind === "folder_changed" || event.kind === "folders_changed") {
+            void search.refresh();
+          }
           // Nouveaux messages : notification si la fenêtre n'a pas le
           // focus (Rust a déjà appliqué les paramètres).
           if (event.kind === "new_mail" && !document.hasFocus()) {
@@ -350,6 +352,7 @@
       accounts={app.accounts}
       folders={mail.folders}
       offline={mail.offline}
+      syncing={mail.syncing}
       reauth={mail.reauth}
       scope={mail.scope}
       selectedId={app.selectedAccountId}

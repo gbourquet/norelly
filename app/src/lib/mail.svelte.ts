@@ -85,6 +85,9 @@ export class MailState {
   folders = $state<Record<number, FolderDto[]>>({});
   /** Comptes hors ligne (raison). */
   offline = $state<Record<number, string>>({});
+  /** Comptes en cours de synchronisation complète : dossiers traités sur
+   *  le total. */
+  syncing = $state<Record<number, { done: number; total: number }>>({});
   /** Comptes OAuth dont le jeton ne peut plus être rafraîchi. */
   reauth = $state<Record<number, true>>({});
   scope = $state<ScopeDto>(UNIFIED_INBOX);
@@ -124,9 +127,17 @@ export class MailState {
     this.#markSeenDelay = markSeenDelay;
   }
 
+  /** Dernière relecture demandée, par compte : une réponse plus ancienne,
+   *  arrivée après, est ignorée (relectures rapprochées pendant la
+   *  synchronisation). */
+  #folderReads: Record<number, number> = {};
+
   async loadFolders(account: number): Promise<void> {
+    const read = (this.#folderReads[account] ?? 0) + 1;
+    this.#folderReads[account] = read;
     try {
-      this.folders[account] = await this.#api.listFolders(account);
+      const folders = await this.#api.listFolders(account);
+      if (this.#folderReads[account] === read) this.folders[account] = folders;
     } catch (e) {
       this.error = errorText(e);
     }
@@ -135,6 +146,8 @@ export class MailState {
   forgetAccount(account: number): void {
     this.folders = without(this.folders, account);
     this.offline = without(this.offline, account);
+    this.syncing = without(this.syncing, account);
+    this.#folderReads = without(this.#folderReads, account);
     this.conversations = this.conversations.filter((c) => c.account !== account);
     if (this.opened?.account === account) this.back();
   }
@@ -452,7 +465,15 @@ export class MailState {
         this.offline = without(this.offline, event.account);
         this.reauth = without(this.reauth, event.account);
         break;
+      case "sync_progress":
+        if (event.done < event.total) {
+          this.syncing[event.account] = { done: event.done, total: event.total };
+        } else {
+          this.syncing = without(this.syncing, event.account);
+        }
+        break;
       case "offline":
+        this.syncing = without(this.syncing, event.account);
         this.offline[event.account] = withDetail(failureText(event.failure), event.detail);
         if (event.failure === "reauth_required") this.reauth[event.account] = true;
         break;

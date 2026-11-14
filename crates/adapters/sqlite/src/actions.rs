@@ -50,19 +50,17 @@ fn apply_effect(c: &Connection, effect: LocalEffect) -> Result<(), StoreError> {
             value,
         } => {
             let bit = flag_bit(flag);
-            c.execute(
-                "UPDATE messages SET flags = (flags & ~?2) | ?3 WHERE id = ?1",
-                params![message.get(), bit, if value { bit } else { 0 }],
-            )
-            .map_err(store_error)?;
+            c.prepare_cached("UPDATE messages SET flags = (flags & ~?2) | ?3 WHERE id = ?1")
+                .and_then(|mut stmt| {
+                    stmt.execute(params![message.get(), bit, if value { bit } else { 0 }])
+                })
+                .map_err(store_error)?;
         }
         LocalEffect::Hide { message } | LocalEffect::Show { message } => {
             let hidden = matches!(effect, LocalEffect::Hide { .. });
-            c.execute(
-                "UPDATE messages SET hidden = ?2 WHERE id = ?1",
-                params![message.get(), hidden],
-            )
-            .map_err(store_error)?;
+            c.prepare_cached("UPDATE messages SET hidden = ?2 WHERE id = ?1")
+                .and_then(|mut stmt| stmt.execute(params![message.get(), hidden]))
+                .map_err(store_error)?;
         }
     }
     Ok(())
@@ -308,6 +306,27 @@ fn pending_ops(
         .map_err(store_error)?;
     let rows: Vec<OpRow> = stmt
         .query_map([account.get()], read_op_row)
+        .map_err(store_error)?
+        .collect::<Result<_, _>>()
+        .map_err(store_error)?;
+    rows.into_iter().map(op_of).collect()
+}
+
+/// Opérations en attente du compte sur des messages de `mailbox`.
+fn pending_ops_in(
+    c: &Connection,
+    account: AccountId,
+    mailbox: MailboxId,
+) -> Result<Vec<(PendingOpId, PendingOp)>, StoreError> {
+    // sql-const : seule la constante OP_COLUMNS est interpolée.
+    let mut stmt = c
+        .prepare_cached(&format!(
+            "SELECT {OP_COLUMNS} FROM pending_ops WHERE account_id = ?1 \
+             AND message_id IN (SELECT id FROM messages WHERE mailbox_id = ?2) ORDER BY id"
+        ))
+        .map_err(store_error)?;
+    let rows: Vec<OpRow> = stmt
+        .query_map([account.get(), mailbox.get()], read_op_row)
         .map_err(store_error)?
         .collect::<Result<_, _>>()
         .map_err(store_error)?;
@@ -608,6 +627,24 @@ impl PendingOpStore for SqliteMailStore {
                     .transaction_with_behavior(TransactionBehavior::Immediate)
                     .map_err(store_error)?;
                 for (_, op) in pending_ops(&tx, account)? {
+                    apply_effect(&tx, local_effect(&op))?;
+                }
+                tx.commit().map_err(store_error)
+            })
+            .await
+    }
+
+    async fn reapply_mailbox(
+        &self,
+        account: AccountId,
+        mailbox: MailboxId,
+    ) -> Result<(), StoreError> {
+        self.db()
+            .run(move |c| {
+                let tx = c
+                    .transaction_with_behavior(TransactionBehavior::Immediate)
+                    .map_err(store_error)?;
+                for (_, op) in pending_ops_in(&tx, account, mailbox)? {
                     apply_effect(&tx, local_effect(&op))?;
                 }
                 tx.commit().map_err(store_error)

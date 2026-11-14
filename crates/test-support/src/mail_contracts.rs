@@ -1221,6 +1221,29 @@ impl PendingOpStore for InMemoryMailStore {
         Ok(())
     }
 
+    async fn reapply_mailbox(
+        &self,
+        account: AccountId,
+        mailbox: MailboxId,
+    ) -> Result<(), StoreError> {
+        let mut s = lock(&self.state);
+        let in_mailbox: Vec<MessageId> = s
+            .messages
+            .get(&mailbox)
+            .map(|m| m.values().map(|msg| msg.id).collect())
+            .unwrap_or_default();
+        let effects: Vec<LocalEffect> = s
+            .ops
+            .values()
+            .filter(|op| op.account == account && in_mailbox.contains(&op.message))
+            .map(local_effect)
+            .collect();
+        for effect in effects {
+            s.apply(effect);
+        }
+        Ok(())
+    }
+
     async fn archive_fallback(&self, account: AccountId) -> Result<Option<MailboxId>, StoreError> {
         Ok(lock(&self.state).archive.get(&account).copied())
     }

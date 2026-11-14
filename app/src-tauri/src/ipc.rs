@@ -938,6 +938,13 @@ pub enum SyncEventDto {
         from: Option<CorrespondentDto>,
         subject: Option<String>,
     },
+    /// Synchronisation complète en cours : `done` dossiers traités sur
+    /// `total` (terminée quand `done == total`).
+    SyncProgress {
+        account: u32,
+        done: u32,
+        total: u32,
+    },
     /// Connexion perdue : catégorie et détail technique brut éventuel.
     Offline {
         account: u32,

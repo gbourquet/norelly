@@ -550,5 +550,24 @@ impl Backoff {
 /// renouvelle avant 29 minutes, avec de la marge.
 pub const IDLE_RENEWAL_SECS: u64 = 25 * 60;
 
+/// Ordre de synchronisation des boîtes (indices dans `roles`, dans l'ordre
+/// du serveur) : la boîte de réception d'abord, attendue en premier par
+/// l'utilisateur ; les dossiers virtuels (`\All`, `\Flagged`), qui
+/// répètent des messages déjà présents ailleurs, en dernier ; les autres
+/// dans l'ordre du serveur.
+#[must_use]
+pub fn sync_order(roles: &[crate::mailbox::MailboxRole]) -> Vec<usize> {
+    use crate::mailbox::MailboxRole;
+    let rank = |role: MailboxRole| match role {
+        MailboxRole::Inbox => 0,
+        MailboxRole::All | MailboxRole::Flagged => 2,
+        _ => 1,
+    };
+    let mut order: Vec<usize> = (0..roles.len()).collect();
+    // Tri stable : l'ordre du serveur est gardé dans chaque rang.
+    order.sort_by_key(|&i| roles.get(i).copied().map_or(1, rank));
+    order
+}
+
 #[cfg(test)]
 mod tests;

@@ -15,6 +15,7 @@
   import MailIcon from "@lucide/svelte/icons/mail";
   import PlusIcon from "@lucide/svelte/icons/plus";
   import WifiOffIcon from "@lucide/svelte/icons/wifi-off";
+  import LoaderIcon from "@lucide/svelte/icons/loader-circle";
   import SquarePenIcon from "@lucide/svelte/icons/square-pen";
   import SettingsIcon from "@lucide/svelte/icons/settings";
   import RefreshIcon from "@lucide/svelte/icons/refresh-cw";
@@ -38,6 +39,8 @@
     accounts: AccountDto[];
     folders: Record<number, FolderDto[]>;
     offline: Record<number, string>;
+    /** Comptes en cours de synchronisation : dossiers traités sur le total. */
+    syncing?: Record<number, { done: number; total: number }>;
     /** Comptes OAuth à reconnecter (bouton visible sur la ligne). */
     reauth?: Record<number, true>;
     scope: ScopeDto;
@@ -64,6 +67,7 @@
     accounts,
     folders,
     offline,
+    syncing = {},
     reauth = {},
     scope,
     selectedId,
@@ -236,6 +240,31 @@
               {/snippet}
             </CommandMenu>
           </div>
+          {#if syncing[account.id]}
+            {@const progress = syncing[account.id]}
+            <div
+              class="syncing"
+              role="status"
+              aria-label={m.sidebar_syncing_label({
+                address: account.address,
+                done: progress?.done ?? 0,
+                total: progress?.total ?? 0,
+              })}
+              title={m.sidebar_syncing_label({
+                address: account.address,
+                done: progress?.done ?? 0,
+                total: progress?.total ?? 0,
+              })}
+            >
+              <LoaderIcon size={14} class="spin" aria-hidden="true" />
+              <span
+                >{m.sidebar_syncing({
+                  done: progress?.done ?? 0,
+                  total: progress?.total ?? 0,
+                })}</span
+              >
+            </div>
+          {/if}
           {#if reauth[account.id]}
             <div class="reauth" role="status">
               <span>{m.sidebar_reauth_hint()}</span>
@@ -438,6 +467,32 @@
   .address {
     color: var(--color-text-muted);
     font-size: var(--font-size-sm);
+  }
+
+  .syncing {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    margin: 0 var(--space-2) var(--space-1);
+    padding: 0 var(--space-2);
+    color: var(--color-text-muted);
+    font-size: var(--font-size-sm);
+  }
+
+  .syncing :global(.spin) {
+    animation: sidebar-spin 1s linear infinite;
+  }
+
+  @keyframes sidebar-spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .syncing :global(.spin) {
+      animation: none;
+    }
   }
 
   .reauth {

@@ -273,6 +273,36 @@ where
         )
         .await?;
     assert!(!flags_of(store, inbox, m1).await?.seen);
+    // Limité à un dossier : seules les actions sur ses messages.
+    store.reapply_mailbox(account, projets).await?;
+    assert!(
+        !flags_of(store, inbox, m1).await?.seen,
+        "message d'un autre dossier non touché"
+    );
+    store.reapply_mailbox(account, inbox).await?;
+    assert!(
+        flags_of(store, inbox, m1).await?.seen,
+        "effet réappliqué dans le dossier"
+    );
+    store
+        .apply_sync(
+            inbox,
+            &SyncBatch {
+                flag_changes: vec![FlagUpdate {
+                    uid: uid(1),
+                    flags: Flags::default(),
+                    modseq: None,
+                }],
+                state: state(7, 51, 3),
+                ..SyncBatch::default()
+            },
+        )
+        .await?;
+    store.reapply_mailbox(other, inbox).await?;
+    assert!(
+        !flags_of(store, inbox, m1).await?.seen,
+        "actions d'un autre compte non touchées"
+    );
     store.reapply(account).await?;
     assert!(flags_of(store, inbox, m1).await?.seen, "effet réappliqué");
     assert_eq!(visible_ids(store, inbox).await?, [m1], "toujours masqué");

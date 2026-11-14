@@ -11,7 +11,23 @@ redevient identique au serveur après toute interruption.
 ## Comportement attendu
 
 - Au démarrage de l'application (ou à l'ajout du compte), chaque compte
-  synchronise la liste de ses dossiers, puis chaque dossier.
+  synchronise la liste de ses dossiers, puis chaque dossier : la **boîte
+  de réception d'abord**, les dossiers virtuels qui répètent des messages
+  déjà présents ailleurs (« Tous les messages », « Suivis » chez Gmail) en
+  dernier.
+- Pendant une synchronisation complète (au démarrage, toutes les 10
+  minutes, à la demande, après une reconnexion), une ligne
+  « Synchronisation… » s'affiche sous le compte, avec le nombre de
+  dossiers traités sur le total ; elle disparaît à la fin, ou si la
+  connexion est perdue.
+- Ce qui arrive s'affiche **au fil de l'eau** : la liste des dossiers dès
+  qu'elle est connue, les messages d'un dossier dès que leurs en-têtes
+  sont reçus, sans attendre leur contenu ni les autres dossiers. Le
+  premier tour d'un gros compte peut être long ; on voit qu'il avance.
+  L'affichage est rafraîchi au plus une fois par seconde, pour rester
+  fluide même avec des milliers de dossiers.
+- Une action faite hors ligne et pas encore envoyée garde son effet à
+  l'écran pendant la synchronisation (un message marqué lu le reste).
 - Les nouveaux messages de la **boîte de réception** arrivent en quelques
   secondes, sans action de l'utilisateur : le serveur les signale dès leur
   arrivée.
@@ -62,6 +78,7 @@ redevient identique au serveur après toute interruption.
 
 | Situation | Texte |
 |---|---|
+| Synchronisation en cours | Synchronisation… {done} / {total} (au survol et pour les lecteurs d'écran : Synchronisation de {address} : {done} dossiers sur {total}) |
 | Compte injoignable | Hors ligne |
 | Survol de l'icône | Hors ligne : {reason} |
 | Raison | serveur injoignable, le serveur ne répond pas, identifiants refusés, connexion refusée par sécurité, réponse du serveur non conforme… |

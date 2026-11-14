@@ -1510,6 +1510,11 @@ export type SyncEventDto_Deserialize = { kind: "folder_changed"; account: number
  *  l'interface, ADR-011).
  */
 { kind: "new_mail"; account: number; count: number; from?: CorrespondentDto_Deserialize | null; subject?: string | null } | 
+/**
+ *  Synchronisation complète en cours : `done` dossiers traités sur
+ *  `total` (terminée quand `done == total`).
+ */
+{ kind: "sync_progress"; account: number; done: number; total: number } | 
 /**  Connexion perdue : catégorie et détail technique brut éventuel. */
 { kind: "offline"; account: number; failure: FailureKindDto; detail?: string | null };
 
@@ -1521,6 +1526,11 @@ export type SyncEventDto_Serialize = { kind: "folder_changed"; account: number; 
  *  l'interface, ADR-011).
  */
 { kind: "new_mail"; account: number; count: number; from: CorrespondentDto_Serialize | null; subject: string | null } | 
+/**
+ *  Synchronisation complète en cours : `done` dossiers traités sur
+ *  `total` (terminée quand `done == total`).
+ */
+{ kind: "sync_progress"; account: number; done: number; total: number } | 
 /**  Connexion perdue : catégorie et détail technique brut éventuel. */
 { kind: "offline"; account: number; failure: FailureKindDto; detail: string | null };
 

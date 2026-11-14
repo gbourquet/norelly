@@ -73,6 +73,8 @@ pub enum SyncEvent {
     },
     /// Connexion établie (après une coupure éventuelle).
     Online { account: AccountId },
+    /// Synchronisation complète en cours : `done` dossiers traités sur
+    /// `total` (terminée quand `done == total`).
     SyncProgress {
         account: AccountId,
         done: usize,

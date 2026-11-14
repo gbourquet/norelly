@@ -537,7 +537,15 @@ impl SyncEventDto {
             },
             // Relayé à part, selon les paramètres de notification.
             SyncEvent::NewMail { .. } => return None,
-            SyncEvent::SyncProgress { .. } => return None,
+            SyncEvent::SyncProgress {
+                account,
+                done,
+                total,
+            } => Self::SyncProgress {
+                account: id(*account)?,
+                done: u32::try_from(*done).unwrap_or(u32::MAX),
+                total: u32::try_from(*total).unwrap_or(u32::MAX),
+            },
             SyncEvent::Online { account } => Self::Online {
                 account: id(*account)?,
             },
@@ -561,5 +569,26 @@ fn sync_failure_of(failure: &SyncFailure) -> (FailureKindDto, Option<String>) {
         SyncFailure::Connection(e) => connection_failure_of(e),
         SyncFailure::Store(_) => (FailureKindDto::Storage, None),
         SyncFailure::Reconcile { mailbox, .. } => (FailureKindDto::Protocol, Some(mailbox.clone())),
+    }
+}
+
+#[cfg(test)]
+mod sync_event_tests {
+    use super::*;
+
+    #[test]
+    fn sync_progress_reaches_the_interface() {
+        let Ok(account) = AccountId::new(1) else {
+            panic!("identifiant valide refusé");
+        };
+        let dto = SyncEventDto::from_event(&SyncEvent::SyncProgress {
+            account,
+            done: 3,
+            total: 61,
+        });
+        assert_eq!(
+            serde_json::to_value(dto).unwrap_or_default(),
+            serde_json::json!({ "kind": "sync_progress", "account": 1, "done": 3, "total": 61 })
+        );
     }
 }

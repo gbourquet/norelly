@@ -11,8 +11,11 @@ use norelly_domain::account::{
     Account, AccountDraft, AccountError, AccountId, DisplayName, ServerSettings,
 };
 use norelly_domain::address::EmailAddress;
+use norelly_domain::connection::ConnectionError;
 use norelly_domain::credentials::{Credentials, Secret};
-use norelly_domain::discovery::{AuthenticationAdvice, Discovery, authentication_advice};
+use norelly_domain::discovery::{
+    AuthenticationAdvice, Discovery, authentication_advice, saved_account_advice,
+};
 use norelly_domain::endpoint::{Protocol, ServerEndpoint};
 use norelly_domain::ports::{
     AccountDataStore, AccountRepository, AccountStoreError, AutoconfigClient,
@@ -32,7 +35,9 @@ use norelly_domain::ports::OAuthClient;
 
 use crate::discover_settings::DiscoverSettings;
 use crate::oauth::{TokenBroker, TokenCache};
-use crate::test_connection::{TestConnection, TestConnectionOutcome, TestConnectionParams};
+use crate::test_connection::{
+    TestConnection, TestConnectionOutcome, TestConnectionParams, certificate_excepted,
+};
 
 /// Demande d'ajout de compte.
 #[derive(Debug, Clone)]
@@ -513,6 +518,147 @@ pub async fn reconnect_oauth_account<O: OAuthClient, K: SecretStore, D: AccountR
         .await
         .map_err(|e| ReconnectError::SecretStore(e.to_string()))?;
     Ok(account)
+}
+
+/// Conseil pour un compte enregistré dont la synchronisation échoue
+/// ([`saved_account_advice`]) : les exceptions de certificat de ses deux
+/// serveurs ne sont consultées que pour un refus d'authentification.
+pub async fn saved_account_failure_advice<E: CertificateExceptionStore>(
+    exceptions: &E,
+    account: &Account,
+    failure: &ConnectionError,
+) -> Option<AuthenticationAdvice> {
+    if !matches!(failure, ConnectionError::Authentication(_)) {
+        return None;
+    }
+    let excepted = certificate_excepted(exceptions, account.imap().endpoint.host()).await
+        || certificate_excepted(exceptions, account.smtp().endpoint.host()).await;
+    saved_account_advice(account.draft(), excepted, failure)
+}
+
+/// Échec d'un changement de mot de passe.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum ChangePasswordError {
+    #[error("compte introuvable")]
+    NotFound,
+    /// Compte connecté par OAuth : pas de mot de passe à changer.
+    #[error("ce compte n'utilise pas de mot de passe")]
+    NotPassword,
+    #[error("paramètres invalides : {0}")]
+    Invalid(String),
+    /// Le nouveau mot de passe n'a pas été accepté ; rien n'a changé.
+    #[error("échec de la connexion ({protocol:?})")]
+    ConnectionFailed {
+        protocol: Protocol,
+        outcome: TestConnectionOutcome,
+        advice: Option<AuthenticationAdvice>,
+    },
+    /// Le trousseau a refusé le nouveau mot de passe ; l'ancien est remis.
+    #[error("trousseau : {0}")]
+    SecretStore(String),
+    #[error("stockage : {0}")]
+    Storage(String),
+}
+
+/// Cas d'usage : remplacer le mot de passe d'un compte enregistré (mot de
+/// passe d'application révoqué, mot de passe changé chez le fournisseur).
+#[derive(Debug)]
+pub struct ChangePassword<'a, I, S, E, K, D> {
+    pub test: &'a TestConnection<I, S, E>,
+    pub secrets: &'a K,
+    pub accounts: &'a D,
+}
+
+impl<I, S, E, K, D> ChangePassword<'_, I, S, E, K, D>
+where
+    I: RemoteMailboxConnector,
+    S: MailSender,
+    E: CertificateExceptionStore,
+    K: SecretStore,
+    D: AccountRepository,
+{
+    /// Teste le nouveau mot de passe sur les deux serveurs du compte,
+    /// puis le range au trousseau sous ses deux clés. Un refus ne change
+    /// rien ; un trousseau qui refuse la seconde écriture reçoit à nouveau
+    /// l'ancien mot de passe sous la première.
+    pub async fn execute(
+        &self,
+        id: AccountId,
+        password: Secret,
+    ) -> Result<Account, ChangePasswordError> {
+        let account = self
+            .accounts
+            .get(id)
+            .await
+            .map_err(|e| ChangePasswordError::Storage(e.to_string()))?
+            .ok_or(ChangePasswordError::NotFound)?;
+        if account.oauth_provider().is_some() {
+            return Err(ChangePasswordError::NotPassword);
+        }
+        for protocol in [Protocol::Imap, Protocol::Smtp] {
+            let server = account.server(protocol);
+            let credentials = Credentials::new(server.username.clone(), password.clone())
+                .map_err(|e| ChangePasswordError::Invalid(e.to_string()))?;
+            let outcome = self
+                .test
+                .execute(TestConnectionParams {
+                    protocol,
+                    endpoint: server.endpoint.clone(),
+                    credentials,
+                    plaintext: account.plaintext_policy(),
+                })
+                .await;
+            if !matches!(outcome, TestConnectionOutcome::Success { .. }) {
+                let advice = match &outcome {
+                    TestConnectionOutcome::Authentication(error) => {
+                        let failure = ConnectionError::Authentication(error.clone());
+                        let excepted = self
+                            .test
+                            .has_certificate_exception(account.imap().endpoint.host())
+                            .await
+                            || self
+                                .test
+                                .has_certificate_exception(account.smtp().endpoint.host())
+                                .await;
+                        saved_account_advice(account.draft(), excepted, &failure)
+                    }
+                    _ => None,
+                };
+                return Err(ChangePasswordError::ConnectionFailed {
+                    protocol,
+                    outcome,
+                    advice,
+                });
+            }
+        }
+        let keys = [
+            account.secret_key(Protocol::Imap),
+            account.secret_key(Protocol::Smtp),
+        ];
+        let mut previous = Vec::with_capacity(keys.len());
+        for key in &keys {
+            let old = self
+                .secrets
+                .get(key)
+                .await
+                .map_err(|e| ChangePasswordError::SecretStore(e.to_string()))?;
+            previous.push(old);
+        }
+        for (i, key) in keys.iter().enumerate() {
+            if let Err(e) = self.secrets.set(key, &password).await {
+                // Les clés déjà écrites reprennent l'ancien mot de passe :
+                // IMAP et SMTP gardent le même.
+                for (written, old) in keys.iter().zip(&previous).take(i) {
+                    let _ = match old {
+                        Some(old) => self.secrets.set(written, old).await,
+                        None => self.secrets.delete(written).await,
+                    };
+                }
+                return Err(ChangePasswordError::SecretStore(e.to_string()));
+            }
+        }
+        Ok(account)
+    }
 }
 
 /// Erreur de suppression de compte.

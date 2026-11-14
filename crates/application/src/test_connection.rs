@@ -24,6 +24,19 @@ pub struct TestConnectionParams {
     pub plaintext: PlaintextPolicy,
 }
 
+/// Une exception de certificat existe-t-elle pour `host` dans
+/// `exceptions` ? Un stockage illisible compte comme une exception : la
+/// réponse sert à refuser un conseil, jamais à accorder une confiance.
+pub async fn certificate_excepted<E: CertificateExceptionStore>(
+    exceptions: &E,
+    host: &Host,
+) -> bool {
+    exceptions
+        .exceptions_for(host)
+        .await
+        .map_or(true, |exceptions| !exceptions.is_empty())
+}
+
 /// Résultat d'un test de connexion.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TestConnectionOutcome {
@@ -122,10 +135,7 @@ where
     /// illisible compte comme une exception : la réponse sert à refuser un
     /// conseil, jamais à accorder une confiance.
     pub async fn has_certificate_exception(&self, host: &Host) -> bool {
-        self.exceptions
-            .exceptions_for(host)
-            .await
-            .map_or(true, |exceptions| !exceptions.is_empty())
+        certificate_excepted(&self.exceptions, host).await
     }
 
     async fn attempt(

@@ -746,5 +746,7 @@
   "add_fail_oauth_mail_access": "Norelly n'a pas reçu l'autorisation d'accéder à vos messages. Réessayez en cochant toutes les autorisations demandées dans la page de connexion.",
   "failure_oauth_mail_access": "accès aux messages refusé",
   "add_fail_oauth_not_configured": "Cette version de Norelly ne peut pas se connecter à ce fournisseur. Installez la version publiée de Norelly ou, pour Gmail, utilisez un mot de passe d'application.",
-  "failure_oauth_not_configured": "connexion à ce fournisseur indisponible dans cette version"
+  "failure_oauth_not_configured": "connexion à ce fournisseur indisponible dans cette version",
+  "sidebar_syncing": "Synchronisation… {done} / {total}",
+  "sidebar_syncing_label": "Synchronisation de {address} : {done} dossiers sur {total}"
 }

@@ -850,6 +850,31 @@ describe("App", () => {
     expect(within(menu).getByRole("menuitem", { name: "Se reconnecter" })).toBeEnabled();
   });
 
+  it("synchronisation en cours : progression visible sous le compte, puis effacée", async () => {
+    accounts.push({
+      id: 8,
+      address: "dave@gmail.com",
+      display_name: "Dave",
+      imap: server,
+      smtp: server,
+      oauth_provider: null,
+    } as AccountDto);
+    render(App);
+    await screen.findAllByText("dave@gmail.com");
+    await waitFor(() => expect(syncListeners.length).toBeGreaterThan(0));
+    const send = (done: number) => {
+      for (const l of syncListeners) l({ kind: "sync_progress", account: 8, done, total: 61 });
+    };
+    send(12);
+    const status = await screen.findByRole("status", {
+      name: "Synchronisation de dave@gmail.com : 12 dossiers sur 61",
+    });
+    expect(status).toHaveTextContent("Synchronisation… 12 / 61");
+    send(61);
+    await waitFor(() => expect(screen.queryByText("Synchronisation… 61 / 61")).toBeNull());
+    expect(screen.queryByText(/Synchronisation…/)).toBeNull();
+  });
+
   it("donne un nom accessible à chaque contrôle (passe d'accessibilité)", async () => {
     accounts.push({
       id: 7,

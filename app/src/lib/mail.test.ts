@@ -136,6 +136,22 @@ describe("état de la lecture", () => {
     expect(mail.offline[1]).toBeUndefined();
   });
 
+  it("synchronisation en cours : progression suivie, effacée à la fin ou à la coupure", async () => {
+    const mail = new MailState(fakeApi(3), noAutoSeen);
+    await mail.onSyncEvent({ kind: "sync_progress", account: 1, done: 0, total: 61 });
+    expect(mail.syncing[1]).toEqual({ done: 0, total: 61 });
+    await mail.onSyncEvent({ kind: "sync_progress", account: 1, done: 12, total: 61 });
+    expect(mail.syncing[1]).toEqual({ done: 12, total: 61 });
+    await mail.onSyncEvent({ kind: "sync_progress", account: 1, done: 61, total: 61 });
+    expect(mail.syncing[1]).toBeUndefined();
+    await mail.onSyncEvent({ kind: "sync_progress", account: 2, done: 3, total: 9 });
+    await mail.onSyncEvent({ kind: "offline", account: 2, failure: "network", detail: null });
+    expect(mail.syncing[2]).toBeUndefined();
+    await mail.onSyncEvent({ kind: "sync_progress", account: 3, done: 1, total: 4 });
+    mail.forgetAccount(3);
+    expect(mail.syncing[3]).toBeUndefined();
+  });
+
   it("actions : effet immédiat, sélection suivante, annulation", async () => {
     const api = fakeApi(5);
     const mail = new MailState(api, noAutoSeen);

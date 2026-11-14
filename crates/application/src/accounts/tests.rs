@@ -863,6 +863,50 @@ mod oauth {
         assert!(w.accounts.list().await.is_ok_and(|l| l.is_empty()));
     }
 
+    async fn add_gmail(w: &World, b: &TokenBroker<FakeOAuthClient, Keyring>) -> AddAccountOutcome {
+        let test = TestConnection::new(w.servers.clone(), w.servers.clone(), &w.exceptions);
+        AddOAuthAccount {
+            test: &test,
+            broker: b,
+            accounts: &w.accounts,
+        }
+        .execute(AddOAuthAccountRequest {
+            address: EmailAddress::parse("alice@gmail.com").unwrap_or_else(|_| panic!("adresse")),
+            display_name: None,
+            provider: OAuthProvider::Google,
+        })
+        .await
+    }
+
+    #[tokio::test]
+    async fn adds_google_account_on_gmail_servers() {
+        let w = World::new();
+        let b = broker(Some(OAuthGrant {
+            identity: Some(OAuthIdentity {
+                preferred_username: None,
+                email: Some("alice@gmail.com".to_owned()),
+            }),
+            ..grant().unwrap_or_else(|| panic!())
+        }));
+        let AddAccountOutcome::Added(account) = add_gmail(&w, &b).await else {
+            panic!("compte non ajouté");
+        };
+        assert_eq!(account.oauth_provider(), Some(OAuthProvider::Google));
+        assert_eq!(account.imap().endpoint.host().as_str(), "imap.gmail.com");
+        assert_eq!(account.smtp().endpoint.host().as_str(), "smtp.gmail.com");
+        assert_eq!(account.smtp().endpoint.security(), Security::StartTls);
+    }
+
+    #[tokio::test]
+    async fn abandoned_google_sign_in_points_to_app_password() {
+        let w = World::new();
+        assert_eq!(
+            add_gmail(&w, &broker(None)).await,
+            AddAccountOutcome::OAuthFailed(TokenError::GoogleSignInRefused)
+        );
+        assert!(w.accounts.list().await.is_ok_and(|l| l.is_empty()));
+    }
+
     #[tokio::test]
     async fn smtp_disabled_on_mailbox_is_explained() {
         let w = World::new();

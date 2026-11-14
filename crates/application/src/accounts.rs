@@ -25,8 +25,8 @@ use norelly_domain::auth::AuthError;
 use norelly_domain::credentials::Username;
 use norelly_domain::endpoint::{Host, Security};
 use norelly_domain::oauth::{
-    OAuthProvider, OAuthSource, TokenError, is_mailbox_not_connected, is_smtp_oauth_disabled,
-    require_offline_access, verify_identity,
+    OAuthProvider, OAuthSource, TokenError, add_account_sign_in_error, is_mailbox_not_connected,
+    is_smtp_oauth_disabled, require_offline_access, verify_identity,
 };
 use norelly_domain::ports::OAuthClient;
 
@@ -270,7 +270,12 @@ where
                     .await
                 {
                     Ok(grant) => (grant, Some(self.broker.now())),
-                    Err(e) => return AddAccountOutcome::OAuthFailed(e),
+                    Err(e) => {
+                        return AddAccountOutcome::OAuthFailed(add_account_sign_in_error(
+                            request.provider,
+                            e,
+                        ));
+                    }
                 },
             };
         if let Err(e) = verify_identity(&request.address, grant.identity.as_ref()) {

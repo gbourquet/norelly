@@ -16,7 +16,8 @@
 //! `lettre` envoie l'unique `EHLO` du canal final (un second serait refusé
 //! par certains serveurs, dont GMX) ; les capacités du domaine en sont
 //! reprises (mécanismes `AUTH`, `8BITMIME`, `SMTPUTF8`, `STARTTLS`).
-//! Il gère ensuite `AUTH`, `MAIL`/`RCPT`/`DATA` et `QUIT`. Il
+//! Il gère ensuite `AUTH` (sauf XOAUTH2, mené ici : voir `xoauth2`),
+//! `MAIL`/`RCPT`/`DATA` et `QUIT`. Il
 //! est compilé sans backend TLS ni journalisation.
 
 mod stream;

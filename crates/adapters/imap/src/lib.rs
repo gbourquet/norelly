@@ -8,7 +8,8 @@
 //!    (obligatoire s'il est annoncé, erreur s'il manque en mode STARTTLS) ;
 //! 3. capacités relues sur le canal chiffré ;
 //! 4. authentification (`AUTHENTICATE PLAIN`, `LOGIN` sauf `LOGINDISABLED`,
-//!    `AUTHENTICATE LOGIN`), puis capacités relues.
+//!    `AUTHENTICATE LOGIN` ; `AUTHENTICATE XOAUTH2` seulement pour un jeton
+//!    OAuth), puis capacités relues.
 //!
 //! [`PlaintextPolicy`]: norelly_domain::security::PlaintextPolicy
 

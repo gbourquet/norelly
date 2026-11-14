@@ -46,10 +46,12 @@ demande pas de mot de passe : il propose **Se connecter avec Microsoft**.
    s'y connecte et accepte l'accès de Norelly.
 2. De retour dans Norelly, la réception et l'envoi sont testés, puis le
    compte est enregistré et la synchronisation démarre.
-3. Si l'autorisation cesse de fonctionner (mot de passe Microsoft changé,
-   accès retiré), le compte affiche « Reconnexion nécessaire » et un
-   bouton **Se reconnecter**, visible à côté du compte et présent dans son
-   menu « ⋯ ». La réception reprend après la reconnexion.
+3. Quand le serveur refuse l'accès, à la réception comme à l'envoi,
+   Norelly renouvelle d'abord l'autorisation sans rien demander. Si elle a
+   cessé de fonctionner (mot de passe Microsoft changé, accès retiré), le
+   compte affiche « Reconnexion nécessaire » et un bouton
+   **Se reconnecter**, visible à côté du compte et présent dans son menu
+   « ⋯ ». La réception reprend après la reconnexion.
 
 ### Se connecter avec Google
 

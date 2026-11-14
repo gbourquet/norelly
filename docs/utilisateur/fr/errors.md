@@ -68,8 +68,10 @@ refusés : un compte Google demande un mot de passe d'application », puis
 l'encadré **Créer un mot de passe d'application Google**.
 
 **Ce que cela veut dire** : votre adresse est chez Google (Gmail, ou une
-adresse d'entreprise gérée par Google), et Google refuse votre mot de
-passe habituel dans un programme de messagerie.
+adresse d'entreprise gérée par Google), et les serveurs de Google refusent
+votre mot de passe habituel dans un programme de messagerie. Norelly ne
+montre cette aide que si les deux serveurs du compte, réception et envoi,
+portent les noms de ceux de Google.
 
 **Quoi faire** : suivez les trois étapes de l'encadré. Le bouton **Ouvrir
 la page Google** ouvre la page où créer le mot de passe d'application ;
@@ -107,7 +109,11 @@ de passe.
 
 1. Vérifiez le mot de passe : la touche **Verr. Maj** (majuscules) est-elle
    activée ? Le clavier est-il dans la bonne langue ?
-2. **Gmail** : utilisez **Se connecter avec Google** ou un **mot de passe
+2. **Gmail** : si vous avez saisi vous-même les serveurs, vérifiez d'abord
+   que la réception est `imap.gmail.com` **et** l'envoi `smtp.gmail.com`.
+   Sinon, ne saisissez aucun mot de passe Google, même si un courriel vous
+   le demande : il partirait vers ces autres serveurs. Avec les bons
+   serveurs, utilisez **Se connecter avec Google** ou un **mot de passe
    d'application**, pas votre mot de passe habituel (voir
    [Ajouter votre adresse](first-account.md#gmail--le-mot-de-passe-dapplication)).
    Si vous avez changé votre mot de passe Google, les anciens mots de passe

@@ -63,8 +63,9 @@ account requires an app password", then the **Create a Google app
 password** box.
 
 **What it means**: your address is with Google (Gmail, or a work address
-managed by Google), and Google refuses your usual password in an email
-program.
+managed by Google), and Google's servers refuse your usual password in an
+email program. Norelly only shows this help when both of the account's
+servers, incoming and outgoing, have the names of Google's servers.
 
 **What to do**: follow the three steps in the box. The **Open the Google
 page** button opens the page where you create the app password; then
@@ -96,7 +97,11 @@ username and password (an app password is sometimes required)."
 
 1. Check the password: is **Caps Lock** on? Is the keyboard in the right
    language?
-2. **Gmail**: use **Sign in with Google** or an **app password**, not your usual password
+2. **Gmail**: if you entered the servers yourself, first check that the
+   incoming server is `imap.gmail.com` **and** the outgoing server is
+   `smtp.gmail.com`. Otherwise, do not enter any Google password, even if
+   an email asks you to: it would go to those other servers. With the right
+   servers, use **Sign in with Google** or an **app password**, not your usual password
    (see [Adding your address](first-account.md#gmail-the-app-password)).
    If you changed your Google password, older app passwords may have been
    revoked: create a new one.

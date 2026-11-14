@@ -71,8 +71,10 @@ jobs:
           NORELLY_GOOGLE_CLIENT_ID: ${{ secrets.NORELLY_GOOGLE_CLIENT_ID }}
           NORELLY_GOOGLE_CLIENT_SECRET: ${{ secrets.NORELLY_GOOGLE_CLIENT_SECRET }}
         run: |
-          test -n "$NORELLY_GOOGLE_CLIENT_ID" && test -n "$NORELLY_GOOGLE_CLIENT_SECRET" \
-            || { echo "secrets NORELLY_GOOGLE_CLIENT_ID/SECRET absents" >&2; exit 1; }
+          # Format vérifié sans jamais afficher les valeurs.
+          [[ "$NORELLY_GOOGLE_CLIENT_ID" =~ ^[0-9]+-[a-z0-9]+\.apps\.googleusercontent\.com$ ]] \
+            && [[ "$NORELLY_GOOGLE_CLIENT_SECRET" =~ ^GOCSPX-[A-Za-z0-9_-]+$ ]] \
+            || { echo "secrets NORELLY_GOOGLE_CLIENT_ID/SECRET absents ou mal formés" >&2; exit 1; }
           pnpm -C app tauri build --bundles deb,rpm -- --locked
       - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
         with:
@@ -107,8 +109,10 @@ jobs:
           NORELLY_GOOGLE_CLIENT_ID: ${{ secrets.NORELLY_GOOGLE_CLIENT_ID }}
           NORELLY_GOOGLE_CLIENT_SECRET: ${{ secrets.NORELLY_GOOGLE_CLIENT_SECRET }}
         run: |
-          test -n "$NORELLY_GOOGLE_CLIENT_ID" && test -n "$NORELLY_GOOGLE_CLIENT_SECRET" \
-            || { echo "secrets NORELLY_GOOGLE_CLIENT_ID/SECRET absents" >&2; exit 1; }
+          # Format vérifié sans jamais afficher les valeurs.
+          [[ "$NORELLY_GOOGLE_CLIENT_ID" =~ ^[0-9]+-[a-z0-9]+\.apps\.googleusercontent\.com$ ]] \
+            && [[ "$NORELLY_GOOGLE_CLIENT_SECRET" =~ ^GOCSPX-[A-Za-z0-9_-]+$ ]] \
+            || { echo "secrets NORELLY_GOOGLE_CLIENT_ID/SECRET absents ou mal formés" >&2; exit 1; }
           pnpm -C app tauri build --bundles nsis \
             --config src-tauri/tauri.updater.conf.json \
             --features updater -- --locked

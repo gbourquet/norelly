@@ -485,6 +485,11 @@ pub enum RemoveAccountError {
     LocalData(String),
 }
 
+/// Délai maximal d'un effacement dans le trousseau (trousseau verrouillé
+/// dont l'invite reste sans réponse) : la suppression échoue et peut être
+/// relancée.
+pub const SECRET_STORE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+
 /// Cas d'usage : supprimer un compte, ses secrets et ses données locales.
 #[derive(Debug)]
 pub struct RemoveAccount<'a, K, D, L, T> {
@@ -517,10 +522,13 @@ where
             self.tokens.discard(&account.secret_key(protocol)).await;
         }
         for protocol in [Protocol::Imap, Protocol::Smtp] {
-            self.secrets
-                .delete(&account.secret_key(protocol))
-                .await
-                .map_err(|e| RemoveAccountError::SecretStore(e.to_string()))?;
+            tokio::time::timeout(
+                SECRET_STORE_TIMEOUT,
+                self.secrets.delete(&account.secret_key(protocol)),
+            )
+            .await
+            .map_err(|_| RemoveAccountError::SecretStore("délai dépassé".to_owned()))?
+            .map_err(|e| RemoveAccountError::SecretStore(e.to_string()))?;
         }
         self.accounts
             .delete(id)

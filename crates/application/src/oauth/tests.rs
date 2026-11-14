@@ -313,11 +313,20 @@ async fn removed_account_tokens_are_discarded() {
     let f = fixture(Some("r1"), Provider::default()).await;
     f.broker.secrets.read_only.store(true, Ordering::SeqCst);
     assert_eq!(token(&f).await, Ok("a1".to_owned()));
-    // Suppression du compte : jetons oubliés, puis trousseau vidé.
+    // Suppression du compte : jetons oubliés ; le trousseau n'est pas encore
+    // vidé, mais plus rien n'est servi ni enregistré pour ce compte.
     f.broker.discard(&key()).await;
     f.broker.secrets.read_only.store(false, Ordering::SeqCst);
-    let _ = f.broker.secrets.delete(&key()).await;
     assert_eq!(token(&f).await, Err(AuthError::ReauthRequired));
+    let grant = OAuthGrant {
+        access_token: Secret::new("tardif".to_owned()),
+        expires_in: 600,
+        refresh_token: Some(Secret::new("r-tardif".to_owned())),
+        identity: None,
+    };
+    assert_eq!(f.broker.store_grant(&source(), grant).await, Ok(()));
+    assert_eq!(f.broker.secrets.read(&key()).as_deref(), Some("r1"));
+    let _ = f.broker.secrets.delete(&key()).await;
     assert_eq!(
         f.broker.client().refreshes.load(Ordering::SeqCst),
         1,
@@ -379,6 +388,44 @@ async fn refused_unsaved_refresh_token_requires_reauth() {
     }
     f.now.fetch_add(7_200, Ordering::SeqCst);
     assert_eq!(token(&f).await, Err(AuthError::ReauthRequired));
+}
+
+#[tokio::test(start_paused = true)]
+async fn discard_waits_for_a_refresh_in_progress() {
+    let f = fixture(
+        Some("r1"),
+        Provider {
+            delay: Duration::from_secs(20),
+            ..Provider::default()
+        },
+    )
+    .await;
+    let broker = Arc::clone(&f.broker);
+    let refresh = tokio::spawn(async move { broker.access_token(&source()).await.is_ok() });
+    tokio::task::yield_now().await;
+    f.broker.discard(&key()).await;
+    assert!(
+        refresh.is_finished(),
+        "rafraîchissement achevé avant l'oubli"
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn reconnection_does_not_wait_forever_on_the_keyring() {
+    let broker = TokenBroker::new(
+        Provider::default(),
+        HangingWrites::default(),
+        Arc::new(|| 1_000_000),
+    );
+    let grant = OAuthGrant {
+        access_token: Secret::new("a".to_owned()),
+        expires_in: 600,
+        refresh_token: Some(Secret::new("r".to_owned())),
+        identity: None,
+    };
+    let stored =
+        tokio::time::timeout(REFRESH_TIMEOUT * 2, broker.store_grant(&source(), grant)).await;
+    assert!(matches!(stored, Ok(Err(_))), "{stored:?}");
 }
 
 /// Faux trousseau dont l'écriture ne répond jamais.

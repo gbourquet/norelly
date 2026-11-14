@@ -19,7 +19,7 @@ use norelly_domain::capabilities::ServerCapabilities;
 use norelly_domain::connection::ConnectionError;
 use norelly_domain::credentials::Secret;
 use norelly_domain::oauth::{
-    AccessToken, OAuthProvider, OAuthSource, PendingAuthorization, TokenError,
+    AccessToken, OAuthProvider, OAuthSource, PendingAuthorization, TokenError, auth_error_of,
 };
 use norelly_domain::ports::{
     ConnectRequest, MailSender, OAuthClient, OAuthGrant, OutgoingMessage, RemoteMailboxConnector,
@@ -238,7 +238,12 @@ impl<O: OAuthClient, K: SecretStore> TokenBroker<O, K> {
             return Ok(());
         }
         if let Some(refresh) = &grant.refresh_token {
-            self.secrets.set(&source.refresh_key, refresh).await?;
+            tokio::time::timeout(
+                REFRESH_TIMEOUT,
+                self.secrets.set(&source.refresh_key, refresh),
+            )
+            .await
+            .map_err(|_| SecretStoreError::Unavailable("délai dépassé".to_owned()))??;
             // Le trousseau contient désormais le jeton le plus récent.
             slot.unsaved_refresh = None;
         }
@@ -264,31 +269,14 @@ pub trait TokenCache: Sync {
 
 impl<O: OAuthClient, K: SecretStore> TokenCache for TokenBroker<O, K> {
     async fn discard(&self, key: &SecretKey) {
-        let removed = self
-            .slots
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .remove(key);
-        if let Some(slot) = removed {
-            // Attend un rafraîchissement en cours, puis efface ses jetons ;
-            // une connexion qui détient encore ce compte n'en obtient plus.
-            *slot.lock().await = Slot {
-                discarded: true,
-                ..Slot::default()
-            };
-        }
-    }
-}
-
-/// Erreur de jeton vue d'une connexion : seul un jeton de rafraîchissement
-/// refusé met le compte en cause ; le reste est une panne du fournisseur.
-#[must_use]
-pub fn auth_error_of(error: &TokenError) -> AuthError {
-    match error {
-        TokenError::ReauthRequired => AuthError::ReauthRequired,
-        other => AuthError::ProviderUnavailable {
-            message: other.to_string(),
-        },
+        // L'emplacement reste, marqué (un identifiant de compte n'est jamais
+        // réattribué) : un appel ultérieur pour cette clé, même une
+        // reconnexion commencée avant la suppression, n'obtient ni
+        // n'enregistre plus rien. Attend un rafraîchissement en cours.
+        *self.slot(key).lock().await = Slot {
+            discarded: true,
+            ..Slot::default()
+        };
     }
 }
 

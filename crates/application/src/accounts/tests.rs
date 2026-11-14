@@ -26,6 +26,7 @@ struct Keyring {
     secrets: Mutex<BTreeMap<String, String>>,
     fail_set_after: Mutex<Option<usize>>,
     fail_delete: Mutex<bool>,
+    hang_delete: Mutex<bool>,
 }
 
 impl Keyring {
@@ -59,6 +60,9 @@ impl SecretStore for Keyring {
         Ok(())
     }
     async fn delete(&self, key: &SecretKey) -> Result<(), SecretStoreError> {
+        if self.hang_delete.lock().map(|f| *f).unwrap_or(false) {
+            std::future::pending::<()>().await;
+        }
         if self.fail_delete.lock().map(|f| *f).unwrap_or(false) {
             return Err(SecretStoreError::Unavailable("verrouillé".into()));
         }
@@ -460,6 +464,25 @@ async fn remove_deletes_secrets_account_and_local_data() {
         w.remove(account.id()).await,
         Err(RemoveAccountError::NotFound)
     );
+}
+
+#[tokio::test(start_paused = true)]
+async fn remove_does_not_wait_forever_on_the_keyring() {
+    let w = World::new();
+    let draft = sample_account("alice@example.com", false);
+    let AddAccountOutcome::Added(account) = w.add(request(Some(servers_of(&draft)))).await else {
+        panic!("ajout");
+    };
+    if let Ok(mut f) = w.keyring.hang_delete.lock() {
+        *f = true;
+    }
+    let removed =
+        tokio::time::timeout(std::time::Duration::from_secs(120), w.remove(account.id())).await;
+    assert!(
+        matches!(removed, Ok(Err(RemoveAccountError::SecretStore(_)))),
+        "{removed:?}"
+    );
+    assert_eq!(w.accounts.list().await.map(|l| l.len()), Ok(1));
 }
 
 #[tokio::test]

@@ -9,7 +9,10 @@
 # chiffrée ; clé publique dans app/src-tauri/tauri.updater.conf.json) et
 # TAURI_SIGNING_PRIVATE_KEY_PASSWORD. La clé n'est présente que dans
 # l'étape de signature, jamais pendant la compilation (build.rs, macros,
-# plugins Vite). Aucun cache dans les builds de publication
+# plugins Vite). Les identifiants du client Google (ADR-013),
+# NORELLY_GOOGLE_CLIENT_ID et NORELLY_GOOGLE_CLIENT_SECRET, sont dans le
+# même environnement : non confidentiels, ils sont compilés dans
+# l'application (jobs Linux et Windows). Aucun cache dans les builds de publication
 # (empoisonnement de cache).
 name: Release
 
@@ -49,6 +52,8 @@ jobs:
     name: Linux (.deb, .rpm)
     needs: version
     runs-on: ubuntu-24.04
+    # Identifiants du client Google (secrets de l'environnement).
+    environment: release
     steps:
       - name: Dépendances système Tauri
         run: |

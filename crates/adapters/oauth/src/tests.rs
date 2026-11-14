@@ -8,6 +8,7 @@ use wiremock::matchers::{body_string_contains, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 use super::*;
+use norelly_domain::oauth::OAuthProvider;
 
 /// Faux navigateur : retient l'URL et renvoie au client un retour, comme
 /// après une connexion réussie (`code`) ou un refus.
@@ -165,7 +166,7 @@ async fn authorize_opens_browser_and_exchanges_code() {
     ]);
     let server = token_server(&browser).await;
     let grant = client(&server, browser.clone())
-        .authorize(OAuthProvider::Microsoft, &hint())
+        .authorize(OAuthProvider::Microsoft.config(), &hint())
         .await;
     let Ok(grant) = grant else {
         panic!("connexion refusée : {grant:?}");
@@ -178,6 +179,7 @@ async fn authorize_opens_browser_and_exchanges_code() {
         Some(OAuthIdentity {
             preferred_username: Some("alice@outlook.com".to_owned()),
             email: Some("alice@outlook.com".to_owned()),
+            ..OAuthIdentity::default()
         })
     );
     let url = browser.url();
@@ -193,7 +195,7 @@ async fn denied_authorization_is_cancelled() {
     let browser = Browser::new(vec!["/?error=access_denied&state={state}"]);
     let server = token_server(&browser).await;
     let result = client(&server, browser)
-        .authorize(OAuthProvider::Microsoft, &hint())
+        .authorize(OAuthProvider::Microsoft.config(), &hint())
         .await;
     assert_eq!(
         result.map(|_| ()),
@@ -207,16 +209,49 @@ async fn refresh_classifies_provider_errors_without_echoing_the_body() {
     let server = token_server(&browser).await;
     let c = client(&server, browser);
     let refreshed = c
-        .refresh(OAuthProvider::Microsoft, &Secret::new("r1".to_owned()))
+        .refresh(
+            OAuthProvider::Microsoft.config(),
+            &Secret::new("r1".to_owned()),
+        )
         .await;
     assert_eq!(
         refreshed.map(|g| g.access_token.expose().to_owned()),
         Ok("acc2".to_owned())
     );
     let revoked = c
-        .refresh(OAuthProvider::Microsoft, &Secret::new("revoked".to_owned()))
+        .refresh(
+            OAuthProvider::Microsoft.config(),
+            &Secret::new("revoked".to_owned()),
+        )
         .await;
     assert_eq!(revoked.map(|_| ()), Err(TokenError::ReauthRequired));
+}
+
+#[tokio::test]
+async fn refresh_uses_the_configuration_it_is_given() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/token"))
+        .and(body_string_contains("client_id=id-de-test"))
+        .and(body_string_contains("client_secret=secret-de-test"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_string(r#"{"access_token":"acc3","expires_in":60}"#),
+        )
+        .mount(&server)
+        .await;
+    let config = norelly_domain::oauth::OAuthConfig {
+        client_id: "id-de-test",
+        client_secret: Some("secret-de-test"),
+        ..OAuthProvider::Google.config().clone()
+    };
+    let refreshed = client(&server, Browser::new(vec![]))
+        .refresh(&config, &Secret::new("r1".to_owned()))
+        .await;
+    assert_eq!(
+        refreshed.map(|g| g.access_token.expose().to_owned()),
+        Ok("acc3".to_owned())
+    );
 }
 
 #[tokio::test]
@@ -244,6 +279,16 @@ fn token_response_parsing() {
 }
 
 #[test]
+fn granted_scopes_are_kept() {
+    let scopes = |body: &str| parse_token_response(200, body.as_bytes()).map(|g| g.granted_scopes);
+    assert_eq!(
+        scopes(r#"{"access_token":"a","scope":"openid https://mail.google.com/"}"#),
+        Ok(Some("openid https://mail.google.com/".to_owned()))
+    );
+    assert_eq!(scopes(r#"{"access_token":"a"}"#), Ok(None));
+}
+
+#[test]
 fn id_token_gives_the_signed_in_identity() {
     let body = |token: &str| {
         format!(r#"{{"access_token":"a","refresh_token":"r","id_token":"{token}"}}"#).into_bytes()
@@ -256,8 +301,39 @@ fn id_token_gives_the_signed_in_identity() {
         Ok(Some(OAuthIdentity {
             preferred_username: Some("+33600000000".to_owned()),
             email: Some("Bob@Live.fr".to_owned()),
+            ..OAuthIdentity::default()
         }))
     );
+    // Google : émetteur, destinataire (chaîne ou liste) et adresse vérifiée
+    // (booléen, ou chaîne que Google a déjà renvoyée).
+    let google = |claims: &str| identity(&id_token(claims)).ok().flatten();
+    let g = google(
+        r#"{"iss":"https://accounts.google.com","aud":"id.apps.googleusercontent.com","email":"a@gmail.com","email_verified":true}"#,
+    );
+    assert_eq!(
+        g,
+        Some(OAuthIdentity {
+            email: Some("a@gmail.com".to_owned()),
+            issuer: Some("https://accounts.google.com".to_owned()),
+            audience: vec!["id.apps.googleusercontent.com".to_owned()],
+            email_verified: Some(true),
+            ..OAuthIdentity::default()
+        })
+    );
+    let g = google(r#"{"aud":["x","y"],"email_verified":"true"}"#);
+    assert_eq!(
+        g.as_ref().map(|i| i.audience.clone()),
+        Some(vec!["x".to_owned(), "y".to_owned()])
+    );
+    assert_eq!(g.and_then(|i| i.email_verified), Some(true));
+    for raw in [r#""false""#, "false", r#""oui""#, "1"] {
+        assert_eq!(
+            google(&format!(r#"{{"email_verified":{raw}}}"#))
+                .and_then(|i| i.email_verified.filter(|v| *v)),
+            None,
+            "{raw}"
+        );
+    }
     assert_eq!(
         identity(&id_token(r#"{"sub":"x"}"#)),
         Ok(Some(OAuthIdentity::default()))

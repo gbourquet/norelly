@@ -71,6 +71,20 @@ page** button opens the page where you create the app password; then
 paste it into the **Password** field, which was cleared for it. Details
 are in [Adding your email address](first-account.md#gmail).
 
+## Signing in with Google did not complete
+
+**What you see**: "Signing in with Google did not complete…", then the
+**Create a Google app password** box and the **Password** field.
+
+**What it means**: signing in on Google's page was refused, abandoned or
+never came back to Norelly. Until Google verifies Norelly, it limits the
+number of people who can sign in to it, and may refuse a new account.
+
+**What to do**: if you simply closed the page, click **Sign in with Google
+instead**, then try again (remember **Advanced**, then **Go to Norelly
+(unsafe)**). Otherwise, use an app password: follow the steps in the box
+(see [Adding your address](first-account.md#gmail-the-app-password)).
+
 ## Credentials rejected (password refused)
 
 **What you see**: "Incoming server (IMAP): credentials rejected. Check the
@@ -82,7 +96,7 @@ username and password (an app password is sometimes required)."
 
 1. Check the password: is **Caps Lock** on? Is the keyboard in the right
    language?
-2. **Gmail**: use an **app password**, not your usual password
+2. **Gmail**: use **Sign in with Google** or an **app password**, not your usual password
    (see [Adding your address](first-account.md#gmail-the-app-password)).
    If you changed your Google password, older app passwords may have been
    revoked: create a new one.
@@ -144,6 +158,8 @@ recipient, before clicking **Retry**, so as not to send it twice.
 | "No keyring" | Your Linux has no active password safe. Install or start GNOME Keyring or KWallet (ask for help if needed). Otherwise, Norelly offers to store the password in an **unencrypted** file: only accept if nobody else uses your session. |
 | "System keyring unavailable" | Norelly cannot read your password safe, often because it is locked. Unlock it (on Linux, a window sometimes asks for it; otherwise, log out and back in): Norelly retries on its own, and waiting messages are sent afterwards. |
 | "Norelly did not get permission to stay signed in" | A permission was refused on Microsoft's sign-in page. Start again and accept all the permissions requested: without them, the account would stop working after an hour. |
+| "Norelly did not receive permission to access your messages" | On Google's sign-in page, access to messages was unticked. Start again and tick every permission requested. |
+| "This version of Norelly cannot connect to this provider" | Your version of Norelly was not built to connect to Google (unofficial version). Install the released version of Norelly or, for Gmail, use an app password (see [Adding your address](first-account.md#gmail-the-app-password)). |
 | "Unencrypted connection" | The server offers no protected connection. Only click **Allow** for a server you know, on your own network; otherwise click **Edit settings** and choose **TLS**. |
 | "This account has no archive folder" | Choose once and for all the folder to archive into: **⋯** button next to the account's address, then **Choose archive folder…**. |
 | "Attachments exceed 25 MiB." | Remove some files, or send them in several messages. For very large files, use a file-sharing service. |

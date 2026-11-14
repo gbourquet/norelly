@@ -25,8 +25,8 @@ use norelly_domain::auth::AuthError;
 use norelly_domain::credentials::Username;
 use norelly_domain::endpoint::{Host, Security};
 use norelly_domain::oauth::{
-    OAuthProvider, OAuthSource, TokenError, is_mailbox_not_connected, is_smtp_oauth_disabled,
-    require_offline_access, verify_identity,
+    OAuthProvider, OAuthSource, TokenError, add_account_sign_in_error, is_mailbox_not_connected,
+    is_smtp_oauth_disabled, require_mail_access, require_offline_access, verify_sign_in,
 };
 use norelly_domain::ports::OAuthClient;
 
@@ -248,6 +248,12 @@ where
     D: AccountRepository,
 {
     pub async fn execute(&self, request: AddOAuthAccountRequest) -> AddAccountOutcome {
+        if !request.provider.serves(&request.address) {
+            return AddAccountOutcome::Invalid(format!(
+                "fournisseur {} étranger à l'adresse",
+                request.provider
+            ));
+        }
         match self.accounts.find_by_address(&request.address).await {
             Ok(Some(_)) => return AddAccountOutcome::AlreadyExists,
             Ok(None) => {}
@@ -257,6 +263,9 @@ where
             Ok(servers) => servers,
             Err(e) => return AddAccountOutcome::Invalid(e),
         };
+        if !self.broker.is_usable(request.provider) {
+            return AddAccountOutcome::OAuthFailed(TokenError::ProviderNotConfigured);
+        }
         // Un essai précédent a pu échouer après la connexion chez le
         // fournisseur (serveur muet) : elle resservira, une seule fois, sans
         // navigateur.
@@ -266,17 +275,34 @@ where
                 None => match self
                     .broker
                     .client()
-                    .authorize(request.provider, &request.address)
+                    .authorize(&self.broker.config(request.provider), &request.address)
                     .await
                 {
                     Ok(grant) => (grant, Some(self.broker.now())),
-                    Err(e) => return AddAccountOutcome::OAuthFailed(e),
+                    Err(e) => {
+                        return AddAccountOutcome::OAuthFailed(add_account_sign_in_error(
+                            request.provider,
+                            e,
+                        ));
+                    }
                 },
             };
-        if let Err(e) = verify_identity(&request.address, grant.identity.as_ref()) {
+        if let Err(e) = verify_sign_in(
+            request.provider,
+            &self.broker.config(request.provider),
+            &request.address,
+            grant.identity.as_ref(),
+        ) {
             return AddAccountOutcome::OAuthFailed(e);
         }
         if let Err(e) = require_offline_access(grant.refresh_token.as_ref()) {
+            return AddAccountOutcome::OAuthFailed(e);
+        }
+        if let Err(e) = require_mail_access(
+            request.provider,
+            &self.broker.config(request.provider),
+            grant.granted_scopes.as_deref(),
+        ) {
             return AddAccountOutcome::OAuthFailed(e);
         }
         let name = request
@@ -456,12 +482,25 @@ pub async fn reconnect_oauth_account<O: OAuthClient, K: SecretStore, D: AccountR
         .map_err(|e| ReconnectError::Storage(e.to_string()))?
         .ok_or(ReconnectError::NotFound)?;
     let provider = account.oauth_provider().ok_or(ReconnectError::NotOAuth)?;
+    if !broker.is_usable(provider) {
+        return Err(ReconnectError::OAuth(TokenError::ProviderNotConfigured));
+    }
     let grant = broker
         .client()
-        .authorize(provider, account.address())
+        .authorize(&broker.config(provider), account.address())
         .await?;
-    verify_identity(account.address(), grant.identity.as_ref())?;
+    verify_sign_in(
+        provider,
+        &broker.config(provider),
+        account.address(),
+        grant.identity.as_ref(),
+    )?;
     require_offline_access(grant.refresh_token.as_ref())?;
+    require_mail_access(
+        provider,
+        &broker.config(provider),
+        grant.granted_scopes.as_deref(),
+    )?;
     let source = OAuthSource {
         provider,
         refresh_key: account.secret_key(Protocol::Imap),

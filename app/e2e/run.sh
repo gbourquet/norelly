@@ -95,6 +95,12 @@ common=(
   # Réglages de compilation de la CI (sans compilation incrémentale ni
   # informations de débogage) : transmis seulement s'ils sont définis, et
   # aux deux étapes, pour que les scénarios ne recompilent rien.
+  # Identifiants client Google factices, jamais ceux du shell (e2e
+  # reproductibles) : « Se connecter avec Google » est proposé (ADR-013),
+  # jamais utilisé (réseau de test sans Internet). Aux deux étapes, sinon
+  # les scénarios recompileraient.
+  -e NORELLY_GOOGLE_CLIENT_ID=norelly-e2e.apps.googleusercontent.com
+  -e NORELLY_GOOGLE_CLIENT_SECRET=norelly-e2e
   ${CARGO_INCREMENTAL:+-e CARGO_INCREMENTAL}
   ${CARGO_PROFILE_DEV_DEBUG:+-e CARGO_PROFILE_DEV_DEBUG}
   -v "$cache:/cache" -w /work

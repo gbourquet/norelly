@@ -198,6 +198,18 @@ pub async fn account_repository_contract<R: AccountRepository>(
         Some(&oauth),
         "fournisseur perdu"
     );
+    // Compte Google : chaque fournisseur est accepté par le stockage.
+    let google = sample_account("dave@gmail.com", false)
+        .with_oauth(norelly_domain::oauth::OAuthProvider::Google);
+    let stored_google = repo.insert(&google).await?;
+    assert_eq!(
+        repo.get(stored_google.id())
+            .await?
+            .and_then(|a| a.oauth_provider()),
+        Some(norelly_domain::oauth::OAuthProvider::Google),
+        "compte Google refusé ou fournisseur perdu"
+    );
+    repo.delete(stored_google.id()).await?;
     repo.delete(stored.id()).await?;
 
     let a = sample_account("alice@example.com", false);
@@ -358,7 +370,7 @@ pub struct FakeOAuthClient {
 impl norelly_domain::ports::OAuthClient for FakeOAuthClient {
     async fn authorize(
         &self,
-        _: norelly_domain::oauth::OAuthProvider,
+        _: &norelly_domain::oauth::OAuthConfig,
         login_hint: &EmailAddress,
     ) -> Result<norelly_domain::ports::OAuthGrant, norelly_domain::oauth::TokenError> {
         if let Ok(mut seen) = self.authorizations.lock() {
@@ -373,7 +385,7 @@ impl norelly_domain::ports::OAuthClient for FakeOAuthClient {
 
     async fn refresh(
         &self,
-        _: norelly_domain::oauth::OAuthProvider,
+        _: &norelly_domain::oauth::OAuthConfig,
         refresh_token: &Secret,
     ) -> Result<norelly_domain::ports::OAuthGrant, norelly_domain::oauth::TokenError> {
         if refresh_token.expose() != "r1" {
@@ -384,6 +396,7 @@ impl norelly_domain::ports::OAuthClient for FakeOAuthClient {
             expires_in: 3599,
             refresh_token: Some(Secret::new("r2".to_owned())),
             identity: None,
+            granted_scopes: None,
         })
     }
 }
@@ -394,7 +407,10 @@ impl norelly_domain::ports::OAuthClient for FakeOAuthClient {
 pub async fn oauth_client_contract<C: norelly_domain::ports::OAuthClient>(client: &C) {
     use norelly_domain::oauth::{OAuthProvider, TokenError};
     let grant = client
-        .refresh(OAuthProvider::Microsoft, &Secret::new("r1".to_owned()))
+        .refresh(
+            OAuthProvider::Microsoft.config(),
+            &Secret::new("r1".to_owned()),
+        )
         .await;
     let Ok(grant) = grant else {
         panic!("rafraîchissement refusé : {grant:?}");
@@ -403,7 +419,10 @@ pub async fn oauth_client_contract<C: norelly_domain::ports::OAuthClient>(client
     assert!(grant.expires_in > 0);
     assert!(grant.refresh_token.is_some(), "rotation attendue");
     let revoked = client
-        .refresh(OAuthProvider::Microsoft, &Secret::new("revoked".to_owned()))
+        .refresh(
+            OAuthProvider::Microsoft.config(),
+            &Secret::new("revoked".to_owned()),
+        )
         .await;
     assert_eq!(revoked.map(|_| ()), Err(TokenError::ReauthRequired));
 }

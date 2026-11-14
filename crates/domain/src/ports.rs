@@ -84,6 +84,9 @@ pub struct OAuthGrant {
     /// Identité du compte connecté, quand le fournisseur l'a fournie
     /// (connexion interactive).
     pub identity: Option<crate::oauth::OAuthIdentity>,
+    /// Scopes accordés, tels que renvoyés par le fournisseur (séparés par
+    /// des espaces) ; absents : ceux demandés.
+    pub granted_scopes: Option<String>,
 }
 
 /// Obtention et rafraîchissement des jetons OAuth (navigateur du système,
@@ -93,14 +96,14 @@ pub trait OAuthClient: Send + Sync {
     /// retour de l'utilisateur.
     fn authorize(
         &self,
-        provider: crate::oauth::OAuthProvider,
+        config: &crate::oauth::OAuthConfig,
         login_hint: &crate::address::EmailAddress,
     ) -> impl Future<Output = Result<OAuthGrant, crate::oauth::TokenError>> + Send;
 
     /// Nouveau jeton d'accès à partir du jeton de rafraîchissement.
     fn refresh(
         &self,
-        provider: crate::oauth::OAuthProvider,
+        config: &crate::oauth::OAuthConfig,
         refresh_token: &crate::credentials::Secret,
     ) -> impl Future<Output = Result<OAuthGrant, crate::oauth::TokenError>> + Send;
 }

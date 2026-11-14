@@ -405,12 +405,14 @@ pub struct AccountDto {
 #[serde(rename_all = "snake_case")]
 pub enum OAuthProviderDto {
     Microsoft,
+    Google,
 }
 
 impl From<OAuthProvider> for OAuthProviderDto {
     fn from(p: OAuthProvider) -> Self {
         match p {
             OAuthProvider::Microsoft => Self::Microsoft,
+            OAuthProvider::Google => Self::Google,
         }
     }
 }
@@ -420,7 +422,7 @@ impl From<OAuthProvider> for OAuthProviderDto {
 pub struct AddOAuthAccountInput {
     pub address: String,
     pub display_name: Option<String>,
-    /// Nom du fournisseur (`microsoft`), revalidé par le domaine.
+    /// Nom du fournisseur (`microsoft`, `google`), revalidé par le domaine.
     pub provider: String,
 }
 
@@ -606,11 +608,19 @@ pub enum FailureKindDto {
     /// Connexion chez le fournisseur abandonnée ou refusée par
     /// l'utilisateur.
     OauthCancelled,
+    /// Connexion Google abandonnée ou refusée à l'ajout d'un compte (Google
+    /// peut bloquer les nouveaux comptes d'une application non validée) : le
+    /// mot de passe d'application reste possible.
+    OauthGoogleRefused,
     /// Le compte choisi dans le navigateur n'est pas celui de l'adresse.
     OauthWrongAccount,
     /// Accès hors ligne refusé dans la page du fournisseur : aucun jeton de
     /// rafraîchissement délivré.
     OauthOfflineAccess,
+    /// Accès aux messages décoché dans la page du fournisseur.
+    OauthMailAccess,
+    /// Fournisseur dont cette version n'a pas les identifiants client.
+    OauthNotConfigured,
     /// Connexion chez le fournisseur impossible (réseau, réponse invalide).
     Oauth,
     Security,
@@ -636,6 +646,9 @@ pub fn connection_failure_of(e: &ConnectionError) -> (FailureKindDto, Option<Str
     }
     if let ConnectionError::Authentication(AuthError::SecretStoreUnavailable { message }) = e {
         return (FailureKindDto::SecretStore, Some(message.clone()));
+    }
+    if let ConnectionError::Authentication(AuthError::ProviderNotConfigured) = e {
+        return (FailureKindDto::OauthNotConfigured, None);
     }
     if let ConnectionError::Authentication(AuthError::ProviderUnavailable { message }) = e {
         return (FailureKindDto::Oauth, Some(message.clone()));
@@ -684,6 +697,7 @@ fn auth_detail(a: &AuthError) -> Option<String> {
         AuthError::SecretStoreUnavailable { message } => Some(message.clone()),
         AuthError::ProviderUnavailable { message } => Some(message.clone()),
         AuthError::Unsupported(_)
+        | AuthError::ProviderNotConfigured
         | AuthError::ReauthRequired
         | AuthError::LoginDisabled
         | AuthError::UnexpectedChallenge { .. } => None,
@@ -803,9 +817,12 @@ impl AddAccountResultDto {
 pub fn oauth_failure(e: &TokenError) -> AddAccountResultDto {
     match e {
         TokenError::Cancelled(_) => failed(None, FailureKindDto::OauthCancelled, None),
+        TokenError::GoogleSignInRefused => failed(None, FailureKindDto::OauthGoogleRefused, None),
         TokenError::ReauthRequired => failed(None, FailureKindDto::ReauthRequired, None),
         TokenError::WrongAccount => failed(None, FailureKindDto::OauthWrongAccount, None),
         TokenError::OfflineAccessRefused => failed(None, FailureKindDto::OauthOfflineAccess, None),
+        TokenError::MailAccessRefused => failed(None, FailureKindDto::OauthMailAccess, None),
+        TokenError::ProviderNotConfigured => failed(None, FailureKindDto::OauthNotConfigured, None),
         TokenError::Network(d) | TokenError::Protocol(d) => {
             failed(None, FailureKindDto::Oauth, Some(d.clone()))
         }
@@ -1385,6 +1402,18 @@ mod error_tests {
     }
 
     #[test]
+    fn unconfigured_provider_has_its_own_failure_kind() {
+        let (kind, detail) = connection_failure_of(&ConnectionError::Authentication(
+            AuthError::ProviderNotConfigured,
+        ));
+        assert_eq!(kind, FailureKindDto::OauthNotConfigured);
+        assert_eq!(detail, None);
+        let json = serde_json::to_value(oauth_failure(&TokenError::ProviderNotConfigured))
+            .unwrap_or_default();
+        assert_eq!(json["failure"], "oauth_not_configured");
+    }
+
+    #[test]
     fn unreadable_keyring_is_reported_as_a_keyring_failure() {
         let (kind, detail) = connection_failure_of(&ConnectionError::Authentication(
             AuthError::SecretStoreUnavailable {
@@ -1503,6 +1532,30 @@ mod error_tests {
             .unwrap_or_default();
         assert_eq!(json["failure"], "oauth_offline_access");
         assert_eq!(json["detail"], serde_json::Value::Null);
+    }
+
+    #[test]
+    fn refused_google_sign_in_has_its_own_failure_kind() {
+        let json = serde_json::to_value(oauth_failure(&TokenError::GoogleSignInRefused))
+            .unwrap_or_default();
+        assert_eq!(json["failure"], "oauth_google_refused");
+        assert_eq!(json["detail"], serde_json::Value::Null);
+    }
+
+    #[test]
+    fn refused_mail_access_has_its_own_failure_kind() {
+        let json =
+            serde_json::to_value(oauth_failure(&TokenError::MailAccessRefused)).unwrap_or_default();
+        assert_eq!(json["failure"], "oauth_mail_access");
+        assert_eq!(json["detail"], serde_json::Value::Null);
+    }
+
+    #[test]
+    fn google_provider_is_named_google() {
+        assert_eq!(
+            serde_json::to_value(OAuthProviderDto::from(OAuthProvider::Google)).unwrap_or_default(),
+            "google"
+        );
     }
 }
 

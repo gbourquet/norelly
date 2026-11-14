@@ -177,7 +177,7 @@ async fn reconnects_with_backoff_and_converges() {
     let SyncEvent::Offline { retry_in_ms, .. } = event else {
         panic!("{event:?}");
     };
-    assert!(retry_in_ms <= 200);
+    assert!(retry_in_ms.is_some_and(|delay| delay <= 200));
     // Changements pendant la panne, puis retour du serveur.
     r.imap
         .append("INBOX", b"Subject: a\r\n\r\n", Flags::default(), 1);
@@ -192,6 +192,44 @@ async fn reconnects_with_backoff_and_converges() {
         .append("INBOX", b"Subject: b\r\n\r\n", Flags::default(), 2);
     r.imap.set_offline(false);
     wait_inbox(&r, 2, WAIT).await;
+    r.handle.shutdown().await;
+}
+
+#[tokio::test]
+async fn provider_missing_from_this_version_stops_the_actor_without_retrying() {
+    use norelly_domain::auth::AuthError;
+    let imap = FakeImap::new();
+    let refused = ConnectionError::Authentication(AuthError::ProviderNotConfigured);
+    imap.set_connect_error(Some(refused.clone()));
+    let mut r = start(&imap);
+    let event = wait_for(&mut r.events, WAIT, offline).await;
+    let SyncEvent::Offline {
+        failure,
+        retry_in_ms,
+        ..
+    } = event
+    else {
+        panic!("{event:?}");
+    };
+    assert_eq!(failure, SyncFailure::Connection(refused.clone()));
+    assert_eq!(retry_in_ms, None, "aucun nouvel essai annoncé");
+    // Un seul essai par connexion de l'acteur (commandes et surveillance),
+    // puis plus rien : l'attente plafonnée à 200 ms en aurait fait d'autres.
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let attempts = r.imap.connect_attempts();
+    assert!(attempts <= 2, "{attempts} essais");
+    tokio::time::sleep(Duration::from_millis(800)).await;
+    assert_eq!(r.imap.connect_attempts(), attempts, "aucun nouvel essai");
+    // Une demande adressée à l'acteur arrêté rend la cause, pas une coupure.
+    let fetched = r
+        .handle
+        .fetch_body(
+            MailboxName::inbox(),
+            Uid::new(1).unwrap_or_else(|| panic!("uid")),
+            BodyFetch::Full,
+        )
+        .await;
+    assert_eq!(fetched.map(|_| ()), Err(refused));
     r.handle.shutdown().await;
 }
 

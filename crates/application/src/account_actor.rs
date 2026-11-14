@@ -99,6 +99,7 @@ enum Command {
 pub struct AccountHandle {
     account: AccountId,
     commands: mpsc::Sender<Command>,
+    halted: Halted,
     events: broadcast::Sender<SyncEvent>,
     stop: watch::Sender<bool>,
     tasks: Vec<JoinHandle<()>>,
@@ -133,6 +134,7 @@ impl AccountHandle {
     pub fn client(&self) -> ActorClient {
         ActorClient {
             commands: self.commands.clone(),
+            halted: Arc::clone(&self.halted),
         }
     }
 
@@ -168,9 +170,24 @@ impl AccountHandle {
 #[derive(Debug, Clone)]
 pub struct ActorClient {
     commands: mpsc::Sender<Command>,
+    halted: Halted,
 }
 
+/// Échec définitif qui a arrêté l'acteur
+/// ([`SyncFailure::retry_is_useless`]), partagé avec ses clients.
+type Halted = Arc<std::sync::Mutex<Option<ConnectionError>>>;
+
 impl ActorClient {
+    /// Erreur d'une demande que l'acteur ne recevra plus : la cause de son
+    /// arrêt si elle est connue, sinon une connexion coupée.
+    fn unreachable(&self) -> ConnectionError {
+        self.halted
+            .lock()
+            .ok()
+            .and_then(|h| h.clone())
+            .unwrap_or(ConnectionError::Closed)
+    }
+
     /// Télécharge un corps par la connexion de commandes (attend la
     /// reconnexion si elle est coupée ; à borner par l'appelant).
     pub async fn fetch_body(
@@ -188,8 +205,8 @@ impl ActorClient {
                 reply,
             })
             .await
-            .map_err(|_| ConnectionError::Closed)?;
-        answer.await.map_err(|_| ConnectionError::Closed)?
+            .map_err(|_| self.unreachable())?;
+        answer.await.map_err(|_| self.unreachable())?
     }
 
     /// Crée le dossier `label` (sous `parent`, ou au premier niveau) ;
@@ -236,7 +253,7 @@ impl ActorClient {
     /// liste des dossiers (événement [`SyncEvent::FoldersChanged`]).
     /// Attend la reconnexion si elle est coupée ; à borner par l'appelant.
     pub async fn change_folder(&self, change: FolderChange) -> Result<MailboxName, FolderFailure> {
-        let closed = || FolderFailure::Connection(ConnectionError::Closed);
+        let closed = || FolderFailure::Connection(self.unreachable());
         let (reply, answer) = oneshot::channel();
         self.commands
             .send(Command::Folder { change, reply })
@@ -297,6 +314,7 @@ struct Shared<C, M, B> {
     text: Arc<dyn SearchTextExtractor>,
     config: ActorConfig,
     events: broadcast::Sender<SyncEvent>,
+    halted: Halted,
 }
 
 impl<C, M, B> Shared<C, M, B>
@@ -323,12 +341,26 @@ where
         failure: &SyncFailure,
         stop: &mut watch::Receiver<bool>,
     ) -> bool {
+        if failure.retry_is_useless() {
+            // L'échec reste affiché et rendu aux demandes suivantes ;
+            // l'acteur repart au prochain démarrage.
+            tracing::warn!(account = %self.account, error = %failure, "synchronisation arrêtée");
+            if let (SyncFailure::Connection(e), Ok(mut halted)) = (failure, self.halted.lock()) {
+                *halted = Some(e.clone());
+            }
+            self.emit(SyncEvent::Offline {
+                account: self.account,
+                failure: failure.clone(),
+                retry_in_ms: None,
+            });
+            return false;
+        }
         let delay = backoff.next_delay_ms(jitter());
         tracing::warn!(account = %self.account, error = %failure, delay_ms = delay, "connexion perdue");
         self.emit(SyncEvent::Offline {
             account: self.account,
             failure: failure.clone(),
-            retry_in_ms: delay,
+            retry_in_ms: Some(delay),
         });
         tokio::select! {
             () = tokio::time::sleep(Duration::from_millis(delay)) => !*stop.borrow(),
@@ -838,6 +870,7 @@ where
     let (events, _) = broadcast::channel(256);
     let (commands_tx, commands_rx) = mpsc::channel(64);
     let (stop_tx, stop_rx) = watch::channel(false);
+    let halted: Halted = Arc::default();
     let shared = Arc::new(Shared {
         account,
         request,
@@ -847,6 +880,7 @@ where
         text,
         config,
         events: events.clone(),
+        halted: Arc::clone(&halted),
     });
     let tasks = vec![
         tokio::spawn(Arc::clone(&shared).command_loop(commands_rx, stop_rx.clone())),
@@ -855,6 +889,7 @@ where
     AccountHandle {
         account,
         commands: commands_tx,
+        halted,
         events,
         stop: stop_tx,
         tasks,

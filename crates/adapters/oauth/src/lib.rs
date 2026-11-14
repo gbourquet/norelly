@@ -14,8 +14,8 @@ use std::time::Duration;
 use norelly_domain::address::EmailAddress;
 use norelly_domain::credentials::Secret;
 use norelly_domain::oauth::{
-    AuthorizationRequest, CallbackError, OAuthConfig, OAuthIdentity, OAuthProvider, TokenError,
-    authorization_url, classify_token_error, code_exchange_form, parse_callback, refresh_form,
+    AuthorizationRequest, CallbackError, OAuthConfig, OAuthIdentity, TokenError, authorization_url,
+    classify_token_error, code_exchange_form, parse_callback, refresh_form,
 };
 use norelly_domain::ports::{OAuthClient, OAuthGrant};
 use norelly_tls::TlsClientFactory;
@@ -115,10 +115,9 @@ impl<B: BrowserOpener> HttpOAuthClient<B> {
 
     async fn authorize_impl(
         &self,
-        provider: OAuthProvider,
+        config: &OAuthConfig,
         login_hint: &EmailAddress,
     ) -> Result<OAuthGrant, TokenError> {
-        let config = provider.config();
         let listener = TcpListener::bind(("127.0.0.1", 0))
             .await
             .map_err(|e| TokenError::Network(e.to_string()))?;
@@ -152,10 +151,9 @@ impl<B: BrowserOpener> HttpOAuthClient<B> {
 
     async fn refresh_impl(
         &self,
-        provider: OAuthProvider,
+        config: &OAuthConfig,
         refresh_token: &Secret,
     ) -> Result<OAuthGrant, TokenError> {
-        let config = provider.config();
         self.post_token(config, refresh_form(config, refresh_token))
             .await
     }
@@ -183,18 +181,18 @@ impl<B: BrowserOpener> HttpOAuthClient<B> {
 impl<B: BrowserOpener> OAuthClient for HttpOAuthClient<B> {
     async fn authorize(
         &self,
-        provider: OAuthProvider,
+        config: &OAuthConfig,
         login_hint: &EmailAddress,
     ) -> Result<OAuthGrant, TokenError> {
-        self.authorize_impl(provider, login_hint).await
+        self.authorize_impl(config, login_hint).await
     }
 
     async fn refresh(
         &self,
-        provider: OAuthProvider,
+        config: &OAuthConfig,
         refresh_token: &Secret,
     ) -> Result<OAuthGrant, TokenError> {
-        self.refresh_impl(provider, refresh_token).await
+        self.refresh_impl(config, refresh_token).await
     }
 }
 
@@ -294,6 +292,7 @@ struct TokenResponse {
     expires_in: Option<u64>,
     refresh_token: Option<String>,
     id_token: Option<String>,
+    scope: Option<String>,
     error: Option<String>,
 }
 
@@ -302,6 +301,11 @@ struct TokenResponse {
 struct IdTokenClaims {
     preferred_username: Option<String>,
     email: Option<String>,
+    iss: Option<String>,
+    /// Chaîne ou liste de chaînes (OpenID Connect).
+    aud: Option<serde_json::Value>,
+    /// Booléen, ou chaîne `"true"`/`"false"` (déjà vu chez Google).
+    email_verified: Option<serde_json::Value>,
 }
 
 /// Identité portée par un `id_token` (JWT `en-tête.contenu.signature`).
@@ -319,6 +323,21 @@ fn identity_of(id_token: &str) -> Option<OAuthIdentity> {
     Some(OAuthIdentity {
         preferred_username: claims.preferred_username,
         email: claims.email,
+        issuer: claims.iss,
+        audience: match claims.aud {
+            Some(serde_json::Value::String(aud)) => vec![aud],
+            Some(serde_json::Value::Array(auds)) => auds
+                .into_iter()
+                .filter_map(|a| a.as_str().map(str::to_owned))
+                .collect(),
+            _ => Vec::new(),
+        },
+        email_verified: match claims.email_verified {
+            Some(serde_json::Value::Bool(v)) => Some(v),
+            Some(serde_json::Value::String(v)) if v == "true" => Some(true),
+            Some(serde_json::Value::String(v)) if v == "false" => Some(false),
+            _ => None,
+        },
     })
 }
 
@@ -342,6 +361,7 @@ fn parse_token_response(status: u16, body: &[u8]) -> Result<OAuthGrant, TokenErr
             .filter(|t| !t.is_empty())
             .map(Secret::new),
         identity: parsed.id_token.as_deref().and_then(identity_of),
+        granted_scopes: parsed.scope,
     })
 }
 

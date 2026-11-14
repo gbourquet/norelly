@@ -55,16 +55,37 @@ n'est pas chiffrée (ADR-003) : on s'appuie sur le chiffrement du disque.
   `127.0.0.1` seulement, port éphémère, requête bornée
   (`crates/adapters/oauth`).
 - Compte vérifié : la connexion interactive demande aussi `openid email
-  profile` ; l'`id_token` reçu du point d'accès des jetons (HTTPS vérifié,
+  profile` (Google : `openid email`) ; l'`id_token` reçu du point d'accès des jetons (HTTPS vérifié,
   en échange du code et du vérificateur PKCE, donc signature non
   vérifiée) doit porter l'adresse du compte en `preferred_username` ou
   `email`, sinon les jetons sont refusés avant tout test, stockage ou
   remplacement, à l'ajout comme à la reconnexion
-  (`crates/domain/src/oauth.rs`, `verify_identity`). Un code d'un autre
-  compte injecté dans la redirection locale est ainsi refusé. Le
-  rafraîchissement garde les seuls scopes de messagerie.
-- Identifiant client public embarqué (application de bureau, sans
-  secret). Jeton de rafraîchissement dans le trousseau seulement ; jeton
+  (`crates/domain/src/oauth.rs`, `verify_sign_in`, `verify_identity`). Un
+  code d'un autre compte injecté dans la redirection locale est ainsi
+  refusé. Google : `iss` de Google (`https://accounts.google.com` ou
+  `accounts.google.com`), `aud` égal à l'identifiant client et
+  `email_verified` exigés (`check_identity_claims`) ; Microsoft : à venir.
+  Connexion Google sans le scope de messagerie (consentement granulaire) :
+  refusée (`require_mail_access`). Version compilée sans les identifiants
+  d'un fournisseur : rien ne lui est envoyé, ni jeton de rafraîchissement
+  ni ouverture du navigateur (`TokenBroker`, `AuthError::ProviderNotConfigured`,
+  refus définitif sans nouvel essai). Le
+  rafraîchissement redemande les seuls scopes de messagerie chez
+  Microsoft ; Google garde les scopes accordés (`openid email` compris),
+  le jeton ne partant de toute façon que vers les serveurs de Gmail.
+- Ajout d'un compte OAuth : le fournisseur demandé par l'interface doit
+  être celui de l'adresse (`OAuthProvider::serves`), sinon la demande est
+  refusée avant toute connexion (réponse d'interface périmée, adresse
+  changée pendant la saisie).
+- Identifiant client public embarqué (application de bureau). Microsoft :
+  sans secret. Google : identifiant et `client_secret` du client
+  « application de bureau » fournis à la compilation (secrets de la CI,
+  jamais dans le dépôt ; ADR-013), masqués dans `Debug` ; le secret n'est
+  pas confidentiel (même valeur
+  dans chaque copie de l'application, toléré par Google pour les
+  applications installées) et ne protège rien : le code d'autorisation
+  reste protégé par PKCE et `state`, et le jeton n'est présenté qu'aux
+  serveurs de Gmail. Jeton de rafraîchissement dans le trousseau seulement ; jeton
   d'accès en mémoire ; aucun jeton dans les journaux, les erreurs ni
   `Debug` ; le corps des réponses du fournisseur n'est jamais recopié, et
   un code d'erreur n'est repris que s'il est court et imprimable.

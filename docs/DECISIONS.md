@@ -666,6 +666,30 @@ est majoritairement écrit par Claude et relu par le mainteneur.
     `offline_access`, identifiant client public de l'inscription
     Entra ID ; `openid email profile` à la connexion interactive, pour
     vérifier que le compte choisi est celui de l'adresse) ; Google ne sera qu'une configuration de plus ;
+  - Google (2026-11-14) : adresses `gmail.com`, scope
+    `https://mail.google.com/`, `openid email` à la connexion interactive,
+    `access_type=offline` et `prompt=select_account consent` (sans quoi
+    Google ne redonne pas de jeton de rafraîchissement), rafraîchissement
+    sans scope ; le client « application de bureau » de Google exige son
+    `client_secret` au point d'accès des jetons. Ni lui ni l'identifiant
+    client ne sont écrits dans le dépôt (public) : la protection au push de
+    GitHub les refuse, et un secret publié peut être révoqué par Google.
+    Décision du mainteneur : ils sont fournis **à la compilation**
+    (`NORELLY_GOOGLE_CLIENT_ID`, `NORELLY_GOOGLE_CLIENT_SECRET`, lus par
+    `option_env!` dans le domaine, sans E/S), depuis les secrets de la CI
+    pour les versions publiées (build refusé s'ils manquent). Ils restent
+    non confidentiels (même valeur dans chaque copie, code protégé par
+    PKCE). Sans eux (développement, tests), « Se connecter avec Google »
+    n'est pas proposé et une adresse Gmail garde le mot de passe
+    d'application (`OAuthProvider::offered_for`), et un compte Google déjà
+    enregistré n'envoie plus rien à Google (refus définitif,
+    `ProviderNotConfigured`) ; les e2e compilent avec des valeurs
+    factices ; secrets rangés dans l'environnement `release` (jobs Linux et
+    Windows) ;
+  - identité Google : `iss`, `aud` et `email_verified` vérifiés ; scope de
+    messagerie exigé parmi les scopes accordés (Google permet d'en
+    décocher) ;
+    fournisseur `google` accepté en base (migration 14) ;
   - jeton de rafraîchissement dans le trousseau, sous la clé IMAP du
     compte ; jeton d'accès en mémoire ; fournisseur enregistré sur le
     compte (migration 13) ;
@@ -680,4 +704,9 @@ est majoritairement écrit par Claude et relu par le mainteneur.
   - la page renvoyée au navigateur après la connexion est le seul texte
     affiché hors de l'interface, neutre et bilingue, sans donnée ;
   - un compte OAuth ne passe jamais par l'autodécouverte ni la saisie
-    manuelle des serveurs.
+    manuelle des serveurs ;
+  - application Google non validée : avertissement de Google expliqué à
+    l'écran avant le navigateur, et nombre d'utilisateurs limité par
+    Google ; une connexion Google annulée à l'ajout (refus, abandon, délai)
+    devient `GoogleSignInRefused`, qui oriente vers le mot de passe
+    d'application, toujours proposé à côté.

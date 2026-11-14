@@ -63,7 +63,9 @@ pub enum SyncEvent {
     Offline {
         account: AccountId,
         failure: SyncFailure,
-        retry_in_ms: u64,
+        /// Attente avant le nouvel essai ; `None` : aucun nouvel essai (la
+        /// synchronisation s'arrête, l'échec reste affiché).
+        retry_in_ms: Option<u64>,
     },
 }
 
@@ -79,6 +81,13 @@ pub enum SyncFailure {
 }
 
 impl SyncFailure {
+    /// Vrai si un nouvel essai ne peut pas aboutir
+    /// ([`ConnectionError::retry_is_useless`]).
+    #[must_use]
+    pub fn retry_is_useless(&self) -> bool {
+        matches!(self, Self::Connection(e) if e.retry_is_useless())
+    }
+
     /// Vrai si la connexion est à rouvrir (erreur réseau ou protocole) ;
     /// faux pour une commande simplement refusée (`NO`).
     #[must_use]

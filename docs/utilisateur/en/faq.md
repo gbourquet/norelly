@@ -69,6 +69,14 @@ the images you have allowed and, if you accepted it on Windows, to
 GitHub (which hosts Norelly) to check for updates: GitHub then sees your IP
 address, but no identifier is sent.
 
+## How do I add a Gmail account?
+
+Type your address in the add window, then click **Sign in with Google**:
+you sign in on Google's page, in your browser. Google first shows "Google
+hasn't verified this app": click **Advanced**, then **Go to Norelly
+(unsafe)**. An app password is still possible. See
+[Gmail: sign in with Google](first-account.md#gmail-sign-in-with-google).
+
 ## How do I add an Outlook.com or Hotmail account?
 
 Type your address in the add window, then click **Sign in with

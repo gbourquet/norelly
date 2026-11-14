@@ -251,6 +251,12 @@ export function failureText(failure: FailureKindDto): string {
       return m.failure_reauth_required();
     case "oauth_cancelled":
       return m.failure_oauth_cancelled();
+    case "oauth_google_refused":
+      return m.failure_oauth_google_refused();
+    case "oauth_mail_access":
+      return m.failure_oauth_mail_access();
+    case "oauth_not_configured":
+      return m.failure_oauth_not_configured();
     case "oauth_wrong_account":
       return m.failure_oauth_wrong_account();
     case "oauth_offline_access":

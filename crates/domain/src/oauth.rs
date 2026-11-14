@@ -1,4 +1,5 @@
-//! Connexion OAuth 2.0 (« Se connecter avec Microsoft ») : configuration
+//! Connexion OAuth 2.0 (« Se connecter avec Microsoft », « Se connecter
+//! avec Google ») : configuration
 //! des fournisseurs, demande d'autorisation (code + PKCE, RFC 7636), retour
 //! du navigateur, réponse SASL XOAUTH2 et règles d'expiration des jetons.
 //!
@@ -19,16 +20,28 @@ pub const ACCESS_TOKEN_MARGIN_SECS: u64 = 120;
 pub enum OAuthProvider {
     /// Comptes Microsoft personnels (Outlook.com, Hotmail, Live).
     Microsoft,
+    /// Comptes Gmail.
+    Google,
 }
 
-/// Configuration d'un fournisseur : points d'accès, identifiant client
-/// (public : une application de bureau ne garde pas de secret), scopes et
-/// serveurs de messagerie.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// Configuration d'un fournisseur : points d'accès, identifiant client,
+/// scopes et serveurs de messagerie.
+#[derive(Clone, PartialEq, Eq)]
 pub struct OAuthConfig {
     pub authorize_url: &'static str,
     pub token_url: &'static str,
     pub client_id: &'static str,
+    /// Secret d'un client « application de bureau » que le fournisseur
+    /// exige au point d'accès des jetons (Google). Il n'est pas
+    /// confidentiel : il est embarqué dans chaque copie de l'application,
+    /// et le code d'autorisation reste protégé par PKCE.
+    pub client_secret: Option<&'static str>,
+    /// Paramètres propres au fournisseur ajoutés à la demande
+    /// d'autorisation.
+    pub authorize_params: &'static [(&'static str, &'static str)],
+    /// Le rafraîchissement redemande les scopes (Microsoft) ; sinon le
+    /// fournisseur garde ceux qui ont été accordés (Google).
+    pub refresh_with_scopes: bool,
     pub scopes: &'static [&'static str],
     /// Scopes OpenID demandés à la seule connexion interactive : l'identité
     /// du compte choisi dans le navigateur revient dans l'`id_token`.
@@ -37,10 +50,48 @@ pub struct OAuthConfig {
     pub smtp_host: &'static str,
 }
 
+impl OAuthConfig {
+    /// Vrai si l'application a reçu, à la compilation, les identifiants
+    /// client du fournisseur : identifiant, et secret quand il en exige un.
+    #[must_use]
+    pub fn is_usable(&self) -> bool {
+        !self.client_id.is_empty() && self.client_secret.is_none_or(|s| !s.is_empty())
+    }
+}
+
+/// Fournisseur proposé pour « Se connecter avec … » : celui de l'adresse,
+/// s'il est utilisable (`usable`). Sinon, la connexion par mot de passe.
+#[must_use]
+pub fn offered_provider(
+    address: &EmailAddress,
+    usable: impl Fn(OAuthProvider) -> bool,
+) -> Option<OAuthProvider> {
+    OAuthProvider::for_address(address).filter(|p| usable(*p))
+}
+
+/// Sans le secret client : non confidentiel, il reste hors des journaux
+/// comme tout secret.
+impl fmt::Debug for OAuthConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("OAuthConfig")
+            .field("authorize_url", &self.authorize_url)
+            .field("token_url", &self.token_url)
+            .field("client_id", &self.client_id)
+            .field("client_secret", &self.client_secret.map(|_| "…"))
+            .field("scopes", &self.scopes)
+            .field("imap_host", &self.imap_host)
+            .field("smtp_host", &self.smtp_host)
+            .finish_non_exhaustive()
+    }
+}
+
 const MICROSOFT: OAuthConfig = OAuthConfig {
     authorize_url: "https://login.microsoftonline.com/consumers/oauth2/v2.0/authorize",
     token_url: "https://login.microsoftonline.com/consumers/oauth2/v2.0/token",
     client_id: "10a28ed0-5f58-4684-bc78-f4a2c6c1a0eb",
+    client_secret: None,
+    authorize_params: &[("prompt", "select_account")],
+    refresh_with_scopes: true,
     scopes: &[
         "https://outlook.office.com/IMAP.AccessAsUser.All",
         "https://outlook.office.com/SMTP.Send",
@@ -50,6 +101,39 @@ const MICROSOFT: OAuthConfig = OAuthConfig {
     imap_host: "outlook.office365.com",
     smtp_host: "smtp-mail.outlook.com",
 };
+
+/// Identifiants du client Google « application de bureau », fournis à la
+/// compilation (`NORELLY_GOOGLE_CLIENT_ID`, `NORELLY_GOOGLE_CLIENT_SECRET`)
+/// et non écrits dans le dépôt (décision du mainteneur, ADR-013). Ils ne
+/// sont pas confidentiels : chaque copie de l'application les contient.
+/// Absents : « Se connecter avec Google » n'est pas proposé.
+const GOOGLE: OAuthConfig = OAuthConfig {
+    authorize_url: "https://accounts.google.com/o/oauth2/v2/auth",
+    token_url: "https://oauth2.googleapis.com/token",
+    client_id: match option_env!("NORELLY_GOOGLE_CLIENT_ID") {
+        Some(id) => id,
+        None => "",
+    },
+    client_secret: Some(match option_env!("NORELLY_GOOGLE_CLIENT_SECRET") {
+        Some(secret) => secret,
+        None => "",
+    }),
+    // `access_type=offline` : jeton de rafraîchissement ; `consent` : Google
+    // le redonne aussi à un compte qui a déjà autorisé Norelly.
+    authorize_params: &[
+        ("access_type", "offline"),
+        ("prompt", "select_account consent"),
+    ],
+    refresh_with_scopes: false,
+    scopes: &["https://mail.google.com/"],
+    identity_scopes: &["openid", "email"],
+    imap_host: "imap.gmail.com",
+    smtp_host: "smtp.gmail.com",
+};
+
+/// Domaines des comptes Gmail. Un domaine Google Workspace ne se reconnaît
+/// pas à son nom : il garde la connexion par mot de passe.
+const GOOGLE_DOMAINS: [&str; 1] = ["gmail.com"];
 
 /// Domaines des comptes Microsoft personnels.
 const MICROSOFT_DOMAINS: [&str; 12] = [
@@ -73,6 +157,7 @@ impl OAuthProvider {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Microsoft => "microsoft",
+            Self::Google => "google",
         }
     }
 
@@ -81,6 +166,7 @@ impl OAuthProvider {
     pub fn parse(raw: &str) -> Option<Self> {
         match raw {
             "microsoft" => Some(Self::Microsoft),
+            "google" => Some(Self::Google),
             _ => None,
         }
     }
@@ -89,16 +175,36 @@ impl OAuthProvider {
     pub fn config(self) -> &'static OAuthConfig {
         match self {
             Self::Microsoft => &MICROSOFT,
+            Self::Google => &GOOGLE,
         }
+    }
+
+    /// Vrai si ce fournisseur est celui de l'adresse. Un ajout de compte
+    /// par un autre fournisseur que celui de l'adresse est refusé : la
+    /// demande de l'interface peut dater d'une adresse en cours de saisie.
+    #[must_use]
+    pub fn serves(self, address: &EmailAddress) -> bool {
+        Self::for_address(address) == Some(self)
+    }
+
+    /// Fournisseur proposé pour l'adresse avec la configuration compilée
+    /// (voir [`offered_provider`]).
+    #[must_use]
+    pub fn offered_for(address: &EmailAddress) -> Option<Self> {
+        offered_provider(address, |p| p.config().is_usable())
     }
 
     /// Fournisseur OAuth d'une adresse, d'après son domaine.
     #[must_use]
     pub fn for_address(address: &EmailAddress) -> Option<Self> {
         let domain = address.domain().as_str().to_ascii_lowercase();
-        MICROSOFT_DOMAINS
-            .contains(&domain.as_str())
-            .then_some(Self::Microsoft)
+        if MICROSOFT_DOMAINS.contains(&domain.as_str()) {
+            Some(Self::Microsoft)
+        } else if GOOGLE_DOMAINS.contains(&domain.as_str()) {
+            Some(Self::Google)
+        } else {
+            None
+        }
     }
 }
 
@@ -121,17 +227,19 @@ pub struct AuthorizationRequest<'a> {
 /// URL à ouvrir dans le navigateur du système.
 #[must_use]
 pub fn authorization_url(config: &OAuthConfig, request: &AuthorizationRequest<'_>) -> String {
-    let params = [
+    let scopes = authorization_scopes(config);
+    let login_hint = request.login_hint.to_string();
+    let mut params = vec![
         ("response_type", "code"),
         ("client_id", config.client_id),
         ("redirect_uri", request.redirect_uri),
-        ("scope", &authorization_scopes(config)),
+        ("scope", scopes.as_str()),
         ("state", request.state),
         ("code_challenge", request.code_challenge),
         ("code_challenge_method", "S256"),
-        ("login_hint", &request.login_hint.to_string()),
-        ("prompt", "select_account"),
+        ("login_hint", login_hint.as_str()),
     ];
+    params.extend_from_slice(config.authorize_params);
     format!("{}?{}", config.authorize_url, encode_pairs(&params))
 }
 
@@ -162,24 +270,33 @@ pub fn code_exchange_form(
     redirect_uri: &str,
     code_verifier: &Secret,
 ) -> Secret {
-    Secret::new(encode_pairs(&[
+    let mut pairs = vec![
         ("grant_type", "authorization_code"),
         ("client_id", config.client_id),
+    ];
+    pairs.extend(config.client_secret.map(|s| ("client_secret", s)));
+    pairs.extend([
         ("code", code.expose()),
         ("redirect_uri", redirect_uri),
         ("code_verifier", code_verifier.expose()),
-    ]))
+    ]);
+    Secret::new(encode_pairs(&pairs))
 }
 
 /// Corps (formulaire) du rafraîchissement d'un jeton d'accès.
 #[must_use]
 pub fn refresh_form(config: &OAuthConfig, refresh_token: &Secret) -> Secret {
-    Secret::new(encode_pairs(&[
+    let scopes = config.scopes.join(" ");
+    let mut pairs = vec![
         ("grant_type", "refresh_token"),
         ("client_id", config.client_id),
-        ("refresh_token", refresh_token.expose()),
-        ("scope", &config.scopes.join(" ")),
-    ]))
+    ];
+    pairs.extend(config.client_secret.map(|s| ("client_secret", s)));
+    pairs.push(("refresh_token", refresh_token.expose()));
+    if config.refresh_with_scopes {
+        pairs.push(("scope", scopes.as_str()));
+    }
+    Secret::new(encode_pairs(&pairs))
 }
 
 /// Encodage `application/x-www-form-urlencoded` d'une valeur.
@@ -367,6 +484,61 @@ impl PendingAuthorization {
 pub struct OAuthIdentity {
     pub preferred_username: Option<String>,
     pub email: Option<String>,
+    /// Émetteur de l'`id_token` (`iss`).
+    pub issuer: Option<String>,
+    /// Destinataires de l'`id_token` (`aud`).
+    pub audience: Vec<String>,
+    /// Adresse `email` vérifiée par le fournisseur (`email_verified`).
+    pub email_verified: Option<bool>,
+}
+
+/// Émetteurs de l'`id_token` de Google.
+const GOOGLE_ISSUERS: [&str; 2] = ["https://accounts.google.com", "accounts.google.com"];
+
+/// Revendications de l'`id_token` propres au fournisseur. Google : émis
+/// par Google, pour l'identifiant client de `config`, adresse vérifiée
+/// (sinon le compte n'a pas prouvé qu'il la possède). Microsoft : non
+/// vérifiées ici.
+pub fn check_identity_claims(
+    provider: OAuthProvider,
+    config: &OAuthConfig,
+    identity: &OAuthIdentity,
+) -> Result<(), TokenError> {
+    if provider != OAuthProvider::Google {
+        return Ok(());
+    }
+    let issuer_ok = identity
+        .issuer
+        .as_deref()
+        .is_some_and(|iss| GOOGLE_ISSUERS.contains(&iss));
+    let audience_ok =
+        !config.client_id.is_empty() && identity.audience.iter().any(|a| a == config.client_id);
+    if !(issuer_ok && audience_ok) {
+        return Err(TokenError::Protocol(
+            "identité émise pour une autre application".to_owned(),
+        ));
+    }
+    if identity.email_verified == Some(true) {
+        Ok(())
+    } else {
+        Err(TokenError::WrongAccount)
+    }
+}
+
+/// Vérification complète de l'identité d'une connexion interactive faite
+/// avec `config` : revendications du fournisseur
+/// ([`check_identity_claims`]), puis compte de l'adresse
+/// ([`verify_identity`]).
+pub fn verify_sign_in(
+    provider: OAuthProvider,
+    config: &OAuthConfig,
+    address: &EmailAddress,
+    identity: Option<&OAuthIdentity>,
+) -> Result<(), TokenError> {
+    if let Some(identity) = identity {
+        check_identity_claims(provider, config, identity)?;
+    }
+    verify_identity(address, identity)
 }
 
 /// Refuse les jetons d'un autre compte que celui de `address` : erreur de
@@ -402,6 +574,9 @@ pub fn auth_error_of(error: &TokenError) -> crate::auth::AuthError {
     use crate::auth::AuthError;
     match error {
         TokenError::ReauthRequired => AuthError::ReauthRequired,
+        // Ni reconnexion (vouée à l'échec) ni panne passagère (nouveaux
+        // essais en boucle) : refus définitif de cette version.
+        TokenError::ProviderNotConfigured => AuthError::ProviderNotConfigured,
         TokenError::Network(_) => AuthError::ProviderUnavailable {
             message: error.to_string(),
         },
@@ -418,6 +593,32 @@ pub fn require_offline_access(refresh_token: Option<&Secret>) -> Result<(), Toke
     refresh_token
         .map(|_| ())
         .ok_or(TokenError::OfflineAccessRefused)
+}
+
+/// Refuse une connexion interactive sans l'accès aux messages : Google
+/// laisse décocher les autorisations demandées, et le compte échouerait
+/// ensuite par un refus d'identifiants trompeur. `granted_scopes` : scopes
+/// renvoyés par le point d'accès des jetons ; absents, ce sont ceux
+/// demandés (RFC 6749, section 5.1). Microsoft, qui les renvoie sous une
+/// autre forme, n'est pas concerné.
+pub fn require_mail_access(
+    provider: OAuthProvider,
+    config: &OAuthConfig,
+    granted_scopes: Option<&str>,
+) -> Result<(), TokenError> {
+    let (OAuthProvider::Google, Some(granted)) = (provider, granted_scopes) else {
+        return Ok(());
+    };
+    let granted = granted.split_ascii_whitespace();
+    if config
+        .scopes
+        .iter()
+        .all(|wanted| granted.clone().any(|g| g == *wanted))
+    {
+        Ok(())
+    } else {
+        Err(TokenError::MailAccessRefused)
+    }
 }
 
 /// Échec d'obtention ou de rafraîchissement d'un jeton. Ne contient jamais
@@ -439,10 +640,38 @@ pub enum TokenError {
     /// L'utilisateur a refusé ou abandonné la connexion.
     #[error("connexion annulée : {0}")]
     Cancelled(String),
+    /// Accès aux messages décoché dans la page du fournisseur : le compte
+    /// ne pourrait ni recevoir ni envoyer.
+    #[error("accès aux messages refusé")]
+    MailAccessRefused,
+    /// Cette version de l'application n'a pas reçu, à la compilation, les
+    /// identifiants client du fournisseur : rien ne lui est envoyé.
+    #[error("fournisseur non configuré dans cette version")]
+    ProviderNotConfigured,
+    /// Connexion Google abandonnée ou refusée pendant un ajout de compte.
+    /// Google peut bloquer un nouveau compte (plafond d'utilisateurs d'une
+    /// application non validée) sans le dire à Norelly : le mot de passe
+    /// d'application reste possible.
+    #[error("connexion Google refusée ou abandonnée")]
+    GoogleSignInRefused,
     #[error("erreur réseau : {0}")]
     Network(String),
     #[error("réponse du fournisseur invalide : {0}")]
     Protocol(String),
+}
+
+/// Erreur de la connexion interactive d'un **ajout** de compte. Chez
+/// Google, une connexion annulée (refus dans la page, délai dépassé) peut
+/// venir du blocage des nouveaux comptes, que la page de Google ne renvoie
+/// pas toujours à Norelly : elle devient [`TokenError::GoogleSignInRefused`],
+/// qui oriente vers le mot de passe d'application. Une reconnexion n'est pas
+/// concernée : un compte déjà autorisé n'est pas bloqué.
+#[must_use]
+pub fn add_account_sign_in_error(provider: OAuthProvider, error: TokenError) -> TokenError {
+    match (provider, error) {
+        (OAuthProvider::Google, TokenError::Cancelled(_)) => TokenError::GoogleSignInRefused,
+        (_, error) => error,
+    }
 }
 
 /// Classe une réponse d'erreur du point d'accès des jetons (RFC 6749,

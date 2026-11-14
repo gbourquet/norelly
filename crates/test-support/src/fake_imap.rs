@@ -85,6 +85,10 @@ struct State {
     /// Taille maximale d'un message déposé (APPEND) ; au-delà : refus
     /// `NO [OVERQUOTA]`.
     append_limit: Option<usize>,
+    /// Erreur rendue à chaque ouverture de session.
+    connect_error: Option<ConnectionError>,
+    /// Ouvertures de session demandées.
+    connect_attempts: usize,
 }
 
 impl State {
@@ -135,6 +139,8 @@ impl FakeImap {
             delay: Duration::ZERO,
             race_deleted: None,
             append_limit: None,
+            connect_error: None,
+            connect_attempts: 0,
         };
         Self {
             state: Arc::new(Mutex::new(state)),
@@ -166,6 +172,16 @@ impl FakeImap {
     }
 
     /// Serveur injoignable : les connexions échouent.
+    /// Erreur rendue à chaque ouverture de session (`None` : aucune).
+    pub fn set_connect_error(&self, error: Option<ConnectionError>) {
+        lock(&self.state).connect_error = error;
+    }
+
+    /// Nombre d'ouvertures de session demandées.
+    pub fn connect_attempts(&self) -> usize {
+        lock(&self.state).connect_attempts
+    }
+
     pub fn set_offline(&self, offline: bool) {
         lock(&self.state).offline = offline;
     }
@@ -357,6 +373,13 @@ impl FakeImap {
 
     /// Ouvre une session (sans authentification).
     pub fn session(&self) -> Result<FakeImapSession, ConnectionError> {
+        {
+            let mut state = lock(&self.state);
+            state.connect_attempts += 1;
+            if let Some(error) = state.connect_error.clone() {
+                return Err(error);
+            }
+        }
         if self.is_offline() {
             return Err(ConnectionError::Network("serveur injoignable".into()));
         }

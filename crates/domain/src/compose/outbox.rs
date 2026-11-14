@@ -434,6 +434,13 @@ mod tests {
             SendFailure::Temporary,
             "fournisseur injoignable : rien n'est parti, réessayé plus tard"
         );
+        assert_eq!(
+            conn(ConnectionError::Authentication(
+                AuthError::ProviderNotConfigured
+            )),
+            SendFailure::Authentication,
+            "fournisseur absent de cette version : pas de nouveaux essais en boucle"
+        );
         for security in [
             ConnectionError::Tls("x".into()),
             ConnectionError::StartTlsUnavailable,

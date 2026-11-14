@@ -110,6 +110,17 @@ pub enum FailureCategory {
 }
 
 impl ConnectionError {
+    /// Vrai si un nouvel essai ne peut pas aboutir avec cette version de
+    /// l'application (fournisseur OAuth dont elle n'a pas les identifiants
+    /// client) : la synchronisation s'arrête au lieu de réessayer.
+    #[must_use]
+    pub fn retry_is_useless(&self) -> bool {
+        matches!(
+            self,
+            Self::Authentication(crate::auth::AuthError::ProviderNotConfigured)
+        )
+    }
+
     #[must_use]
     pub fn category(&self) -> FailureCategory {
         match self {
@@ -167,6 +178,26 @@ pub const CONNECTION_RETRY_DELAY: std::time::Duration = std::time::Duration::fro
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn retrying_is_useless_only_when_this_version_lacks_the_provider() {
+        use crate::auth::AuthError;
+        assert!(
+            ConnectionError::Authentication(AuthError::ProviderNotConfigured).retry_is_useless()
+        );
+        for e in [
+            ConnectionError::Network("x".into()),
+            ConnectionError::Authentication(AuthError::ReauthRequired),
+            ConnectionError::Authentication(AuthError::Rejected {
+                message: "x".into(),
+            }),
+            ConnectionError::Authentication(AuthError::ProviderUnavailable {
+                message: "x".into(),
+            }),
+        ] {
+            assert!(!e.retry_is_useless(), "{e:?}");
+        }
+    }
+
     use super::*;
 
     #[test]

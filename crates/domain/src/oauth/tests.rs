@@ -18,7 +18,9 @@ fn provider_name_roundtrip() {
         Some(OAuthProvider::Microsoft)
     );
     assert_eq!(OAuthProvider::Microsoft.as_str(), "microsoft");
-    assert_eq!(OAuthProvider::parse("google"), None);
+    assert_eq!(OAuthProvider::parse("google"), Some(OAuthProvider::Google));
+    assert_eq!(OAuthProvider::Google.as_str(), "google");
+    assert_eq!(OAuthProvider::parse("Google"), None);
     assert_eq!(OAuthProvider::parse(""), None);
 }
 
@@ -31,9 +33,262 @@ fn microsoft_personal_domains_are_recognized() {
             "{raw}"
         );
     }
-    for raw in ["a@gmail.com", "a@outlook.com.evil.example", "a@example.com"] {
+    for raw in ["a@outlook.com.evil.example", "a@example.com"] {
         assert_eq!(OAuthProvider::for_address(&address(raw)), None, "{raw}");
     }
+}
+
+#[test]
+fn gmail_addresses_sign_in_with_google() {
+    for raw in ["a@gmail.com", "a@GMAIL.com"] {
+        assert_eq!(
+            OAuthProvider::for_address(&address(raw)),
+            Some(OAuthProvider::Google),
+            "{raw}"
+        );
+    }
+    // Sosies et domaines Google Workspace : rien ne prouve qu'ils sont
+    // chez Google, le mot de passe reste la voie.
+    for raw in [
+        "a@gmail.com.evil.example",
+        "a@mail.gmail.com",
+        "a@google.com",
+        "a@gmai1.com",
+    ] {
+        assert_eq!(OAuthProvider::for_address(&address(raw)), None, "{raw}");
+    }
+}
+
+#[test]
+fn a_provider_serves_only_its_own_addresses() {
+    assert!(OAuthProvider::Google.serves(&address("alice@GMAIL.com")));
+    assert!(OAuthProvider::Microsoft.serves(&address("alice@outlook.com")));
+    for (provider, raw) in [
+        (OAuthProvider::Google, "alice@societe.fr"),
+        (OAuthProvider::Google, "alice@outlook.com"),
+        (OAuthProvider::Microsoft, "alice@gmail.com"),
+        (OAuthProvider::Microsoft, "alice@example.com"),
+    ] {
+        assert!(!provider.serves(&address(raw)), "{provider} {raw}");
+    }
+}
+
+#[test]
+fn google_config_uses_google_endpoints_and_full_mail_scope() {
+    let c = OAuthProvider::Google.config();
+    assert_eq!(
+        c.authorize_url,
+        "https://accounts.google.com/o/oauth2/v2/auth"
+    );
+    assert_eq!(c.token_url, "https://oauth2.googleapis.com/token");
+    assert_eq!(c.scopes, &["https://mail.google.com/"]);
+    assert_eq!(c.identity_scopes, &["openid", "email"]);
+    assert_eq!(c.imap_host, "imap.gmail.com");
+    assert_eq!(c.smtp_host, "smtp.gmail.com");
+    // Client « application de bureau » : Google exige un secret client
+    // (non confidentiel), fourni à la compilation comme l'identifiant.
+    assert!(c.client_secret.is_some());
+    assert_eq!(OAuthProvider::Microsoft.config().client_secret, None);
+    let configured = google_with("id.apps.googleusercontent.com", "GOCSPX-s3cr3t");
+    assert!(
+        !format!("{configured:?}").contains("s3cr3t"),
+        "secret client dans Debug"
+    );
+}
+
+/// Configuration Google complète, avec des valeurs de test.
+fn google_with(client_id: &'static str, client_secret: &'static str) -> OAuthConfig {
+    OAuthConfig {
+        client_id,
+        client_secret: Some(client_secret),
+        ..GOOGLE.clone()
+    }
+}
+
+#[test]
+fn a_provider_is_usable_only_with_its_client_identifiers() {
+    assert!(OAuthProvider::Microsoft.config().is_usable());
+    assert!(google_with("id.apps.googleusercontent.com", "GOCSPX-s").is_usable());
+    // Compilation sans les identifiants Google : fournisseur inutilisable.
+    assert!(!google_with("", "").is_usable());
+    assert!(!google_with("id.apps.googleusercontent.com", "").is_usable());
+    assert!(!google_with("", "GOCSPX-s").is_usable());
+}
+
+#[test]
+fn sign_in_is_offered_only_by_a_usable_provider() {
+    let gmail = address("alice@gmail.com");
+    assert_eq!(
+        offered_provider(&gmail, |_| true),
+        Some(OAuthProvider::Google)
+    );
+    // Google inutilisable : l'adresse Gmail garde le mot de passe.
+    assert_eq!(
+        offered_provider(&gmail, |p| p != OAuthProvider::Google),
+        None
+    );
+    assert_eq!(
+        offered_provider(&address("alice@outlook.com"), |p| p
+            != OAuthProvider::Google),
+        Some(OAuthProvider::Microsoft)
+    );
+    assert_eq!(
+        offered_provider(&address("alice@example.com"), |_| true),
+        None
+    );
+    // Sans le paramètre de test : décision de la configuration compilée.
+    assert_eq!(
+        OAuthProvider::offered_for(&gmail),
+        OAuthProvider::Google
+            .config()
+            .is_usable()
+            .then_some(OAuthProvider::Google)
+    );
+}
+
+#[test]
+fn google_authorization_asks_for_offline_access_and_fresh_consent() {
+    let hint = address("alice@gmail.com");
+    let url = authorization_url(
+        OAuthProvider::Google.config(),
+        &AuthorizationRequest {
+            redirect_uri: "http://localhost:49152/",
+            state: "s",
+            code_challenge: "c",
+            login_hint: &hint,
+        },
+    );
+    let Some((base, query)) = url.split_once('?') else {
+        panic!("URL sans requête : {url}");
+    };
+    assert_eq!(base, "https://accounts.google.com/o/oauth2/v2/auth");
+    let params: Vec<&str> = query.split('&').collect();
+    for expected in [
+        "scope=https%3A%2F%2Fmail.google.com%2F%20openid%20email",
+        // Sans `access_type=offline`, Google ne délivre pas de jeton de
+        // rafraîchissement ; sans `consent`, il ne le redonne pas à un
+        // compte qui a déjà autorisé Norelly.
+        "access_type=offline",
+        "prompt=select_account%20consent",
+        "login_hint=alice%40gmail.com",
+    ] {
+        assert!(params.contains(&expected), "{expected} absent de {url}");
+    }
+    assert!(!query.contains("client_secret"), "{url}");
+    assert_eq!(
+        params.iter().filter(|p| p.starts_with("prompt=")).count(),
+        1
+    );
+}
+
+#[test]
+fn microsoft_authorization_keeps_its_parameters() {
+    let hint = address("alice@outlook.com");
+    let url = authorization_url(
+        OAuthProvider::Microsoft.config(),
+        &AuthorizationRequest {
+            redirect_uri: "http://localhost:1/",
+            state: "s",
+            code_challenge: "c",
+            login_hint: &hint,
+        },
+    );
+    assert!(url.contains("&prompt=select_account"), "{url}");
+    assert!(!url.contains("access_type"), "{url}");
+}
+
+#[test]
+fn google_token_forms_carry_the_client_secret() {
+    let config = google_with("id.apps.googleusercontent.com", "GOCSPX-s3cr3t");
+    let c = &config;
+    let client_secret = "GOCSPX-s3cr3t";
+    let form = code_exchange_form(c, &secret("4/0c"), "http://localhost:1/", &secret("v"));
+    assert!(
+        form.expose()
+            .contains(&format!("&client_secret={client_secret}&")),
+        "secret client absent de l'échange"
+    );
+    assert!(form.expose().contains("&code=4%2F0c&"));
+    let form = refresh_form(c, &secret("1//r"));
+    assert!(
+        form.expose()
+            .contains(&format!("&client_secret={client_secret}")),
+        "secret client absent du rafraîchissement"
+    );
+    assert!(form.expose().contains("&refresh_token=1%2F%2Fr"));
+    // Google garde les scopes accordés : le rafraîchissement n'en envoie pas.
+    assert!(!form.expose().contains("scope="));
+}
+
+#[test]
+fn google_sign_in_without_mail_access_is_refused() {
+    let google = OAuthProvider::Google;
+    assert_eq!(
+        require_mail_access(
+            google,
+            google.config(),
+            Some("openid https://www.googleapis.com/auth/userinfo.email")
+        ),
+        Err(TokenError::MailAccessRefused)
+    );
+    assert_eq!(
+        require_mail_access(google, google.config(), Some("")),
+        Err(TokenError::MailAccessRefused)
+    );
+    // Préfixe ou sosie du scope : refusé.
+    assert_eq!(
+        require_mail_access(
+            google,
+            google.config(),
+            Some("https://mail.google.com/x openid")
+        ),
+        Err(TokenError::MailAccessRefused)
+    );
+    assert_eq!(
+        require_mail_access(
+            google,
+            google.config(),
+            Some("openid https://mail.google.com/ email")
+        ),
+        Ok(())
+    );
+    // Scopes non renvoyés : ceux demandés ont été accordés (RFC 6749, 5.1).
+    assert_eq!(require_mail_access(google, google.config(), None), Ok(()));
+    // Microsoft renvoie ses scopes sous une autre forme : non concerné.
+    assert_eq!(
+        require_mail_access(
+            OAuthProvider::Microsoft,
+            OAuthProvider::Microsoft.config(),
+            Some("openid")
+        ),
+        Ok(())
+    );
+}
+
+#[test]
+fn abandoned_google_sign_in_suggests_an_app_password() {
+    let google = OAuthProvider::Google;
+    for reason in ["access_denied", "délai dépassé"] {
+        assert_eq!(
+            add_account_sign_in_error(google, TokenError::Cancelled(reason.to_owned())),
+            TokenError::GoogleSignInRefused,
+            "{reason}"
+        );
+    }
+    for other in [
+        TokenError::WrongAccount,
+        TokenError::OfflineAccessRefused,
+        TokenError::ReauthRequired,
+        TokenError::Network("HTTP 503".to_owned()),
+        TokenError::Protocol("invalid_client".to_owned()),
+    ] {
+        assert_eq!(add_account_sign_in_error(google, other.clone()), other);
+    }
+    let cancelled = TokenError::Cancelled("access_denied".to_owned());
+    assert_eq!(
+        add_account_sign_in_error(OAuthProvider::Microsoft, cancelled.clone()),
+        cancelled
+    );
 }
 
 #[test]
@@ -109,7 +364,98 @@ fn identity(preferred_username: Option<&str>, email: Option<&str>) -> OAuthIdent
     OAuthIdentity {
         preferred_username: preferred_username.map(str::to_owned),
         email: email.map(str::to_owned),
+        ..OAuthIdentity::default()
     }
+}
+
+fn google_identity(
+    issuer: Option<&str>,
+    audience: &[&str],
+    verified: Option<bool>,
+) -> OAuthIdentity {
+    OAuthIdentity {
+        email: Some("alice@gmail.com".to_owned()),
+        issuer: issuer.map(str::to_owned),
+        audience: audience.iter().map(|a| (*a).to_owned()).collect(),
+        email_verified: verified,
+        ..OAuthIdentity::default()
+    }
+}
+
+#[test]
+fn google_identity_comes_from_google_for_norelly_with_a_verified_address() {
+    let google = OAuthProvider::Google;
+    let config = google_with("id.apps.googleusercontent.com", "GOCSPX-s");
+    let id = "id.apps.googleusercontent.com";
+    for issuer in ["https://accounts.google.com", "accounts.google.com"] {
+        assert_eq!(
+            check_identity_claims(
+                google,
+                &config,
+                &google_identity(Some(issuer), &[id], Some(true))
+            ),
+            Ok(()),
+            "{issuer}"
+        );
+    }
+    for (identity, why) in [
+        (
+            google_identity(Some("https://evil.example"), &[id], Some(true)),
+            "émetteur étranger",
+        ),
+        (google_identity(None, &[id], Some(true)), "émetteur absent"),
+        (
+            google_identity(
+                Some("accounts.google.com"),
+                &["autre.apps.googleusercontent.com"],
+                Some(true),
+            ),
+            "autre application",
+        ),
+        (
+            google_identity(Some("accounts.google.com"), &[], Some(true)),
+            "destinataire absent",
+        ),
+    ] {
+        assert!(
+            matches!(
+                check_identity_claims(google, &config, &identity),
+                Err(TokenError::Protocol(_))
+            ),
+            "{why}"
+        );
+    }
+    for verified in [Some(false), None] {
+        assert_eq!(
+            check_identity_claims(
+                google,
+                &config,
+                &google_identity(Some("accounts.google.com"), &[id], verified)
+            ),
+            Err(TokenError::WrongAccount),
+            "adresse non vérifiée : {verified:?}"
+        );
+    }
+    // Un identifiant client vide (version sans identifiants) n'est jamais
+    // un destinataire valable.
+    let unconfigured = google_with("", "");
+    assert!(
+        check_identity_claims(
+            google,
+            &unconfigured,
+            &google_identity(Some("accounts.google.com"), &[""], Some(true))
+        )
+        .is_err()
+    );
+    // Microsoft : sans ces revendications (vérifiées ailleurs, à venir).
+    assert_eq!(
+        check_identity_claims(
+            OAuthProvider::Microsoft,
+            OAuthProvider::Microsoft.config(),
+            &identity(Some("a@outlook.com"), None)
+        ),
+        Ok(())
+    );
 }
 
 #[test]
@@ -168,6 +514,15 @@ fn only_a_network_failure_makes_the_provider_unavailable() {
         auth_error_of(&TokenError::Protocol("invalid_client".to_owned())),
         AuthError::Rejected { .. }
     ));
+}
+
+#[test]
+fn unconfigured_provider_is_a_definitive_refusal_without_reconnection() {
+    use crate::auth::AuthError;
+    assert_eq!(
+        auth_error_of(&TokenError::ProviderNotConfigured),
+        AuthError::ProviderNotConfigured
+    );
 }
 
 #[test]
@@ -363,6 +718,38 @@ fn microsoft_mailbox_not_connected_is_detected() {
         "BAD User is Authenticated but not Connected"
     ));
     assert!(!is_mailbox_not_connected("AUTHENTICATE failed."));
+}
+
+#[test]
+fn google_token_goes_only_to_gmail_servers() {
+    use crate::endpoint::{Host, Security, ServerEndpoint};
+    let endpoint = |host: &str| {
+        let Ok(h) = Host::parse(host) else {
+            panic!("hôte valide refusé : {host}");
+        };
+        let Ok(e) = ServerEndpoint::new(h, 993, Security::Tls) else {
+            panic!("point d'accès valide refusé");
+        };
+        e
+    };
+    let google = OAuthProvider::Google;
+    assert_eq!(
+        token_destination_allowed(google, &endpoint("imap.gmail.com")),
+        Ok(())
+    );
+    assert_eq!(
+        token_destination_allowed(google, &endpoint("smtp.gmail.com")),
+        Ok(())
+    );
+    for host in ["outlook.office365.com", "imap.gmail.com.attaquant.example"] {
+        assert!(
+            token_destination_allowed(google, &endpoint(host)).is_err(),
+            "{host}"
+        );
+    }
+    assert!(
+        token_destination_allowed(OAuthProvider::Microsoft, &endpoint("imap.gmail.com")).is_err()
+    );
 }
 
 fn pending(obtained_at: u64, expires_in: u64) -> PendingAuthorization {

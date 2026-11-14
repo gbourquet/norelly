@@ -9,7 +9,10 @@
 # chiffrée ; clé publique dans app/src-tauri/tauri.updater.conf.json) et
 # TAURI_SIGNING_PRIVATE_KEY_PASSWORD. La clé n'est présente que dans
 # l'étape de signature, jamais pendant la compilation (build.rs, macros,
-# plugins Vite). Aucun cache dans les builds de publication
+# plugins Vite). Les identifiants du client Google (ADR-013),
+# NORELLY_GOOGLE_CLIENT_ID et NORELLY_GOOGLE_CLIENT_SECRET, sont dans le
+# même environnement : non confidentiels, ils sont compilés dans
+# l'application (jobs Linux et Windows). Aucun cache dans les builds de publication
 # (empoisonnement de cache).
 name: Release
 
@@ -49,6 +52,8 @@ jobs:
     name: Linux (.deb, .rpm)
     needs: version
     runs-on: ubuntu-24.04
+    # Identifiants du client Google (secrets de l'environnement).
+    environment: release
     steps:
       - name: Dépendances système Tauri
         run: |
@@ -66,7 +71,16 @@ jobs:
         with:
           node-version: 24
       - run: pnpm -C app install --frozen-lockfile
-      - run: pnpm -C app tauri build --bundles deb,rpm -- --locked
+      - name: Build (identifiants client Google des secrets, ADR-013)
+        env:
+          NORELLY_GOOGLE_CLIENT_ID: ${{ secrets.NORELLY_GOOGLE_CLIENT_ID }}
+          NORELLY_GOOGLE_CLIENT_SECRET: ${{ secrets.NORELLY_GOOGLE_CLIENT_SECRET }}
+        run: |
+          # Format vérifié sans jamais afficher les valeurs.
+          [[ "$NORELLY_GOOGLE_CLIENT_ID" =~ ^[0-9]+-[a-z0-9]+\.apps\.googleusercontent\.com$ ]] \
+            && [[ "$NORELLY_GOOGLE_CLIENT_SECRET" =~ ^GOCSPX-[A-Za-z0-9_-]+$ ]] \
+            || { echo "secrets NORELLY_GOOGLE_CLIENT_ID/SECRET absents ou mal formés" >&2; exit 1; }
+          pnpm -C app tauri build --bundles deb,rpm -- --locked
       - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
         with:
           name: linux
@@ -96,10 +110,17 @@ jobs:
           node-version: 24
       - run: pnpm -C app install --frozen-lockfile
       - name: Build NSIS avec le module de mise à jour (sans la clé)
-        run: >
-          pnpm -C app tauri build --bundles nsis
-          --config src-tauri/tauri.updater.conf.json
-          --features updater -- --locked
+        env:
+          NORELLY_GOOGLE_CLIENT_ID: ${{ secrets.NORELLY_GOOGLE_CLIENT_ID }}
+          NORELLY_GOOGLE_CLIENT_SECRET: ${{ secrets.NORELLY_GOOGLE_CLIENT_SECRET }}
+        run: |
+          # Format vérifié sans jamais afficher les valeurs.
+          [[ "$NORELLY_GOOGLE_CLIENT_ID" =~ ^[0-9]+-[a-z0-9]+\.apps\.googleusercontent\.com$ ]] \
+            && [[ "$NORELLY_GOOGLE_CLIENT_SECRET" =~ ^GOCSPX-[A-Za-z0-9_-]+$ ]] \
+            || { echo "secrets NORELLY_GOOGLE_CLIENT_ID/SECRET absents ou mal formés" >&2; exit 1; }
+          pnpm -C app tauri build --bundles nsis \
+            --config src-tauri/tauri.updater.conf.json \
+            --features updater -- --locked
       - name: Signature minisign de l'installateur
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}

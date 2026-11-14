@@ -54,6 +54,7 @@ fn migrations() -> Migrations<'static> {
         M::up(include_str!("../migrations/0011_contacts.sql")),
         M::up(include_str!("../migrations/0012_contact_lists.sql")),
         M::up(include_str!("../migrations/0013_oauth_accounts.sql")),
+        M::up(include_str!("../migrations/0014_oauth_google.sql")),
     ])
 }
 
@@ -616,6 +617,12 @@ mod tests {
          INSERT INTO contact_list_members (list_id, position, contact_id) VALUES (1, 0, 1);",
         // v13 : fournisseur OAuth d'un compte.
         "UPDATE accounts SET oauth_provider = 'microsoft' WHERE id = 1;",
+        // v14 : un compte Google à côté du compte Microsoft.
+        "INSERT INTO accounts (address, display_name, imap_host, imap_port, imap_security, \
+         imap_username, smtp_host, smtp_port, smtp_security, smtp_username, oauth_provider) \
+         VALUES ('v14@gmail.com', 'V14', 'imap.gmail.com', 993, 'tls', 'v14@gmail.com', \
+         'smtp.gmail.com', 587, 'starttls', 'v14@gmail.com', 'google'); \
+         DELETE FROM accounts WHERE address = 'v14@gmail.com';",
     ];
 
     /// Montée de version depuis chaque version précédente, données
@@ -654,6 +661,45 @@ mod tests {
             )
             .unwrap_or_else(|e| panic!("depuis v{} : {e}", start + 1));
         }
+    }
+
+    /// Base de version 13 : à la montée en version 14, le fournisseur des
+    /// comptes Microsoft est conservé et Google devient accepté.
+    #[test]
+    fn upgrading_to_v14_keeps_microsoft_accounts_and_accepts_google() {
+        let mut conn = Connection::open_in_memory().unwrap_or_else(|e| panic!("{e}"));
+        let m = migrations();
+        for (version, fixture) in FIXTURES.iter().enumerate().take(13) {
+            m.to_version(&mut conn, version + 1)
+                .unwrap_or_else(|e| panic!("vers v{} : {e}", version + 1));
+            conn.execute_batch(fixture)
+                .unwrap_or_else(|e| panic!("fixture v{} : {e}", version + 1));
+        }
+        m.to_version(&mut conn, 14)
+            .unwrap_or_else(|e| panic!("{e}"));
+        let provider: Option<String> = conn
+            .query_row(
+                "SELECT oauth_provider FROM accounts WHERE id = 1",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(provider.as_deref(), Some("microsoft"));
+        assert!(
+            conn.execute(
+                "UPDATE accounts SET oauth_provider = 'google' WHERE id = 1",
+                []
+            )
+            .is_ok()
+        );
+        assert!(
+            conn.execute(
+                "UPDATE accounts SET oauth_provider = 'yahoo' WHERE id = 1",
+                []
+            )
+            .is_err(),
+            "fournisseur inconnu accepté"
+        );
     }
 
     /// Base de version 7 : à la montée en version 8, les copies distantes

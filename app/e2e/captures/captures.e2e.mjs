@@ -236,7 +236,7 @@ describe(`captures d'écran (${lang})`, () => {
     await entry.waitForDisplayed({ timeout: 60000 });
   });
 
-  it("compte Google refusé : mot de passe d'application", async () => {
+  it("compte Google : connexion Google, puis mot de passe d'application refusé", async () => {
     // Adresse Gmail sur les serveurs de test (réseau sans Internet : la
     // découverte échoue), mot de passe refusé par Dovecot : l'aide au mot de
     // passe d'application s'affiche. Les certificats sont déjà approuvés.
@@ -244,6 +244,17 @@ describe(`captures d'écran (${lang})`, () => {
       .$(`button=${msg("welcome_add_account")}`)
       .click();
     await $("#account-address").setValue(`${user}@gmail.com`);
+    // Rust propose « Se connecter avec Google » : l'avertissement de Google
+    // est expliqué avant d'ouvrir le navigateur. Le bouton n'est pas cliqué
+    // (réseau de test sans Internet) ; le mot de passe d'application reste
+    // proposé à côté.
+    const signIn = $(`button=${msg("add_oauth_sign_in_google")}`);
+    await signIn.waitForDisplayed({ timeout: 10000 });
+    await expect($("#account-password")).not.toBeDisplayed();
+    await expect($(`p=${msg("add_oauth_hint_google")}`)).toBeDisplayed();
+    await capture("google-sign-in");
+    await $(`button=${msg("add_use_app_password")}`).click();
+    await $("#account-password").waitForDisplayed();
     await $("#account-password").setValue("mot-de-passe-du-compte");
     await $(`button=${msg("common_continue")}`).click();
     await $("#imap-host").waitForDisplayed({ timeout: 90000 });

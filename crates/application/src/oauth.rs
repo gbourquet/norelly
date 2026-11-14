@@ -19,7 +19,8 @@ use norelly_domain::capabilities::ServerCapabilities;
 use norelly_domain::connection::ConnectionError;
 use norelly_domain::credentials::Secret;
 use norelly_domain::oauth::{
-    AccessToken, OAuthProvider, OAuthSource, PendingAuthorization, TokenError, auth_error_of,
+    AccessToken, OAuthConfig, OAuthProvider, OAuthSource, PendingAuthorization, TokenError,
+    auth_error_of,
 };
 use norelly_domain::ports::{
     ConnectRequest, MailSender, OAuthClient, OAuthGrant, OutgoingMessage, RemoteMailboxConnector,
@@ -45,6 +46,11 @@ pub struct TokenBroker<O, K> {
     /// Connexion d'un ajout de compte qui n'a pas abouti, en mémoire
     /// seulement, jusqu'au prochain essai.
     pending: std::sync::Mutex<Option<(PendingAuthorization, OAuthGrant)>>,
+    /// Configuration de chaque fournisseur ; par défaut, celle compilée
+    /// (identifiants client compris). Seule source : elle est passée au
+    /// client OAuth à chaque connexion et rafraîchissement, et sert aux
+    /// contrôles (utilisable, destinataire de l'identité, scopes).
+    configs: fn(OAuthProvider) -> OAuthConfig,
 }
 
 /// Jetons d'un compte gardés en mémoire.
@@ -72,7 +78,25 @@ impl<O: OAuthClient, K: SecretStore> TokenBroker<O, K> {
             clock,
             slots: std::sync::Mutex::new(HashMap::new()),
             pending: std::sync::Mutex::new(None),
+            configs: |provider| provider.config().clone(),
         }
+    }
+
+    /// Remplace la configuration des fournisseurs (tests : la CI compile
+    /// sans les identifiants Google).
+    #[must_use]
+    pub fn with_configs(self, configs: fn(OAuthProvider) -> OAuthConfig) -> Self {
+        Self { configs, ..self }
+    }
+
+    /// Configuration de `provider`.
+    pub fn config(&self, provider: OAuthProvider) -> OAuthConfig {
+        (self.configs)(provider)
+    }
+
+    /// Vrai si cette version peut contacter `provider`.
+    pub fn is_usable(&self, provider: OAuthProvider) -> bool {
+        self.config(provider).is_usable()
     }
 
     /// Heure de l'horloge murale du gestionnaire (secondes).
@@ -198,6 +222,9 @@ impl<O: OAuthClient, K: SecretStore> TokenBroker<O, K> {
         source: &OAuthSource,
         unsaved: Option<Secret>,
     ) -> Result<OAuthGrant, AuthError> {
+        if !self.is_usable(source.provider) {
+            return Err(AuthError::ProviderNotConfigured);
+        }
         let refresh = match unsaved {
             Some(refresh) => refresh,
             None => self
@@ -210,7 +237,7 @@ impl<O: OAuthClient, K: SecretStore> TokenBroker<O, K> {
                 .ok_or(AuthError::ReauthRequired)?,
         };
         self.client
-            .refresh(source.provider, &refresh)
+            .refresh(&self.config(source.provider), &refresh)
             .await
             .map_err(|e| auth_error_of(&e))
     }

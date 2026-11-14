@@ -8,7 +8,7 @@ use norelly_domain::account::AccountId;
 use norelly_domain::address::EmailAddress;
 use norelly_domain::credentials::{Credentials, Username};
 use norelly_domain::endpoint::{Host, Protocol, Security, ServerEndpoint};
-use norelly_domain::oauth::OAuthProvider;
+use norelly_domain::oauth::{OAuthConfig, OAuthProvider};
 use norelly_domain::security::PlaintextPolicy;
 
 use super::*;
@@ -80,14 +80,10 @@ impl Default for Provider {
 }
 
 impl OAuthClient for Provider {
-    async fn authorize(
-        &self,
-        _: OAuthProvider,
-        _: &EmailAddress,
-    ) -> Result<OAuthGrant, TokenError> {
+    async fn authorize(&self, _: &OAuthConfig, _: &EmailAddress) -> Result<OAuthGrant, TokenError> {
         Err(TokenError::Cancelled("non utilisé".to_owned()))
     }
-    async fn refresh(&self, _: OAuthProvider, refresh: &Secret) -> Result<OAuthGrant, TokenError> {
+    async fn refresh(&self, _: &OAuthConfig, refresh: &Secret) -> Result<OAuthGrant, TokenError> {
         if self.hang || refresh.expose() == "lent" {
             std::future::pending::<()>().await;
         }
@@ -108,6 +104,7 @@ impl OAuthClient for Provider {
             expires_in: 3_600,
             refresh_token: Some(Secret::new(current.clone())),
             identity: None,
+            granted_scopes: None,
         })
     }
 }
@@ -185,6 +182,7 @@ async fn expiry_follows_the_wall_clock() {
         expires_in: 600,
         refresh_token: Some(Secret::new("r1".to_owned())),
         identity: None,
+        granted_scopes: None,
     };
     assert_eq!(f.broker.store_grant(&source(), grant).await, Ok(()));
     assert_eq!(token(&f).await, Ok("initial".to_owned()));
@@ -323,6 +321,7 @@ async fn removed_account_tokens_are_discarded() {
         expires_in: 600,
         refresh_token: Some(Secret::new("r-tardif".to_owned())),
         identity: None,
+        granted_scopes: None,
     };
     assert_eq!(f.broker.store_grant(&source(), grant).await, Ok(()));
     assert_eq!(f.broker.secrets.read(&key()).as_deref(), Some("r1"));
@@ -350,6 +349,7 @@ async fn reconnection_replaces_an_unsaved_refresh_token() {
         expires_in: 600,
         refresh_token: Some(Secret::new("neuf".to_owned())),
         identity: None,
+        granted_scopes: None,
     };
     assert_eq!(f.broker.store_grant(&source(), grant).await, Ok(()));
     f.now.fetch_add(7_200, Ordering::SeqCst);
@@ -412,6 +412,7 @@ async fn failed_removal_can_be_reconnected() {
         expires_in: 600,
         refresh_token: Some(Secret::new("r-neuf".to_owned())),
         identity: None,
+        granted_scopes: None,
     };
     assert_eq!(f.broker.store_grant(&source(), grant).await, Ok(()));
     assert_eq!(f.broker.secrets.read(&key()).as_deref(), Some("r-neuf"));
@@ -450,6 +451,7 @@ async fn reconnection_does_not_wait_forever_on_the_keyring() {
         expires_in: 600,
         refresh_token: Some(Secret::new("r".to_owned())),
         identity: None,
+        granted_scopes: None,
     };
     let stored =
         tokio::time::timeout(REFRESH_TIMEOUT * 2, broker.store_grant(&source(), grant)).await;
@@ -608,4 +610,63 @@ async fn password_requests_pass_through() {
     request.credentials = pw;
     assert!(smtp.verify(&request).await.is_ok());
     assert_eq!(seen(&smtp), vec!["pw".to_owned()]);
+}
+
+#[tokio::test]
+async fn unconfigured_provider_is_refused_without_keyring_or_provider() {
+    let keyring = Keyring::default();
+    // Une lecture du trousseau donnerait `SecretStoreUnavailable`.
+    keyring.locked.store(true, Ordering::SeqCst);
+    let broker = TokenBroker::new(Provider::default(), keyring, Arc::new(|| 1_000_000))
+        .with_configs(unconfigured_google_and_microsoft);
+    assert_eq!(
+        broker.access_token(&source()).await.map(|_| ()),
+        Err(AuthError::ProviderNotConfigured)
+    );
+    assert_eq!(broker.client().refreshes.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn only_the_unconfigured_provider_is_refused() {
+    let f = fixture(Some("r1"), Provider::default()).await;
+    let broker = Arc::try_unwrap(f.broker)
+        .unwrap_or_else(|_| panic!("gestionnaire partagé"))
+        .with_configs(unconfigured_google);
+    assert!(broker.is_usable(OAuthProvider::Microsoft));
+    assert!(!broker.is_usable(OAuthProvider::Google));
+    assert_eq!(
+        broker
+            .access_token(&source())
+            .await
+            .map(|t| t.expose().to_owned()),
+        Ok("a1".to_owned())
+    );
+}
+
+#[test]
+fn by_default_a_provider_is_usable_when_its_identifiers_were_compiled_in() {
+    let broker = TokenBroker::new(Provider::default(), Keyring::default(), Arc::new(|| 0));
+    for provider in [OAuthProvider::Microsoft, OAuthProvider::Google] {
+        assert_eq!(broker.is_usable(provider), provider.config().is_usable());
+    }
+}
+
+/// Version sans identifiants Google.
+fn unconfigured_google(provider: OAuthProvider) -> OAuthConfig {
+    match provider {
+        OAuthProvider::Google => OAuthConfig {
+            client_id: "",
+            client_secret: Some(""),
+            ..provider.config().clone()
+        },
+        OAuthProvider::Microsoft => provider.config().clone(),
+    }
+}
+
+/// Aucun fournisseur utilisable.
+fn unconfigured_google_and_microsoft(provider: OAuthProvider) -> OAuthConfig {
+    OAuthConfig {
+        client_id: "",
+        ..provider.config().clone()
+    }
 }

@@ -183,7 +183,8 @@ Règles :
   `Epic`) et porte un type : `Feature`, `Bug` ou `Improvement`.
 - Labels : un seul label de `Zone` (`connexion`, `carnet`, `dossiers`,
   `lecture`, `interface`, `chaîne-appro`, `docs`) ; `revue-sécurité` avec
-  une `Gravité` (`moyen`, `bas`, `info`) pour un constat laissé de côté ;
+  une `Gravité` (`moyen`, `bas`, `info`) pour un constat que le mainteneur
+  a accepté de laisser de côté (voir « Fin de tâche ») ;
   `à-trancher` quand une décision du mainteneur est attendue (ne pas
   commencer) ; `tâche-humaine` pour ce qu'un agent ne peut pas faire.
 - États : `Backlog` (à trier), `Todo` (priorisé), `In Progress`,
@@ -206,16 +207,20 @@ Règles :
 - Linear : lier la PR au ticket traité et le passer en `In Review`. Ce
   qui reste à faire pour la PR se traite
   dans la même PR : ticket repassé en `In Progress`, ajustements sur la
-  même branche, PR mise à jour, ticket repassé en `In Review`. Un nouveau
-  ticket, sous l'epic concernée, seulement pour un sujet distinct laissé
-  de côté ; en cas de doute, demander au mainteneur.
+  même branche, PR mise à jour, ticket repassé en `In Review`.
 - Revue de sécurité : lancer le sous-agent `security-reviewer` dès que la
   branche touche une zone sensible (rendu HTML et protocoles, TLS, IMAP,
   SMTP, autodécouverte, trousseau, SQL, pièces jointes et fichiers, IPC et
   capabilities Tauri, dépendances, CI, empaquetage ; liste des fichiers
-  dans `docs/technique/securite.md#fichiers-sensibles`). Corriger les
-  constats critiques et hauts avant la PR, résumer le rapport dans sa
-  description, reporter les autres en tickets Linear (`revue-sécurité` et
-  leur `Gravité`).
+  dans `docs/technique/securite.md#fichiers-sensibles`). **Tous** les
+  constats, quelle que soit leur gravité, se corrigent dans la PR du
+  ticket, avant de la proposer ; le rapport est résumé dans sa
+  description.
+- **Pas de ticket par réflexe** : tout ce qui est découvert pendant un
+  ticket (constat de revue, défaut voisin, robustesse, test manquant) se
+  traite dans ce ticket et sa PR. Ne devient un ticket que ce qu'un agent
+  ne peut pas faire (`tâche-humaine`, décision `à-trancher`), et seulement
+  après accord du mainteneur ; la partie faisable par l'agent reste dans
+  la PR.
 - Récapitulatif : fait, reste, fichiers à relire en priorité (y compris les
   fichiers d'infra sensibles).

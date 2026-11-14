@@ -725,7 +725,7 @@ async fn connect_request_uses_keyring_exceptions_and_plaintext_consent() {
 mod oauth {
     use std::sync::Arc;
 
-    use norelly_domain::oauth::{OAuthIdentity, OAuthProvider, TokenError};
+    use norelly_domain::oauth::{OAuthConfig, OAuthIdentity, OAuthProvider, TokenError};
     use norelly_domain::ports::OAuthGrant;
     use norelly_test_support::contracts::FakeOAuthClient;
 
@@ -741,8 +741,25 @@ mod oauth {
         if let Ok(mut g) = client.grant.lock() {
             *g = grant;
         }
-        TokenBroker::new(client, Keyring::default(), Arc::new(|| 1_000))
+        // Fournisseurs utilisables quelle que soit la compilation (la CI
+        // compile sans les identifiants Google).
+        TokenBroker::new(client, Keyring::default(), Arc::new(|| 1_000)).with_configs(test_configs)
     }
+
+    /// Configuration de test : identifiants Google factices, quelle que
+    /// soit la compilation.
+    fn test_configs(provider: OAuthProvider) -> OAuthConfig {
+        match provider {
+            OAuthProvider::Google => OAuthConfig {
+                client_id: GOOGLE_TEST_CLIENT,
+                client_secret: Some("norelly-test"),
+                ..provider.config().clone()
+            },
+            OAuthProvider::Microsoft => provider.config().clone(),
+        }
+    }
+
+    const GOOGLE_TEST_CLIENT: &str = "norelly-test.apps.googleusercontent.com";
 
     fn grant() -> Option<OAuthGrant> {
         grant_of("alice@outlook.com")
@@ -757,7 +774,9 @@ mod oauth {
             identity: Some(OAuthIdentity {
                 preferred_username: Some(login.to_owned()),
                 email: None,
+                ..OAuthIdentity::default()
             }),
+            granted_scopes: None,
         })
     }
 
@@ -859,6 +878,183 @@ mod oauth {
         assert_eq!(
             add(&w, &broker(without_refresh)).await,
             AddAccountOutcome::OAuthFailed(TokenError::OfflineAccessRefused)
+        );
+        assert!(w.accounts.list().await.is_ok_and(|l| l.is_empty()));
+    }
+
+    async fn add_gmail(w: &World, b: &TokenBroker<FakeOAuthClient, Keyring>) -> AddAccountOutcome {
+        let test = TestConnection::new(w.servers.clone(), w.servers.clone(), &w.exceptions);
+        AddOAuthAccount {
+            test: &test,
+            broker: b,
+            accounts: &w.accounts,
+        }
+        .execute(AddOAuthAccountRequest {
+            address: EmailAddress::parse("alice@gmail.com").unwrap_or_else(|_| panic!("adresse")),
+            display_name: None,
+            provider: OAuthProvider::Google,
+        })
+        .await
+    }
+
+    #[tokio::test]
+    async fn adds_google_account_on_gmail_servers() {
+        let w = World::new();
+        let b = broker(Some(OAuthGrant {
+            identity: Some(OAuthIdentity {
+                preferred_username: None,
+                email: Some("alice@gmail.com".to_owned()),
+                issuer: Some("https://accounts.google.com".to_owned()),
+                audience: vec![GOOGLE_TEST_CLIENT.to_owned()],
+                email_verified: Some(true),
+            }),
+            ..grant().unwrap_or_else(|| panic!())
+        }));
+        let AddAccountOutcome::Added(account) = add_gmail(&w, &b).await else {
+            panic!("compte non ajouté");
+        };
+        assert_eq!(account.oauth_provider(), Some(OAuthProvider::Google));
+        assert_eq!(account.imap().endpoint.host().as_str(), "imap.gmail.com");
+        assert_eq!(account.smtp().endpoint.host().as_str(), "smtp.gmail.com");
+        assert_eq!(account.smtp().endpoint.security(), Security::StartTls);
+    }
+
+    #[tokio::test]
+    async fn provider_that_does_not_serve_the_address_is_refused_before_sign_in() {
+        let w = World::new();
+        let client = FakeOAuthClient::default();
+        if let Ok(mut g) = client.grant.lock() {
+            *g = grant_of("alice@societe.fr");
+        }
+        let b = TokenBroker::new(client, Keyring::default(), Arc::new(|| 1_000));
+        let test = TestConnection::new(w.servers.clone(), w.servers.clone(), &w.exceptions);
+        for provider in [OAuthProvider::Google, OAuthProvider::Microsoft] {
+            let outcome = AddOAuthAccount {
+                test: &test,
+                broker: &b,
+                accounts: &w.accounts,
+            }
+            .execute(AddOAuthAccountRequest {
+                address: EmailAddress::parse("alice@societe.fr")
+                    .unwrap_or_else(|_| panic!("adresse")),
+                display_name: None,
+                provider,
+            })
+            .await;
+            assert!(
+                matches!(outcome, AddAccountOutcome::Invalid(_)),
+                "{provider} : {outcome:?}"
+            );
+        }
+        assert!(w.servers.requests().is_empty(), "aucun serveur contacté");
+        assert!(w.accounts.list().await.is_ok_and(|l| l.is_empty()));
+    }
+
+    fn gmail_grant(granted_scopes: Option<&str>) -> Option<OAuthGrant> {
+        Some(OAuthGrant {
+            identity: Some(OAuthIdentity {
+                preferred_username: None,
+                email: Some("alice@gmail.com".to_owned()),
+                issuer: Some("https://accounts.google.com".to_owned()),
+                audience: vec![GOOGLE_TEST_CLIENT.to_owned()],
+                email_verified: Some(true),
+            }),
+            granted_scopes: granted_scopes.map(str::to_owned),
+            ..grant().unwrap_or_else(|| panic!())
+        })
+    }
+
+    #[tokio::test]
+    async fn google_sign_in_without_mail_access_is_refused_at_add_and_reconnect() {
+        let w = World::new();
+        assert_eq!(
+            add_gmail(&w, &broker(gmail_grant(Some("openid email")))).await,
+            AddAccountOutcome::OAuthFailed(TokenError::MailAccessRefused)
+        );
+        assert!(w.servers.requests().is_empty(), "aucun serveur contacté");
+        assert!(w.accounts.list().await.is_ok_and(|l| l.is_empty()));
+        let b = broker(gmail_grant(Some("openid https://mail.google.com/ email")));
+        let AddAccountOutcome::Added(account) = add_gmail(&w, &b).await else {
+            panic!("compte non ajouté");
+        };
+        if let Ok(mut g) = b.client().grant.lock() {
+            *g = gmail_grant(Some("openid email"));
+        }
+        assert_eq!(
+            reconnect_oauth_account(&b, &w.accounts, account.id())
+                .await
+                .map(|_| ()),
+            Err(ReconnectError::OAuth(TokenError::MailAccessRefused))
+        );
+    }
+
+    #[tokio::test]
+    async fn google_identity_must_be_verified_and_issued_for_norelly() {
+        let w = World::new();
+        let unverified = gmail_grant(None).map(|g| OAuthGrant {
+            identity: g.identity.map(|i| OAuthIdentity {
+                email_verified: Some(false),
+                ..i
+            }),
+            ..g
+        });
+        assert_eq!(
+            add_gmail(&w, &broker(unverified)).await,
+            AddAccountOutcome::OAuthFailed(TokenError::WrongAccount)
+        );
+        let other_app = gmail_grant(None).map(|g| OAuthGrant {
+            identity: g.identity.map(|i| OAuthIdentity {
+                audience: vec!["autre.apps.googleusercontent.com".to_owned()],
+                ..i
+            }),
+            ..g
+        });
+        assert!(matches!(
+            add_gmail(&w, &broker(other_app)).await,
+            AddAccountOutcome::OAuthFailed(TokenError::Protocol(_))
+        ));
+        assert!(w.servers.requests().is_empty(), "aucun serveur contacté");
+        assert!(w.accounts.list().await.is_ok_and(|l| l.is_empty()));
+    }
+
+    #[tokio::test]
+    async fn unconfigured_provider_neither_adds_nor_reconnects() {
+        let w = World::new();
+        let b = broker(gmail_grant(None));
+        let AddAccountOutcome::Added(account) = add_gmail(&w, &b).await else {
+            panic!("compte non ajouté");
+        };
+        let b = broker(gmail_grant(None)).with_configs(|p| match p {
+            OAuthProvider::Google => OAuthConfig {
+                client_id: "",
+                client_secret: Some(""),
+                ..p.config().clone()
+            },
+            OAuthProvider::Microsoft => p.config().clone(),
+        });
+        assert_eq!(
+            reconnect_oauth_account(&b, &w.accounts, account.id())
+                .await
+                .map(|_| ()),
+            Err(ReconnectError::OAuth(TokenError::ProviderNotConfigured))
+        );
+        let w2 = World::new();
+        assert_eq!(
+            add_gmail(&w2, &b).await,
+            AddAccountOutcome::OAuthFailed(TokenError::ProviderNotConfigured)
+        );
+        assert!(
+            b.client().authorizations.lock().is_ok_and(|a| a.is_empty()),
+            "navigateur jamais ouvert"
+        );
+    }
+
+    #[tokio::test]
+    async fn abandoned_google_sign_in_points_to_app_password() {
+        let w = World::new();
+        assert_eq!(
+            add_gmail(&w, &broker(None)).await,
+            AddAccountOutcome::OAuthFailed(TokenError::GoogleSignInRefused)
         );
         assert!(w.accounts.list().await.is_ok_and(|l| l.is_empty()));
     }
@@ -1098,6 +1294,7 @@ mod oauth {
                 expires_in: 3_600,
                 refresh_token: Some(Secret::new("r-neuf".to_owned())),
                 identity: grant().and_then(|g| g.identity),
+                granted_scopes: None,
             });
         }
         let reconnected = reconnect_oauth_account(&b, &w.accounts, account.id()).await;

@@ -440,7 +440,7 @@ export type AddOAuthAccountInput = AddOAuthAccountInput_Serialize | AddOAuthAcco
 export type AddOAuthAccountInput_Deserialize = {
 	address: string,
 	display_name?: string | null,
-	/**  Nom du fournisseur (`microsoft`), revalidé par le domaine. */
+	/**  Nom du fournisseur (`microsoft`, `google`), revalidé par le domaine. */
 	provider: string,
 };
 
@@ -448,7 +448,7 @@ export type AddOAuthAccountInput_Deserialize = {
 export type AddOAuthAccountInput_Serialize = {
 	address: string,
 	display_name: string | null,
-	/**  Nom du fournisseur (`microsoft`), revalidé par le domaine. */
+	/**  Nom du fournisseur (`microsoft`, `google`), revalidé par le domaine. */
 	provider: string,
 };
 
@@ -1149,6 +1149,12 @@ export type FailureKindDto =
  *  l'utilisateur.
  */
 "oauth_cancelled" | 
+/**
+ *  Connexion Google abandonnée ou refusée à l'ajout d'un compte (Google
+ *  peut bloquer les nouveaux comptes d'une application non validée) : le
+ *  mot de passe d'application reste possible.
+ */
+"oauth_google_refused" | 
 /**  Le compte choisi dans le navigateur n'est pas celui de l'adresse. */
 "oauth_wrong_account" | 
 /**
@@ -1156,6 +1162,10 @@ export type FailureKindDto =
  *  rafraîchissement délivré.
  */
 "oauth_offline_access" | 
+/**  Accès aux messages décoché dans la page du fournisseur. */
+"oauth_mail_access" | 
+/**  Fournisseur dont cette version n'a pas les identifiants client. */
+"oauth_not_configured" | 
 /**  Connexion chez le fournisseur impossible (réseau, réponse invalide). */
 "oauth" | "security" | "protocol" | 
 /**  Paramètres refusés par le domaine. */
@@ -1303,7 +1313,7 @@ export type MessageViewDto_Serialize = {
 };
 
 /**  Fournisseur OAuth. */
-export type OAuthProviderDto = "microsoft";
+export type OAuthProviderDto = "microsoft" | "google";
 
 /**  Message de la file d'envoi. */
 export type OutboxItemDto = {

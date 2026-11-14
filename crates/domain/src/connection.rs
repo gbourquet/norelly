@@ -176,6 +176,66 @@ pub const CONNECTION_ATTEMPTS: usize = 3;
 /// Attente entre deux essais d'une connexion.
 pub const CONNECTION_RETRY_DELAY: std::time::Duration = std::time::Duration::from_secs(1);
 
+/// Durée totale au plus du test d'un serveur (réception ou envoi), essais
+/// et attentes compris : au-delà, un débutant croit l'application bloquée.
+pub const CONNECTION_TEST_BUDGET: std::time::Duration = std::time::Duration::from_secs(45);
+
+/// Durée minimale laissée à un nouvel essai : un essai plus court
+/// échouerait par manque de temps et masquerait l'erreur du précédent.
+pub const MIN_ATTEMPT_DURATION: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// Délai minimal de l'échange d'authentification par mot de passe : plus
+/// long que les retards qu'appliquent les serveurs à un refus (pénalité
+/// croissante après des échecs répétés), pour que le refus soit lu et non
+/// pris pour un silence passager, qui renverrait le mot de passe.
+pub const PASSWORD_AUTH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// Délai de chaque lecture pendant l'échange d'authentification : le délai
+/// d'ouverture pour un jeton OAuth (un serveur muet est abandonné tôt, le
+/// nouvel essai aboutit), au moins `password_floor` pour un mot de passe.
+#[must_use]
+pub fn authentication_timeout(
+    kind: crate::credentials::CredentialKind,
+    opening: std::time::Duration,
+    password_floor: std::time::Duration,
+) -> std::time::Duration {
+    match kind {
+        crate::credentials::CredentialKind::Password => opening.max(password_floor),
+        crate::credentials::CredentialKind::OAuth2 => opening,
+    }
+}
+
+/// Prochain essai d'un test de connexion.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct NextAttempt {
+    /// Attente avant l'essai.
+    pub wait: std::time::Duration,
+    /// Durée accordée à l'essai, au-delà de laquelle il est abandonné.
+    pub limit: std::time::Duration,
+}
+
+/// Nouvel essai d'un test de connexion, d'après le nombre d'essais déjà
+/// faits (au moins un : le premier dispose de tout le plafond), l'erreur du
+/// dernier (`None` : essai réussi) et le temps écoulé depuis le début du
+/// test. `None` : le test s'arrête sur le dernier résultat.
+#[must_use]
+pub fn next_test_attempt(
+    made: usize,
+    last_error: Option<&ConnectionError>,
+    elapsed: std::time::Duration,
+) -> Option<NextAttempt> {
+    if made >= CONNECTION_ATTEMPTS || !last_error.is_some_and(ConnectionError::is_transient) {
+        return None;
+    }
+    let limit = CONNECTION_TEST_BUDGET
+        .saturating_sub(elapsed)
+        .saturating_sub(CONNECTION_RETRY_DELAY);
+    (limit >= MIN_ATTEMPT_DURATION).then_some(NextAttempt {
+        wait: CONNECTION_RETRY_DELAY,
+        limit,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     #[test]
@@ -266,6 +326,99 @@ mod tests {
             ConnectionError::Rejected("x".into()),
         ] {
             assert!(!e.is_transient(), "{e:?}");
+        }
+    }
+
+    #[test]
+    fn password_authentication_outlasts_a_delayed_refusal() {
+        use crate::credentials::CredentialKind;
+        use std::time::Duration;
+        let short = Duration::from_secs(15);
+        assert_eq!(
+            authentication_timeout(CredentialKind::OAuth2, short, PASSWORD_AUTH_TIMEOUT),
+            short
+        );
+        assert_eq!(
+            authentication_timeout(CredentialKind::Password, short, PASSWORD_AUTH_TIMEOUT),
+            PASSWORD_AUTH_TIMEOUT
+        );
+        let long = Duration::from_secs(60);
+        assert_eq!(
+            authentication_timeout(CredentialKind::Password, long, PASSWORD_AUTH_TIMEOUT),
+            long
+        );
+    }
+
+    mod test_attempts {
+        use std::time::Duration;
+
+        use super::super::*;
+
+        const TRANSIENT: ConnectionError = ConnectionError::Timeout(TimeoutStage::Response);
+
+        #[test]
+        fn transient_failure_is_retried_within_what_remains() {
+            let elapsed = Duration::from_secs(16);
+            assert_eq!(
+                next_test_attempt(1, Some(&TRANSIENT), elapsed),
+                Some(NextAttempt {
+                    wait: CONNECTION_RETRY_DELAY,
+                    limit: CONNECTION_TEST_BUDGET - elapsed - CONNECTION_RETRY_DELAY,
+                })
+            );
+        }
+
+        #[test]
+        fn success_or_refusal_ends_the_test() {
+            assert_eq!(next_test_attempt(1, None, Duration::from_secs(1)), None);
+            let refused = ConnectionError::from(AuthError::LoginDisabled);
+            assert_eq!(
+                next_test_attempt(1, Some(&refused), Duration::from_secs(1)),
+                None
+            );
+        }
+
+        #[test]
+        fn attempts_are_counted() {
+            assert!(
+                next_test_attempt(CONNECTION_ATTEMPTS - 1, Some(&TRANSIENT), Duration::ZERO)
+                    .is_some()
+            );
+            assert_eq!(
+                next_test_attempt(CONNECTION_ATTEMPTS, Some(&TRANSIENT), Duration::ZERO),
+                None
+            );
+        }
+
+        #[test]
+        fn no_retry_without_enough_time_left() {
+            let just_enough =
+                CONNECTION_TEST_BUDGET - CONNECTION_RETRY_DELAY - MIN_ATTEMPT_DURATION;
+            assert_eq!(
+                next_test_attempt(1, Some(&TRANSIENT), just_enough).map(|a| a.limit),
+                Some(MIN_ATTEMPT_DURATION)
+            );
+            let too_late = just_enough + Duration::from_millis(1);
+            assert_eq!(next_test_attempt(1, Some(&TRANSIENT), too_late), None);
+            assert_eq!(
+                next_test_attempt(1, Some(&TRANSIENT), CONNECTION_TEST_BUDGET * 2),
+                None
+            );
+        }
+
+        #[test]
+        fn the_whole_test_fits_in_the_budget() {
+            // Premier essai muet pendant 16 s, puis essais qui durent chacun
+            // tout le temps accordé : la somme des attentes et des essais ne
+            // dépasse jamais le plafond.
+            let mut elapsed = Duration::from_secs(16);
+            let mut made = 1;
+            while let Some(next) = next_test_attempt(made, Some(&TRANSIENT), elapsed) {
+                elapsed += next.wait + next.limit;
+                made += 1;
+            }
+            assert_eq!(made, 2);
+            assert!(elapsed <= CONNECTION_TEST_BUDGET, "{elapsed:?}");
         }
     }
 

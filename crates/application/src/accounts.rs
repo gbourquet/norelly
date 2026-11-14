@@ -234,6 +234,16 @@ pub struct AddOAuthAccountRequest {
     pub provider: OAuthProvider,
 }
 
+/// Étape d'un ajout par « Se connecter avec … », annoncée à l'interface.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OAuthSignInStep {
+    /// Le navigateur du système s'ouvre : l'utilisateur doit s'y connecter.
+    BrowserOpened,
+    /// Connexion obtenue (dans le navigateur ou gardée d'un essai
+    /// précédent) : test des serveurs du fournisseur.
+    SignedIn,
+}
+
 /// Cas d'usage : ajouter un compte par « Se connecter avec Microsoft ».
 ///
 /// Connexion dans le navigateur du système, test IMAP et SMTP avec le
@@ -255,7 +265,19 @@ where
     K: SecretStore,
     D: AccountRepository,
 {
-    pub async fn execute(&self, request: AddOAuthAccountRequest) -> AddAccountOutcome {
+    pub async fn execute(
+        &self,
+        request: AddOAuthAccountRequest,
+        mut progress: impl FnMut(OAuthSignInStep) + Send,
+    ) -> AddAccountOutcome {
+        // Une annulation (fenêtre d'ajout fermée) arrivée à partir d'ici
+        // arrête cet ajout.
+        let mut cancelled = self.broker.sign_in_cancellation();
+        // Un essai précédent a pu échouer après la connexion chez le
+        // fournisseur (serveur muet) : elle resservira, une seule fois, sans
+        // navigateur. Prise d'abord : elle est oubliée quelle que soit
+        // l'issue de cet essai.
+        let kept = self.broker.take_pending(request.provider, &request.address);
         if !request.provider.serves(&request.address) {
             return AddAccountOutcome::Invalid(format!(
                 "fournisseur {} étranger à l'adresse",
@@ -274,18 +296,23 @@ where
         if !self.broker.is_usable(request.provider) {
             return AddAccountOutcome::OAuthFailed(TokenError::ProviderNotConfigured);
         }
-        // Un essai précédent a pu échouer après la connexion chez le
-        // fournisseur (serveur muet) : elle resservira, une seule fois, sans
-        // navigateur.
-        let (grant, fresh_since) =
-            match self.broker.take_pending(request.provider, &request.address) {
-                Some(grant) => (grant, None),
-                None => match self
-                    .broker
-                    .client()
-                    .authorize(&self.broker.config(request.provider), &request.address)
-                    .await
-                {
+        let (grant, fresh_since) = match kept {
+            Some(grant) => (grant, None),
+            None => {
+                progress(OAuthSignInStep::BrowserOpened);
+                let config = self.broker.config(request.provider);
+                let authorize = self.broker.client().authorize(&config, &request.address);
+                // Annulé : le futur abandonné ferme l'écoute du retour, un
+                // onglet terminé plus tard ne livre plus rien.
+                let authorized = tokio::select! {
+                    authorized = authorize => authorized,
+                    _ = cancelled.changed() => {
+                        return AddAccountOutcome::OAuthFailed(TokenError::Cancelled(
+                            "ajout annulé".to_owned(),
+                        ));
+                    }
+                };
+                match authorized {
                     Ok(grant) => (grant, Some(self.broker.now())),
                     Err(e) => {
                         return AddAccountOutcome::OAuthFailed(add_account_sign_in_error(
@@ -293,8 +320,10 @@ where
                             e,
                         ));
                     }
-                },
-            };
+                }
+            }
+        };
+        progress(OAuthSignInStep::SignedIn);
         if let Err(e) = verify_sign_in(
             request.provider,
             &self.broker.config(request.provider),

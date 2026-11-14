@@ -899,11 +899,14 @@ mod oauth {
             broker: b,
             accounts: &w.accounts,
         }
-        .execute(AddOAuthAccountRequest {
-            address: outlook(),
-            display_name: None,
-            provider: OAuthProvider::Microsoft,
-        })
+        .execute(
+            AddOAuthAccountRequest {
+                address: outlook(),
+                display_name: None,
+                provider: OAuthProvider::Microsoft,
+            },
+            |_| {},
+        )
         .await
     }
 
@@ -994,6 +997,199 @@ mod oauth {
         assert!(w.accounts.list().await.is_ok_and(|l| l.is_empty()));
     }
 
+    /// Ajout de `alice@outlook.com` ; étapes annoncées à l'interface.
+    async fn add_observed(
+        w: &World,
+        b: &TokenBroker<FakeOAuthClient, Keyring>,
+    ) -> (AddAccountOutcome, Vec<OAuthSignInStep>) {
+        let test = TestConnection::new(w.servers.clone(), w.servers.clone(), &w.exceptions);
+        let mut steps = Vec::new();
+        let outcome = AddOAuthAccount {
+            test: &test,
+            broker: b,
+            accounts: &w.accounts,
+        }
+        .execute(
+            AddOAuthAccountRequest {
+                address: outlook(),
+                display_name: None,
+                provider: OAuthProvider::Microsoft,
+            },
+            |step| steps.push(step),
+        )
+        .await;
+        (outcome, steps)
+    }
+
+    /// Retour du navigateur retenu jusqu'au signal rendu.
+    fn hold_browser(b: &TokenBroker<FakeOAuthClient, Keyring>) -> Arc<tokio::sync::Notify> {
+        let hold = Arc::new(tokio::sync::Notify::new());
+        if let Ok(mut h) = b.client().hold.lock() {
+            *h = Some(Arc::clone(&hold));
+        }
+        hold
+    }
+
+    /// Attend que le navigateur ait été ouvert `n` fois.
+    async fn browser_opened(b: &TokenBroker<FakeOAuthClient, Keyring>, n: usize) {
+        while browser_sign_ins(b) < n {
+            tokio::task::yield_now().await;
+        }
+    }
+
+    /// `future`, s'il s'achève en moins de cinq secondes.
+    async fn within_seconds<T>(
+        future: impl Future<Output = T>,
+    ) -> Result<T, tokio::time::error::Elapsed> {
+        tokio::time::timeout(std::time::Duration::from_secs(5), future).await
+    }
+
+    fn abandoned(b: &TokenBroker<FakeOAuthClient, Keyring>) -> usize {
+        b.client()
+            .abandoned
+            .load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    #[tokio::test]
+    async fn the_browser_is_announced_only_when_it_opens() {
+        let w = World::new();
+        let (b, _) = broker_with_clock(grant());
+        let (outcome, steps) = add_observed(&w, &b).await;
+        assert!(
+            matches!(outcome, AddAccountOutcome::Added(_)),
+            "{outcome:?}"
+        );
+        assert_eq!(
+            steps,
+            vec![OAuthSignInStep::BrowserOpened, OAuthSignInStep::SignedIn]
+        );
+        // Refus dans le navigateur : il a bien été ouvert, rien d'autre.
+        let w = World::new();
+        let (outcome, steps) = add_observed(&w, &broker(None)).await;
+        assert!(matches!(outcome, AddAccountOutcome::OAuthFailed(_)));
+        assert_eq!(steps, vec![OAuthSignInStep::BrowserOpened]);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_kept_sign_in_is_reused_without_announcing_the_browser() {
+        let w = World::new();
+        let (b, _) = broker_with_clock(grant());
+        silent_imap(&w);
+        assert!(matches!(
+            add(&w, &b).await,
+            AddAccountOutcome::ConnectionFailed { .. }
+        ));
+        let (outcome, steps) = add_observed(&w, &b).await;
+        assert!(
+            matches!(outcome, AddAccountOutcome::Added(_)),
+            "{outcome:?}"
+        );
+        assert_eq!(steps, vec![OAuthSignInStep::SignedIn]);
+        assert_eq!(browser_sign_ins(&b), 1);
+    }
+
+    #[tokio::test]
+    async fn cancelling_stops_the_browser_wait_and_adds_nothing() {
+        let w = World::new();
+        let b = broker(grant());
+        let hold = hold_browser(&b);
+        let cancel = async {
+            browser_opened(&b, 1).await;
+            b.cancel_sign_in();
+        };
+        let Ok(((outcome, steps), ())) =
+            within_seconds(async { tokio::join!(add_observed(&w, &b), cancel) }).await
+        else {
+            panic!("attente du navigateur non arrêtée");
+        };
+        assert!(
+            matches!(
+                outcome,
+                AddAccountOutcome::OAuthFailed(TokenError::Cancelled(_))
+            ),
+            "{outcome:?}"
+        );
+        assert_eq!(steps, vec![OAuthSignInStep::BrowserOpened]);
+        // L'attente du navigateur a été abandonnée : un retour tardif ne
+        // livre plus rien.
+        assert_eq!(abandoned(&b), 1);
+        hold.notify_waiters();
+        assert!(w.accounts.list().await.is_ok_and(|l| l.is_empty()));
+    }
+
+    #[tokio::test]
+    async fn a_google_sign_in_cancelled_by_norelly_is_not_a_google_refusal() {
+        let w = World::new();
+        let b = broker(gmail_grant(Some("openid email https://mail.google.com/")));
+        let _hold = hold_browser(&b);
+        let cancel = async {
+            browser_opened(&b, 1).await;
+            b.cancel_sign_in();
+        };
+        let Ok((outcome, ())) =
+            within_seconds(async { tokio::join!(add_gmail(&w, &b), cancel) }).await
+        else {
+            panic!("attente du navigateur non arrêtée");
+        };
+        assert!(
+            matches!(
+                outcome,
+                AddAccountOutcome::OAuthFailed(TokenError::Cancelled(_))
+            ),
+            "{outcome:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn an_earlier_cancel_does_not_stop_the_next_sign_in() {
+        let w = World::new();
+        let b = broker(grant());
+        b.cancel_sign_in();
+        assert!(matches!(add(&w, &b).await, AddAccountOutcome::Added(_)));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn cancelling_forgets_the_kept_sign_in() {
+        let w = World::new();
+        let (b, _) = broker_with_clock(grant());
+        silent_imap(&w);
+        assert!(matches!(
+            add(&w, &b).await,
+            AddAccountOutcome::ConnectionFailed { .. }
+        ));
+        assert!(b.has_pending(OAuthProvider::Microsoft, &outlook()));
+        b.cancel_sign_in();
+        assert!(!b.has_pending(OAuthProvider::Microsoft, &outlook()));
+        assert!(matches!(add(&w, &b).await, AddAccountOutcome::Added(_)));
+        assert_eq!(browser_sign_ins(&b), 2);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn the_kept_sign_in_is_forgotten_when_the_account_already_exists() {
+        let w = World::new();
+        let (b, _) = broker_with_clock(grant());
+        silent_imap(&w);
+        assert!(matches!(
+            add(&w, &b).await,
+            AddAccountOutcome::ConnectionFailed { .. }
+        ));
+        // Le compte a été ajouté entre-temps par un autre moyen.
+        let (imap, smtp) =
+            oauth_servers(OAuthProvider::Microsoft, &outlook()).unwrap_or_else(|e| panic!("{e}"));
+        let Ok(draft) = AccountDraft::new(
+            DisplayName::from_address(&outlook()),
+            outlook(),
+            imap,
+            smtp,
+            &PlaintextPolicy::deny_all(),
+        ) else {
+            panic!("brouillon invalide");
+        };
+        assert!(w.accounts.insert(&draft).await.is_ok());
+        assert_eq!(add(&w, &b).await, AddAccountOutcome::AlreadyExists);
+        assert!(!b.has_pending(OAuthProvider::Microsoft, &outlook()));
+    }
+
     async fn add_gmail(w: &World, b: &TokenBroker<FakeOAuthClient, Keyring>) -> AddAccountOutcome {
         let test = TestConnection::new(w.servers.clone(), w.servers.clone(), &w.exceptions);
         AddOAuthAccount {
@@ -1001,11 +1197,15 @@ mod oauth {
             broker: b,
             accounts: &w.accounts,
         }
-        .execute(AddOAuthAccountRequest {
-            address: EmailAddress::parse("alice@gmail.com").unwrap_or_else(|_| panic!("adresse")),
-            display_name: None,
-            provider: OAuthProvider::Google,
-        })
+        .execute(
+            AddOAuthAccountRequest {
+                address: EmailAddress::parse("alice@gmail.com")
+                    .unwrap_or_else(|_| panic!("adresse")),
+                display_name: None,
+                provider: OAuthProvider::Google,
+            },
+            |_| {},
+        )
         .await
     }
 
@@ -1046,12 +1246,15 @@ mod oauth {
                 broker: &b,
                 accounts: &w.accounts,
             }
-            .execute(AddOAuthAccountRequest {
-                address: EmailAddress::parse("alice@societe.fr")
-                    .unwrap_or_else(|_| panic!("adresse")),
-                display_name: None,
-                provider,
-            })
+            .execute(
+                AddOAuthAccountRequest {
+                    address: EmailAddress::parse("alice@societe.fr")
+                        .unwrap_or_else(|_| panic!("adresse")),
+                    display_name: None,
+                    provider,
+                },
+                |_| {},
+            )
             .await;
             assert!(
                 matches!(outcome, AddAccountOutcome::Invalid(_)),

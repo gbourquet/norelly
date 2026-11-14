@@ -37,6 +37,23 @@ n'est pas chiffrée (ADR-003) : on s'appuie sur le chiffrement du disque.
 - Clair refusé sans consentement explicite par serveur.
 - Pilote d'E/S IMAP maison : lignes et littéraux bornés, délais, aucune
   panique sur réponse malformée.
+- Délais : chaque lecture ou écriture de l'ouverture d'une connexion IMAP
+  ou SMTP (salutation, `STARTTLS`, authentification) a son propre délai,
+  plus court que celui d'une session ouverte, et l'ouverture entière a une
+  durée totale bornée (un serveur qui envoie un octet de temps en temps ne
+  bloque pas le compte) ; le test de connexion a des délais courts
+  (poignée de main TLS comprise) et une durée totale plafonnée par
+  serveur ; la synchronisation et l'envoi gardent une poignée de main
+  large pour les liaisons dégradées (`app/src-tauri/src/state.rs`,
+  `connection_test`). Un délai plus court ne change aucune vérification :
+  un essai abandonné ferme sa connexion, et le suivant repart de zéro (TLS,
+  certificat, STARTTLS) ; les octets écrits et lus par le pilote IMAP sont
+  effacés même quand l'essai est abandonné (`Zeroizing`).
+- L'authentification par mot de passe attend au moins
+  `PASSWORD_AUTH_TIMEOUT`, plus que les retards qu'appliquent les serveurs
+  à un refus : un mot de passe refusé lentement est lu comme un refus, non
+  renvoyé à un nouvel essai. Un serveur muet au-delà reste réessayé (rejeu
+  des identifiants après un silence : sujet suivi à part).
 - Niveau `TRACE` supprimé à la compilation : `imap-next` y journaliserait
   les mots de passe ; test `credentials_never_appear_in_logs_or_debug`.
 - Secrets : type `Secret` sans `Display`, `Debug` masqué, non sérialisable,

@@ -198,6 +198,18 @@ pub async fn account_repository_contract<R: AccountRepository>(
         Some(&oauth),
         "fournisseur perdu"
     );
+    // Compte Google : chaque fournisseur est accepté par le stockage.
+    let google = sample_account("dave@gmail.com", false)
+        .with_oauth(norelly_domain::oauth::OAuthProvider::Google);
+    let stored_google = repo.insert(&google).await?;
+    assert_eq!(
+        repo.get(stored_google.id())
+            .await?
+            .and_then(|a| a.oauth_provider()),
+        Some(norelly_domain::oauth::OAuthProvider::Google),
+        "compte Google refusé ou fournisseur perdu"
+    );
+    repo.delete(stored_google.id()).await?;
     repo.delete(stored.id()).await?;
 
     let a = sample_account("alice@example.com", false);

@@ -320,6 +320,11 @@ fn change_password_result(
         Err(ChangePasswordError::SecretStore(e)) => {
             return Err(IpcError::new(ErrorCodeDto::SecretStore).with_detail(e));
         }
+        // Réception et envoi peuvent garder des mots de passe différents :
+        // un nouvel essai les remet d'accord.
+        Err(e @ ChangePasswordError::RestoreFailed(..)) => {
+            return Err(IpcError::new(ErrorCodeDto::SecretStore).with_detail(e));
+        }
         Err(ChangePasswordError::Storage(e)) => return Err(IpcError::storage(e)),
     };
     Ok(AddAccountResultDto::from_outcome(&outcome))
@@ -337,6 +342,8 @@ pub async fn change_password(
     password: String,
 ) -> Result<AddAccountResultDto, IpcError> {
     let (id, password) = change_password_input(account, password)?;
+    // Pas de suppression du compte pendant l'essai et l'écriture.
+    let _held = state.account_locks.lock(id).await;
     let result = ChangePassword {
         test: &state.test,
         secrets: &state.secrets,
@@ -405,6 +412,9 @@ pub async fn secrets_backend(state: State<'_, AppState>) -> Result<SecretsBacken
 #[specta::specta]
 pub async fn remove_account(state: State<'_, AppState>, id: u32) -> Result<(), IpcError> {
     let id = AccountId::new(i64::from(id)).map_err(|_| IpcError::invalid(FieldDto::Account))?;
+    // Un changement de mot de passe en cours finit avant la suppression :
+    // il ne réécrit pas les secrets effacés.
+    let _held = state.account_locks.lock(id).await;
     // Synchronisation arrêtée avant l'effacement des données locales.
     state.mail.stop(id).await;
     RemoveAccount {
@@ -513,7 +523,9 @@ mod tests {
     #[test]
     fn change_password_input_is_revalidated() {
         assert_eq!(
-            change_password_input(0, "secret".into()).map(|_| ()).map_err(|e| (e.code, e.field)),
+            change_password_input(0, "secret".into())
+                .map(|_| ())
+                .map_err(|e| (e.code, e.field)),
             Err((ErrorCodeDto::InvalidInput, Some(FieldDto::Account)))
         );
         let Ok((id, secret)) = change_password_input(3, "abcd efgh".into()) else {
@@ -554,13 +566,20 @@ mod tests {
         );
         let account = norelly_test_support::contracts::sample_account("alice@gmail.com", false)
             .with_id(AccountId::new(2).unwrap_or_else(|_| panic!("identifiant")));
+        assert_eq!(json(change_password_result(Ok(account)))["kind"], "added");
+        let code = |e| {
+            change_password_result(Err(e))
+                .map(|_| ())
+                .map_err(|e| e.code)
+        };
         assert_eq!(
-            json(change_password_result(Ok(account)))["kind"],
-            "added"
+            code(ChangePasswordError::NotFound),
+            Err(ErrorCodeDto::NotFound)
         );
-        let code = |e| change_password_result(Err(e)).map(|_| ()).map_err(|e| e.code);
-        assert_eq!(code(ChangePasswordError::NotFound), Err(ErrorCodeDto::NotFound));
-        assert_eq!(code(ChangePasswordError::NotPassword), Err(ErrorCodeDto::NotFound));
+        assert_eq!(
+            code(ChangePasswordError::NotPassword),
+            Err(ErrorCodeDto::NotFound)
+        );
         assert_eq!(
             code(ChangePasswordError::SecretStore("verrouillé".into())),
             Err(ErrorCodeDto::SecretStore)
@@ -568,6 +587,13 @@ mod tests {
         assert_eq!(
             code(ChangePasswordError::Storage("base".into())),
             Err(ErrorCodeDto::Storage)
+        );
+        assert_eq!(
+            code(ChangePasswordError::RestoreFailed(
+                "refusé".into(),
+                "verrouillé".into()
+            )),
+            Err(ErrorCodeDto::SecretStore)
         );
     }
 

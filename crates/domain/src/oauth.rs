@@ -393,6 +393,24 @@ pub fn verify_identity(
     }
 }
 
+/// Erreur de jeton vue d'une connexion. Jeton de rafraîchissement refusé :
+/// reconnexion. Fournisseur injoignable ou trop lent : panne passagère, qui
+/// ne met pas les identifiants en cause. Autre refus du fournisseur
+/// (application refusée, réponse invalide) : refus définitif.
+#[must_use]
+pub fn auth_error_of(error: &TokenError) -> crate::auth::AuthError {
+    use crate::auth::AuthError;
+    match error {
+        TokenError::ReauthRequired => AuthError::ReauthRequired,
+        TokenError::Network(_) => AuthError::ProviderUnavailable {
+            message: error.to_string(),
+        },
+        other => AuthError::Rejected {
+            message: other.to_string(),
+        },
+    }
+}
+
 /// Refuse une connexion interactive sans jeton de rafraîchissement : sans
 /// lui, le compte ne pourrait plus se connecter une fois le jeton d'accès
 /// expiré.

@@ -1,5 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
-import type { ActionDto, ConversationDto, ConversationMessage, ScopeDto } from "./ipc/api";
+import type {
+  FolderDto,
+  ActionDto,
+  ConversationDto,
+  ConversationMessage,
+  ScopeDto,
+} from "./ipc/api";
 import { MailState, PAGE_SIZE, UNDO_WINDOW_MS, UNIFIED_INBOX, type MailApi } from "./mail.svelte";
 import { IpcFailure } from "./errors";
 
@@ -134,6 +140,23 @@ describe("état de la lecture", () => {
     expect(mail.offline[1]).toBe("identifiants refusés (« NO [AUTHENTICATIONFAILED] »)");
     await mail.onSyncEvent({ kind: "online", account: 1 });
     expect(mail.offline[1]).toBeUndefined();
+  });
+
+  it("dossiers relus pendant la synchronisation : une réponse périmée n'écrase pas la dernière", async () => {
+    const api = fakeApi(3);
+    const folder = (unread: number) =>
+      ({ id: 10, account: 1, name: "INBOX", role: "inbox", unread }) as unknown as FolderDto;
+    let releaseFirst: (v: FolderDto[]) => void = () => undefined;
+    api.listFolders = vi
+      .fn()
+      .mockImplementationOnce(() => new Promise<FolderDto[]>((r) => (releaseFirst = r)))
+      .mockImplementationOnce(async () => [folder(5)]);
+    const mail = new MailState(api, noAutoSeen);
+    const first = mail.loadFolders(1);
+    await mail.loadFolders(1);
+    releaseFirst([folder(1)]);
+    await first;
+    expect(mail.folders[1]?.[0]?.unread).toBe(5);
   });
 
   it("synchronisation en cours : progression suivie, effacée à la fin ou à la coupure", async () => {

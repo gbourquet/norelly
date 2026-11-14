@@ -127,9 +127,17 @@ export class MailState {
     this.#markSeenDelay = markSeenDelay;
   }
 
+  /** Dernière relecture demandée, par compte : une réponse plus ancienne,
+   *  arrivée après, est ignorée (relectures rapprochées pendant la
+   *  synchronisation). */
+  #folderReads: Record<number, number> = {};
+
   async loadFolders(account: number): Promise<void> {
+    const read = (this.#folderReads[account] ?? 0) + 1;
+    this.#folderReads[account] = read;
     try {
-      this.folders[account] = await this.#api.listFolders(account);
+      const folders = await this.#api.listFolders(account);
+      if (this.#folderReads[account] === read) this.folders[account] = folders;
     } catch (e) {
       this.error = errorText(e);
     }
@@ -139,6 +147,7 @@ export class MailState {
     this.folders = without(this.folders, account);
     this.offline = without(this.offline, account);
     this.syncing = without(this.syncing, account);
+    this.#folderReads = without(this.#folderReads, account);
     this.conversations = this.conversations.filter((c) => c.account !== account);
     if (this.opened?.account === account) this.back();
   }

@@ -148,6 +148,12 @@ acceptés) sont supprimées. **Rien n'est supprimé sur le serveur.**
   non des identifiants refusés ; rien n'est envoyé au serveur, et Norelly
   réessaie plus tard. Un compte lent chez Microsoft ou dont le trousseau
   tarde à répondre ne retarde pas les autres comptes.
+- Microsoft injoignable, trop lent ou en panne au moment de renouveler
+  l'autorisation : le compte indique que la connexion au fournisseur est
+  impossible, et non des identifiants refusés ; Norelly réessaie plus tard,
+  et le renouvellement ne dure jamais plus d'une demi-minute.
+- Compte supprimé : les autorisations gardées en mémoire sont oubliées
+  avec lui ; elles ne servent plus et ne sont plus enregistrées.
 - Trousseau qui refuse d'enregistrer l'autorisation renouvelée : le compte
   continue de fonctionner tant que Norelly est ouvert, et l'enregistrement
   est retenté au renouvellement suivant.
@@ -187,6 +193,7 @@ acceptés) sont supprimées. **Rien n'est supprimé sur le serveur.**
 | Connexion annulée | La connexion a été annulée dans le navigateur. |
 | Autre compte choisi | Le compte choisi dans le navigateur n'est pas celui de cette adresse. Réessayez en choisissant le compte de {address}. (Reconnexion : « autre compte choisi dans le navigateur ».) |
 | Boîte inaccessible (Microsoft) | {prefix}votre compte Microsoft est bien connecté, mais Outlook.com refuse l'accès à la boîte. Vérifiez que l'accès IMAP est activé dans Outlook.com (Paramètres, Courrier, Transfert et IMAP), puis réessayez dans quelques minutes. |
+| Fournisseur injoignable | Connexion au fournisseur impossible. Vérifiez votre connexion à Internet, puis réessayez. (Compte déjà ajouté : « connexion au fournisseur impossible ».) |
 | Rester connecté refusé | Norelly n'a pas reçu l'autorisation de rester connecté à votre compte. Réessayez en acceptant toutes les autorisations demandées dans la page de connexion. (Reconnexion : « autorisation de rester connecté refusée ».) |
 | Envoi désactivé (Microsoft) | {prefix}l'envoi de messages est désactivé sur ce compte Microsoft. Activez-le dans les réglages de votre compte Outlook.com, puis réessayez. |
 | Reconnexion nécessaire | Bouton « Se reconnecter » à côté du compte ; infobulle « Reconnexion nécessaire : {address} » ; « Compte reconnecté. » après succès. |

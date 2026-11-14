@@ -63,7 +63,9 @@ pub enum SyncEvent {
     Offline {
         account: AccountId,
         failure: SyncFailure,
-        retry_in_ms: u64,
+        /// Attente avant le nouvel essai ; `None` : aucun nouvel essai (la
+        /// synchronisation s'arrête, l'échec reste affiché).
+        retry_in_ms: Option<u64>,
     },
 }
 

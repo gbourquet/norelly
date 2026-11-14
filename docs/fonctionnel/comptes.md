@@ -135,6 +135,20 @@ acceptés) sont supprimées. **Rien n'est supprimé sur le serveur.**
   sans toujours le dire à Norelly. L'écran revient au formulaire, l'explique
   et bascule sur le mot de passe d'application, avec ses étapes ; rien
   n'est enregistré.
+- Accès aux messages décoché dans la page de Google : le compte ne pourrait
+  ni recevoir ni envoyer. Il n'est pas ajouté (ni reconnecté), et l'écran
+  demande de recommencer en cochant toutes les autorisations.
+- Compte choisi chez Google dont l'adresse n'est pas vérifiée par Google,
+  ou connexion qui n'a pas été faite pour Norelly : refusée, comme un autre
+  compte.
+- Version de Norelly qui ne peut pas se connecter à Google (version non
+  officielle) : « Se connecter avec Google » n'est pas proposé, une adresse
+  Gmail passe par le mot de passe d'application. Un compte Google déjà
+  enregistré n'envoie plus rien à Google : il affiche que cette version ne
+  peut pas se connecter à ce fournisseur, sans nouveaux essais ni
+  reconnexion.
+- Adresse modifiée juste avant « Se connecter avec … » : Norelly vérifie le
+  fournisseur de l'adresse finale avant d'ouvrir le navigateur.
 - Connexion chez Microsoft refusée ou abandonnée dans le navigateur : retour
   au formulaire, avec une explication ; rien n'est enregistré.
 - Compte choisi dans la page de Microsoft différent de l'adresse saisie
@@ -226,6 +240,8 @@ acceptés) sont supprimées. **Rien n'est supprimé sur le serveur.**
 | Boîte inaccessible (Microsoft) | {prefix}votre compte Microsoft est bien connecté, mais Outlook.com refuse l'accès à la boîte. Vérifiez que l'accès IMAP est activé dans Outlook.com (Paramètres, Courrier, Transfert et IMAP), puis réessayez dans quelques minutes. |
 | Fournisseur injoignable | Connexion au fournisseur impossible. Vérifiez votre connexion à Internet, puis réessayez. (Compte déjà ajouté : « connexion au fournisseur impossible ».) |
 | Rester connecté refusé | Norelly n'a pas reçu l'autorisation de rester connecté à votre compte. Réessayez en acceptant toutes les autorisations demandées dans la page de connexion. (Reconnexion : « autorisation de rester connecté refusée ».) |
+| Accès aux messages refusé | Norelly n'a pas reçu l'autorisation d'accéder à vos messages. Réessayez en cochant toutes les autorisations demandées dans la page de connexion. (Compte déjà ajouté : « accès aux messages refusé ».) |
+| Fournisseur absent de cette version | Cette version de Norelly ne peut pas se connecter à ce fournisseur. Installez la version publiée de Norelly ou, pour Gmail, utilisez un mot de passe d'application. (Compte déjà ajouté : « connexion à ce fournisseur indisponible dans cette version ».) |
 | Envoi désactivé (Microsoft) | {prefix}l'envoi de messages est désactivé sur ce compte Microsoft. Activez-le dans les réglages de votre compte Outlook.com, puis réessayez. |
 | Reconnexion nécessaire | Bouton « Se reconnecter » à côté du compte ; infobulle « Reconnexion nécessaire : {address} » ; « Compte reconnecté. » après succès. |
 | Refus de sécurité | {prefix}connexion refusée par sécurité. |

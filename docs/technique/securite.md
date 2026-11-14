@@ -60,8 +60,16 @@ n'est pas chiffrée (ADR-003) : on s'appuie sur le chiffrement du disque.
   vérifiée) doit porter l'adresse du compte en `preferred_username` ou
   `email`, sinon les jetons sont refusés avant tout test, stockage ou
   remplacement, à l'ajout comme à la reconnexion
-  (`crates/domain/src/oauth.rs`, `verify_identity`). Un code d'un autre
-  compte injecté dans la redirection locale est ainsi refusé. Le
+  (`crates/domain/src/oauth.rs`, `verify_sign_in`, `verify_identity`). Un
+  code d'un autre compte injecté dans la redirection locale est ainsi
+  refusé. Google : `iss` de Google (`https://accounts.google.com` ou
+  `accounts.google.com`), `aud` égal à l'identifiant client et
+  `email_verified` exigés (`check_identity_claims`) ; Microsoft : à venir.
+  Connexion Google sans le scope de messagerie (consentement granulaire) :
+  refusée (`require_mail_access`). Version compilée sans les identifiants
+  d'un fournisseur : rien ne lui est envoyé, ni jeton de rafraîchissement
+  ni ouverture du navigateur (`TokenBroker`, `AuthError::ProviderNotConfigured`,
+  refus définitif sans nouvel essai). Le
   rafraîchissement redemande les seuls scopes de messagerie chez
   Microsoft ; Google garde les scopes accordés (`openid email` compris),
   le jeton ne partant de toute façon que vers les serveurs de Gmail.

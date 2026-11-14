@@ -681,8 +681,14 @@ est majoritairement écrit par Claude et relu par le mainteneur.
     non confidentiels (même valeur dans chaque copie, code protégé par
     PKCE). Sans eux (développement, tests), « Se connecter avec Google »
     n'est pas proposé et une adresse Gmail garde le mot de passe
-    d'application (`OAuthProvider::offered_for`) ; les e2e compilent avec
-    des valeurs factices ;
+    d'application (`OAuthProvider::offered_for`), et un compte Google déjà
+    enregistré n'envoie plus rien à Google (refus définitif,
+    `ProviderNotConfigured`) ; les e2e compilent avec des valeurs
+    factices ; secrets rangés dans l'environnement `release` (jobs Linux et
+    Windows) ;
+  - identité Google : `iss`, `aud` et `email_verified` vérifiés ; scope de
+    messagerie exigé parmi les scopes accordés (Google permet d'en
+    décocher) ;
     fournisseur `google` accepté en base (migration 14) ;
   - jeton de rafraîchissement dans le trousseau, sous la clé IMAP du
     compte ; jeton d'accès en mémoire ; fournisseur enregistré sur le

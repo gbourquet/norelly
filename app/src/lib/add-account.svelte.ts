@@ -15,6 +15,7 @@ import type {
   EndpointDto,
   FailureKindDto,
   OAuthProviderDto,
+  OAuthSignInStepDto,
   SecretsBackendDto,
   ServerDto,
 } from "./ipc/api";
@@ -158,7 +159,11 @@ export class AddAccountFlow {
   /** Message à montrer après l'ajout (envoi non vérifié), ou `null`. */
   addedNotice = $state<string | null>(null);
   #oauth = false;
-  #browser = true;
+  /** Dernière étape de « Se connecter avec … » annoncée par Rust. */
+  #signInStep = $state<OAuthSignInStepDto | null>(null);
+  /** Numéro de l'essai en cours : une réponse d'un essai abandonné
+   *  (fenêtre fermée, annulation) est ignorée. */
+  #attempt = 0;
   #consents: EndpointDto[] = [];
   #api: AccountApi;
 
@@ -166,12 +171,17 @@ export class AddAccountFlow {
     this.#api = api;
   }
 
+  /** Fenêtre verrouillée : un essai est en cours. L'attente du navigateur
+   *  ne verrouille pas : l'utilisateur peut fermer ou annuler. */
   get busy(): boolean {
-    return this.step === "discovering" || this.step === "testing";
+    return this.step === "discovering" || (this.step === "testing" && !this.waitingForBrowser);
   }
 
-  /** Efface le mot de passe et revient au début. */
+  /** Efface le mot de passe et revient au début. Un essai en cours est
+   *  abandonné : sa réponse sera ignorée. */
   reset(): void {
+    this.#attempt += 1;
+    this.#signInStep = null;
     this.step = "form";
     this.password = "";
     this.progress = [];
@@ -226,41 +236,82 @@ export class AddAccountFlow {
     // un fournisseur qui n'est pas celui de l'adresse. Fournisseur changé :
     // rien n'est ouvert, l'utilisateur clique sur le bouton mis à jour.
     const shown = this.signInProvider;
+    const attempt = ++this.#attempt;
+    // Une annulation encore en route arrêterait ce nouvel essai : Rust la
+    // reçoit d'abord.
+    await this.#cancelling;
     await this.detectProvider();
     const provider = this.signInProvider;
-    if (provider === null || provider !== shown) return;
+    if (attempt !== this.#attempt || provider === null || provider !== shown) return;
     this.message = null;
     this.appPasswordHelp = false;
     this.#oauth = true;
     this.#manual = false;
-    // Rust dit si la connexion d'un essai échoué resservira, sans navigateur.
-    this.#browser = !(await this.#api
-      .oauthSignInKept(this.address.trim(), provider)
-      .catch(() => false));
+    this.#signInStep = null;
     this.step = "testing";
     let result: AddAccountResult;
     try {
-      result = await this.#api.addOAuthAccount({
-        address: this.address.trim(),
-        display_name: this.displayName.trim() || null,
-        provider,
-      });
+      result = await this.#api.addOAuthAccount(
+        {
+          address: this.address.trim(),
+          display_name: this.displayName.trim() || null,
+          provider,
+        },
+        // Rust annonce le navigateur seulement quand il l'ouvre vraiment.
+        (step) => {
+          if (attempt === this.#attempt) this.#signInStep = step;
+        },
+      );
     } catch (e) {
+      if (attempt !== this.#attempt) return;
+      this.#signInStep = null;
       this.step = "form";
       this.message = errorText(e);
       return;
     }
+    if (attempt !== this.#attempt) return;
+    this.#signInStep = null;
     this.apply(result);
   }
 
   /** Vrai pendant l'attente du retour du navigateur. */
   get waitingForBrowser(): boolean {
-    return this.#oauth && this.#browser && this.step === "testing";
+    return this.#oauth && this.step === "testing" && this.#signInStep === "browser_opened";
   }
 
-  /** Vrai pendant un nouvel essai qui réutilise la connexion gardée. */
-  get reusingSignIn(): boolean {
-    return this.#oauth && !this.#browser && this.step === "testing";
+  /** Vrai pendant un essai par le fournisseur hors attente du navigateur
+   *  (connexion gardée, ou obtenue et serveurs en test). Avant la première
+   *  étape annoncée par Rust, l'essai compte aussi ici, fenêtre verrouillée :
+   *  une annulation arrivée avant que Rust ne l'observe serait perdue. */
+  get checkingSignIn(): boolean {
+    return this.#oauth && this.step === "testing" && this.#signInStep !== "browser_opened";
+  }
+
+  /** « Annuler » pendant l'attente du navigateur : Rust arrête l'attente
+   *  et oublie la connexion gardée ; retour au formulaire. */
+  async cancelSignIn(): Promise<void> {
+    this.#attempt += 1;
+    this.#signInStep = null;
+    this.step = "form";
+    this.message = m.add_msg_cancelled();
+    await this.#cancelInRust();
+  }
+
+  /** Fenêtre fermée : l'essai en cours est abandonné et Rust oublie la
+   *  connexion gardée. */
+  async forget(): Promise<void> {
+    this.reset();
+    await this.#cancelInRust();
+  }
+
+  /** Annulation envoyée à Rust, pas encore traitée. */
+  #cancelling: Promise<void> = Promise.resolve();
+
+  #cancelInRust(): Promise<void> {
+    this.#cancelling = this.#api.cancelOAuthSignIn().catch(() => {
+      // Rust injoignable : l'attente s'arrêtera d'elle-même (délai).
+    });
+    return this.#cancelling;
   }
 
   /** Ouvre la page Google de création des mots de passe d'application. */

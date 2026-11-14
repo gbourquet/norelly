@@ -46,6 +46,9 @@ pub struct TokenBroker<O, K> {
     /// Connexion d'un ajout de compte qui n'a pas abouti, en mémoire
     /// seulement, jusqu'au prochain essai.
     pending: std::sync::Mutex<Option<(PendingAuthorization, OAuthGrant)>>,
+    /// Annulation des ajouts en cours : chaque [`Self::cancel_sign_in`]
+    /// change la valeur, que les ajouts commencés avant observent.
+    sign_in_cancel: tokio::sync::watch::Sender<u64>,
     /// Configuration de chaque fournisseur ; par défaut, celle compilée
     /// (identifiants client compris). Seule source : elle est passée au
     /// client OAuth à chaque connexion et rafraîchissement, et sert aux
@@ -78,6 +81,7 @@ impl<O: OAuthClient, K: SecretStore> TokenBroker<O, K> {
             clock,
             slots: std::sync::Mutex::new(HashMap::new()),
             pending: std::sync::Mutex::new(None),
+            sign_in_cancel: tokio::sync::watch::Sender::new(0),
             configs: |provider| provider.config().clone(),
         }
     }
@@ -107,13 +111,17 @@ impl<O: OAuthClient, K: SecretStore> TokenBroker<O, K> {
     /// Garde la connexion d'un ajout de compte qui a échoué après la
     /// connexion chez le fournisseur, obtenue à `obtained_at`
     /// ([`Self::now`]) : le prochain essai pour la même adresse la
-    /// réutilise ([`Self::take_pending`]). Remplace la précédente.
+    /// réutilise ([`Self::take_pending`]). Remplace la précédente. Rien
+    /// n'est gardé si l'ajout a été annulé depuis `cancelled`
+    /// ([`Self::sign_in_cancellation`]) : le contrôle et l'écriture se font
+    /// sous le même verrou que [`Self::cancel_sign_in`].
     pub fn keep_pending(
         &self,
         provider: OAuthProvider,
         address: &EmailAddress,
         grant: OAuthGrant,
         obtained_at: u64,
+        cancelled: &tokio::sync::watch::Receiver<u64>,
     ) {
         let pending = PendingAuthorization {
             provider,
@@ -121,12 +129,16 @@ impl<O: OAuthClient, K: SecretStore> TokenBroker<O, K> {
             obtained_at,
             expires_in: grant.expires_in,
         };
-        *self.pending.lock().unwrap_or_else(PoisonError::into_inner) = Some((pending, grant));
+        let mut kept = self.pending.lock().unwrap_or_else(PoisonError::into_inner);
+        if !cancelled.has_changed().unwrap_or(true) {
+            *kept = Some((pending, grant));
+        }
     }
 
     /// Vrai si une connexion gardée peut resservir pour ajouter `address`
-    /// chez `provider` (l'écran n'annonce alors pas le navigateur).
-    pub fn has_pending(&self, provider: OAuthProvider, address: &EmailAddress) -> bool {
+    /// chez `provider`.
+    #[cfg(test)]
+    pub(crate) fn has_pending(&self, provider: OAuthProvider, address: &EmailAddress) -> bool {
         self.pending
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
@@ -152,6 +164,22 @@ impl<O: OAuthClient, K: SecretStore> TokenBroker<O, K> {
             .then_some(grant)
     }
 
+    /// Signal d'annulation des ajouts de compte commencés avant ce
+    /// moment-ci : [`tokio::sync::watch::Receiver::changed`] s'achève à la
+    /// prochaine [`Self::cancel_sign_in`].
+    pub fn sign_in_cancellation(&self) -> tokio::sync::watch::Receiver<u64> {
+        self.sign_in_cancel.subscribe()
+    }
+
+    /// Fenêtre d'ajout fermée ou annulée : arrête l'attente du navigateur
+    /// des ajouts en cours et oublie la connexion gardée. Sans effet sur un
+    /// ajout commencé ensuite.
+    pub fn cancel_sign_in(&self) {
+        let mut kept = self.pending.lock().unwrap_or_else(PoisonError::into_inner);
+        self.sign_in_cancel
+            .send_modify(|generation| *generation = generation.wrapping_add(1));
+        *kept = None;
+    }
     /// Client OAuth (connexion interactive).
     pub fn client(&self) -> &O {
         &self.client

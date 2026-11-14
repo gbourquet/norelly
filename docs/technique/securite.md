@@ -51,9 +51,26 @@ n'est pas chiffrée (ADR-003) : on s'appuie sur le chiffrement du disque.
   OAuth n'utilise que XOAUTH2.
 - Code d'autorisation protégé par PKCE S256 ; `state` aléatoire
   (128 bits) vérifié avant tout le reste ; retour forgé ou illisible
-  ignoré sans annuler la connexion ; redirection écoutée sur
-  `127.0.0.1` seulement, port éphémère, requête bornée
-  (`crates/adapters/oauth`).
+  ignoré sans annuler la connexion ; redirection `localhost` écoutée sur
+  `127.0.0.1` et `::1` au même port (aucun autre programme ne peut
+  occuper l'une des deux ; `127.0.0.1` seul sans IPv6, ADR-013), port
+  éphémère, requête bornée en taille (8 Kio) et en durée (5 s pour la
+  requête entière), une tâche par connexion, 32 au plus à la fois (les
+  suivantes attendent dans la file du système), erreur d'acceptation
+  passagère : un client local lent ou un afflux de connexions ne bloque
+  pas l'attente (`crates/adapters/oauth`). Fenêtre d'ajout fermée ou
+  annulée : l'attente s'arrête et l'écoute est refermée
+  (`cancel_oauth_sign_in`, `TokenBroker::cancel_sign_in`), la connexion
+  gardée d'un essai échoué est oubliée ; une annulation arrivée pendant
+  le test des serveurs empêche l'enregistrement du compte et la garde de
+  la connexion (contrôle sous le verrou de `pending`). Requête du
+  navigateur (code) et corps de la réponse des jetons lus dans des
+  tampons réservés d'emblée et effacés (`SecretBytes`), jetons lus
+  directement en `Secret` ; les morceaux reçus du client HTTP ne sont pas
+  effacés. Client HTTP en clair réservé aux tests (`#[cfg(test)]`).
+  Limite connue : sous Windows, l'écoute n'est pas exclusive
+  (`SO_EXCLUSIVEADDRUSE` exigerait `socket2` en dépendance directe) ; un
+  code intercepté reste inutilisable sans le vérificateur PKCE.
 - Compte vérifié : la connexion interactive demande aussi `openid email
   profile` (Google : `openid email`) ; l'`id_token` reçu du point d'accès des jetons (HTTPS vérifié,
   en échange du code et du vérificateur PKCE, donc signature non

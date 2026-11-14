@@ -1,6 +1,7 @@
 //! Adaptateur OAuth 2.0 pour application de bureau (RFC 8252) : ouverture
 //! du navigateur du système, retour sur une redirection locale
-//! (`127.0.0.1`, port éphémère), code d'autorisation protégé par PKCE
+//! (`localhost`, port éphémère, écouté sur `127.0.0.1` et `::1`), code
+//! d'autorisation protégé par PKCE
 //! (RFC 7636), échange et rafraîchissement par HTTPS avec la vérification
 //! de certificats de la plateforme (ADR-002).
 //!
@@ -9,10 +10,13 @@
 //! n'apparaît dans les journaux ni dans les erreurs : le corps des réponses
 //! n'est jamais recopié.
 
+use std::io::ErrorKind;
+use std::net::{Ipv4Addr, Ipv6Addr};
+use std::sync::Arc;
 use std::time::Duration;
 
 use norelly_domain::address::EmailAddress;
-use norelly_domain::credentials::Secret;
+use norelly_domain::credentials::{Secret, SecretBytes};
 use norelly_domain::oauth::{
     AuthorizationRequest, CallbackError, OAuthConfig, OAuthIdentity, TokenError, authorization_url,
     classify_token_error, code_exchange_form, parse_callback, refresh_form,
@@ -29,6 +33,16 @@ pub const AUTHORIZE_TIMEOUT: Duration = Duration::from_secs(300);
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(20);
 /// Taille maximale lue d'une requête du navigateur.
 const MAX_CALLBACK_BYTES: usize = 8 * 1024;
+/// Délai de lecture d'une requête du navigateur, entière, puis d'écriture
+/// de la réponse : une connexion locale lente est coupée.
+const CALLBACK_IO_TIMEOUT: Duration = Duration::from_secs(5);
+/// Essais d'un nouveau port quand celui de `127.0.0.1` est pris sur `::1`.
+const BIND_ATTEMPTS: usize = 5;
+/// Connexions locales lues en même temps ; les suivantes attendent dans la
+/// file du système qu'une place se libère (au plus deux délais d'E/S).
+const MAX_CONNECTIONS: usize = 32;
+/// Pause après une erreur passagère d'`accept` (trop de fichiers ouverts…).
+const ACCEPT_RETRY_DELAY: Duration = Duration::from_millis(100);
 /// Taille maximale d'une réponse du point d'accès des jetons.
 const MAX_TOKEN_RESPONSE_BYTES: usize = 64 * 1024;
 
@@ -86,8 +100,8 @@ impl<B: BrowserOpener> HttpOAuthClient<B> {
 
     /// Client en HTTP clair vers `token_url` : **tests uniquement**
     /// (`wiremock` ne sert pas de HTTPS).
-    #[doc(hidden)]
-    pub fn plain_http_for_tests(
+    #[cfg(test)]
+    pub(crate) fn plain_http_for_tests(
         browser: B,
         token_url: String,
         authorize_timeout: Duration,
@@ -118,16 +132,11 @@ impl<B: BrowserOpener> HttpOAuthClient<B> {
         config: &OAuthConfig,
         login_hint: &EmailAddress,
     ) -> Result<OAuthGrant, TokenError> {
-        let listener = TcpListener::bind(("127.0.0.1", 0))
-            .await
-            .map_err(|e| TokenError::Network(e.to_string()))?;
-        let port = listener
-            .local_addr()
-            .map_err(|e| TokenError::Network(e.to_string()))?
-            .port();
+        let redirect = bind_redirect()?;
         // `localhost` : seule forme enregistrée chez Microsoft pour une
-        // application de bureau (port libre) ; écoute sur 127.0.0.1.
-        let redirect_uri = format!("http://localhost:{port}/");
+        // application de bureau (port libre). Le navigateur peut la résoudre
+        // en `127.0.0.1` ou en `::1` : les deux sont écoutées (ADR-013).
+        let redirect_uri = format!("http://localhost:{}/", redirect.port);
         let verifier = Secret::new(random_token(32)?);
         let state = random_token(16)?;
         let challenge = base64url(&Sha256::digest(verifier.expose().as_bytes()));
@@ -141,10 +150,10 @@ impl<B: BrowserOpener> HttpOAuthClient<B> {
             },
         );
         self.browser.open(&url).map_err(TokenError::Network)?;
-        let code = tokio::time::timeout(self.authorize_timeout, wait_for_code(&listener, &state))
+        let code = tokio::time::timeout(self.authorize_timeout, wait_for_code(&redirect, &state))
             .await
             .map_err(|_| TokenError::Cancelled("délai dépassé".to_owned()))??;
-        drop(listener);
+        drop(redirect);
         let form = code_exchange_form(config, &code, &redirect_uri, &verifier);
         self.post_token(config, form).await
     }
@@ -174,7 +183,7 @@ impl<B: BrowserOpener> HttpOAuthClient<B> {
             .map_err(|e| TokenError::Network(e.without_url().to_string()))?;
         let status = response.status().as_u16();
         let body = read_bounded(response).await?;
-        parse_token_response(status, &body)
+        parse_token_response(status, body.expose())
     }
 }
 
@@ -196,104 +205,263 @@ impl<B: BrowserOpener> OAuthClient for HttpOAuthClient<B> {
     }
 }
 
+/// Écoute de la redirection : `127.0.0.1` et, si la machine a IPv6, `::1`
+/// au même port.
+#[derive(Debug)]
+struct Redirect {
+    port: u16,
+    v4: TcpListener,
+    v6: Option<TcpListener>,
+}
+
+fn bind_redirect() -> Result<Redirect, TokenError> {
+    bind_redirect_with(|port| std::net::TcpListener::bind((Ipv6Addr::LOCALHOST, port)))
+}
+
+/// Écoute `127.0.0.1` sur un port libre, puis `::1` au même port avec
+/// `bind_v6`, pour qu'aucun autre programme ne reçoive le retour adressé à
+/// `localhost` :
+/// - port déjà pris sur `::1` : nouveau port, au plus [`BIND_ATTEMPTS`] fois ;
+/// - adresse `::1` indisponible (pas d'IPv6) : `127.0.0.1` seul ;
+/// - autre erreur : échec.
+fn bind_redirect_with(
+    mut bind_v6: impl FnMut(u16) -> std::io::Result<std::net::TcpListener>,
+) -> Result<Redirect, TokenError> {
+    let network = |e: std::io::Error| TokenError::Network(e.to_string());
+    for _ in 0..BIND_ATTEMPTS {
+        let v4 = std::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).map_err(network)?;
+        let port = v4.local_addr().map_err(network)?.port();
+        let v6 = match bind_v6(port) {
+            Ok(v6) => Some(v6),
+            Err(e) if port_refused(&e) => continue,
+            Err(e) if ipv6_absent(&e) => None,
+            Err(e) => return Err(network(e)),
+        };
+        return Ok(Redirect {
+            port,
+            v4: tokio_listener(v4)?,
+            v6: v6.map(tokio_listener).transpose()?,
+        });
+    }
+    Err(TokenError::Network(
+        "aucun port libre à la fois sur 127.0.0.1 et ::1".to_owned(),
+    ))
+}
+
+/// Port inutilisable sur `::1` : déjà pris, ou réservé (Windows : plages
+/// exclues, refus d'accès). Un autre port est essayé.
+fn port_refused(e: &std::io::Error) -> bool {
+    matches!(e.kind(), ErrorKind::AddrInUse | ErrorKind::PermissionDenied)
+}
+
+/// Machine sans IPv6 : adresse `::1` indisponible, ou famille d'adresses
+/// absente du système (`EAFNOSUPPORT`, `WSAEAFNOSUPPORT`).
+fn ipv6_absent(e: &std::io::Error) -> bool {
+    #[cfg(target_os = "linux")]
+    const EAFNOSUPPORT: i32 = 97;
+    #[cfg(windows)]
+    const EAFNOSUPPORT: i32 = 10047;
+    #[cfg(not(any(target_os = "linux", windows)))]
+    const EAFNOSUPPORT: i32 = 47;
+    e.kind() == ErrorKind::AddrNotAvailable || e.raw_os_error() == Some(EAFNOSUPPORT)
+}
+
+fn tokio_listener(listener: std::net::TcpListener) -> Result<TcpListener, TokenError> {
+    listener
+        .set_nonblocking(true)
+        .and_then(|()| TcpListener::from_std(listener))
+        .map_err(|e| TokenError::Network(e.to_string()))
+}
+
+/// Connexion acceptée sur `listener`, ou jamais s'il n'y en a pas.
+async fn accept_on(
+    listener: Option<&TcpListener>,
+) -> std::io::Result<(TcpStream, std::net::SocketAddr)> {
+    match listener {
+        Some(listener) => listener.accept().await,
+        None => std::future::pending().await,
+    }
+}
+
 /// Attend la requête du navigateur portant le bon `state`. Un retour
 /// forgé ou illisible (autre page locale, favicon) reçoit une erreur et
-/// l'attente continue : il ne peut pas annuler la connexion.
-async fn wait_for_code(listener: &TcpListener, state: &str) -> Result<Secret, TokenError> {
+/// l'attente continue : il ne peut pas annuler la connexion. Chaque
+/// connexion est lue par sa propre tâche, dans un délai borné : un client
+/// lent ne retarde pas les autres. Au plus [`MAX_CONNECTIONS`] à la fois :
+/// un afflux de connexions ne fait pas manquer de descripteurs ; une erreur
+/// d'`accept` est passagère et n'arrête pas l'attente. Abandonner ce futur
+/// ferme l'écoute et interrompt ces tâches.
+async fn wait_for_code(redirect: &Redirect, state: &str) -> Result<Secret, TokenError> {
+    let state: Arc<str> = Arc::from(state);
+    let mut connections = tokio::task::JoinSet::new();
     loop {
-        let (mut stream, _) = listener
-            .accept()
-            .await
-            .map_err(|e| TokenError::Network(e.to_string()))?;
-        let Some(target) = read_request_target(&mut stream).await else {
-            respond(&mut stream, "400 Bad Request", "").await;
-            continue;
+        let room = connections.len() < MAX_CONNECTIONS;
+        let accepted = tokio::select! {
+            accepted = redirect.v4.accept(), if room => accepted,
+            accepted = accept_on(redirect.v6.as_ref()), if room => accepted,
+            Some(done) = connections.join_next() => {
+                if let Ok(Some(result)) = done {
+                    return result;
+                }
+                continue;
+            }
         };
-        match parse_callback(&target, state) {
-            Ok(code) => {
-                respond(&mut stream, "200 OK", DONE_PAGE).await;
-                return Ok(code);
+        match accepted {
+            Ok((stream, _)) => {
+                connections.spawn(handle_callback(stream, Arc::clone(&state)));
             }
-            Err(CallbackError::Denied(reason)) => {
-                respond(&mut stream, "200 OK", DONE_PAGE).await;
-                return Err(TokenError::Cancelled(reason));
+            Err(e) => {
+                tracing::debug!(error = %e, "connexion locale non acceptée");
+                tokio::time::sleep(ACCEPT_RETRY_DELAY).await;
             }
-            Err(CallbackError::MissingCode) => {
-                respond(&mut stream, "400 Bad Request", "").await;
-                return Err(TokenError::Protocol("retour sans code".to_owned()));
-            }
-            Err(CallbackError::StateMismatch | CallbackError::Malformed) => {
-                respond(&mut stream, "400 Bad Request", "").await;
-            }
+        }
+    }
+}
+
+/// Lit une requête du navigateur et y répond. `Some` : l'attente s'achève
+/// (code reçu, refus, retour sans code) ; `None` : requête ignorée.
+async fn handle_callback(
+    mut stream: TcpStream,
+    state: Arc<str>,
+) -> Option<Result<Secret, TokenError>> {
+    let target = tokio::time::timeout(CALLBACK_IO_TIMEOUT, read_request_target(&mut stream))
+        .await
+        .ok()
+        .flatten();
+    let Some(target) = target else {
+        respond(&mut stream, "400 Bad Request", "").await;
+        return None;
+    };
+    match parse_callback(target.expose(), &state) {
+        Ok(code) => {
+            respond(&mut stream, "200 OK", DONE_PAGE).await;
+            Some(Ok(code))
+        }
+        Err(CallbackError::Denied(reason)) => {
+            respond(&mut stream, "200 OK", DONE_PAGE).await;
+            Some(Err(TokenError::Cancelled(reason)))
+        }
+        Err(CallbackError::MissingCode) => {
+            respond(&mut stream, "400 Bad Request", "").await;
+            Some(Err(TokenError::Protocol("retour sans code".to_owned())))
+        }
+        Err(CallbackError::StateMismatch | CallbackError::Malformed) => {
+            respond(&mut stream, "400 Bad Request", "").await;
+            None
         }
     }
 }
 
 /// Cible d'une requête `GET <cible> HTTP/1.x`, lue dans la limite de
 /// [`MAX_CALLBACK_BYTES`].
-async fn read_request_target(stream: &mut TcpStream) -> Option<String> {
-    let mut buf = Vec::with_capacity(1024);
+/// La requête (qui porte le code d'autorisation) est effacée après lecture.
+async fn read_request_target(stream: &mut TcpStream) -> Option<Secret> {
+    let mut buf = Vec::with_capacity(MAX_CALLBACK_BYTES + 1024);
     let mut chunk = [0u8; 1024];
-    loop {
-        let n = tokio::time::timeout(Duration::from_secs(5), stream.read(&mut chunk))
-            .await
-            .ok()?
-            .ok()?;
-        if n == 0 {
-            return None;
-        }
-        buf.extend_from_slice(chunk.get(..n)?);
-        if buf.windows(2).any(|w| w == b"\r\n") {
-            break;
-        }
-        if buf.len() > MAX_CALLBACK_BYTES {
-            return None;
-        }
+    let complete = fill_request_line(stream, &mut buf, &mut chunk).await;
+    chunk.fill(0);
+    std::hint::black_box(&chunk);
+    let buf = SecretBytes::new(buf);
+    if !complete {
+        return None;
     }
-    let line = buf.split(|b| *b == b'\r').next()?;
+    let line = buf.expose().split(|b| *b == b'\r').next()?;
     let line = std::str::from_utf8(line).ok()?;
     let mut parts = line.split(' ');
     match (parts.next(), parts.next(), parts.next()) {
         (Some("GET"), Some(target), Some(version)) if version.starts_with("HTTP/1.") => {
-            Some(target.to_owned())
+            Some(Secret::new(target.to_owned()))
         }
         _ => None,
     }
 }
 
+/// Lit jusqu'à la fin de la première ligne ; faux si la connexion se ferme
+/// avant ou si [`MAX_CALLBACK_BYTES`] est dépassé. Le tampon est réservé
+/// d'emblée : aucune réallocation n'en laisse de copie.
+async fn fill_request_line(
+    stream: &mut TcpStream,
+    buf: &mut Vec<u8>,
+    chunk: &mut [u8; 1024],
+) -> bool {
+    loop {
+        let Ok(n) = stream.read(chunk).await else {
+            return false;
+        };
+        let Some(read) = chunk.get(..n).filter(|r| !r.is_empty()) else {
+            return false;
+        };
+        buf.extend_from_slice(read);
+        if buf.windows(2).any(|w| w == b"\r\n") {
+            return true;
+        }
+        if buf.len() > MAX_CALLBACK_BYTES {
+            return false;
+        }
+    }
+}
+
+/// Répond puis ferme, dans le délai de [`CALLBACK_IO_TIMEOUT`] : un client
+/// qui ne lit pas sa réponse ne retient pas la tâche.
 async fn respond(stream: &mut TcpStream, status: &str, body: &str) {
     let response = format!(
         "HTTP/1.1 {status}\r\nContent-Type: text/html; charset=utf-8\r\n\
          Content-Length: {}\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n{body}",
         body.len()
     );
-    let _ = stream.write_all(response.as_bytes()).await;
-    let _ = stream.shutdown().await;
+    let _ = tokio::time::timeout(CALLBACK_IO_TIMEOUT, async {
+        let _ = stream.write_all(response.as_bytes()).await;
+        let _ = stream.shutdown().await;
+    })
+    .await;
 }
 
-async fn read_bounded(mut response: reqwest::Response) -> Result<Vec<u8>, TokenError> {
-    let mut body = Vec::new();
+/// Corps de la réponse du point d'accès des jetons, lu dans la limite de
+/// [`MAX_TOKEN_RESPONSE_BYTES`]. Ce tampon assemblé est effacé à sa
+/// destruction, même après une erreur de lecture, et réservé d'emblée
+/// (aucune réallocation n'en laisse de copie). Les morceaux reçus du client
+/// HTTP, eux, ne sont pas effacés.
+async fn read_bounded(response: reqwest::Response) -> Result<SecretBytes, TokenError> {
+    let mut body = Vec::with_capacity(MAX_TOKEN_RESPONSE_BYTES);
+    let read = fill_bounded(response, &mut body).await;
+    let body = SecretBytes::new(body);
+    read.map(|()| body)
+}
+
+async fn fill_bounded(
+    mut response: reqwest::Response,
+    body: &mut Vec<u8>,
+) -> Result<(), TokenError> {
     while let Some(chunk) = response
         .chunk()
         .await
         .map_err(|e| TokenError::Network(e.without_url().to_string()))?
     {
-        body.extend_from_slice(&chunk);
-        if body.len() > MAX_TOKEN_RESPONSE_BYTES {
+        if chunk.len() > MAX_TOKEN_RESPONSE_BYTES.saturating_sub(body.len()) {
             return Err(TokenError::Protocol("réponse trop longue".to_owned()));
         }
+        body.extend_from_slice(&chunk);
     }
-    Ok(body)
+    Ok(())
 }
 
 #[derive(serde::Deserialize)]
 struct TokenResponse {
-    access_token: Option<String>,
+    #[serde(default, deserialize_with = "secret")]
+    access_token: Option<Secret>,
     expires_in: Option<u64>,
-    refresh_token: Option<String>,
-    id_token: Option<String>,
+    #[serde(default, deserialize_with = "secret")]
+    refresh_token: Option<Secret>,
+    #[serde(default, deserialize_with = "secret")]
+    id_token: Option<Secret>,
     scope: Option<String>,
     error: Option<String>,
+}
+
+/// Jeton lu directement en [`Secret`] : effacé à sa destruction, même si
+/// la réponse est rejetée ensuite.
+fn secret<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<Secret>, D::Error> {
+    Ok(<Option<String> as serde::Deserialize>::deserialize(d)?.map(Secret::new))
 }
 
 /// Revendications utiles d'un `id_token` (OpenID Connect).
@@ -354,13 +522,13 @@ fn parse_token_response(status: u16, body: &[u8]) -> Result<OAuthGrant, TokenErr
         .filter(|t| !t.is_empty())
         .ok_or_else(|| TokenError::Protocol("réponse sans jeton d'accès".to_owned()))?;
     Ok(OAuthGrant {
-        access_token: Secret::new(access_token),
+        access_token,
         expires_in: parsed.expires_in.unwrap_or(3_600),
-        refresh_token: parsed
-            .refresh_token
-            .filter(|t| !t.is_empty())
-            .map(Secret::new),
-        identity: parsed.id_token.as_deref().and_then(identity_of),
+        refresh_token: parsed.refresh_token.filter(|t| !t.is_empty()),
+        identity: parsed
+            .id_token
+            .as_ref()
+            .and_then(|t| identity_of(t.expose())),
         granted_scopes: parsed.scope,
     })
 }

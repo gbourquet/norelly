@@ -9,6 +9,7 @@ import {
   type AccountDto_Serialize,
   type AddOAuthAccountInput_Deserialize,
   type OAuthProviderDto,
+  type OAuthSignInStepDto,
   type ConversationCursorDto,
   type ConversationDto_Serialize,
   type ConversationMessageDto_Serialize,
@@ -66,6 +67,7 @@ import { IpcFailure } from "../errors";
 
 export type {
   OAuthProviderDto,
+  OAuthSignInStepDto,
   ContactExportFormatDto,
   ContactExportOutcomeDto,
   ContactExportSelectionDto,
@@ -181,14 +183,20 @@ export const api = {
   oauthProviderFor: (address: string): Promise<OAuthProviderDto | null> =>
     commands.oauthProviderFor(address),
 
-  /** Vrai si le prochain « Se connecter avec … » pour cette adresse se
-   * passera du navigateur (connexion d'un essai échoué gardée par Rust). */
-  oauthSignInKept: (address: string, provider: OAuthProviderDto): Promise<boolean> =>
-    commands.oauthSignInKept(address, provider),
+  /** Fenêtre d'ajout fermée ou annulée : Rust arrête l'attente du
+   * navigateur et oublie la connexion d'un essai échoué. */
+  cancelOAuthSignIn: (): Promise<void> => commands.cancelOauthSignIn(),
 
-  /** « Se connecter avec … » : ouvre le navigateur du système. */
-  addOAuthAccount: (input: AddOAuthAccountInput): Promise<AddAccountResult> =>
-    unwrap(commands.addOauthAccount(input)),
+  /** « Se connecter avec … » : `onProgress` reçoit chaque étape, dont
+   * l'ouverture du navigateur quand elle a vraiment lieu. */
+  addOAuthAccount: (
+    input: AddOAuthAccountInput,
+    onProgress: (step: OAuthSignInStepDto) => void,
+  ): Promise<AddAccountResult> => {
+    const channel = new Channel<OAuthSignInStepDto>();
+    channel.onmessage = onProgress;
+    return unwrap(commands.addOauthAccount(input, channel));
+  },
 
   /** Reconnexion chez le fournisseur d'un compte OAuth. */
   reconnectAccount: (account: number): Promise<AddAccountResult> =>
@@ -467,7 +475,7 @@ export type AccountApi = Pick<
   | "addAccount"
   | "oauthProviderFor"
   | "addOAuthAccount"
-  | "oauthSignInKept"
+  | "cancelOAuthSignIn"
   | "trustCertificate"
   | "removeAccount"
   | "allowFileSecrets"

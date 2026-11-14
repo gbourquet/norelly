@@ -660,7 +660,27 @@ est majoritairement écrit par Claude et relu par le mainteneur.
     `norelly-tls`, `sha2`, `getrandom` et `serde_json`, déjà au workspace :
     **aucune dépendance nouvelle** ;
   - navigateur du système (crate `open`, déjà utilisée), redirection
-    `http://localhost:<port>/` écoutée sur `127.0.0.1`, port éphémère ;
+    `http://localhost:<port>/` (seule forme enregistrée chez Microsoft pour
+    une application de bureau), port éphémère ;
+  - retour du navigateur (2026-11-14, revue de sécurité) : `localhost` peut
+    se résoudre en `127.0.0.1` ou en `::1` ; les deux sont écoutées au
+    même port, pour qu'aucun autre programme n'occupe l'une d'elles et ne
+    reçoive le code ou n'affiche une fausse page. Règle : écoute de
+    `127.0.0.1` sur un port libre, puis de `::1` au même port ; port déjà
+    pris sur `::1` (ou réservé : refus d'accès sous Windows) : nouveau port
+    (5 essais) ; IPv6 absent (`::1` indisponible, `AddrNotAvailable`, ou
+    famille d'adresses absente du système, `EAFNOSUPPORT`) : `127.0.0.1`
+    seul ; toute autre erreur : échec de la connexion. Au plus 32
+    connexions locales lues à la fois, une erreur d'acceptation est
+    passagère. La redirection `http://127.0.0.1:<port>/`
+    (RFC 8252 §8.3) n'est pas retenue : Microsoft ne l'accepte pas pour ce
+    client. Chaque connexion locale est lue par sa propre tâche, requête
+    entière bornée à 5 s : un client lent ne retarde ni n'annule l'attente ;
+  - fermeture de la fenêtre d'ajout : l'attente du navigateur est annulée
+    (signal du gestionnaire de jetons, futur abandonné : l'écoute est
+    refermée, un onglet terminé plus tard ne livre plus rien) et la
+    connexion gardée d'un essai échoué est oubliée ; l'écran n'annonce le
+    navigateur que sur l'étape envoyée par Rust quand il l'ouvre vraiment ;
   - configuration par fournisseur, valeur du domaine : Microsoft
     (`consumers`, scopes `outlook.office.com` IMAP et SMTP,
     `offline_access`, identifiant client public de l'inscription

@@ -365,6 +365,26 @@ pub struct FakeOAuthClient {
     /// l'utilisateur.
     pub grant: Mutex<Option<norelly_domain::ports::OAuthGrant>>,
     pub authorizations: Mutex<Vec<String>>,
+    /// Retour du navigateur retenu jusqu'à ce signal (tests d'annulation) ;
+    /// `None` : réponse immédiate.
+    pub hold: Mutex<Option<std::sync::Arc<tokio::sync::Notify>>>,
+    /// Connexions interactives abandonnées avant leur fin.
+    pub abandoned: std::sync::atomic::AtomicUsize,
+}
+
+/// Compte une connexion interactive abandonnée (futur détruit avant la fin).
+struct AbandonGuard<'a> {
+    abandoned: &'a std::sync::atomic::AtomicUsize,
+    finished: bool,
+}
+
+impl Drop for AbandonGuard<'_> {
+    fn drop(&mut self) {
+        if !self.finished {
+            self.abandoned
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        }
+    }
 }
 
 impl norelly_domain::ports::OAuthClient for FakeOAuthClient {
@@ -376,6 +396,15 @@ impl norelly_domain::ports::OAuthClient for FakeOAuthClient {
         if let Ok(mut seen) = self.authorizations.lock() {
             seen.push(login_hint.to_string());
         }
+        let mut guard = AbandonGuard {
+            abandoned: &self.abandoned,
+            finished: false,
+        };
+        let hold = self.hold.lock().ok().and_then(|h| h.clone());
+        if let Some(hold) = hold {
+            hold.notified().await;
+        }
+        guard.finished = true;
         self.grant
             .lock()
             .ok()

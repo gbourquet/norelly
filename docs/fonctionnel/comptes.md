@@ -43,7 +43,10 @@ Pour une adresse Outlook.com, Hotmail, Live ou MSN, le formulaire ne
 demande pas de mot de passe : il propose **Se connecter avec Microsoft**.
 
 1. Le navigateur du système s'ouvre sur la page de Microsoft ; l'utilisateur
-   s'y connecte et accepte l'accès de Norelly.
+   s'y connecte et accepte l'accès de Norelly. Pendant cette attente, la
+   fenêtre d'ajout propose **Annuler** et peut être fermée : l'attente
+   s'arrête, et une connexion terminée plus tard dans un vieil onglet
+   n'ajoute plus rien.
 2. De retour dans Norelly, la réception et l'envoi sont testés, puis le
    compte est enregistré et la synchronisation démarre.
 3. Quand le serveur refuse l'accès, à la réception comme à l'envoi,
@@ -212,7 +215,12 @@ acceptés) sont supprimées. **Rien n'est supprimé sur le serveur.**
 - Échec de la connexion après le passage chez Microsoft (serveur muet,
   réseau instable) : un nouvel essai pour la même adresse, dans les dix
   minutes, réutilise cette connexion sans rouvrir le navigateur. Elle n'est
-  gardée qu'en mémoire, jamais enregistrée, et ne sert qu'une fois.
+  gardée qu'en mémoire, jamais enregistrée, et ne sert qu'une fois ; elle
+  est oubliée dès que l'utilisateur ferme la fenêtre d'ajout ou annule.
+  L'écran n'annonce le navigateur que lorsqu'il s'ouvre vraiment.
+- Retour de la connexion : seul Norelly peut le recevoir, quelle que soit
+  la façon dont le navigateur joint l'ordinateur lui-même ; un autre
+  programme de l'ordinateur ne peut ni le capter ni bloquer l'attente.
 - Compte Microsoft : réception vérifiée, mais serveur d'envoi de Microsoft
   qui ne répond pas ou coupe la connexion : le compte est ajouté quand
   même, et un message dit que l'envoi n'a pas pu être vérifié ; il le sera

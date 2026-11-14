@@ -38,8 +38,10 @@
   /** Confirmation renforcée exigée quand l'empreinte a changé. */
   let acknowledgeChange = $state(false);
 
+  /** Fermeture : l'essai en cours est abandonné, Rust arrête l'attente du
+   *  navigateur et oublie la connexion gardée. */
   function close(): void {
-    flow.reset();
+    void flow.forget();
     onClose();
   }
 
@@ -161,7 +163,12 @@
           <LoaderIcon size={14} class="spin" aria-hidden="true" />
           {flow.oauthProvider ? providerText.waiting[flow.oauthProvider]() : ""}
         </p>
-      {:else if flow.reusingSignIn}
+        <div class="actions">
+          <button class="btn" type="button" onclick={() => void flow.cancelSignIn()}
+            >{m.common_cancel()}</button
+          >
+        </div>
+      {:else if flow.checkingSignIn}
         <p>
           <LoaderIcon size={14} class="spin" aria-hidden="true" />
           {flow.oauthProvider ? providerText.testing[flow.oauthProvider]() : ""}

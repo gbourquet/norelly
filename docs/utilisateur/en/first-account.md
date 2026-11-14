@@ -159,6 +159,10 @@ like Norelly. Instead, you sign in on Microsoft's page, in your browser:
 3. The browser shows "you can close this page": come back to Norelly. The
    account appears in the left column.
 
+Changed your mind while Norelly waits for your browser? Click **Cancel**,
+or close the **Add an account** window: Norelly stops waiting, and a
+sign-in completed later in the tab left open no longer adds anything.
+
 ![The add window with an Outlook.com address: no password field, "Sign in with Microsoft" button](captures/microsoft-sign-in.png)
 
 Norelly never sees your Microsoft password. It receives an authorization,
@@ -187,7 +191,8 @@ If the connection fails right after you sign in in your browser (server
 not responding, unstable network), click **Sign in with Microsoft** again:
 for ten minutes, Norelly reuses the sign-in you just completed, without
 opening the browser again. The window then shows "Connecting to your
-Microsoft mailbox…".
+Microsoft mailbox…". Closing the **Add an account** window forgets this
+sign-in: the next attempt goes through the browser again.
 
 ### If sending is refused
 

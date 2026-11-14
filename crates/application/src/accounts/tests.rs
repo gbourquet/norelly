@@ -898,6 +898,37 @@ mod oauth {
     }
 
     #[tokio::test]
+    async fn provider_that_does_not_serve_the_address_is_refused_before_sign_in() {
+        let w = World::new();
+        let client = FakeOAuthClient::default();
+        if let Ok(mut g) = client.grant.lock() {
+            *g = grant_of("alice@societe.fr");
+        }
+        let b = TokenBroker::new(client, Keyring::default(), Arc::new(|| 1_000));
+        let test = TestConnection::new(w.servers.clone(), w.servers.clone(), &w.exceptions);
+        for provider in [OAuthProvider::Google, OAuthProvider::Microsoft] {
+            let outcome = AddOAuthAccount {
+                test: &test,
+                broker: &b,
+                accounts: &w.accounts,
+            }
+            .execute(AddOAuthAccountRequest {
+                address: EmailAddress::parse("alice@societe.fr")
+                    .unwrap_or_else(|_| panic!("adresse")),
+                display_name: None,
+                provider,
+            })
+            .await;
+            assert!(
+                matches!(outcome, AddAccountOutcome::Invalid(_)),
+                "{provider} : {outcome:?}"
+            );
+        }
+        assert!(w.servers.requests().is_empty(), "aucun serveur contacté");
+        assert!(w.accounts.list().await.is_ok_and(|l| l.is_empty()));
+    }
+
+    #[tokio::test]
     async fn abandoned_google_sign_in_points_to_app_password() {
         let w = World::new();
         assert_eq!(

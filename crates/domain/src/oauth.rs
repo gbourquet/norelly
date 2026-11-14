@@ -26,7 +26,7 @@ pub enum OAuthProvider {
 
 /// Configuration d'un fournisseur : points d'accès, identifiant client,
 /// scopes et serveurs de messagerie.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct OAuthConfig {
     pub authorize_url: &'static str,
     pub token_url: &'static str,
@@ -48,6 +48,22 @@ pub struct OAuthConfig {
     pub identity_scopes: &'static [&'static str],
     pub imap_host: &'static str,
     pub smtp_host: &'static str,
+}
+
+/// Sans le secret client : non confidentiel, il reste hors des journaux
+/// comme tout secret.
+impl fmt::Debug for OAuthConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("OAuthConfig")
+            .field("authorize_url", &self.authorize_url)
+            .field("token_url", &self.token_url)
+            .field("client_id", &self.client_id)
+            .field("client_secret", &self.client_secret.map(|_| "…"))
+            .field("scopes", &self.scopes)
+            .field("imap_host", &self.imap_host)
+            .field("smtp_host", &self.smtp_host)
+            .finish_non_exhaustive()
+    }
 }
 
 const MICROSOFT: OAuthConfig = OAuthConfig {
@@ -137,6 +153,14 @@ impl OAuthProvider {
             Self::Microsoft => &MICROSOFT,
             Self::Google => &GOOGLE,
         }
+    }
+
+    /// Vrai si ce fournisseur est celui de l'adresse. Un ajout de compte
+    /// par un autre fournisseur que celui de l'adresse est refusé : la
+    /// demande de l'interface peut dater d'une adresse en cours de saisie.
+    #[must_use]
+    pub fn serves(self, address: &EmailAddress) -> bool {
+        Self::for_address(address) == Some(self)
     }
 
     /// Fournisseur OAuth d'une adresse, d'après son domaine.

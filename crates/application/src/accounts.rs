@@ -248,6 +248,12 @@ where
     D: AccountRepository,
 {
     pub async fn execute(&self, request: AddOAuthAccountRequest) -> AddAccountOutcome {
+        if !request.provider.serves(&request.address) {
+            return AddAccountOutcome::Invalid(format!(
+                "fournisseur {} étranger à l'adresse",
+                request.provider
+            ));
+        }
         match self.accounts.find_by_address(&request.address).await {
             Ok(Some(_)) => return AddAccountOutcome::AlreadyExists,
             Ok(None) => {}

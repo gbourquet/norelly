@@ -559,3 +559,46 @@ async fn an_action_is_refused_when_the_account_queue_is_full() {
     assert_eq!(result, Err(ActionFailure::Invalid(ActionError::QueueFull)));
     assert_eq!(w.visible("INBOX").await.len(), 3, "rien n'est appliqué");
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn pending_actions_keep_their_effect_while_the_sync_shows_headers() {
+    use crate::sync::SyncStep;
+    let mut w = world(true, true).await;
+    let m1 = w.id_of("INBOX", 1).await;
+    w.act(&[m1], MessageAction::MarkSeen(true)).await;
+    // Un autre client change un drapeau du même message : le serveur le
+    // renvoie non lu dans le prochain lot.
+    w.imap
+        .set_flags("INBOX", uid(1), Flags::from_tokens(["\\Flagged"]));
+    let inbox = w.box_id("INBOX");
+    let use_case = SyncAccount {
+        account: account(),
+        store: &w.store,
+        blobs: &w.blobs,
+        policy: FetchPolicy::default(),
+        text: std::sync::Arc::new(norelly_render::search_text::MimeTextExtractor),
+    };
+    let store = &w.store;
+    let mut shown = Vec::new();
+    use_case
+        .sync_all_observed(&mut w.session, w.ext, |step| {
+            if let SyncStep::Headers(m) = step
+                && m.id == inbox
+            {
+                // Ce que l'écran relirait à ce moment-là.
+                let page = tokio::task::block_in_place(|| {
+                    tokio::runtime::Handle::current().block_on(store.page(inbox, None, 100))
+                })
+                .unwrap_or_else(|e| panic!("{e}"));
+                shown.extend(
+                    page.items
+                        .into_iter()
+                        .filter(|i| i.uid == uid(1))
+                        .map(|i| i.flags.seen),
+                );
+            }
+        })
+        .await
+        .unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(shown, vec![true], "action en attente toujours visible");
+}

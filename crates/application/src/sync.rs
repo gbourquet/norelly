@@ -27,8 +27,9 @@ use norelly_domain::fetch_policy::{BodyFetch, FetchPolicy};
 use norelly_domain::mailbox::{MailboxId, MailboxName, classify_mailboxes};
 use norelly_domain::notify::{NewMail, new_mail};
 use norelly_domain::ports::{
-    BlobStore, FetchedBody, MAX_FETCH_BATCH, MailStore, PendingBody, RemoteMailboxSession,
-    SearchTextExtractor, StoreError, StoredBody, StoredMailbox, StoredMessage, SyncBatch,
+    BlobStore, FetchedBody, MAX_FETCH_BATCH, MailStore, PendingBody, PendingOpStore,
+    RemoteMailboxSession, SearchTextExtractor, StoreError, StoredBody, StoredMailbox,
+    StoredMessage, SyncBatch,
 };
 use norelly_domain::sync::{
     ServerQuery, ServerReport, SyncError, SyncExtensions, SyncPlan, needs_uid_list, plan,
@@ -175,7 +176,7 @@ pub struct SyncAccount<'a, M, B> {
     pub text: Arc<dyn SearchTextExtractor>,
 }
 
-impl<M: MailStore, B: BlobStore> SyncAccount<'_, M, B> {
+impl<M: MailStore + PendingOpStore, B: BlobStore> SyncAccount<'_, M, B> {
     /// Liste des boîtes : lue sur le serveur, classée, enregistrée.
     pub async fn sync_folders<S: RemoteMailboxSession>(
         &self,
@@ -368,6 +369,10 @@ impl<M: MailStore, B: BlobStore> SyncAccount<'_, M, B> {
                     || !batch.flag_changes.is_empty();
                 self.store.apply_sync(mailbox, &batch).await?;
                 if visible {
+                    // Les actions encore en attente gardent leur effet local
+                    // dans ce que l'écran va relire (le lot vient d'écrire
+                    // l'état du serveur).
+                    self.store.reapply(self.account).await?;
                     on_headers();
                 }
             }

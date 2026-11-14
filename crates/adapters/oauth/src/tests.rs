@@ -10,20 +10,38 @@ use wiremock::{Mock, MockServer, ResponseTemplate};
 use super::*;
 use norelly_domain::oauth::OAuthProvider;
 
+/// Visite du faux navigateur : port de la redirection et `state` reçus.
+type Visit = Arc<dyn Fn(u16, String) + Send + Sync>;
+
 /// Faux navigateur : retient l'URL et renvoie au client un retour, comme
 /// après une connexion réussie (`code`) ou un refus.
 #[derive(Clone)]
 struct Browser {
     seen: Arc<Mutex<Vec<String>>>,
-    /// Requêtes à envoyer à la redirection ; `{state}` est remplacé.
-    callbacks: Vec<&'static str>,
+    visit: Visit,
 }
 
 impl Browser {
+    /// Requêtes envoyées l'une après l'autre à la redirection, sur
+    /// `127.0.0.1` ; `{state}` est remplacé.
     fn new(callbacks: Vec<&'static str>) -> Self {
+        Self::with(move |port, state| {
+            let callbacks: Vec<String> = callbacks
+                .iter()
+                .map(|c| c.replace("{state}", &state))
+                .collect();
+            tokio::spawn(async move {
+                for target in callbacks {
+                    let _ = get(LOCALHOST_V4, port, &target).await;
+                }
+            });
+        })
+    }
+    /// Visite libre : `visit` reçoit le port et le `state`.
+    fn with(visit: impl Fn(u16, String) + Send + Sync + 'static) -> Self {
         Self {
             seen: Arc::default(),
-            callbacks,
+            visit: Arc::new(visit),
         }
     }
     fn url(&self) -> String {
@@ -32,6 +50,40 @@ impl Browser {
             .ok()
             .and_then(|s| s.first().cloned())
             .unwrap_or_default()
+    }
+}
+
+const LOCALHOST_V4: std::net::IpAddr = std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST);
+const LOCALHOST_V6: std::net::IpAddr = std::net::IpAddr::V6(std::net::Ipv6Addr::LOCALHOST);
+
+/// Requête `GET target` vers `ip:port` ; réponse complète, ou `None` si la
+/// connexion est refusée.
+async fn get(ip: std::net::IpAddr, port: u16, target: &str) -> Option<String> {
+    let mut s = TcpStream::connect((ip, port)).await.ok()?;
+    s.write_all(format!("GET {target} HTTP/1.1\r\nHost: localhost\r\n\r\n").as_bytes())
+        .await
+        .ok()?;
+    let mut response = Vec::new();
+    let _ = s.read_to_end(&mut response).await;
+    Some(String::from_utf8_lossy(&response).into_owned())
+}
+
+/// Vrai si cette machine a une boucle locale IPv6.
+fn ipv6_available() -> bool {
+    std::net::TcpListener::bind((std::net::Ipv6Addr::LOCALHOST, 0)).is_ok()
+}
+
+/// Expéditeur à usage unique partagé par les visites du faux navigateur.
+type Once<T> = Arc<Mutex<Option<tokio::sync::oneshot::Sender<T>>>>;
+
+fn once<T>() -> (Once<T>, tokio::sync::oneshot::Receiver<T>) {
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    (Arc::new(Mutex::new(Some(tx))), rx)
+}
+
+fn fire<T>(once: &Once<T>, value: T) {
+    if let Some(tx) = once.lock().ok().and_then(|mut t| t.take()) {
+        let _ = tx.send(value);
     }
 }
 
@@ -54,24 +106,7 @@ impl BrowserOpener for Browser {
             .trim_end_matches("%2F")
             .parse()
             .map_err(|_| format!("redirection inattendue : {redirect}"))?;
-        let callbacks: Vec<String> = self
-            .callbacks
-            .iter()
-            .map(|c| c.replace("{state}", &state))
-            .collect();
-        tokio::spawn(async move {
-            for target in callbacks {
-                if let Ok(mut s) = TcpStream::connect(("127.0.0.1", port)).await {
-                    let _ = s
-                        .write_all(
-                            format!("GET {target} HTTP/1.1\r\nHost: localhost\r\n\r\n").as_bytes(),
-                        )
-                        .await;
-                    let mut sink = Vec::new();
-                    let _ = s.read_to_end(&mut sink).await;
-                }
-            }
-        });
+        (self.visit)(port, state);
         Ok(())
     }
 }
@@ -139,10 +174,19 @@ async fn token_server(browser: &Browser) -> MockServer {
 }
 
 fn client(server: &MockServer, browser: Browser) -> HttpOAuthClient<Browser> {
+    client_waiting(server, browser, Duration::from_secs(5))
+}
+
+/// Client qui attend le retour du navigateur au plus `authorize_timeout`.
+fn client_waiting(
+    server: &MockServer,
+    browser: Browser,
+    authorize_timeout: Duration,
+) -> HttpOAuthClient<Browser> {
     let Ok(c) = HttpOAuthClient::plain_http_for_tests(
         browser,
         format!("{}/token", server.uri()),
-        Duration::from_secs(5),
+        authorize_timeout,
     ) else {
         panic!("client de test impossible");
     };
@@ -200,6 +244,283 @@ async fn denied_authorization_is_cancelled() {
     assert_eq!(
         result.map(|_| ()),
         Err(TokenError::Cancelled("access_denied".to_owned()))
+    );
+}
+
+#[tokio::test]
+async fn authorize_receives_the_callback_on_ipv6_loopback() {
+    // `localhost` peut se résoudre en `::1` : le retour y est reçu, aucun
+    // autre programme ne peut occuper ce port à la place de Norelly.
+    if !ipv6_available() {
+        return;
+    }
+    let browser = Browser::with(|port, state| {
+        tokio::spawn(async move {
+            let _ = get(LOCALHOST_V6, port, &format!("/?code=le-code&state={state}")).await;
+        });
+    });
+    let server = token_server(&browser).await;
+    let grant = client(&server, browser)
+        .authorize(OAuthProvider::Microsoft.config(), &hint())
+        .await;
+    assert_eq!(
+        grant.map(|g| g.access_token.expose().to_owned()),
+        Ok("acc".to_owned())
+    );
+}
+
+#[tokio::test]
+async fn a_slow_local_client_neither_blocks_nor_holds_the_wait() {
+    // Un programme local ouvre une connexion et envoie un octet par
+    // seconde : le vrai retour, arrivé pendant ce temps, est reçu, et la
+    // connexion lente est coupée au bout du délai de lecture de la requête.
+    let (closed_tx, closed_rx) = once();
+    let browser = Browser::with(move |port, state| {
+        let closed_tx = Arc::clone(&closed_tx);
+        tokio::spawn(async move {
+            let Ok(slow) = TcpStream::connect((LOCALHOST_V4, port)).await else {
+                return;
+            };
+            let started = tokio::time::Instant::now();
+            let (mut reader, mut writer) = slow.into_split();
+            let trickle = tokio::spawn(async move {
+                for byte in b"GET /?code=lent".iter().cycle().take(60) {
+                    if writer.write_all(&[*byte]).await.is_err() {
+                        break;
+                    }
+                    tokio::time::sleep(Duration::from_secs(1)).await;
+                }
+            });
+            let mut sink = Vec::new();
+            let _ = reader.read_to_end(&mut sink).await;
+            trickle.abort();
+            fire(&closed_tx, started.elapsed());
+        });
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            let _ = get(LOCALHOST_V4, port, &format!("/?code=le-code&state={state}")).await;
+        });
+    });
+    let server = token_server(&browser).await;
+    let grant = client_waiting(&server, browser, Duration::from_secs(3))
+        .authorize(OAuthProvider::Microsoft.config(), &hint())
+        .await;
+    assert_eq!(
+        grant.map(|g| g.access_token.expose().to_owned()),
+        Ok("acc".to_owned())
+    );
+    let closed = tokio::time::timeout(Duration::from_secs(10), closed_rx).await;
+    assert!(
+        matches!(closed, Ok(Ok(elapsed)) if elapsed < Duration::from_secs(8)),
+        "connexion lente non coupée : {closed:?}"
+    );
+}
+
+#[tokio::test]
+async fn an_oversized_callback_is_refused_and_the_wait_goes_on() {
+    let (refused_tx, refused_rx) = once();
+    let browser = Browser::with(move |port, state| {
+        let refused_tx = Arc::clone(&refused_tx);
+        tokio::spawn(async move {
+            let long = format!("/?pad={}", "a".repeat(MAX_CALLBACK_BYTES + 1));
+            fire(&refused_tx, get(LOCALHOST_V4, port, &long).await);
+            let _ = get(LOCALHOST_V4, port, &format!("/?code=le-code&state={state}")).await;
+        });
+    });
+    let server = token_server(&browser).await;
+    let grant = client(&server, browser)
+        .authorize(OAuthProvider::Microsoft.config(), &hint())
+        .await;
+    assert!(grant.is_ok(), "{grant:?}");
+    let refused = refused_rx.await.ok().flatten().unwrap_or_default();
+    assert!(refused.starts_with("HTTP/1.1 400"), "{refused}");
+}
+
+#[tokio::test]
+async fn authorize_gives_up_after_its_timeout() {
+    let browser = Browser::new(vec![]);
+    let server = token_server(&browser).await;
+    let result = client_waiting(&server, browser, Duration::from_millis(200))
+        .authorize(OAuthProvider::Microsoft.config(), &hint())
+        .await;
+    assert_eq!(
+        result.map(|_| ()),
+        Err(TokenError::Cancelled("délai dépassé".to_owned()))
+    );
+}
+
+#[tokio::test]
+async fn dropping_authorize_closes_the_redirect() {
+    // Fenêtre d'ajout fermée : le futur est abandonné, plus rien n'écoute,
+    // un vieil onglet ne livre plus rien.
+    let (port_tx, port_rx) = once();
+    let browser = Browser::with(move |port, _| fire(&port_tx, port));
+    let server = token_server(&browser).await;
+    let c = client(&server, browser);
+    let hint = hint();
+    let port = {
+        let authorize = c.authorize(OAuthProvider::Microsoft.config(), &hint);
+        tokio::pin!(authorize);
+        tokio::select! {
+            _ = &mut authorize => panic!("connexion terminée sans retour"),
+            port = port_rx => port.unwrap_or_default(),
+        }
+    };
+    assert_ne!(port, 0);
+    assert!(TcpStream::connect((LOCALHOST_V4, port)).await.is_err());
+    if ipv6_available() {
+        assert!(TcpStream::connect((LOCALHOST_V6, port)).await.is_err());
+    }
+}
+
+#[tokio::test]
+async fn an_oversized_token_response_is_refused() {
+    let server = MockServer::start().await;
+    let padding = "a".repeat(MAX_TOKEN_RESPONSE_BYTES);
+    Mock::given(method("POST"))
+        .and(path("/token"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_string(format!(r#"{{"access_token":"acc","pad":"{padding}"}}"#)),
+        )
+        .mount(&server)
+        .await;
+    let refreshed = client(&server, Browser::new(vec![]))
+        .refresh(
+            OAuthProvider::Microsoft.config(),
+            &Secret::new("r1".to_owned()),
+        )
+        .await;
+    assert_eq!(
+        refreshed.map(|_| ()),
+        Err(TokenError::Protocol("réponse trop longue".to_owned()))
+    );
+}
+
+#[tokio::test]
+async fn a_trickling_request_is_cut_after_the_read_timeout() {
+    // Un octet par seconde : chaque lecture aboutit, mais la requête
+    // entière dépasse le délai ; la connexion reçoit un refus.
+    let Ok(listener) = TcpListener::bind((LOCALHOST_V4, 0)).await else {
+        panic!("écoute impossible");
+    };
+    let Ok(addr) = listener.local_addr() else {
+        panic!("adresse inconnue");
+    };
+    let client = tokio::spawn(async move {
+        let Ok(stream) = TcpStream::connect(addr).await else {
+            return String::new();
+        };
+        let (mut reader, mut writer) = stream.into_split();
+        let trickle = tokio::spawn(async move {
+            for byte in b"GET /?code=lent".iter().cycle().take(60) {
+                if writer.write_all(&[*byte]).await.is_err() {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_secs(1)).await;
+            }
+        });
+        let mut response = Vec::new();
+        let _ = reader.read_to_end(&mut response).await;
+        trickle.abort();
+        String::from_utf8_lossy(&response).into_owned()
+    });
+    let Ok((stream, _)) = listener.accept().await else {
+        panic!("connexion non reçue");
+    };
+    let started = tokio::time::Instant::now();
+    let handled = handle_callback(stream, Arc::from("state")).await;
+    assert!(handled.is_none());
+    let elapsed = started.elapsed();
+    assert!(
+        elapsed >= CALLBACK_IO_TIMEOUT && elapsed < CALLBACK_IO_TIMEOUT * 2,
+        "{elapsed:?}"
+    );
+    let response = client.await.unwrap_or_default();
+    assert!(response.starts_with("HTTP/1.1 400"), "{response}");
+}
+
+/// Liaison IPv6 simulée : erreurs rendues dans l'ordre, puis vraie liaison.
+fn v6_binder(
+    errors: Vec<std::io::ErrorKind>,
+    calls: Arc<Mutex<Vec<u16>>>,
+) -> impl FnMut(u16) -> std::io::Result<std::net::TcpListener> {
+    let mut errors = errors.into_iter();
+    move |port| {
+        if let Ok(mut c) = calls.lock() {
+            c.push(port);
+        }
+        match errors.next() {
+            Some(kind) => Err(std::io::Error::from(kind)),
+            None => std::net::TcpListener::bind((std::net::Ipv6Addr::LOCALHOST, port)),
+        }
+    }
+}
+
+fn port_of(listener: &TcpListener) -> Option<u16> {
+    listener.local_addr().ok().map(|a| a.port())
+}
+
+#[tokio::test]
+async fn redirect_listens_on_both_loopbacks_at_the_same_port() {
+    if !ipv6_available() {
+        return;
+    }
+    let Ok(redirect) = bind_redirect() else {
+        panic!("écoute impossible");
+    };
+    assert_eq!(port_of(&redirect.v4), Some(redirect.port));
+    assert_eq!(redirect.v6.as_ref().and_then(port_of), Some(redirect.port));
+}
+
+#[tokio::test]
+async fn a_port_taken_on_ipv6_is_given_up_for_another() {
+    if !ipv6_available() {
+        return;
+    }
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let Ok(redirect) = bind_redirect_with(v6_binder(
+        vec![std::io::ErrorKind::AddrInUse],
+        Arc::clone(&calls),
+    )) else {
+        panic!("écoute impossible");
+    };
+    let calls = calls.lock().map(|c| c.clone()).unwrap_or_default();
+    assert_eq!(calls.len(), 2, "{calls:?}");
+    assert_eq!(calls.last(), Some(&redirect.port));
+    assert_eq!(redirect.v6.as_ref().and_then(port_of), Some(redirect.port));
+}
+
+#[tokio::test]
+async fn without_ipv6_the_redirect_listens_on_ipv4_only() {
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let Ok(redirect) = bind_redirect_with(v6_binder(
+        vec![std::io::ErrorKind::AddrNotAvailable],
+        Arc::clone(&calls),
+    )) else {
+        panic!("écoute impossible");
+    };
+    assert!(redirect.v6.is_none());
+    assert_eq!(port_of(&redirect.v4), Some(redirect.port));
+    assert_eq!(calls.lock().map(|c| c.len()).unwrap_or_default(), 1);
+}
+
+#[tokio::test]
+async fn other_ipv6_errors_and_a_port_always_taken_fail() {
+    let denied = bind_redirect_with(v6_binder(
+        vec![std::io::ErrorKind::PermissionDenied],
+        Arc::default(),
+    ));
+    assert!(matches!(denied, Err(TokenError::Network(_))));
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let always_taken = bind_redirect_with(v6_binder(
+        vec![std::io::ErrorKind::AddrInUse; BIND_ATTEMPTS + 1],
+        Arc::clone(&calls),
+    ));
+    assert!(matches!(always_taken, Err(TokenError::Network(_))));
+    assert_eq!(
+        calls.lock().map(|c| c.len()).unwrap_or_default(),
+        BIND_ATTEMPTS
     );
 }
 

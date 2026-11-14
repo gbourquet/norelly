@@ -8,9 +8,10 @@ several (for example a personal address and one for a club).
 ## What you need
 
 - your **email address**, for example `mary.smith@example.com`;
-- its **password**. For Gmail, this is not your usual password but an
-  **app password**: first read [the Gmail section](#gmail-the-app-password).
-  For Outlook.com and Hotmail, no password is asked: see
+- its **password**. For Gmail, no password is asked: see
+  [Gmail: sign in with Google](#gmail-sign-in-with-google) (an **app
+  password** is still possible: [the Gmail section](#gmail-the-app-password)).
+  Nor for Outlook.com and Hotmail: see
   [Outlook.com and Hotmail](#outlookcom-and-hotmail-sign-in-with-microsoft).
 
 ## Step by step
@@ -71,10 +72,43 @@ Only click **Trust this server** for a server you know (a personal server,
 your company's), and if its administrator has confirmed the
 **fingerprint** shown.
 
+## Gmail: sign in with Google
+
+With a Gmail address, you sign in on Google's page, in your browser,
+without giving your password to Norelly:
+
+1. In the **Add an account** window, type your address (for example
+   `mary.smith@gmail.com`). The **Password** field disappears and the
+   **Sign in with Google** button appears.
+2. Click **Sign in with Google**. Your browser opens on Google's page:
+   choose the account of the address you typed.
+3. Google then shows a warning: **"Google hasn't verified this app"**.
+   Norelly simply hasn't been reviewed by Google yet. To continue, click
+   **Advanced**, then **Go to Norelly (unsafe)**. Norelly reminds you of
+   this on screen before opening the browser.
+4. Allow Norelly to access your messages, then come back to Norelly when
+   the browser shows "you can close this page". The account appears in the
+   left column.
+
+![The add window with a Gmail address: "Sign in with Google" button, explanation of Google's warning and "Use an app password" button](captures/google-sign-in.png)
+
+Norelly never sees your Google password. It receives an authorization,
+stored in the system keyring, which it renews on its own. If it stops
+working, a **Sign in again** button appears next to the account, as for
+[Outlook.com and Hotmail](#signing-in-again).
+
+Until Google verifies Norelly, it limits the number of people who can
+sign in to it. If Google refuses your account, or if you abandon the
+sign-in in the browser, Norelly offers the **app password** instead, with
+its steps. You can also choose it right away: click **Use an app
+password** below the form (and **Sign in with Google instead** to go
+back).
+
 ## Gmail: the app password
 
-Gmail refuses your usual password in a program like Norelly. Google asks
-you to create an **app password**: a special password of 16 letters,
+Gmail refuses your usual password in a program like Norelly. If you do
+not use **Sign in with Google**, Google asks you to create an **app
+password**: a special password of 16 letters,
 reserved for Norelly. You create it once, on Google's website, then paste
 it into Norelly instead of your password.
 

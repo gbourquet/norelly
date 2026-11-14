@@ -9,10 +9,11 @@ adresse pour une association).
 ## Ce qu'il vous faut
 
 - votre **adresse électronique**, par exemple `marie.durand@exemple.fr` ;
-- son **mot de passe**. Pour Gmail, ce n'est pas votre mot de passe
-  habituel mais un **mot de passe d'application** : lisez d'abord
-  [la partie Gmail](#gmail--le-mot-de-passe-dapplication). Pour
-  Outlook.com et Hotmail, aucun mot de passe n'est demandé : voir
+- son **mot de passe**. Pour Gmail, aucun mot de passe n'est demandé : voir
+  [Gmail : se connecter avec Google](#gmail--se-connecter-avec-google)
+  (un **mot de passe d'application** reste possible :
+  [la partie Gmail](#gmail--le-mot-de-passe-dapplication)). Pour
+  Outlook.com et Hotmail non plus : voir
   [Outlook.com et Hotmail](#outlookcom-et-hotmail--se-connecter-avec-microsoft).
 
 ## Étape par étape
@@ -77,10 +78,45 @@ Ne cliquez sur **Faire confiance à ce serveur** que pour un serveur que
 vous connaissez (un serveur personnel, celui de votre entreprise), et si
 son administrateur vous a confirmé l'**empreinte** affichée.
 
+## Gmail : se connecter avec Google
+
+Avec une adresse Gmail, vous vous connectez sur la page de Google, dans
+votre navigateur, sans donner votre mot de passe à Norelly :
+
+1. Dans la fenêtre **Ajouter un compte**, tapez votre adresse (par exemple
+   `marie.durand@gmail.com`). Le champ **Mot de passe** disparaît et le
+   bouton **Se connecter avec Google** apparaît.
+2. Cliquez sur **Se connecter avec Google**. Votre navigateur s'ouvre sur
+   la page de Google : choisissez le compte de l'adresse tapée.
+3. Google affiche alors un avertissement : **« Google n'a pas validé cette
+   application »**. Norelly n'a simplement pas encore été examinée par
+   Google. Pour continuer, cliquez sur **Paramètres avancés**, puis sur
+   **Accéder à Norelly (non sécurisé)**. Norelly vous le rappelle à
+   l'écran avant d'ouvrir le navigateur.
+4. Acceptez que Norelly accède à vos messages, puis revenez dans Norelly
+   quand le navigateur affiche « vous pouvez fermer cette page ». Le compte
+   apparaît dans la colonne de gauche.
+
+![La fenêtre d'ajout avec une adresse Gmail : bouton « Se connecter avec Google », explication de l'avertissement de Google et bouton « Utiliser un mot de passe d'application »](captures/google-sign-in.png)
+
+Norelly ne voit jamais votre mot de passe Google. Il reçoit une
+autorisation, rangée dans le trousseau du système, qu'il renouvelle tout
+seul. Si elle cesse de fonctionner, un bouton **Se reconnecter** apparaît à
+côté du compte, comme pour
+[Outlook.com et Hotmail](#se-reconnecter).
+
+Tant que Google n'a pas validé Norelly, il limite le nombre de personnes
+qui peuvent s'y connecter. Si Google refuse votre compte, ou si vous
+abandonnez la connexion dans le navigateur, Norelly vous propose le **mot
+de passe d'application** à la place, avec ses étapes. Vous pouvez aussi le
+choisir d'emblée : cliquez sur **Utiliser un mot de passe d'application**
+sous le formulaire (et **Se connecter avec Google plutôt** pour revenir).
+
 ## Gmail : le mot de passe d'application
 
 Gmail refuse votre mot de passe habituel dans un programme comme Norelly.
-Google vous demande de créer un **mot de passe d'application** : un mot
+Si vous ne passez pas par **Se connecter avec Google**, Google vous
+demande de créer un **mot de passe d'application** : un mot
 de passe spécial, fait de 16 lettres, réservé à Norelly. Vous le créez une
 seule fois, sur le site de Google, puis vous le collez dans Norelly à la
 place de votre mot de passe.

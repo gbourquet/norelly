@@ -14,7 +14,7 @@ de document : date, version (`git describe`), système, testeur, résultat.
 
 | Fournisseur | Prérequis |
 |---|---|
-| Gmail | Validation en deux étapes activée, **mot de passe d'application** créé (Compte Google › Sécurité › Mots de passe des applications) ; IMAP actif (Paramètres › Transfert et POP/IMAP). |
+| Gmail | Validation en deux étapes activée, **mot de passe d'application** créé (Compte Google › Sécurité › Mots de passe des applications) ; IMAP actif (Paramètres › Transfert et POP/IMAP). « Se connecter avec Google » : avertissement « Google n'a pas validé cette application » passé par « Paramètres avancés » ; chaque nouveau compte consomme une des places limitées de l'application non validée : utiliser un compte réel, toujours le même. |
 | Fastmail | **Mot de passe d'application** avec accès IMAP et SMTP (Paramètres › Confidentialité et sécurité). |
 | Outlook.com | Validation en deux étapes activée, **mot de passe d'application** créé (compte Microsoft › Sécurité › Options de sécurité avancées). IMAP par mot de passe peut être refusé par Microsoft : noter le message obtenu. |
 

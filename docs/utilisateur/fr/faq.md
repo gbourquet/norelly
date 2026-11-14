@@ -79,6 +79,15 @@ si vous l'avez accepté sous Windows, à GitHub (qui héberge Norelly) pour
 vérifier les mises à jour : GitHub voit alors votre adresse IP, mais aucun
 identifiant n'est envoyé.
 
+## Comment ajouter un compte Gmail ?
+
+Tapez votre adresse dans la fenêtre d'ajout, puis cliquez sur **Se
+connecter avec Google** : la connexion se fait sur la page de Google, dans
+votre navigateur. Google affiche d'abord « Google n'a pas validé cette
+application » : cliquez sur **Paramètres avancés**, puis sur **Accéder à
+Norelly (non sécurisé)**. Un mot de passe d'application reste possible.
+Voir [Gmail : se connecter avec Google](first-account.md#gmail--se-connecter-avec-google).
+
 ## Comment ajouter un compte Outlook.com ou Hotmail ?
 
 Tapez votre adresse dans la fenêtre d'ajout, puis cliquez sur **Se

@@ -71,6 +71,20 @@ page** button opens the page where you create the app password; then
 paste it into the **Password** field, which was cleared for it. Details
 are in [Adding your email address](first-account.md#gmail).
 
+## Signing in with Google did not complete
+
+**What you see**: "Signing in with Google did not complete…", then the
+**Create a Google app password** box and the **Password** field.
+
+**What it means**: signing in on Google's page was refused, abandoned or
+never came back to Norelly. Until Google verifies Norelly, it limits the
+number of people who can sign in to it, and may refuse a new account.
+
+**What to do**: if you simply closed the page, click **Sign in with Google
+instead**, then try again (remember **Advanced**, then **Go to Norelly
+(unsafe)**). Otherwise, use an app password: follow the steps in the box
+(see [Adding your address](first-account.md#gmail-the-app-password)).
+
 ## Credentials rejected (password refused)
 
 **What you see**: "Incoming server (IMAP): credentials rejected. Check the
@@ -82,7 +96,7 @@ username and password (an app password is sometimes required)."
 
 1. Check the password: is **Caps Lock** on? Is the keyboard in the right
    language?
-2. **Gmail**: use an **app password**, not your usual password
+2. **Gmail**: use **Sign in with Google** or an **app password**, not your usual password
    (see [Adding your address](first-account.md#gmail-the-app-password)).
    If you changed your Google password, older app passwords may have been
    revoked: create a new one.

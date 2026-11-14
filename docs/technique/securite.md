@@ -55,7 +55,7 @@ n'est pas chiffrée (ADR-003) : on s'appuie sur le chiffrement du disque.
   `127.0.0.1` seulement, port éphémère, requête bornée
   (`crates/adapters/oauth`).
 - Compte vérifié : la connexion interactive demande aussi `openid email
-  profile` ; l'`id_token` reçu du point d'accès des jetons (HTTPS vérifié,
+  profile` (Google : `openid email`) ; l'`id_token` reçu du point d'accès des jetons (HTTPS vérifié,
   en échange du code et du vérificateur PKCE, donc signature non
   vérifiée) doit porter l'adresse du compte en `preferred_username` ou
   `email`, sinon les jetons sont refusés avant tout test, stockage ou
@@ -63,8 +63,13 @@ n'est pas chiffrée (ADR-003) : on s'appuie sur le chiffrement du disque.
   (`crates/domain/src/oauth.rs`, `verify_identity`). Un code d'un autre
   compte injecté dans la redirection locale est ainsi refusé. Le
   rafraîchissement garde les seuls scopes de messagerie.
-- Identifiant client public embarqué (application de bureau, sans
-  secret). Jeton de rafraîchissement dans le trousseau seulement ; jeton
+- Identifiant client public embarqué (application de bureau). Microsoft :
+  sans secret. Google : le `client_secret` du client « application de
+  bureau » est embarqué lui aussi ; il n'est pas confidentiel (même valeur
+  dans chaque copie de l'application, toléré par Google pour les
+  applications installées) et ne protège rien : le code d'autorisation
+  reste protégé par PKCE et `state`, et le jeton n'est présenté qu'aux
+  serveurs de Gmail. Jeton de rafraîchissement dans le trousseau seulement ; jeton
   d'accès en mémoire ; aucun jeton dans les journaux, les erreurs ni
   `Debug` ; le corps des réponses du fournisseur n'est jamais recopié, et
   un code d'erreur n'est repris que s'il est court et imprimable.

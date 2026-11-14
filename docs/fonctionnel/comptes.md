@@ -51,6 +51,24 @@ demande pas de mot de passe : il propose **Se connecter avec Microsoft**.
    bouton **Se reconnecter**, visible à côté du compte et présent dans son
    menu « ⋯ ». La réception reprend après la reconnexion.
 
+### Se connecter avec Google
+
+Pour une adresse Gmail (`gmail.com`), le formulaire propose **Se connecter
+avec Google**, sur le même parcours que Microsoft, sans mot de passe.
+
+1. Avant d'ouvrir le navigateur, l'écran explique l'avertissement que
+   Google affiche tant qu'il n'a pas validé Norelly (« Google n'a pas
+   validé cette application ») et le chemin pour le passer : « Paramètres
+   avancés », puis « Accéder à Norelly (non sécurisé) ». L'explication est
+   rappelée pendant l'attente du navigateur.
+2. L'utilisateur se connecte chez Google et accepte l'accès de Norelly ; la
+   réception et l'envoi sont testés, puis le compte est enregistré.
+3. Le **mot de passe d'application** reste possible : le bouton **Utiliser
+   un mot de passe d'application** affiche le champ du mot de passe, et
+   **Se connecter avec Google plutôt** y revient.
+4. La reconnexion d'un compte Google se fait comme pour Microsoft
+   (« Se reconnecter »).
+
 ### Retrait
 
 Depuis le menu « ⋯ » du compte (panneau de gauche, entrée « Supprimer ce
@@ -106,8 +124,17 @@ acceptés) sont supprimées. **Rien n'est supprimé sur le serveur.**
 - Changement d'empreinte d'un serveur déjà accepté : avertissement renforcé
   et case « J'ai vérifié auprès de l'administrateur » obligatoire.
 - Annulation pendant le test : retour à la saisie.
-- Gmail exige un mot de passe d'application. Outlook.com et Hotmail ne
-  passent que par « Se connecter avec Microsoft ».
+- Gmail passe par « Se connecter avec Google » ou par un mot de passe
+  d'application, jamais par le mot de passe habituel. Outlook.com et
+  Hotmail ne passent que par « Se connecter avec Microsoft ». Une adresse
+  d'entreprise ou d'école gérée par Google ne se reconnaît pas à son nom :
+  elle passe par le mot de passe.
+- Connexion chez Google refusée, abandonnée ou restée sans réponse dans le
+  navigateur, à l'ajout d'un compte : Google peut bloquer les nouveaux
+  comptes tant qu'il n'a pas validé Norelly (nombre d'utilisateurs limité),
+  sans toujours le dire à Norelly. L'écran revient au formulaire, l'explique
+  et bascule sur le mot de passe d'application, avec ses étapes ; rien
+  n'est enregistré.
 - Connexion chez Microsoft refusée ou abandonnée dans le navigateur : retour
   au formulaire, avec une explication ; rien n'est enregistré.
 - Compte choisi dans la page de Microsoft différent de l'adresse saisie
@@ -142,7 +169,8 @@ acceptés) sont supprimées. **Rien n'est supprimé sur le serveur.**
 - Serveur qui ne répond pas : le message ne met en cause ni le nom ni le
   port, il invite à vérifier la connexion à Internet puis à réessayer.
 - L'autorisation Microsoft n'est jamais envoyée à un autre serveur que ceux
-  de Microsoft, ni sur une connexion non chiffrée.
+  de Microsoft, ni sur une connexion non chiffrée. De même, l'autorisation
+  Google ne part que vers les serveurs de Gmail.
 - Trousseau du système verrouillé ou indisponible au moment de renouveler
   l'autorisation Microsoft : le compte indique un problème de trousseau, et
   non des identifiants refusés ; rien n'est envoyé au serveur, et Norelly
@@ -188,7 +216,10 @@ acceptés) sont supprimées. **Rien n'est supprimé sur le serveur.**
 | Serveur qui ne répond pas | {prefix}le serveur ne répond pas. Vérifiez votre connexion à Internet, puis réessayez. |
 | Adresse Microsoft | Outlook.com et Hotmail n'acceptent pas de mot de passe ici : connectez-vous chez Microsoft dans votre navigateur. Norelly ne voit jamais votre mot de passe. |
 | Attente du navigateur | Connectez-vous dans la fenêtre de votre navigateur, puis revenez ici. |
-| Nouvel essai sans navigateur | Connexion à votre messagerie Microsoft… |
+| Nouvel essai sans navigateur | Connexion à votre messagerie Microsoft… (Google : « Connexion à votre messagerie Gmail… ».) |
+| Adresse Gmail | Connectez-vous chez Google dans votre navigateur : Norelly ne voit jamais votre mot de passe. Google affichera d'abord « Google n'a pas validé cette application » : cliquez sur « Paramètres avancés », puis sur « Accéder à Norelly (non sécurisé) ». Norelly n'a simplement pas encore été examinée par Google. |
+| Attente du navigateur (Google) | Connectez-vous dans la fenêtre de votre navigateur, puis revenez ici. Si Google affiche « Google n'a pas validé cette application », cliquez sur « Paramètres avancés », puis sur « Accéder à Norelly (non sécurisé) ». |
+| Connexion Google refusée ou abandonnée | La connexion avec Google n'a pas abouti. Si Google indique que Norelly a atteint son nombre maximal d'utilisateurs (100, tant que Google n'a pas validé l'application), ou si vous préférez ne pas passer par cette page, utilisez un mot de passe d'application : les étapes sont ci-dessous. |
 | Envoi non vérifié à l'ajout | Compte ajouté. L'envoi n'a pas pu être vérifié, le serveur ne répondait pas : Norelly réessaiera à votre premier message. |
 | Connexion annulée | La connexion a été annulée dans le navigateur. |
 | Autre compte choisi | Le compte choisi dans le navigateur n'est pas celui de cette adresse. Réessayez en choisissant le compte de {address}. (Reconnexion : « autre compte choisi dans le navigateur ».) |

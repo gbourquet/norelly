@@ -77,6 +77,23 @@ collez-le ensuite dans le champ **Mot de passe**, qui a été vidé pour lui.
 Le détail est dans
 [Ajouter votre adresse](first-account.md#gmail).
 
+## Connexion avec Google non aboutie
+
+**Ce que vous voyez** : « La connexion avec Google n'a pas abouti… », puis
+l'encadré **Créer un mot de passe d'application Google** et le champ
+**Mot de passe**.
+
+**Ce que cela veut dire** : la connexion dans la page de Google a été
+refusée, abandonnée ou n'est pas revenue jusqu'à Norelly. Tant que Google
+n'a pas validé Norelly, il limite le nombre de personnes qui peuvent s'y
+connecter, et peut refuser un nouveau compte.
+
+**Quoi faire** : si vous aviez simplement fermé la page, cliquez sur **Se
+connecter avec Google plutôt**, puis recommencez (pensez à **Paramètres
+avancés**, puis **Accéder à Norelly (non sécurisé)**). Sinon, utilisez un
+mot de passe d'application : suivez les étapes de l'encadré (voir
+[Ajouter votre adresse](first-account.md#gmail--le-mot-de-passe-dapplication)).
+
 ## Identifiants refusés (mot de passe refusé)
 
 **Ce que vous voyez** : « Serveur de réception (IMAP) : identifiants
@@ -90,8 +107,8 @@ de passe.
 
 1. Vérifiez le mot de passe : la touche **Verr. Maj** (majuscules) est-elle
    activée ? Le clavier est-il dans la bonne langue ?
-2. **Gmail** : utilisez un **mot de passe d'application**, pas votre mot
-   de passe habituel (voir
+2. **Gmail** : utilisez **Se connecter avec Google** ou un **mot de passe
+   d'application**, pas votre mot de passe habituel (voir
    [Ajouter votre adresse](first-account.md#gmail--le-mot-de-passe-dapplication)).
    Si vous avez changé votre mot de passe Google, les anciens mots de passe
    d'application ont pu être annulés : créez-en un nouveau.

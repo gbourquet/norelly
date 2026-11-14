@@ -237,6 +237,9 @@ export class AddAccountFlow {
     // rien n'est ouvert, l'utilisateur clique sur le bouton mis à jour.
     const shown = this.signInProvider;
     const attempt = ++this.#attempt;
+    // Une annulation encore en route arrêterait ce nouvel essai : Rust la
+    // reçoit d'abord.
+    await this.#cancelling;
     await this.detectProvider();
     const provider = this.signInProvider;
     if (attempt !== this.#attempt || provider === null || provider !== shown) return;
@@ -277,7 +280,9 @@ export class AddAccountFlow {
   }
 
   /** Vrai pendant un essai par le fournisseur hors attente du navigateur
-   *  (connexion gardée, ou obtenue et serveurs en test). */
+   *  (connexion gardée, ou obtenue et serveurs en test). Avant la première
+   *  étape annoncée par Rust, l'essai compte aussi ici, fenêtre verrouillée :
+   *  une annulation arrivée avant que Rust ne l'observe serait perdue. */
   get checkingSignIn(): boolean {
     return this.#oauth && this.step === "testing" && this.#signInStep !== "browser_opened";
   }
@@ -299,12 +304,14 @@ export class AddAccountFlow {
     await this.#cancelInRust();
   }
 
-  async #cancelInRust(): Promise<void> {
-    try {
-      await this.#api.cancelOAuthSignIn();
-    } catch {
+  /** Annulation envoyée à Rust, pas encore traitée. */
+  #cancelling: Promise<void> = Promise.resolve();
+
+  #cancelInRust(): Promise<void> {
+    this.#cancelling = this.#api.cancelOAuthSignIn().catch(() => {
       // Rust injoignable : l'attente s'arrêtera d'elle-même (délai).
-    }
+    });
+    return this.#cancelling;
   }
 
   /** Ouvre la page Google de création des mots de passe d'application. */

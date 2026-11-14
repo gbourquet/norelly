@@ -38,6 +38,11 @@ const MAX_CALLBACK_BYTES: usize = 8 * 1024;
 const CALLBACK_IO_TIMEOUT: Duration = Duration::from_secs(5);
 /// Essais d'un nouveau port quand celui de `127.0.0.1` est pris sur `::1`.
 const BIND_ATTEMPTS: usize = 5;
+/// Connexions locales lues en même temps ; les suivantes attendent dans la
+/// file du système qu'une place se libère (au plus deux délais d'E/S).
+const MAX_CONNECTIONS: usize = 32;
+/// Pause après une erreur passagère d'`accept` (trop de fichiers ouverts…).
+const ACCEPT_RETRY_DELAY: Duration = Duration::from_millis(100);
 /// Taille maximale d'une réponse du point d'accès des jetons.
 const MAX_TOKEN_RESPONSE_BYTES: usize = 64 * 1024;
 
@@ -228,8 +233,8 @@ fn bind_redirect_with(
         let port = v4.local_addr().map_err(network)?.port();
         let v6 = match bind_v6(port) {
             Ok(v6) => Some(v6),
-            Err(e) if e.kind() == ErrorKind::AddrInUse => continue,
-            Err(e) if e.kind() == ErrorKind::AddrNotAvailable => None,
+            Err(e) if port_refused(&e) => continue,
+            Err(e) if ipv6_absent(&e) => None,
             Err(e) => return Err(network(e)),
         };
         return Ok(Redirect {
@@ -241,6 +246,24 @@ fn bind_redirect_with(
     Err(TokenError::Network(
         "aucun port libre à la fois sur 127.0.0.1 et ::1".to_owned(),
     ))
+}
+
+/// Port inutilisable sur `::1` : déjà pris, ou réservé (Windows : plages
+/// exclues, refus d'accès). Un autre port est essayé.
+fn port_refused(e: &std::io::Error) -> bool {
+    matches!(e.kind(), ErrorKind::AddrInUse | ErrorKind::PermissionDenied)
+}
+
+/// Machine sans IPv6 : adresse `::1` indisponible, ou famille d'adresses
+/// absente du système (`EAFNOSUPPORT`, `WSAEAFNOSUPPORT`).
+fn ipv6_absent(e: &std::io::Error) -> bool {
+    #[cfg(target_os = "linux")]
+    const EAFNOSUPPORT: i32 = 97;
+    #[cfg(windows)]
+    const EAFNOSUPPORT: i32 = 10047;
+    #[cfg(not(any(target_os = "linux", windows)))]
+    const EAFNOSUPPORT: i32 = 47;
+    e.kind() == ErrorKind::AddrNotAvailable || e.raw_os_error() == Some(EAFNOSUPPORT)
 }
 
 fn tokio_listener(listener: std::net::TcpListener) -> Result<TcpListener, TokenError> {
@@ -264,15 +287,18 @@ async fn accept_on(
 /// forgé ou illisible (autre page locale, favicon) reçoit une erreur et
 /// l'attente continue : il ne peut pas annuler la connexion. Chaque
 /// connexion est lue par sa propre tâche, dans un délai borné : un client
-/// lent ne retarde pas les autres. Abandonner ce futur ferme l'écoute et
-/// interrompt ces tâches.
+/// lent ne retarde pas les autres. Au plus [`MAX_CONNECTIONS`] à la fois :
+/// un afflux de connexions ne fait pas manquer de descripteurs ; une erreur
+/// d'`accept` est passagère et n'arrête pas l'attente. Abandonner ce futur
+/// ferme l'écoute et interrompt ces tâches.
 async fn wait_for_code(redirect: &Redirect, state: &str) -> Result<Secret, TokenError> {
     let state: Arc<str> = Arc::from(state);
     let mut connections = tokio::task::JoinSet::new();
     loop {
+        let room = connections.len() < MAX_CONNECTIONS;
         let accepted = tokio::select! {
-            accepted = redirect.v4.accept() => accepted,
-            accepted = accept_on(redirect.v6.as_ref()) => accepted,
+            accepted = redirect.v4.accept(), if room => accepted,
+            accepted = accept_on(redirect.v6.as_ref()), if room => accepted,
             Some(done) = connections.join_next() => {
                 if let Ok(Some(result)) = done {
                     return result;
@@ -280,8 +306,15 @@ async fn wait_for_code(redirect: &Redirect, state: &str) -> Result<Secret, Token
                 continue;
             }
         };
-        let (stream, _) = accepted.map_err(|e| TokenError::Network(e.to_string()))?;
-        connections.spawn(handle_callback(stream, Arc::clone(&state)));
+        match accepted {
+            Ok((stream, _)) => {
+                connections.spawn(handle_callback(stream, Arc::clone(&state)));
+            }
+            Err(e) => {
+                tracing::debug!(error = %e, "connexion locale non acceptée");
+                tokio::time::sleep(ACCEPT_RETRY_DELAY).await;
+            }
+        }
     }
 }
 
@@ -299,7 +332,7 @@ async fn handle_callback(
         respond(&mut stream, "400 Bad Request", "").await;
         return None;
     };
-    match parse_callback(&target, &state) {
+    match parse_callback(target.expose(), &state) {
         Ok(code) => {
             respond(&mut stream, "200 OK", DONE_PAGE).await;
             Some(Ok(code))
@@ -321,30 +354,50 @@ async fn handle_callback(
 
 /// Cible d'une requête `GET <cible> HTTP/1.x`, lue dans la limite de
 /// [`MAX_CALLBACK_BYTES`].
-async fn read_request_target(stream: &mut TcpStream) -> Option<String> {
-    let mut buf = Vec::with_capacity(1024);
+/// La requête (qui porte le code d'autorisation) est effacée après lecture.
+async fn read_request_target(stream: &mut TcpStream) -> Option<Secret> {
+    let mut buf = Vec::with_capacity(MAX_CALLBACK_BYTES + 1024);
     let mut chunk = [0u8; 1024];
-    loop {
-        let n = stream.read(&mut chunk).await.ok()?;
-        if n == 0 {
-            return None;
-        }
-        buf.extend_from_slice(chunk.get(..n)?);
-        if buf.windows(2).any(|w| w == b"\r\n") {
-            break;
-        }
-        if buf.len() > MAX_CALLBACK_BYTES {
-            return None;
-        }
+    let complete = fill_request_line(stream, &mut buf, &mut chunk).await;
+    chunk.fill(0);
+    std::hint::black_box(&chunk);
+    let buf = SecretBytes::new(buf);
+    if !complete {
+        return None;
     }
-    let line = buf.split(|b| *b == b'\r').next()?;
+    let line = buf.expose().split(|b| *b == b'\r').next()?;
     let line = std::str::from_utf8(line).ok()?;
     let mut parts = line.split(' ');
     match (parts.next(), parts.next(), parts.next()) {
         (Some("GET"), Some(target), Some(version)) if version.starts_with("HTTP/1.") => {
-            Some(target.to_owned())
+            Some(Secret::new(target.to_owned()))
         }
         _ => None,
+    }
+}
+
+/// Lit jusqu'à la fin de la première ligne ; faux si la connexion se ferme
+/// avant ou si [`MAX_CALLBACK_BYTES`] est dépassé. Le tampon est réservé
+/// d'emblée : aucune réallocation n'en laisse de copie.
+async fn fill_request_line(
+    stream: &mut TcpStream,
+    buf: &mut Vec<u8>,
+    chunk: &mut [u8; 1024],
+) -> bool {
+    loop {
+        let Ok(n) = stream.read(chunk).await else {
+            return false;
+        };
+        let Some(read) = chunk.get(..n).filter(|r| !r.is_empty()) else {
+            return false;
+        };
+        buf.extend_from_slice(read);
+        if buf.windows(2).any(|w| w == b"\r\n") {
+            return true;
+        }
+        if buf.len() > MAX_CALLBACK_BYTES {
+            return false;
+        }
     }
 }
 
@@ -364,9 +417,10 @@ async fn respond(stream: &mut TcpStream, status: &str, body: &str) {
 }
 
 /// Corps de la réponse du point d'accès des jetons, lu dans la limite de
-/// [`MAX_TOKEN_RESPONSE_BYTES`] et effacé à sa destruction, même après une
-/// erreur de lecture. Le tampon est réservé d'emblée : aucune réallocation
-/// n'en laisse de copie.
+/// [`MAX_TOKEN_RESPONSE_BYTES`]. Ce tampon assemblé est effacé à sa
+/// destruction, même après une erreur de lecture, et réservé d'emblée
+/// (aucune réallocation n'en laisse de copie). Les morceaux reçus du client
+/// HTTP, eux, ne sont pas effacés.
 async fn read_bounded(response: reqwest::Response) -> Result<SecretBytes, TokenError> {
     let mut body = Vec::with_capacity(MAX_TOKEN_RESPONSE_BYTES);
     let read = fill_bounded(response, &mut body).await;
@@ -393,12 +447,21 @@ async fn fill_bounded(
 
 #[derive(serde::Deserialize)]
 struct TokenResponse {
-    access_token: Option<String>,
+    #[serde(default, deserialize_with = "secret")]
+    access_token: Option<Secret>,
     expires_in: Option<u64>,
-    refresh_token: Option<String>,
-    id_token: Option<String>,
+    #[serde(default, deserialize_with = "secret")]
+    refresh_token: Option<Secret>,
+    #[serde(default, deserialize_with = "secret")]
+    id_token: Option<Secret>,
     scope: Option<String>,
     error: Option<String>,
+}
+
+/// Jeton lu directement en [`Secret`] : effacé à sa destruction, même si
+/// la réponse est rejetée ensuite.
+fn secret<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<Secret>, D::Error> {
+    Ok(<Option<String> as serde::Deserialize>::deserialize(d)?.map(Secret::new))
 }
 
 /// Revendications utiles d'un `id_token` (OpenID Connect).
@@ -459,13 +522,13 @@ fn parse_token_response(status: u16, body: &[u8]) -> Result<OAuthGrant, TokenErr
         .filter(|t| !t.is_empty())
         .ok_or_else(|| TokenError::Protocol("réponse sans jeton d'accès".to_owned()))?;
     Ok(OAuthGrant {
-        access_token: Secret::new(access_token),
+        access_token,
         expires_in: parsed.expires_in.unwrap_or(3_600),
-        refresh_token: parsed
-            .refresh_token
-            .filter(|t| !t.is_empty())
-            .map(Secret::new),
-        identity: parsed.id_token.as_deref().and_then(identity_of),
+        refresh_token: parsed.refresh_token.filter(|t| !t.is_empty()),
+        identity: parsed
+            .id_token
+            .as_ref()
+            .and_then(|t| identity_of(t.expose())),
         granted_scopes: parsed.scope,
     })
 }

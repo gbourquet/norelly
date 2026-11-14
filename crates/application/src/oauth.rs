@@ -111,13 +111,17 @@ impl<O: OAuthClient, K: SecretStore> TokenBroker<O, K> {
     /// Garde la connexion d'un ajout de compte qui a échoué après la
     /// connexion chez le fournisseur, obtenue à `obtained_at`
     /// ([`Self::now`]) : le prochain essai pour la même adresse la
-    /// réutilise ([`Self::take_pending`]). Remplace la précédente.
+    /// réutilise ([`Self::take_pending`]). Remplace la précédente. Rien
+    /// n'est gardé si l'ajout a été annulé depuis `cancelled`
+    /// ([`Self::sign_in_cancellation`]) : le contrôle et l'écriture se font
+    /// sous le même verrou que [`Self::cancel_sign_in`].
     pub fn keep_pending(
         &self,
         provider: OAuthProvider,
         address: &EmailAddress,
         grant: OAuthGrant,
         obtained_at: u64,
+        cancelled: &tokio::sync::watch::Receiver<u64>,
     ) {
         let pending = PendingAuthorization {
             provider,
@@ -125,7 +129,10 @@ impl<O: OAuthClient, K: SecretStore> TokenBroker<O, K> {
             obtained_at,
             expires_in: grant.expires_in,
         };
-        *self.pending.lock().unwrap_or_else(PoisonError::into_inner) = Some((pending, grant));
+        let mut kept = self.pending.lock().unwrap_or_else(PoisonError::into_inner);
+        if !cancelled.has_changed().unwrap_or(true) {
+            *kept = Some((pending, grant));
+        }
     }
 
     /// Vrai si une connexion gardée peut resservir pour ajouter `address`
@@ -168,11 +175,11 @@ impl<O: OAuthClient, K: SecretStore> TokenBroker<O, K> {
     /// des ajouts en cours et oublie la connexion gardée. Sans effet sur un
     /// ajout commencé ensuite.
     pub fn cancel_sign_in(&self) {
+        let mut kept = self.pending.lock().unwrap_or_else(PoisonError::into_inner);
         self.sign_in_cancel
             .send_modify(|generation| *generation = generation.wrapping_add(1));
-        *self.pending.lock().unwrap_or_else(PoisonError::into_inner) = None;
+        *kept = None;
     }
-
     /// Client OAuth (connexion interactive).
     pub fn client(&self) -> &O {
         &self.client

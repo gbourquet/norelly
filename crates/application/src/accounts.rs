@@ -299,6 +299,8 @@ where
         let (grant, fresh_since) = match kept {
             Some(grant) => (grant, None),
             None => {
+                // Annoncé quand Norelly passe par le navigateur (pas pour
+                // une connexion gardée) ; un échec de son ouverture suit.
                 progress(OAuthSignInStep::BrowserOpened);
                 let config = self.broker.config(request.provider);
                 let authorize = self.broker.client().authorize(&config, &request.address);
@@ -404,8 +406,13 @@ where
                 if let Some(obtained_at) = fresh_since
                     && worth_retrying(&outcome)
                 {
-                    self.broker
-                        .keep_pending(request.provider, draft.address(), grant, obtained_at);
+                    self.broker.keep_pending(
+                        request.provider,
+                        draft.address(),
+                        grant,
+                        obtained_at,
+                        &cancelled,
+                    );
                 }
                 return AddAccountOutcome::ConnectionFailed {
                     protocol,
@@ -413,6 +420,13 @@ where
                     advice,
                 };
             }
+        }
+        // Annulation arrivée pendant le test des serveurs (fenêtre fermée au
+        // retour du navigateur) : rien n'est enregistré.
+        if cancelled.has_changed().unwrap_or(true) {
+            return AddAccountOutcome::OAuthFailed(TokenError::Cancelled(
+                "ajout annulé".to_owned(),
+            ));
         }
         let account = match self.accounts.insert(&draft).await {
             Ok(account) => account,

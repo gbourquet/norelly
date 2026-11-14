@@ -711,6 +711,27 @@ describe("se connecter avec Microsoft", () => {
     expect(f.checkingSignIn).toBe(false);
   });
 
+  it("nouvel essai juste après une fermeture : Rust a d'abord reçu l'annulation", async () => {
+    const { api } = fakeApi(found, [{ kind: "added", account, send_unchecked: false }]);
+    let cancelled: () => void = () => undefined;
+    api.cancelOAuthSignIn = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          cancelled = resolve;
+        }),
+    );
+    const f = outlook(api);
+    await f.detectProvider();
+    void f.forget();
+    const done = f.signInWithProvider();
+    await new Promise((r) => setTimeout(r, 10));
+    expect(api.addOAuthAccount).not.toHaveBeenCalled();
+    cancelled();
+    await done;
+    expect(api.addOAuthAccount).toHaveBeenCalledOnce();
+    expect(f.step).toBe("done");
+  });
+
   it("fenêtre fermée sans essai en cours : la connexion gardée est oubliée quand même", async () => {
     const { api } = fakeApi(found, []);
     const f = outlook(api);

@@ -265,7 +265,14 @@ async fn cancelling_the_oauth_sign_in_forgets_the_kept_one() {
         granted_scopes: None,
     };
     let tokens = &t.state().tokens;
-    tokens.keep_pending(OAuthProvider::Microsoft, &address, grant, tokens.now());
+    let cancelled = tokens.sign_in_cancellation();
+    tokens.keep_pending(
+        OAuthProvider::Microsoft,
+        &address,
+        grant,
+        tokens.now(),
+        &cancelled,
+    );
     cancel_oauth_sign_in(t.state());
     assert!(
         tokens

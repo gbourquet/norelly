@@ -667,9 +667,12 @@ est majoritairement écrit par Claude et relu par le mainteneur.
     même port, pour qu'aucun autre programme n'occupe l'une d'elles et ne
     reçoive le code ou n'affiche une fausse page. Règle : écoute de
     `127.0.0.1` sur un port libre, puis de `::1` au même port ; port déjà
-    pris sur `::1` : nouveau port (5 essais) ; `::1` indisponible (machine
-    sans IPv6, `AddrNotAvailable`) : `127.0.0.1` seul ; toute autre erreur :
-    échec de la connexion. La redirection `http://127.0.0.1:<port>/`
+    pris sur `::1` (ou réservé : refus d'accès sous Windows) : nouveau port
+    (5 essais) ; IPv6 absent (`::1` indisponible, `AddrNotAvailable`, ou
+    famille d'adresses absente du système, `EAFNOSUPPORT`) : `127.0.0.1`
+    seul ; toute autre erreur : échec de la connexion. Au plus 32
+    connexions locales lues à la fois, une erreur d'acceptation est
+    passagère. La redirection `http://127.0.0.1:<port>/`
     (RFC 8252 §8.3) n'est pas retenue : Microsoft ne l'accepte pas pour ce
     client. Chaque connexion locale est lue par sa propre tâche, requête
     entière bornée à 5 s : un client lent ne retarde ni n'annule l'attente ;

@@ -317,6 +317,30 @@ async fn a_slow_local_client_neither_blocks_nor_holds_the_wait() {
 }
 
 #[tokio::test]
+async fn a_flood_of_silent_connections_does_not_stop_the_callback() {
+    // Plus de connexions muettes que de places : elles sont coupées à leur
+    // délai, la liste d'attente du système garde les suivantes, et le vrai
+    // retour finit par être lu.
+    let browser = Browser::with(|port, state| {
+        tokio::spawn(async move {
+            let mut silent = Vec::new();
+            for _ in 0..MAX_CONNECTIONS + 8 {
+                if let Ok(s) = TcpStream::connect((LOCALHOST_V4, port)).await {
+                    silent.push(s);
+                }
+            }
+            let _ = get(LOCALHOST_V4, port, &format!("/?code=le-code&state={state}")).await;
+            drop(silent);
+        });
+    });
+    let server = token_server(&browser).await;
+    let grant = client_waiting(&server, browser, CALLBACK_IO_TIMEOUT * 3)
+        .authorize(OAuthProvider::Microsoft.config(), &hint())
+        .await;
+    assert!(grant.is_ok(), "{grant:?}");
+}
+
+#[tokio::test]
 async fn an_oversized_callback_is_refused_and_the_wait_goes_on() {
     let (refused_tx, refused_rx) = once();
     let browser = Browser::with(move |port, state| {
@@ -505,10 +529,42 @@ async fn without_ipv6_the_redirect_listens_on_ipv4_only() {
     assert_eq!(calls.lock().map(|c| c.len()).unwrap_or_default(), 1);
 }
 
+#[cfg(unix)]
+#[tokio::test]
+async fn a_kernel_without_ipv6_listens_on_ipv4_only() {
+    // `ipv6.disable=1` : la famille d'adresses elle-même est absente.
+    #[cfg(target_os = "linux")]
+    const EAFNOSUPPORT: i32 = 97;
+    #[cfg(not(target_os = "linux"))]
+    const EAFNOSUPPORT: i32 = 47;
+    let Ok(redirect) = bind_redirect_with(|_| Err(std::io::Error::from_raw_os_error(EAFNOSUPPORT)))
+    else {
+        panic!("écoute impossible");
+    };
+    assert!(redirect.v6.is_none());
+}
+
+#[tokio::test]
+async fn a_port_refused_on_ipv6_is_given_up_for_another() {
+    // Windows : port réservé sur ::1 (WSAEACCES, refus d'accès).
+    if !ipv6_available() {
+        return;
+    }
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let Ok(redirect) = bind_redirect_with(v6_binder(
+        vec![std::io::ErrorKind::PermissionDenied],
+        Arc::clone(&calls),
+    )) else {
+        panic!("écoute impossible");
+    };
+    assert_eq!(calls.lock().map(|c| c.len()).unwrap_or_default(), 2);
+    assert!(redirect.v6.is_some());
+}
+
 #[tokio::test]
 async fn other_ipv6_errors_and_a_port_always_taken_fail() {
     let denied = bind_redirect_with(v6_binder(
-        vec![std::io::ErrorKind::PermissionDenied],
+        vec![std::io::ErrorKind::InvalidInput],
         Arc::default(),
     ));
     assert!(matches!(denied, Err(TokenError::Network(_))));

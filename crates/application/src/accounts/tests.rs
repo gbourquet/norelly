@@ -1141,6 +1141,37 @@ mod oauth {
     }
 
     #[tokio::test]
+    async fn a_cancel_after_the_browser_returned_saves_nothing() {
+        // Annulation arrivée pendant le test des serveurs (retour du
+        // navigateur au moment du clic) : rien n'est enregistré.
+        let w = World::new();
+        let b = Arc::new(broker(grant()));
+        let cancel = Arc::clone(&b);
+        w.servers.on_connect(move || cancel.cancel_sign_in());
+        let outcome = add(&w, &b).await;
+        assert!(
+            matches!(
+                outcome,
+                AddAccountOutcome::OAuthFailed(TokenError::Cancelled(_))
+            ),
+            "{outcome:?}"
+        );
+        assert!(w.accounts.list().await.is_ok_and(|l| l.is_empty()));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_cancel_during_a_failing_test_keeps_no_sign_in() {
+        let w = World::new();
+        let (b, _) = broker_with_clock(grant());
+        let b = Arc::new(b);
+        let cancel = Arc::clone(&b);
+        w.servers.on_connect(move || cancel.cancel_sign_in());
+        silent_imap(&w);
+        let _ = add(&w, &b).await;
+        assert!(!b.has_pending(OAuthProvider::Microsoft, &outlook()));
+    }
+
+    #[tokio::test]
     async fn an_earlier_cancel_does_not_stop_the_next_sign_in() {
         let w = World::new();
         let b = broker(grant());

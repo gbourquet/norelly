@@ -6,15 +6,16 @@
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Mutex, PoisonError};
+use std::sync::{Arc, Mutex, PoisonError};
 
 /// Numérote les écritures dans l'ordre des appels et n'applique pas une
 /// écriture dépassée.
 #[derive(Debug, Default)]
 pub(crate) struct WriteOrder {
     next: AtomicU64,
-    /// Numéro de la dernière écriture appliquée, par clé.
-    applied: Mutex<HashMap<String, u64>>,
+    /// Par clé, numéro de la dernière écriture appliquée, sous un verrou
+    /// propre à la clé : une écriture bloquée n'arrête que sa clé.
+    applied: Mutex<HashMap<String, Arc<Mutex<u64>>>>,
 }
 
 impl WriteOrder {
@@ -26,19 +27,26 @@ impl WriteOrder {
 
     /// Exécute `write` (bloquant) pour `key`, sauf si une écriture plus
     /// récente de cette clé a déjà été appliquée : rend alors `Ok(None)`.
-    /// Les écritures sont exécutées une à la fois.
+    /// Les écritures d'une même clé sont exécutées une à la fois.
     pub(crate) fn run<T, E>(
         &self,
         key: &str,
         ticket: u64,
         write: impl FnOnce() -> Result<T, E>,
     ) -> Result<Option<T>, E> {
-        let mut applied = self.applied.lock().unwrap_or_else(PoisonError::into_inner);
-        if applied.get(key).is_some_and(|&last| last > ticket) {
+        let slot = Arc::clone(
+            self.applied
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .entry(key.to_owned())
+                .or_default(),
+        );
+        let mut last = slot.lock().unwrap_or_else(PoisonError::into_inner);
+        if *last > ticket {
             return Ok(None);
         }
         let result = write()?;
-        applied.insert(key.to_owned(), ticket);
+        *last = ticket;
         Ok(Some(result))
     }
 }
@@ -63,6 +71,32 @@ mod tests {
         write(&order, &mut written, new, "r3");
         write(&order, &mut written, old, "r2");
         assert_eq!(written, vec!["r3"]);
+    }
+
+    #[test]
+    fn a_stuck_write_does_not_block_other_keys() {
+        let order = std::sync::Arc::new(WriteOrder::default());
+        let (entered_tx, entered_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel::<()>();
+        let stuck = std::sync::Arc::clone(&order);
+        let ticket = order.ticket();
+        let a = std::thread::spawn(move || {
+            stuck.run("a", ticket, || {
+                let _ = entered_tx.send(());
+                release_rx.recv().map_err(|_| ())
+            })
+        });
+        let _ = entered_rx.recv();
+        let (done_tx, done_rx) = std::sync::mpsc::channel();
+        let other = std::sync::Arc::clone(&order);
+        let ticket = order.ticket();
+        std::thread::spawn(move || {
+            let _ = done_tx.send(other.run("b", ticket, || Ok::<_, ()>(())));
+        });
+        let b = done_rx.recv_timeout(std::time::Duration::from_secs(2));
+        let _ = release_tx.send(());
+        let _ = a.join();
+        assert_eq!(b, Ok(Ok(Some(()))), "clé « b » bloquée par la clé « a »");
     }
 
     #[test]

@@ -226,6 +226,7 @@ impl MailServices {
             composer: Arc::clone(&self.composer),
         });
         let mut events = handle.subscribe();
+        let relayed = account.id();
         let app = app.clone();
         tauri::async_runtime::spawn(async move {
             loop {
@@ -235,7 +236,11 @@ impl MailServices {
                             let _ = ComposeEventDto::OutboxChanged { account }.emit(&app);
                         }
                     }
-                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
+                        if let Some(dto) = outbox_lagged_event(relayed) {
+                            let _ = dto.emit(&app);
+                        }
+                    }
                     Err(tokio::sync::broadcast::error::RecvError::Closed) => return,
                 }
             }
@@ -535,6 +540,14 @@ fn lagged_event(account: AccountId) -> Option<SyncEventDto> {
     SyncEventDto::from_event(&SyncEvent::FoldersChanged { account })
 }
 
+/// Événements de la boîte d'envoi perdus par un relais en retard :
+/// l'interface la relit.
+fn outbox_lagged_event(account: AccountId) -> Option<ComposeEventDto> {
+    u32::try_from(account.get())
+        .ok()
+        .map(|account| ComposeEventDto::OutboxChanged { account })
+}
+
 impl SyncEventDto {
     fn from_event(event: &SyncEvent) -> Option<Self> {
         let id = |a: AccountId| u32::try_from(a.get()).ok();
@@ -595,6 +608,17 @@ mod sync_event_tests {
         assert_eq!(
             serde_json::to_value(lagged_event(account)).unwrap_or_default(),
             serde_json::json!({ "kind": "folders_changed", "account": 4 })
+        );
+    }
+
+    #[test]
+    fn lost_outbox_events_ask_the_interface_to_reread_the_outbox() {
+        let Ok(account) = AccountId::new(5) else {
+            panic!("identifiant valide refusé");
+        };
+        assert_eq!(
+            serde_json::to_value(outbox_lagged_event(account)).unwrap_or_default(),
+            serde_json::json!({ "kind": "outbox_changed", "account": 5 })
         );
     }
 

@@ -1684,3 +1684,140 @@ mod change_password {
         assert!(w.servers.requests().is_empty());
     }
 }
+
+mod change_password_safety {
+    use super::*;
+
+    const NEW: &str = "abcd efgh ijkl mnop";
+
+    /// Dépôt dont le compte disparaît après la première lecture (supprimé
+    /// pendant l'essai du nouveau mot de passe).
+    struct Vanishing<'a> {
+        inner: &'a InMemoryAccountRepository,
+        reads: Mutex<usize>,
+    }
+
+    impl AccountRepository for Vanishing<'_> {
+        async fn list(&self) -> Result<Vec<Account>, AccountStoreError> {
+            self.inner.list().await
+        }
+        async fn get(&self, id: AccountId) -> Result<Option<Account>, AccountStoreError> {
+            let first = self.reads.lock().map(|mut n| {
+                *n += 1;
+                *n == 1
+            });
+            if first.unwrap_or(false) {
+                self.inner.get(id).await
+            } else {
+                Ok(None)
+            }
+        }
+        async fn find_by_address(
+            &self,
+            address: &EmailAddress,
+        ) -> Result<Option<Account>, AccountStoreError> {
+            self.inner.find_by_address(address).await
+        }
+        async fn insert(&self, draft: &AccountDraft) -> Result<Account, AccountStoreError> {
+            self.inner.insert(draft).await
+        }
+        async fn delete(&self, id: AccountId) -> Result<bool, AccountStoreError> {
+            self.inner.delete(id).await
+        }
+    }
+
+    async fn change_with<D: AccountRepository>(
+        w: &World,
+        accounts: &D,
+        id: AccountId,
+    ) -> Result<Account, ChangePasswordError> {
+        let test = TestConnection::new(w.servers.clone(), w.servers.clone(), &w.exceptions);
+        ChangePassword {
+            test: &test,
+            secrets: &w.keyring,
+            accounts,
+        }
+        .execute(id, Secret::new(NEW.to_owned()))
+        .await
+    }
+
+    #[tokio::test]
+    async fn account_removed_meanwhile_keeps_no_secret() {
+        let w = World::new();
+        let account = saved_account(&w, "alice@example.com").await;
+        let vanishing = Vanishing {
+            inner: &w.accounts,
+            reads: Mutex::new(0),
+        };
+        assert_eq!(
+            change_with(&w, &vanishing, account.id()).await,
+            Err(ChangePasswordError::NotFound)
+        );
+        for protocol in [Protocol::Imap, Protocol::Smtp] {
+            assert_eq!(
+                w.keyring.get_sync(account.secret_key(protocol).as_str()),
+                None
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn failed_restore_is_reported() {
+        let w = World::new();
+        let account = saved_account(&w, "alice@example.com").await;
+        if let Ok(mut fail) = w.keyring.fail_set_after.lock() {
+            // IMAP écrit, puis SMTP et la remise de l'ancien refusés.
+            *fail = Some(1);
+        }
+        assert!(matches!(
+            change_with(&w, &w.accounts, account.id()).await,
+            Err(ChangePasswordError::RestoreFailed(_, _))
+        ));
+    }
+
+    #[tokio::test]
+    async fn an_exception_on_either_server_withholds_the_google_advice() {
+        for protocol in [Protocol::Imap, Protocol::Smtp] {
+            let w = World::new();
+            let account = saved_account(&w, "alice@gmail.com").await;
+            w.servers
+                .set(&account.imap().endpoint, Err(rejected_login()));
+            let _ = w
+                .exceptions
+                .add(&CertificateException {
+                    host: account.server(protocol).endpoint.host().clone(),
+                    fingerprint: CertificateFingerprint::from_bytes([5; 32]),
+                })
+                .await;
+            let Err(ChangePasswordError::ConnectionFailed { advice, .. }) =
+                change_with(&w, &w.accounts, account.id()).await
+            else {
+                panic!("refus attendu");
+            };
+            assert_eq!(advice, None, "{protocol:?}");
+        }
+    }
+
+    #[tokio::test]
+    async fn operations_on_one_account_wait_for_each_other() {
+        let locks = AccountLocks::default();
+        let one = AccountId::new(1).unwrap_or_else(|_| panic!("identifiant"));
+        let two = AccountId::new(2).unwrap_or_else(|_| panic!("identifiant"));
+        let held = locks.lock(one).await;
+        // Un autre compte n'attend pas.
+        let other =
+            tokio::time::timeout(std::time::Duration::from_millis(50), locks.lock(two)).await;
+        assert!(other.is_ok());
+        // Le même compte attend la fin de la première opération.
+        let same =
+            tokio::time::timeout(std::time::Duration::from_millis(50), locks.lock(one)).await;
+        assert!(
+            same.is_err(),
+            "deux opérations simultanées sur le même compte"
+        );
+        drop(held);
+        let after =
+            tokio::time::timeout(std::time::Duration::from_millis(50), locks.lock(one)).await;
+        assert!(after.is_ok());
+    }
+}

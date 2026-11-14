@@ -556,6 +556,11 @@ pub enum ChangePasswordError {
     /// Le trousseau a refusé le nouveau mot de passe ; l'ancien est remis.
     #[error("trousseau : {0}")]
     SecretStore(String),
+    /// Le trousseau a refusé le nouveau mot de passe, puis la remise de
+    /// l'ancien : réception et envoi peuvent garder des mots de passe
+    /// différents (un nouvel essai les remet d'accord).
+    #[error("trousseau : {0} ; ancien mot de passe non remis : {1}")]
+    RestoreFailed(String, String),
     #[error("stockage : {0}")]
     Storage(String),
 }
@@ -611,16 +616,12 @@ where
             if !matches!(outcome, TestConnectionOutcome::Success { .. }) {
                 let advice = match &outcome {
                     TestConnectionOutcome::Authentication(error) => {
-                        let failure = ConnectionError::Authentication(error.clone());
-                        let excepted = self
-                            .test
-                            .has_certificate_exception(account.imap().endpoint.host())
-                            .await
-                            || self
-                                .test
-                                .has_certificate_exception(account.smtp().endpoint.host())
-                                .await;
-                        saved_account_advice(account.draft(), excepted, &failure)
+                        saved_account_failure_advice(
+                            self.test.exceptions(),
+                            &account,
+                            &ConnectionError::Authentication(error.clone()),
+                        )
+                        .await
                     }
                     _ => None,
                 };
@@ -648,16 +649,66 @@ where
             if let Err(e) = self.secrets.set(key, &password).await {
                 // Les clés déjà écrites reprennent l'ancien mot de passe :
                 // IMAP et SMTP gardent le même.
+                let mut unrestored = None;
                 for (written, old) in keys.iter().zip(&previous).take(i) {
-                    let _ = match old {
+                    let restored = match old {
                         Some(old) => self.secrets.set(written, old).await,
                         None => self.secrets.delete(written).await,
                     };
+                    if let Err(r) = restored {
+                        unrestored = Some(r.to_string());
+                    }
                 }
-                return Err(ChangePasswordError::SecretStore(e.to_string()));
+                return Err(match unrestored {
+                    Some(r) => ChangePasswordError::RestoreFailed(e.to_string(), r),
+                    None => ChangePasswordError::SecretStore(e.to_string()),
+                });
             }
         }
+        // Compte supprimé pendant l'essai : ses secrets ne lui survivent
+        // pas.
+        let still_there = self
+            .accounts
+            .get(id)
+            .await
+            .map_err(|e| ChangePasswordError::Storage(e.to_string()))?;
+        if still_there.is_none() {
+            for key in &keys {
+                if let Err(e) = self.secrets.delete(key).await {
+                    tracing::warn!(account = %id, error = %e, "secret d'un compte supprimé non effacé");
+                }
+            }
+            return Err(ChangePasswordError::NotFound);
+        }
         Ok(account)
+    }
+}
+
+/// Verrous par compte : sérialisent les opérations qui touchent au compte
+/// et à ses secrets (changement de mot de passe, suppression), pour
+/// qu'aucune ne réécrive les secrets d'un compte que l'autre supprime.
+#[derive(Debug, Default)]
+pub struct AccountLocks {
+    locks: std::sync::Mutex<
+        std::collections::BTreeMap<AccountId, std::sync::Arc<tokio::sync::Mutex<()>>>,
+    >,
+}
+
+impl AccountLocks {
+    /// Attend que plus aucune opération ne tienne le compte `id`, puis le
+    /// tient jusqu'à la fin de vie de la garde.
+    pub async fn lock(&self, id: AccountId) -> tokio::sync::OwnedMutexGuard<()> {
+        let lock = {
+            let mut locks = self
+                .locks
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            // Les verrous que plus personne ne tient ni n'attend sont
+            // oubliés : la table ne grossit pas avec les comptes supprimés.
+            locks.retain(|_, l| std::sync::Arc::strong_count(l) > 1);
+            std::sync::Arc::clone(locks.entry(id).or_default())
+        };
+        lock.lock_owned().await
     }
 }
 

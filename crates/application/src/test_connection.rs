@@ -98,6 +98,11 @@ where
         }
     }
 
+    /// Exceptions de certificat consultées par ce cas d'usage.
+    pub fn exceptions(&self) -> &E {
+        &self.exceptions
+    }
+
     pub async fn execute(&self, params: TestConnectionParams) -> TestConnectionOutcome {
         // Refus du clair avant toute E/S.
         if let Err(refused) = params.plaintext.authorize(&params.endpoint) {

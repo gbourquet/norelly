@@ -249,6 +249,33 @@ async fn suggestions_name_contacts_from_the_book_first() {
 }
 
 #[tokio::test]
+async fn cancelling_the_oauth_sign_in_forgets_the_kept_one() {
+    use crate::commands::cancel_oauth_sign_in;
+    use norelly_domain::address::EmailAddress;
+    use norelly_domain::credentials::Secret;
+    use norelly_domain::oauth::OAuthProvider;
+    use norelly_domain::ports::OAuthGrant;
+    let t = test_app().await;
+    let address = EmailAddress::parse("bob@outlook.com").unwrap_or_else(|_| panic!("adresse"));
+    let grant = OAuthGrant {
+        access_token: Secret::new("acc".to_owned()),
+        expires_in: 3_600,
+        refresh_token: Some(Secret::new("r1".to_owned())),
+        identity: None,
+        granted_scopes: None,
+    };
+    let tokens = &t.state().tokens;
+    tokens.keep_pending(OAuthProvider::Microsoft, &address, grant, tokens.now());
+    cancel_oauth_sign_in(t.state());
+    assert!(
+        tokens
+            .take_pending(OAuthProvider::Microsoft, &address)
+            .is_none(),
+        "connexion gardée oubliée"
+    );
+}
+
+#[tokio::test]
 async fn accounts_are_listed_and_removed() {
     use crate::commands::{list_accounts, remove_account, trust_certificate};
     let t = test_app().await;

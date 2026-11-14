@@ -8,7 +8,7 @@
 
 use std::fmt;
 
-use norelly_application::accounts::AddAccountOutcome;
+use norelly_application::accounts::{AddAccountOutcome, OAuthSignInStep};
 use norelly_application::test_connection::TestConnectionOutcome;
 use norelly_domain::account::{Account, ServerSettings};
 use norelly_domain::auth::AuthError;
@@ -413,6 +413,25 @@ impl From<OAuthProvider> for OAuthProviderDto {
         match p {
             OAuthProvider::Microsoft => Self::Microsoft,
             OAuthProvider::Google => Self::Google,
+        }
+    }
+}
+
+/// Étape d'un ajout par « Se connecter avec … ».
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum OAuthSignInStepDto {
+    /// Le navigateur du système s'ouvre : l'écran annonce son attente.
+    BrowserOpened,
+    /// Connexion obtenue : test des serveurs du fournisseur.
+    SignedIn,
+}
+
+impl From<OAuthSignInStep> for OAuthSignInStepDto {
+    fn from(step: OAuthSignInStep) -> Self {
+        match step {
+            OAuthSignInStep::BrowserOpened => Self::BrowserOpened,
+            OAuthSignInStep::SignedIn => Self::SignedIn,
         }
     }
 }

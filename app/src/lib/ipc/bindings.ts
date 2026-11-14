@@ -23,17 +23,18 @@ export const commands = {
 	 */
 	oauthProviderFor: (address: string) => __TAURI_INVOKE<OAuthProviderDto | null>("oauth_provider_for", { address }),
 	/**
-	 *  Vrai si l'essai suivant de « Se connecter avec … » pour cette adresse
-	 *  réutilisera la connexion d'un ajout qui a échoué, sans navigateur
-	 *  (l'écran ne l'annonce alors pas). Entrée invalide : faux.
+	 *  Fenêtre d'ajout fermée ou annulée : arrête l'attente du navigateur d'un
+	 *  ajout par « Se connecter avec … » en cours et oublie la connexion gardée
+	 *  d'un essai échoué.
 	 */
-	oauthSignInKept: (address: string, provider: string) => __TAURI_INVOKE<boolean>("oauth_sign_in_kept", { address, provider }),
+	cancelOauthSignIn: () => __TAURI_INVOKE<void>("cancel_oauth_sign_in"),
 	/**
 	 *  Ajoute un compte par « Se connecter avec … » : navigateur du système,
 	 *  test des connexions avec le jeton, persistance, jeton de
-	 *  rafraîchissement dans le trousseau.
+	 *  rafraîchissement dans le trousseau. `on_progress` reçoit chaque étape :
+	 *  l'ouverture du navigateur n'est annoncée que si elle a vraiment lieu.
 	 */
-	addOauthAccount: (input: AddOAuthAccountInput_Deserialize) => typedError<AddAccountResultDto_Serialize, IpcError_Serialize>(__TAURI_INVOKE("add_oauth_account", { input })),
+	addOauthAccount: (input: AddOAuthAccountInput_Deserialize, onProgress: Channel<OAuthSignInStepDto>) => typedError<AddAccountResultDto_Serialize, IpcError_Serialize>(__TAURI_INVOKE("add_oauth_account", { input, onProgress })),
 	/**
 	 *  Se reconnecte chez le fournisseur OAuth d'un compte (« Reconnexion
 	 *  nécessaire ») ; la synchronisation reprend avec le nouveau jeton.
@@ -1320,6 +1321,13 @@ export type MessageViewDto_Serialize = {
 
 /**  Fournisseur OAuth. */
 export type OAuthProviderDto = "microsoft" | "google";
+
+/**  Étape d'un ajout par « Se connecter avec … ». */
+export type OAuthSignInStepDto = 
+/**  Le navigateur du système s'ouvre : l'écran annonce son attente. */
+"browser_opened" | 
+/**  Connexion obtenue : test des serveurs du fournisseur. */
+"signed_in";
 
 /**  Message de la file d'envoi. */
 export type OutboxItemDto = {

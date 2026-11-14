@@ -23,7 +23,7 @@ use crate::ipc::{
     AccountDto, AddAccountInput, AddAccountResultDto, DiscoveryDto, DiscoverySourceDto,
     ErrorCodeDto, FieldDto, IpcError, SecretsBackendDto, ServerDto,
 };
-use crate::ipc::{AddOAuthAccountInput, OAuthProviderDto};
+use crate::ipc::{AddOAuthAccountInput, OAuthProviderDto, OAuthSignInStepDto};
 use crate::state::AppState;
 
 /// Comptes enregistrés.
@@ -193,30 +193,26 @@ fn oauth_request_provider_with(
     }
 }
 
-/// Vrai si l'essai suivant de « Se connecter avec … » pour cette adresse
-/// réutilisera la connexion d'un ajout qui a échoué, sans navigateur
-/// (l'écran ne l'annonce alors pas). Entrée invalide : faux.
+/// Fenêtre d'ajout fermée ou annulée : arrête l'attente du navigateur d'un
+/// ajout par « Se connecter avec … » en cours et oublie la connexion gardée
+/// d'un essai échoué.
 #[tauri::command]
 #[specta::specta]
-pub fn oauth_sign_in_kept(state: State<'_, AppState>, address: String, provider: String) -> bool {
-    let (Ok(address), Some(provider)) = (
-        EmailAddress::parse(&address),
-        norelly_domain::oauth::OAuthProvider::parse(&provider),
-    ) else {
-        return false;
-    };
-    state.tokens.has_pending(provider, &address)
+pub fn cancel_oauth_sign_in(state: State<'_, AppState>) {
+    state.tokens.cancel_sign_in();
 }
 
 /// Ajoute un compte par « Se connecter avec … » : navigateur du système,
 /// test des connexions avec le jeton, persistance, jeton de
-/// rafraîchissement dans le trousseau.
+/// rafraîchissement dans le trousseau. `on_progress` reçoit chaque étape :
+/// l'ouverture du navigateur n'est annoncée que si elle a vraiment lieu.
 #[tauri::command]
 #[specta::specta]
 pub async fn add_oauth_account(
     app: tauri::AppHandle,
     state: State<'_, AppState>,
     input: AddOAuthAccountInput,
+    on_progress: Channel<OAuthSignInStepDto>,
 ) -> Result<AddAccountResultDto, IpcError> {
     let address =
         EmailAddress::parse(&input.address).map_err(|_| IpcError::invalid(FieldDto::Address))?;
@@ -237,11 +233,17 @@ pub async fn add_oauth_account(
         broker: state.tokens.as_ref(),
         accounts: &state.accounts,
     }
-    .execute(AddOAuthAccountRequest {
-        address,
-        display_name,
-        provider,
-    })
+    .execute(
+        AddOAuthAccountRequest {
+            address,
+            display_name,
+            provider,
+        },
+        |step| {
+            // Interface fermée : la progression n'est plus affichée.
+            let _ = on_progress.send(step.into());
+        },
+    )
     .await;
     if let Some(account) = outcome.added_account()
         && let Err(e) = state

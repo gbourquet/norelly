@@ -29,7 +29,10 @@ several (for example a personal address and one for a club).
 4. Most of the time, that's all: Norelly tests the connection, then your
    address appears in the left panel and your messages arrive. The first
    time, downloading your messages can take a few minutes if you have many.
-   You can already read the first ones.
+   You can already read the first ones: folders and messages appear as
+   they arrive. Until it is finished, the line **Syncing…** shows under
+   your address, with the number of folders already done (for example
+   "12 / 61").
 
 Your password is stored in your system's **keyring** (the password safe of
 Windows or Linux). The only exception: on Linux, if no keyring responds,

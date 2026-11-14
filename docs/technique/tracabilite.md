@@ -83,6 +83,7 @@ Fiche : [synchronisation.md](../fonctionnel/synchronisation.md).
 | IDLE renouvelé toutes les 25 minutes (avant la limite des 29 minutes de la RFC 2177) | `sync.rs` (`IDLE_RENEWAL_SECS`) |
 | Reconnexion : attente exponentielle de 1 s à 5 min, avec gigue, remise à zéro après un succès | `sync.rs` (`Backoff`) |
 | Tout texte venu du serveur est assaini (contrôles retirés, longueur bornée) ; noms de boîte ≤ 1024 caractères, 10 000 boîtes au plus | `mailbox.rs` |
+| Au fil de l'eau : `sync_all_observed` signale `SyncStep::Folders` (liste lue), `Progress { done, total }` (0 au départ, puis après chaque boîte sélectionnable), `Headers` (lot d'en-têtes, de suppressions ou de drapeaux enregistré, avant les corps) et `MailboxDone` ; l'acteur relaie aussitôt `FoldersChanged`, `FolderChanged` et `SyncProgress` (DTO `sync_progress`) ; l'interface garde la progression (`MailState::syncing`), l'efface à la fin (`done == total`) ou à la coupure, et l'affiche sous le compte (`role="status"`) | `crates/application/src/sync.rs`, `crates/application/src/account_actor.rs` (`full_sync`), `app/src-tauri/src/mail.rs`, `app/src-tauri/src/ipc.rs`, `app/src/lib/mail.svelte.ts`, `Sidebar.svelte` |
 
 Orchestration : acteur de compte à deux connexions (commandes ; IDLE sur la
 boîte de réception), `SyncAccount` boîte par boîte, enregistrement par lots
@@ -91,7 +92,7 @@ pour une reprise propre (`crates/application/src/account_actor.rs`,
 
 ### Clés des messages
 
-`common_offline`, `sidebar_offline_reason`, `failure_*`, `message_notice_not_available`.
+`common_offline`, `sidebar_offline_reason`, `sidebar_syncing`, `sidebar_syncing_label`, `failure_*`, `message_notice_not_available`.
 
 ### Commandes
 

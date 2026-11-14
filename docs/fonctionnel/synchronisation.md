@@ -12,6 +12,13 @@ redevient identique au serveur après toute interruption.
 
 - Au démarrage de l'application (ou à l'ajout du compte), chaque compte
   synchronise la liste de ses dossiers, puis chaque dossier.
+- Pendant une synchronisation complète, une ligne « Synchronisation… »
+  s'affiche sous le compte, avec le nombre de dossiers traités sur le
+  total ; elle disparaît à la fin, ou si la connexion est perdue.
+- Ce qui arrive s'affiche **au fil de l'eau** : la liste des dossiers dès
+  qu'elle est connue, les messages d'un dossier dès que leurs en-têtes
+  sont reçus, sans attendre leur contenu ni les autres dossiers. Le
+  premier tour d'un gros compte peut être long ; on voit qu'il avance.
 - Les nouveaux messages de la **boîte de réception** arrivent en quelques
   secondes, sans action de l'utilisateur : le serveur les signale dès leur
   arrivée.
@@ -62,6 +69,7 @@ redevient identique au serveur après toute interruption.
 
 | Situation | Texte |
 |---|---|
+| Synchronisation en cours | Synchronisation… {done} / {total} (au survol et pour les lecteurs d'écran : Synchronisation de {address} : {done} dossiers sur {total}) |
 | Compte injoignable | Hors ligne |
 | Survol de l'icône | Hors ligne : {reason} |
 | Raison | serveur injoignable, le serveur ne répond pas, identifiants refusés, connexion refusée par sécurité, réponse du serveur non conforme… |

@@ -402,6 +402,7 @@ enum Seen {
     Folders(usize),
     Progress(usize, usize),
     Headers(String),
+    HeadersDone(String),
     Done(String),
 }
 
@@ -418,6 +419,7 @@ async fn folders_headers_and_progress_are_reported_as_they_arrive() -> Result<()
                 SyncStep::Folders(all) => Seen::Folders(all.len()),
                 SyncStep::Progress { done, total } => Seen::Progress(done, total),
                 SyncStep::Headers(m) => Seen::Headers(m.mailbox.name.to_string()),
+                SyncStep::HeadersDone(m) => Seen::HeadersDone(m.mailbox.name.to_string()),
                 SyncStep::MailboxDone(m, _) => Seen::Done(m.mailbox.name.to_string()),
             });
         })
@@ -430,12 +432,20 @@ async fn folders_headers_and_progress_are_reported_as_they_arrive() -> Result<()
         let headers = seen
             .iter()
             .position(|s| *s == Seen::Headers(name.to_owned()));
+        let all_headers = seen
+            .iter()
+            .position(|s| *s == Seen::HeadersDone(name.to_owned()));
         let done = seen.iter().position(|s| *s == Seen::Done(name.to_owned()));
         assert!(
-            matches!((headers, done), (Some(h), Some(d)) if h < d),
-            "en-têtes de {name} signalés avant la fin du dossier : {seen:?}"
+            matches!((headers, all_headers, done), (Some(h), Some(a), Some(d)) if h < a && a < d),
+            "en-têtes de {name} signalés, puis terminés, avant la fin du dossier : {seen:?}"
         );
     }
+    // Dossier sans nouveauté (Sent) : ni lot ni fin des en-têtes.
+    assert!(
+        !seen.contains(&Seen::HeadersDone("Sent".to_owned())),
+        "{seen:?}"
+    );
     // Progression croissante, un pas par boîte.
     let progress: Vec<usize> = seen
         .iter()

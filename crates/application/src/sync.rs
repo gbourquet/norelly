@@ -47,8 +47,20 @@ pub enum SyncStep<'a> {
     /// Un lot d'en-têtes (ou de suppressions, de drapeaux) vient d'être
     /// enregistré dans ce dossier ; les corps viennent ensuite.
     Headers(&'a StoredMailbox),
+    /// Tous les en-têtes du dossier sont enregistrés (au moins un lot) ;
+    /// le téléchargement des corps commence.
+    HeadersDone(&'a StoredMailbox),
     /// Dossier terminé (corps compris) et modifié.
     MailboxDone(&'a StoredMailbox, &'a MailboxReport),
+}
+
+/// Étape des en-têtes d'un dossier ([`SyncAccount::sync_mailbox_observed`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HeadersStep {
+    /// Un lot visible vient d'être enregistré.
+    Batch,
+    /// Plus aucun lot : les corps viennent ensuite.
+    Done,
 }
 
 /// Nombre de corps téléchargés par tour de [`SyncAccount::fetch_bodies`].
@@ -224,8 +236,11 @@ impl<M: MailStore + PendingOpStore, B: BlobStore> SyncAccount<'_, M, B> {
         observe(SyncStep::Progress { done: 0, total });
         for (index, m) in selectable.into_iter().enumerate() {
             let result = self
-                .sync_mailbox_observed(session, ext, m.id, &m.mailbox.name, &mut || {
-                    observe(SyncStep::Headers(m));
+                .sync_mailbox_observed(session, ext, m.id, &m.mailbox.name, &mut |step| {
+                    observe(match step {
+                        HeadersStep::Batch => SyncStep::Headers(m),
+                        HeadersStep::Done => SyncStep::HeadersDone(m),
+                    });
                 })
                 .await;
             match result {
@@ -257,19 +272,20 @@ impl<M: MailStore + PendingOpStore, B: BlobStore> SyncAccount<'_, M, B> {
         mailbox: MailboxId,
         name: &MailboxName,
     ) -> Result<MailboxReport, SyncFailure> {
-        self.sync_mailbox_observed(session, ext, mailbox, name, &mut || {})
+        self.sync_mailbox_observed(session, ext, mailbox, name, &mut |_| {})
             .await
     }
 
-    /// [`Self::sync_mailbox`] ; `on_headers` est appelé après chaque lot
-    /// enregistré (en-têtes, suppressions, drapeaux), avant les corps.
+    /// [`Self::sync_mailbox`] ; `on_headers` reçoit [`HeadersStep::Batch`]
+    /// après chaque lot enregistré (en-têtes, suppressions, drapeaux), puis
+    /// [`HeadersStep::Done`] avant les corps s'il y a eu au moins un lot.
     pub async fn sync_mailbox_observed<S: RemoteMailboxSession>(
         &self,
         session: &mut S,
         ext: SyncExtensions,
         mailbox: MailboxId,
         name: &MailboxName,
-        on_headers: &mut (dyn FnMut() + Send),
+        on_headers: &mut (dyn FnMut(HeadersStep) + Send),
     ) -> Result<MailboxReport, SyncFailure> {
         let reconcile_error = |error| SyncFailure::Reconcile {
             mailbox: name.to_string(),
@@ -310,6 +326,7 @@ impl<M: MailStore + PendingOpStore, B: BlobStore> SyncAccount<'_, M, B> {
         );
 
         if !outcome.is_empty() || outcome.state != local.state {
+            let mut shown = false;
             let chunks: Vec<&[norelly_domain::sync::NewMessage]> =
                 outcome.new.chunks(MAX_FETCH_BATCH).collect();
             let count = chunks.len().max(1);
@@ -373,8 +390,12 @@ impl<M: MailStore + PendingOpStore, B: BlobStore> SyncAccount<'_, M, B> {
                     // dans ce que l'écran va relire (le lot vient d'écrire
                     // l'état du serveur).
                     self.store.reapply_mailbox(self.account, mailbox).await?;
-                    on_headers();
+                    on_headers(HeadersStep::Batch);
+                    shown = true;
                 }
+            }
+            if shown {
+                on_headers(HeadersStep::Done);
             }
         }
         summary.bodies = self.fetch_bodies(session, mailbox).await?;

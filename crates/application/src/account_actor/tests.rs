@@ -312,7 +312,8 @@ async fn first_sync_reports_progress_and_shows_folders_and_messages_before_the_e
     r.handle.shutdown().await;
 }
 
-#[tokio::test]
+// Horloge en pause : tout le tour se passe dans le même instant.
+#[tokio::test(start_paused = true)]
 async fn refreshes_during_the_sync_are_grouped() {
     let imap = FakeImap::new();
     // Trois lots d'en-têtes (500 par lot) dans la même boîte.
@@ -330,17 +331,14 @@ async fn refreshes_during_the_sync_are_grouped() {
         .iter()
         .position(|e| matches!(e, SyncEvent::SyncProgress { done: 0, .. }))
         .unwrap_or_else(|| panic!("progression non annoncée : {seen:?}"));
-    // Avant la rafale de fin (une mise à jour par boîte modifiée) : au plus
-    // un signal par seconde, pas un par lot.
+    // Avant la rafale de fin (une mise à jour par boîte modifiée) : le
+    // premier lot, puis la fin des en-têtes (lots écartés), pas un par lot.
     let during = seen[started..]
         .iter()
         .take_while(|e| !matches!(e, SyncEvent::FolderChanged { .. }))
         .filter(|e| refresh(e))
         .count();
-    assert!(
-        (1..3).contains(&during),
-        "{during} signaux pendant le tour : {seen:?}"
-    );
+    assert_eq!(during, 2, "signaux pendant le tour : {seen:?}");
     r.handle.shutdown().await;
 }
 
@@ -871,4 +869,19 @@ async fn deleted_folder_disappears_locally() {
     .await;
     assert_eq!(local_total(&r, "Projets").await, None);
     r.handle.shutdown().await;
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_batch_skipped_by_grouping_is_shown_when_the_headers_are_done() {
+    let mut live = LiveRefresh::default();
+    assert!(live.refresh_due(), "premier lot signalé");
+    assert!(!live.refresh_due(), "lot suivant regroupé");
+    assert!(
+        live.headers_done_due(),
+        "lot écarté : signal avant les corps"
+    );
+    assert!(!live.headers_done_due(), "rien d'écarté depuis");
+    tokio::time::advance(LIVE_REFRESH_INTERVAL).await;
+    assert!(live.refresh_due());
+    assert!(!live.headers_done_due(), "lot déjà signalé");
 }

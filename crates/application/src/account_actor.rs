@@ -326,12 +326,29 @@ const LIVE_REFRESH_INTERVAL: Duration = Duration::from_secs(1);
 struct LiveRefresh {
     refreshed: Option<tokio::time::Instant>,
     progressed: Option<tokio::time::Instant>,
+    /// Un signal a été écarté depuis le dernier émis.
+    skipped: bool,
 }
 
 impl LiveRefresh {
-    /// Vrai si un rechargement peut être signalé maintenant.
+    /// Vrai si un rechargement peut être signalé maintenant ; sinon, le
+    /// lot est retenu comme écarté.
     fn refresh_due(&mut self) -> bool {
-        Self::due(&mut self.refreshed)
+        let due = Self::due(&mut self.refreshed);
+        self.skipped = !due;
+        due
+    }
+
+    /// Vrai si un lot a été écarté par le regroupement depuis le dernier
+    /// signal : les en-têtes d'un dossier sont terminés, il est affiché
+    /// avant le téléchargement des corps, sans attendre l'intervalle.
+    fn headers_done_due(&mut self) -> bool {
+        if !self.skipped {
+            return false;
+        }
+        self.skipped = false;
+        self.refreshed = Some(tokio::time::Instant::now());
+        true
     }
 
     /// Vrai si la progression `done` peut être signalée maintenant (le
@@ -489,6 +506,11 @@ where
                 }
                 SyncStep::Headers(_) => {
                     if live.refresh_due() {
+                        self.emit(SyncEvent::FoldersChanged { account });
+                    }
+                }
+                SyncStep::HeadersDone(_) => {
+                    if live.headers_done_due() {
                         self.emit(SyncEvent::FoldersChanged { account });
                     }
                 }

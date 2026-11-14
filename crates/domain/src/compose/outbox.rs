@@ -78,10 +78,11 @@ impl SendFailure {
                 ConnectionError::Timeout(TimeoutStage::Response | TimeoutStage::Write)
                 | ConnectionError::Closed
                 | ConnectionError::Protocol(_)
-                // Trousseau verrouillé : rien n'est parti.
-                | ConnectionError::Authentication(AuthError::SecretStoreUnavailable { .. }) => {
-                    Self::Temporary
-                }
+                // Trousseau verrouillé, fournisseur OAuth en panne : rien
+                // n'est parti.
+                | ConnectionError::Authentication(
+                    AuthError::SecretStoreUnavailable { .. } | AuthError::ProviderUnavailable { .. },
+                ) => Self::Temporary,
                 ConnectionError::Rejected(_) => Self::Rejected,
                 ConnectionError::Authentication(_) => Self::Authentication,
                 ConnectionError::Certificate(_)
@@ -423,6 +424,15 @@ mod tests {
             )),
             SendFailure::Temporary,
             "trousseau verrouillé : rien n'est parti, réessayé plus tard"
+        );
+        assert_eq!(
+            conn(ConnectionError::Authentication(
+                AuthError::ProviderUnavailable {
+                    message: "délai dépassé".into()
+                }
+            )),
+            SendFailure::Temporary,
+            "fournisseur injoignable : rien n'est parti, réessayé plus tard"
         );
         for security in [
             ConnectionError::Tls("x".into()),

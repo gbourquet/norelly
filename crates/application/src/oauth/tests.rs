@@ -57,7 +57,8 @@ impl SecretStore for Keyring {
 
 /// Faux fournisseur : n'accepte que le dernier jeton de rafraîchissement
 /// délivré (« r1 » au départ), le fait tourner (« r2 », « r3 »…) et délivre
-/// « a1 », « a2 »… ; le jeton « lent » ne reçoit jamais de réponse.
+/// « a1 », « a2 »… ; le jeton « lent » ne reçoit jamais de réponse, le
+/// jeton « panne » une erreur du fournisseur.
 #[derive(Debug)]
 struct Provider {
     refreshes: AtomicUsize,
@@ -88,6 +89,9 @@ impl OAuthClient for Provider {
             std::future::pending::<()>().await;
         }
         let n = self.refreshes.fetch_add(1, Ordering::SeqCst) + 1;
+        if refresh.expose() == "panne" {
+            return Err(TokenError::Network("HTTP 503".to_owned()));
+        }
         let Ok(mut current) = self.current.lock() else {
             return Err(TokenError::Protocol("verrou".to_owned()));
         };
@@ -204,7 +208,31 @@ async fn hanging_provider_times_out() {
         },
     )
     .await;
-    assert!(matches!(token(&f).await, Err(AuthError::Rejected { .. })));
+    assert!(matches!(
+        token(&f).await,
+        Err(AuthError::ProviderUnavailable { .. })
+    ));
+}
+
+#[tokio::test]
+async fn unreachable_provider_is_not_a_rejected_password() {
+    let f = fixture(Some("panne"), Provider::default()).await;
+    let smtp = FreshTokens {
+        inner: Smtp::default(),
+        broker: Arc::clone(&f.broker),
+    };
+    assert!(matches!(
+        smtp.verify(&oauth_request()).await,
+        Err(ConnectionError::Authentication(
+            AuthError::ProviderUnavailable { .. }
+        ))
+    ));
+    assert_eq!(
+        f.broker.client().refreshes.load(Ordering::SeqCst),
+        1,
+        "pas de second rafraîchissement : le fournisseur est en cause"
+    );
+    assert!(seen(&smtp).is_empty(), "aucun jeton présenté au serveur");
 }
 
 #[tokio::test(start_paused = true)]

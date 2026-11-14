@@ -637,6 +637,9 @@ pub fn connection_failure_of(e: &ConnectionError) -> (FailureKindDto, Option<Str
     if let ConnectionError::Authentication(AuthError::SecretStoreUnavailable { message }) = e {
         return (FailureKindDto::SecretStore, Some(message.clone()));
     }
+    if let ConnectionError::Authentication(AuthError::ProviderUnavailable { message }) = e {
+        return (FailureKindDto::Oauth, Some(message.clone()));
+    }
     let kind = match e.category() {
         FailureCategory::Network => network_kind(e),
         FailureCategory::Authentication => FailureKindDto::Authentication,
@@ -679,6 +682,7 @@ fn auth_detail(a: &AuthError) -> Option<String> {
         AuthError::NoSupportedMechanism { offered } => Some(offered.join(", ")),
         AuthError::TokenDestinationRefused { host } => Some(host.clone()),
         AuthError::SecretStoreUnavailable { message } => Some(message.clone()),
+        AuthError::ProviderUnavailable { message } => Some(message.clone()),
         AuthError::Unsupported(_)
         | AuthError::ReauthRequired
         | AuthError::LoginDisabled
@@ -1367,6 +1371,17 @@ mod error_tests {
             .code,
             ErrorCodeDto::Storage
         );
+    }
+
+    #[test]
+    fn unreachable_oauth_provider_is_not_reported_as_rejected_credentials() {
+        let (kind, detail) = connection_failure_of(&ConnectionError::Authentication(
+            AuthError::ProviderUnavailable {
+                message: "erreur réseau : HTTP 503".into(),
+            },
+        ));
+        assert_eq!(kind, FailureKindDto::Oauth);
+        assert_eq!(detail.as_deref(), Some("erreur réseau : HTTP 503"));
     }
 
     #[test]

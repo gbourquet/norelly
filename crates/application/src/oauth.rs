@@ -238,12 +238,13 @@ impl<O: OAuthClient, K: SecretStore> TokenBroker<O, K> {
     }
 }
 
-/// Erreur de jeton vue d'une connexion.
+/// Erreur de jeton vue d'une connexion : seul un jeton de rafraîchissement
+/// refusé met le compte en cause ; le reste est une panne du fournisseur.
 #[must_use]
 pub fn auth_error_of(error: &TokenError) -> AuthError {
     match error {
         TokenError::ReauthRequired => AuthError::ReauthRequired,
-        other => AuthError::Rejected {
+        other => AuthError::ProviderUnavailable {
             message: other.to_string(),
         },
     }

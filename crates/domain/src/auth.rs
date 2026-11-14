@@ -89,6 +89,12 @@ pub enum AuthError {
     /// disponible.
     #[error("trousseau indisponible : {message}")]
     SecretStoreUnavailable { message: String },
+    /// Compte OAuth : le fournisseur n'a pas renouvelé le jeton d'accès
+    /// (injoignable, délai dépassé, réponse invalide). Rien n'a été envoyé
+    /// au serveur et les identifiants ne sont pas en cause ; un nouvel essai
+    /// plus tard peut aboutir.
+    #[error("fournisseur indisponible : {message}")]
+    ProviderUnavailable { message: String },
 }
 
 /// Choisit la méthode d'authentification IMAP.

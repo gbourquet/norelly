@@ -175,6 +175,11 @@ Microsoft, dans votre navigateur :
 3. Le navigateur affiche « vous pouvez fermer cette page » : revenez dans
    Norelly. Le compte apparaît dans la colonne de gauche.
 
+Vous avez changé d'avis pendant que Norelly attend votre navigateur ?
+Cliquez sur **Annuler**, ou fermez la fenêtre **Ajouter un compte** :
+Norelly cesse d'attendre, et une connexion terminée plus tard dans
+l'onglet resté ouvert n'ajoute plus rien.
+
 ![La fenêtre d'ajout avec une adresse Outlook.com : pas de champ mot de passe, bouton « Se connecter avec Microsoft »](captures/microsoft-sign-in.png)
 
 Norelly ne voit jamais votre mot de passe Microsoft. Il reçoit une
@@ -206,7 +211,9 @@ Si la connexion échoue juste après votre passage dans le navigateur
 (serveur qui ne répond pas, réseau instable), cliquez de nouveau sur **Se
 connecter avec Microsoft** : pendant dix minutes, Norelly réutilise la
 connexion que vous venez de faire, sans rouvrir le navigateur. La fenêtre
-affiche alors « Connexion à votre messagerie Microsoft… ».
+affiche alors « Connexion à votre messagerie Microsoft… ». Fermer la
+fenêtre **Ajouter un compte** oublie cette connexion : l'essai suivant
+repasse par le navigateur.
 
 ### Si l'envoi est refusé
 

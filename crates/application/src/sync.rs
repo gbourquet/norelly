@@ -33,7 +33,7 @@ use norelly_domain::ports::{
 };
 use norelly_domain::sync::{
     ServerQuery, ServerReport, SyncError, SyncExtensions, SyncPlan, needs_uid_list, plan,
-    reconcile, select_request,
+    reconcile, select_request, sync_order,
 };
 
 /// Étape d'une synchronisation complète, signalée au fil de l'eau : l'écran
@@ -239,6 +239,12 @@ impl<M: MailStore + PendingOpStore, B: BlobStore> SyncAccount<'_, M, B> {
         observe(SyncStep::Folders(&mailboxes));
         let selectable: Vec<&StoredMailbox> =
             mailboxes.iter().filter(|m| m.mailbox.selectable).collect();
+        // Boîte de réception d'abord, dossiers virtuels en dernier.
+        let roles: Vec<_> = selectable.iter().map(|m| m.mailbox.role).collect();
+        let selectable: Vec<&StoredMailbox> = sync_order(&roles)
+            .into_iter()
+            .filter_map(|i| selectable.get(i).copied())
+            .collect();
         let total = selectable.len();
         observe(SyncStep::Progress { done: 0, total });
         for (index, m) in selectable.into_iter().enumerate() {

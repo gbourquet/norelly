@@ -696,3 +696,17 @@ proptest! {
         prop_assert_eq!(&local.messages, &server.flags_view());
     }
 }
+
+#[test]
+fn inbox_first_virtual_folders_last_others_in_server_order() {
+    use crate::mailbox::MailboxRole::{All, Archive, Flagged, Inbox, Normal, Sent};
+    // Ordre de Gmail : libellés, boîte de réception, puis dossiers système.
+    let roles = [Normal, Normal, Inbox, All, Sent, Flagged, Archive];
+    assert_eq!(sync_order(&roles), vec![2, 0, 1, 4, 6, 3, 5]);
+    assert_eq!(sync_order(&[]), Vec::<usize>::new());
+    assert_eq!(
+        sync_order(&[Normal, Sent]),
+        vec![0, 1],
+        "ordre du serveur gardé"
+    );
+}

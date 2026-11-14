@@ -474,3 +474,31 @@ fn a_reset_mailbox_counts_as_changed() {
     };
     assert!(report.changed());
 }
+
+#[tokio::test]
+async fn inbox_first_and_virtual_folders_last() -> Result<(), SyncFailure> {
+    let imap = FakeImap::new();
+    // Ordre du serveur : « Tous » (\All) avant « Archives ».
+    imap.create_mailbox("Tous", &["\\All"]);
+    imap.create_mailbox("Archives", &[]);
+    let w = World {
+        imap,
+        store: InMemoryMailStore::default(),
+        blobs: InMemoryBlobStore::default(),
+        policy: FetchPolicy::default(),
+    };
+    w.append("Tous", 1, Flags::default());
+    w.append("Archives", 2, Flags::default());
+    w.append("INBOX", 3, Flags::default());
+    let (mut session, ext) = w.session().await?;
+    let mut order = Vec::new();
+    w.use_case()
+        .sync_all_observed(&mut session, ext, |step| {
+            if let SyncStep::Headers(m) = step {
+                order.push(m.mailbox.name.to_string());
+            }
+        })
+        .await?;
+    assert_eq!(order, vec!["INBOX", "Archives", "Tous"]);
+    Ok(())
+}

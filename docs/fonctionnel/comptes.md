@@ -202,13 +202,21 @@ acceptés) sont supprimées. **Rien n'est supprimé sur le serveur.**
 - Ordinateur sorti de veille : une autorisation expirée pendant la veille
   est renouvelée avant la connexion suivante ; une autorisation refusée par
   le serveur est renouvelée une fois avant d'annoncer un échec.
-- Compte Google refusé (adresse Gmail, ou serveurs de Google pour une
-  adresse d'entreprise) : Norelly explique comment créer un mot de passe
-  d'application, en trois étapes, avec un bouton qui ouvre la page de
-  Google. Le champ du mot de passe est vidé pour accueillir le nouveau
-  code ; l'adresse, le nom et les serveurs saisis sont gardés. Un refus
-  d'une autre nature (méthode de connexion impossible) n'affiche pas cette
-  aide.
+- Compte Google refusé (compte dont les serveurs de réception et d'envoi
+  sont tous deux ceux de Google, pour une adresse Gmail comme pour une
+  adresse d'entreprise) : Norelly explique
+  comment créer un mot de passe d'application, en trois étapes, avec un
+  bouton qui ouvre la page de Google. Le champ du mot de passe est vidé
+  pour accueillir le nouveau code ; l'adresse, le nom et les serveurs
+  saisis sont gardés. Un refus d'une autre nature (méthode de connexion
+  impossible) n'affiche pas cette aide. L'aide disparaît dès qu'un des
+  serveurs est modifié.
+- Adresse Gmail dont l'un des serveurs saisis à la main n'est pas celui de
+  Google, connexion non chiffrée, ou certificat accepté malgré l'alerte :
+  un refus affiche le message habituel « identifiants refusés », sans
+  l'aide au mot de passe d'application. Ce mot de passe, qui contourne la
+  validation en deux étapes, partirait vers les deux serveurs : il n'est
+  conseillé que si les deux sont ceux de Google, joints de façon sûre.
 - Serveur limité à d'anciennes versions de TLS (1.0, 1.1) : connexion
   refusée par sécurité.
 
@@ -225,7 +233,7 @@ acceptés) sont supprimées. **Rien n'est supprimé sur le serveur.**
 | Connexion non chiffrée | La connexion à {host}:{port} ne serait pas chiffrée : … |
 | Aucun trousseau | Aucun trousseau du système … ne répond. … fichier non chiffré … |
 | Identifiants refusés | {prefix}identifiants refusés. … (un mot de passe d'application est parfois nécessaire). |
-| Compte Google refusé | {prefix}identifiants refusés : un compte Google demande un mot de passe d'application. Puis « Créer un mot de passe d'application Google » : validation en deux étapes, création du mot de passe (« Ouvrir la page Google »), collage à la place du mot de passe habituel. |
+| Compte Google refusé (serveurs de Google seulement) | {prefix}identifiants refusés : un compte Google demande un mot de passe d'application. Puis « Créer un mot de passe d'application Google » : validation en deux étapes, création du mot de passe (« Ouvrir la page Google »), collage à la place du mot de passe habituel. |
 | Serveur injoignable | {prefix}serveur injoignable. Vérifiez le nom et le port. |
 | Serveur qui ne répond pas | {prefix}le serveur ne répond pas. Vérifiez votre connexion à Internet, puis réessayez. |
 | Adresse Microsoft | Outlook.com et Hotmail n'acceptent pas de mot de passe ici : connectez-vous chez Microsoft dans votre navigateur. Norelly ne voit jamais votre mot de passe. |

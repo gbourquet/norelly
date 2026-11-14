@@ -8,7 +8,7 @@ use norelly_domain::connection::{
     CONNECTION_ATTEMPTS, CONNECTION_RETRY_DELAY, ConnectionError, FailureCategory,
 };
 use norelly_domain::credentials::Credentials;
-use norelly_domain::endpoint::{Protocol, ServerEndpoint};
+use norelly_domain::endpoint::{Host, Protocol, ServerEndpoint};
 use norelly_domain::ports::{
     CertificateExceptionStore, ConnectRequest, MailSender, RemoteMailboxConnector,
     RemoteMailboxSession,
@@ -118,6 +118,16 @@ where
         }
     }
 
+    /// Une exception de certificat existe-t-elle pour `host` ? Un stockage
+    /// illisible compte comme une exception : la réponse sert à refuser un
+    /// conseil, jamais à accorder une confiance.
+    pub async fn has_certificate_exception(&self, host: &Host) -> bool {
+        self.exceptions
+            .exceptions_for(host)
+            .await
+            .map_or(true, |exceptions| !exceptions.is_empty())
+    }
+
     async fn attempt(
         &self,
         protocol: Protocol,
@@ -143,7 +153,7 @@ mod tests {
     use norelly_domain::connection::TimeoutStage;
     use norelly_domain::credentials::{Secret, Username};
     use norelly_domain::endpoint::{Host, Security};
-    use norelly_domain::ports::{OutgoingMessage, SendError};
+    use norelly_domain::ports::{OutgoingMessage, SendError, StoreError};
     use norelly_domain::security::{
         CertificateException, CertificateFingerprint, CertificateIssue, PlaintextConsent,
     };
@@ -401,6 +411,55 @@ mod tests {
         assert_eq!(requests.len(), 1);
         assert_eq!(requests[0].certificate_exceptions, vec![mine]);
         Ok(())
+    }
+
+    /// Stockage des exceptions illisible.
+    struct BrokenExceptions;
+
+    impl CertificateExceptionStore for BrokenExceptions {
+        async fn exceptions_for(&self, _: &Host) -> Result<Vec<CertificateException>, StoreError> {
+            Err(StoreError("base verrouillée".into()))
+        }
+
+        async fn add(&self, _: &CertificateException) -> Result<(), StoreError> {
+            Err(StoreError("base verrouillée".into()))
+        }
+
+        async fn remove(&self, _: &CertificateException) -> Result<(), StoreError> {
+            Err(StoreError("base verrouillée".into()))
+        }
+    }
+
+    #[tokio::test]
+    async fn certificate_exception_is_looked_up_per_host() -> Result<(), Box<dyn std::error::Error>>
+    {
+        let (uc, _, _) = use_case(Err(ConnectionError::Closed), Err(ConnectionError::Closed));
+        assert!(
+            !uc.has_certificate_exception(&host("mail.example.com"))
+                .await
+        );
+        uc.exceptions
+            .add(&CertificateException {
+                host: host("other.example.com"),
+                fingerprint: CertificateFingerprint::from_bytes([8; 32]),
+            })
+            .await?;
+        assert!(
+            !uc.has_certificate_exception(&host("mail.example.com"))
+                .await
+        );
+        assert!(
+            uc.has_certificate_exception(&host("other.example.com"))
+                .await
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn unreadable_exception_store_counts_as_an_exception() {
+        let connector = FakeConnector::new(Err(ConnectionError::Closed));
+        let uc = TestConnection::new(connector.clone(), connector, BrokenExceptions);
+        assert!(uc.has_certificate_exception(&host("imap.gmail.com")).await);
     }
 
     #[tokio::test(start_paused = true)]

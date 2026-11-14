@@ -275,6 +275,25 @@ describe("parcours d'ajout de compte", () => {
     expect(f.appPasswordHelp).toBe(true);
   });
 
+  it("aide au mot de passe d'application masquée dès qu'un serveur change", async () => {
+    const { api } = fakeApi(found, [
+      { kind: "failed", protocol: "imap", failure: "google_app_password", detail: null },
+    ]);
+    const f = flow(api);
+    f.step = "manual";
+    f.imap = { ...imap, host: "imap.gmail.com" };
+    f.smtp = { ...f.smtp, host: "smtp.gmail.com" };
+    await f.submitManual();
+    expect(f.appPasswordHelp).toBe(true);
+    // L'aide valait pour les serveurs de Google qui ont refusé, pas pour
+    // un autre serveur.
+    f.smtp = { ...f.smtp, host: "smtp.example.net" };
+    expect(f.appPasswordHelp).toBe(false);
+    f.smtp = { ...f.smtp, host: "smtp.gmail.com" };
+    f.imap = { ...f.imap, host: " imap.example.net " };
+    expect(f.appPasswordHelp).toBe(false);
+  });
+
   it("l'aide au mot de passe d'application disparaît au nouvel essai", async () => {
     const { api } = fakeApi(found, [
       { kind: "failed", protocol: "imap", failure: "google_app_password", detail: null },

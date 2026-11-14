@@ -57,7 +57,13 @@ développeur.
 l'application dans le conteneur, démarre Dovecot, Mailpit et un **serveur
 canari** sur un réseau Docker **interne** (sans accès extérieur), avec des
 certificats autosignés neufs, puis lance les scénarios avec un `HOME`
-éphémère et la locale `fr`.
+éphémère et la locale `fr`. Un second Dovecot, alias `imap.gmail.com` sur
+ce réseau, joue le serveur IMAP de Google : son certificat est signé par une
+autorité de test neuve, contrainte à `gmail.com`, à laquelle seul le
+conteneur des scénarios fait confiance (`SSL_CERT_FILE`, qui remplace les
+autorités du système dans ce conteneur sans Internet). Le conseil « mot de
+passe d'application » exige en effet des serveurs de Google joints sans
+exception de certificat.
 
 | Scénario | Vérifie |
 |---|---|

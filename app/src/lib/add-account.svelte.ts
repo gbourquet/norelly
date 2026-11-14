@@ -99,8 +99,24 @@ export class AddAccountFlow {
   unconfirmed = $state<{ host: string; source: DiscoverySourceDto }[]>([]);
   /** Hôtes confirmés explicitement par l'utilisateur. */
   confirmed = $state<string[]>([]);
-  /** Compte Google refusé : étapes du mot de passe d'application. */
-  appPasswordHelp = $state(false);
+  #appPasswordHelp = $state(false);
+  /** Serveurs affichés quand l'aide a été donnée. */
+  #helpHosts = $state<[string, string]>(["", ""]);
+
+  /** Compte Google refusé : étapes du mot de passe d'application. L'aide
+   *  vaut pour les serveurs qui ont refusé : elle disparaît dès que l'un
+   *  d'eux est modifié. */
+  get appPasswordHelp(): boolean {
+    const [imap, smtp] = this.#helpHosts;
+    return (
+      this.#appPasswordHelp && this.imap.host.trim() === imap && this.smtp.host.trim() === smtp
+    );
+  }
+
+  set appPasswordHelp(value: boolean) {
+    this.#appPasswordHelp = value;
+    this.#helpHosts = [this.imap.host.trim(), this.smtp.host.trim()];
+  }
   /** Où Rust conservera le mot de passe ; `null` tant qu'il n'a pas
    *  répondu : aucune garantie n'est affichée avant. */
   secretsBackend = $state<SecretsBackendDto | null>(null);

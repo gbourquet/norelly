@@ -7,6 +7,14 @@
 # - Démarre, sur un réseau Docker interne sans accès extérieur, Dovecot
 #   (IMAP, imap.norelly.test) et Mailpit (SMTP, smtp.norelly.test), avec des
 #   certificats autosignés générés pour l'occasion.
+# - Démarre un faux serveur IMAP de Google (second Dovecot, alias
+#   imap.gmail.com sur le réseau interne) dont le certificat est signé par
+#   une autorité de test, limitée à gmail.com et générée pour l'occasion.
+#   Seul le conteneur des scénarios fait confiance à cette autorité
+#   (SSL_CERT_FILE, à la place des autorités du système : le réseau est
+#   sans Internet). Un compte Google n'est reconnu que joint sans exception
+#   de certificat : les certificats autosignés ci-dessus ne le permettent
+#   pas.
 # - Lance les scénarios sur ce réseau interne (dépôt monté en lecture
 #   seule, seul un dossier de captures en écriture), avec Xvfb, D-Bus et
 #   GNOME Keyring.
@@ -29,7 +37,7 @@ mailpit_image="axllent/mailpit:v1.33.0@sha256:9b3a463be15354c0f0eba91697d80e3e0d
 workdir=$(mktemp -d)
 
 cleanup() {
-  docker rm -f "$run_id-imap" "$run_id-smtp" "$run_id-canary" >/dev/null 2>&1 || true
+  docker rm -f "$run_id-imap" "$run_id-gmail" "$run_id-smtp" "$run_id-canary" >/dev/null 2>&1 || true
   docker network rm "$network" >/dev/null 2>&1 || true
   rm -rf "$workdir"
 }
@@ -61,6 +69,23 @@ for name in imap smtp; do
     -keyout "$workdir/$name.key" -out "$workdir/$name.crt" 2>/dev/null
   chmod 644 "$workdir/$name.key" "$workdir/$name.crt"
 done
+# Autorité de test limitée à gmail.com (contrainte de noms), et certificat
+# de imap.gmail.com qu'elle signe.
+openssl req -x509 -newkey rsa:2048 -nodes -days 2 -subj "/CN=Norelly e2e test CA" \
+  -addext "basicConstraints=critical,CA:TRUE" \
+  -addext "keyUsage=critical,keyCertSign" \
+  -addext "nameConstraints=critical,permitted;DNS:gmail.com" \
+  -keyout "$workdir/test-ca.key" -out "$workdir/test-ca.crt" 2>/dev/null
+openssl req -newkey rsa:2048 -nodes -subj "/CN=imap.gmail.com" \
+  -keyout "$workdir/gmail.key" -out "$workdir/gmail.csr" 2>/dev/null
+printf '%s\n' "basicConstraints=critical,CA:FALSE" "keyUsage=critical,digitalSignature,keyEncipherment" \
+  "extendedKeyUsage=serverAuth" "subjectAltName=DNS:imap.gmail.com" > "$workdir/gmail.ext"
+openssl x509 -req -in "$workdir/gmail.csr" -CA "$workdir/test-ca.crt" -CAkey "$workdir/test-ca.key" \
+  -CAcreateserial -days 2 -extfile "$workdir/gmail.ext" -out "$workdir/gmail.crt" 2>/dev/null
+# La clé de l'autorité ne sert plus : supprimée tout de suite, elle ne peut
+# pas rester sur le disque après un arrêt brutal.
+rm -f "$workdir/test-ca.key" "$workdir/test-ca.srl" "$workdir/gmail.csr"
+chmod 644 "$workdir/gmail.key" "$workdir/gmail.crt" "$workdir/test-ca.crt"
 mkdir -p "$workdir/captures"
 printf 'norelly:%s\n' "$password" > "$workdir/smtp-auth"
 chmod 644 "$workdir/smtp-auth"
@@ -71,6 +96,14 @@ docker run -d --name "$run_id-imap" --network "$network" --network-alias imap.no
   -e USER_PASSWORD="$password" \
   -v "$workdir/imap.crt:/etc/dovecot/ssl/tls.crt:ro" \
   -v "$workdir/imap.key:/etc/dovecot/ssl/tls.key:ro" \
+  "$dovecot_image" >/dev/null
+# Faux serveur IMAP de Google (scénario du conseil « mot de passe
+# d'application ») : le scénario y saisit un autre mot de passe que
+# $password, que Dovecot refuse.
+docker run -d --name "$run_id-gmail" --network "$network" --network-alias imap.gmail.com \
+  -e USER_PASSWORD="$password" \
+  -v "$workdir/gmail.crt:/etc/dovecot/ssl/tls.crt:ro" \
+  -v "$workdir/gmail.key:/etc/dovecot/ssl/tls.key:ro" \
   "$dovecot_image" >/dev/null
 docker run -d --name "$run_id-smtp" --network "$network" --network-alias smtp.norelly.test \
   -e MP_SMTP_TLS_CERT=/certs/tls.crt -e MP_SMTP_TLS_KEY=/certs/tls.key \
@@ -131,6 +164,8 @@ docker run "${common[@]}" --network "$network" \
   --tmpfs /tmp/home:exec,mode=1777 -e HOME=/tmp/home \
   -v "$workdir/passwd:/etc/passwd:ro" -v "$workdir/group:/etc/group:ro" \
   -e NORELLY_E2E_PASSWORD="$password" \
+  -v "$workdir/test-ca.crt:/etc/norelly-e2e/test-ca.crt:ro" \
+  -e SSL_CERT_FILE=/etc/norelly-e2e/test-ca.crt \
   -e NORELLY_E2E_CANARY="http://canary.norelly.test:8080" \
   -e LANG=fr_FR.UTF-8 -e LANGUAGE=fr \
   -e NORELLY_E2E_PERF="${NORELLY_E2E_PERF:-}" \

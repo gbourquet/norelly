@@ -237,9 +237,10 @@ describe(`captures d'écran (${lang})`, () => {
   });
 
   it("compte Google : connexion Google, puis mot de passe d'application refusé", async () => {
-    // Adresse Gmail sur les serveurs de test (réseau sans Internet : la
-    // découverte échoue), mot de passe refusé par Dovecot : l'aide au mot de
-    // passe d'application s'affiche. Les certificats sont déjà approuvés.
+    // Adresse Gmail sur le faux serveur IMAP de Google (réseau sans
+    // Internet : la découverte échoue ; certificat signé par l'autorité de
+    // test, sans exception), mot de passe refusé par Dovecot : l'aide au mot
+    // de passe d'application s'affiche. Le serveur d'envoi n'est pas joint.
     await $("nav")
       .$(`button=${msg("welcome_add_account")}`)
       .click();
@@ -258,12 +259,11 @@ describe(`captures d'écran (${lang})`, () => {
     await $("#account-password").setValue("mot-de-passe-du-compte");
     await $(`button=${msg("common_continue")}`).click();
     await $("#imap-host").waitForDisplayed({ timeout: 90000 });
-    await $("#imap-host").setValue("imap.norelly.test");
+    await $("#imap-host").setValue("imap.gmail.com");
     await $("#imap-port").setValue("31993");
     await $("#imap-username").setValue(user);
-    await $("#smtp-host").setValue("smtp.norelly.test");
-    await $("#smtp-port").setValue("1025");
-    await $("#smtp-username").setValue("norelly");
+    await $("#smtp-host").setValue("smtp.gmail.com");
+    await $("#smtp-username").setValue(user);
     await $(`button=${msg("add_test_and_add")}`).click();
     const help = $(`//section[.//h3[normalize-space()="${msg("add_app_password_title")}"]]`);
     await help.waitForDisplayed({ timeout: 60000 });

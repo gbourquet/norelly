@@ -62,7 +62,13 @@ n'est pas chiffrée (ADR-003) : on s'appuie sur le chiffrement du disque.
   remplacement, à l'ajout comme à la reconnexion
   (`crates/domain/src/oauth.rs`, `verify_identity`). Un code d'un autre
   compte injecté dans la redirection locale est ainsi refusé. Le
-  rafraîchissement garde les seuls scopes de messagerie.
+  rafraîchissement redemande les seuls scopes de messagerie chez
+  Microsoft ; Google garde les scopes accordés (`openid email` compris),
+  le jeton ne partant de toute façon que vers les serveurs de Gmail.
+- Ajout d'un compte OAuth : le fournisseur demandé par l'interface doit
+  être celui de l'adresse (`OAuthProvider::serves`), sinon la demande est
+  refusée avant toute connexion (réponse d'interface périmée, adresse
+  changée pendant la saisie).
 - Identifiant client public embarqué (application de bureau). Microsoft :
   sans secret. Google : le `client_secret` du client « application de
   bureau » est embarqué lui aussi ; il n'est pas confidentiel (même valeur

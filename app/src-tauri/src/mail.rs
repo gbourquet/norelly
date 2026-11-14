@@ -537,6 +537,7 @@ impl SyncEventDto {
             },
             // Relayé à part, selon les paramètres de notification.
             SyncEvent::NewMail { .. } => return None,
+            SyncEvent::SyncProgress { .. } => return None,
             SyncEvent::Online { account } => Self::Online {
                 account: id(*account)?,
             },

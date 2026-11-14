@@ -37,7 +37,7 @@ use tokio::task::JoinHandle;
 
 use crate::actions::{FollowFolder, ReplayActions, ReplayFailure};
 use crate::folders::{FolderChange, FolderFailure};
-use crate::sync::{SyncAccount, SyncEvent, SyncFailure};
+use crate::sync::{SyncAccount, SyncEvent, SyncFailure, SyncStep};
 
 /// Réglages de l'acteur.
 #[derive(Debug, Clone, Copy)]
@@ -427,14 +427,35 @@ where
     ) -> Result<(), SyncFailure> {
         let mut changed = Vec::new();
         let mut arrivals = Vec::new();
-        let mailboxes = self
-            .use_case()
-            .sync_all(session, ext, |m, report| {
-                changed.push(m.id);
-                if m.mailbox.role == MailboxRole::Inbox
-                    && let Some(mail) = &report.arrivals
-                {
-                    arrivals.push((m.id, mail.clone()));
+        let account = self.account;
+        // Chaque étape est relayée aussitôt : dossiers, en-têtes et
+        // progression s'affichent sans attendre la fin du tour.
+        self.use_case()
+            .sync_all_observed(session, ext, |step| match step {
+                SyncStep::Folders(all) => {
+                    if known.as_slice() != all {
+                        *known = all.to_vec();
+                        self.emit(SyncEvent::FoldersChanged { account });
+                    }
+                }
+                SyncStep::Progress { done, total } => {
+                    self.emit(SyncEvent::SyncProgress {
+                        account,
+                        done,
+                        total,
+                    });
+                }
+                SyncStep::Headers(m) => self.emit(SyncEvent::FolderChanged {
+                    account,
+                    mailbox: m.id,
+                }),
+                SyncStep::MailboxDone(m, report) => {
+                    changed.push(m.id);
+                    if m.mailbox.role == MailboxRole::Inbox
+                        && let Some(mail) = &report.arrivals
+                    {
+                        arrivals.push((m.id, mail.clone()));
+                    }
                 }
             })
             .await?;
@@ -443,12 +464,6 @@ where
         // déplacements déjà rejoués laissent la place aux vrais messages.
         self.store.reapply(self.account).await?;
         self.store.purge_placeholders(self.account, None).await?;
-        if *known != mailboxes {
-            *known = mailboxes;
-            self.emit(SyncEvent::FoldersChanged {
-                account: self.account,
-            });
-        }
         for mailbox in changed {
             self.emit(SyncEvent::FolderChanged {
                 account: self.account,

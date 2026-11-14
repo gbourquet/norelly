@@ -234,6 +234,46 @@ async fn provider_missing_from_this_version_stops_the_actor_without_retrying() {
 }
 
 #[tokio::test]
+async fn first_sync_reports_progress_and_shows_folders_and_messages_before_the_end() {
+    let imap = FakeImap::new();
+    imap.create_mailbox("Archives", &[]);
+    imap.append("INBOX", b"Subject: a\r\n\r\n", Flags::default(), 1);
+    imap.append("Archives", b"Subject: b\r\n\r\n", Flags::default(), 2);
+    let mut r = start(&imap);
+    let mut seen = Vec::new();
+    loop {
+        let event = wait_for(&mut r.events, WAIT, |_| true).await;
+        let end = matches!(event, SyncEvent::SyncProgress { done, total, .. } if done == total);
+        seen.push(event);
+        if end {
+            break;
+        }
+    }
+    let position = |pred: &dyn Fn(&SyncEvent) -> bool| seen.iter().position(pred);
+    let folders = position(&|e| matches!(e, SyncEvent::FoldersChanged { .. }));
+    let started = position(&|e| matches!(e, SyncEvent::SyncProgress { done: 0, .. }));
+    let first_change = position(&folder_changed);
+    let last = seen.len() - 1;
+    assert!(
+        matches!((folders, started), (Some(f), Some(s)) if f < s),
+        "dossiers affichés dès le début : {seen:?}"
+    );
+    assert!(
+        first_change.is_some_and(|c| c < last),
+        "messages affichés avant la fin : {seen:?}"
+    );
+    let steps: Vec<(usize, usize)> = seen
+        .iter()
+        .filter_map(|e| match e {
+            SyncEvent::SyncProgress { done, total, .. } => Some((*done, *total)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(steps, vec![(0, 2), (1, 2), (2, 2)]);
+    r.handle.shutdown().await;
+}
+
+#[tokio::test]
 async fn sync_now_and_shutdown() {
     let imap = FakeImap::new();
     imap.create_mailbox("Archives", &[]);

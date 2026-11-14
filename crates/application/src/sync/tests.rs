@@ -395,3 +395,55 @@ async fn unread_arrivals_are_reported_except_on_first_sync() -> Result<(), SyncF
     );
     Ok(())
 }
+
+/// Étape observée, sous forme comparable.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Seen {
+    Folders(usize),
+    Progress(usize, usize),
+    Headers(String),
+    Done(String),
+}
+
+#[tokio::test]
+async fn folders_headers_and_progress_are_reported_as_they_arrive() -> Result<(), SyncFailure> {
+    let w = World::new();
+    w.append("INBOX", 1, Flags::default());
+    w.append("Archives", 2, Flags::default());
+    let (mut session, ext) = w.session().await?;
+    let mut seen = Vec::new();
+    w.use_case()
+        .sync_all_observed(&mut session, ext, |step| {
+            seen.push(match step {
+                SyncStep::Folders(all) => Seen::Folders(all.len()),
+                SyncStep::Progress { done, total } => Seen::Progress(done, total),
+                SyncStep::Headers(m) => Seen::Headers(m.mailbox.name.to_string()),
+                SyncStep::MailboxDone(m, _) => Seen::Done(m.mailbox.name.to_string()),
+            });
+        })
+        .await?;
+    // Trois boîtes sélectionnables (INBOX, Sent, Archives) sur quatre.
+    assert_eq!(seen.first(), Some(&Seen::Folders(4)), "{seen:?}");
+    assert_eq!(seen.get(1), Some(&Seen::Progress(0, 3)), "{seen:?}");
+    assert_eq!(seen.last(), Some(&Seen::Progress(3, 3)), "{seen:?}");
+    for name in ["INBOX", "Archives"] {
+        let headers = seen
+            .iter()
+            .position(|s| *s == Seen::Headers(name.to_owned()));
+        let done = seen.iter().position(|s| *s == Seen::Done(name.to_owned()));
+        assert!(
+            matches!((headers, done), (Some(h), Some(d)) if h < d),
+            "en-têtes de {name} signalés avant la fin du dossier : {seen:?}"
+        );
+    }
+    // Progression croissante, un pas par boîte.
+    let progress: Vec<usize> = seen
+        .iter()
+        .filter_map(|s| match s {
+            Seen::Progress(done, _) => Some(*done),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(progress, vec![0, 1, 2, 3]);
+    Ok(())
+}

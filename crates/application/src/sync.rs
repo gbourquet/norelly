@@ -35,6 +35,21 @@ use norelly_domain::sync::{
     reconcile, select_request,
 };
 
+/// Étape d'une synchronisation complète, signalée au fil de l'eau : l'écran
+/// suit sans attendre la fin du tour.
+#[derive(Debug)]
+pub enum SyncStep<'a> {
+    /// Liste des dossiers lue et enregistrée.
+    Folders(&'a [StoredMailbox]),
+    /// `done` dossiers sélectionnables traités sur `total` (0 au départ).
+    Progress { done: usize, total: usize },
+    /// Un lot d'en-têtes (ou de suppressions, de drapeaux) vient d'être
+    /// enregistré dans ce dossier ; les corps viennent ensuite.
+    Headers(&'a StoredMailbox),
+    /// Dossier terminé (corps compris) et modifié.
+    MailboxDone(&'a StoredMailbox, &'a MailboxReport),
+}
+
 /// Nombre de corps téléchargés par tour de [`SyncAccount::fetch_bodies`].
 const BODY_BATCH: usize = 50;
 
@@ -58,6 +73,11 @@ pub enum SyncEvent {
     },
     /// Connexion établie (après une coupure éventuelle).
     Online { account: AccountId },
+    SyncProgress {
+        account: AccountId,
+        done: usize,
+        total: usize,
+    },
     /// Connexion perdue ; nouvelle tentative prévue. L'échec est transmis
     /// structuré : l'interface en tire un message localisé (ADR-011).
     Offline {
@@ -175,10 +195,36 @@ impl<M: MailStore, B: BlobStore> SyncAccount<'_, M, B> {
         ext: SyncExtensions,
         mut on_change: impl FnMut(&StoredMailbox, &MailboxReport) + Send,
     ) -> Result<Vec<StoredMailbox>, SyncFailure> {
+        self.sync_all_observed(session, ext, |step| {
+            if let SyncStep::MailboxDone(m, report) = step {
+                on_change(m, report);
+            }
+        })
+        .await
+    }
+
+    /// [`Self::sync_all`], chaque étape signalée à `observe`
+    /// ([`SyncStep`]).
+    pub async fn sync_all_observed<S: RemoteMailboxSession>(
+        &self,
+        session: &mut S,
+        ext: SyncExtensions,
+        mut observe: impl FnMut(SyncStep<'_>) + Send,
+    ) -> Result<Vec<StoredMailbox>, SyncFailure> {
         let mailboxes = self.sync_folders(session).await?;
-        for m in mailboxes.iter().filter(|m| m.mailbox.selectable) {
-            match self.sync_mailbox(session, ext, m.id, &m.mailbox.name).await {
-                Ok(report) if report.changed() => on_change(m, &report),
+        observe(SyncStep::Folders(&mailboxes));
+        let selectable: Vec<&StoredMailbox> =
+            mailboxes.iter().filter(|m| m.mailbox.selectable).collect();
+        let total = selectable.len();
+        observe(SyncStep::Progress { done: 0, total });
+        for (index, m) in selectable.into_iter().enumerate() {
+            let result = self
+                .sync_mailbox_observed(session, ext, m.id, &m.mailbox.name, &mut || {
+                    observe(SyncStep::Headers(m));
+                })
+                .await;
+            match result {
+                Ok(report) if report.changed() => observe(SyncStep::MailboxDone(m, &report)),
                 Ok(_) => {}
                 Err(SyncFailure::Reconcile { mailbox, error }) => {
                     tracing::warn!(%mailbox, %error, "boîte ignorée");
@@ -190,6 +236,10 @@ impl<M: MailStore, B: BlobStore> SyncAccount<'_, M, B> {
                 }
                 Err(e) => return Err(e),
             }
+            observe(SyncStep::Progress {
+                done: index + 1,
+                total,
+            });
         }
         Ok(mailboxes)
     }
@@ -201,6 +251,20 @@ impl<M: MailStore, B: BlobStore> SyncAccount<'_, M, B> {
         ext: SyncExtensions,
         mailbox: MailboxId,
         name: &MailboxName,
+    ) -> Result<MailboxReport, SyncFailure> {
+        self.sync_mailbox_observed(session, ext, mailbox, name, &mut || {})
+            .await
+    }
+
+    /// [`Self::sync_mailbox`] ; `on_headers` est appelé après chaque lot
+    /// enregistré (en-têtes, suppressions, drapeaux), avant les corps.
+    pub async fn sync_mailbox_observed<S: RemoteMailboxSession>(
+        &self,
+        session: &mut S,
+        ext: SyncExtensions,
+        mailbox: MailboxId,
+        name: &MailboxName,
+        on_headers: &mut (dyn FnMut() + Send),
     ) -> Result<MailboxReport, SyncFailure> {
         let reconcile_error = |error| SyncFailure::Reconcile {
             mailbox: name.to_string(),
@@ -294,7 +358,14 @@ impl<M: MailStore, B: BlobStore> SyncAccount<'_, M, B> {
                         outcome.interim_state()
                     },
                 };
+                let visible = batch.reset
+                    || !batch.new.is_empty()
+                    || !batch.removed.is_empty()
+                    || !batch.flag_changes.is_empty();
                 self.store.apply_sync(mailbox, &batch).await?;
+                if visible {
+                    on_headers();
+                }
             }
         }
         summary.bodies = self.fetch_bodies(session, mailbox).await?;

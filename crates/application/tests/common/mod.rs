@@ -212,5 +212,8 @@ pub async fn server_flags(
 
 pub const FAST: Timeouts = Timeouts {
     connect: Duration::from_secs(5),
+    open: Duration::from_secs(5),
+    password_auth: Duration::from_secs(5),
+    open_total: Duration::from_secs(60),
     response: Duration::from_secs(5),
 };

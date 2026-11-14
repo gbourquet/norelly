@@ -1,7 +1,8 @@
 //! Pannes réseau entre Norelly et Dovecot, simulées par Toxiproxy :
 //! coupure en pleine synchronisation, latence, connexion à moitié fermée
-//! (plus aucune donnée, sans fermeture) et reprise de l'acteur. Dans tous
-//! les cas, l'état local converge vers celui du serveur après la reprise.
+//! (plus aucune donnée, sans fermeture), serveur lent à l'ouverture et
+//! reprise de l'acteur. Dans tous les cas, l'état local converge vers celui
+//! du serveur après la reprise.
 //! Les actions faites hors ligne sont appliquées localement tout de suite,
 //! puis rejouées sur le serveur au retour du réseau.
 
@@ -13,17 +14,24 @@ use std::time::Duration;
 use common::{FAST, TestResult, connector, local, raw_message, request};
 use norelly_application::account_actor::{ActorConfig, spawn};
 use norelly_application::sync::{SyncAccount, SyncEvent, SyncFailure};
-use norelly_domain::connection::ConnectionError;
+use norelly_application::test_connection::{
+    TestConnection, TestConnectionOutcome, TestConnectionParams,
+};
+use norelly_domain::connection::{CONNECTION_TEST_BUDGET, ConnectionError};
+use norelly_domain::endpoint::Protocol;
 use norelly_domain::fetch_policy::FetchPolicy;
 use norelly_domain::ports::{RemoteMailboxConnector, RemoteMailboxSession};
 use norelly_domain::sync::Backoff;
-use norelly_imap::ImapConnector;
+use norelly_imap::{ImapConnector, Timeouts};
+use norelly_smtp::SmtpSender;
 use norelly_test_support::certs::TestCa;
 use norelly_test_support::containers::{
     DOVECOT_IMAP_PORT, DOVECOT_IMAPS_PORT, RunningServer, TEST_PASSWORD, TEST_USER, Toxiproxy,
     read_banner, start_dovecot_tls_on, start_toxiproxy,
 };
+use norelly_test_support::contracts::InMemoryCertificateExceptionStore;
 use norelly_test_support::imap_control::{ImapControl, MailboxControl};
+use norelly_tls::{TlsClientFactory, TrustRoots};
 use tokio::sync::broadcast;
 
 const PROXY: &str = "imap";
@@ -233,6 +241,93 @@ async fn half_open_connection_times_out_then_converges() -> TestResult {
     l.sync(&conn, &lab.proxied_request()).await?;
     l.assert_converged(&conn, &lab.direct_request(), "INBOX")
         .await;
+    Ok(())
+}
+
+/// Délai d'ouverture court (1 s) et délai de réponse long (10 s) : une
+/// latence de 2 s fait échouer l'ouverture, pas une session ouverte.
+fn quick_opening(ca: &TestCa) -> ImapConnector {
+    ImapConnector::new(
+        TlsClientFactory::new(TrustRoots::Custom(vec![ca.root()]))
+            .with_handshake_timeout(Duration::from_secs(10)),
+    )
+    .with_timeouts(Timeouts {
+        connect: Duration::from_secs(5),
+        open: Duration::from_secs(1),
+        password_auth: Duration::from_secs(1),
+        open_total: Duration::from_secs(60),
+        response: Duration::from_secs(10),
+    })
+}
+
+/// Chaque réponse du serveur retardée de 2 s.
+const SLOW_SERVER: &str = "{\"latency\":2000}";
+
+#[tokio::test]
+async fn slow_opening_is_abandoned_early_but_an_open_session_waits() -> TestResult {
+    let lab = lab("opening").await?;
+    let conn = quick_opening(&lab.ca);
+
+    // 1. Session ouverte, puis serveur lent : la réponse est attendue.
+    let mut session = conn.connect(&lab.proxied_request()).await?;
+    lab.toxiproxy
+        .add_toxic(PROXY, "lent", "latency", "downstream", SLOW_SERVER)
+        .await?;
+    let mailboxes = session.list_mailboxes().await?;
+    assert!(!mailboxes.is_empty());
+    let _ = session.logout().await;
+
+    // 2. Serveur lent dès l'ouverture (salutation, authentification) :
+    // abandon au délai d'ouverture, bien avant le délai de réponse.
+    let started = tokio::time::Instant::now();
+    let result = conn.connect(&lab.proxied_request()).await;
+    assert!(
+        matches!(result, Err(ConnectionError::Timeout(_))),
+        "{:?}",
+        result.err()
+    );
+    assert!(
+        started.elapsed() < Duration::from_secs(8),
+        "{:?}",
+        started.elapsed()
+    );
+
+    // 3. Test de connexion : chaque essai est abandonné tôt, le tout tient
+    // dans le plafond ; avec un serveur de nouveau normal, il aboutit.
+    let test = TestConnection::new(
+        conn.clone(),
+        SmtpSender::new(TlsClientFactory::new(TrustRoots::Custom(vec![
+            lab.ca.root(),
+        ]))),
+        InMemoryCertificateExceptionStore::default(),
+    );
+    let request = lab.proxied_request();
+    let params = TestConnectionParams {
+        protocol: Protocol::Imap,
+        endpoint: request.endpoint.clone(),
+        credentials: request.credentials.clone(),
+        plaintext: request.plaintext.clone(),
+    };
+    let started = tokio::time::Instant::now();
+    let outcome = test.execute(params.clone()).await;
+    assert!(
+        matches!(
+            outcome,
+            TestConnectionOutcome::Network(ConnectionError::Timeout(_))
+        ),
+        "{outcome:?}"
+    );
+    assert!(
+        started.elapsed() <= CONNECTION_TEST_BUDGET,
+        "{:?}",
+        started.elapsed()
+    );
+    lab.toxiproxy.remove_toxic(PROXY, "lent").await?;
+    let outcome = test.execute(params).await;
+    assert!(
+        matches!(outcome, TestConnectionOutcome::Success { .. }),
+        "{outcome:?}"
+    );
     Ok(())
 }
 

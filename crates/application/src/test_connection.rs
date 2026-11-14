@@ -4,8 +4,10 @@
 
 use norelly_domain::auth::AuthError;
 use norelly_domain::capabilities::ServerCapabilities;
+use std::time::Duration;
+
 use norelly_domain::connection::{
-    CONNECTION_ATTEMPTS, CONNECTION_RETRY_DELAY, ConnectionError, FailureCategory,
+    CONNECTION_TEST_BUDGET, ConnectionError, FailureCategory, TimeoutStage, next_test_attempt,
 };
 use norelly_domain::credentials::Credentials;
 use norelly_domain::endpoint::{Host, Protocol, ServerEndpoint};
@@ -103,6 +105,12 @@ where
         &self.exceptions
     }
 
+    /// Connecteurs IMAP et SMTP de ce cas d'usage (délais choisis à
+    /// l'assemblage).
+    pub fn connectors(&self) -> (&I, &S) {
+        (&self.imap, &self.smtp)
+    }
+
     pub async fn execute(&self, params: TestConnectionParams) -> TestConnectionOutcome {
         // Refus du clair avant toute E/S.
         if let Err(refused) = params.plaintext.authorize(&params.endpoint) {
@@ -119,16 +127,32 @@ where
             certificate_exceptions,
             plaintext: params.plaintext,
         };
-        let mut result = self.attempt(params.protocol, &request).await;
         // Réseau instable ou serveur momentanément muet : de nouveaux essais,
-        // chacun sur une nouvelle connexion.
-        for _ in 1..CONNECTION_ATTEMPTS {
-            match &result {
-                Err(e) if e.is_transient() => {}
-                _ => break,
+        // chacun sur une nouvelle connexion, dans une durée totale plafonnée
+        // (règle du domaine : `next_test_attempt`).
+        let started = tokio::time::Instant::now();
+        // Premier essai coupé au plafond : au-delà des délais de connexion
+        // et de poignée de main, c'est le serveur qui ne répond plus.
+        let mut result = self
+            .attempt_within(params.protocol, &request, CONNECTION_TEST_BUDGET)
+            .await
+            .unwrap_or(Err(ConnectionError::Timeout(TimeoutStage::Response)));
+        let mut made = 1;
+        while let Err(error) = &result {
+            let Some(next) = next_test_attempt(made, Some(error), started.elapsed()) else {
+                break;
+            };
+            tokio::time::sleep(next.wait).await;
+            made += 1;
+            match self
+                .attempt_within(params.protocol, &request, next.limit)
+                .await
+            {
+                Some(attempt) => result = attempt,
+                // Nouvel essai coupé au plafond : l'erreur du précédent,
+                // plus précise, est gardée.
+                None => break,
             }
-            tokio::time::sleep(CONNECTION_RETRY_DELAY).await;
-            result = self.attempt(params.protocol, &request).await;
         }
         match result {
             Ok(capabilities) => TestConnectionOutcome::Success { capabilities },
@@ -143,29 +167,39 @@ where
         certificate_excepted(&self.exceptions, host).await
     }
 
-    async fn attempt(
+    /// Un essai, abandonné au bout de `limit` (`None` : coupé, la
+    /// connexion en cours est fermée avec son futur).
+    async fn attempt_within(
         &self,
         protocol: Protocol,
         request: &ConnectRequest,
-    ) -> Result<ServerCapabilities, ConnectionError> {
+        limit: Duration,
+    ) -> Option<Result<ServerCapabilities, ConnectionError>> {
+        let deadline = tokio::time::Instant::now() + limit;
         match protocol {
             Protocol::Imap => {
-                let session = self.imap.connect(request).await?;
+                let session = match tokio::time::timeout_at(deadline, self.imap.connect(request))
+                    .await
+                    .ok()?
+                {
+                    Ok(session) => session,
+                    Err(e) => return Some(Err(e)),
+                };
                 let capabilities = session.capabilities().clone();
-                // Échec de LOGOUT sans importance : la connexion a réussi.
-                let _ = session.logout().await;
-                Ok(capabilities)
+                // LOGOUT sans importance : la connexion a réussi. Son échec,
+                // ou un serveur muet au-delà du plafond, n'y change rien.
+                let _ = tokio::time::timeout_at(deadline, session.logout()).await;
+                Some(Ok(capabilities))
             }
-            Protocol::Smtp => self.smtp.verify(request).await,
+            Protocol::Smtp => tokio::time::timeout_at(deadline, self.smtp.verify(request))
+                .await
+                .ok(),
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::sync::{Arc, Mutex, PoisonError};
-
-    use norelly_domain::connection::TimeoutStage;
     use norelly_domain::credentials::{Secret, Username};
     use norelly_domain::endpoint::{Host, Security};
     use norelly_domain::ports::{OutgoingMessage, SendError, StoreError};
@@ -175,6 +209,7 @@ mod tests {
     use norelly_test_support::contracts::InMemoryCertificateExceptionStore;
     use norelly_test_support::fake_imap::FakeImap;
     use norelly_test_support::fakes::FakeSession;
+    use std::sync::{Arc, Mutex, PoisonError};
 
     use super::*;
 
@@ -190,6 +225,10 @@ mod tests {
         result: Result<ServerCapabilities, ConnectionError>,
         first: Outcomes,
         seen: Seen,
+        /// Durée de chaque essai (serveur lent ou muet).
+        delay: Duration,
+        /// Durée de LOGOUT.
+        logout_delay: Duration,
     }
 
     impl FakeConnector {
@@ -198,7 +237,17 @@ mod tests {
                 result,
                 first: Outcomes::default(),
                 seen: Seen::default(),
+                delay: Duration::ZERO,
+                logout_delay: Duration::ZERO,
             }
+        }
+        fn slow_logout(mut self, delay: Duration) -> Self {
+            self.logout_delay = delay;
+            self
+        }
+        fn taking(mut self, delay: Duration) -> Self {
+            self.delay = delay;
+            self
         }
         fn first(self, results: Vec<Result<ServerCapabilities, ConnectionError>>) -> Self {
             self.first
@@ -214,11 +263,12 @@ mod tests {
                 .pop_front()
                 .unwrap_or_else(|| self.result.clone())
         }
-        fn record(&self, request: &ConnectRequest) {
+        async fn record(&self, request: &ConnectRequest) {
             self.seen
                 .lock()
                 .unwrap_or_else(PoisonError::into_inner)
                 .push(request.clone());
+            tokio::time::sleep(self.delay).await;
         }
         fn requests(&self) -> Vec<ConnectRequest> {
             self.seen
@@ -231,9 +281,12 @@ mod tests {
     impl RemoteMailboxConnector for FakeConnector {
         type Session = FakeSession;
         async fn connect(&self, request: &ConnectRequest) -> Result<FakeSession, ConnectionError> {
-            self.record(request);
+            self.record(request).await;
             let caps = self.next_result()?;
-            FakeSession::new(caps, &FakeImap::new(), Some(ConnectionError::Closed))
+            Ok(
+                FakeSession::new(caps, &FakeImap::new(), Some(ConnectionError::Closed))?
+                    .with_logout_delay(self.logout_delay),
+            )
         }
     }
 
@@ -242,7 +295,7 @@ mod tests {
             &self,
             request: &ConnectRequest,
         ) -> Result<ServerCapabilities, ConnectionError> {
-            self.record(request);
+            self.record(request).await;
             self.next_result()
         }
         async fn send(&self, _: &ConnectRequest, _: &OutgoingMessage) -> Result<(), SendError> {
@@ -512,6 +565,111 @@ mod tests {
         assert_eq!(
             imap.requests().len(),
             norelly_domain::connection::CONNECTION_ATTEMPTS
+        );
+    }
+
+    /// Serveur muet à chaque essai (chaque essai n'échoue qu'au bout de
+    /// son délai) : le test entier tient dans le plafond.
+    #[tokio::test(start_paused = true)]
+    async fn slow_failing_attempts_stay_within_the_budget() {
+        let timeout = ConnectionError::Timeout(TimeoutStage::Response);
+        let silent = FakeConnector::new(Err(timeout.clone())).taking(Duration::from_secs(30));
+        let uc = TestConnection::new(
+            silent.clone(),
+            silent.clone(),
+            InMemoryCertificateExceptionStore::default(),
+        );
+        let started = tokio::time::Instant::now();
+        let outcome = tokio::time::timeout(
+            CONNECTION_TEST_BUDGET * 4,
+            uc.execute(params(Protocol::Imap, Security::Tls)),
+        )
+        .await;
+        assert_eq!(outcome, Ok(TestConnectionOutcome::Network(timeout)));
+        assert!(
+            started.elapsed() <= CONNECTION_TEST_BUDGET,
+            "{:?}",
+            started.elapsed()
+        );
+        assert_eq!(
+            silent.requests().len(),
+            2,
+            "un second essai, abandonné en cours"
+        );
+    }
+
+    /// Essai abandonné au plafond après un échec précis : l'erreur précise
+    /// est gardée, pas un délai dépassé inventé.
+    #[tokio::test(start_paused = true)]
+    async fn cut_attempt_keeps_the_previous_error() {
+        let unreachable = ConnectionError::Network("hôte injoignable".into());
+        let flaky = FakeConnector::new(Err(ConnectionError::Closed))
+            .first(vec![Err(unreachable.clone())])
+            .taking(Duration::from_secs(30));
+        let uc = TestConnection::new(
+            flaky.clone(),
+            flaky,
+            InMemoryCertificateExceptionStore::default(),
+        );
+        assert_eq!(
+            uc.execute(params(Protocol::Imap, Security::Tls)).await,
+            TestConnectionOutcome::Network(unreachable)
+        );
+    }
+
+    /// Connexion réussie, serveur muet à la déconnexion : le succès compte,
+    /// et le test reste dans le plafond.
+    #[tokio::test(start_paused = true)]
+    async fn silent_logout_does_not_spoil_a_success() {
+        let caps = ServerCapabilities::from_imap(["IMAP4rev1"]);
+        let imap = FakeConnector::new(Ok(caps.clone())).slow_logout(CONNECTION_TEST_BUDGET * 10);
+        let uc = TestConnection::new(
+            imap.clone(),
+            imap.clone(),
+            InMemoryCertificateExceptionStore::default(),
+        );
+        let started = tokio::time::Instant::now();
+        assert_eq!(
+            uc.execute(params(Protocol::Imap, Security::Tls)).await,
+            TestConnectionOutcome::Success { capabilities: caps }
+        );
+        assert!(
+            started.elapsed() <= CONNECTION_TEST_BUDGET,
+            "{:?}",
+            started.elapsed()
+        );
+        assert_eq!(imap.requests().len(), 1);
+    }
+
+    /// Essai qui ne finit jamais : abandonné au plafond, délai dépassé.
+    #[tokio::test(start_paused = true)]
+    async fn hanging_attempt_is_abandoned_at_the_budget() {
+        let hanging = FakeConnector::new(Ok(ServerCapabilities::default()))
+            .taking(CONNECTION_TEST_BUDGET * 10);
+        let uc = TestConnection::new(
+            hanging.clone(),
+            hanging,
+            InMemoryCertificateExceptionStore::default(),
+        );
+        let started = tokio::time::Instant::now();
+        for protocol in [Protocol::Imap, Protocol::Smtp] {
+            let outcome = tokio::time::timeout(
+                CONNECTION_TEST_BUDGET * 4,
+                uc.execute(params(protocol, Security::Tls)),
+            )
+            .await;
+            assert_eq!(
+                outcome,
+                Ok(TestConnectionOutcome::Network(ConnectionError::Timeout(
+                    TimeoutStage::Response
+                ))),
+                "{protocol:?}"
+            );
+        }
+        assert!(
+            started.elapsed() <= CONNECTION_TEST_BUDGET * 2,
+            "{:?}",
+            started.elapsed()
         );
     }
 

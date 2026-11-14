@@ -403,6 +403,7 @@ enum Seen {
     Progress(usize, usize),
     Headers(String),
     HeadersDone(String),
+    Bodies(String),
     Done(String),
 }
 
@@ -420,6 +421,7 @@ async fn folders_headers_and_progress_are_reported_as_they_arrive() -> Result<()
                 SyncStep::Progress { done, total } => Seen::Progress(done, total),
                 SyncStep::Headers(m) => Seen::Headers(m.mailbox.name.to_string()),
                 SyncStep::HeadersDone(m) => Seen::HeadersDone(m.mailbox.name.to_string()),
+                SyncStep::Bodies(m) => Seen::Bodies(m.mailbox.name.to_string()),
                 SyncStep::MailboxDone(m, _) => Seen::Done(m.mailbox.name.to_string()),
             });
         })
@@ -435,10 +437,16 @@ async fn folders_headers_and_progress_are_reported_as_they_arrive() -> Result<()
         let all_headers = seen
             .iter()
             .position(|s| *s == Seen::HeadersDone(name.to_owned()));
+        let bodies = seen
+            .iter()
+            .position(|s| *s == Seen::Bodies(name.to_owned()));
         let done = seen.iter().position(|s| *s == Seen::Done(name.to_owned()));
         assert!(
-            matches!((headers, all_headers, done), (Some(h), Some(a), Some(d)) if h < a && a < d),
-            "en-têtes de {name} signalés, puis terminés, avant la fin du dossier : {seen:?}"
+            matches!(
+                (headers, all_headers, bodies, done),
+                (Some(h), Some(a), Some(b), Some(d)) if h < a && a < b && b < d
+            ),
+            "en-têtes signalés, terminés, puis corps, avant la fin de {name} : {seen:?}"
         );
     }
     // Dossier sans nouveauté (Sent) : ni lot ni fin des en-têtes.

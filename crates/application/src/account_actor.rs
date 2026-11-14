@@ -321,33 +321,31 @@ struct Shared<C, M, B> {
 /// complet (rechargement, progression).
 const LIVE_REFRESH_INTERVAL: Duration = Duration::from_secs(1);
 
-/// Cadence des signaux d'un tour complet.
+/// Cadence des signaux d'un tour complet : au plus un rechargement et une
+/// progression par [`LIVE_REFRESH_INTERVAL`], quel que soit le nombre de
+/// dossiers ou de lots ; un changement regroupé est rattrapé à l'étape
+/// suivante une fois l'intervalle écoulé.
 #[derive(Default)]
 struct LiveRefresh {
     refreshed: Option<tokio::time::Instant>,
     progressed: Option<tokio::time::Instant>,
-    /// Un signal a été écarté depuis le dernier émis.
-    skipped: bool,
+    /// Un changement n'a pas encore été signalé.
+    pending: bool,
 }
 
 impl LiveRefresh {
-    /// Vrai si un rechargement peut être signalé maintenant ; sinon, le
-    /// lot est retenu comme écarté.
-    fn refresh_due(&mut self) -> bool {
-        let due = Self::due(&mut self.refreshed);
-        self.skipped = !due;
-        due
+    /// Un changement visible vient d'être enregistré.
+    fn note_change(&mut self) {
+        self.pending = true;
     }
 
-    /// Vrai si un lot a été écarté par le regroupement depuis le dernier
-    /// signal : les en-têtes d'un dossier sont terminés, il est affiché
-    /// avant le téléchargement des corps, sans attendre l'intervalle.
-    fn headers_done_due(&mut self) -> bool {
-        if !self.skipped {
+    /// Vrai si le rechargement doit être signalé maintenant : changement
+    /// en attente et intervalle écoulé.
+    fn flush_due(&mut self) -> bool {
+        if !self.pending || !Self::due(&mut self.refreshed) {
             return false;
         }
-        self.skipped = false;
-        self.refreshed = Some(tokio::time::Instant::now());
+        self.pending = false;
         true
     }
 
@@ -484,46 +482,48 @@ where
         // regroupés (au plus un signal par `LIVE_REFRESH_INTERVAL`) : un
         // compte aux milliers de dossiers ne submerge pas l'interface.
         self.use_case()
-            .sync_all_observed(session, ext, |step| match step {
-                SyncStep::Folders(all) => {
-                    if known.as_slice() != all {
-                        *known = all.to_vec();
-                        self.emit(SyncEvent::FoldersChanged { account });
+            .sync_all_observed(session, ext, |step| {
+                let try_refresh = match step {
+                    SyncStep::Folders(all) => {
+                        if known.as_slice() != all {
+                            *known = all.to_vec();
+                            self.emit(SyncEvent::FoldersChanged { account });
+                        }
+                        false
                     }
-                }
-                // La fin est annoncée après la mise à jour finale (plus bas).
-                SyncStep::Progress { done, total } if done == total => {
-                    finished = Some((done, total));
-                }
-                SyncStep::Progress { done, total } => {
-                    if live.progress_due(done) {
-                        self.emit(SyncEvent::SyncProgress {
-                            account,
-                            done,
-                            total,
-                        });
+                    // La fin est annoncée après la mise à jour finale (plus bas).
+                    SyncStep::Progress { done, total } if done == total => {
+                        finished = Some((done, total));
+                        false
                     }
-                }
-                SyncStep::Headers(_) => {
-                    if live.refresh_due() {
-                        self.emit(SyncEvent::FoldersChanged { account });
+                    SyncStep::Progress { done, total } => {
+                        if live.progress_due(done) {
+                            self.emit(SyncEvent::SyncProgress {
+                                account,
+                                done,
+                                total,
+                            });
+                        }
+                        true
                     }
-                }
-                SyncStep::HeadersDone(_) => {
-                    if live.headers_done_due() {
-                        self.emit(SyncEvent::FoldersChanged { account });
+                    SyncStep::Headers(_) => {
+                        live.note_change();
+                        true
                     }
-                }
-                SyncStep::MailboxDone(m, report) => {
-                    if live.refresh_due() {
-                        self.emit(SyncEvent::FoldersChanged { account });
+                    SyncStep::HeadersDone(_) | SyncStep::Bodies(_) => true,
+                    // La rafale de fin couvre ce dossier : rien de noté.
+                    SyncStep::MailboxDone(m, report) => {
+                        changed.push(m.id);
+                        if m.mailbox.role == MailboxRole::Inbox
+                            && let Some(mail) = &report.arrivals
+                        {
+                            arrivals.push((m.id, mail.clone()));
+                        }
+                        true
                     }
-                    changed.push(m.id);
-                    if m.mailbox.role == MailboxRole::Inbox
-                        && let Some(mail) = &report.arrivals
-                    {
-                        arrivals.push((m.id, mail.clone()));
-                    }
+                };
+                if try_refresh && live.flush_due() {
+                    self.emit(SyncEvent::FoldersChanged { account });
                 }
             })
             .await?;

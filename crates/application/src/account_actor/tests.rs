@@ -331,14 +331,14 @@ async fn refreshes_during_the_sync_are_grouped() {
         .iter()
         .position(|e| matches!(e, SyncEvent::SyncProgress { done: 0, .. }))
         .unwrap_or_else(|| panic!("progression non annoncée : {seen:?}"));
-    // Avant la rafale de fin (une mise à jour par boîte modifiée) : le
-    // premier lot, puis la fin des en-têtes (lots écartés), pas un par lot.
+    // Avant la rafale de fin (une mise à jour par boîte modifiée) : un seul
+    // signal dans le même instant, pas un par lot.
     let during = seen[started..]
         .iter()
         .take_while(|e| !matches!(e, SyncEvent::FolderChanged { .. }))
         .filter(|e| refresh(e))
         .count();
-    assert_eq!(during, 2, "signaux pendant le tour : {seen:?}");
+    assert_eq!(during, 1, "signaux pendant le tour : {seen:?}");
     r.handle.shutdown().await;
 }
 
@@ -872,16 +872,38 @@ async fn deleted_folder_disappears_locally() {
 }
 
 #[tokio::test(start_paused = true)]
-async fn a_batch_skipped_by_grouping_is_shown_when_the_headers_are_done() {
+async fn a_change_is_signalled_at_most_once_per_interval_then_caught_up() {
     let mut live = LiveRefresh::default();
-    assert!(live.refresh_due(), "premier lot signalé");
-    assert!(!live.refresh_due(), "lot suivant regroupé");
-    assert!(
-        live.headers_done_due(),
-        "lot écarté : signal avant les corps"
-    );
-    assert!(!live.headers_done_due(), "rien d'écarté depuis");
+    assert!(!live.flush_due(), "rien à signaler");
+    live.note_change();
+    assert!(live.flush_due(), "premier changement signalé");
+    live.note_change();
+    assert!(!live.flush_due(), "regroupé : intervalle pas écoulé");
+    assert!(!live.flush_due(), "toujours en attente");
     tokio::time::advance(LIVE_REFRESH_INTERVAL).await;
-    assert!(live.refresh_due());
-    assert!(!live.headers_done_due(), "lot déjà signalé");
+    assert!(live.flush_due(), "rattrapé à l'étape suivante");
+    assert!(!live.flush_due(), "plus rien en attente");
+}
+
+#[tokio::test(start_paused = true)]
+async fn many_small_folders_do_not_burst_the_interface() {
+    let imap = FakeImap::new();
+    for n in 1..=50_i64 {
+        let name = format!("Dossier {n}");
+        imap.create_mailbox(&name, &[]);
+        imap.append(&name, b"Subject: x\r\n\r\n", Flags::default(), n);
+    }
+    let mut r = start(&imap);
+    let seen = until_synced(&mut r).await;
+    let started = seen
+        .iter()
+        .position(|e| matches!(e, SyncEvent::SyncProgress { done: 0, .. }))
+        .unwrap_or_else(|| panic!("progression non annoncée : {seen:?}"));
+    let during = seen[started..]
+        .iter()
+        .take_while(|e| !matches!(e, SyncEvent::FolderChanged { .. }))
+        .filter(|e| refresh(e))
+        .count();
+    assert!(during <= 2, "{during} signaux pendant le tour : {seen:?}");
+    r.handle.shutdown().await;
 }

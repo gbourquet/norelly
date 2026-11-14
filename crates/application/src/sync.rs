@@ -50,17 +50,22 @@ pub enum SyncStep<'a> {
     /// Tous les en-têtes du dossier sont enregistrés (au moins un lot) ;
     /// le téléchargement des corps commence.
     HeadersDone(&'a StoredMailbox),
+    /// Un paquet de corps du dossier vient d'être enregistré.
+    Bodies(&'a StoredMailbox),
     /// Dossier terminé (corps compris) et modifié.
     MailboxDone(&'a StoredMailbox, &'a MailboxReport),
 }
 
-/// Étape des en-têtes d'un dossier ([`SyncAccount::sync_mailbox_observed`]).
+/// Étape de la synchronisation d'un dossier
+/// ([`SyncAccount::sync_mailbox_observed`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum HeadersStep {
-    /// Un lot visible vient d'être enregistré.
-    Batch,
+pub enum MailboxStep {
+    /// Un lot visible d'en-têtes vient d'être enregistré.
+    Headers,
     /// Plus aucun lot : les corps viennent ensuite.
-    Done,
+    HeadersDone,
+    /// Un paquet de corps vient d'être enregistré.
+    Bodies,
 }
 
 /// Nombre de corps téléchargés par tour de [`SyncAccount::fetch_bodies`].
@@ -238,8 +243,9 @@ impl<M: MailStore + PendingOpStore, B: BlobStore> SyncAccount<'_, M, B> {
             let result = self
                 .sync_mailbox_observed(session, ext, m.id, &m.mailbox.name, &mut |step| {
                     observe(match step {
-                        HeadersStep::Batch => SyncStep::Headers(m),
-                        HeadersStep::Done => SyncStep::HeadersDone(m),
+                        MailboxStep::Headers => SyncStep::Headers(m),
+                        MailboxStep::HeadersDone => SyncStep::HeadersDone(m),
+                        MailboxStep::Bodies => SyncStep::Bodies(m),
                     });
                 })
                 .await;
@@ -276,16 +282,17 @@ impl<M: MailStore + PendingOpStore, B: BlobStore> SyncAccount<'_, M, B> {
             .await
     }
 
-    /// [`Self::sync_mailbox`] ; `on_headers` reçoit [`HeadersStep::Batch`]
-    /// après chaque lot enregistré (en-têtes, suppressions, drapeaux), puis
-    /// [`HeadersStep::Done`] avant les corps s'il y a eu au moins un lot.
+    /// [`Self::sync_mailbox`] ; `on_step` reçoit [`MailboxStep::Headers`]
+    /// après chaque lot enregistré (en-têtes, suppressions, drapeaux),
+    /// [`MailboxStep::HeadersDone`] avant les corps s'il y a eu au moins un
+    /// lot, puis [`MailboxStep::Bodies`] après chaque paquet de corps.
     pub async fn sync_mailbox_observed<S: RemoteMailboxSession>(
         &self,
         session: &mut S,
         ext: SyncExtensions,
         mailbox: MailboxId,
         name: &MailboxName,
-        on_headers: &mut (dyn FnMut(HeadersStep) + Send),
+        on_step: &mut (dyn FnMut(MailboxStep) + Send),
     ) -> Result<MailboxReport, SyncFailure> {
         let reconcile_error = |error| SyncFailure::Reconcile {
             mailbox: name.to_string(),
@@ -390,15 +397,15 @@ impl<M: MailStore + PendingOpStore, B: BlobStore> SyncAccount<'_, M, B> {
                     // dans ce que l'écran va relire (le lot vient d'écrire
                     // l'état du serveur).
                     self.store.reapply_mailbox(self.account, mailbox).await?;
-                    on_headers(HeadersStep::Batch);
+                    on_step(MailboxStep::Headers);
                     shown = true;
                 }
             }
             if shown {
-                on_headers(HeadersStep::Done);
+                on_step(MailboxStep::HeadersDone);
             }
         }
-        summary.bodies = self.fetch_bodies(session, mailbox).await?;
+        summary.bodies = self.fetch_bodies(session, mailbox, on_step).await?;
         Ok(summary)
     }
 
@@ -408,6 +415,7 @@ impl<M: MailStore + PendingOpStore, B: BlobStore> SyncAccount<'_, M, B> {
         &self,
         session: &mut S,
         mailbox: MailboxId,
+        on_step: &mut (dyn FnMut(MailboxStep) + Send),
     ) -> Result<usize, SyncFailure> {
         let mut done = 0;
         loop {
@@ -454,6 +462,7 @@ impl<M: MailStore + PendingOpStore, B: BlobStore> SyncAccount<'_, M, B> {
             if !progressed {
                 return Ok(done);
             }
+            on_step(MailboxStep::Bodies);
         }
     }
 }

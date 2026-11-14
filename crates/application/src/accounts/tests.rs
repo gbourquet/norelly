@@ -741,7 +741,9 @@ mod oauth {
         if let Ok(mut g) = client.grant.lock() {
             *g = grant;
         }
-        TokenBroker::new(client, Keyring::default(), Arc::new(|| 1_000))
+        // Fournisseurs utilisables quelle que soit la compilation (la CI
+        // compile sans les identifiants Google).
+        TokenBroker::new(client, Keyring::default(), Arc::new(|| 1_000)).with_usable(|_| true)
     }
 
     fn grant() -> Option<OAuthGrant> {
@@ -961,6 +963,31 @@ mod oauth {
                 .await
                 .map(|_| ()),
             Err(ReconnectError::OAuth(TokenError::MailAccessRefused))
+        );
+    }
+
+    #[tokio::test]
+    async fn unconfigured_provider_neither_adds_nor_reconnects() {
+        let w = World::new();
+        let b = broker(gmail_grant(None));
+        let AddAccountOutcome::Added(account) = add_gmail(&w, &b).await else {
+            panic!("compte non ajouté");
+        };
+        let b = broker(gmail_grant(None)).with_usable(|p| p != OAuthProvider::Google);
+        assert_eq!(
+            reconnect_oauth_account(&b, &w.accounts, account.id())
+                .await
+                .map(|_| ()),
+            Err(ReconnectError::OAuth(TokenError::ProviderNotConfigured))
+        );
+        let w2 = World::new();
+        assert_eq!(
+            add_gmail(&w2, &b).await,
+            AddAccountOutcome::OAuthFailed(TokenError::ProviderNotConfigured)
+        );
+        assert!(
+            b.client().authorizations.lock().is_ok_and(|a| a.is_empty()),
+            "navigateur jamais ouvert"
         );
     }
 

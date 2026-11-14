@@ -263,6 +263,9 @@ where
             Ok(servers) => servers,
             Err(e) => return AddAccountOutcome::Invalid(e),
         };
+        if !self.broker.is_usable(request.provider) {
+            return AddAccountOutcome::OAuthFailed(TokenError::ProviderNotConfigured);
+        }
         // Un essai précédent a pu échouer après la connexion chez le
         // fournisseur (serveur muet) : elle resservira, une seule fois, sans
         // navigateur.
@@ -470,6 +473,9 @@ pub async fn reconnect_oauth_account<O: OAuthClient, K: SecretStore, D: AccountR
         .map_err(|e| ReconnectError::Storage(e.to_string()))?
         .ok_or(ReconnectError::NotFound)?;
     let provider = account.oauth_provider().ok_or(ReconnectError::NotOAuth)?;
+    if !broker.is_usable(provider) {
+        return Err(ReconnectError::OAuth(TokenError::ProviderNotConfigured));
+    }
     let grant = broker
         .client()
         .authorize(provider, account.address())

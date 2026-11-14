@@ -615,3 +615,42 @@ async fn password_requests_pass_through() {
     assert!(smtp.verify(&request).await.is_ok());
     assert_eq!(seen(&smtp), vec!["pw".to_owned()]);
 }
+
+#[tokio::test]
+async fn unconfigured_provider_is_refused_without_keyring_or_provider() {
+    let keyring = Keyring::default();
+    // Une lecture du trousseau donnerait `SecretStoreUnavailable`.
+    keyring.locked.store(true, Ordering::SeqCst);
+    let broker = TokenBroker::new(Provider::default(), keyring, Arc::new(|| 1_000_000))
+        .with_usable(|_| false);
+    assert_eq!(
+        broker.access_token(&source()).await.map(|_| ()),
+        Err(AuthError::ProviderNotConfigured)
+    );
+    assert_eq!(broker.client().refreshes.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn only_the_unconfigured_provider_is_refused() {
+    let f = fixture(Some("r1"), Provider::default()).await;
+    let broker = Arc::try_unwrap(f.broker)
+        .unwrap_or_else(|_| panic!("gestionnaire partagé"))
+        .with_usable(|p| p != OAuthProvider::Google);
+    assert!(broker.is_usable(OAuthProvider::Microsoft));
+    assert!(!broker.is_usable(OAuthProvider::Google));
+    assert_eq!(
+        broker
+            .access_token(&source())
+            .await
+            .map(|t| t.expose().to_owned()),
+        Ok("a1".to_owned())
+    );
+}
+
+#[test]
+fn by_default_a_provider_is_usable_when_its_identifiers_were_compiled_in() {
+    let broker = TokenBroker::new(Provider::default(), Keyring::default(), Arc::new(|| 0));
+    for provider in [OAuthProvider::Microsoft, OAuthProvider::Google] {
+        assert_eq!(broker.is_usable(provider), provider.config().is_usable());
+    }
+}

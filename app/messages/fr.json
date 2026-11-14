@@ -744,5 +744,7 @@
   "add_fail_oauth_google_refused": "La connexion avec Google n'a pas abouti. Si Google indique que Norelly a atteint son nombre maximal d'utilisateurs (100, tant que Google n'a pas validé l'application), ou si vous préférez ne pas passer par cette page, utilisez un mot de passe d'application : les étapes sont ci-dessous.",
   "failure_oauth_google_refused": "connexion Google refusée ou abandonnée",
   "add_fail_oauth_mail_access": "Norelly n'a pas reçu l'autorisation d'accéder à vos messages. Réessayez en cochant toutes les autorisations demandées dans la page de connexion.",
-  "failure_oauth_mail_access": "accès aux messages refusé"
+  "failure_oauth_mail_access": "accès aux messages refusé",
+  "add_fail_oauth_not_configured": "Cette version de Norelly ne peut pas se connecter à ce fournisseur. Installez la version publiée de Norelly ou, pour Gmail, utilisez un mot de passe d'application.",
+  "failure_oauth_not_configured": "connexion à ce fournisseur indisponible dans cette version"
 }

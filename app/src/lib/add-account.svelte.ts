@@ -479,6 +479,8 @@ function failureMessage(
         return m.add_fail_oauth_google_refused();
       case "oauth_mail_access":
         return m.add_fail_oauth_mail_access();
+      case "oauth_not_configured":
+        return m.add_fail_oauth_not_configured();
       case "oauth_wrong_account":
         return m.add_fail_oauth_wrong_account({ address });
       case "oauth_offline_access":

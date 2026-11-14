@@ -619,6 +619,8 @@ pub enum FailureKindDto {
     OauthOfflineAccess,
     /// Accès aux messages décoché dans la page du fournisseur.
     OauthMailAccess,
+    /// Fournisseur dont cette version n'a pas les identifiants client.
+    OauthNotConfigured,
     /// Connexion chez le fournisseur impossible (réseau, réponse invalide).
     Oauth,
     Security,
@@ -644,6 +646,9 @@ pub fn connection_failure_of(e: &ConnectionError) -> (FailureKindDto, Option<Str
     }
     if let ConnectionError::Authentication(AuthError::SecretStoreUnavailable { message }) = e {
         return (FailureKindDto::SecretStore, Some(message.clone()));
+    }
+    if let ConnectionError::Authentication(AuthError::ProviderNotConfigured) = e {
+        return (FailureKindDto::OauthNotConfigured, None);
     }
     if let ConnectionError::Authentication(AuthError::ProviderUnavailable { message }) = e {
         return (FailureKindDto::Oauth, Some(message.clone()));
@@ -692,6 +697,7 @@ fn auth_detail(a: &AuthError) -> Option<String> {
         AuthError::SecretStoreUnavailable { message } => Some(message.clone()),
         AuthError::ProviderUnavailable { message } => Some(message.clone()),
         AuthError::Unsupported(_)
+        | AuthError::ProviderNotConfigured
         | AuthError::ReauthRequired
         | AuthError::LoginDisabled
         | AuthError::UnexpectedChallenge { .. } => None,
@@ -816,6 +822,7 @@ pub fn oauth_failure(e: &TokenError) -> AddAccountResultDto {
         TokenError::WrongAccount => failed(None, FailureKindDto::OauthWrongAccount, None),
         TokenError::OfflineAccessRefused => failed(None, FailureKindDto::OauthOfflineAccess, None),
         TokenError::MailAccessRefused => failed(None, FailureKindDto::OauthMailAccess, None),
+        TokenError::ProviderNotConfigured => failed(None, FailureKindDto::OauthNotConfigured, None),
         TokenError::Network(d) | TokenError::Protocol(d) => {
             failed(None, FailureKindDto::Oauth, Some(d.clone()))
         }
@@ -1395,6 +1402,18 @@ mod error_tests {
     }
 
     #[test]
+    fn unconfigured_provider_has_its_own_failure_kind() {
+        let (kind, detail) = connection_failure_of(&ConnectionError::Authentication(
+            AuthError::ProviderNotConfigured,
+        ));
+        assert_eq!(kind, FailureKindDto::OauthNotConfigured);
+        assert_eq!(detail, None);
+        let json = serde_json::to_value(oauth_failure(&TokenError::ProviderNotConfigured))
+            .unwrap_or_default();
+        assert_eq!(json["failure"], "oauth_not_configured");
+    }
+
+    #[test]
     fn unreadable_keyring_is_reported_as_a_keyring_failure() {
         let (kind, detail) = connection_failure_of(&ConnectionError::Authentication(
             AuthError::SecretStoreUnavailable {
@@ -1525,8 +1544,8 @@ mod error_tests {
 
     #[test]
     fn refused_mail_access_has_its_own_failure_kind() {
-        let json = serde_json::to_value(oauth_failure(&TokenError::MailAccessRefused))
-            .unwrap_or_default();
+        let json =
+            serde_json::to_value(oauth_failure(&TokenError::MailAccessRefused)).unwrap_or_default();
         assert_eq!(json["failure"], "oauth_mail_access");
         assert_eq!(json["detail"], serde_json::Value::Null);
     }

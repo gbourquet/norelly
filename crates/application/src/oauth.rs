@@ -45,6 +45,9 @@ pub struct TokenBroker<O, K> {
     /// Connexion d'un ajout de compte qui n'a pas abouti, en mémoire
     /// seulement, jusqu'au prochain essai.
     pending: std::sync::Mutex<Option<(PendingAuthorization, OAuthGrant)>>,
+    /// Fournisseurs que cette version peut contacter ; par défaut, ceux dont
+    /// les identifiants client ont été compilés.
+    usable: fn(OAuthProvider) -> bool,
 }
 
 /// Jetons d'un compte gardés en mémoire.
@@ -72,7 +75,20 @@ impl<O: OAuthClient, K: SecretStore> TokenBroker<O, K> {
             clock,
             slots: std::sync::Mutex::new(HashMap::new()),
             pending: std::sync::Mutex::new(None),
+            usable: |provider| provider.config().is_usable(),
         }
+    }
+
+    /// Remplace la liste des fournisseurs utilisables (tests : la CI
+    /// compile sans les identifiants Google).
+    #[must_use]
+    pub fn with_usable(self, usable: fn(OAuthProvider) -> bool) -> Self {
+        Self { usable, ..self }
+    }
+
+    /// Vrai si cette version peut contacter `provider`.
+    pub fn is_usable(&self, provider: OAuthProvider) -> bool {
+        (self.usable)(provider)
     }
 
     /// Heure de l'horloge murale du gestionnaire (secondes).
@@ -198,6 +214,9 @@ impl<O: OAuthClient, K: SecretStore> TokenBroker<O, K> {
         source: &OAuthSource,
         unsaved: Option<Secret>,
     ) -> Result<OAuthGrant, AuthError> {
+        if !self.is_usable(source.provider) {
+            return Err(AuthError::ProviderNotConfigured);
+        }
         let refresh = match unsaved {
             Some(refresh) => refresh,
             None => self

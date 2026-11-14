@@ -519,6 +519,9 @@ pub fn auth_error_of(error: &TokenError) -> crate::auth::AuthError {
     use crate::auth::AuthError;
     match error {
         TokenError::ReauthRequired => AuthError::ReauthRequired,
+        // Ni reconnexion (vouée à l'échec) ni panne passagère (nouveaux
+        // essais en boucle) : refus définitif de cette version.
+        TokenError::ProviderNotConfigured => AuthError::ProviderNotConfigured,
         TokenError::Network(_) => AuthError::ProviderUnavailable {
             message: error.to_string(),
         },
@@ -586,6 +589,10 @@ pub enum TokenError {
     /// ne pourrait ni recevoir ni envoyer.
     #[error("accès aux messages refusé")]
     MailAccessRefused,
+    /// Cette version de l'application n'a pas reçu, à la compilation, les
+    /// identifiants client du fournisseur : rien ne lui est envoyé.
+    #[error("fournisseur non configuré dans cette version")]
+    ProviderNotConfigured,
     /// Connexion Google abandonnée ou refusée pendant un ajout de compte.
     /// Google peut bloquer un nouveau compte (plafond d'utilisateurs d'une
     /// application non validée) sans le dire à Norelly : le mot de passe

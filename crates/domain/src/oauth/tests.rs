@@ -413,6 +413,15 @@ fn only_a_network_failure_makes_the_provider_unavailable() {
 }
 
 #[test]
+fn unconfigured_provider_is_a_definitive_refusal_without_reconnection() {
+    use crate::auth::AuthError;
+    assert_eq!(
+        auth_error_of(&TokenError::ProviderNotConfigured),
+        AuthError::ProviderNotConfigured
+    );
+}
+
+#[test]
 fn sign_in_without_refresh_token_is_refused() {
     assert_eq!(
         require_offline_access(None),

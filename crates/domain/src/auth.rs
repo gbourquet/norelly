@@ -95,6 +95,12 @@ pub enum AuthError {
     /// plus tard peut aboutir.
     #[error("fournisseur indisponible : {message}")]
     ProviderUnavailable { message: String },
+    /// Compte OAuth d'un fournisseur dont cette version de l'application
+    /// n'a pas les identifiants client : rien n'a été envoyé, ni au
+    /// fournisseur ni au serveur ; ni reconnexion ni nouvel essai n'y
+    /// changent rien.
+    #[error("fournisseur non configuré dans cette version")]
+    ProviderNotConfigured,
 }
 
 /// Choisit la méthode d'authentification IMAP.

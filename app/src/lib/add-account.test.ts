@@ -446,6 +446,19 @@ describe("se connecter avec Google", () => {
     );
   });
 
+  it("version sans identifiants Google : message clair, rien d'autre", async () => {
+    const { api } = fakeApi(found, [
+      { kind: "failed", protocol: null, failure: "oauth_not_configured", detail: null },
+    ]);
+    const f = gmail(api);
+    await f.detectProvider();
+    await f.signInWithProvider();
+    expect(f.step).toBe("form");
+    expect(f.message).toBe(
+      "Cette version de Norelly ne peut pas se connecter à ce fournisseur. Installez la version publiée de Norelly ou, pour Gmail, utilisez un mot de passe d'application.",
+    );
+  });
+
   it("une adresse Microsoft ne propose jamais le mot de passe", async () => {
     const { api } = fakeApi(found, []);
     const f = gmail(api);

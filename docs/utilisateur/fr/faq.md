@@ -74,9 +74,12 @@ sous Linux).
 
 Dans ce même dossier de données : le fichier `norelly.log` (et
 `norelly.log.1`, le précédent). Il décrit ce que fait Norelly (connexions,
-synchronisation, erreurs) sans jamais contenir de mot de passe. Joignez-le
-à votre signalement : il aide à comprendre ce qui s'est passé. Il ne
-grossit pas indéfiniment : les deux fichiers restent petits.
+synchronisation, erreurs) et aide à comprendre ce qui s'est passé. Il ne
+contient ni mot de passe ni contenu de message, mais il cite les noms de
+vos serveurs et de vos dossiers, et parfois des adresses (par exemple un
+destinataire refusé par le serveur) : relisez-le avant de le joindre à un
+signalement public. Il ne grossit pas indéfiniment : les deux fichiers
+restent petits, et seul votre compte sur l'ordinateur peut les lire.
 
 ## Norelly envoie-t-il des informations sur moi ?
 

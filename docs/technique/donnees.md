@@ -11,7 +11,7 @@ Dossier de données de l'application (`app_data_dir` de Tauri, identifiant
 |---|---|
 | `norelly.sqlite3` (+ `-wal`, `-shm`) | Base SQLite unique, tous comptes (ADR-003) |
 | `accounts/<compte>/…` | Messages bruts `.eml.zst` par empreinte de contenu (`BlobStore`) et données locales du compte |
-| `norelly.log` (+ `norelly.log.1`) | Journaux de l'application (niveau INFO au plus), 2 Mio par fichier, une seule archive (`app/src-tauri/src/logs.rs`) ; aucun secret |
+| `norelly.log` (+ `norelly.log.1`) | Journaux de l'application (niveau INFO au plus), 2 Mio par fichier, une seule archive, droits 0600 (`app/src-tauri/src/logs.rs`) ; aucun secret ni contenu de message, mais serveurs, noms de dossiers et parfois adresses |
 | `mots-de-passe.json` | Seulement en dérogation (aucun trousseau, consentement) : secrets en clair, droits 0600, écriture atomique |
 
 Dossier de cache : `pieces-jointes/` (pièces ouvertes, dossier privé).

@@ -8,7 +8,7 @@ use norelly_domain::account::AccountId;
 use norelly_domain::address::EmailAddress;
 use norelly_domain::credentials::{Credentials, Username};
 use norelly_domain::endpoint::{Host, Protocol, Security, ServerEndpoint};
-use norelly_domain::oauth::OAuthProvider;
+use norelly_domain::oauth::{OAuthConfig, OAuthProvider};
 use norelly_domain::security::PlaintextPolicy;
 
 use super::*;
@@ -622,7 +622,7 @@ async fn unconfigured_provider_is_refused_without_keyring_or_provider() {
     // Une lecture du trousseau donnerait `SecretStoreUnavailable`.
     keyring.locked.store(true, Ordering::SeqCst);
     let broker = TokenBroker::new(Provider::default(), keyring, Arc::new(|| 1_000_000))
-        .with_usable(|_| false);
+        .with_configs(unconfigured_google_and_microsoft);
     assert_eq!(
         broker.access_token(&source()).await.map(|_| ()),
         Err(AuthError::ProviderNotConfigured)
@@ -635,7 +635,7 @@ async fn only_the_unconfigured_provider_is_refused() {
     let f = fixture(Some("r1"), Provider::default()).await;
     let broker = Arc::try_unwrap(f.broker)
         .unwrap_or_else(|_| panic!("gestionnaire partagé"))
-        .with_usable(|p| p != OAuthProvider::Google);
+        .with_configs(unconfigured_google);
     assert!(broker.is_usable(OAuthProvider::Microsoft));
     assert!(!broker.is_usable(OAuthProvider::Google));
     assert_eq!(
@@ -652,5 +652,25 @@ fn by_default_a_provider_is_usable_when_its_identifiers_were_compiled_in() {
     let broker = TokenBroker::new(Provider::default(), Keyring::default(), Arc::new(|| 0));
     for provider in [OAuthProvider::Microsoft, OAuthProvider::Google] {
         assert_eq!(broker.is_usable(provider), provider.config().is_usable());
+    }
+}
+
+/// Version sans identifiants Google.
+fn unconfigured_google(provider: OAuthProvider) -> OAuthConfig {
+    match provider {
+        OAuthProvider::Google => OAuthConfig {
+            client_id: "",
+            client_secret: Some(""),
+            ..provider.config().clone()
+        },
+        OAuthProvider::Microsoft => provider.config().clone(),
+    }
+}
+
+/// Aucun fournisseur utilisable.
+fn unconfigured_google_and_microsoft(provider: OAuthProvider) -> OAuthConfig {
+    OAuthConfig {
+        client_id: "",
+        ..provider.config().clone()
     }
 }

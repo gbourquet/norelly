@@ -303,6 +303,11 @@ struct TokenResponse {
 struct IdTokenClaims {
     preferred_username: Option<String>,
     email: Option<String>,
+    iss: Option<String>,
+    /// Chaîne ou liste de chaînes (OpenID Connect).
+    aud: Option<serde_json::Value>,
+    /// Booléen, ou chaîne `"true"`/`"false"` (déjà vu chez Google).
+    email_verified: Option<serde_json::Value>,
 }
 
 /// Identité portée par un `id_token` (JWT `en-tête.contenu.signature`).
@@ -320,6 +325,21 @@ fn identity_of(id_token: &str) -> Option<OAuthIdentity> {
     Some(OAuthIdentity {
         preferred_username: claims.preferred_username,
         email: claims.email,
+        issuer: claims.iss,
+        audience: match claims.aud {
+            Some(serde_json::Value::String(aud)) => vec![aud],
+            Some(serde_json::Value::Array(auds)) => auds
+                .into_iter()
+                .filter_map(|a| a.as_str().map(str::to_owned))
+                .collect(),
+            _ => Vec::new(),
+        },
+        email_verified: match claims.email_verified {
+            Some(serde_json::Value::Bool(v)) => Some(v),
+            Some(serde_json::Value::String(v)) if v == "true" => Some(true),
+            Some(serde_json::Value::String(v)) if v == "false" => Some(false),
+            _ => None,
+        },
     })
 }
 

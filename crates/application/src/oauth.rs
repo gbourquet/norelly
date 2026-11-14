@@ -19,7 +19,8 @@ use norelly_domain::capabilities::ServerCapabilities;
 use norelly_domain::connection::ConnectionError;
 use norelly_domain::credentials::Secret;
 use norelly_domain::oauth::{
-    AccessToken, OAuthProvider, OAuthSource, PendingAuthorization, TokenError, auth_error_of,
+    AccessToken, OAuthConfig, OAuthProvider, OAuthSource, PendingAuthorization, TokenError,
+    auth_error_of,
 };
 use norelly_domain::ports::{
     ConnectRequest, MailSender, OAuthClient, OAuthGrant, OutgoingMessage, RemoteMailboxConnector,
@@ -45,9 +46,9 @@ pub struct TokenBroker<O, K> {
     /// Connexion d'un ajout de compte qui n'a pas abouti, en mémoire
     /// seulement, jusqu'au prochain essai.
     pending: std::sync::Mutex<Option<(PendingAuthorization, OAuthGrant)>>,
-    /// Fournisseurs que cette version peut contacter ; par défaut, ceux dont
-    /// les identifiants client ont été compilés.
-    usable: fn(OAuthProvider) -> bool,
+    /// Configuration de chaque fournisseur ; par défaut, celle compilée
+    /// (identifiants client compris).
+    configs: fn(OAuthProvider) -> OAuthConfig,
 }
 
 /// Jetons d'un compte gardés en mémoire.
@@ -75,20 +76,25 @@ impl<O: OAuthClient, K: SecretStore> TokenBroker<O, K> {
             clock,
             slots: std::sync::Mutex::new(HashMap::new()),
             pending: std::sync::Mutex::new(None),
-            usable: |provider| provider.config().is_usable(),
+            configs: |provider| provider.config().clone(),
         }
     }
 
-    /// Remplace la liste des fournisseurs utilisables (tests : la CI
-    /// compile sans les identifiants Google).
+    /// Remplace la configuration des fournisseurs (tests : la CI compile
+    /// sans les identifiants Google).
     #[must_use]
-    pub fn with_usable(self, usable: fn(OAuthProvider) -> bool) -> Self {
-        Self { usable, ..self }
+    pub fn with_configs(self, configs: fn(OAuthProvider) -> OAuthConfig) -> Self {
+        Self { configs, ..self }
+    }
+
+    /// Configuration de `provider`.
+    pub fn config(&self, provider: OAuthProvider) -> OAuthConfig {
+        (self.configs)(provider)
     }
 
     /// Vrai si cette version peut contacter `provider`.
     pub fn is_usable(&self, provider: OAuthProvider) -> bool {
-        (self.usable)(provider)
+        self.config(provider).is_usable()
     }
 
     /// Heure de l'horloge murale du gestionnaire (secondes).

@@ -26,7 +26,7 @@ use norelly_domain::credentials::Username;
 use norelly_domain::endpoint::{Host, Security};
 use norelly_domain::oauth::{
     OAuthProvider, OAuthSource, TokenError, add_account_sign_in_error, is_mailbox_not_connected,
-    is_smtp_oauth_disabled, require_mail_access, require_offline_access, verify_identity,
+    is_smtp_oauth_disabled, require_mail_access, require_offline_access, verify_sign_in,
 };
 use norelly_domain::ports::OAuthClient;
 
@@ -287,7 +287,12 @@ where
                     }
                 },
             };
-        if let Err(e) = verify_identity(&request.address, grant.identity.as_ref()) {
+        if let Err(e) = verify_sign_in(
+            request.provider,
+            &self.broker.config(request.provider),
+            &request.address,
+            grant.identity.as_ref(),
+        ) {
             return AddAccountOutcome::OAuthFailed(e);
         }
         if let Err(e) = require_offline_access(grant.refresh_token.as_ref()) {
@@ -480,7 +485,12 @@ pub async fn reconnect_oauth_account<O: OAuthClient, K: SecretStore, D: AccountR
         .client()
         .authorize(provider, account.address())
         .await?;
-    verify_identity(account.address(), grant.identity.as_ref())?;
+    verify_sign_in(
+        provider,
+        &broker.config(provider),
+        account.address(),
+        grant.identity.as_ref(),
+    )?;
     require_offline_access(grant.refresh_token.as_ref())?;
     require_mail_access(provider, grant.granted_scopes.as_deref())?;
     let source = OAuthSource {

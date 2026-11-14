@@ -178,6 +178,7 @@ async fn authorize_opens_browser_and_exchanges_code() {
         Some(OAuthIdentity {
             preferred_username: Some("alice@outlook.com".to_owned()),
             email: Some("alice@outlook.com".to_owned()),
+            ..OAuthIdentity::default()
         })
     );
     let url = browser.url();
@@ -266,8 +267,39 @@ fn id_token_gives_the_signed_in_identity() {
         Ok(Some(OAuthIdentity {
             preferred_username: Some("+33600000000".to_owned()),
             email: Some("Bob@Live.fr".to_owned()),
+            ..OAuthIdentity::default()
         }))
     );
+    // Google : émetteur, destinataire (chaîne ou liste) et adresse vérifiée
+    // (booléen, ou chaîne que Google a déjà renvoyée).
+    let google = |claims: &str| identity(&id_token(claims)).ok().flatten();
+    let g = google(
+        r#"{"iss":"https://accounts.google.com","aud":"id.apps.googleusercontent.com","email":"a@gmail.com","email_verified":true}"#,
+    );
+    assert_eq!(
+        g,
+        Some(OAuthIdentity {
+            email: Some("a@gmail.com".to_owned()),
+            issuer: Some("https://accounts.google.com".to_owned()),
+            audience: vec!["id.apps.googleusercontent.com".to_owned()],
+            email_verified: Some(true),
+            ..OAuthIdentity::default()
+        })
+    );
+    let g = google(r#"{"aud":["x","y"],"email_verified":"true"}"#);
+    assert_eq!(
+        g.as_ref().map(|i| i.audience.clone()),
+        Some(vec!["x".to_owned(), "y".to_owned()])
+    );
+    assert_eq!(g.and_then(|i| i.email_verified), Some(true));
+    for raw in [r#""false""#, "false", r#""oui""#, "1"] {
+        assert_eq!(
+            google(&format!(r#"{{"email_verified":{raw}}}"#))
+                .and_then(|i| i.email_verified.filter(|v| *v)),
+            None,
+            "{raw}"
+        );
+    }
     assert_eq!(
         identity(&id_token(r#"{"sub":"x"}"#)),
         Ok(Some(OAuthIdentity::default()))

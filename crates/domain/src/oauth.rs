@@ -484,6 +484,61 @@ impl PendingAuthorization {
 pub struct OAuthIdentity {
     pub preferred_username: Option<String>,
     pub email: Option<String>,
+    /// Émetteur de l'`id_token` (`iss`).
+    pub issuer: Option<String>,
+    /// Destinataires de l'`id_token` (`aud`).
+    pub audience: Vec<String>,
+    /// Adresse `email` vérifiée par le fournisseur (`email_verified`).
+    pub email_verified: Option<bool>,
+}
+
+/// Émetteurs de l'`id_token` de Google.
+const GOOGLE_ISSUERS: [&str; 2] = ["https://accounts.google.com", "accounts.google.com"];
+
+/// Revendications de l'`id_token` propres au fournisseur. Google : émis
+/// par Google, pour l'identifiant client de `config`, adresse vérifiée
+/// (sinon le compte n'a pas prouvé qu'il la possède). Microsoft : non
+/// vérifiées ici.
+pub fn check_identity_claims(
+    provider: OAuthProvider,
+    config: &OAuthConfig,
+    identity: &OAuthIdentity,
+) -> Result<(), TokenError> {
+    if provider != OAuthProvider::Google {
+        return Ok(());
+    }
+    let issuer_ok = identity
+        .issuer
+        .as_deref()
+        .is_some_and(|iss| GOOGLE_ISSUERS.contains(&iss));
+    let audience_ok =
+        !config.client_id.is_empty() && identity.audience.iter().any(|a| a == config.client_id);
+    if !(issuer_ok && audience_ok) {
+        return Err(TokenError::Protocol(
+            "identité émise pour une autre application".to_owned(),
+        ));
+    }
+    if identity.email_verified == Some(true) {
+        Ok(())
+    } else {
+        Err(TokenError::WrongAccount)
+    }
+}
+
+/// Vérification complète de l'identité d'une connexion interactive faite
+/// avec `config` : revendications du fournisseur
+/// ([`check_identity_claims`]), puis compte de l'adresse
+/// ([`verify_identity`]).
+pub fn verify_sign_in(
+    provider: OAuthProvider,
+    config: &OAuthConfig,
+    address: &EmailAddress,
+    identity: Option<&OAuthIdentity>,
+) -> Result<(), TokenError> {
+    if let Some(identity) = identity {
+        check_identity_claims(provider, config, identity)?;
+    }
+    verify_identity(address, identity)
 }
 
 /// Refuse les jetons d'un autre compte que celui de `address` : erreur de

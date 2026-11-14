@@ -351,7 +351,98 @@ fn identity(preferred_username: Option<&str>, email: Option<&str>) -> OAuthIdent
     OAuthIdentity {
         preferred_username: preferred_username.map(str::to_owned),
         email: email.map(str::to_owned),
+        ..OAuthIdentity::default()
     }
+}
+
+fn google_identity(
+    issuer: Option<&str>,
+    audience: &[&str],
+    verified: Option<bool>,
+) -> OAuthIdentity {
+    OAuthIdentity {
+        email: Some("alice@gmail.com".to_owned()),
+        issuer: issuer.map(str::to_owned),
+        audience: audience.iter().map(|a| (*a).to_owned()).collect(),
+        email_verified: verified,
+        ..OAuthIdentity::default()
+    }
+}
+
+#[test]
+fn google_identity_comes_from_google_for_norelly_with_a_verified_address() {
+    let google = OAuthProvider::Google;
+    let config = google_with("id.apps.googleusercontent.com", "GOCSPX-s");
+    let id = "id.apps.googleusercontent.com";
+    for issuer in ["https://accounts.google.com", "accounts.google.com"] {
+        assert_eq!(
+            check_identity_claims(
+                google,
+                &config,
+                &google_identity(Some(issuer), &[id], Some(true))
+            ),
+            Ok(()),
+            "{issuer}"
+        );
+    }
+    for (identity, why) in [
+        (
+            google_identity(Some("https://evil.example"), &[id], Some(true)),
+            "émetteur étranger",
+        ),
+        (google_identity(None, &[id], Some(true)), "émetteur absent"),
+        (
+            google_identity(
+                Some("accounts.google.com"),
+                &["autre.apps.googleusercontent.com"],
+                Some(true),
+            ),
+            "autre application",
+        ),
+        (
+            google_identity(Some("accounts.google.com"), &[], Some(true)),
+            "destinataire absent",
+        ),
+    ] {
+        assert!(
+            matches!(
+                check_identity_claims(google, &config, &identity),
+                Err(TokenError::Protocol(_))
+            ),
+            "{why}"
+        );
+    }
+    for verified in [Some(false), None] {
+        assert_eq!(
+            check_identity_claims(
+                google,
+                &config,
+                &google_identity(Some("accounts.google.com"), &[id], verified)
+            ),
+            Err(TokenError::WrongAccount),
+            "adresse non vérifiée : {verified:?}"
+        );
+    }
+    // Un identifiant client vide (version sans identifiants) n'est jamais
+    // un destinataire valable.
+    let unconfigured = google_with("", "");
+    assert!(
+        check_identity_claims(
+            google,
+            &unconfigured,
+            &google_identity(Some("accounts.google.com"), &[""], Some(true))
+        )
+        .is_err()
+    );
+    // Microsoft : sans ces revendications (vérifiées ailleurs, à venir).
+    assert_eq!(
+        check_identity_claims(
+            OAuthProvider::Microsoft,
+            OAuthProvider::Microsoft.config(),
+            &identity(Some("a@outlook.com"), None)
+        ),
+        Ok(())
+    );
 }
 
 #[test]

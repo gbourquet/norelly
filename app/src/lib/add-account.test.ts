@@ -52,7 +52,11 @@ function fakeApi(discovery: Discovery, results: AddAccountResult[]) {
   const api: AccountApi = {
     listAccounts: vi.fn(async () => []),
     oauthProviderFor: vi.fn(async (address: string) =>
-      address.trim().endsWith("@outlook.com") ? ("microsoft" as const) : null,
+      address.trim().endsWith("@outlook.com")
+        ? ("microsoft" as const)
+        : address.trim().endsWith("@gmail.com")
+          ? ("google" as const)
+          : null,
     ),
     oauthSignInKept: vi.fn(async () => false),
     addOAuthAccount: vi.fn(async (input: AddOAuthAccountInput) => {
@@ -364,6 +368,81 @@ describe("serveurs DNS hors domaine", () => {
     const f = flow(api);
     await f.loadSecretsBackend();
     expect(f.secretsBackend).toBeNull();
+  });
+});
+
+describe("se connecter avec Google", () => {
+  function gmail(api: AccountApi): AddAccountFlow {
+    const f = new AddAccountFlow(api);
+    f.address = " alice@gmail.com ";
+    return f;
+  }
+
+  it("propose la connexion Google, et le mot de passe d'application en repli", async () => {
+    const { api, calls, oauthCalls } = fakeApi(found, [
+      { kind: "added", account, send_unchecked: false },
+    ]);
+    const f = gmail(api);
+    await f.detectProvider();
+    expect(f.oauthProvider).toBe("google");
+    expect(f.signInProvider).toBe("google");
+    expect(f.canUsePassword).toBe(true);
+    f.usePassword();
+    expect(f.signInProvider).toBeNull();
+    f.password = "abcd efgh ijkl mnop";
+    await f.submit();
+    expect(oauthCalls).toEqual([]);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.password).toBe("abcd efgh ijkl mnop");
+  });
+
+  it("revenir à la connexion Google efface le mot de passe saisi", async () => {
+    const { api } = fakeApi(found, []);
+    const f = gmail(api);
+    await f.detectProvider();
+    f.usePassword();
+    f.password = "secret";
+    f.useProviderSignIn();
+    expect(f.signInProvider).toBe("google");
+    expect(f.password).toBe("");
+  });
+
+  it("ajoute le compte par Google", async () => {
+    const { api, oauthCalls } = fakeApi(found, [{ kind: "added", account, send_unchecked: false }]);
+    const f = gmail(api);
+    await f.detectProvider();
+    await f.signInWithProvider();
+    expect(oauthCalls).toEqual([
+      { address: "alice@gmail.com", display_name: null, provider: "google" },
+    ]);
+    expect(f.step).toBe("done");
+  });
+
+  it("connexion Google refusée ou abandonnée : bascule vers le mot de passe d'application", async () => {
+    const { api } = fakeApi(found, [
+      { kind: "failed", protocol: null, failure: "oauth_google_refused", detail: null },
+    ]);
+    const f = gmail(api);
+    await f.detectProvider();
+    await f.signInWithProvider();
+    expect(f.step).toBe("form");
+    expect(f.signInProvider).toBeNull();
+    expect(f.appPasswordHelp).toBe(true);
+    expect(f.message).toMatch(/mot de passe d'application/);
+    expect(f.message).toMatch(/100/);
+  });
+
+  it("une adresse Microsoft ne propose jamais le mot de passe", async () => {
+    const { api } = fakeApi(found, []);
+    const f = gmail(api);
+    await f.detectProvider();
+    f.usePassword();
+    f.address = "alice@outlook.com";
+    await f.detectProvider();
+    expect(f.canUsePassword).toBe(false);
+    expect(f.signInProvider).toBe("microsoft");
+    f.usePassword();
+    expect(f.signInProvider).toBe("microsoft");
   });
 });
 

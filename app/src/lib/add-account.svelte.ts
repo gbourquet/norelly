@@ -108,6 +108,34 @@ export class AddAccountFlow {
    *  formulaire propose alors « Se connecter avec … » au lieu du mot de
    *  passe. */
   oauthProvider = $state<OAuthProviderDto | null>(null);
+
+  /** Compte Google : l'utilisateur a choisi le mot de passe d'application
+   *  plutôt que « Se connecter avec Google ». */
+  passwordInstead = $state(false);
+
+  /** Fournisseur de « Se connecter avec … » proposé par le formulaire, ou
+   *  `null` pour la connexion par mot de passe. */
+  get signInProvider(): OAuthProviderDto | null {
+    return this.canUsePassword && this.passwordInstead ? null : this.oauthProvider;
+  }
+
+  /** Le mot de passe d'application reste possible chez Google ; Microsoft
+   *  refuse tout mot de passe. */
+  get canUsePassword(): boolean {
+    return this.oauthProvider === "google";
+  }
+
+  /** « Utiliser un mot de passe d'application » (Google). */
+  usePassword(): void {
+    if (this.canUsePassword) this.passwordInstead = true;
+  }
+
+  /** Retour à « Se connecter avec … » : le mot de passe saisi est effacé. */
+  useProviderSignIn(): void {
+    this.passwordInstead = false;
+    this.appPasswordHelp = false;
+    this.password = "";
+  }
   /** Le dernier essai vient de la saisie manuelle des serveurs. */
   #manual = false;
   /** Le dernier essai passe par le fournisseur OAuth. */
@@ -139,6 +167,7 @@ export class AddAccountFlow {
     this.unconfirmed = [];
     this.confirmed = [];
     this.appPasswordHelp = false;
+    this.passwordInstead = false;
     this.secretsBackend = null;
     this.#manual = false;
     this.#oauth = false;
@@ -165,7 +194,10 @@ export class AddAccountFlow {
     try {
       const provider = address ? await this.#api.oauthProviderFor(address) : null;
       // Réponse périmée : l'adresse a changé pendant l'appel.
-      if (this.address.trim() === address) this.oauthProvider = provider;
+      if (this.address.trim() === address && provider !== this.oauthProvider) {
+        this.oauthProvider = provider;
+        this.passwordInstead = false;
+      }
     } catch {
       this.oauthProvider = null;
     }
@@ -394,7 +426,13 @@ export class AddAccountFlow {
         this.step = "plaintext";
         break;
       case "failed":
-        if (result.failure === "google_app_password") {
+        if (result.failure === "oauth_google_refused") {
+          // Google a pu bloquer le nouveau compte : mot de passe
+          // d'application, sur le même écran.
+          this.step = "form";
+          this.passwordInstead = true;
+          this.appPasswordHelp = true;
+        } else if (result.failure === "google_app_password") {
           // Seul le mot de passe est à changer : retour à l'écran d'où
           // vient l'essai, champ du mot de passe vidé.
           this.step = this.#manual ? "manual" : "form";
@@ -437,6 +475,8 @@ function failureMessage(
         return m.add_fail_reauth_required();
       case "oauth_cancelled":
         return m.add_fail_oauth_cancelled();
+      case "oauth_google_refused":
+        return m.add_fail_oauth_google_refused();
       case "oauth_wrong_account":
         return m.add_fail_oauth_wrong_account({ address });
       case "oauth_offline_access":

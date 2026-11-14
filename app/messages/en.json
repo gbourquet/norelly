@@ -728,11 +728,19 @@
   "add_oauth_hint_microsoft": "Outlook.com and Hotmail do not accept a password here: sign in with Microsoft in your browser. Norelly never sees your password.",
   "add_oauth_waiting_microsoft": "Sign in in your browser window, then come back here.",
   "cmd_account_reconnect": "Sign in again to the selected account",
-  "cmd_account_reconnect_keywords": "reconnect sign in microsoft outlook expired token",
+  "cmd_account_reconnect_keywords": "reconnect sign in microsoft outlook google gmail expired token",
   "sidebar_reconnect": "Sign in again",
   "sidebar_reauth_required": "Sign-in required: {address}",
   "notice_reconnected": "Account reconnected.",
   "sidebar_reauth_hint": "Sign-in required",
   "failure_microsoft_imap_unavailable": "mailbox unavailable at Microsoft (IMAP access)",
-  "add_fail_microsoft_imap_unavailable": "{prefix}your Microsoft account is signed in, but Outlook.com refuses access to the mailbox. Check that IMAP access is turned on in Outlook.com (Settings, Mail, Forwarding and IMAP), then try again in a few minutes."
+  "add_fail_microsoft_imap_unavailable": "{prefix}your Microsoft account is signed in, but Outlook.com refuses access to the mailbox. Check that IMAP access is turned on in Outlook.com (Settings, Mail, Forwarding and IMAP), then try again in a few minutes.",
+  "add_oauth_sign_in_google": "Sign in with Google",
+  "add_oauth_hint_google": "Sign in with Google in your browser: Norelly never sees your password. Google will first show “Google hasn't verified this app”: click “Advanced”, then “Go to Norelly (unsafe)”. Norelly simply hasn't been reviewed by Google yet.",
+  "add_oauth_waiting_google": "Sign in in your browser window, then come back here. If Google shows “Google hasn't verified this app”, click “Advanced”, then “Go to Norelly (unsafe)”.",
+  "add_oauth_testing_google": "Connecting to your Gmail mailbox…",
+  "add_use_app_password": "Use an app password",
+  "add_use_google_sign_in": "Sign in with Google instead",
+  "add_fail_oauth_google_refused": "Signing in with Google did not complete. If Google says Norelly has reached its maximum number of users (100, until Google verifies the app), or if you would rather not go through that page, use an app password: the steps are below.",
+  "failure_oauth_google_refused": "Google sign-in refused or abandoned"
 }

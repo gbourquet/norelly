@@ -10,7 +10,7 @@
   import ServerFields from "./ServerFields.svelte";
   import { AddAccountFlow, sourceLabel, issueText } from "../lib/add-account.svelte";
   import { m } from "../lib/paraglide/messages.js";
-  import type { AccountApi, AccountDto } from "../lib/ipc/api";
+  import type { AccountApi, AccountDto, OAuthProviderDto } from "../lib/ipc/api";
 
   interface Props {
     open: boolean;
@@ -25,6 +25,16 @@
   // L'API ne change pas pendant la vie du composant.
   // svelte-ignore state_referenced_locally
   const flow = new AddAccountFlow(api);
+  /** Libellés de « Se connecter avec … », par fournisseur. */
+  const providerText: Record<
+    "signIn" | "hint" | "waiting" | "testing",
+    Record<OAuthProviderDto, () => string>
+  > = {
+    signIn: { microsoft: m.add_oauth_sign_in_microsoft, google: m.add_oauth_sign_in_google },
+    hint: { microsoft: m.add_oauth_hint_microsoft, google: m.add_oauth_hint_google },
+    waiting: { microsoft: m.add_oauth_waiting_microsoft, google: m.add_oauth_waiting_google },
+    testing: { microsoft: m.add_oauth_testing_microsoft, google: m.add_oauth_testing_google },
+  };
   /** Confirmation renforcée exigée quand l'empreinte a changé. */
   let acknowledgeChange = $state(false);
 
@@ -79,7 +89,7 @@
     <form
       onsubmit={(e) => {
         e.preventDefault();
-        void (flow.oauthProvider ? flow.signInWithProvider() : flow.submit());
+        void (flow.signInProvider ? flow.signInWithProvider() : flow.submit());
       }}
     >
       <label for="account-address">{m.add_address()}</label>
@@ -93,7 +103,7 @@
         spellcheck="false"
         required
       />
-      {#if flow.oauthProvider === null}
+      {#if flow.signInProvider === null}
         <label for="account-password">{m.add_password()}</label>
         <input
           id="account-password"
@@ -106,8 +116,8 @@
       {/if}
       <label for="account-name">{m.add_display_name()}</label>
       <input id="account-name" class="input" bind:value={flow.displayName} autocomplete="name" />
-      {#if flow.oauthProvider !== null}
-        <p class="hint">{m.add_oauth_hint_microsoft()}</p>
+      {#if flow.signInProvider !== null}
+        <p class="hint">{providerText.hint[flow.signInProvider]()}</p>
       {:else if flow.secretsBackend === "system_keyring"}
         <p class="hint">
           {m.add_password_hint()}
@@ -121,8 +131,20 @@
             flow.step = "manual";
           }}>{m.add_manual()}</button
         >
-        {#if flow.oauthProvider !== null}
-          <button class="btn btn-primary" type="submit">{m.add_oauth_sign_in_microsoft()}</button>
+        {#if flow.signInProvider !== null && flow.canUsePassword}
+          <button class="btn" type="button" onclick={() => flow.usePassword()}>
+            <KeyRoundIcon size={14} aria-hidden="true" />
+            {m.add_use_app_password()}
+          </button>
+        {:else if flow.signInProvider === null && flow.canUsePassword}
+          <button class="btn" type="button" onclick={() => flow.useProviderSignIn()}>
+            {m.add_use_google_sign_in()}
+          </button>
+        {/if}
+        {#if flow.signInProvider !== null}
+          <button class="btn btn-primary" type="submit"
+            >{providerText.signIn[flow.signInProvider]()}</button
+          >
         {:else}
           <button class="btn btn-primary" type="submit">{m.common_continue()}</button>
         {/if}
@@ -147,12 +169,12 @@
       {:else if flow.waitingForBrowser}
         <p>
           <LoaderIcon size={14} class="spin" aria-hidden="true" />
-          {m.add_oauth_waiting_microsoft()}
+          {flow.oauthProvider ? providerText.waiting[flow.oauthProvider]() : ""}
         </p>
       {:else if flow.reusingSignIn}
         <p>
           <LoaderIcon size={14} class="spin" aria-hidden="true" />
-          {m.add_oauth_testing_microsoft()}
+          {flow.oauthProvider ? providerText.testing[flow.oauthProvider]() : ""}
         </p>
       {:else}
         <p>

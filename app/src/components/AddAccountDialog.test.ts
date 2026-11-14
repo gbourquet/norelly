@@ -22,7 +22,11 @@ function fakeApi(results: AddAccountResult[]): AccountApi {
   return {
     listAccounts: vi.fn(async () => []),
     oauthProviderFor: vi.fn(async (address: string) =>
-      address.trim().endsWith("@outlook.com") ? ("microsoft" as const) : null,
+      address.trim().endsWith("@outlook.com")
+        ? ("microsoft" as const)
+        : address.trim().endsWith("@gmail.com")
+          ? ("google" as const)
+          : null,
     ),
     oauthSignInKept: vi.fn(async () => false),
     addOAuthAccount: vi.fn(async () => {
@@ -109,6 +113,9 @@ describe("fenêtre d'ajout de compte", () => {
     await fireEvent.input(document.querySelector("#account-address") as HTMLInputElement, {
       target: { value: "alice@gmail.com" },
     });
+    await fireEvent.click(
+      await screen.findByRole("button", { name: "Utiliser un mot de passe d'application" }),
+    );
     await fireEvent.input(document.querySelector("#account-password") as HTMLInputElement, {
       target: { value: "mot-de-passe-du-compte" },
     });
@@ -135,5 +142,50 @@ describe("fenêtre d'ajout de compte", () => {
     const api = fakeApi([]);
     render(AddAccountDialog, { open: true, api, onClose: vi.fn(), onAdded: vi.fn() });
     expect(await screen.findByText(/jamais dans les fichiers de Norelly/)).toBeInTheDocument();
+  });
+
+  it("adresse Gmail : connexion Google expliquée, mot de passe d'application en repli", async () => {
+    const api = fakeApi([]);
+    render(AddAccountDialog, { open: true, api, onClose: vi.fn(), onAdded: vi.fn() });
+    await fireEvent.input(document.querySelector("#account-address") as HTMLInputElement, {
+      target: { value: "alice@gmail.com" },
+    });
+    const signIn = await screen.findByRole("button", { name: "Se connecter avec Google" });
+    expect(signIn).toBeTruthy();
+    // L'avertissement de Google est expliqué avant d'ouvrir le navigateur.
+    expect(screen.getByText(/Paramètres avancés/)).toBeTruthy();
+    expect(document.querySelector("#account-password")).toBeNull();
+    await fireEvent.click(
+      screen.getByRole("button", { name: "Utiliser un mot de passe d'application" }),
+    );
+    expect(document.querySelector("#account-password")).not.toBeNull();
+    expect(screen.queryByRole("button", { name: "Se connecter avec Google" })).toBeNull();
+    await fireEvent.click(screen.getByRole("button", { name: "Se connecter avec Google plutôt" }));
+    expect(document.querySelector("#account-password")).toBeNull();
+  });
+
+  it("connexion Google refusée : étapes du mot de passe d'application affichées", async () => {
+    const api = fakeApi([
+      { kind: "failed", protocol: null, failure: "oauth_google_refused", detail: null },
+    ]);
+    render(AddAccountDialog, { open: true, api, onClose: vi.fn(), onAdded: vi.fn() });
+    await fireEvent.input(document.querySelector("#account-address") as HTMLInputElement, {
+      target: { value: "alice@gmail.com" },
+    });
+    await fireEvent.click(await screen.findByRole("button", { name: "Se connecter avec Google" }));
+    await screen.findByText("Créer un mot de passe d'application Google");
+    expect(document.querySelector("#account-password")).not.toBeNull();
+  });
+
+  it("adresse Microsoft : aucun mot de passe proposé", async () => {
+    const api = fakeApi([]);
+    render(AddAccountDialog, { open: true, api, onClose: vi.fn(), onAdded: vi.fn() });
+    await fireEvent.input(document.querySelector("#account-address") as HTMLInputElement, {
+      target: { value: "alice@outlook.com" },
+    });
+    await screen.findByRole("button", { name: "Se connecter avec Microsoft" });
+    expect(
+      screen.queryByRole("button", { name: "Utiliser un mot de passe d'application" }),
+    ).toBeNull();
   });
 });

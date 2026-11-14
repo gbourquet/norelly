@@ -70,8 +70,10 @@ n'est pas chiffrée (ADR-003) : on s'appuie sur le chiffrement du disque.
   refusée avant toute connexion (réponse d'interface périmée, adresse
   changée pendant la saisie).
 - Identifiant client public embarqué (application de bureau). Microsoft :
-  sans secret. Google : le `client_secret` du client « application de
-  bureau » est embarqué lui aussi ; il n'est pas confidentiel (même valeur
+  sans secret. Google : identifiant et `client_secret` du client
+  « application de bureau » fournis à la compilation (secrets de la CI,
+  jamais dans le dépôt ; ADR-013), masqués dans `Debug` ; le secret n'est
+  pas confidentiel (même valeur
   dans chaque copie de l'application, toléré par Google pour les
   applications installées) et ne protège rien : le code d'autorisation
   reste protégé par PKCE et `state`, et le jeton n'est présenté qu'aux

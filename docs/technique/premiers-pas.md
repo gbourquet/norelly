@@ -34,7 +34,11 @@ pnpm -C app tauri dev
 ```
 
 L'application démarre avec un profil réel (dossier de données de
-l'utilisateur). Pour essayer sans compte personnel, lancez Dovecot et
+l'utilisateur). « Se connecter avec Google » n'apparaît que si les
+identifiants du client Google sont fournis à la compilation
+(`NORELLY_GOOGLE_CLIENT_ID=… NORELLY_GOOGLE_CLIENT_SECRET=… pnpm -C app
+tauri dev`, valeurs de la console Google Cloud du projet) ; sans eux, une
+adresse Gmail passe par le mot de passe d'application (ADR-013). Pour essayer sans compte personnel, lancez Dovecot et
 Mailpit en local comme le font les e2e, ou utilisez un compte de test
 dédié (jamais un compte personnel dans les tests).
 

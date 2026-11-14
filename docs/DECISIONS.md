@@ -671,9 +671,18 @@ est majoritairement écrit par Claude et relu par le mainteneur.
     `access_type=offline` et `prompt=select_account consent` (sans quoi
     Google ne redonne pas de jeton de rafraîchissement), rafraîchissement
     sans scope ; le client « application de bureau » de Google exige son
-    `client_secret` au point d'accès des jetons : il est embarqué dans la
-    configuration du domaine, comme l'identifiant client, car il n'est pas
-    confidentiel (même valeur dans chaque copie, code protégé par PKCE) ;
+    `client_secret` au point d'accès des jetons. Ni lui ni l'identifiant
+    client ne sont écrits dans le dépôt (public) : la protection au push de
+    GitHub les refuse, et un secret publié peut être révoqué par Google.
+    Décision du mainteneur : ils sont fournis **à la compilation**
+    (`NORELLY_GOOGLE_CLIENT_ID`, `NORELLY_GOOGLE_CLIENT_SECRET`, lus par
+    `option_env!` dans le domaine, sans E/S), depuis les secrets de la CI
+    pour les versions publiées (build refusé s'ils manquent). Ils restent
+    non confidentiels (même valeur dans chaque copie, code protégé par
+    PKCE). Sans eux (développement, tests), « Se connecter avec Google »
+    n'est pas proposé et une adresse Gmail garde le mot de passe
+    d'application (`OAuthProvider::offered_for`) ; les e2e compilent avec
+    des valeurs factices ;
     fournisseur `google` accepté en base (migration 14) ;
   - jeton de rafraîchissement dans le trousseau, sous la clé IMAP du
     compte ; jeton d'accès en mémoire ; fournisseur enregistré sur le

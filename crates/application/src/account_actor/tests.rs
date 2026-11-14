@@ -233,6 +233,26 @@ async fn provider_missing_from_this_version_stops_the_actor_without_retrying() {
     r.handle.shutdown().await;
 }
 
+/// Événements jusqu'à la fin du tour complet (progression `done == total`).
+async fn until_synced(r: &mut Running) -> Vec<SyncEvent> {
+    let mut seen = Vec::new();
+    loop {
+        let event = wait_for(&mut r.events, WAIT, |_| true).await;
+        let end = matches!(event, SyncEvent::SyncProgress { done, total, .. } if done == total);
+        seen.push(event);
+        if end {
+            return seen;
+        }
+    }
+}
+
+fn refresh(e: &SyncEvent) -> bool {
+    matches!(
+        e,
+        SyncEvent::FoldersChanged { .. } | SyncEvent::FolderChanged { .. }
+    )
+}
+
 #[tokio::test]
 async fn first_sync_reports_progress_and_shows_folders_and_messages_before_the_end() {
     let imap = FakeImap::new();
@@ -240,36 +260,87 @@ async fn first_sync_reports_progress_and_shows_folders_and_messages_before_the_e
     imap.append("INBOX", b"Subject: a\r\n\r\n", Flags::default(), 1);
     imap.append("Archives", b"Subject: b\r\n\r\n", Flags::default(), 2);
     let mut r = start(&imap);
-    let mut seen = Vec::new();
-    loop {
-        let event = wait_for(&mut r.events, WAIT, |_| true).await;
-        let end = matches!(event, SyncEvent::SyncProgress { done, total, .. } if done == total);
-        seen.push(event);
-        if end {
-            break;
-        }
-    }
+    let seen = until_synced(&mut r).await;
     let position = |pred: &dyn Fn(&SyncEvent) -> bool| seen.iter().position(pred);
-    let folders = position(&|e| matches!(e, SyncEvent::FoldersChanged { .. }));
     let started = position(&|e| matches!(e, SyncEvent::SyncProgress { done: 0, .. }));
-    let first_change = position(&folder_changed);
-    let last = seen.len() - 1;
+    let Some(started) = started else {
+        panic!("progression non annoncée : {seen:?}");
+    };
     assert!(
-        matches!((folders, started), (Some(f), Some(s)) if f < s),
+        seen[..started]
+            .iter()
+            .any(|e| matches!(e, SyncEvent::FoldersChanged { .. })),
         "dossiers affichés dès le début : {seen:?}"
     );
+    let last = seen.len() - 1;
+    let ends_of_mailboxes = position(&|e| matches!(e, SyncEvent::FolderChanged { .. }));
     assert!(
-        first_change.is_some_and(|c| c < last),
+        seen[started + 1..last].iter().any(refresh),
         "messages affichés avant la fin : {seen:?}"
     );
-    let steps: Vec<(usize, usize)> = seen
+    // La fin n'est annoncée qu'après la mise à jour finale des dossiers.
+    assert!(
+        ends_of_mailboxes.is_some_and(|c| c < last),
+        "fin annoncée en dernier : {seen:?}"
+    );
+    assert_eq!(
+        seen.last().map(|e| matches!(
+            e,
+            SyncEvent::SyncProgress {
+                done: 2,
+                total: 2,
+                ..
+            }
+        )),
+        Some(true)
+    );
+    // Rien ne suit la fin annoncée : l'écran est déjà à jour.
+    let after = tokio::time::timeout(Duration::from_millis(300), async {
+        loop {
+            match r.events.recv().await {
+                Ok(e) if refresh(&e) => return e,
+                Ok(_) | Err(broadcast::error::RecvError::Lagged(_)) => {}
+                Err(e) => panic!("canal fermé : {e}"),
+            }
+        }
+    })
+    .await;
+    assert!(
+        after.is_err(),
+        "mise à jour après la fin annoncée : {after:?}"
+    );
+    r.handle.shutdown().await;
+}
+
+#[tokio::test]
+async fn refreshes_during_the_sync_are_grouped() {
+    let imap = FakeImap::new();
+    // Trois lots d'en-têtes (500 par lot) dans la même boîte.
+    for n in 1..=1_200_i64 {
+        imap.append(
+            "INBOX",
+            format!("Subject: m{n}\r\n\r\n").as_bytes(),
+            Flags::default(),
+            n,
+        );
+    }
+    let mut r = start(&imap);
+    let seen = until_synced(&mut r).await;
+    let started = seen
         .iter()
-        .filter_map(|e| match e {
-            SyncEvent::SyncProgress { done, total, .. } => Some((*done, *total)),
-            _ => None,
-        })
-        .collect();
-    assert_eq!(steps, vec![(0, 2), (1, 2), (2, 2)]);
+        .position(|e| matches!(e, SyncEvent::SyncProgress { done: 0, .. }))
+        .unwrap_or_else(|| panic!("progression non annoncée : {seen:?}"));
+    // Avant la rafale de fin (une mise à jour par boîte modifiée) : au plus
+    // un signal par seconde, pas un par lot.
+    let during = seen[started..]
+        .iter()
+        .take_while(|e| !matches!(e, SyncEvent::FolderChanged { .. }))
+        .filter(|e| refresh(e))
+        .count();
+    assert!(
+        (1..3).contains(&during),
+        "{during} signaux pendant le tour : {seen:?}"
+    );
     r.handle.shutdown().await;
 }
 

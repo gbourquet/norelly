@@ -61,7 +61,9 @@ pub enum SyncEvent {
         account: AccountId,
         mailbox: MailboxId,
     },
-    /// La liste des dossiers a changé (ou a été lue pour la première fois).
+    /// La liste des dossiers a changé (ou a été lue pour la première fois),
+    /// ou, pendant un tour complet, le contenu de dossiers du compte (signal
+    /// regroupé : l'interface relit dossiers et liste).
     FoldersChanged { account: AccountId },
     /// Nouveaux messages non lus arrivés dans la boîte de réception d'un
     /// compte (notification ; contenu filtré ensuite selon les

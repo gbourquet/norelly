@@ -317,6 +317,39 @@ struct Shared<C, M, B> {
     halted: Halted,
 }
 
+/// Intervalle minimal entre deux signaux à l'interface pendant un tour
+/// complet (rechargement, progression).
+const LIVE_REFRESH_INTERVAL: Duration = Duration::from_secs(1);
+
+/// Cadence des signaux d'un tour complet.
+#[derive(Default)]
+struct LiveRefresh {
+    refreshed: Option<tokio::time::Instant>,
+    progressed: Option<tokio::time::Instant>,
+}
+
+impl LiveRefresh {
+    /// Vrai si un rechargement peut être signalé maintenant.
+    fn refresh_due(&mut self) -> bool {
+        Self::due(&mut self.refreshed)
+    }
+
+    /// Vrai si la progression `done` peut être signalée maintenant (le
+    /// départ l'est toujours).
+    fn progress_due(&mut self, done: usize) -> bool {
+        Self::due(&mut self.progressed) || done == 0
+    }
+
+    fn due(last: &mut Option<tokio::time::Instant>) -> bool {
+        let now = tokio::time::Instant::now();
+        if last.is_some_and(|t| now.duration_since(t) < LIVE_REFRESH_INTERVAL) {
+            return false;
+        }
+        *last = Some(now);
+        true
+    }
+}
+
 impl<C, M, B> Shared<C, M, B>
 where
     C: RemoteMailboxConnector,
@@ -428,8 +461,11 @@ where
         let mut changed = Vec::new();
         let mut arrivals = Vec::new();
         let account = self.account;
-        // Chaque étape est relayée aussitôt : dossiers, en-têtes et
-        // progression s'affichent sans attendre la fin du tour.
+        let mut live = LiveRefresh::default();
+        let mut finished = None;
+        // Dossiers, en-têtes et progression s'affichent pendant le tour,
+        // regroupés (au plus un signal par `LIVE_REFRESH_INTERVAL`) : un
+        // compte aux milliers de dossiers ne submerge pas l'interface.
         self.use_case()
             .sync_all_observed(session, ext, |step| match step {
                 SyncStep::Folders(all) => {
@@ -438,18 +474,28 @@ where
                         self.emit(SyncEvent::FoldersChanged { account });
                     }
                 }
-                SyncStep::Progress { done, total } => {
-                    self.emit(SyncEvent::SyncProgress {
-                        account,
-                        done,
-                        total,
-                    });
+                // La fin est annoncée après la mise à jour finale (plus bas).
+                SyncStep::Progress { done, total } if done == total => {
+                    finished = Some((done, total));
                 }
-                SyncStep::Headers(m) => self.emit(SyncEvent::FolderChanged {
-                    account,
-                    mailbox: m.id,
-                }),
+                SyncStep::Progress { done, total } => {
+                    if live.progress_due(done) {
+                        self.emit(SyncEvent::SyncProgress {
+                            account,
+                            done,
+                            total,
+                        });
+                    }
+                }
+                SyncStep::Headers(_) => {
+                    if live.refresh_due() {
+                        self.emit(SyncEvent::FoldersChanged { account });
+                    }
+                }
                 SyncStep::MailboxDone(m, report) => {
+                    if live.refresh_due() {
+                        self.emit(SyncEvent::FoldersChanged { account });
+                    }
                     changed.push(m.id);
                     if m.mailbox.role == MailboxRole::Inbox
                         && let Some(mail) = &report.arrivals
@@ -475,6 +521,15 @@ where
                 account: self.account,
                 mailbox,
                 mail,
+            });
+        }
+        // Dernier événement du tour : s'il faut en perdre en route (relais
+        // en retard), c'est lui qui reste.
+        if let Some((done, total)) = finished {
+            self.emit(SyncEvent::SyncProgress {
+                account,
+                done,
+                total,
             });
         }
         Ok(())

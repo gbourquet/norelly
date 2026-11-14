@@ -75,6 +75,25 @@ describe("compte de messagerie", () => {
     await $("#account-address").waitForDisplayed({ reverse: true });
   });
 
+  it("change le mot de passe à la souris : essai refusé, puis accepté", async () => {
+    // Le nouveau mot de passe est essayé sur les deux serveurs avant de
+    // remplacer l'ancien : un mot de passe faux ne change rien.
+    await accountMenu(address, "Changer le mot de passe");
+    const field = $("#new-password");
+    await field.waitForDisplayed({ timeout: 10000 });
+    await field.setValue("mot-de-passe-faux");
+    await $("button=Enregistrer").click();
+    await expect($("p*=identifiants refusés")).toBeDisplayed({ wait: 60000 });
+    await expect(field).toBeDisplayed();
+    await field.setValue(password);
+    await $("button=Enregistrer").click();
+    await field.waitForDisplayed({ reverse: true, timeout: 60000 });
+    await expect($("span=Mot de passe changé. La synchronisation reprend.")).toBeDisplayed();
+    // La synchronisation repart avec le nouveau mot de passe.
+    await browser.refresh();
+    await $(`span=${address}`).waitForDisplayed({ timeout: 20000 });
+  });
+
   it("supprime le compte après confirmation", async () => {
     await accountMenu(address, "Supprimer ce compte…");
     const confirm = $("button=Supprimer le compte");

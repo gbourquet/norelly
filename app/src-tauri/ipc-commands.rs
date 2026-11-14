@@ -11,6 +11,7 @@ const APP_COMMANDS: &[&str] = &[
     "oauth_sign_in_kept",
     "add_oauth_account",
     "reconnect_account",
+    "change_password",
     "trust_certificate",
     "allow_file_secrets",
     "secrets_backend",

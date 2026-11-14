@@ -405,12 +405,14 @@ pub struct AccountDto {
 #[serde(rename_all = "snake_case")]
 pub enum OAuthProviderDto {
     Microsoft,
+    Google,
 }
 
 impl From<OAuthProvider> for OAuthProviderDto {
     fn from(p: OAuthProvider) -> Self {
         match p {
             OAuthProvider::Microsoft => Self::Microsoft,
+            OAuthProvider::Google => Self::Google,
         }
     }
 }
@@ -420,7 +422,7 @@ impl From<OAuthProvider> for OAuthProviderDto {
 pub struct AddOAuthAccountInput {
     pub address: String,
     pub display_name: Option<String>,
-    /// Nom du fournisseur (`microsoft`), revalidé par le domaine.
+    /// Nom du fournisseur (`microsoft`, `google`), revalidé par le domaine.
     pub provider: String,
 }
 
@@ -606,6 +608,10 @@ pub enum FailureKindDto {
     /// Connexion chez le fournisseur abandonnée ou refusée par
     /// l'utilisateur.
     OauthCancelled,
+    /// Connexion Google abandonnée ou refusée à l'ajout d'un compte (Google
+    /// peut bloquer les nouveaux comptes d'une application non validée) : le
+    /// mot de passe d'application reste possible.
+    OauthGoogleRefused,
     /// Le compte choisi dans le navigateur n'est pas celui de l'adresse.
     OauthWrongAccount,
     /// Accès hors ligne refusé dans la page du fournisseur : aucun jeton de
@@ -803,6 +809,7 @@ impl AddAccountResultDto {
 pub fn oauth_failure(e: &TokenError) -> AddAccountResultDto {
     match e {
         TokenError::Cancelled(_) => failed(None, FailureKindDto::OauthCancelled, None),
+        TokenError::GoogleSignInRefused => failed(None, FailureKindDto::OauthGoogleRefused, None),
         TokenError::ReauthRequired => failed(None, FailureKindDto::ReauthRequired, None),
         TokenError::WrongAccount => failed(None, FailureKindDto::OauthWrongAccount, None),
         TokenError::OfflineAccessRefused => failed(None, FailureKindDto::OauthOfflineAccess, None),
@@ -1503,6 +1510,22 @@ mod error_tests {
             .unwrap_or_default();
         assert_eq!(json["failure"], "oauth_offline_access");
         assert_eq!(json["detail"], serde_json::Value::Null);
+    }
+
+    #[test]
+    fn refused_google_sign_in_has_its_own_failure_kind() {
+        let json = serde_json::to_value(oauth_failure(&TokenError::GoogleSignInRefused))
+            .unwrap_or_default();
+        assert_eq!(json["failure"], "oauth_google_refused");
+        assert_eq!(json["detail"], serde_json::Value::Null);
+    }
+
+    #[test]
+    fn google_provider_is_named_google() {
+        assert_eq!(
+            serde_json::to_value(OAuthProviderDto::from(OAuthProvider::Google)).unwrap_or_default(),
+            "google"
+        );
     }
 }
 

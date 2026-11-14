@@ -459,6 +459,18 @@ describe("se connecter avec Google", () => {
     );
   });
 
+  it("adresse changée pendant la détection : le fournisseur est redemandé avant le navigateur", async () => {
+    const { api, oauthCalls } = fakeApi(found, []);
+    const f = gmail(api);
+    await f.detectProvider();
+    // Validation avant le retour de la détection de la nouvelle adresse.
+    f.address = "alice@societe.fr";
+    await f.signInWithProvider();
+    expect(oauthCalls).toEqual([]);
+    expect(f.oauthProvider).toBeNull();
+    expect(f.step).toBe("form");
+  });
+
   it("une adresse Microsoft ne propose jamais le mot de passe", async () => {
     const { api } = fakeApi(found, []);
     const f = gmail(api);

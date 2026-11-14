@@ -592,8 +592,9 @@ async fn xoauth2_error_challenge_is_a_rejection() -> TestResult {
     Ok(())
 }
 
-/// Plus d'un défi : le client annule l'échange (`*`) et n'envoie rien
-/// d'autre ; c'est un échange inattendu, pas un succès.
+/// Plus d'un défi : le client répond une fois par une ligne vide, puis
+/// annule l'échange (`*`) et n'envoie plus rien, jeton compris ; c'est un
+/// échange inattendu, pas un succès.
 #[tokio::test]
 async fn xoauth2_second_challenge_is_cancelled() -> TestResult {
     let ca = TestCa::new()?;
@@ -604,7 +605,7 @@ async fn xoauth2_second_challenge_is_cancelled() -> TestResult {
         .send("334 encore\r\n")
         .expect_data_with("*")
         .send("501 5.7.0 Annule\r\n")
-        .expect_any();
+        .expect_eof();
     let server = oauth_server(&ca, script).await?;
     let result = oauth_sender(&ca, &server)
         .verify(&oauth_request(server.port()))
@@ -618,7 +619,75 @@ async fn xoauth2_second_challenge_is_cancelled() -> TestResult {
         ),
         "{result:?}"
     );
-    let _ = server.finish().await;
+    let outcome = server.finish().await;
+    let text = outcome.transcript.text();
+    assert_eq!(text.matches(XOAUTH2_B64).count(), 1, "{text}");
+    assert!(
+        text.ends_with(&format!("{XOAUTH2_B64}\r\n\r\n*\r\n")),
+        "ligne vide puis `*` attendus en fin d'échange :\n{text}"
+    );
+    outcome.result?;
+    Ok(())
+}
+
+/// Réponse intermédiaire autre que `334` : erreur de protocole, rien
+/// d'autre n'est envoyé.
+#[tokio::test]
+async fn xoauth2_unexpected_intermediate_reply_is_a_protocol_error() -> TestResult {
+    let ca = TestCa::new()?;
+    let script = ehlo_once(Script::new().send(smtp::greeting()), &["AUTH XOAUTH2"])
+        .expect(format!("AUTH XOAUTH2 {XOAUTH2_B64}"))
+        .send("354 continuez\r\n")
+        .expect_eof();
+    let server = oauth_server(&ca, script).await?;
+    let result = oauth_sender(&ca, &server)
+        .verify(&oauth_request(server.port()))
+        .await;
+    assert!(
+        matches!(result, Err(ConnectionError::Protocol(_))),
+        "{result:?}"
+    );
+    let outcome = server.finish().await;
+    let text = outcome.transcript.text();
+    assert!(
+        text.ends_with(&format!("AUTH XOAUTH2 {XOAUTH2_B64}\r\n")),
+        "rien ne doit suivre la commande AUTH :\n{text}"
+    );
+    outcome.result?;
+    Ok(())
+}
+
+/// Serveur muet après le défi : tout l'échange est borné par le délai de
+/// réponse, et le jeton n'est pas renvoyé.
+#[tokio::test]
+async fn xoauth2_silent_server_after_challenge_times_out() -> TestResult {
+    let ca = TestCa::new()?;
+    let script = ehlo_once(Script::new().send(smtp::greeting()), &["AUTH XOAUTH2"])
+        .expect(format!("AUTH XOAUTH2 {XOAUTH2_B64}"))
+        .send(XOAUTH2_ERROR_CHALLENGE)
+        .expect_data()
+        .expect_eof();
+    let server = oauth_server(&ca, script).await?;
+    let result = oauth_sender(&ca, &server)
+        .with_timeouts(Timeouts {
+            connect: Duration::from_secs(5),
+            response: Duration::from_millis(500),
+        })
+        .verify(&oauth_request(server.port()))
+        .await;
+    assert!(
+        matches!(
+            result,
+            Err(ConnectionError::Timeout(
+                norelly_domain::connection::TimeoutStage::Response
+            ))
+        ),
+        "{result:?}"
+    );
+    let outcome = server.finish().await;
+    let text = outcome.transcript.text();
+    assert_eq!(text.matches(XOAUTH2_B64).count(), 1, "{text}");
+    outcome.result?;
     Ok(())
 }
 

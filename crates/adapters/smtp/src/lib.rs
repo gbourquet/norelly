@@ -45,6 +45,7 @@ use norelly_domain::ports::{
 use norelly_domain::security::{StartTlsDecision, decide_starttls};
 use norelly_tls::TlsClientFactory;
 use tokio::net::TcpStream;
+use zeroize::Zeroizing;
 
 use crate::stream::{LettreStream, PlainSession};
 
@@ -181,6 +182,18 @@ fn auth_failure(e: &lettre::transport::smtp::Error) -> ConnectionError {
     }
 }
 
+/// Ligne SASL `<préfixe><réponse en base64>\r\n`, effacée de la mémoire à
+/// sa libération ; la copie que fait `lettre` pour l'envoyer ne l'est pas.
+fn sasl_line(prefix: &str, response: &[u8]) -> Zeroizing<String> {
+    let mut line = Zeroizing::new(String::with_capacity(
+        prefix.len() + response.len().div_ceil(3) * 4 + 2,
+    ));
+    line.push_str(prefix);
+    BASE64.encode_string(response, &mut line);
+    line.push_str("\r\n");
+    line
+}
+
 /// Échange SASL XOAUTH2, mené ici plutôt que par `lettre` : à un jeton
 /// refusé, le serveur répond par un défi `334` portant l'erreur (JSON), et
 /// attend une réponse vide avant le refus final ; `lettre` n'y répond pas.
@@ -193,10 +206,7 @@ async fn xoauth2(
     let authenticator = XOAuth2Authenticator;
     let initial = authenticator.respond(credentials, 0, b"")?;
     let mut reply = conn
-        .command(format!(
-            "AUTH XOAUTH2 {}\r\n",
-            BASE64.encode(initial.expose())
-        ))
+        .command(&*sasl_line("AUTH XOAUTH2 ", initial.expose()))
         .await;
     let mut step = 1;
     loop {
@@ -212,9 +222,7 @@ async fn xoauth2(
         }
         match authenticator.respond(credentials, step, b"") {
             Ok(answer) => {
-                reply = conn
-                    .command(format!("{}\r\n", BASE64.encode(answer.expose())))
-                    .await;
+                reply = conn.command(&*sasl_line("", answer.expose())).await;
             }
             Err(e) => {
                 // Réponse au `*` sans importance : l'échange a échoué.

@@ -13,6 +13,7 @@ norelly-domain.workspace = true
 norelly-tls.workspace = true
 lettre.workspace = true
 base64.workspace = true
+zeroize.workspace = true
 tokio.workspace = true
 tokio-rustls.workspace = true
 tracing.workspace = true

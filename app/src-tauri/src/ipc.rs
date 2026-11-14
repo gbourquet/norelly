@@ -617,6 +617,8 @@ pub enum FailureKindDto {
     /// Accès hors ligne refusé dans la page du fournisseur : aucun jeton de
     /// rafraîchissement délivré.
     OauthOfflineAccess,
+    /// Accès aux messages décoché dans la page du fournisseur.
+    OauthMailAccess,
     /// Connexion chez le fournisseur impossible (réseau, réponse invalide).
     Oauth,
     Security,
@@ -813,6 +815,7 @@ pub fn oauth_failure(e: &TokenError) -> AddAccountResultDto {
         TokenError::ReauthRequired => failed(None, FailureKindDto::ReauthRequired, None),
         TokenError::WrongAccount => failed(None, FailureKindDto::OauthWrongAccount, None),
         TokenError::OfflineAccessRefused => failed(None, FailureKindDto::OauthOfflineAccess, None),
+        TokenError::MailAccessRefused => failed(None, FailureKindDto::OauthMailAccess, None),
         TokenError::Network(d) | TokenError::Protocol(d) => {
             failed(None, FailureKindDto::Oauth, Some(d.clone()))
         }
@@ -1517,6 +1520,14 @@ mod error_tests {
         let json = serde_json::to_value(oauth_failure(&TokenError::GoogleSignInRefused))
             .unwrap_or_default();
         assert_eq!(json["failure"], "oauth_google_refused");
+        assert_eq!(json["detail"], serde_json::Value::Null);
+    }
+
+    #[test]
+    fn refused_mail_access_has_its_own_failure_kind() {
+        let json = serde_json::to_value(oauth_failure(&TokenError::MailAccessRefused))
+            .unwrap_or_default();
+        assert_eq!(json["failure"], "oauth_mail_access");
         assert_eq!(json["detail"], serde_json::Value::Null);
     }
 

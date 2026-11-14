@@ -215,6 +215,7 @@ describe("traduction des erreurs IPC", () => {
       reauth_required: true,
       oauth_cancelled: true,
       oauth_google_refused: true,
+      oauth_mail_access: true,
       oauth_wrong_account: true,
       oauth_offline_access: true,
       oauth: true,

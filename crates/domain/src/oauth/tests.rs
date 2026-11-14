@@ -221,6 +221,38 @@ fn google_token_forms_carry_the_client_secret() {
 }
 
 #[test]
+fn google_sign_in_without_mail_access_is_refused() {
+    let google = OAuthProvider::Google;
+    assert_eq!(
+        require_mail_access(
+            google,
+            Some("openid https://www.googleapis.com/auth/userinfo.email")
+        ),
+        Err(TokenError::MailAccessRefused)
+    );
+    assert_eq!(
+        require_mail_access(google, Some("")),
+        Err(TokenError::MailAccessRefused)
+    );
+    // Préfixe ou sosie du scope : refusé.
+    assert_eq!(
+        require_mail_access(google, Some("https://mail.google.com/x openid")),
+        Err(TokenError::MailAccessRefused)
+    );
+    assert_eq!(
+        require_mail_access(google, Some("openid https://mail.google.com/ email")),
+        Ok(())
+    );
+    // Scopes non renvoyés : ceux demandés ont été accordés (RFC 6749, 5.1).
+    assert_eq!(require_mail_access(google, None), Ok(()));
+    // Microsoft renvoie ses scopes sous une autre forme : non concerné.
+    assert_eq!(
+        require_mail_access(OAuthProvider::Microsoft, Some("openid")),
+        Ok(())
+    );
+}
+
+#[test]
 fn abandoned_google_sign_in_suggests_an_app_password() {
     let google = OAuthProvider::Google;
     for reason in ["access_denied", "délai dépassé"] {

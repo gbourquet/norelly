@@ -742,5 +742,7 @@
   "add_use_app_password": "Use an app password",
   "add_use_google_sign_in": "Sign in with Google instead",
   "add_fail_oauth_google_refused": "Signing in with Google did not complete. If Google says Norelly has reached its maximum number of users (100, until Google verifies the app), or if you would rather not go through that page, use an app password: the steps are below.",
-  "failure_oauth_google_refused": "Google sign-in refused or abandoned"
+  "failure_oauth_google_refused": "Google sign-in refused or abandoned",
+  "add_fail_oauth_mail_access": "Norelly did not receive permission to access your messages. Try again and tick every permission requested on the sign-in page.",
+  "failure_oauth_mail_access": "access to messages refused"
 }

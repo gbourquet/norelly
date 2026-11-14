@@ -1162,6 +1162,8 @@ export type FailureKindDto =
  *  rafraîchissement délivré.
  */
 "oauth_offline_access" | 
+/**  Accès aux messages décoché dans la page du fournisseur. */
+"oauth_mail_access" | 
 /**  Connexion chez le fournisseur impossible (réseau, réponse invalide). */
 "oauth" | "security" | "protocol" | 
 /**  Paramètres refusés par le domaine. */

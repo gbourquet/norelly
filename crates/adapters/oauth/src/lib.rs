@@ -294,6 +294,7 @@ struct TokenResponse {
     expires_in: Option<u64>,
     refresh_token: Option<String>,
     id_token: Option<String>,
+    scope: Option<String>,
     error: Option<String>,
 }
 
@@ -342,6 +343,7 @@ fn parse_token_response(status: u16, body: &[u8]) -> Result<OAuthGrant, TokenErr
             .filter(|t| !t.is_empty())
             .map(Secret::new),
         identity: parsed.id_token.as_deref().and_then(identity_of),
+        granted_scopes: parsed.scope,
     })
 }
 

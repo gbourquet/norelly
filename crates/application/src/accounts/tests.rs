@@ -758,6 +758,7 @@ mod oauth {
                 preferred_username: Some(login.to_owned()),
                 email: None,
             }),
+            granted_scopes: None,
         })
     }
 
@@ -926,6 +927,41 @@ mod oauth {
         }
         assert!(w.servers.requests().is_empty(), "aucun serveur contacté");
         assert!(w.accounts.list().await.is_ok_and(|l| l.is_empty()));
+    }
+
+    fn gmail_grant(granted_scopes: Option<&str>) -> Option<OAuthGrant> {
+        Some(OAuthGrant {
+            identity: Some(OAuthIdentity {
+                preferred_username: None,
+                email: Some("alice@gmail.com".to_owned()),
+            }),
+            granted_scopes: granted_scopes.map(str::to_owned),
+            ..grant().unwrap_or_else(|| panic!())
+        })
+    }
+
+    #[tokio::test]
+    async fn google_sign_in_without_mail_access_is_refused_at_add_and_reconnect() {
+        let w = World::new();
+        assert_eq!(
+            add_gmail(&w, &broker(gmail_grant(Some("openid email")))).await,
+            AddAccountOutcome::OAuthFailed(TokenError::MailAccessRefused)
+        );
+        assert!(w.servers.requests().is_empty(), "aucun serveur contacté");
+        assert!(w.accounts.list().await.is_ok_and(|l| l.is_empty()));
+        let b = broker(gmail_grant(Some("openid https://mail.google.com/ email")));
+        let AddAccountOutcome::Added(account) = add_gmail(&w, &b).await else {
+            panic!("compte non ajouté");
+        };
+        if let Ok(mut g) = b.client().grant.lock() {
+            *g = gmail_grant(Some("openid email"));
+        }
+        assert_eq!(
+            reconnect_oauth_account(&b, &w.accounts, account.id())
+                .await
+                .map(|_| ()),
+            Err(ReconnectError::OAuth(TokenError::MailAccessRefused))
+        );
     }
 
     #[tokio::test]
@@ -1173,6 +1209,7 @@ mod oauth {
                 expires_in: 3_600,
                 refresh_token: Some(Secret::new("r-neuf".to_owned())),
                 identity: grant().and_then(|g| g.identity),
+                granted_scopes: None,
             });
         }
         let reconnected = reconnect_oauth_account(&b, &w.accounts, account.id()).await;

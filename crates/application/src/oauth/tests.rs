@@ -108,6 +108,7 @@ impl OAuthClient for Provider {
             expires_in: 3_600,
             refresh_token: Some(Secret::new(current.clone())),
             identity: None,
+            granted_scopes: None,
         })
     }
 }
@@ -185,6 +186,7 @@ async fn expiry_follows_the_wall_clock() {
         expires_in: 600,
         refresh_token: Some(Secret::new("r1".to_owned())),
         identity: None,
+        granted_scopes: None,
     };
     assert_eq!(f.broker.store_grant(&source(), grant).await, Ok(()));
     assert_eq!(token(&f).await, Ok("initial".to_owned()));
@@ -323,6 +325,7 @@ async fn removed_account_tokens_are_discarded() {
         expires_in: 600,
         refresh_token: Some(Secret::new("r-tardif".to_owned())),
         identity: None,
+        granted_scopes: None,
     };
     assert_eq!(f.broker.store_grant(&source(), grant).await, Ok(()));
     assert_eq!(f.broker.secrets.read(&key()).as_deref(), Some("r1"));
@@ -350,6 +353,7 @@ async fn reconnection_replaces_an_unsaved_refresh_token() {
         expires_in: 600,
         refresh_token: Some(Secret::new("neuf".to_owned())),
         identity: None,
+        granted_scopes: None,
     };
     assert_eq!(f.broker.store_grant(&source(), grant).await, Ok(()));
     f.now.fetch_add(7_200, Ordering::SeqCst);
@@ -412,6 +416,7 @@ async fn failed_removal_can_be_reconnected() {
         expires_in: 600,
         refresh_token: Some(Secret::new("r-neuf".to_owned())),
         identity: None,
+        granted_scopes: None,
     };
     assert_eq!(f.broker.store_grant(&source(), grant).await, Ok(()));
     assert_eq!(f.broker.secrets.read(&key()).as_deref(), Some("r-neuf"));
@@ -450,6 +455,7 @@ async fn reconnection_does_not_wait_forever_on_the_keyring() {
         expires_in: 600,
         refresh_token: Some(Secret::new("r".to_owned())),
         identity: None,
+        granted_scopes: None,
     };
     let stored =
         tokio::time::timeout(REFRESH_TIMEOUT * 2, broker.store_grant(&source(), grant)).await;

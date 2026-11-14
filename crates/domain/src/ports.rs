@@ -84,6 +84,9 @@ pub struct OAuthGrant {
     /// Identité du compte connecté, quand le fournisseur l'a fournie
     /// (connexion interactive).
     pub identity: Option<crate::oauth::OAuthIdentity>,
+    /// Scopes accordés, tels que renvoyés par le fournisseur (séparés par
+    /// des espaces) ; absents : ceux demandés.
+    pub granted_scopes: Option<String>,
 }
 
 /// Obtention et rafraîchissement des jetons OAuth (navigateur du système,

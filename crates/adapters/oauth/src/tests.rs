@@ -244,6 +244,16 @@ fn token_response_parsing() {
 }
 
 #[test]
+fn granted_scopes_are_kept() {
+    let scopes = |body: &str| parse_token_response(200, body.as_bytes()).map(|g| g.granted_scopes);
+    assert_eq!(
+        scopes(r#"{"access_token":"a","scope":"openid https://mail.google.com/"}"#),
+        Ok(Some("openid https://mail.google.com/".to_owned()))
+    );
+    assert_eq!(scopes(r#"{"access_token":"a"}"#), Ok(None));
+}
+
+#[test]
 fn id_token_gives_the_signed_in_identity() {
     let body = |token: &str| {
         format!(r#"{{"access_token":"a","refresh_token":"r","id_token":"{token}"}}"#).into_bytes()

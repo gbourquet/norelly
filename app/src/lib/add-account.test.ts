@@ -432,6 +432,20 @@ describe("se connecter avec Google", () => {
     expect(f.message).toMatch(/100/);
   });
 
+  it("accès aux messages décoché chez Google : retour au formulaire, quoi cocher", async () => {
+    const { api } = fakeApi(found, [
+      { kind: "failed", protocol: null, failure: "oauth_mail_access", detail: null },
+    ]);
+    const f = gmail(api);
+    await f.detectProvider();
+    await f.signInWithProvider();
+    expect(f.step).toBe("form");
+    expect(f.signInProvider).toBe("google");
+    expect(f.message).toBe(
+      "Norelly n'a pas reçu l'autorisation d'accéder à vos messages. Réessayez en cochant toutes les autorisations demandées dans la page de connexion.",
+    );
+  });
+
   it("une adresse Microsoft ne propose jamais le mot de passe", async () => {
     const { api } = fakeApi(found, []);
     const f = gmail(api);

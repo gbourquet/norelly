@@ -537,6 +537,32 @@ pub fn require_offline_access(refresh_token: Option<&Secret>) -> Result<(), Toke
         .ok_or(TokenError::OfflineAccessRefused)
 }
 
+/// Refuse une connexion interactive sans l'accès aux messages : Google
+/// laisse décocher les autorisations demandées, et le compte échouerait
+/// ensuite par un refus d'identifiants trompeur. `granted_scopes` : scopes
+/// renvoyés par le point d'accès des jetons ; absents, ce sont ceux
+/// demandés (RFC 6749, section 5.1). Microsoft, qui les renvoie sous une
+/// autre forme, n'est pas concerné.
+pub fn require_mail_access(
+    provider: OAuthProvider,
+    granted_scopes: Option<&str>,
+) -> Result<(), TokenError> {
+    let (OAuthProvider::Google, Some(granted)) = (provider, granted_scopes) else {
+        return Ok(());
+    };
+    let granted = granted.split_ascii_whitespace();
+    if provider
+        .config()
+        .scopes
+        .iter()
+        .all(|wanted| granted.clone().any(|g| g == *wanted))
+    {
+        Ok(())
+    } else {
+        Err(TokenError::MailAccessRefused)
+    }
+}
+
 /// Échec d'obtention ou de rafraîchissement d'un jeton. Ne contient jamais
 /// de jeton.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -556,6 +582,10 @@ pub enum TokenError {
     /// L'utilisateur a refusé ou abandonné la connexion.
     #[error("connexion annulée : {0}")]
     Cancelled(String),
+    /// Accès aux messages décoché dans la page du fournisseur : le compte
+    /// ne pourrait ni recevoir ni envoyer.
+    #[error("accès aux messages refusé")]
+    MailAccessRefused,
     /// Connexion Google abandonnée ou refusée pendant un ajout de compte.
     /// Google peut bloquer un nouveau compte (plafond d'utilisateurs d'une
     /// application non validée) sans le dire à Norelly : le mot de passe

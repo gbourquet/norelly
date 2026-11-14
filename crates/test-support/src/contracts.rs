@@ -396,6 +396,7 @@ impl norelly_domain::ports::OAuthClient for FakeOAuthClient {
             expires_in: 3599,
             refresh_token: Some(Secret::new("r2".to_owned())),
             identity: None,
+            granted_scopes: None,
         })
     }
 }

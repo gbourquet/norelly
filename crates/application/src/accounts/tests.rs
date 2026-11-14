@@ -404,6 +404,103 @@ async fn gmail_rejection_advises_an_app_password() {
 }
 
 #[tokio::test]
+async fn gmail_address_on_a_manually_entered_server_gets_no_advice() {
+    let w = World::new();
+    let draft = sample_account("alice@example.net", false);
+    let auth = AuthError::Rejected {
+        message: "[AUTHENTICATIONFAILED] Invalid credentials".into(),
+    };
+    w.servers.set(
+        &draft.imap().endpoint,
+        Err(ConnectionError::Authentication(auth.clone())),
+    );
+    let gmail = AddAccountRequest {
+        address: EmailAddress::parse("alice@gmail.com").unwrap_or_else(|_| panic!("adresse")),
+        ..request(Some(servers_of(&draft)))
+    };
+    let outcome = w.add(gmail).await;
+    assert_eq!(
+        outcome,
+        AddAccountOutcome::ConnectionFailed {
+            protocol: Protocol::Imap,
+            outcome: TestConnectionOutcome::Authentication(auth),
+            advice: None,
+        }
+    );
+    assert_eq!(w.keyring.len(), 0);
+}
+
+/// Ajout de `alice@gmail.com` avec `imap` et `smtp`, refusé par `refusing`.
+async fn gmail_refused_by(
+    w: &World,
+    imap: ServerSettings,
+    smtp: ServerSettings,
+    refusing: &ServerSettings,
+) -> Option<AuthenticationAdvice> {
+    let auth = AuthError::Rejected {
+        message: "[AUTHENTICATIONFAILED] Invalid credentials".into(),
+    };
+    w.servers.set(
+        &refusing.endpoint,
+        Err(ConnectionError::Authentication(auth)),
+    );
+    let gmail = AddAccountRequest {
+        address: EmailAddress::parse("alice@gmail.com").unwrap_or_else(|_| panic!("adresse")),
+        ..request(Some((imap, smtp)))
+    };
+    match w.add(gmail).await {
+        AddAccountOutcome::ConnectionFailed { advice, .. } => advice,
+        other => panic!("échec de connexion attendu : {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn one_google_server_mixed_with_another_gets_no_advice() {
+    let google = sample_account("alice@gmail.com", false);
+    let other = sample_account("alice@example.net", false);
+    // IMAP de Google qui refuse, SMTP étranger qui recevrait ensuite le
+    // mot de passe d'application.
+    let w = World::new();
+    let advice = gmail_refused_by(
+        &w,
+        google.imap().clone(),
+        other.smtp().clone(),
+        google.imap(),
+    )
+    .await;
+    assert_eq!(advice, None);
+    // IMAP étranger qui accepte tout, SMTP de Google qui refuse.
+    let w = World::new();
+    let advice = gmail_refused_by(
+        &w,
+        other.imap().clone(),
+        google.smtp().clone(),
+        google.smtp(),
+    )
+    .await;
+    assert_eq!(advice, None);
+}
+
+#[tokio::test]
+async fn google_server_trusted_by_a_certificate_exception_gets_no_advice() {
+    let google = sample_account("alice@gmail.com", false);
+    let w = World::new();
+    let exception = CertificateException {
+        host: google.imap().endpoint.host().clone(),
+        fingerprint: CertificateFingerprint::from_bytes([7; 32]),
+    };
+    let _ = w.exceptions.add(&exception).await;
+    let advice = gmail_refused_by(
+        &w,
+        google.imap().clone(),
+        google.smtp().clone(),
+        google.imap(),
+    )
+    .await;
+    assert_eq!(advice, None);
+}
+
+#[tokio::test]
 async fn keyring_failure_rolls_back_written_secrets() {
     let w = World::new();
     if let Ok(mut f) = w.keyring.fail_set_after.lock() {

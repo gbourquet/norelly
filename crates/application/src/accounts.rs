@@ -158,7 +158,10 @@ where
             if !matches!(outcome, TestConnectionOutcome::Success { .. }) {
                 let advice = match &outcome {
                     TestConnectionOutcome::Authentication(error) => {
-                        authentication_advice(draft.address(), server.endpoint.host(), error)
+                        let (imap, smtp) = (&draft.imap().endpoint, &draft.smtp().endpoint);
+                        let excepted = self.test.has_certificate_exception(imap.host()).await
+                            || self.test.has_certificate_exception(smtp.host()).await;
+                        authentication_advice(imap, smtp, excepted, error)
                     }
                     _ => None,
                 };

@@ -875,6 +875,64 @@ describe("App", () => {
     expect(within(menu).getByRole("menuitem", { name: "Se reconnecter" })).toBeEnabled();
   });
 
+  it("mot de passe d'application Google révoqué : bouton visible, nouveau mot de passe essayé", async () => {
+    accounts.push({
+      id: 11,
+      address: "erin@gmail.com",
+      display_name: "Erin",
+      imap: server,
+      smtp: server,
+      oauth_provider: null,
+    } as AccountDto);
+    api.changePassword = vi.fn(async () => ({
+      kind: "added" as const,
+      send_unchecked: false,
+      account: accounts[accounts.length - 1] as AccountDto,
+    }));
+    render(App);
+    await screen.findAllByText("erin@gmail.com");
+    expect(screen.queryByRole("button", { name: "Changer le mot de passe" })).toBeNull();
+    await waitFor(() => expect(syncListeners.length).toBeGreaterThan(0));
+    for (const l of syncListeners) {
+      l({ kind: "offline", account: 11, failure: "google_app_password", detail: null });
+    }
+    const button = await screen.findByRole("button", { name: "Changer le mot de passe" });
+    expect(button).toHaveAttribute("title", "Changer le mot de passe de erin@gmail.com");
+    await fireEvent.click(button);
+    const dialog = await screen.findByRole("dialog", { name: "Changer le mot de passe" });
+    // Les étapes Google sont déjà là : Rust a reconnu un compte de Google.
+    expect(
+      within(dialog).getByRole("heading", { name: "Créer un mot de passe d'application Google" }),
+    ).toBeInTheDocument();
+    await fireEvent.input(within(dialog).getByLabelText("Nouveau mot de passe"), {
+      target: { value: "abcd efgh ijkl mnop" },
+    });
+    await fireEvent.click(within(dialog).getByRole("button", { name: "Enregistrer" }));
+    await waitFor(() => expect(api.changePassword).toHaveBeenCalledWith(11, "abcd efgh ijkl mnop"));
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "Changer le mot de passe" })).toBeNull(),
+    );
+    expect(screen.queryByRole("button", { name: "Changer le mot de passe" })).toBeNull();
+    expect(
+      await screen.findByText("Mot de passe changé. La synchronisation reprend."),
+    ).toBeInTheDocument();
+  });
+
+  it("compte connecté par Microsoft : pas de mot de passe à changer", async () => {
+    accounts.push({
+      id: 12,
+      address: "frank@outlook.com",
+      display_name: "Frank",
+      imap: server,
+      smtp: server,
+      oauth_provider: "microsoft",
+    } as AccountDto);
+    render(App);
+    await screen.findAllByText("frank@outlook.com");
+    const menu = await openAccountMenu("frank@outlook.com");
+    expect(within(menu).queryByRole("menuitem", { name: "Changer le mot de passe" })).toBeNull();
+  });
+
   it("synchronisation en cours : progression visible sous le compte, puis effacée", async () => {
     accounts.push({
       id: 8,
@@ -1087,6 +1145,7 @@ describe("App", () => {
         .map((i) => i.textContent?.replace(/\s+/g, " ").trim()),
     ).toEqual([
       "Synchroniser",
+      "Changer le mot de passe",
       "Brouillons…",
       "Boîte d'envoi",
       "Nouveau dossier…",

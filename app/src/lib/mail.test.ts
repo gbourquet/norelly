@@ -661,3 +661,45 @@ describe("reconnexion d'un compte OAuth", () => {
     expect(mail.reauth[1]).toBeUndefined();
   });
 });
+
+describe("mot de passe d'application Google révoqué", () => {
+  it("le compte hors ligne propose de changer le mot de passe", async () => {
+    const mail = new MailState(fakeApi(1), noAutoSeen);
+    await mail.onSyncEvent({
+      kind: "offline",
+      account: 1,
+      failure: "google_app_password",
+      detail: null,
+    });
+    expect(mail.appPassword[1]).toBe(true);
+    expect(mail.offline[1]).toBe("mot de passe d'application Google nécessaire");
+    await mail.onSyncEvent({ kind: "online", account: 1 });
+    expect(mail.appPassword[1]).toBeUndefined();
+  });
+
+  it("mot de passe changé : l'alerte est levée et annoncée", async () => {
+    const mail = new MailState(fakeApi(1), noAutoSeen);
+    await mail.onSyncEvent({
+      kind: "offline",
+      account: 1,
+      failure: "google_app_password",
+      detail: null,
+    });
+    mail.passwordChanged(1);
+    expect(mail.appPassword[1]).toBeUndefined();
+    expect(mail.offline[1]).toBeUndefined();
+    expect(mail.notice?.text).toBe("Mot de passe changé. La synchronisation reprend.");
+  });
+
+  it("compte supprimé : l'alerte disparaît avec lui", async () => {
+    const mail = new MailState(fakeApi(1), noAutoSeen);
+    await mail.onSyncEvent({
+      kind: "offline",
+      account: 1,
+      failure: "google_app_password",
+      detail: null,
+    });
+    mail.forgetAccount(1);
+    expect(mail.appPassword[1]).toBeUndefined();
+  });
+});

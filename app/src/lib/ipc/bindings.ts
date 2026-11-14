@@ -40,6 +40,12 @@ export const commands = {
 	 */
 	reconnectAccount: (account: number) => typedError<AddAccountResultDto_Serialize, IpcError_Serialize>(__TAURI_INVOKE("reconnect_account", { account })),
 	/**
+	 *  Remplace le mot de passe d'un compte (mot de passe d'application
+	 *  révoqué…) après l'avoir essayé sur ses deux serveurs ; la
+	 *  synchronisation et l'envoi repartent avec le nouveau.
+	 */
+	changePassword: (account: number, password: string) => typedError<AddAccountResultDto_Serialize, IpcError_Serialize>(__TAURI_INVOKE("change_password", { account, password })),
+	/**
 	 *  Fait confiance au certificat refusé `fingerprint` pour `host`. Seul un
 	 *  refus effectivement présenté à l'utilisateur peut être accepté.
 	 */

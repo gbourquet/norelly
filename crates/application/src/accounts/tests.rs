@@ -20,11 +20,12 @@ use norelly_test_support::fakes::{FakeAutoconfig, FakeMailServers, FakeProber, F
 use super::*;
 
 /// Trousseau en mémoire, avec panne simulable à partir de la n-ième
-/// écriture ou à la suppression.
+/// écriture, pour la seule n-ième écriture, ou à la suppression.
 #[derive(Debug, Default)]
 struct Keyring {
     secrets: Mutex<BTreeMap<String, String>>,
     fail_set_after: Mutex<Option<usize>>,
+    fail_one_set: Mutex<Option<usize>>,
     fail_delete: Mutex<bool>,
     hang_delete: Mutex<bool>,
 }
@@ -53,6 +54,20 @@ impl SecretStore for Keyring {
             }
             *n -= 1;
         }
+        drop(fail);
+        let mut once = self
+            .fail_one_set
+            .lock()
+            .map_err(|_| SecretStoreError::Backend("verrou".into()))?;
+        match once.as_mut() {
+            Some(0) => {
+                *once = None;
+                return Err(SecretStoreError::AccessDenied("refusé".into()));
+            }
+            Some(n) => *n -= 1,
+            None => {}
+        }
+        drop(once);
         self.secrets
             .lock()
             .map_err(|_| SecretStoreError::Backend("verrou".into()))?
@@ -1478,5 +1493,331 @@ mod oauth {
             b.access_token(&source).await.map(|t| t.expose().to_owned()),
             Ok("acc".to_owned())
         );
+    }
+}
+
+/// Compte à mot de passe enregistré, son secret au trousseau.
+async fn saved_account(w: &World, address: &str) -> Account {
+    let draft = sample_account(address, false);
+    let account = w
+        .accounts
+        .insert(&draft)
+        .await
+        .unwrap_or_else(|e| panic!("compte : {e}"));
+    for protocol in [Protocol::Imap, Protocol::Smtp] {
+        let _ = w
+            .keyring
+            .set(
+                &account.secret_key(protocol),
+                &Secret::new(PASSWORD.to_owned()),
+            )
+            .await;
+    }
+    account
+}
+
+fn rejected_login() -> ConnectionError {
+    ConnectionError::Authentication(AuthError::Rejected {
+        message: "[AUTHENTICATIONFAILED] Invalid credentials".into(),
+    })
+}
+
+mod saved_account_failure {
+    use super::*;
+
+    #[tokio::test]
+    async fn revoked_google_app_password_is_explained() {
+        let w = World::new();
+        let account = saved_account(&w, "alice@gmail.com").await;
+        assert_eq!(
+            saved_account_failure_advice(&w.exceptions, &account, &rejected_login()).await,
+            Some(AuthenticationAdvice::GoogleAppPassword)
+        );
+    }
+
+    #[tokio::test]
+    async fn an_exception_on_either_server_withholds_the_advice() {
+        for protocol in [Protocol::Imap, Protocol::Smtp] {
+            let w = World::new();
+            let account = saved_account(&w, "alice@gmail.com").await;
+            let _ = w
+                .exceptions
+                .add(&CertificateException {
+                    host: account.server(protocol).endpoint.host().clone(),
+                    fingerprint: CertificateFingerprint::from_bytes([3; 32]),
+                })
+                .await;
+            assert_eq!(
+                saved_account_failure_advice(&w.exceptions, &account, &rejected_login()).await,
+                None,
+                "{protocol:?}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn other_failures_and_other_servers_get_no_advice() {
+        let w = World::new();
+        let google = saved_account(&w, "alice@gmail.com").await;
+        assert_eq!(
+            saved_account_failure_advice(&w.exceptions, &google, &ConnectionError::Closed).await,
+            None
+        );
+        let other = saved_account(&w, "bob@example.com").await;
+        assert_eq!(
+            saved_account_failure_advice(&w.exceptions, &other, &rejected_login()).await,
+            None
+        );
+    }
+}
+
+mod change_password {
+    use super::*;
+
+    const NEW: &str = "abcd efgh ijkl mnop";
+
+    async fn change(w: &World, id: AccountId) -> Result<Account, ChangePasswordError> {
+        let test = TestConnection::new(w.servers.clone(), w.servers.clone(), &w.exceptions);
+        ChangePassword {
+            test: &test,
+            secrets: &w.keyring,
+            accounts: &w.accounts,
+        }
+        .execute(id, Secret::new(NEW.to_owned()))
+        .await
+    }
+
+    fn stored(w: &World, account: &Account, protocol: Protocol) -> Option<String> {
+        w.keyring.get_sync(account.secret_key(protocol).as_str())
+    }
+
+    #[tokio::test]
+    async fn new_password_is_tested_on_both_servers_then_stored() {
+        let w = World::new();
+        let account = saved_account(&w, "alice@gmail.com").await;
+        assert_eq!(change(&w, account.id()).await, Ok(account.clone()));
+        let requests = w.servers.requests();
+        assert_eq!(
+            requests.iter().map(|(p, _)| *p).collect::<Vec<_>>(),
+            [Protocol::Imap, Protocol::Smtp]
+        );
+        assert!(
+            requests
+                .iter()
+                .all(|(_, r)| r.credentials.secret().expose() == NEW)
+        );
+        for protocol in [Protocol::Imap, Protocol::Smtp] {
+            assert_eq!(stored(&w, &account, protocol), Some(NEW.to_owned()));
+        }
+    }
+
+    #[tokio::test]
+    async fn rejected_password_changes_nothing_and_explains_google() {
+        let w = World::new();
+        let account = saved_account(&w, "alice@gmail.com").await;
+        w.servers
+            .set(&account.smtp().endpoint, Err(rejected_login()));
+        let Err(ChangePasswordError::ConnectionFailed {
+            protocol, advice, ..
+        }) = change(&w, account.id()).await
+        else {
+            panic!("refus attendu");
+        };
+        assert_eq!(protocol, Protocol::Smtp);
+        assert_eq!(advice, Some(AuthenticationAdvice::GoogleAppPassword));
+        for protocol in [Protocol::Imap, Protocol::Smtp] {
+            assert_eq!(stored(&w, &account, protocol), Some(PASSWORD.to_owned()));
+        }
+    }
+
+    #[tokio::test]
+    async fn keyring_failure_restores_the_previous_password() {
+        let w = World::new();
+        let account = saved_account(&w, "alice@example.com").await;
+        if let Ok(mut fail) = w.keyring.fail_one_set.lock() {
+            // Première écriture (IMAP) acceptée, la seconde refusée une fois.
+            *fail = Some(1);
+        }
+        assert!(matches!(
+            change(&w, account.id()).await,
+            Err(ChangePasswordError::SecretStore(_))
+        ));
+        // Les deux clés gardent un même mot de passe : l'ancien.
+        for protocol in [Protocol::Imap, Protocol::Smtp] {
+            assert_eq!(stored(&w, &account, protocol), Some(PASSWORD.to_owned()));
+        }
+    }
+
+    #[tokio::test]
+    async fn plaintext_consent_of_the_account_is_kept() {
+        let w = World::new();
+        let draft = sample_account("alice@example.com", true);
+        let account = w
+            .accounts
+            .insert(&draft)
+            .await
+            .unwrap_or_else(|e| panic!("compte : {e}"));
+        assert_eq!(
+            change(&w, account.id()).await.map(|a| a.id()),
+            Ok(account.id())
+        );
+    }
+
+    #[tokio::test]
+    async fn oauth_and_unknown_accounts_are_refused_without_connecting() {
+        let w = World::new();
+        let draft = sample_account("alice@outlook.com", false).with_oauth(OAuthProvider::Microsoft);
+        let oauth = w
+            .accounts
+            .insert(&draft)
+            .await
+            .unwrap_or_else(|e| panic!("compte : {e}"));
+        assert_eq!(
+            change(&w, oauth.id()).await,
+            Err(ChangePasswordError::NotPassword)
+        );
+        let missing = AccountId::new(99).unwrap_or_else(|_| panic!("identifiant"));
+        assert_eq!(
+            change(&w, missing).await,
+            Err(ChangePasswordError::NotFound)
+        );
+        assert!(w.servers.requests().is_empty());
+    }
+}
+
+mod change_password_safety {
+    use super::*;
+
+    const NEW: &str = "abcd efgh ijkl mnop";
+
+    /// Dépôt dont le compte disparaît après la première lecture (supprimé
+    /// pendant l'essai du nouveau mot de passe).
+    struct Vanishing<'a> {
+        inner: &'a InMemoryAccountRepository,
+        reads: Mutex<usize>,
+    }
+
+    impl AccountRepository for Vanishing<'_> {
+        async fn list(&self) -> Result<Vec<Account>, AccountStoreError> {
+            self.inner.list().await
+        }
+        async fn get(&self, id: AccountId) -> Result<Option<Account>, AccountStoreError> {
+            let first = self.reads.lock().map(|mut n| {
+                *n += 1;
+                *n == 1
+            });
+            if first.unwrap_or(false) {
+                self.inner.get(id).await
+            } else {
+                Ok(None)
+            }
+        }
+        async fn find_by_address(
+            &self,
+            address: &EmailAddress,
+        ) -> Result<Option<Account>, AccountStoreError> {
+            self.inner.find_by_address(address).await
+        }
+        async fn insert(&self, draft: &AccountDraft) -> Result<Account, AccountStoreError> {
+            self.inner.insert(draft).await
+        }
+        async fn delete(&self, id: AccountId) -> Result<bool, AccountStoreError> {
+            self.inner.delete(id).await
+        }
+    }
+
+    async fn change_with<D: AccountRepository>(
+        w: &World,
+        accounts: &D,
+        id: AccountId,
+    ) -> Result<Account, ChangePasswordError> {
+        let test = TestConnection::new(w.servers.clone(), w.servers.clone(), &w.exceptions);
+        ChangePassword {
+            test: &test,
+            secrets: &w.keyring,
+            accounts,
+        }
+        .execute(id, Secret::new(NEW.to_owned()))
+        .await
+    }
+
+    #[tokio::test]
+    async fn account_removed_meanwhile_keeps_no_secret() {
+        let w = World::new();
+        let account = saved_account(&w, "alice@example.com").await;
+        let vanishing = Vanishing {
+            inner: &w.accounts,
+            reads: Mutex::new(0),
+        };
+        assert_eq!(
+            change_with(&w, &vanishing, account.id()).await,
+            Err(ChangePasswordError::NotFound)
+        );
+        for protocol in [Protocol::Imap, Protocol::Smtp] {
+            assert_eq!(
+                w.keyring.get_sync(account.secret_key(protocol).as_str()),
+                None
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn failed_restore_is_reported() {
+        let w = World::new();
+        let account = saved_account(&w, "alice@example.com").await;
+        if let Ok(mut fail) = w.keyring.fail_set_after.lock() {
+            // IMAP écrit, puis SMTP et la remise de l'ancien refusés.
+            *fail = Some(1);
+        }
+        assert!(matches!(
+            change_with(&w, &w.accounts, account.id()).await,
+            Err(ChangePasswordError::RestoreFailed(_, _))
+        ));
+    }
+
+    #[tokio::test]
+    async fn an_exception_on_either_server_withholds_the_google_advice() {
+        for protocol in [Protocol::Imap, Protocol::Smtp] {
+            let w = World::new();
+            let account = saved_account(&w, "alice@gmail.com").await;
+            w.servers
+                .set(&account.imap().endpoint, Err(rejected_login()));
+            let _ = w
+                .exceptions
+                .add(&CertificateException {
+                    host: account.server(protocol).endpoint.host().clone(),
+                    fingerprint: CertificateFingerprint::from_bytes([5; 32]),
+                })
+                .await;
+            let Err(ChangePasswordError::ConnectionFailed { advice, .. }) =
+                change_with(&w, &w.accounts, account.id()).await
+            else {
+                panic!("refus attendu");
+            };
+            assert_eq!(advice, None, "{protocol:?}");
+        }
+    }
+
+    #[tokio::test]
+    async fn operations_on_one_account_wait_for_each_other() {
+        let locks = AccountLocks::default();
+        let one = AccountId::new(1).unwrap_or_else(|_| panic!("identifiant"));
+        let two = AccountId::new(2).unwrap_or_else(|_| panic!("identifiant"));
+        let held = locks.lock(one).await;
+        // Un autre compte n'attend pas.
+        let other =
+            tokio::time::timeout(std::time::Duration::from_millis(50), locks.lock(two)).await;
+        assert!(other.is_ok());
+        // Le même compte attend la fin de la première opération.
+        let same =
+            tokio::time::timeout(std::time::Duration::from_millis(50), locks.lock(one)).await;
+        assert!(
+            same.is_err(),
+            "deux opérations simultanées sur le même compte"
+        );
+        drop(held);
+        let after =
+            tokio::time::timeout(std::time::Duration::from_millis(50), locks.lock(one)).await;
+        assert!(after.is_ok());
     }
 }

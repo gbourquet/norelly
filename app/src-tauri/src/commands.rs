@@ -6,7 +6,8 @@ use norelly_application::accounts::{
     AddAccount, AddAccountOutcome, AddAccountRequest, RemoveAccount, trust_certificate as trust,
 };
 use norelly_application::accounts::{
-    AddOAuthAccount, AddOAuthAccountRequest, ReconnectError, reconnect_oauth_account,
+    AddOAuthAccount, AddOAuthAccountRequest, ChangePassword, ChangePasswordError, ReconnectError,
+    reconnect_oauth_account,
 };
 use norelly_application::test_connection::TestConnectionOutcome;
 use norelly_domain::account::{AccountId, DisplayName, ServerSettings};
@@ -289,6 +290,82 @@ pub async fn reconnect_account(
     }
 }
 
+/// Compte et nouveau mot de passe d'un changement, revalidés.
+fn change_password_input(account: u32, password: String) -> Result<(AccountId, Secret), IpcError> {
+    let id =
+        AccountId::new(i64::from(account)).map_err(|_| IpcError::invalid(FieldDto::Account))?;
+    Ok((id, Secret::new(password)))
+}
+
+/// Réponse de l'interface à un changement de mot de passe : mêmes échecs
+/// qu'à l'ajout du compte (conseil compris).
+fn change_password_result(
+    result: Result<norelly_domain::account::Account, ChangePasswordError>,
+) -> Result<AddAccountResultDto, IpcError> {
+    let outcome = match result {
+        Ok(account) => AddAccountOutcome::Added(account),
+        Err(ChangePasswordError::ConnectionFailed {
+            protocol,
+            outcome,
+            advice,
+        }) => AddAccountOutcome::ConnectionFailed {
+            protocol,
+            outcome,
+            advice,
+        },
+        Err(ChangePasswordError::Invalid(m)) => AddAccountOutcome::Invalid(m),
+        Err(ChangePasswordError::NotFound | ChangePasswordError::NotPassword) => {
+            return Err(IpcError::new(ErrorCodeDto::NotFound));
+        }
+        Err(ChangePasswordError::SecretStore(e)) => {
+            return Err(IpcError::new(ErrorCodeDto::SecretStore).with_detail(e));
+        }
+        // Réception et envoi peuvent garder des mots de passe différents :
+        // un nouvel essai les remet d'accord.
+        Err(e @ ChangePasswordError::RestoreFailed(..)) => {
+            return Err(IpcError::new(ErrorCodeDto::SecretStore).with_detail(e));
+        }
+        Err(ChangePasswordError::Storage(e)) => return Err(IpcError::storage(e)),
+    };
+    Ok(AddAccountResultDto::from_outcome(&outcome))
+}
+
+/// Remplace le mot de passe d'un compte (mot de passe d'application
+/// révoqué…) après l'avoir essayé sur ses deux serveurs ; la
+/// synchronisation et l'envoi repartent avec le nouveau.
+#[tauri::command]
+#[specta::specta]
+pub async fn change_password(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    account: u32,
+    password: String,
+) -> Result<AddAccountResultDto, IpcError> {
+    let (id, password) = change_password_input(account, password)?;
+    // Pas de suppression du compte pendant l'essai et l'écriture.
+    let _held = state.account_locks.lock(id).await;
+    let result = ChangePassword {
+        test: &state.test,
+        secrets: &state.secrets,
+        accounts: &state.accounts,
+    }
+    .execute(id, password)
+    .await;
+    if let Ok(account) = &result {
+        // Les connexions en cours gardent l'ancien mot de passe : arrêtées,
+        // puis rouvertes avec le nouveau.
+        state.mail.stop(account.id()).await;
+        if let Err(e) = state
+            .mail
+            .start(&app, account, &state.secrets, &state.exceptions)
+            .await
+        {
+            tracing::warn!(error = %e, "synchronisation non relancée");
+        }
+    }
+    change_password_result(result)
+}
+
 /// Fait confiance au certificat refusé `fingerprint` pour `host`. Seul un
 /// refus effectivement présenté à l'utilisateur peut être accepté.
 #[tauri::command]
@@ -335,6 +412,9 @@ pub async fn secrets_backend(state: State<'_, AppState>) -> Result<SecretsBacken
 #[specta::specta]
 pub async fn remove_account(state: State<'_, AppState>, id: u32) -> Result<(), IpcError> {
     let id = AccountId::new(i64::from(id)).map_err(|_| IpcError::invalid(FieldDto::Account))?;
+    // Un changement de mot de passe en cours finit avant la suppression :
+    // il ne réécrit pas les secrets effacés.
+    let _held = state.account_locks.lock(id).await;
     // Synchronisation arrêtée avant l'effacement des données locales.
     state.mail.stop(id).await;
     RemoveAccount {
@@ -438,6 +518,83 @@ mod tests {
             ..input()
         };
         assert!(add_request(bad_consent).is_err());
+    }
+
+    #[test]
+    fn change_password_input_is_revalidated() {
+        assert_eq!(
+            change_password_input(0, "secret".into())
+                .map(|_| ())
+                .map_err(|e| (e.code, e.field)),
+            Err((ErrorCodeDto::InvalidInput, Some(FieldDto::Account)))
+        );
+        let Ok((id, secret)) = change_password_input(3, "abcd efgh".into()) else {
+            panic!("entrée valide refusée");
+        };
+        assert_eq!(id.get(), 3);
+        assert_eq!(secret.expose(), "abcd efgh");
+    }
+
+    #[test]
+    fn change_password_failures_are_those_of_an_added_account() {
+        use norelly_domain::auth::AuthError;
+        use norelly_domain::discovery::AuthenticationAdvice;
+        let json = |r: Result<AddAccountResultDto, IpcError>| {
+            serde_json::to_value(r.unwrap_or_else(|e| panic!("{e:?}"))).unwrap_or_default()
+        };
+        let rejected = |advice| ChangePasswordError::ConnectionFailed {
+            protocol: Protocol::Imap,
+            outcome: TestConnectionOutcome::Authentication(AuthError::Rejected {
+                message: "Invalid credentials".into(),
+            }),
+            advice,
+        };
+        assert_eq!(
+            json(change_password_result(Err(rejected(Some(
+                AuthenticationAdvice::GoogleAppPassword
+            ))))),
+            serde_json::json!({
+                "kind": "failed",
+                "protocol": "imap",
+                "failure": "google_app_password",
+                "detail": "Invalid credentials",
+            })
+        );
+        assert_eq!(
+            json(change_password_result(Err(rejected(None))))["failure"],
+            "authentication"
+        );
+        let account = norelly_test_support::contracts::sample_account("alice@gmail.com", false)
+            .with_id(AccountId::new(2).unwrap_or_else(|_| panic!("identifiant")));
+        assert_eq!(json(change_password_result(Ok(account)))["kind"], "added");
+        let code = |e| {
+            change_password_result(Err(e))
+                .map(|_| ())
+                .map_err(|e| e.code)
+        };
+        assert_eq!(
+            code(ChangePasswordError::NotFound),
+            Err(ErrorCodeDto::NotFound)
+        );
+        assert_eq!(
+            code(ChangePasswordError::NotPassword),
+            Err(ErrorCodeDto::NotFound)
+        );
+        assert_eq!(
+            code(ChangePasswordError::SecretStore("verrouillé".into())),
+            Err(ErrorCodeDto::SecretStore)
+        );
+        assert_eq!(
+            code(ChangePasswordError::Storage("base".into())),
+            Err(ErrorCodeDto::Storage)
+        );
+        assert_eq!(
+            code(ChangePasswordError::RestoreFailed(
+                "refusé".into(),
+                "verrouillé".into()
+            )),
+            Err(ErrorCodeDto::SecretStore)
+        );
     }
 
     #[test]

@@ -40,19 +40,28 @@ impl BoundedLog {
 impl BoundedLog {
     /// Le fichier courant devient l'archive `.1` (l'ancienne est
     /// remplacée) ; un fichier vide lui succède.
-    /// Archive impossible (droits, fichier verrouillé) : le fichier
-    /// courant est vidé, les journaux récents restent écrits ; l'archive
-    /// sera retentée à la prochaine borne.
+    /// Archive impossible (droits, `.1` tenu ouvert par un autre
+    /// programme) : le fichier courant est rouvert vidé, les journaux
+    /// récents restent écrits ; l'archive sera retentée à la prochaine
+    /// borne. Nouveau fichier impossible à créer après l'archivage :
+    /// l'archive reprend sa place et l'écriture échoue sans rien vider.
     fn rotate(&mut self) -> io::Result<()> {
         self.file.flush()?;
         let mut archive = self.path.clone().into_os_string();
         archive.push(".1");
-        if std::fs::rename(&self.path, PathBuf::from(archive)).is_ok()
-            && let Ok(file) = open_private(&self.path)
-        {
-            self.file = file;
+        let archive = PathBuf::from(archive);
+        if std::fs::rename(&self.path, &archive).is_ok() {
+            match open_private(&self.path) {
+                Ok(file) => self.file = file,
+                Err(e) => {
+                    std::fs::rename(&archive, &self.path)?;
+                    return Err(e);
+                }
+            }
         } else {
-            self.file.set_len(0)?;
+            // Sous Windows, un fichier ouvert en ajout ne peut pas être
+            // tronqué : on le rouvre vidé (un seul processus écrit).
+            self.file = open_private_truncated(&self.path)?;
         }
         self.written = 0;
         Ok(())
@@ -70,6 +79,25 @@ fn open_private(path: &Path) -> io::Result<File> {
         options.mode(0o600);
         let file = options.open(path)?;
         // Fichier existant créé avec d'autres droits : on les restreint.
+        file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
+        Ok(file)
+    }
+    #[cfg(not(unix))]
+    {
+        options.open(path)
+    }
+}
+
+/// Ouvre `path` vidé, en écriture, avec les mêmes droits que
+/// [`open_private`].
+fn open_private_truncated(path: &Path) -> io::Result<File> {
+    let mut options = OpenOptions::new();
+    options.create(true).write(true).truncate(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+        options.mode(0o600);
+        let file = options.open(path)?;
         file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
         Ok(file)
     }

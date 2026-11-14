@@ -251,6 +251,19 @@ impl<O: OAuthClient, K: SecretStore> TokenBroker<O, K> {
         Ok(())
     }
 
+    /// Abandonne les jetons de `key` après un ajout de compte qui n'a pas
+    /// abouti : oubliés en mémoire, puis effacés du trousseau dans le délai
+    /// maximal. Une écriture abandonnée (délai dépassé) qui aboutirait plus
+    /// tard ne laisse rien : l'effacement, plus récent, l'emporte.
+    pub async fn abandon(&self, key: &SecretKey) {
+        self.discard(key).await;
+        match tokio::time::timeout(REFRESH_TIMEOUT, self.secrets.delete(key)).await {
+            Ok(Ok(())) => {}
+            Ok(Err(e)) => tracing::warn!(error = %e, "jeton d'un ajout abandonné non effacé"),
+            Err(_) => tracing::warn!("jeton d'un ajout abandonné non effacé : délai dépassé"),
+        }
+    }
+
     /// Oublie le jeton d'accès en mémoire, refusé par le serveur. Un jeton
     /// de rafraîchissement non encore enregistré est gardé : c'est le seul
     /// que le fournisseur accepte encore.
@@ -265,6 +278,9 @@ pub trait TokenCache: Sync {
     /// Oublie les jetons gardés sous `key` ; un rafraîchissement en cours
     /// pour cette clé s'achève avant que cette méthode ne rende la main.
     fn discard(&self, key: &SecretKey) -> impl Future<Output = ()> + Send;
+    /// Lève l'oubli de `key` : la suppression du compte a échoué, le compte
+    /// reste et pourra être reconnecté.
+    fn restore(&self, key: &SecretKey) -> impl Future<Output = ()> + Send;
 }
 
 impl<O: OAuthClient, K: SecretStore> TokenCache for TokenBroker<O, K> {
@@ -277,6 +293,10 @@ impl<O: OAuthClient, K: SecretStore> TokenCache for TokenBroker<O, K> {
             discarded: true,
             ..Slot::default()
         };
+    }
+
+    async fn restore(&self, key: &SecretKey) {
+        self.slot(key).lock().await.discarded = false;
     }
 }
 

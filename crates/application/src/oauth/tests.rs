@@ -390,6 +390,34 @@ async fn refused_unsaved_refresh_token_requires_reauth() {
     assert_eq!(token(&f).await, Err(AuthError::ReauthRequired));
 }
 
+#[tokio::test]
+async fn abandoned_account_leaves_nothing_in_the_keyring() {
+    let f = fixture(Some("r1"), Provider::default()).await;
+    f.broker.abandon(&key()).await;
+    assert_eq!(
+        f.broker.secrets.read(&key()),
+        None,
+        "jeton effacé du trousseau"
+    );
+    assert_eq!(token(&f).await, Err(AuthError::ReauthRequired));
+}
+
+#[tokio::test]
+async fn failed_removal_can_be_reconnected() {
+    let f = fixture(Some("r1"), Provider::default()).await;
+    f.broker.discard(&key()).await;
+    f.broker.restore(&key()).await;
+    let grant = OAuthGrant {
+        access_token: Secret::new("reconnecté".to_owned()),
+        expires_in: 600,
+        refresh_token: Some(Secret::new("r-neuf".to_owned())),
+        identity: None,
+    };
+    assert_eq!(f.broker.store_grant(&source(), grant).await, Ok(()));
+    assert_eq!(f.broker.secrets.read(&key()).as_deref(), Some("r-neuf"));
+    assert_eq!(token(&f).await, Ok("reconnecté".to_owned()));
+}
+
 #[tokio::test(start_paused = true)]
 async fn discard_waits_for_a_refresh_in_progress() {
     let f = fixture(

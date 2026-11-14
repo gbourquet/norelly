@@ -74,19 +74,27 @@ impl SecretStore for Keyring {
     }
 }
 
-/// Faux cache des jetons : retient les clés oubliées.
+/// Faux cache des jetons : retient les clés oubliées, puis rétablies.
 #[derive(Debug, Default)]
-struct Tokens(std::sync::Mutex<Vec<String>>);
+struct Tokens(std::sync::Mutex<Vec<String>>, std::sync::Mutex<Vec<String>>);
 
 impl Tokens {
     fn discarded(&self) -> Vec<String> {
         self.0.lock().map(|v| v.clone()).unwrap_or_default()
+    }
+    fn restored(&self) -> Vec<String> {
+        self.1.lock().map(|v| v.clone()).unwrap_or_default()
     }
 }
 
 impl crate::oauth::TokenCache for Tokens {
     async fn discard(&self, key: &SecretKey) {
         if let Ok(mut v) = self.0.lock() {
+            v.push(key.as_str().to_owned());
+        }
+    }
+    async fn restore(&self, key: &SecretKey) {
+        if let Ok(mut v) = self.1.lock() {
             v.push(key.as_str().to_owned());
         }
     }
@@ -501,6 +509,12 @@ async fn remove_keeps_the_account_if_the_keyring_fails() {
     ));
     assert_eq!(w.accounts.list().await.map(|l| l.len()), Ok(1));
     assert!(w.data.purged().is_empty());
+    assert_eq!(
+        w.tokens.restored(),
+        w.tokens.discarded(),
+        "compte gardé : jetons de nouveau utilisables"
+    );
+    assert!(!w.tokens.restored().is_empty());
 }
 
 /// Deux adresses (alias) avec le même identifiant sur le même serveur : un
@@ -793,6 +807,40 @@ mod oauth {
             .await
             .map(|t| t.expose().to_owned()),
             Ok("acc".to_owned())
+        );
+    }
+
+    #[tokio::test]
+    async fn keyring_failure_on_oauth_add_leaves_no_token() {
+        let w = World::new();
+        let keyring = Keyring::default();
+        // Écriture abandonnée d'un essai précédent, arrivée tardivement.
+        let Ok(id) = AccountId::new(1) else { panic!() };
+        let key = SecretKey::for_account(id, Protocol::Imap);
+        if let Ok(mut m) = keyring.secrets.lock() {
+            m.insert(key.as_str().to_owned(), "r1".to_owned());
+        }
+        if let Ok(mut f) = keyring.fail_set_after.lock() {
+            *f = Some(0);
+        }
+        let client = FakeOAuthClient::default();
+        if let Ok(mut g) = client.grant.lock() {
+            *g = grant();
+        }
+        let b = TokenBroker::new(client, keyring, Arc::new(|| 1_000));
+        assert!(matches!(
+            add(&w, &b).await,
+            AddAccountOutcome::SecretStoreFailed(_)
+        ));
+        assert!(w.accounts.list().await.is_ok_and(|l| l.is_empty()));
+        let source = OAuthSource {
+            provider: OAuthProvider::Microsoft,
+            refresh_key: key,
+        };
+        assert_eq!(
+            b.access_token(&source).await.map(|_| ()),
+            Err(AuthError::ReauthRequired),
+            "aucun jeton laissé pour le compte non ajouté"
         );
     }
 

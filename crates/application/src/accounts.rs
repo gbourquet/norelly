@@ -361,6 +361,9 @@ where
             refresh_key: account.secret_key(Protocol::Imap),
         };
         if let Err(e) = self.broker.store_grant(&source, grant).await {
+            // Une écriture abandonnée (délai dépassé) pourrait aboutir plus
+            // tard : effacée, pour ne pas laisser de jeton sans compte.
+            self.broker.abandon(&source.refresh_key).await;
             let _ = self.accounts.delete(account.id()).await;
             return AddAccountOutcome::SecretStoreFailed(e.to_string());
         }
@@ -507,6 +510,19 @@ where
     L: AccountDataStore,
     T: TokenCache,
 {
+    async fn delete_secrets(&self, account: &Account) -> Result<(), RemoveAccountError> {
+        for protocol in [Protocol::Imap, Protocol::Smtp] {
+            tokio::time::timeout(
+                SECRET_STORE_TIMEOUT,
+                self.secrets.delete(&account.secret_key(protocol)),
+            )
+            .await
+            .map_err(|_| RemoveAccountError::SecretStore("délai dépassé".to_owned()))?
+            .map_err(|e| RemoveAccountError::SecretStore(e.to_string()))?;
+        }
+        Ok(())
+    }
+
     /// Ordre : jetons gardés en mémoire (un rafraîchissement en cours
     /// s'achève avant, et ne peut donc pas réécrire le trousseau après son
     /// effacement), puis secrets (un échec laisse le compte intact, l'action
@@ -521,14 +537,13 @@ where
         for protocol in [Protocol::Imap, Protocol::Smtp] {
             self.tokens.discard(&account.secret_key(protocol)).await;
         }
-        for protocol in [Protocol::Imap, Protocol::Smtp] {
-            tokio::time::timeout(
-                SECRET_STORE_TIMEOUT,
-                self.secrets.delete(&account.secret_key(protocol)),
-            )
-            .await
-            .map_err(|_| RemoveAccountError::SecretStore("délai dépassé".to_owned()))?
-            .map_err(|e| RemoveAccountError::SecretStore(e.to_string()))?;
+        if let Err(e) = self.delete_secrets(&account).await {
+            // Compte gardé : ses jetons redeviennent utilisables (il pourra
+            // être reconnecté) ; ceux gardés en mémoire sont perdus.
+            for protocol in [Protocol::Imap, Protocol::Smtp] {
+                self.tokens.restore(&account.secret_key(protocol)).await;
+            }
+            return Err(e);
         }
         self.accounts
             .delete(id)

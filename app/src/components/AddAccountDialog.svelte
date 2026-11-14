@@ -123,6 +123,20 @@
           {m.add_password_hint()}
         </p>
       {/if}
+      {#if flow.canUsePassword}
+        <div class="alternative">
+          {#if flow.signInProvider !== null}
+            <button class="btn" type="button" onclick={() => flow.usePassword()}>
+              <KeyRoundIcon size={14} aria-hidden="true" />
+              {m.add_use_app_password()}
+            </button>
+          {:else}
+            <button class="btn" type="button" onclick={() => flow.useProviderSignIn()}>
+              {m.add_use_google_sign_in()}
+            </button>
+          {/if}
+        </div>
+      {/if}
       <div class="actions">
         <button
           class="btn"
@@ -131,16 +145,6 @@
             flow.step = "manual";
           }}>{m.add_manual()}</button
         >
-        {#if flow.signInProvider !== null && flow.canUsePassword}
-          <button class="btn" type="button" onclick={() => flow.usePassword()}>
-            <KeyRoundIcon size={14} aria-hidden="true" />
-            {m.add_use_app_password()}
-          </button>
-        {:else if flow.signInProvider === null && flow.canUsePassword}
-          <button class="btn" type="button" onclick={() => flow.useProviderSignIn()}>
-            {m.add_use_google_sign_in()}
-          </button>
-        {/if}
         {#if flow.signInProvider !== null}
           <button class="btn btn-primary" type="submit"
             >{providerText.signIn[flow.signInProvider]()}</button
@@ -340,6 +344,10 @@
     margin: var(--space-1) 0 0;
     color: var(--color-text-muted);
     font-size: var(--font-size-sm);
+  }
+
+  .alternative {
+    margin-top: var(--space-2);
   }
 
   .actions {

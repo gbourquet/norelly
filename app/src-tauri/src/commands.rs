@@ -174,9 +174,18 @@ fn oauth_request_provider(
     address: &EmailAddress,
     provider: &str,
 ) -> Result<norelly_domain::oauth::OAuthProvider, IpcError> {
+    oauth_request_provider_with(address, provider, |p| p.config().is_usable())
+}
+
+/// [`oauth_request_provider`], fournisseurs utilisables donnés par `usable`.
+fn oauth_request_provider_with(
+    address: &EmailAddress,
+    provider: &str,
+    usable: impl Fn(norelly_domain::oauth::OAuthProvider) -> bool,
+) -> Result<norelly_domain::oauth::OAuthProvider, IpcError> {
     let provider = norelly_domain::oauth::OAuthProvider::parse(provider)
         .ok_or_else(|| IpcError::invalid(FieldDto::Address))?;
-    if norelly_domain::oauth::OAuthProvider::offered_for(address) == Some(provider) {
+    if norelly_domain::oauth::offered_provider(address, usable) == Some(provider) {
         Ok(provider)
     } else {
         Err(IpcError::invalid(FieldDto::Address))
@@ -386,8 +395,16 @@ mod tests {
         }
         // Google n'est accepté que si l'application a reçu ses identifiants
         // client à la compilation.
+        let gmail = address("alice@gmail.com");
         assert_eq!(
-            oauth_request_provider(&address("alice@gmail.com"), "google").is_ok(),
+            oauth_request_provider_with(&gmail, "google", |_| true).ok(),
+            Some(OAuthProvider::Google)
+        );
+        assert!(
+            oauth_request_provider_with(&gmail, "google", |p| p != OAuthProvider::Google).is_err()
+        );
+        assert_eq!(
+            oauth_request_provider(&gmail, "google").is_ok(),
             OAuthProvider::Google.config().is_usable()
         );
     }

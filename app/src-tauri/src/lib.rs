@@ -15,6 +15,7 @@ pub mod contact_lists;
 pub mod contacts;
 pub mod folders;
 pub mod ipc;
+pub mod logs;
 pub mod mail;
 pub mod protocols;
 pub mod reading;
@@ -142,6 +143,7 @@ pub fn run() {
         .setup(move |app| {
             builder.mount_events(app);
             let data_dir = app.path().app_data_dir()?;
+            logs::init(&data_dir);
             let cache_dir = app.path().app_cache_dir()?;
             let state = state::AppState::open(&data_dir, &cache_dir)?;
             app.manage(state);

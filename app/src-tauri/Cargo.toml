@@ -26,6 +26,9 @@ serde_json.workspace = true
 tokio.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
+# Collecte des journaux dans un fichier borné (déjà au workspace, sans
+# couleur ni filtre par variable d'environnement).
+tracing-subscriber.workspace = true
 reqwest.workspace = true
 url = "2.5"
 # Ouverture dans le navigateur ou l'application du système (xdg-open,

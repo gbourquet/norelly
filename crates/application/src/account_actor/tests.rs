@@ -196,6 +196,28 @@ async fn reconnects_with_backoff_and_converges() {
 }
 
 #[tokio::test]
+async fn provider_missing_from_this_version_stops_the_actor_without_retrying() {
+    use norelly_domain::auth::AuthError;
+    let imap = FakeImap::new();
+    let refused = ConnectionError::Authentication(AuthError::ProviderNotConfigured);
+    imap.set_connect_error(Some(refused.clone()));
+    let mut r = start(&imap);
+    let event = wait_for(&mut r.events, WAIT, offline).await;
+    let SyncEvent::Offline { failure, .. } = event else {
+        panic!("{event:?}");
+    };
+    assert_eq!(failure, SyncFailure::Connection(refused));
+    // Un seul essai par connexion de l'acteur (commandes et surveillance),
+    // puis plus rien : l'attente plafonnée à 200 ms en aurait fait d'autres.
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let attempts = r.imap.connect_attempts();
+    assert!(attempts <= 2, "{attempts} essais");
+    tokio::time::sleep(Duration::from_millis(800)).await;
+    assert_eq!(r.imap.connect_attempts(), attempts, "aucun nouvel essai");
+    r.handle.shutdown().await;
+}
+
+#[tokio::test]
 async fn sync_now_and_shutdown() {
     let imap = FakeImap::new();
     imap.create_mailbox("Archives", &[]);

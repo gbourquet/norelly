@@ -330,6 +330,10 @@ where
             failure: failure.clone(),
             retry_in_ms: delay,
         });
+        if failure.retry_is_useless() {
+            // L'échec reste affiché ; l'acteur repart au prochain démarrage.
+            return false;
+        }
         tokio::select! {
             () = tokio::time::sleep(Duration::from_millis(delay)) => !*stop.borrow(),
             _ = stop.changed() => false,

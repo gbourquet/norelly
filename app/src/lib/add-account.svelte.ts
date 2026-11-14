@@ -207,10 +207,12 @@ export class AddAccountFlow {
    *  attend le retour, teste les serveurs et ajoute le compte. */
   async signInWithProvider(): Promise<void> {
     // L'adresse a pu changer depuis la dernière détection : Rust refuserait
-    // un fournisseur qui n'est pas celui de l'adresse.
+    // un fournisseur qui n'est pas celui de l'adresse. Fournisseur changé :
+    // rien n'est ouvert, l'utilisateur clique sur le bouton mis à jour.
+    const shown = this.signInProvider;
     await this.detectProvider();
     const provider = this.signInProvider;
-    if (provider === null) return;
+    if (provider === null || provider !== shown) return;
     this.message = null;
     this.appPasswordHelp = false;
     this.#oauth = true;

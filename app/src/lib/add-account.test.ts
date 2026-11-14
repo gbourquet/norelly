@@ -471,6 +471,17 @@ describe("se connecter avec Google", () => {
     expect(f.step).toBe("form");
   });
 
+  it("fournisseur changé entre le clic et le navigateur : rien n'est ouvert, le bouton se met à jour", async () => {
+    const { api, oauthCalls } = fakeApi(found, []);
+    const f = gmail(api);
+    await f.detectProvider();
+    f.address = "alice@outlook.com";
+    await f.signInWithProvider();
+    expect(oauthCalls).toEqual([]);
+    expect(f.signInProvider).toBe("microsoft");
+    expect(f.step).toBe("form");
+  });
+
   it("une adresse Microsoft ne propose jamais le mot de passe", async () => {
     const { api } = fakeApi(found, []);
     const f = gmail(api);

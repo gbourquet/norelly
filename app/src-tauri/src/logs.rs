@@ -242,6 +242,94 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// Un refus d'authentification réel (acteur de compte, faux serveur
+    /// IMAP) est journalisé sans le mot de passe ni l'identifiant.
+    #[test]
+    fn credentials_never_reach_the_log() {
+        use std::sync::Arc;
+
+        use norelly_application::account_actor::{ActorConfig, spawn};
+        use norelly_application::sync::SyncEvent;
+        use norelly_domain::account::AccountId;
+        use norelly_domain::auth::AuthError;
+        use norelly_domain::connection::ConnectionError;
+        use norelly_domain::credentials::{Credentials, Secret, Username};
+        use norelly_domain::endpoint::{Host, Security, ServerEndpoint};
+        use norelly_domain::ports::ConnectRequest;
+        use norelly_domain::security::PlaintextPolicy;
+        use norelly_test_support::fake_imap::FakeImap;
+        use norelly_test_support::fakes::FakeMailServers;
+        use norelly_test_support::mail_contracts::{InMemoryBlobStore, InMemoryMailStore};
+
+        const PASSWORD: &str = "MARQUEUR-MOT-DE-PASSE-7f3a";
+        const LOGIN: &str = "marqueur-identifiant-91c2";
+        let dir = dir("secrets");
+        let subscriber = subscriber(&dir).unwrap_or_else(|e| panic!("{e}"));
+        tracing::subscriber::with_default(subscriber, || {
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap_or_else(|e| panic!("{e}"));
+            runtime.block_on(async {
+                let imap = FakeImap::new();
+                imap.set_connect_error(Some(ConnectionError::Authentication(
+                    AuthError::Rejected {
+                        message: "NO [AUTHENTICATIONFAILED] Invalid credentials".into(),
+                    },
+                )));
+                let request = ConnectRequest {
+                    endpoint: ServerEndpoint::new(
+                        Host::parse("imap.example.com").unwrap_or_else(|_| panic!("hôte")),
+                        993,
+                        Security::Tls,
+                    )
+                    .unwrap_or_else(|_| panic!("serveur")),
+                    credentials: Credentials::new(
+                        Username::parse(LOGIN).unwrap_or_else(|_| panic!("identifiant")),
+                        Secret::new(PASSWORD.into()),
+                    )
+                    .unwrap_or_else(|_| panic!("identifiants")),
+                    certificate_exceptions: vec![],
+                    plaintext: PlaintextPolicy::deny_all(),
+                };
+                let handle = spawn(
+                    AccountId::new(1).unwrap_or_else(|_| panic!("compte")),
+                    request,
+                    Arc::new(FakeMailServers::with_imap(imap)),
+                    Arc::new(InMemoryMailStore::default()),
+                    Arc::new(InMemoryBlobStore::default()),
+                    Arc::new(norelly_render::search_text::MimeTextExtractor),
+                    ActorConfig::default(),
+                );
+                let mut events = handle.subscribe();
+                let offline = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+                    loop {
+                        if let Ok(SyncEvent::Offline { .. }) = events.recv().await {
+                            return;
+                        }
+                    }
+                })
+                .await;
+                assert!(offline.is_ok(), "refus non signalé");
+                handle.shutdown().await;
+            });
+        });
+        let text = std::fs::read_to_string(dir.join(LOG_FILE_NAME)).unwrap_or_default();
+        assert!(
+            text.contains("connexion perdue"),
+            "refus journalisé : {text}"
+        );
+        assert!(
+            !text.contains(PASSWORD),
+            "mot de passe dans le journal : {text}"
+        );
+        assert!(
+            !text.contains(LOGIN),
+            "identifiant dans le journal : {text}"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn warnings_reach_the_log_file_but_not_debug_details() {
         let dir = dir("collecte");

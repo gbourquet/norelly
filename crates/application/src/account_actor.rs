@@ -533,14 +533,15 @@ where
                 }
             })
             .await?;
-        if live.take_pending() {
-            self.emit(SyncEvent::FoldersChanged { account });
-        }
         // L'état du serveur vient d'être rapporté : les actions encore en
         // attente gardent leur effet local, et les copies provisoires des
         // déplacements déjà rejoués laissent la place aux vrais messages.
         self.store.reapply(self.account).await?;
         self.store.purge_placeholders(self.account, None).await?;
+        // Changement encore regroupé : signalé une fois, sur l'état final.
+        if live.take_pending() {
+            self.emit(SyncEvent::FoldersChanged { account });
+        }
         for mailbox in changed {
             self.emit(SyncEvent::FolderChanged {
                 account: self.account,

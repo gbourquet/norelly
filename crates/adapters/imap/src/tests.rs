@@ -39,6 +39,9 @@ fn fixture() -> Result<Fixture, Box<dyn std::error::Error>> {
         .with_handshake_timeout(Duration::from_secs(5));
     let connector = ImapConnector::new(tls).with_timeouts(Timeouts {
         connect: Duration::from_secs(5),
+        open: Duration::from_secs(5),
+        password_auth: Duration::from_secs(5),
+        open_total: Duration::from_secs(60),
         response: Duration::from_secs(5),
     });
     Ok(Fixture { ca, connector })
@@ -470,6 +473,9 @@ async fn silent_server_times_out() -> TestResult {
     let connector = ImapConnector::new(TlsClientFactory::new(TrustRoots::Custom(vec![ca.root()])))
         .with_timeouts(Timeouts {
             connect: Duration::from_secs(5),
+            open: Duration::from_millis(200),
+            password_auth: Duration::from_millis(200),
+            open_total: Duration::from_secs(60),
             response: Duration::from_millis(200),
         });
     let server =
@@ -485,6 +491,217 @@ async fn silent_server_times_out() -> TestResult {
         result.err(),
         Some(ConnectionError::Timeout(TimeoutStage::Response))
     );
+    Ok(())
+}
+
+/// Connecteur au délai d'ouverture court et au délai de réponse long.
+fn quick_opening(ca: &TestCa) -> ImapConnector {
+    let tls = TlsClientFactory::new(TrustRoots::Custom(vec![ca.root()]))
+        .with_handshake_timeout(Duration::from_secs(5));
+    ImapConnector::new(tls).with_timeouts(Timeouts {
+        connect: Duration::from_secs(5),
+        open: Duration::from_millis(300),
+        password_auth: Duration::from_millis(1500),
+        open_total: Duration::from_secs(60),
+        response: Duration::from_secs(10),
+    })
+}
+
+/// Serveur muet après `AUTHENTICATE` : abandon au plancher de
+/// l'authentification par mot de passe, pas au délai de réponse.
+#[tokio::test]
+async fn server_silent_after_authenticate_is_abandoned_at_the_opening_delay() -> TestResult {
+    let ca = TestCa::new()?;
+    let cert = ca.issue(&["localhost"])?;
+    let script = Script::new()
+        .send(imap::greeting("IMAP4rev1 AUTH=PLAIN SASL-IR"))
+        .expect(format!("AUTHENTICATE PLAIN {PLAIN_B64}"))
+        .wait(Duration::from_secs(4))
+        .send(imap::ok("authentifie"));
+    let server = ScriptedServer::start_tls(after_auth(script), cert.server_config()?).await?;
+    let started = tokio::time::Instant::now();
+    let result = quick_opening(&ca)
+        .connect(&request(
+            server.port(),
+            Security::Tls,
+            PlaintextPolicy::deny_all(),
+        ))
+        .await;
+    assert_eq!(
+        result.err(),
+        Some(ConnectionError::Timeout(TimeoutStage::Response))
+    );
+    assert!(
+        started.elapsed() < Duration::from_secs(3),
+        "{:?}",
+        started.elapsed()
+    );
+    Ok(())
+}
+
+/// Serveur muet aux capacités relues après l'authentification : c'est
+/// encore l'ouverture.
+#[tokio::test]
+async fn server_silent_on_capabilities_after_login_is_abandoned_early() -> TestResult {
+    let ca = TestCa::new()?;
+    let cert = ca.issue(&["localhost"])?;
+    let script = Script::new()
+        .send(imap::greeting("IMAP4rev1 AUTH=PLAIN SASL-IR"))
+        .expect(format!("AUTHENTICATE PLAIN {PLAIN_B64}"))
+        .send(imap::ok("authentifie"))
+        .expect("CAPABILITY")
+        .wait(Duration::from_secs(4))
+        .send(imap::capability("IMAP4rev1"));
+    let server = ScriptedServer::start_tls(script, cert.server_config()?).await?;
+    let started = tokio::time::Instant::now();
+    let result = quick_opening(&ca)
+        .connect(&request(
+            server.port(),
+            Security::Tls,
+            PlaintextPolicy::deny_all(),
+        ))
+        .await;
+    assert_eq!(
+        result.err(),
+        Some(ConnectionError::Timeout(TimeoutStage::Response))
+    );
+    assert!(
+        started.elapsed() < Duration::from_secs(3),
+        "{:?}",
+        started.elapsed()
+    );
+    Ok(())
+}
+
+/// Refus d'un mot de passe retardé par le serveur (pénalité après des
+/// échecs) au-delà du délai d'ouverture : le refus est lu, pas pris pour un
+/// silence qui ferait renvoyer le mot de passe.
+#[tokio::test]
+async fn delayed_password_refusal_is_read() -> TestResult {
+    let ca = TestCa::new()?;
+    let cert = ca.issue(&["localhost"])?;
+    let script = Script::new()
+        .send(imap::greeting("IMAP4rev1 AUTH=PLAIN SASL-IR"))
+        .expect(format!("AUTHENTICATE PLAIN {PLAIN_B64}"))
+        .wait(Duration::from_millis(800))
+        .send("{tag} NO [AUTHENTICATIONFAILED] Identifiants invalides\r\n")
+        .expect_eof();
+    let server = ScriptedServer::start_tls(script, cert.server_config()?).await?;
+    let result = quick_opening(&ca)
+        .connect(&request(
+            server.port(),
+            Security::Tls,
+            PlaintextPolicy::deny_all(),
+        ))
+        .await;
+    assert!(
+        matches!(
+            result,
+            Err(ConnectionError::Authentication(AuthError::Rejected { .. }))
+        ),
+        "{:?}",
+        result.err()
+    );
+    server.finish().await.result?;
+    Ok(())
+}
+
+/// Salutation envoyée octet par octet, chacun avant le délai d'ouverture :
+/// l'ouverture entière reste bornée.
+#[tokio::test]
+async fn trickled_greeting_is_bounded_by_the_total_opening_delay() -> TestResult {
+    let ca = TestCa::new()?;
+    let mut script = Script::new();
+    for byte in b"* OK salutation interminable".repeat(4) {
+        script = script.send_raw(vec![byte]).wait(Duration::from_millis(100));
+    }
+    let server = ScriptedServer::start(script, None).await?;
+    let connector = ImapConnector::new(TlsClientFactory::new(TrustRoots::Custom(vec![ca.root()])))
+        .with_timeouts(Timeouts {
+            connect: Duration::from_secs(5),
+            open: Duration::from_millis(300),
+            password_auth: Duration::from_millis(300),
+            open_total: Duration::from_secs(1),
+            response: Duration::from_secs(10),
+        });
+    let started = tokio::time::Instant::now();
+    let result = connector
+        .connect(&request(
+            server.port(),
+            Security::StartTls,
+            PlaintextPolicy::deny_all(),
+        ))
+        .await;
+    assert_eq!(
+        result.err(),
+        Some(ConnectionError::Timeout(TimeoutStage::Response))
+    );
+    assert!(
+        started.elapsed() < Duration::from_secs(3),
+        "{:?}",
+        started.elapsed()
+    );
+    Ok(())
+}
+
+/// Salutation en retard sur un canal STARTTLS : c'est encore l'ouverture.
+#[tokio::test]
+async fn late_plaintext_greeting_is_abandoned_at_the_opening_delay() -> TestResult {
+    let ca = TestCa::new()?;
+    let script = Script::new()
+        .wait(Duration::from_secs(4))
+        .send(imap::greeting("IMAP4rev1 STARTTLS"));
+    let server = ScriptedServer::start(script, None).await?;
+    let started = tokio::time::Instant::now();
+    let result = quick_opening(&ca)
+        .connect(&request(
+            server.port(),
+            Security::StartTls,
+            PlaintextPolicy::deny_all(),
+        ))
+        .await;
+    assert_eq!(
+        result.err(),
+        Some(ConnectionError::Timeout(TimeoutStage::Response))
+    );
+    assert!(
+        started.elapsed() < Duration::from_secs(3),
+        "{:?}",
+        started.elapsed()
+    );
+    Ok(())
+}
+
+/// Une fois la session ouverte, une réponse lente (grosse boîte) est
+/// attendue jusqu'au délai de réponse.
+#[tokio::test]
+async fn opened_session_waits_for_a_slow_reply() -> TestResult {
+    let ca = TestCa::new()?;
+    let cert = ca.issue(&["localhost"])?;
+    let script = Script::new()
+        .send(imap::greeting("IMAP4rev1 AUTH=PLAIN SASL-IR"))
+        .expect(format!("AUTHENTICATE PLAIN {PLAIN_B64}"))
+        .send(imap::ok("authentifie"))
+        .expect("CAPABILITY")
+        .send(imap::capability("IMAP4rev1"))
+        .expect("LIST")
+        .wait(Duration::from_secs(1))
+        .send("* LIST () \"/\" INBOX\r\n{tag} OK LIST termine\r\n")
+        .expect("LOGOUT")
+        .send("* BYE au revoir\r\n{tag} OK LOGOUT termine\r\n")
+        .expect_eof();
+    let server = ScriptedServer::start_tls(script, cert.server_config()?).await?;
+    let mut session = quick_opening(&ca)
+        .connect(&request(
+            server.port(),
+            Security::Tls,
+            PlaintextPolicy::deny_all(),
+        ))
+        .await?;
+    let mailboxes = session.list_mailboxes().await?;
+    assert_eq!(mailboxes.len(), 1);
+    session.logout().await?;
+    server.finish().await.result?;
     Ok(())
 }
 

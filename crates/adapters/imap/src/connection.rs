@@ -27,7 +27,7 @@ use norelly_domain::ports::Authenticator;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio_rustls::client::TlsStream;
-use zeroize::Zeroize;
+use zeroize::Zeroizing;
 
 use crate::nesting::{MAX_NESTING, Nesting};
 
@@ -198,6 +198,11 @@ impl Connection {
         self.authenticated = true;
     }
 
+    /// Délai de chaque lecture ou écriture pour les commandes suivantes.
+    pub(crate) fn set_timeout(&mut self, timeout: Duration) {
+        self.timeout = timeout;
+    }
+
     /// Exécute une commande dont la réponse peut compter beaucoup de
     /// données (jusqu'à [`MAX_SYNC_DATA`]).
     pub(crate) async fn execute_bulk(
@@ -366,11 +371,13 @@ impl Connection {
                     tracing::warn!(raison = what, "réponse IMAP écartée");
                     self.skipped += 1;
                 }
-                Err(Interrupt::Io(Io::Output(mut bytes))) => {
+                Err(Interrupt::Io(Io::Output(bytes))) => {
+                    // Les octets peuvent contenir le mot de passe : effacés
+                    // à leur libération, même si l'écriture est abandonnée
+                    // (futur lâché).
+                    let bytes = Zeroizing::new(bytes);
                     let result =
                         tokio::time::timeout(timeout, self.transport.write_all_flush(&bytes)).await;
-                    // Les octets peuvent contenir le mot de passe.
-                    bytes.zeroize();
                     result
                         .map_err(|_| ConnectionError::Timeout(TimeoutStage::Write))?
                         .map_err(|e| io_error(&e))?;
@@ -446,7 +453,8 @@ impl Connection {
     /// [`nesting`]: crate::nesting
     async fn feed_response(&mut self, timeout: Duration) -> Result<(), ConnectionError> {
         let max = self.max_response_size as usize;
-        let mut response = Vec::new();
+        // Effacée à sa libération, même si la lecture est abandonnée.
+        let mut response = Zeroizing::new(Vec::new());
         let mut nesting = Nesting::default();
         let mut with_literal = false;
         loop {
@@ -480,11 +488,9 @@ impl Connection {
                 "réponse IMAP trop imbriquée écartée"
             );
             self.skipped += 1;
-            response.zeroize();
             return Ok(());
         }
         self.client.enqueue_input(&response);
-        response.zeroize();
         Ok(())
     }
 

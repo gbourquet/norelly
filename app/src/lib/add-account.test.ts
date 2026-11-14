@@ -7,8 +7,10 @@ import type {
   AddAccountResult,
   AccountApi,
   Discovery,
+  OAuthSignInStepDto,
   ServerDto,
 } from "./ipc/api";
+import { m } from "./paraglide/messages.js";
 
 const imap: ServerDto = {
   host: "imap.example.com",
@@ -58,9 +60,11 @@ function fakeApi(discovery: Discovery, results: AddAccountResult[]) {
           ? ("google" as const)
           : null,
     ),
-    oauthSignInKept: vi.fn(async () => false),
-    addOAuthAccount: vi.fn(async (input: AddOAuthAccountInput) => {
+    cancelOAuthSignIn: vi.fn(async () => undefined),
+    addOAuthAccount: vi.fn(async (input: AddOAuthAccountInput, onProgress) => {
       oauthCalls.push(structuredClone(input));
+      onProgress("browser_opened");
+      onProgress("signed_in");
       const next = results.shift();
       if (next === undefined) throw new Error("appel inattendu");
       return next;
@@ -612,25 +616,121 @@ describe("se connecter avec Microsoft", () => {
     expect(f.message).not.toContain("mot de passe d'application");
   });
 
-  it("nouvel essai avec la connexion gardée : le navigateur n'est pas annoncé", async () => {
-    const { api } = fakeApi(found, [
-      { kind: "added", account, send_unchecked: false },
-      { kind: "added", account, send_unchecked: false },
-    ]);
+  /** Ajout dont l'issue est rendue à la main ; `progress` relaie les
+   *  étapes annoncées par Rust. */
+  function pendingSignIn(api: AccountApi) {
+    let progress: (step: OAuthSignInStepDto) => void = () => undefined;
+    let finish: (result: AddAccountResult) => void = () => undefined;
+    api.addOAuthAccount = vi.fn(
+      (_input: AddOAuthAccountInput, onProgress: (step: OAuthSignInStepDto) => void) => {
+        progress = onProgress;
+        return new Promise<AddAccountResult>((resolve) => {
+          finish = resolve;
+        });
+      },
+    );
+    return {
+      progress: (step: OAuthSignInStepDto) => progress(step),
+      finish: (result: AddAccountResult) => finish(result),
+    };
+  }
+
+  it("le navigateur n'est annoncé que lorsque Rust l'ouvre", async () => {
+    const { api } = fakeApi(found, []);
     const f = outlook(api);
     await f.detectProvider();
-    const shown: boolean[] = [];
-    const add = api.addOAuthAccount;
-    api.addOAuthAccount = vi.fn(async (input: AddOAuthAccountInput) => {
-      shown.push(f.waitingForBrowser);
-      return add(input);
+    const rust = pendingSignIn(api);
+    const done = f.signInWithProvider();
+    await vi.waitFor(() => expect(api.addOAuthAccount).toHaveBeenCalled());
+    expect(f.step).toBe("testing");
+    expect(f.waitingForBrowser).toBe(false);
+    rust.progress("browser_opened");
+    expect(f.waitingForBrowser).toBe(true);
+    // Fenêtre fermable pendant l'attente du navigateur.
+    expect(f.busy).toBe(false);
+    rust.progress("signed_in");
+    expect(f.waitingForBrowser).toBe(false);
+    expect(f.checkingSignIn).toBe(true);
+    expect(f.busy).toBe(true);
+    rust.finish({ kind: "added", account, send_unchecked: false });
+    await done;
+    expect(f.step).toBe("done");
+  });
+
+  it("nouvel essai avec la connexion gardée : le navigateur n'est pas annoncé", async () => {
+    const { api } = fakeApi(found, []);
+    const f = outlook(api);
+    await f.detectProvider();
+    const rust = pendingSignIn(api);
+    const done = f.signInWithProvider();
+    await vi.waitFor(() => expect(api.addOAuthAccount).toHaveBeenCalled());
+    rust.progress("signed_in");
+    expect(f.waitingForBrowser).toBe(false);
+    expect(f.checkingSignIn).toBe(true);
+    rust.finish({ kind: "added", account, send_unchecked: false });
+    await done;
+    expect(f.checkingSignIn).toBe(false);
+  });
+
+  it("annuler pendant l'attente du navigateur : Rust arrête l'attente, retour au formulaire", async () => {
+    const { api } = fakeApi(found, []);
+    const f = outlook(api);
+    await f.detectProvider();
+    const rust = pendingSignIn(api);
+    const done = f.signInWithProvider();
+    await vi.waitFor(() => expect(api.addOAuthAccount).toHaveBeenCalled());
+    rust.progress("browser_opened");
+    await f.cancelSignIn();
+    expect(api.cancelOAuthSignIn).toHaveBeenCalledOnce();
+    expect(f.step).toBe("form");
+    expect(f.waitingForBrowser).toBe(false);
+    expect(f.message).toBe(m.add_msg_cancelled());
+    // Réponse de l'essai annulé, arrivée ensuite : ignorée.
+    rust.finish({ kind: "failed", protocol: null, failure: "oauth_cancelled", detail: null });
+    await done;
+    expect(f.step).toBe("form");
+    expect(f.message).toBe(m.add_msg_cancelled());
+  });
+
+  it("fenêtre fermée pendant l'essai : une réponse tardive ne change plus rien", async () => {
+    const { api } = fakeApi(found, []);
+    const f = outlook(api);
+    await f.detectProvider();
+    const rust = pendingSignIn(api);
+    const done = f.signInWithProvider();
+    await vi.waitFor(() => expect(api.addOAuthAccount).toHaveBeenCalled());
+    rust.progress("browser_opened");
+    await f.forget();
+    expect(api.cancelOAuthSignIn).toHaveBeenCalledOnce();
+    expect(f.step).toBe("form");
+    rust.progress("signed_in");
+    rust.finish({ kind: "added", account, send_unchecked: false });
+    await done;
+    expect(f.step).toBe("form");
+    expect(f.added).toBeNull();
+    expect(f.checkingSignIn).toBe(false);
+  });
+
+  it("fenêtre fermée sans essai en cours : la connexion gardée est oubliée quand même", async () => {
+    const { api } = fakeApi(found, []);
+    const f = outlook(api);
+    await f.forget();
+    expect(api.cancelOAuthSignIn).toHaveBeenCalledOnce();
+  });
+
+  it("annulation refusée par Rust : l'écran revient quand même au formulaire", async () => {
+    const { api } = fakeApi(found, []);
+    api.cancelOAuthSignIn = vi.fn(async () => {
+      throw new Error("IPC indisponible");
     });
-    await f.signInWithProvider();
-    api.oauthSignInKept = vi.fn(async () => true);
-    await f.signInWithProvider();
-    expect(shown).toEqual([true, false]);
-    expect(f.reusingSignIn).toBe(false);
-    expect(api.oauthSignInKept).toHaveBeenCalledWith("alice@outlook.com", "microsoft");
+    const f = outlook(api);
+    await f.detectProvider();
+    pendingSignIn(api).progress("browser_opened");
+    void f.signInWithProvider();
+    await vi.waitFor(() => expect(api.addOAuthAccount).toHaveBeenCalled());
+    await f.cancelSignIn();
+    expect(f.step).toBe("form");
+    expect(f.message).toBe(m.add_msg_cancelled());
   });
 
   it("envoi non vérifié à l'ajout : un message le dit", async () => {

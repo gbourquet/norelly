@@ -28,7 +28,7 @@ function fakeApi(results: AddAccountResult[]): AccountApi {
           ? ("google" as const)
           : null,
     ),
-    oauthSignInKept: vi.fn(async () => false),
+    cancelOAuthSignIn: vi.fn(async () => undefined),
     addOAuthAccount: vi.fn(async () => {
       const next = results.shift();
       if (next === undefined) throw new Error("appel inattendu");
@@ -187,5 +187,53 @@ describe("fenêtre d'ajout de compte", () => {
     expect(
       screen.queryByRole("button", { name: "Utiliser un mot de passe d'application" }),
     ).toBeNull();
+  });
+
+  /** Ajout Microsoft arrêté à l'attente du navigateur (jamais terminé). */
+  async function waitingForMicrosoft(api: AccountApi, onClose = vi.fn()) {
+    api.addOAuthAccount = vi.fn((_input, onProgress) => {
+      onProgress("browser_opened");
+      return new Promise<AddAccountResult>(() => undefined);
+    });
+    render(AddAccountDialog, { open: true, api, onClose, onAdded: vi.fn() });
+    await fireEvent.input(document.querySelector("#account-address") as HTMLInputElement, {
+      target: { value: "alice@outlook.com" },
+    });
+    await fireEvent.click(
+      await screen.findByRole("button", { name: "Se connecter avec Microsoft" }),
+    );
+    await screen.findByText(
+      "Connectez-vous dans la fenêtre de votre navigateur, puis revenez ici.",
+    );
+    return onClose;
+  }
+
+  it("fermer pendant l'attente du navigateur arrête l'attente dans Rust", async () => {
+    const api = fakeApi([]);
+    const onClose = await waitingForMicrosoft(api);
+    const close = screen.getByRole("button", { name: "Fermer" });
+    expect(close).not.toBeDisabled();
+    await fireEvent.click(close);
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(api.cancelOAuthSignIn).toHaveBeenCalled();
+  });
+
+  it("« Annuler » pendant l'attente du navigateur : retour au formulaire", async () => {
+    const api = fakeApi([]);
+    const onClose = await waitingForMicrosoft(api);
+    await fireEvent.click(screen.getByRole("button", { name: "Annuler" }));
+    await screen.findByText("Connexion annulée. Vous pouvez modifier les paramètres.");
+    expect(api.cancelOAuthSignIn).toHaveBeenCalledOnce();
+    expect(onClose).not.toHaveBeenCalled();
+    expect(await screen.findByRole("button", { name: "Se connecter avec Microsoft" })).toBeTruthy();
+  });
+
+  it("fermer la fenêtre oublie la connexion gardée par Rust", async () => {
+    const api = fakeApi([]);
+    const onClose = vi.fn();
+    render(AddAccountDialog, { open: true, api, onClose, onAdded: vi.fn() });
+    await fireEvent.click(screen.getByRole("button", { name: "Fermer" }));
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(api.cancelOAuthSignIn).toHaveBeenCalled();
   });
 });

@@ -10,6 +10,7 @@
   import ShortcutHelp from "./components/ShortcutHelp.svelte";
   import AddAccountDialog from "./components/AddAccountDialog.svelte";
   import RemoveAccountDialog from "./components/RemoveAccountDialog.svelte";
+  import ChangePasswordDialog from "./components/ChangePasswordDialog.svelte";
   import ConversationList from "./components/ConversationList.svelte";
   import ConversationView from "./components/ConversationView.svelte";
   import FolderPicker from "./components/FolderPicker.svelte";
@@ -354,6 +355,7 @@
       offline={mail.offline}
       syncing={mail.syncing}
       reauth={mail.reauth}
+      appPassword={mail.appPassword}
       scope={mail.scope}
       selectedId={app.selectedAccountId}
       onScope={selectScope}
@@ -785,6 +787,18 @@
     app.close();
     mail.notice = { text: m.lists_notice_deleted({ name }), undoable: false };
     void lists.removed(id);
+  }}
+/>
+<ChangePasswordDialog
+  open={app.dialog === "change-password"}
+  {api}
+  account={app.selectedAccount}
+  appPasswordHelp={app.selectedAccount !== null &&
+    mail.appPassword[app.selectedAccount.id] === true}
+  onClose={() => app.close()}
+  onChanged={(account) => {
+    app.close();
+    mail.passwordChanged(account.id);
   }}
 />
 <RemoveAccountDialog

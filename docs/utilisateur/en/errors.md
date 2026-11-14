@@ -72,6 +72,29 @@ page** button opens the page where you create the app password; then
 paste it into the **Password** field, which was cleared for it. Details
 are in [Adding your email address](first-account.md#gmail).
 
+## Google account already added: "Google asks for a new app password"
+
+**What you see**: under the account's address, in the left panel, a box
+"Google asks for a new app password." with the **Change password** button.
+When you hover over the "Offline" icon, the reason is "Google app password
+required".
+
+**What it means**: Google has cancelled the app password Norelly was
+using. This happens when you change your Google account password, or when
+you delete that app password in your Google account.
+
+**What to do**:
+
+1. Click **Change password**.
+2. Follow the three steps shown: the **Open the Google page** button opens
+   the page where you create a new app password.
+3. Paste the 16-letter code into the **New password** field, then click
+   **Save**. Norelly tries it before saving it, and synchronization resumes
+   right away.
+
+Your messages, folders and drafts stay where they are: there is no need to
+remove and add the account again.
+
 ## Signing in with Google did not complete
 
 **What you see**: "Signing in with Google did not complete…", then the
@@ -107,9 +130,17 @@ username and password (an app password is sometimes required)."
    revoked: create a new one.
    **Outlook.com, Hotmail**: use **Sign in with Microsoft**
    (see [Outlook.com and Hotmail](first-account.md#outlookcom-and-hotmail-sign-in-with-microsoft)).
-3. If Norelly shows the server settings, check the **Username** field: it is
+3. **Account already added** whose password changed: click the **⋯** button
+   next to the account's address, then **Change password**. Enter the new
+   password, then click **Save**: Norelly tries it on incoming and outgoing
+   mail before keeping it; if it is refused, the old one stays in place.
+
+   ![The ⋯ menu of an account, with "Change password"](captures/account-menu.png)
+
+   ![The "Change password" window, after a refused password](captures/change-password.png)
+4. If Norelly shows the server settings, check the **Username** field: it is
    often the full address (`mary.smith@example.com`), not just `mary.smith`.
-4. Try signing in on your provider's website: your account may be
+5. Try signing in on your provider's website: your account may be
    temporarily locked after several attempts.
 
 ## Server unreachable

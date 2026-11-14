@@ -120,6 +120,7 @@ section (or to the list whose menu is open with a right-click).
 | Choose archive folder… | palette |
 | Synchronise selected account | palette |
 | Sign in again to the selected account | palette |
+| Change the selected account's password… | palette |
 | Remove selected account… | palette |
 
 "palette": no shortcut, open the palette (`Ctrl+K`) and type a few letters

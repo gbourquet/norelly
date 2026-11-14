@@ -45,6 +45,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::oauth_sign_in_kept,
             commands::add_oauth_account,
             commands::reconnect_account,
+            commands::change_password,
             commands::trust_certificate,
             commands::allow_file_secrets,
             commands::secrets_backend,

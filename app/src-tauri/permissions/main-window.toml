@@ -13,6 +13,7 @@ permissions = [
   "allow-oauth-sign-in-kept",
   "allow-add-oauth-account",
   "allow-reconnect-account",
+  "allow-change-password",
   "allow-trust-certificate",
   "allow-allow-file-secrets",
   "allow-secrets-backend",

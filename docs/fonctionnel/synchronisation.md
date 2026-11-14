@@ -81,7 +81,7 @@ redevient identique au serveur après toute interruption.
 | Synchronisation en cours | Synchronisation… {done} / {total} (au survol et pour les lecteurs d'écran : Synchronisation de {address} : {done} dossiers sur {total}) |
 | Compte injoignable | Hors ligne |
 | Survol de l'icône | Hors ligne : {reason} |
-| Raison | serveur injoignable, le serveur ne répond pas, identifiants refusés, connexion refusée par sécurité, réponse du serveur non conforme… |
+| Raison | serveur injoignable, le serveur ne répond pas, identifiants refusés, mot de passe d'application Google nécessaire (compte dont les deux serveurs sont ceux de Google, voir la fiche des comptes), connexion refusée par sécurité, réponse du serveur non conforme… |
 | Contenu pas encore téléchargé | Le contenu de ce message n'est pas encore disponible. |
 
 ## Raccourcis

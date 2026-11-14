@@ -79,6 +79,31 @@ collez-le ensuite dans le champ **Mot de passe**, qui a été vidé pour lui.
 Le détail est dans
 [Ajouter votre adresse](first-account.md#gmail).
 
+## Compte Google déjà ajouté : « Google demande un nouveau mot de passe d'application »
+
+**Ce que vous voyez** : sous l'adresse du compte, dans le panneau de
+gauche, un encadré « Google demande un nouveau mot de passe
+d'application. » avec le bouton **Changer le mot de passe**. En passant la
+souris sur l'icône « Hors ligne », la raison est « mot de passe
+d'application Google nécessaire ».
+
+**Ce que cela veut dire** : Google a annulé le mot de passe d'application
+que Norelly utilisait. Cela arrive quand vous changez le mot de passe de
+votre compte Google, ou quand vous supprimez ce mot de passe d'application
+dans votre compte Google.
+
+**Quoi faire** :
+
+1. Cliquez sur **Changer le mot de passe**.
+2. Suivez les trois étapes affichées : le bouton **Ouvrir la page Google**
+   ouvre la page où créer un nouveau mot de passe d'application.
+3. Collez le code de 16 lettres dans le champ **Nouveau mot de passe**,
+   puis cliquez sur **Enregistrer**. Norelly l'essaie avant de l'enregistrer
+   et la synchronisation reprend aussitôt.
+
+Vos messages, dossiers et brouillons restent en place : inutile de
+supprimer puis rajouter le compte.
+
 ## Connexion avec Google non aboutie
 
 **Ce que vous voyez** : « La connexion avec Google n'a pas abouti… », puis
@@ -120,10 +145,19 @@ de passe.
    d'application ont pu être annulés : créez-en un nouveau.
    **Outlook.com, Hotmail** : utilisez **Se connecter avec Microsoft**
    (voir [Outlook.com et Hotmail](first-account.md#outlookcom-et-hotmail--se-connecter-avec-microsoft)).
-3. Si Norelly montre les réglages des serveurs, vérifiez le champ
+3. **Compte déjà ajouté** dont le mot de passe a changé : cliquez sur le
+   bouton **⋯** à côté de l'adresse du compte, puis sur **Changer le mot de
+   passe**. Saisissez le nouveau mot de passe, puis cliquez sur
+   **Enregistrer** : Norelly l'essaie sur la réception et l'envoi avant de
+   le garder ; s'il est refusé, l'ancien reste en place.
+
+   ![Le menu ⋯ d'un compte, avec « Changer le mot de passe »](captures/account-menu.png)
+
+   ![La fenêtre « Changer le mot de passe », après un mot de passe refusé](captures/change-password.png)
+4. Si Norelly montre les réglages des serveurs, vérifiez le champ
    **Utilisateur** : c'est souvent l'adresse complète
    (`marie.durand@exemple.fr`), pas seulement `marie.durand`.
-4. Essayez de vous connecter sur le site de votre fournisseur : votre
+5. Essayez de vous connecter sur le site de votre fournisseur : votre
    compte est peut-être bloqué temporairement après plusieurs essais.
 
 ## Serveur injoignable

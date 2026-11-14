@@ -194,6 +194,10 @@ export const api = {
   reconnectAccount: (account: number): Promise<AddAccountResult> =>
     unwrap(commands.reconnectAccount(account)),
 
+  /** Nouveau mot de passe d'un compte, essayé avant de remplacer l'ancien. */
+  changePassword: (account: number, password: string): Promise<AddAccountResult> =>
+    unwrap(commands.changePassword(account, password)),
+
   trustCertificate: (host: string, fingerprint: string): Promise<void> =>
     unwrap(commands.trustCertificate(host, fingerprint)).then(() => undefined),
 

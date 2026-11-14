@@ -24,8 +24,10 @@ use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
+use crate::account::AccountDraft;
 use crate::address::EmailAddress;
 use crate::auth::AuthError;
+use crate::connection::ConnectionError;
 use crate::credentials::{CredentialsError, Username};
 use crate::endpoint::{Host, Protocol, Security, ServerEndpoint};
 
@@ -530,6 +532,33 @@ pub fn authentication_advice(
         .then_some(AuthenticationAdvice::GoogleAppPassword)
 }
 
+/// Conseil pour un compte enregistré dont la connexion échoue pendant la
+/// synchronisation (mot de passe d'application révoqué par Google, par
+/// exemple). `certificate_exception` indique qu'une exception de
+/// certificat existe pour l'un de ses serveurs.
+///
+/// Même règle qu'à l'ajout ([`authentication_advice`]), sur les serveurs
+/// enregistrés. Un compte connecté par OAuth n'a pas de mot de passe à
+/// remplacer : il ne reçoit jamais ce conseil.
+#[must_use]
+pub fn saved_account_advice(
+    account: &AccountDraft,
+    certificate_exception: bool,
+    error: &ConnectionError,
+) -> Option<AuthenticationAdvice> {
+    match error {
+        ConnectionError::Authentication(error) if account.oauth_provider().is_none() => {
+            authentication_advice(
+                &account.imap().endpoint,
+                &account.smtp().endpoint,
+                certificate_exception,
+                error,
+            )
+        }
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -950,6 +979,86 @@ mod tests {
             authentication_advice(&google_imap(), &google_smtp(), true, &rejected()),
             None
         );
+    }
+
+    fn saved(imap: ServerEndpoint, smtp: ServerEndpoint) -> AccountDraft {
+        let username = Username::parse("marie@gmail.com").unwrap_or_else(|_| panic!("identifiant"));
+        let server = |protocol, endpoint| crate::account::ServerSettings {
+            protocol,
+            endpoint,
+            username: username.clone(),
+        };
+        AccountDraft::restore(
+            crate::account::DisplayName::from_address(&address("marie@gmail.com")),
+            address("marie@gmail.com"),
+            server(Protocol::Imap, imap),
+            server(Protocol::Smtp, smtp),
+        )
+        .unwrap_or_else(|_| panic!("compte"))
+    }
+
+    fn sync_rejected() -> ConnectionError {
+        ConnectionError::Authentication(rejected())
+    }
+
+    #[test]
+    fn a_saved_google_account_rejected_during_sync_is_guided_to_an_app_password() {
+        // Mot de passe d'application révoqué (mot de passe Google changé) :
+        // la même aide qu'à l'ajout du compte.
+        let account = saved(google_imap(), google_smtp());
+        assert_eq!(
+            saved_account_advice(&account, false, &sync_rejected()),
+            Some(AuthenticationAdvice::GoogleAppPassword)
+        );
+    }
+
+    #[test]
+    fn a_saved_account_follows_the_same_rule_as_a_new_one() {
+        // Serveurs étrangers, en clair ou acceptés par exception : pas de
+        // mot de passe d'application conseillé.
+        let hostile = endpoint("imap.example.net", 993, Security::Tls);
+        let plain = endpoint("smtp.gmail.com", 25, Security::Plain);
+        assert_eq!(
+            saved_account_advice(&saved(hostile, google_smtp()), false, &sync_rejected()),
+            None
+        );
+        assert_eq!(
+            saved_account_advice(&saved(google_imap(), plain), false, &sync_rejected()),
+            None
+        );
+        assert_eq!(
+            saved_account_advice(&saved(google_imap(), google_smtp()), true, &sync_rejected()),
+            None
+        );
+    }
+
+    #[test]
+    fn a_google_sign_in_account_is_never_sent_to_app_passwords() {
+        // Compte « Se connecter avec Google » : pas de mot de passe à
+        // remplacer, la reconnexion passe par le navigateur.
+        let account =
+            saved(google_imap(), google_smtp()).with_oauth(crate::oauth::OAuthProvider::Google);
+        assert_eq!(
+            saved_account_advice(&account, false, &sync_rejected()),
+            None
+        );
+    }
+
+    #[test]
+    fn only_a_rejected_login_during_sync_calls_for_advice() {
+        let account = saved(google_imap(), google_smtp());
+        for error in [
+            ConnectionError::Closed,
+            ConnectionError::Network("injoignable".into()),
+            ConnectionError::Rejected("NO [AUTHENTICATIONFAILED]".into()),
+            ConnectionError::Authentication(AuthError::LoginDisabled),
+        ] {
+            assert_eq!(
+                saved_account_advice(&account, false, &error),
+                None,
+                "{error}"
+            );
+        }
     }
 
     #[test]

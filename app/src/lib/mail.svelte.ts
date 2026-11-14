@@ -85,6 +85,8 @@ export class MailState {
   folders = $state<Record<number, FolderDto[]>>({});
   /** Comptes hors ligne (raison). */
   offline = $state<Record<number, string>>({});
+  /** Comptes dont Google refuse le mot de passe d'application. */
+  appPassword = $state<Record<number, true>>({});
   /** Comptes en cours de synchronisation complète : dossiers traités sur
    *  le total. */
   syncing = $state<Record<number, { done: number; total: number }>>({});
@@ -146,6 +148,7 @@ export class MailState {
   forgetAccount(account: number): void {
     this.folders = without(this.folders, account);
     this.offline = without(this.offline, account);
+    this.appPassword = without(this.appPassword, account);
     this.syncing = without(this.syncing, account);
     this.#folderReads = without(this.#folderReads, account);
     this.conversations = this.conversations.filter((c) => c.account !== account);
@@ -464,6 +467,7 @@ export class MailState {
       case "online":
         this.offline = without(this.offline, event.account);
         this.reauth = without(this.reauth, event.account);
+        this.appPassword = without(this.appPassword, event.account);
         break;
       case "sync_progress":
         if (event.done < event.total) {
@@ -476,8 +480,16 @@ export class MailState {
         this.syncing = without(this.syncing, event.account);
         this.offline[event.account] = withDetail(failureText(event.failure), event.detail);
         if (event.failure === "reauth_required") this.reauth[event.account] = true;
+        if (event.failure === "google_app_password") this.appPassword[event.account] = true;
         break;
     }
+  }
+
+  /** Mot de passe du compte changé : la synchronisation repart. */
+  passwordChanged(account: number): void {
+    this.offline = without(this.offline, account);
+    this.appPassword = without(this.appPassword, account);
+    this.notice = { text: m.notice_password_changed(), undoable: false };
   }
 
   /** Reconnexion chez le fournisseur OAuth du compte (navigateur). */

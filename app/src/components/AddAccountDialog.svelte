@@ -5,7 +5,7 @@
   import ShieldAlertIcon from "@lucide/svelte/icons/shield-alert";
   import LockOpenIcon from "@lucide/svelte/icons/lock-open";
   import KeyRoundIcon from "@lucide/svelte/icons/key-round";
-  import ExternalLinkIcon from "@lucide/svelte/icons/external-link";
+  import AppPasswordHelp from "./AppPasswordHelp.svelte";
   import Modal from "./Modal.svelte";
   import ServerFields from "./ServerFields.svelte";
   import { AddAccountFlow, sourceLabel, issueText } from "../lib/add-account.svelte";
@@ -65,24 +65,10 @@
   {/if}
 
   {#if flow.appPasswordHelp && (flow.step === "form" || flow.step === "manual")}
-    <section class="app-password" aria-labelledby="app-password-title">
-      <h3 id="app-password-title">
-        <KeyRoundIcon size={18} aria-hidden="true" />
-        {m.add_app_password_title()}
-      </h3>
-      <ol>
-        <li>{m.add_app_password_step_2fa()}</li>
-        <li>
-          {m.add_app_password_step_create()}
-          <button class="btn" type="button" onclick={() => void flow.openAppPasswords()}>
-            <ExternalLinkIcon size={14} aria-hidden="true" />
-            {m.add_app_password_open()}
-          </button>
-        </li>
-        <li>{m.add_app_password_step_paste()}</li>
-      </ol>
-      <p class="hint">{m.add_app_password_unavailable()}</p>
-    </section>
+    <AppPasswordHelp
+      paste={m.add_app_password_step_paste()}
+      onOpen={() => void flow.openAppPasswords()}
+    />
   {/if}
 
   {#if flow.step === "form"}
@@ -363,37 +349,6 @@
     border-radius: var(--radius);
     background: var(--color-warning-bg);
     color: var(--color-warning);
-  }
-
-  .app-password {
-    margin: 0 0 var(--space-3);
-    padding: var(--space-3);
-    border: var(--border-width) solid var(--color-border);
-    border-radius: var(--radius);
-    background: var(--color-surface);
-  }
-
-  .app-password h3 {
-    display: flex;
-    align-items: center;
-    gap: var(--space-2);
-    margin: 0 0 var(--space-2);
-    font-size: var(--font-size-md);
-  }
-
-  .app-password ol {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-2);
-    margin: 0;
-    padding-left: var(--space-5);
-  }
-
-  .app-password li .btn {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--space-1);
-    margin-top: var(--space-1);
   }
 
   .progress ul {

@@ -117,6 +117,15 @@ impl<S: SecretStore> SecretStore for AppSecretStore<S> {
             Err(SecretStoreError::Unavailable(_)) if self.file.consented() => {
                 self.file.set(key, secret).await
             }
+            // Rangé au trousseau du système : une copie plus ancienne,
+            // laissée dans le fichier quand le trousseau manquait, ne reste
+            // pas lisible.
+            Ok(()) if self.file.consented() => {
+                if let Err(e) = self.file.delete(key).await {
+                    tracing::warn!(error = %e, "ancienne copie du secret non effacée du fichier");
+                }
+                Ok(())
+            }
             other => other,
         }
     }
@@ -257,6 +266,9 @@ pub struct AppState {
     pub secrets: AppSecrets,
     /// Jetons des comptes OAuth.
     pub tokens: Arc<AppTokens>,
+    /// Changement de mot de passe et suppression d'un même compte, l'un
+    /// après l'autre.
+    pub account_locks: norelly_application::accounts::AccountLocks,
     /// Certificats refusés lors des derniers tests de connexion : seuls
     /// ceux-là peuvent faire l'objet d'une exception (l'interface ne peut
     /// pas faire accepter une empreinte arbitraire).
@@ -354,6 +366,7 @@ impl AppState {
             exceptions,
             secrets,
             tokens,
+            account_locks: norelly_application::accounts::AccountLocks::default(),
             local_data: FsAccountDataStore::new(data_dir.join("accounts")),
             discover: DiscoverSettings::new(autoconfig, srv, TcpPortProber::default()),
             pending_rejections: Mutex::new(Vec::new()),
@@ -534,6 +547,52 @@ mod tests {
         assert!(with.consent_to_file().is_ok());
         assert!(with.stores_in_system_keyring().await);
 
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn a_keyring_write_removes_the_stale_file_copy() {
+        let dir = std::env::temp_dir().join(format!(
+            "norelly-secrets-stale-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::create_dir_all(&dir);
+        let path = dir.join("mots-de-passe.json");
+        let key = SecretKey::parse("account:1:imap").unwrap_or_else(|_| panic!("clé"));
+        // Compte ajouté sans trousseau : mot de passe dans le fichier.
+        let without: AppSecretStore<SystemSecretStore> = AppSecretStore::new(
+            Err(SecretStoreError::Unavailable("pas de trousseau".into())),
+            FileSecretStore::new(path.clone()),
+        );
+        assert!(without.consent_to_file().is_ok());
+        assert!(
+            without
+                .set(&key, &Secret::new("ancien-secret".into()))
+                .await
+                .is_ok()
+        );
+        // Trousseau revenu : le nouveau mot de passe y va, l'ancien ne
+        // reste pas lisible dans le fichier.
+        let with = AppSecretStore::new(
+            Ok(InMemorySecretStore::default()),
+            FileSecretStore::new(path.clone()),
+        );
+        assert!(with.set(&key, &Secret::new("nouveau".into())).await.is_ok());
+        let raw = std::fs::read_to_string(&path).unwrap_or_default();
+        assert!(
+            !raw.contains("ancien-secret"),
+            "ancien mot de passe resté dans le fichier"
+        );
+        assert_eq!(
+            with.get(&key)
+                .await
+                .ok()
+                .flatten()
+                .map(|s| s.expose().to_owned()),
+            Some("nouveau".into())
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 

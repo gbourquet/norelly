@@ -69,6 +69,43 @@ avec Google**, sur le même parcours que Microsoft, sans mot de passe.
 4. La reconnexion d'un compte Google se fait comme pour Microsoft
    (« Se reconnecter »).
 
+### Changer le mot de passe
+
+Pour un compte ajouté avec un mot de passe (pas pour un compte connecté
+avec Microsoft ou Google, qui se reconnecte par « Se reconnecter »).
+
+1. Depuis le menu « ⋯ » du compte (entrée « Changer le mot de passe »), la
+   commande « Changer le mot de passe du compte sélectionné… », ou le bouton
+   « Changer le mot de passe » affiché sous un compte dont Google refuse le
+   mot de passe d'application.
+2. L'utilisateur saisit le nouveau mot de passe, puis « Enregistrer ».
+3. Le nouveau mot de passe est essayé sur la réception, puis sur l'envoi.
+   S'il est accepté par les deux, il remplace l'ancien dans le trousseau ;
+   la synchronisation et l'envoi reprennent aussitôt avec lui, et
+   « Mot de passe changé. La synchronisation reprend. » s'affiche.
+4. S'il est refusé, rien ne change : la raison s'affiche dans la fenêtre,
+   comme à l'ajout, et l'utilisateur peut réessayer.
+
+### Compte Google dont le mot de passe d'application ne marche plus
+
+Google annule les mots de passe d'application quand le mot de passe du
+compte change. Pour un compte déjà ajouté dont les serveurs de réception et
+d'envoi sont tous deux ceux de Google :
+
+1. La raison de l'icône « Hors ligne » devient « mot de passe d'application
+   Google nécessaire ».
+2. Sous le compte, un encadré dit « Google demande un nouveau mot de passe
+   d'application. », avec le bouton « Changer le mot de passe ».
+3. La fenêtre de changement montre d'emblée les trois étapes de création
+   d'un mot de passe d'application, avec le bouton qui ouvre la page de
+   Google ; la dernière étape invite à coller le code dans le champ
+   « Nouveau mot de passe ».
+4. L'encadré disparaît dès que le compte se reconnecte.
+
+Mêmes garde-fous qu'à l'ajout : un serveur qui n'est pas celui de Google,
+une connexion non chiffrée ou un certificat accepté malgré l'alerte
+donnent le message habituel « identifiants refusés », sans cette aide.
+
 ### Retrait
 
 Depuis le menu « ⋯ » du compte (panneau de gauche, entrée « Supprimer ce
@@ -219,6 +256,20 @@ acceptés) sont supprimées. **Rien n'est supprimé sur le serveur.**
   conseillé que si les deux sont ceux de Google, joints de façon sûre.
 - Serveur limité à d'anciennes versions de TLS (1.0, 1.1) : connexion
   refusée par sécurité.
+- Changement de mot de passe que le trousseau refuse d'enregistrer : le
+  compte garde son ancien mot de passe, pour la réception comme pour
+  l'envoi, et l'erreur du trousseau s'affiche.
+- Suppression du compte demandée pendant un changement de mot de passe :
+  elle attend la fin de l'essai, puis efface le compte et son mot de
+  passe ; aucun mot de passe ne survit au compte.
+- Mot de passe démesuré (bien au-delà de ce qu'un gestionnaire de mots de
+  passe produit) : refusé avant tout envoi, à l'ajout comme au changement.
+- Compte ajouté quand aucun trousseau ne répondait, trousseau revenu
+  depuis : le nouveau mot de passe va au trousseau et l'ancien est retiré
+  du fichier.
+- Changement de mot de passe d'un compte qui ne se synchronisait plus :
+  la synchronisation repart dès que le nouveau mot de passe est accepté,
+  sans redémarrer Norelly.
 
 ## Messages affichés
 
@@ -251,6 +302,10 @@ acceptés) sont supprimées. **Rien n'est supprimé sur le serveur.**
 | Accès aux messages refusé | Norelly n'a pas reçu l'autorisation d'accéder à vos messages. Réessayez en cochant toutes les autorisations demandées dans la page de connexion. (Compte déjà ajouté : « accès aux messages refusé ».) |
 | Fournisseur absent de cette version | Cette version de Norelly ne peut pas se connecter à ce fournisseur. Installez la version publiée de Norelly ou, pour Gmail, utilisez un mot de passe d'application. (Compte déjà ajouté : « connexion à ce fournisseur indisponible dans cette version ».) |
 | Envoi désactivé (Microsoft) | {prefix}l'envoi de messages est désactivé sur ce compte Microsoft. Activez-le dans les réglages de votre compte Outlook.com, puis réessayez. |
+| Changer le mot de passe | Saisissez le nouveau mot de passe de {address}. Norelly l'essaie avant de remplacer l'ancien. Champ « Nouveau mot de passe », bouton « Enregistrer » ; pendant l'essai : « Vérification du nouveau mot de passe… » ; champ vide : « Saisissez le nouveau mot de passe. » |
+| Mot de passe changé | Mot de passe changé. La synchronisation reprend. |
+| Mot de passe d'application révoqué (compte existant, serveurs de Google seulement) | Sous le compte : « Google demande un nouveau mot de passe d'application. » et bouton « Changer le mot de passe » (infobulle « Changer le mot de passe de {address} ») ; raison de l'icône « Hors ligne » : « mot de passe d'application Google nécessaire ». Dans la fenêtre : les trois étapes, la dernière étant « Copiez le code de 16 lettres affiché par Google et collez-le ci-dessous, dans le champ « Nouveau mot de passe ». » |
+| Certificat refusé au changement de mot de passe | {prefix}connexion refusée par sécurité. (Un certificat ne s'accepte qu'à l'ajout du compte.) |
 | Reconnexion nécessaire | Bouton « Se reconnecter » à côté du compte ; infobulle « Reconnexion nécessaire : {address} » ; « Compte reconnecté. » après succès. |
 | Refus de sécurité | {prefix}connexion refusée par sécurité. |
 | Compte existant | Un compte existe déjà pour cette adresse. |
@@ -264,4 +319,5 @@ acceptés) sont supprimées. **Rien n'est supprimé sur le serveur.**
 | Commande | Raccourci |
 |---|---|
 | Ajouter un compte… | palette |
+| Changer le mot de passe du compte sélectionné… | palette |
 | Supprimer le compte sélectionné… | palette |

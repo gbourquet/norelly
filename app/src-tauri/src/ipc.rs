@@ -829,6 +829,19 @@ pub fn oauth_failure(e: &TokenError) -> AddAccountResultDto {
     }
 }
 
+impl FailureKindDto {
+    /// Catégorie d'un refus d'authentification accompagné d'un conseil du
+    /// domaine.
+    #[must_use]
+    pub fn advised(advice: AuthenticationAdvice) -> Self {
+        match advice {
+            AuthenticationAdvice::GoogleAppPassword => Self::GoogleAppPassword,
+            AuthenticationAdvice::MicrosoftSmtpDisabled => Self::MicrosoftSmtpDisabled,
+            AuthenticationAdvice::MicrosoftImapUnavailable => Self::MicrosoftImapUnavailable,
+        }
+    }
+}
+
 fn connection_failure(
     protocol: Protocol,
     outcome: &TestConnectionOutcome,
@@ -847,16 +860,7 @@ fn connection_failure(
             },
         },
         TestConnectionOutcome::Authentication(e) => {
-            let kind = match advice {
-                Some(AuthenticationAdvice::GoogleAppPassword) => FailureKindDto::GoogleAppPassword,
-                Some(AuthenticationAdvice::MicrosoftSmtpDisabled) => {
-                    FailureKindDto::MicrosoftSmtpDisabled
-                }
-                Some(AuthenticationAdvice::MicrosoftImapUnavailable) => {
-                    FailureKindDto::MicrosoftImapUnavailable
-                }
-                None => FailureKindDto::Authentication,
-            };
+            let kind = advice.map_or(FailureKindDto::Authentication, FailureKindDto::advised);
             failed(p, kind, auth_detail(e))
         }
         TestConnectionOutcome::Network(e) => failed(p, network_kind(e), connection_detail(e)),

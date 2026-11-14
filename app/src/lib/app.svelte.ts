@@ -41,6 +41,7 @@ export type DialogName =
   | "help"
   | "add-account"
   | "remove-account"
+  | "change-password"
   | "move"
   | "archive-folder"
   | "new-folder"
@@ -1027,6 +1028,14 @@ export function registerAppCommands(): () => void {
       keywords: words(m.cmd_account_reconnect_keywords()),
       when: (ctx) => (ctx.selectedAccount?.oauth_provider ?? null) !== null,
       run: (ctx) => (ctx.selectedAccount ? mail.reconnect(ctx.selectedAccount.id) : undefined),
+    }),
+    registry.register({
+      id: "account.change-password",
+      title: m.cmd_account_change_password(),
+      group: m.group_accounts(),
+      keywords: words(m.cmd_account_change_password_keywords()),
+      when: (ctx) => ctx.selectedAccount !== null && ctx.selectedAccount.oauth_provider === null,
+      run: () => app.open("change-password"),
     }),
     registry.register({
       id: "account.remove",

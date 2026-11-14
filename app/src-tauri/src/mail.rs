@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use norelly_application::account_actor::{self, AccountHandle, ActorClient, ActorConfig};
-use norelly_application::accounts::connect_request;
+use norelly_application::accounts::{connect_request, saved_account_failure_advice};
 use norelly_application::compose_worker::{self, ComposeEvent, ComposeHandle, ComposeWorker};
 use norelly_application::folders::{FolderChange, FolderFailure};
 use norelly_application::reading::{
@@ -155,6 +155,8 @@ impl MailServices {
         let relayed = account.id();
         let relay = app.clone();
         let settings_store = self.settings.clone();
+        let advised = account.clone();
+        let exception_store = exceptions.clone();
         tauri::async_runtime::spawn(async move {
             loop {
                 match events.recv().await {
@@ -174,7 +176,19 @@ impl MailServices {
                         }
                     }
                     Ok(event) => {
-                        if let Some(dto) = SyncEventDto::from_event(&event) {
+                        // Refus des identifiants : conseil du domaine (mot
+                        // de passe d'application Google révoqué…).
+                        let advice = match &event {
+                            SyncEvent::Offline {
+                                failure: SyncFailure::Connection(failure),
+                                ..
+                            } => {
+                                saved_account_failure_advice(&exception_store, &advised, failure)
+                                    .await
+                            }
+                            _ => None,
+                        };
+                        if let Some(dto) = SyncEventDto::from_advised_event(&event, advice) {
                             let _ = dto.emit(&relay);
                         }
                     }
@@ -587,6 +601,33 @@ impl SyncEventDto {
     }
 }
 
+impl SyncEventDto {
+    /// [`Self::from_event`], avec le conseil du domaine pour un échec de
+    /// connexion.
+    #[must_use]
+    pub fn from_advised_event(
+        event: &SyncEvent,
+        advice: Option<norelly_domain::discovery::AuthenticationAdvice>,
+    ) -> Option<Self> {
+        let dto = Self::from_event(event)?;
+        Some(match (dto, advice) {
+            (
+                Self::Offline {
+                    account,
+                    failure: FailureKindDto::Authentication,
+                    detail,
+                },
+                Some(advice),
+            ) => Self::Offline {
+                account,
+                failure: FailureKindDto::advised(advice),
+                detail,
+            },
+            (dto, _) => dto,
+        })
+    }
+}
+
 /// Catégorie et détail technique brut d'un échec de synchronisation.
 fn sync_failure_of(failure: &SyncFailure) -> (FailureKindDto, Option<String>) {
     match failure {
@@ -620,6 +661,39 @@ mod sync_event_tests {
             serde_json::to_value(outbox_lagged_event(account)).unwrap_or_default(),
             serde_json::json!({ "kind": "outbox_changed", "account": 5 })
         );
+    }
+
+    #[test]
+    fn revoked_google_app_password_reaches_the_interface() {
+        use norelly_domain::auth::AuthError;
+        use norelly_domain::connection::ConnectionError;
+        use norelly_domain::discovery::AuthenticationAdvice;
+        let Ok(account) = AccountId::new(2) else {
+            panic!("identifiant valide refusé");
+        };
+        let event = SyncEvent::Offline {
+            account,
+            failure: SyncFailure::Connection(ConnectionError::Authentication(
+                AuthError::Rejected {
+                    message: "Invalid credentials".into(),
+                },
+            )),
+            retry_in_ms: None,
+        };
+        let json = |advice| {
+            serde_json::to_value(SyncEventDto::from_advised_event(&event, advice))
+                .unwrap_or_default()
+        };
+        assert_eq!(
+            json(Some(AuthenticationAdvice::GoogleAppPassword)),
+            serde_json::json!({
+                "kind": "offline",
+                "account": 2,
+                "failure": "google_app_password",
+                "detail": "Invalid credentials",
+            })
+        );
+        assert_eq!(json(None)["failure"], "authentication");
     }
 
     #[test]

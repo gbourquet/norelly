@@ -335,6 +335,21 @@ describe(`captures d'écran (${lang})`, () => {
     await browser.keys("Escape");
   });
 
+  it("changer le mot de passe (à la souris)", async () => {
+    await openMenu($(`aria/${msg("sidebar_account_menu", { address })}`));
+    await menuItem(msg("sidebar_change_password")).waitForDisplayed({ timeout: 10000 });
+    await capture("account-menu");
+    await menuItem(msg("sidebar_change_password")).click();
+    const dialog = dialogTitled(msg("password_title"));
+    await dialog.waitForDisplayed({ timeout: 10000 });
+    await $("#new-password").setValue("mot-de-passe-faux");
+    await dialog.$(`button=${msg("password_save")}`).click();
+    await dialog.$(`[role="alert"]`).waitForDisplayed({ timeout: 60000 });
+    await capture("change-password");
+    await dialog.$(`button=${msg("common_cancel")}`).click();
+    await dialog.waitForDisplayed({ reverse: true, timeout: 10000 });
+  });
+
   it("brouillons, raccourcis, palette, paramètres (à la souris)", async () => {
     await accountMenu(address, msg("cmd_drafts"), msg("sidebar_account_menu", { address }));
     const drafts = dialogTitled(msg("drafts_title"));

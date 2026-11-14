@@ -474,7 +474,7 @@ export class AddAccountFlow {
   }
 }
 
-function failureMessage(
+export function failureMessage(
   failure: FailureKindDto,
   protocol: string | null,
   detail: string | null,

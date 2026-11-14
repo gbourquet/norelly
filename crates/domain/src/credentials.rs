@@ -112,6 +112,8 @@ pub enum CredentialsError {
     EmptySecret,
     #[error("le mot de passe contient un caractère nul")]
     SecretNulCharacter,
+    #[error("le mot de passe est trop long")]
+    SecretTooLong,
     /// Jeton d'accès hors du jeu `b64token` (RFC 6750) ou trop long.
     #[error("jeton d'accès invalide")]
     InvalidToken,
@@ -151,6 +153,10 @@ impl fmt::Display for Username {
     }
 }
 
+/// Longueur maximale d'un mot de passe, en octets (bien au-delà des mots
+/// de passe générés par les gestionnaires).
+pub const MAX_PASSWORD_LEN: usize = 1024;
+
 /// Nature du secret présenté au serveur.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum CredentialKind {
@@ -180,11 +186,14 @@ pub struct OAuthBinding {
 }
 
 impl Credentials {
-    /// Le secret doit être non vide et sans caractère nul (séparateur du
-    /// mécanisme SASL PLAIN).
+    /// Le secret doit être non vide, d'au plus [`MAX_PASSWORD_LEN`] octets
+    /// et sans caractère nul (séparateur du mécanisme SASL PLAIN).
     pub fn new(username: Username, secret: Secret) -> Result<Self, CredentialsError> {
         if secret.is_empty() {
             return Err(CredentialsError::EmptySecret);
+        }
+        if secret.expose().len() > MAX_PASSWORD_LEN {
+            return Err(CredentialsError::SecretTooLong);
         }
         if secret.expose().contains('\0') {
             return Err(CredentialsError::SecretNulCharacter);
@@ -359,6 +368,15 @@ mod tests {
         // CR/LF sont admis dans un mot de passe : les adaptateurs les
         // transmettent en littéral ou en base64, jamais tels quels.
         assert!(Credentials::new(user.clone(), Secret::new("a\r\nb".to_owned())).is_ok());
+        // Longueur bornée : une entrée démesurée n'est ni envoyée aux
+        // serveurs ni rangée au trousseau.
+        assert!(
+            Credentials::new(user.clone(), Secret::new("é".repeat(MAX_PASSWORD_LEN / 2))).is_ok()
+        );
+        assert!(matches!(
+            Credentials::new(user.clone(), Secret::new("a".repeat(MAX_PASSWORD_LEN + 1))),
+            Err(CredentialsError::SecretTooLong)
+        ));
         let ms = OAuthProvider::Microsoft;
         let token = |t: &str| Credentials::oauth2(user.clone(), Secret::new(t.to_owned()), ms);
         assert_eq!(

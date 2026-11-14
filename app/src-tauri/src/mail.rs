@@ -152,6 +152,7 @@ impl MailServices {
             },
         );
         let mut events = handle.subscribe();
+        let relayed = account.id();
         let relay = app.clone();
         let settings_store = self.settings.clone();
         tauri::async_runtime::spawn(async move {
@@ -177,7 +178,11 @@ impl MailServices {
                             let _ = dto.emit(&relay);
                         }
                     }
-                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
+                        if let Some(dto) = lagged_event(relayed) {
+                            let _ = dto.emit(&relay);
+                        }
+                    }
                     Err(tokio::sync::broadcast::error::RecvError::Closed) => return,
                 }
             }
@@ -524,6 +529,12 @@ impl RemoteBodyFetcher for MailServices {
     }
 }
 
+/// Événements perdus par un relais en retard : l'interface relit dossiers et
+/// liste du compte plutôt que de garder un état périmé.
+fn lagged_event(account: AccountId) -> Option<SyncEventDto> {
+    SyncEventDto::from_event(&SyncEvent::FoldersChanged { account })
+}
+
 impl SyncEventDto {
     fn from_event(event: &SyncEvent) -> Option<Self> {
         let id = |a: AccountId| u32::try_from(a.get()).ok();
@@ -575,6 +586,17 @@ fn sync_failure_of(failure: &SyncFailure) -> (FailureKindDto, Option<String>) {
 #[cfg(test)]
 mod sync_event_tests {
     use super::*;
+
+    #[test]
+    fn lost_events_ask_the_interface_to_reread_the_account() {
+        let Ok(account) = AccountId::new(4) else {
+            panic!("identifiant valide refusé");
+        };
+        assert_eq!(
+            serde_json::to_value(lagged_event(account)).unwrap_or_default(),
+            serde_json::json!({ "kind": "folders_changed", "account": 4 })
+        );
+    }
 
     #[test]
     fn sync_progress_reaches_the_interface() {

@@ -275,7 +275,7 @@ where
                 None => match self
                     .broker
                     .client()
-                    .authorize(request.provider, &request.address)
+                    .authorize(&self.broker.config(request.provider), &request.address)
                     .await
                 {
                     Ok(grant) => (grant, Some(self.broker.now())),
@@ -298,7 +298,11 @@ where
         if let Err(e) = require_offline_access(grant.refresh_token.as_ref()) {
             return AddAccountOutcome::OAuthFailed(e);
         }
-        if let Err(e) = require_mail_access(request.provider, grant.granted_scopes.as_deref()) {
+        if let Err(e) = require_mail_access(
+            request.provider,
+            &self.broker.config(request.provider),
+            grant.granted_scopes.as_deref(),
+        ) {
             return AddAccountOutcome::OAuthFailed(e);
         }
         let name = request
@@ -483,7 +487,7 @@ pub async fn reconnect_oauth_account<O: OAuthClient, K: SecretStore, D: AccountR
     }
     let grant = broker
         .client()
-        .authorize(provider, account.address())
+        .authorize(&broker.config(provider), account.address())
         .await?;
     verify_sign_in(
         provider,
@@ -492,7 +496,11 @@ pub async fn reconnect_oauth_account<O: OAuthClient, K: SecretStore, D: AccountR
         grant.identity.as_ref(),
     )?;
     require_offline_access(grant.refresh_token.as_ref())?;
-    require_mail_access(provider, grant.granted_scopes.as_deref())?;
+    require_mail_access(
+        provider,
+        &broker.config(provider),
+        grant.granted_scopes.as_deref(),
+    )?;
     let source = OAuthSource {
         provider,
         refresh_key: account.secret_key(Protocol::Imap),

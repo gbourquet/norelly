@@ -14,8 +14,8 @@ use std::time::Duration;
 use norelly_domain::address::EmailAddress;
 use norelly_domain::credentials::Secret;
 use norelly_domain::oauth::{
-    AuthorizationRequest, CallbackError, OAuthConfig, OAuthIdentity, OAuthProvider, TokenError,
-    authorization_url, classify_token_error, code_exchange_form, parse_callback, refresh_form,
+    AuthorizationRequest, CallbackError, OAuthConfig, OAuthIdentity, TokenError, authorization_url,
+    classify_token_error, code_exchange_form, parse_callback, refresh_form,
 };
 use norelly_domain::ports::{OAuthClient, OAuthGrant};
 use norelly_tls::TlsClientFactory;
@@ -115,10 +115,9 @@ impl<B: BrowserOpener> HttpOAuthClient<B> {
 
     async fn authorize_impl(
         &self,
-        provider: OAuthProvider,
+        config: &OAuthConfig,
         login_hint: &EmailAddress,
     ) -> Result<OAuthGrant, TokenError> {
-        let config = provider.config();
         let listener = TcpListener::bind(("127.0.0.1", 0))
             .await
             .map_err(|e| TokenError::Network(e.to_string()))?;
@@ -152,10 +151,9 @@ impl<B: BrowserOpener> HttpOAuthClient<B> {
 
     async fn refresh_impl(
         &self,
-        provider: OAuthProvider,
+        config: &OAuthConfig,
         refresh_token: &Secret,
     ) -> Result<OAuthGrant, TokenError> {
-        let config = provider.config();
         self.post_token(config, refresh_form(config, refresh_token))
             .await
     }
@@ -183,18 +181,18 @@ impl<B: BrowserOpener> HttpOAuthClient<B> {
 impl<B: BrowserOpener> OAuthClient for HttpOAuthClient<B> {
     async fn authorize(
         &self,
-        provider: OAuthProvider,
+        config: &OAuthConfig,
         login_hint: &EmailAddress,
     ) -> Result<OAuthGrant, TokenError> {
-        self.authorize_impl(provider, login_hint).await
+        self.authorize_impl(config, login_hint).await
     }
 
     async fn refresh(
         &self,
-        provider: OAuthProvider,
+        config: &OAuthConfig,
         refresh_token: &Secret,
     ) -> Result<OAuthGrant, TokenError> {
-        self.refresh_impl(provider, refresh_token).await
+        self.refresh_impl(config, refresh_token).await
     }
 }
 

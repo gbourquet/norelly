@@ -47,7 +47,9 @@ pub struct TokenBroker<O, K> {
     /// seulement, jusqu'au prochain essai.
     pending: std::sync::Mutex<Option<(PendingAuthorization, OAuthGrant)>>,
     /// Configuration de chaque fournisseur ; par défaut, celle compilée
-    /// (identifiants client compris).
+    /// (identifiants client compris). Seule source : elle est passée au
+    /// client OAuth à chaque connexion et rafraîchissement, et sert aux
+    /// contrôles (utilisable, destinataire de l'identité, scopes).
     configs: fn(OAuthProvider) -> OAuthConfig,
 }
 
@@ -235,7 +237,7 @@ impl<O: OAuthClient, K: SecretStore> TokenBroker<O, K> {
                 .ok_or(AuthError::ReauthRequired)?,
         };
         self.client
-            .refresh(source.provider, &refresh)
+            .refresh(&self.config(source.provider), &refresh)
             .await
             .map_err(|e| auth_error_of(&e))
     }

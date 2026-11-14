@@ -226,28 +226,41 @@ fn google_sign_in_without_mail_access_is_refused() {
     assert_eq!(
         require_mail_access(
             google,
+            google.config(),
             Some("openid https://www.googleapis.com/auth/userinfo.email")
         ),
         Err(TokenError::MailAccessRefused)
     );
     assert_eq!(
-        require_mail_access(google, Some("")),
+        require_mail_access(google, google.config(), Some("")),
         Err(TokenError::MailAccessRefused)
     );
     // Préfixe ou sosie du scope : refusé.
     assert_eq!(
-        require_mail_access(google, Some("https://mail.google.com/x openid")),
+        require_mail_access(
+            google,
+            google.config(),
+            Some("https://mail.google.com/x openid")
+        ),
         Err(TokenError::MailAccessRefused)
     );
     assert_eq!(
-        require_mail_access(google, Some("openid https://mail.google.com/ email")),
+        require_mail_access(
+            google,
+            google.config(),
+            Some("openid https://mail.google.com/ email")
+        ),
         Ok(())
     );
     // Scopes non renvoyés : ceux demandés ont été accordés (RFC 6749, 5.1).
-    assert_eq!(require_mail_access(google, None), Ok(()));
+    assert_eq!(require_mail_access(google, google.config(), None), Ok(()));
     // Microsoft renvoie ses scopes sous une autre forme : non concerné.
     assert_eq!(
-        require_mail_access(OAuthProvider::Microsoft, Some("openid")),
+        require_mail_access(
+            OAuthProvider::Microsoft,
+            OAuthProvider::Microsoft.config(),
+            Some("openid")
+        ),
         Ok(())
     );
 }

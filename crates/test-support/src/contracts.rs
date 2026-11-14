@@ -370,7 +370,7 @@ pub struct FakeOAuthClient {
 impl norelly_domain::ports::OAuthClient for FakeOAuthClient {
     async fn authorize(
         &self,
-        _: norelly_domain::oauth::OAuthProvider,
+        _: &norelly_domain::oauth::OAuthConfig,
         login_hint: &EmailAddress,
     ) -> Result<norelly_domain::ports::OAuthGrant, norelly_domain::oauth::TokenError> {
         if let Ok(mut seen) = self.authorizations.lock() {
@@ -385,7 +385,7 @@ impl norelly_domain::ports::OAuthClient for FakeOAuthClient {
 
     async fn refresh(
         &self,
-        _: norelly_domain::oauth::OAuthProvider,
+        _: &norelly_domain::oauth::OAuthConfig,
         refresh_token: &Secret,
     ) -> Result<norelly_domain::ports::OAuthGrant, norelly_domain::oauth::TokenError> {
         if refresh_token.expose() != "r1" {
@@ -407,7 +407,10 @@ impl norelly_domain::ports::OAuthClient for FakeOAuthClient {
 pub async fn oauth_client_contract<C: norelly_domain::ports::OAuthClient>(client: &C) {
     use norelly_domain::oauth::{OAuthProvider, TokenError};
     let grant = client
-        .refresh(OAuthProvider::Microsoft, &Secret::new("r1".to_owned()))
+        .refresh(
+            OAuthProvider::Microsoft.config(),
+            &Secret::new("r1".to_owned()),
+        )
         .await;
     let Ok(grant) = grant else {
         panic!("rafraîchissement refusé : {grant:?}");
@@ -416,7 +419,10 @@ pub async fn oauth_client_contract<C: norelly_domain::ports::OAuthClient>(client
     assert!(grant.expires_in > 0);
     assert!(grant.refresh_token.is_some(), "rotation attendue");
     let revoked = client
-        .refresh(OAuthProvider::Microsoft, &Secret::new("revoked".to_owned()))
+        .refresh(
+            OAuthProvider::Microsoft.config(),
+            &Secret::new("revoked".to_owned()),
+        )
         .await;
     assert_eq!(revoked.map(|_| ()), Err(TokenError::ReauthRequired));
 }

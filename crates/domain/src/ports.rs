@@ -96,14 +96,14 @@ pub trait OAuthClient: Send + Sync {
     /// retour de l'utilisateur.
     fn authorize(
         &self,
-        provider: crate::oauth::OAuthProvider,
+        config: &crate::oauth::OAuthConfig,
         login_hint: &crate::address::EmailAddress,
     ) -> impl Future<Output = Result<OAuthGrant, crate::oauth::TokenError>> + Send;
 
     /// Nouveau jeton d'accès à partir du jeton de rafraîchissement.
     fn refresh(
         &self,
-        provider: crate::oauth::OAuthProvider,
+        config: &crate::oauth::OAuthConfig,
         refresh_token: &crate::credentials::Secret,
     ) -> impl Future<Output = Result<OAuthGrant, crate::oauth::TokenError>> + Send;
 }

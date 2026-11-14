@@ -603,14 +603,14 @@ pub fn require_offline_access(refresh_token: Option<&Secret>) -> Result<(), Toke
 /// autre forme, n'est pas concerné.
 pub fn require_mail_access(
     provider: OAuthProvider,
+    config: &OAuthConfig,
     granted_scopes: Option<&str>,
 ) -> Result<(), TokenError> {
     let (OAuthProvider::Google, Some(granted)) = (provider, granted_scopes) else {
         return Ok(());
     };
     let granted = granted.split_ascii_whitespace();
-    if provider
-        .config()
+    if config
         .scopes
         .iter()
         .all(|wanted| granted.clone().any(|g| g == *wanted))

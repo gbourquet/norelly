@@ -14,7 +14,7 @@ use norelly_domain::address::EmailAddress;
 use norelly_domain::credentials::Secret;
 use norelly_domain::discovery::{SrvRecord, SrvService};
 use norelly_domain::endpoint::Host;
-use norelly_domain::oauth::{OAuthProvider, TokenError};
+use norelly_domain::oauth::{OAuthConfig, TokenError};
 use norelly_domain::ports::{
     DiscoveryError, SecretKey, SecretStore, SecretStoreError, SrvResolver,
 };
@@ -196,22 +196,22 @@ pub enum AppOAuth {
 impl OAuthClient for AppOAuth {
     async fn authorize(
         &self,
-        provider: OAuthProvider,
+        config: &OAuthConfig,
         login_hint: &EmailAddress,
     ) -> Result<OAuthGrant, TokenError> {
         match self {
-            Self::Http(c) => c.authorize(provider, login_hint).await,
+            Self::Http(c) => c.authorize(config, login_hint).await,
             Self::Unavailable(e) => Err(TokenError::Network(e.clone())),
         }
     }
 
     async fn refresh(
         &self,
-        provider: OAuthProvider,
+        config: &OAuthConfig,
         refresh_token: &Secret,
     ) -> Result<OAuthGrant, TokenError> {
         match self {
-            Self::Http(c) => c.refresh(provider, refresh_token).await,
+            Self::Http(c) => c.refresh(config, refresh_token).await,
             Self::Unavailable(e) => Err(TokenError::Network(e.clone())),
         }
     }

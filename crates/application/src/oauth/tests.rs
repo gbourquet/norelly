@@ -80,14 +80,10 @@ impl Default for Provider {
 }
 
 impl OAuthClient for Provider {
-    async fn authorize(
-        &self,
-        _: OAuthProvider,
-        _: &EmailAddress,
-    ) -> Result<OAuthGrant, TokenError> {
+    async fn authorize(&self, _: &OAuthConfig, _: &EmailAddress) -> Result<OAuthGrant, TokenError> {
         Err(TokenError::Cancelled("non utilisé".to_owned()))
     }
-    async fn refresh(&self, _: OAuthProvider, refresh: &Secret) -> Result<OAuthGrant, TokenError> {
+    async fn refresh(&self, _: &OAuthConfig, refresh: &Secret) -> Result<OAuthGrant, TokenError> {
         if self.hang || refresh.expose() == "lent" {
             std::future::pending::<()>().await;
         }

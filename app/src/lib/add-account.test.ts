@@ -423,6 +423,19 @@ describe("se connecter avec Microsoft", () => {
     );
   });
 
+  it("accès hors ligne refusé chez le fournisseur : retour au formulaire, quoi accepter", async () => {
+    const { api } = fakeApi(found, [
+      { kind: "failed", protocol: null, failure: "oauth_offline_access", detail: null },
+    ]);
+    const f = outlook(api);
+    await f.detectProvider();
+    await f.signInWithProvider();
+    expect(f.step).toBe("form");
+    expect(f.message).toBe(
+      "Norelly n'a pas reçu l'autorisation de rester connecté à votre compte. Réessayez en acceptant toutes les autorisations demandées dans la page de connexion.",
+    );
+  });
+
   it("envoi désactivé sur la boîte : message clair", async () => {
     const { api } = fakeApi(found, [
       { kind: "failed", protocol: "smtp", failure: "microsoft_smtp_disabled", detail: null },

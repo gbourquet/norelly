@@ -608,6 +608,9 @@ pub enum FailureKindDto {
     OauthCancelled,
     /// Le compte choisi dans le navigateur n'est pas celui de l'adresse.
     OauthWrongAccount,
+    /// Accès hors ligne refusé dans la page du fournisseur : aucun jeton de
+    /// rafraîchissement délivré.
+    OauthOfflineAccess,
     /// Connexion chez le fournisseur impossible (réseau, réponse invalide).
     Oauth,
     Security,
@@ -630,6 +633,12 @@ pub fn connection_failure_of(e: &ConnectionError) -> (FailureKindDto, Option<Str
         ConnectionError::Authentication(AuthError::ReauthRequired)
     ) {
         return (FailureKindDto::ReauthRequired, None);
+    }
+    if let ConnectionError::Authentication(AuthError::SecretStoreUnavailable { message }) = e {
+        return (FailureKindDto::SecretStore, Some(message.clone()));
+    }
+    if let ConnectionError::Authentication(AuthError::ProviderUnavailable { message }) = e {
+        return (FailureKindDto::Oauth, Some(message.clone()));
     }
     let kind = match e.category() {
         FailureCategory::Network => network_kind(e),
@@ -672,6 +681,8 @@ fn auth_detail(a: &AuthError) -> Option<String> {
         AuthError::Rejected { message } => Some(message.clone()),
         AuthError::NoSupportedMechanism { offered } => Some(offered.join(", ")),
         AuthError::TokenDestinationRefused { host } => Some(host.clone()),
+        AuthError::SecretStoreUnavailable { message } => Some(message.clone()),
+        AuthError::ProviderUnavailable { message } => Some(message.clone()),
         AuthError::Unsupported(_)
         | AuthError::ReauthRequired
         | AuthError::LoginDisabled
@@ -794,6 +805,7 @@ pub fn oauth_failure(e: &TokenError) -> AddAccountResultDto {
         TokenError::Cancelled(_) => failed(None, FailureKindDto::OauthCancelled, None),
         TokenError::ReauthRequired => failed(None, FailureKindDto::ReauthRequired, None),
         TokenError::WrongAccount => failed(None, FailureKindDto::OauthWrongAccount, None),
+        TokenError::OfflineAccessRefused => failed(None, FailureKindDto::OauthOfflineAccess, None),
         TokenError::Network(d) | TokenError::Protocol(d) => {
             failed(None, FailureKindDto::Oauth, Some(d.clone()))
         }
@@ -1362,6 +1374,28 @@ mod error_tests {
     }
 
     #[test]
+    fn unreachable_oauth_provider_is_not_reported_as_rejected_credentials() {
+        let (kind, detail) = connection_failure_of(&ConnectionError::Authentication(
+            AuthError::ProviderUnavailable {
+                message: "erreur réseau : HTTP 503".into(),
+            },
+        ));
+        assert_eq!(kind, FailureKindDto::Oauth);
+        assert_eq!(detail.as_deref(), Some("erreur réseau : HTTP 503"));
+    }
+
+    #[test]
+    fn unreadable_keyring_is_reported_as_a_keyring_failure() {
+        let (kind, detail) = connection_failure_of(&ConnectionError::Authentication(
+            AuthError::SecretStoreUnavailable {
+                message: "trousseau verrouillé".into(),
+            },
+        ));
+        assert_eq!(kind, FailureKindDto::SecretStore);
+        assert_eq!(detail.as_deref(), Some("trousseau verrouillé"));
+    }
+
+    #[test]
     fn connection_failures_keep_only_raw_server_text() {
         let (kind, detail) =
             connection_failure_of(&ConnectionError::Authentication(AuthError::Rejected {
@@ -1461,6 +1495,14 @@ mod error_tests {
                 "detail": null,
             })
         );
+    }
+
+    #[test]
+    fn refused_offline_access_has_its_own_failure_kind() {
+        let json = serde_json::to_value(oauth_failure(&TokenError::OfflineAccessRefused))
+            .unwrap_or_default();
+        assert_eq!(json["failure"], "oauth_offline_access");
+        assert_eq!(json["detail"], serde_json::Value::Null);
     }
 }
 

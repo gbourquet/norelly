@@ -7,6 +7,7 @@
 //! (certaines variantes de `keyring_core::Error` les contiennent).
 
 mod file;
+mod order;
 
 pub use file::FileSecretStore;
 
@@ -103,6 +104,7 @@ fn platform_store() -> Result<Arc<CredentialStore>, SecretStoreError> {
 pub struct SystemSecretStore {
     store: Arc<CredentialStore>,
     service: String,
+    order: Arc<order::WriteOrder>,
 }
 
 impl std::fmt::Debug for SystemSecretStore {
@@ -124,7 +126,17 @@ impl SystemSecretStore {
         Ok(Self {
             store: platform_store()?,
             service: service.to_owned(),
+            order: Arc::default(),
         })
+    }
+
+    /// Numéro d'une écriture de `key`, pris à l'appel ([`order::WriteOrder`]).
+    fn ordered(&self, key: &SecretKey) -> (Arc<order::WriteOrder>, String, u64) {
+        (
+            Arc::clone(&self.order),
+            key.as_str().to_owned(),
+            self.order.ticket(),
+        )
     }
 
     async fn blocking<T, F>(&self, key: &SecretKey, f: F) -> Result<T, SecretStoreError>
@@ -156,16 +168,26 @@ impl SecretStore for SystemSecretStore {
 
     async fn set(&self, key: &SecretKey, secret: &Secret) -> Result<(), SecretStoreError> {
         let secret = secret.clone();
+        let (order, name, ticket) = self.ordered(key);
         self.blocking(key, move |entry| {
-            entry.set_password(secret.expose()).map_err(map_error)
+            order
+                .run(&name, ticket, || {
+                    entry.set_password(secret.expose()).map_err(map_error)
+                })
+                .map(|_| ())
         })
         .await
     }
 
     async fn delete(&self, key: &SecretKey) -> Result<(), SecretStoreError> {
-        self.blocking(key, |entry| match entry.delete_credential() {
-            Ok(()) | Err(keyring_core::Error::NoEntry) => Ok(()),
-            Err(e) => Err(map_error(e)),
+        let (order, name, ticket) = self.ordered(key);
+        self.blocking(key, move |entry| {
+            order
+                .run(&name, ticket, || match entry.delete_credential() {
+                    Ok(()) | Err(keyring_core::Error::NoEntry) => Ok(()),
+                    Err(e) => Err(map_error(e)),
+                })
+                .map(|_| ())
         })
         .await
     }

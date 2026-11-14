@@ -26,12 +26,12 @@ use norelly_domain::credentials::Username;
 use norelly_domain::endpoint::{Host, Security};
 use norelly_domain::oauth::{
     OAuthProvider, OAuthSource, TokenError, is_mailbox_not_connected, is_smtp_oauth_disabled,
-    verify_identity,
+    require_offline_access, verify_identity,
 };
 use norelly_domain::ports::OAuthClient;
 
 use crate::discover_settings::DiscoverSettings;
-use crate::oauth::TokenBroker;
+use crate::oauth::{TokenBroker, TokenCache};
 use crate::test_connection::{TestConnection, TestConnectionOutcome, TestConnectionParams};
 
 /// Demande d'ajout de compte.
@@ -276,12 +276,8 @@ where
         if let Err(e) = verify_identity(&request.address, grant.identity.as_ref()) {
             return AddAccountOutcome::OAuthFailed(e);
         }
-        if grant.refresh_token.is_none() {
-            // Accès hors ligne refusé : le compte cesserait de fonctionner
-            // dans l'heure.
-            return AddAccountOutcome::OAuthFailed(TokenError::Protocol(
-                "jeton de rafraîchissement absent".to_owned(),
-            ));
+        if let Err(e) = require_offline_access(grant.refresh_token.as_ref()) {
+            return AddAccountOutcome::OAuthFailed(e);
         }
         let name = request
             .display_name
@@ -365,6 +361,9 @@ where
             refresh_key: account.secret_key(Protocol::Imap),
         };
         if let Err(e) = self.broker.store_grant(&source, grant).await {
+            // Une écriture abandonnée (délai dépassé) pourrait aboutir plus
+            // tard : effacée, pour ne pas laisser de jeton sans compte.
+            self.broker.abandon(&source.refresh_key).await;
             let _ = self.accounts.delete(account.id()).await;
             return AddAccountOutcome::SecretStoreFailed(e.to_string());
         }
@@ -462,9 +461,7 @@ pub async fn reconnect_oauth_account<O: OAuthClient, K: SecretStore, D: AccountR
         .authorize(provider, account.address())
         .await?;
     verify_identity(account.address(), grant.identity.as_ref())?;
-    if grant.refresh_token.is_none() {
-        return Err(TokenError::Protocol("jeton de rafraîchissement absent".to_owned()).into());
-    }
+    require_offline_access(grant.refresh_token.as_ref())?;
     let source = OAuthSource {
         provider,
         refresh_key: account.secret_key(Protocol::Imap),
@@ -491,21 +488,44 @@ pub enum RemoveAccountError {
     LocalData(String),
 }
 
+/// Délai maximal d'un effacement dans le trousseau (trousseau verrouillé
+/// dont l'invite reste sans réponse) : la suppression échoue et peut être
+/// relancée.
+pub const SECRET_STORE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+
 /// Cas d'usage : supprimer un compte, ses secrets et ses données locales.
 #[derive(Debug)]
-pub struct RemoveAccount<'a, K, D, L> {
+pub struct RemoveAccount<'a, K, D, L, T> {
     pub secrets: &'a K,
     pub accounts: &'a D,
     pub local_data: &'a L,
+    /// Jetons OAuth gardés en mémoire.
+    pub tokens: &'a T,
 }
 
-impl<K, D, L> RemoveAccount<'_, K, D, L>
+impl<K, D, L, T> RemoveAccount<'_, K, D, L, T>
 where
     K: SecretStore,
     D: AccountRepository,
     L: AccountDataStore,
+    T: TokenCache,
 {
-    /// Ordre : secrets d'abord (un échec laisse le compte intact, l'action
+    async fn delete_secrets(&self, account: &Account) -> Result<(), RemoveAccountError> {
+        for protocol in [Protocol::Imap, Protocol::Smtp] {
+            tokio::time::timeout(
+                SECRET_STORE_TIMEOUT,
+                self.secrets.delete(&account.secret_key(protocol)),
+            )
+            .await
+            .map_err(|_| RemoveAccountError::SecretStore("délai dépassé".to_owned()))?
+            .map_err(|e| RemoveAccountError::SecretStore(e.to_string()))?;
+        }
+        Ok(())
+    }
+
+    /// Ordre : jetons gardés en mémoire (un rafraîchissement en cours
+    /// s'achève avant, et ne peut donc pas réécrire le trousseau après son
+    /// effacement), puis secrets (un échec laisse le compte intact, l'action
     /// peut être relancée), puis la base, puis les fichiers.
     pub async fn execute(&self, id: AccountId) -> Result<(), RemoveAccountError> {
         let account = self
@@ -515,10 +535,15 @@ where
             .map_err(|e| RemoveAccountError::Storage(e.to_string()))?
             .ok_or(RemoveAccountError::NotFound)?;
         for protocol in [Protocol::Imap, Protocol::Smtp] {
-            self.secrets
-                .delete(&account.secret_key(protocol))
-                .await
-                .map_err(|e| RemoveAccountError::SecretStore(e.to_string()))?;
+            self.tokens.discard(&account.secret_key(protocol)).await;
+        }
+        if let Err(e) = self.delete_secrets(&account).await {
+            // Compte gardé : ses jetons redeviennent utilisables (il pourra
+            // être reconnecté) ; ceux gardés en mémoire sont perdus.
+            for protocol in [Protocol::Imap, Protocol::Smtp] {
+                self.tokens.restore(&account.secret_key(protocol)).await;
+            }
+            return Err(e);
         }
         self.accounts
             .delete(id)

@@ -26,6 +26,7 @@ struct Keyring {
     secrets: Mutex<BTreeMap<String, String>>,
     fail_set_after: Mutex<Option<usize>>,
     fail_delete: Mutex<bool>,
+    hang_delete: Mutex<bool>,
 }
 
 impl Keyring {
@@ -59,6 +60,9 @@ impl SecretStore for Keyring {
         Ok(())
     }
     async fn delete(&self, key: &SecretKey) -> Result<(), SecretStoreError> {
+        if self.hang_delete.lock().map(|f| *f).unwrap_or(false) {
+            std::future::pending::<()>().await;
+        }
         if self.fail_delete.lock().map(|f| *f).unwrap_or(false) {
             return Err(SecretStoreError::Unavailable("verrouillé".into()));
         }
@@ -67,6 +71,32 @@ impl SecretStore for Keyring {
             .map_err(|_| SecretStoreError::Backend("verrou".into()))?
             .remove(key.as_str());
         Ok(())
+    }
+}
+
+/// Faux cache des jetons : retient les clés oubliées, puis rétablies.
+#[derive(Debug, Default)]
+struct Tokens(std::sync::Mutex<Vec<String>>, std::sync::Mutex<Vec<String>>);
+
+impl Tokens {
+    fn discarded(&self) -> Vec<String> {
+        self.0.lock().map(|v| v.clone()).unwrap_or_default()
+    }
+    fn restored(&self) -> Vec<String> {
+        self.1.lock().map(|v| v.clone()).unwrap_or_default()
+    }
+}
+
+impl crate::oauth::TokenCache for Tokens {
+    async fn discard(&self, key: &SecretKey) {
+        if let Ok(mut v) = self.0.lock() {
+            v.push(key.as_str().to_owned());
+        }
+    }
+    async fn restore(&self, key: &SecretKey) {
+        if let Ok(mut v) = self.1.lock() {
+            v.push(key.as_str().to_owned());
+        }
     }
 }
 
@@ -79,6 +109,7 @@ struct World {
     keyring: Keyring,
     accounts: InMemoryAccountRepository,
     data: RecordingAccountDataStore,
+    tokens: Tokens,
 }
 
 impl World {
@@ -90,6 +121,7 @@ impl World {
             keyring: Keyring::default(),
             accounts: InMemoryAccountRepository::default(),
             data: RecordingAccountDataStore::default(),
+            tokens: Tokens::default(),
         }
     }
 
@@ -116,6 +148,7 @@ impl World {
             secrets: &self.keyring,
             accounts: &self.accounts,
             local_data: &self.data,
+            tokens: &self.tokens,
         }
         .execute(id)
         .await
@@ -429,10 +462,35 @@ async fn remove_deletes_secrets_account_and_local_data() {
     );
     assert_eq!(w.accounts.list().await, Ok(vec![other]));
     assert_eq!(w.data.purged(), vec![account.id()]);
+    assert!(
+        w.tokens
+            .discarded()
+            .contains(&account.secret_key(Protocol::Imap).as_str().to_owned()),
+        "jetons OAuth gardés en mémoire oubliés"
+    );
     assert_eq!(
         w.remove(account.id()).await,
         Err(RemoveAccountError::NotFound)
     );
+}
+
+#[tokio::test(start_paused = true)]
+async fn remove_does_not_wait_forever_on_the_keyring() {
+    let w = World::new();
+    let draft = sample_account("alice@example.com", false);
+    let AddAccountOutcome::Added(account) = w.add(request(Some(servers_of(&draft)))).await else {
+        panic!("ajout");
+    };
+    if let Ok(mut f) = w.keyring.hang_delete.lock() {
+        *f = true;
+    }
+    let removed =
+        tokio::time::timeout(std::time::Duration::from_secs(120), w.remove(account.id())).await;
+    assert!(
+        matches!(removed, Ok(Err(RemoveAccountError::SecretStore(_)))),
+        "{removed:?}"
+    );
+    assert_eq!(w.accounts.list().await.map(|l| l.len()), Ok(1));
 }
 
 #[tokio::test]
@@ -451,6 +509,12 @@ async fn remove_keeps_the_account_if_the_keyring_fails() {
     ));
     assert_eq!(w.accounts.list().await.map(|l| l.len()), Ok(1));
     assert!(w.data.purged().is_empty());
+    assert_eq!(
+        w.tokens.restored(),
+        w.tokens.discarded(),
+        "compte gardé : jetons de nouveau utilisables"
+    );
+    assert!(!w.tokens.restored().is_empty());
 }
 
 /// Deux adresses (alias) avec le même identifiant sur le même serveur : un
@@ -747,6 +811,40 @@ mod oauth {
     }
 
     #[tokio::test]
+    async fn keyring_failure_on_oauth_add_leaves_no_token() {
+        let w = World::new();
+        let keyring = Keyring::default();
+        // Écriture abandonnée d'un essai précédent, arrivée tardivement.
+        let Ok(id) = AccountId::new(1) else { panic!() };
+        let key = SecretKey::for_account(id, Protocol::Imap);
+        if let Ok(mut m) = keyring.secrets.lock() {
+            m.insert(key.as_str().to_owned(), "r1".to_owned());
+        }
+        if let Ok(mut f) = keyring.fail_set_after.lock() {
+            *f = Some(0);
+        }
+        let client = FakeOAuthClient::default();
+        if let Ok(mut g) = client.grant.lock() {
+            *g = grant();
+        }
+        let b = TokenBroker::new(client, keyring, Arc::new(|| 1_000));
+        assert!(matches!(
+            add(&w, &b).await,
+            AddAccountOutcome::SecretStoreFailed(_)
+        ));
+        assert!(w.accounts.list().await.is_ok_and(|l| l.is_empty()));
+        let source = OAuthSource {
+            provider: OAuthProvider::Microsoft,
+            refresh_key: key,
+        };
+        assert_eq!(
+            b.access_token(&source).await.map(|_| ()),
+            Err(AuthError::ReauthRequired),
+            "aucun jeton laissé pour le compte non ajouté"
+        );
+    }
+
+    #[tokio::test]
     async fn refused_sign_in_adds_nothing() {
         let w = World::new();
         assert_eq!(
@@ -758,10 +856,10 @@ mod oauth {
             refresh_token: None,
             ..grant().unwrap_or_else(|| panic!())
         });
-        assert!(matches!(
+        assert_eq!(
             add(&w, &broker(without_refresh)).await,
-            AddAccountOutcome::OAuthFailed(TokenError::Protocol(_))
-        ));
+            AddAccountOutcome::OAuthFailed(TokenError::OfflineAccessRefused)
+        );
         assert!(w.accounts.list().await.is_ok_and(|l| l.is_empty()));
     }
 
@@ -1011,6 +1109,18 @@ mod oauth {
         assert_eq!(
             b.access_token(&source).await.map(|t| t.expose().to_owned()),
             Ok("neuf".to_owned())
+        );
+        if let Ok(mut g) = b.client().grant.lock() {
+            *g = Some(OAuthGrant {
+                refresh_token: None,
+                ..grant().unwrap_or_else(|| panic!())
+            });
+        }
+        assert_eq!(
+            reconnect_oauth_account(&b, &w.accounts, account.id())
+                .await
+                .map(|_| ()),
+            Err(ReconnectError::OAuth(TokenError::OfflineAccessRefused))
         );
         let Ok(missing) = AccountId::new(999) else {
             panic!()

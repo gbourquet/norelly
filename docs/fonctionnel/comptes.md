@@ -115,6 +115,10 @@ acceptés) sont supprimées. **Rien n'est supprimé sur le serveur.**
   programme) : refusé, à l'ajout comme à la reconnexion. Rien n'est
   enregistré, l'autorisation précédente d'un compte reconnecté reste en
   place, et l'écran demande de choisir le compte de l'adresse.
+- Autorisation de rester connecté refusée dans la page de Microsoft : le
+  compte cesserait de fonctionner au bout d'une heure. Il n'est pas
+  ajouté (ni reconnecté), et l'écran demande d'accepter toutes les
+  autorisations demandées.
 - Envoi désactivé par Microsoft sur la boîte, alors que la réception
   fonctionne : le compte n'est pas ajouté et l'écran l'explique.
 - Connexion Microsoft acceptée mais boîte inaccessible en réception (refus
@@ -139,6 +143,23 @@ acceptés) sont supprimées. **Rien n'est supprimé sur le serveur.**
   port, il invite à vérifier la connexion à Internet puis à réessayer.
 - L'autorisation Microsoft n'est jamais envoyée à un autre serveur que ceux
   de Microsoft, ni sur une connexion non chiffrée.
+- Trousseau du système verrouillé ou indisponible au moment de renouveler
+  l'autorisation Microsoft : le compte indique un problème de trousseau, et
+  non des identifiants refusés ; rien n'est envoyé au serveur, et Norelly
+  réessaie plus tard. Un compte lent chez Microsoft ou dont le trousseau
+  tarde à répondre ne retarde pas les autres comptes.
+- Microsoft injoignable, trop lent ou en panne au moment de renouveler
+  l'autorisation : le compte indique que la connexion au fournisseur est
+  impossible, et non des identifiants refusés ; Norelly réessaie plus tard,
+  et le renouvellement ne dure jamais plus d'une demi-minute.
+- Compte supprimé : les autorisations gardées en mémoire sont oubliées
+  avec lui ; elles ne servent plus et ne sont plus enregistrées.
+- Trousseau qui refuse d'enregistrer l'autorisation renouvelée : le compte
+  continue de fonctionner tant que Norelly est ouvert, et l'enregistrement
+  est retenté au renouvellement suivant.
+- Ordinateur sorti de veille : une autorisation expirée pendant la veille
+  est renouvelée avant la connexion suivante ; une autorisation refusée par
+  le serveur est renouvelée une fois avant d'annoncer un échec.
 - Compte Google refusé (adresse Gmail, ou serveurs de Google pour une
   adresse d'entreprise) : Norelly explique comment créer un mot de passe
   d'application, en trois étapes, avec un bouton qui ouvre la page de
@@ -172,6 +193,8 @@ acceptés) sont supprimées. **Rien n'est supprimé sur le serveur.**
 | Connexion annulée | La connexion a été annulée dans le navigateur. |
 | Autre compte choisi | Le compte choisi dans le navigateur n'est pas celui de cette adresse. Réessayez en choisissant le compte de {address}. (Reconnexion : « autre compte choisi dans le navigateur ».) |
 | Boîte inaccessible (Microsoft) | {prefix}votre compte Microsoft est bien connecté, mais Outlook.com refuse l'accès à la boîte. Vérifiez que l'accès IMAP est activé dans Outlook.com (Paramètres, Courrier, Transfert et IMAP), puis réessayez dans quelques minutes. |
+| Fournisseur injoignable | Connexion au fournisseur impossible. Vérifiez votre connexion à Internet, puis réessayez. (Compte déjà ajouté : « connexion au fournisseur impossible ».) |
+| Rester connecté refusé | Norelly n'a pas reçu l'autorisation de rester connecté à votre compte. Réessayez en acceptant toutes les autorisations demandées dans la page de connexion. (Reconnexion : « autorisation de rester connecté refusée ».) |
 | Envoi désactivé (Microsoft) | {prefix}l'envoi de messages est désactivé sur ce compte Microsoft. Activez-le dans les réglages de votre compte Outlook.com, puis réessayez. |
 | Reconnexion nécessaire | Bouton « Se reconnecter » à côté du compte ; infobulle « Reconnexion nécessaire : {address} » ; « Compte reconnecté. » après succès. |
 | Refus de sécurité | {prefix}connexion refusée par sécurité. |

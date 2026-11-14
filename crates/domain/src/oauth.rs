@@ -393,6 +393,33 @@ pub fn verify_identity(
     }
 }
 
+/// Erreur de jeton vue d'une connexion. Jeton de rafraîchissement refusé :
+/// reconnexion. Fournisseur injoignable ou trop lent : panne passagère, qui
+/// ne met pas les identifiants en cause. Autre refus du fournisseur
+/// (application refusée, réponse invalide) : refus définitif.
+#[must_use]
+pub fn auth_error_of(error: &TokenError) -> crate::auth::AuthError {
+    use crate::auth::AuthError;
+    match error {
+        TokenError::ReauthRequired => AuthError::ReauthRequired,
+        TokenError::Network(_) => AuthError::ProviderUnavailable {
+            message: error.to_string(),
+        },
+        other => AuthError::Rejected {
+            message: other.to_string(),
+        },
+    }
+}
+
+/// Refuse une connexion interactive sans jeton de rafraîchissement : sans
+/// lui, le compte ne pourrait plus se connecter une fois le jeton d'accès
+/// expiré.
+pub fn require_offline_access(refresh_token: Option<&Secret>) -> Result<(), TokenError> {
+    refresh_token
+        .map(|_| ())
+        .ok_or(TokenError::OfflineAccessRefused)
+}
+
 /// Échec d'obtention ou de rafraîchissement d'un jeton. Ne contient jamais
 /// de jeton.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -404,6 +431,11 @@ pub enum TokenError {
     /// Le compte choisi dans le navigateur n'est pas celui de l'adresse.
     #[error("compte connecté différent de l'adresse")]
     WrongAccount,
+    /// Le fournisseur n'a pas délivré de jeton de rafraîchissement (accès
+    /// hors ligne refusé dans sa page) : le compte cesserait de fonctionner
+    /// à l'expiration du jeton d'accès.
+    #[error("accès hors ligne refusé")]
+    OfflineAccessRefused,
     /// L'utilisateur a refusé ou abandonné la connexion.
     #[error("connexion annulée : {0}")]
     Cancelled(String),

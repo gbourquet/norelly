@@ -25,6 +25,7 @@ pub struct FileSecretStore {
     path: PathBuf,
     /// Sérialise les lectures-écritures du fichier.
     lock: Arc<Mutex<()>>,
+    order: Arc<crate::order::WriteOrder>,
 }
 
 fn io_error(e: &std::io::Error) -> SecretStoreError {
@@ -48,6 +49,7 @@ impl FileSecretStore {
         Self {
             path: path.into(),
             lock: Arc::new(Mutex::new(())),
+            order: Arc::default(),
         }
     }
 
@@ -151,14 +153,17 @@ impl SecretStore for FileSecretStore {
         let this = self.clone();
         let key = key.as_str().to_owned();
         let mut value = secret.expose().to_owned();
+        let ticket = self.order.ticket();
         tokio::task::spawn_blocking(move || {
-            let result = this.update(|map| {
-                if let Some(mut old) = map.insert(key, value.clone()) {
-                    old.zeroize();
-                }
+            let result = this.order.run(&key, ticket, || {
+                this.update(|map| {
+                    if let Some(mut old) = map.insert(key.clone(), value.clone()) {
+                        old.zeroize();
+                    }
+                })
             });
             value.zeroize();
-            result
+            result.map(|_| ())
         })
         .await
         .map_err(|_| SecretStoreError::Backend("tâche interrompue".into()))?
@@ -167,15 +172,20 @@ impl SecretStore for FileSecretStore {
     async fn delete(&self, key: &SecretKey) -> Result<(), SecretStoreError> {
         let this = self.clone();
         let key = key.as_str().to_owned();
+        let ticket = self.order.ticket();
         tokio::task::spawn_blocking(move || {
             if !this.consented() {
                 return Ok(());
             }
-            this.update(|map| {
-                if let Some(mut old) = map.remove(&key) {
-                    old.zeroize();
-                }
-            })
+            this.order
+                .run(&key, ticket, || {
+                    this.update(|map| {
+                        if let Some(mut old) = map.remove(&key) {
+                            old.zeroize();
+                        }
+                    })
+                })
+                .map(|_| ())
         })
         .await
         .map_err(|_| SecretStoreError::Backend("tâche interrompue".into()))?

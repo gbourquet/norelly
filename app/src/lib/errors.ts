@@ -253,6 +253,8 @@ export function failureText(failure: FailureKindDto): string {
       return m.failure_oauth_cancelled();
     case "oauth_wrong_account":
       return m.failure_oauth_wrong_account();
+    case "oauth_offline_access":
+      return m.failure_oauth_offline_access();
     case "oauth":
       return m.failure_oauth();
     case "security":

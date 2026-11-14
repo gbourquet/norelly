@@ -142,6 +142,8 @@ recipient, before clicking **Retry**, so as not to send it twice.
 | Message | What to do |
 |---|---|
 | "No keyring" | Your Linux has no active password safe. Install or start GNOME Keyring or KWallet (ask for help if needed). Otherwise, Norelly offers to store the password in an **unencrypted** file: only accept if nobody else uses your session. |
+| "System keyring unavailable" | Norelly cannot read your password safe, often because it is locked. Unlock it (on Linux, a window sometimes asks for it; otherwise, log out and back in): Norelly retries on its own, and waiting messages are sent afterwards. |
+| "Norelly did not get permission to stay signed in" | A permission was refused on Microsoft's sign-in page. Start again and accept all the permissions requested: without them, the account would stop working after an hour. |
 | "Unencrypted connection" | The server offers no protected connection. Only click **Allow** for a server you know, on your own network; otherwise click **Edit settings** and choose **TLS**. |
 | "This account has no archive folder" | Choose once and for all the folder to archive into: **⋯** button next to the account's address, then **Choose archive folder…**. |
 | "Attachments exceed 25 MiB." | Remove some files, or send them in several messages. For very large files, use a file-sharing service. |

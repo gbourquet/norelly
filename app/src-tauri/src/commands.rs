@@ -316,6 +316,7 @@ pub async fn remove_account(state: State<'_, AppState>, id: u32) -> Result<(), I
         secrets: &state.secrets,
         accounts: &state.accounts,
         local_data: &state.local_data,
+        tokens: state.tokens.as_ref(),
     }
     .execute(id)
     .await

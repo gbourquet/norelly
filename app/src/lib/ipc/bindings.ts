@@ -1151,6 +1151,11 @@ export type FailureKindDto =
 "oauth_cancelled" | 
 /**  Le compte choisi dans le navigateur n'est pas celui de l'adresse. */
 "oauth_wrong_account" | 
+/**
+ *  Accès hors ligne refusé dans la page du fournisseur : aucun jeton de
+ *  rafraîchissement délivré.
+ */
+"oauth_offline_access" | 
 /**  Connexion chez le fournisseur impossible (réseau, réponse invalide). */
 "oauth" | "security" | "protocol" | 
 /**  Paramètres refusés par le domaine. */

@@ -154,6 +154,8 @@ fournisseur, ou demandez au destinataire, avant de cliquer sur
 | Message | Quoi faire |
 |---|---|
 | « Aucun trousseau » | Votre Linux n'a pas de coffre-fort à mots de passe actif. Installez ou démarrez GNOME Keyring ou KWallet (demandez de l'aide si besoin). Sinon, Norelly propose d'enregistrer le mot de passe dans un fichier **non chiffré** : acceptez seulement si personne d'autre n'utilise votre session. |
+| « Trousseau du système indisponible » | Norelly n'arrive pas à lire votre coffre-fort à mots de passe, souvent parce qu'il est verrouillé. Déverrouillez-le (sous Linux, une fenêtre le demande parfois ; sinon, fermez puis rouvrez votre session) : Norelly réessaie tout seul, et les messages en attente partent ensuite. |
+| « Norelly n'a pas reçu l'autorisation de rester connecté » | Dans la page de connexion de Microsoft, une autorisation a été refusée. Recommencez et acceptez toutes les autorisations demandées : sans elles, le compte cesserait de fonctionner au bout d'une heure. |
 | « Connexion non chiffrée » | Le serveur ne propose pas de connexion protégée. Ne cliquez sur **Autoriser** que pour un serveur que vous connaissez, sur votre propre réseau ; sinon, cliquez sur **Modifier les paramètres** et choisissez **TLS**. |
 | « Aucun dossier d'archives sur ce compte » | Choisissez une fois pour toutes le dossier où archiver : bouton **⋯** à côté de l'adresse du compte, puis **Choisir le dossier d'archives…**. |
 | « Les pièces jointes dépassent 25 Mio. » | Retirez des fichiers, ou envoyez-les en plusieurs messages. Pour de très gros fichiers, utilisez un service de partage de fichiers. |

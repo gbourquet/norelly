@@ -439,6 +439,8 @@ function failureMessage(
         return m.add_fail_oauth_cancelled();
       case "oauth_wrong_account":
         return m.add_fail_oauth_wrong_account({ address });
+      case "oauth_offline_access":
+        return m.add_fail_oauth_offline_access();
       case "oauth":
         return m.add_fail_oauth();
       case "network":

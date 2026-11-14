@@ -25,6 +25,9 @@ fn sender(ca: &TestCa) -> SmtpSender {
         .with_handshake_timeout(Duration::from_secs(5));
     SmtpSender::new(tls).with_timeouts(Timeouts {
         connect: Duration::from_secs(5),
+        open: Duration::from_secs(5),
+        password_auth: Duration::from_secs(5),
+        open_total: Duration::from_secs(60),
         response: Duration::from_secs(5),
     })
 }
@@ -309,6 +312,197 @@ async fn send_message() -> TestResult {
     outcome.result?;
     // Transparence SMTP : la ligne commençant par un point est doublée.
     assert!(outcome.transcript.contains(b"\r\n..ligne avec point\r\n"));
+    Ok(())
+}
+
+/// Expéditeur au délai d'ouverture court et au délai de transmission long.
+fn quick_opening(ca: &TestCa) -> SmtpSender {
+    let tls = TlsClientFactory::new(TrustRoots::Custom(vec![ca.root()]))
+        .with_handshake_timeout(Duration::from_secs(5));
+    SmtpSender::new(tls).with_timeouts(Timeouts {
+        connect: Duration::from_secs(5),
+        open: Duration::from_millis(300),
+        password_auth: Duration::from_millis(1500),
+        open_total: Duration::from_secs(60),
+        response: Duration::from_secs(10),
+    })
+}
+
+/// Serveur muet après `AUTH` : abandon au délai d'ouverture, pas au délai
+/// de transmission.
+#[tokio::test]
+async fn server_silent_after_auth_is_abandoned_at_the_opening_delay() -> TestResult {
+    let ca = TestCa::new()?;
+    let cert = ca.issue(&["localhost"])?;
+    let script = ehlo_once(Script::new().send(smtp::greeting()), &["AUTH PLAIN"])
+        .expect(format!("AUTH PLAIN {PLAIN_B64}"))
+        .wait(Duration::from_secs(4))
+        .send("235 2.7.0 Authentification reussie\r\n");
+    let server = ScriptedServer::start_tls(script, cert.server_config()?).await?;
+    let started = tokio::time::Instant::now();
+    let result = quick_opening(&ca)
+        .verify(&request(
+            server.port(),
+            Security::Tls,
+            PlaintextPolicy::deny_all(),
+        ))
+        .await;
+    assert!(
+        matches!(
+            result,
+            Err(ConnectionError::Timeout(
+                norelly_domain::connection::TimeoutStage::Response
+            ))
+        ),
+        "{result:?}"
+    );
+    assert!(
+        started.elapsed() < Duration::from_secs(3),
+        "{:?}",
+        started.elapsed()
+    );
+    Ok(())
+}
+
+/// Refus d'un mot de passe retardé par le serveur au-delà du délai
+/// d'ouverture : le refus est lu, pas pris pour un silence.
+#[tokio::test]
+async fn delayed_password_refusal_is_read() -> TestResult {
+    let ca = TestCa::new()?;
+    let cert = ca.issue(&["localhost"])?;
+    let script = ehlo_once(Script::new().send(smtp::greeting()), &["AUTH PLAIN"])
+        .expect(format!("AUTH PLAIN {PLAIN_B64}"))
+        .wait(Duration::from_millis(800))
+        .send("535 5.7.8 Identifiants invalides\r\n")
+        .expect_any();
+    let server = ScriptedServer::start_tls(script, cert.server_config()?).await?;
+    let result = quick_opening(&ca)
+        .verify(&request(
+            server.port(),
+            Security::Tls,
+            PlaintextPolicy::deny_all(),
+        ))
+        .await;
+    assert!(
+        matches!(
+            result,
+            Err(ConnectionError::Authentication(AuthError::Rejected { .. }))
+        ),
+        "{result:?}"
+    );
+    Ok(())
+}
+
+/// Bannière envoyée octet par octet, chacun avant le délai d'ouverture :
+/// l'ouverture entière reste bornée.
+#[tokio::test]
+async fn trickled_banner_is_bounded_by_the_total_opening_delay() -> TestResult {
+    let ca = TestCa::new()?;
+    let mut script = Script::new();
+    for byte in b"220 banniere interminable".repeat(4) {
+        script = script.send_raw(vec![byte]).wait(Duration::from_millis(100));
+    }
+    let server = ScriptedServer::start(script, None).await?;
+    let sender = SmtpSender::new(TlsClientFactory::new(TrustRoots::Custom(vec![ca.root()])))
+        .with_timeouts(Timeouts {
+            connect: Duration::from_secs(5),
+            open: Duration::from_millis(300),
+            password_auth: Duration::from_millis(300),
+            open_total: Duration::from_secs(1),
+            response: Duration::from_secs(10),
+        });
+    let started = tokio::time::Instant::now();
+    let result = sender
+        .verify(&request(
+            server.port(),
+            Security::StartTls,
+            PlaintextPolicy::deny_all(),
+        ))
+        .await;
+    assert!(
+        matches!(
+            result,
+            Err(ConnectionError::Timeout(
+                norelly_domain::connection::TimeoutStage::Response
+            ))
+        ),
+        "{result:?}"
+    );
+    assert!(
+        started.elapsed() < Duration::from_secs(3),
+        "{:?}",
+        started.elapsed()
+    );
+    Ok(())
+}
+
+/// Bannière en retard sur un canal STARTTLS : c'est encore l'ouverture.
+#[tokio::test]
+async fn late_banner_is_abandoned_at_the_opening_delay() -> TestResult {
+    let ca = TestCa::new()?;
+    let script = Script::new()
+        .wait(Duration::from_secs(4))
+        .send(smtp::greeting());
+    let server = ScriptedServer::start(script, None).await?;
+    let started = tokio::time::Instant::now();
+    let result = quick_opening(&ca)
+        .verify(&request(
+            server.port(),
+            Security::StartTls,
+            PlaintextPolicy::deny_all(),
+        ))
+        .await;
+    assert!(
+        matches!(
+            result,
+            Err(ConnectionError::Timeout(
+                norelly_domain::connection::TimeoutStage::Response
+            ))
+        ),
+        "{result:?}"
+    );
+    assert!(
+        started.elapsed() < Duration::from_secs(3),
+        "{:?}",
+        started.elapsed()
+    );
+    Ok(())
+}
+
+/// Une fois la connexion ouverte, l'acceptation lente d'un message est
+/// attendue jusqu'au délai de transmission.
+#[tokio::test]
+async fn slow_acceptance_of_a_message_is_awaited() -> TestResult {
+    let ca = TestCa::new()?;
+    let cert = ca.issue(&["localhost"])?;
+    let script = ehlo_once(Script::new().send(smtp::greeting()), &["AUTH PLAIN"])
+        .expect("AUTH PLAIN")
+        .send("235 ok\r\n")
+        .expect("MAIL FROM:<alice@example.com>")
+        .send("250 ok\r\n")
+        .expect("RCPT TO:<bob@example.com>")
+        .send("250 ok\r\n")
+        .expect("DATA")
+        .send("354 go\r\n")
+        .expect_data_until(".")
+        .wait(Duration::from_secs(1))
+        .send("250 queued\r\n")
+        .expect("QUIT")
+        .send("221 bye\r\n")
+        .expect_eof();
+    let server = ScriptedServer::start_tls(script, cert.server_config()?).await?;
+    let message = OutgoingMessage {
+        from: "alice@example.com".into(),
+        recipients: vec!["bob@example.com".into()],
+        raw: b"Subject: essai\r\n\r\ncorps\r\n".to_vec(),
+    };
+    quick_opening(&ca)
+        .send(
+            &request(server.port(), Security::Tls, PlaintextPolicy::deny_all()),
+            &message,
+        )
+        .await?;
+    server.finish().await.result?;
     Ok(())
 }
 
@@ -671,6 +865,9 @@ async fn xoauth2_silent_server_after_challenge_times_out() -> TestResult {
     let result = oauth_sender(&ca, &server)
         .with_timeouts(Timeouts {
             connect: Duration::from_secs(5),
+            open: Duration::from_millis(500),
+            password_auth: Duration::from_millis(500),
+            open_total: Duration::from_secs(60),
             response: Duration::from_millis(500),
         })
         .verify(&oauth_request(server.port()))

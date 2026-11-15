@@ -223,12 +223,15 @@ fn ldif_phone_label(label: Option<&str>) -> &'static str {
 }
 
 /// Premiers caractères qu'un tableur lit comme le début d'une formule,
-/// avec leurs formes pleine chasse, que certains assimilent. Les petites
-/// formes (`﹢`, `﹣`, `﹦`, `﹫`) et le signe moins (`−`), qu'aucun tableur
-/// courant n'évalue, sont traités de même à titre préventif.
-const FORMULA_STARTS: [char; 15] = [
+/// avec leurs formes pleine chasse, que certains assimilent. Les autres
+/// caractères que la normalisation de compatibilité (NFKC) ramène à `=`,
+/// `+`, `-`, `@` ou au signe moins `−` (petites formes, exposants,
+/// indices, plus hébreu), et `−` lui-même, qu'aucun tableur courant
+/// n'évalue, sont traités de même à titre préventif.
+const FORMULA_STARTS: [char; 22] = [
     '=', '+', '-', '@', '\t', '\r', '\u{FF1D}', '\u{FF0B}', '\u{FF0D}', '\u{FF20}', '\u{FE62}',
-    '\u{FE63}', '\u{FE66}', '\u{FE6B}', '\u{2212}',
+    '\u{FE63}', '\u{FE66}', '\u{FE6B}', '\u{2212}', '\u{207A}', '\u{208A}', '\u{FB29}', '\u{207C}',
+    '\u{208C}', '\u{207B}', '\u{208B}',
 ];
 
 /// La valeur, apostrophes de tête passées, commence-t-elle comme une
@@ -240,8 +243,8 @@ fn formula_like(cell: &str) -> bool {
 /// Neutralise une cellule CSV qu'un tableur lirait comme une formule :
 /// une apostrophe est ajoutée devant une valeur qui commence, après
 /// d'éventuelles apostrophes, par `=`, `+`, `-`, `@` (ou leur forme pleine
-/// chasse ou petite), le signe moins `−`, une tabulation ou un retour
-/// chariot. [`restore_csv_cell`] la retire.
+/// chasse, petite, en exposant ou en indice), le signe moins `−`, une
+/// tabulation ou un retour chariot. [`restore_csv_cell`] la retire.
 #[must_use]
 pub fn neutralize_csv_cell(cell: &str) -> Cow<'_, str> {
     if formula_like(cell) {

@@ -322,6 +322,15 @@ fn csv_cells_that_look_like_formulas_are_neutralized() {
         ("\u{FE6B}x", "'\u{FE6B}x"),
         ("\u{2212}1", "'\u{2212}1"),
         ("'\u{2212}1", "''\u{2212}1"),
+        // Exposants et indices de `+`, `=`, `-`, et le plus hébreu, qui se
+        // ramènent aux mêmes signes par normalisation de compatibilité.
+        ("\u{207A}1", "'\u{207A}1"),
+        ("\u{208A}1", "'\u{208A}1"),
+        ("\u{FB29}1", "'\u{FB29}1"),
+        ("\u{207C}1", "'\u{207C}1"),
+        ("\u{208C}1", "'\u{208C}1"),
+        ("\u{207B}x", "'\u{207B}x"),
+        ("\u{208B}x", "'\u{208B}x"),
         // Une apostrophe déjà là serait retirée à la relecture : doublée.
         ("'=x", "''=x"),
         ("''+x", "'''+x"),
@@ -436,11 +445,12 @@ fn other_names_are_not_export_temporaries() {
 }
 
 /// Débuts qu'aucune cellule CSV exportée ne présente : signes de formule,
-/// leurs formes pleine chasse et petites, signe moins, tabulation, retour
-/// chariot.
-const FORMULA_LIKE: [char; 15] = [
+/// leurs formes de compatibilité (pleine chasse, petites, exposants,
+/// indices, plus hébreu), signe moins, tabulation, retour chariot.
+const FORMULA_LIKE: [char; 22] = [
     '=', '+', '-', '@', '\t', '\r', '\u{FF1D}', '\u{FF0B}', '\u{FF0D}', '\u{FF20}', '\u{FE62}',
-    '\u{FE63}', '\u{FE66}', '\u{FE6B}', '\u{2212}',
+    '\u{FE63}', '\u{FE66}', '\u{FE6B}', '\u{2212}', '\u{207A}', '\u{208A}', '\u{FB29}', '\u{207C}',
+    '\u{208C}', '\u{207B}', '\u{208B}',
 ];
 
 proptest! {
@@ -452,7 +462,7 @@ proptest! {
 
     #[test]
     fn restore_undoes_neutralize(
-        cell in "['=+@\t\r a-z\u{FF1D}\u{FF0B}\u{FF0D}\u{FF20}\u{FE62}\u{FE63}\u{FE66}\u{FE6B}\u{2212}-]{0,8}"
+        cell in "['=+@\t\r a-z\u{FF1D}\u{FF0B}\u{FF0D}\u{FF20}\u{FE62}\u{FE63}\u{FE66}\u{FE6B}\u{2212}\u{207A}\u{208A}\u{FB29}\u{207C}\u{208C}\u{207B}\u{208B}-]{0,8}"
     ) {
         let written = neutralize_csv_cell(&cell);
         prop_assert_eq!(restore_csv_cell(&written), cell.as_str());
@@ -460,7 +470,7 @@ proptest! {
 
     #[test]
     fn neutralized_cells_never_start_with_a_formula(
-        cell in "['=+@\u{FF1D}\u{FF0B}\u{FF0D}\u{FF20}\u{FE62}\u{FE63}\u{FE66}\u{FE6B}\u{2212}-]?\\PC{0,7}"
+        cell in "['=+@\u{FF1D}\u{FF0B}\u{FF0D}\u{FF20}\u{FE62}\u{FE63}\u{FE66}\u{FE6B}\u{2212}\u{207A}\u{208A}\u{FB29}\u{207C}\u{208C}\u{207B}\u{208B}-]?\\PC{0,7}"
     ) {
         let out = neutralize_csv_cell(&cell);
         prop_assert!(!out.starts_with(FORMULA_LIKE));

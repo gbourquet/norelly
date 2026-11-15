@@ -43,6 +43,8 @@ et « > » y sont refusés, pour qu'un message ne puisse pas se faire passer
 pour quelqu'un d'autre. L'explication s'affiche sous le champ concerné ;
 saisissez un nom, par exemple « Alice Martin ».
 
+![Le message « Un nom ne peut pas ressembler à une adresse e-mail… » sous le champ Nom affiché](captures/contact-name-refused.png)
+
 ## Modifier, mettre en favori, écrire
 
 Sur la fiche d'un contact :

@@ -42,6 +42,8 @@ it, so that a message can't pass itself off as someone else. The
 explanation appears under the field concerned; type a name, such as
 "Alice Martin".
 
+![The message "A name can’t look like an email address…" under the Display name field](captures/contact-name-refused.png)
+
 ## Editing, favorites, writing
 
 On a contact's card:

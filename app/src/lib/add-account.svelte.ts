@@ -524,6 +524,9 @@ export class AddAccountFlow {
       return;
     }
     this.secretsFile = null;
+    // Fichier accepté : l'annonce change, Rust la redonne (si l'ajout est
+    // repris, l'écran ne promet plus le trousseau).
+    await this.loadSecretsBackend();
     if (this.#oauth) {
       await this.signInWithProvider();
     } else {

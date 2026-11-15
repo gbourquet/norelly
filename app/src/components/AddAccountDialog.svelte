@@ -99,8 +99,12 @@
           type="password"
           bind:value={flow.password}
           autocomplete="current-password"
+          aria-describedby={flow.secretsBackend === "file" ? "account-password-file" : undefined}
           required
         />
+        {#if flow.secretsBackend === "file"}
+          <p id="account-password-file" class="hint">{m.add_password_file_hint()}</p>
+        {/if}
       {/if}
       <label for="account-name">{m.add_display_name()}</label>
       <input
@@ -117,6 +121,9 @@
       {/if}
       {#if flow.signInProvider !== null}
         <p class="hint">{providerText.hint[flow.signInProvider]()}</p>
+        {#if flow.secretsBackend === "file"}
+          <p class="hint">{m.add_oauth_file_hint()}</p>
+        {/if}
       {:else if flow.secretsBackend === "system_keyring"}
         <p class="hint">
           {m.add_password_hint()}

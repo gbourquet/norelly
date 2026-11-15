@@ -11,7 +11,7 @@ use norelly_blobs::{FsAccountDataStore, FsBlobStore};
 use norelly_contacts_io::{ContactsIo, IcuNfc};
 use norelly_discovery::{HickorySrvResolver, HttpAutoconfigClient, TcpPortProber};
 use norelly_domain::address::EmailAddress;
-use norelly_domain::credentials::Secret;
+use norelly_domain::credentials::{Secret, SecretDestination};
 use norelly_domain::discovery::{SrvRecord, SrvService};
 use norelly_domain::endpoint::Host;
 use norelly_domain::oauth::{OAuthConfig, TokenError};
@@ -56,14 +56,22 @@ impl<S: SecretStore> AppSecretStore<S> {
         self.file.consented() || self.system_reachable().await
     }
 
-    /// Vrai si c'est le trousseau du système, et non le fichier de
-    /// repli, qui enregistrera les nouveaux secrets : seule réponse qui
-    /// autorise l'interface à annoncer la garantie du trousseau.
-    pub async fn stores_in_system_keyring(&self) -> bool {
-        self.system_reachable().await
+    /// Endroit annoncé par l'écran d'ajout pour les nouveaux secrets
+    /// ([`SecretDestination`]) : ne lit jamais le trousseau, une lecture
+    /// pouvant afficher une invite de déverrouillage. « Ouvert » veut dire
+    /// que le service du trousseau a répondu à l'ouverture de la session
+    /// (Secret Service : `OpenSession`) ; s'il cesse de répondre ensuite,
+    /// l'enregistrement le constate et demande le consentement au fichier,
+    /// jamais un repli silencieux.
+    #[must_use]
+    pub fn announced_destination(&self) -> SecretDestination {
+        SecretDestination::announced(self.system.is_ok(), self.file.consented())
     }
 
-    /// Sonde le trousseau du système : ouvert, et joignable ? Une erreur
+    /// Sonde le trousseau du système (par une lecture) : ouvert, et
+    /// joignable ? Appelée à l'enregistrement d'un compte, jamais à
+    /// l'ouverture d'un écran : la lecture peut afficher une invite de
+    /// déverrouillage. Une erreur
     /// autre que l'indisponibilité (refus d'accès, par exemple) compte
     /// comme joignable : le mot de passe n'ira quand même pas dans un
     /// fichier, car le repli n'a lieu que sur indisponibilité, avec
@@ -580,10 +588,31 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    #[tokio::test]
-    async fn the_keyring_guarantee_is_true_only_when_the_keyring_answers() {
+    /// Trousseau du système espion : compte les lectures, qui peuvent
+    /// afficher une invite de déverrouillage.
+    #[derive(Debug, Default)]
+    struct CountingKeyring {
+        reads: std::sync::atomic::AtomicUsize,
+        inner: InMemorySecretStore,
+    }
+
+    impl SecretStore for CountingKeyring {
+        async fn get(&self, key: &SecretKey) -> Result<Option<Secret>, SecretStoreError> {
+            self.reads.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            self.inner.get(key).await
+        }
+        async fn set(&self, key: &SecretKey, secret: &Secret) -> Result<(), SecretStoreError> {
+            self.inner.set(key, secret).await
+        }
+        async fn delete(&self, key: &SecretKey) -> Result<(), SecretStoreError> {
+            self.inner.delete(key).await
+        }
+    }
+
+    #[test]
+    fn the_announced_destination_never_reads_the_keyring() {
         let dir = std::env::temp_dir().join(format!(
-            "norelly-secrets-guarantee-{}-{:?}",
+            "norelly-secrets-announce-{}-{:?}",
             std::process::id(),
             std::thread::current().id()
         ));
@@ -591,20 +620,36 @@ mod tests {
         let _ = std::fs::create_dir_all(&dir);
         let file = || FileSecretStore::new(dir.join("mots-de-passe.json"));
 
-        // Sans trousseau : les nouveaux secrets iraient dans le fichier,
-        // la garantie du trousseau serait fausse.
+        // Trousseau introuvable, fichier pas encore accepté : rien n'est
+        // annoncé, le consentement viendra à l'enregistrement.
         let without: AppSecretStore<SystemSecretStore> = AppSecretStore::new(
             Err(SecretStoreError::Unavailable("pas de trousseau".into())),
             file(),
         );
-        assert!(!without.stores_in_system_keyring().await);
+        assert_eq!(
+            without.announced_destination(),
+            SecretDestination::Undecided
+        );
 
-        // Trousseau qui répond : c'est lui qui garde les nouveaux secrets.
-        let with = AppSecretStore::new(Ok(InMemorySecretStore::default()), file());
-        assert!(with.stores_in_system_keyring().await);
-        // Et le fichier déjà consenti ne change pas cette réponse.
+        // Trousseau ouvert : annoncé, sans aucune lecture.
+        let with = AppSecretStore::new(Ok(CountingKeyring::default()), file());
+        assert_eq!(
+            with.announced_destination(),
+            SecretDestination::SystemKeyring
+        );
+        // Fichier accepté, trousseau ouvert : rien n'est promis.
         assert!(with.consent_to_file().is_ok());
-        assert!(with.stores_in_system_keyring().await);
+        assert_eq!(with.announced_destination(), SecretDestination::Undecided);
+        // Fichier accepté, aucun trousseau : le fichier est annoncé.
+        assert_eq!(without.announced_destination(), SecretDestination::File);
+        assert_eq!(
+            with.system
+                .as_ref()
+                .map(|s| s.reads.load(std::sync::atomic::Ordering::SeqCst))
+                .ok(),
+            Some(0),
+            "le trousseau a été lu pour l'annonce"
+        );
 
         let _ = std::fs::remove_dir_all(&dir);
     }

@@ -226,6 +226,22 @@ describe("parcours d'ajout de compte", () => {
     expect(f.step).toBe("done");
   });
 
+  it("fichier accepté puis échec : l'écran annonce le fichier, plus le trousseau", async () => {
+    const { api } = fakeApi(found, [
+      { kind: "secret_storage_consent_required", path: "/x/mots-de-passe.json" },
+      { kind: "failed", protocol: "imap", failure: "authentication", detail: "refusé" },
+    ]);
+    // Rust décide de l'annonce : redemandée après l'accord.
+    vi.mocked(api.secretsBackend).mockResolvedValueOnce("undecided").mockResolvedValueOnce("file");
+    const f = flow(api);
+    await f.loadSecretsBackend();
+    expect(f.secretsBackend).toBe("undecided");
+    await f.submit();
+    await f.allowFileSecrets();
+    expect(api.secretsBackend).toHaveBeenCalledTimes(2);
+    expect(f.secretsBackend).toBe("file");
+  });
+
   it("sans trousseau : refus, rien n'est enregistré", async () => {
     const { api } = fakeApi(found, [
       { kind: "secret_storage_consent_required", path: "/x/mots-de-passe.json" },

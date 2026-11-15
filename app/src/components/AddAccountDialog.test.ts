@@ -147,6 +147,50 @@ describe("fenêtre d'ajout de compte", () => {
     expect(screen.queryByText(/jamais dans les fichiers de Norelly/)).toBeNull();
   });
 
+  it("fichier non chiffré déjà accepté : l'écran dit où le mot de passe est rangé", async () => {
+    const api = fakeApi([]);
+    vi.mocked(api.secretsBackend).mockResolvedValue("file");
+    render(AddAccountDialog, { open: true, api, onClose: vi.fn(), onAdded: vi.fn() });
+    expect(
+      await screen.findByText(
+        "Le mot de passe est conservé dans un fichier de Norelly sur cet ordinateur, sans chiffrement, car le trousseau du système n'est pas disponible.",
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("fichier déjà accepté, connexion Google : l'autorisation est dite dans le fichier", async () => {
+    const api = fakeApi([]);
+    vi.mocked(api.secretsBackend).mockResolvedValue("file");
+    render(AddAccountDialog, { open: true, api, onClose: vi.fn(), onAdded: vi.fn() });
+    await fireEvent.input(document.querySelector("#account-address") as HTMLInputElement, {
+      target: { value: "alice@gmail.com" },
+    });
+    expect(
+      await screen.findByText(
+        "L'autorisation de connexion est conservée dans un fichier de Norelly sur cet ordinateur, sans chiffrement, car le trousseau du système n'est pas disponible.",
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("trousseau annoncé : la garantie réserve l'accord de l'utilisateur", async () => {
+    const api = fakeApi([]);
+    render(AddAccountDialog, { open: true, api, onClose: vi.fn(), onAdded: vi.fn() });
+    expect(
+      await screen.findByText(
+        "Le mot de passe est conservé dans le trousseau du système, jamais dans les fichiers de Norelly sans votre accord.",
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("rangement pas encore décidé : ni trousseau ni fichier annoncés", async () => {
+    const api = fakeApi([]);
+    vi.mocked(api.secretsBackend).mockResolvedValue("undecided");
+    render(AddAccountDialog, { open: true, api, onClose: vi.fn(), onAdded: vi.fn() });
+    await waitFor(() => expect(api.secretsBackend).toHaveBeenCalled());
+    expect(screen.queryByText(/jamais dans les fichiers de Norelly/)).toBeNull();
+    expect(screen.queryByText(/sans chiffrement/)).toBeNull();
+  });
+
   it("trousseau du système : la garantie du trousseau est affichée", async () => {
     const api = fakeApi([]);
     render(AddAccountDialog, { open: true, api, onClose: vi.fn(), onAdded: vi.fn() });

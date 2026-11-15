@@ -11,6 +11,7 @@
   import { ContextMenu } from "bits-ui";
   import { untrack } from "svelte";
   import type { ContactsState } from "../lib/contacts.svelte";
+  import { contactSelectionLimitText } from "../lib/errors";
   import type { ContactListsState } from "../lib/contact-lists.svelte";
   import type { CommandRegistry } from "../lib/commands/registry";
   import { RegistryWatch } from "../lib/commands/watch.svelte";
@@ -195,6 +196,9 @@
           <span>{clear?.label}</span>
         </button>
       </div>
+      {#if contacts.markLimitReached}
+        <p class="mark-limit" role="status">{contactSelectionLimitText()}</p>
+      {/if}
       <ActionBar
         primary={bulk.primary}
         more={bulk.more}
@@ -294,10 +298,10 @@
                   id="contact-{c.id}"
                   class="row"
                   class:selected={row.index === selectedIndex}
-                  class:marked={contacts.marked.includes(c.id)}
+                  class:marked={contacts.isMarked(c.id)}
                   role="option"
                   aria-selected={contacts.marked.length > 0
-                    ? contacts.marked.includes(c.id)
+                    ? contacts.isMarked(c.id)
                     : row.index === selectedIndex}
                   tabindex="-1"
                   style:height="{ROW_HEIGHT}px"
@@ -315,13 +319,14 @@
                     class="check"
                     type="checkbox"
                     tabindex="-1"
-                    checked={contacts.marked.includes(c.id)}
+                    checked={contacts.isMarked(c.id)}
                     aria-label={m.contacts_select_row({ name: c.name })}
                     title={m.contacts_mark()}
                     onclick={(e) => {
                       // Cocher n'ouvre pas la fiche.
                       e.stopPropagation();
-                      contacts.toggleMark(c.id);
+                      // Case refusée (borne atteinte) : elle reste décochée.
+                      if (!contacts.toggleMark(c.id)) e.preventDefault();
                     }}
                   />
                   <div class="content">
@@ -485,6 +490,14 @@
 
   .marked-count {
     font-weight: var(--font-weight-medium);
+  }
+
+  .mark-limit {
+    margin: 0;
+    padding: var(--space-1) var(--space-2);
+    border-radius: var(--radius-sm);
+    color: var(--color-warning);
+    background: var(--color-warning-bg);
   }
 
   .scroller {

@@ -10,6 +10,10 @@ import type {
   ContactItem,
   RecipientDto,
 } from "./ipc/api";
+// Constante générée depuis le domaine, lue dans les bindings eux-mêmes
+// (et non via `api.ts`, simulé par les tests de l'application).
+import { MAX_CONTACT_SELECTION } from "./ipc/bindings";
+import { SvelteMap, SvelteSet } from "svelte/reactivity";
 import { errorText } from "./errors";
 
 export type ContactsApi = Pick<
@@ -19,6 +23,13 @@ export type ContactsApi = Pick<
 
 /** Contacts lus par page. */
 export const CONTACT_PAGE = 100;
+
+/** Contacts cochés au plus : la borne de Rust pour une action groupée
+ * (suppression, ajout à une liste, export d'une sélection). */
+export const MAX_MARKED_CONTACTS: number = MAX_CONTACT_SELECTION;
+
+/** Fiches relues ensemble au plus pour « Écrire à ». */
+const RECIPIENT_READS = 20;
 
 /** Lignes d'adresses et de téléphones proposées au plus (Rust refuse
  * au-delà). */
@@ -55,7 +66,13 @@ export class ContactsState {
   error = $state<string | null>(null);
   selectedId = $state<number | null>(null);
   selected = $state<ContactDto | null>(null);
-  marked = $state<number[]>([]);
+  /** Contacts cochés, toujours remplacés en bloc (jusqu'à la borne :
+   * tableau brut, sans proxy profond). */
+  marked = $state.raw<number[]>([]);
+  readonly #markedSet = $derived(new SvelteSet(this.marked));
+  /** Une case vient d'être refusée : la borne des contacts cochés est
+   * atteinte (message affiché jusqu'au prochain décochage). */
+  markLimitReached = $state(false);
   /** Numéro du dernier chargement : une réponse plus ancienne est
    * ignorée. */
   #generation = 0;
@@ -134,14 +151,29 @@ export class ContactsState {
     }
   }
 
-  toggleMark(id: number): void {
-    this.marked = this.marked.includes(id)
-      ? this.marked.filter((m) => m !== id)
-      : [...this.marked, id];
+  isMarked(id: number): boolean {
+    return this.#markedSet.has(id);
+  }
+
+  /** Coche ou décoche `id` ; renvoie `false` si la case est refusée
+   * (borne atteinte, `markLimitReached` levé). */
+  toggleMark(id: number): boolean {
+    if (this.isMarked(id)) {
+      this.marked = this.marked.filter((m) => m !== id);
+      this.markLimitReached = false;
+      return true;
+    }
+    if (this.marked.length >= MAX_MARKED_CONTACTS) {
+      this.markLimitReached = true;
+      return false;
+    }
+    this.marked = [...this.marked, id];
+    return true;
   }
 
   clearMarks(): void {
     this.marked = [];
+    this.markLimitReached = false;
   }
 
   /** Contacts visés par une action : les cochés, sinon la fiche ouverte. */
@@ -151,26 +183,28 @@ export class ContactsState {
   }
 
   /** Destinataires « Écrire à » : nom et adresse préférée de chaque
-   * contact visé (fiche relue s'il n'est pas dans la liste affichée ;
-   * contact disparu : ignoré). */
+   * contact visé, dans l'ordre (fiches hors de la liste affichée relues
+   * par lots de `RECIPIENT_READS` ; contact disparu : ignoré). */
   async recipients(ids: number[]): Promise<RecipientDto[]> {
-    const result: RecipientDto[] = [];
-    for (const id of ids) {
-      const shown = this.items.find((i) => i.id === id);
-      if (shown !== undefined) {
-        result.push(recipient(shown.name, shown.address));
-        continue;
-      }
+    const shown = new SvelteMap(this.items.map((i) => [i.id, i]));
+    const one = async (id: number): Promise<RecipientDto | null> => {
+      const item = shown.get(id);
+      if (item !== undefined) return recipient(item.name, item.address);
       try {
         const contact = await this.#api.getContact(id);
         const preferred =
           contact.fields.emails.find((e) => e.preferred) ?? contact.fields.emails[0];
-        if (preferred !== undefined) result.push(recipient(contact.name, preferred.address));
+        return preferred === undefined ? null : recipient(contact.name, preferred.address);
       } catch {
         // Supprimé entre-temps : rien à écrire.
+        return null;
       }
+    };
+    const found: (RecipientDto | null)[] = [];
+    for (let start = 0; start < ids.length; start += RECIPIENT_READS) {
+      found.push(...(await Promise.all(ids.slice(start, start + RECIPIENT_READS).map(one))));
     }
-    return result;
+    return found.filter((r) => r !== null);
   }
 
   /** Ajoute la fiche ouverte aux favoris, ou l'en retire ; renvoie le
@@ -200,6 +234,7 @@ export class ContactsState {
    * liste relue. */
   async removed(ids: number[]): Promise<void> {
     this.marked = this.marked.filter((id) => !ids.includes(id));
+    if (this.marked.length < MAX_MARKED_CONTACTS) this.markLimitReached = false;
     if (this.selectedId !== null && ids.includes(this.selectedId)) {
       this.selectedId = null;
       this.selected = null;

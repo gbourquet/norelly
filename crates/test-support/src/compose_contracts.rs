@@ -326,6 +326,7 @@ pub async fn outbox_store_contract<S: OutboxStore + DraftStore>(
         OutboxState::Failed(SendFailure::Uncertain),
         OutboxState::Failed(SendFailure::Security),
         OutboxState::Failed(SendFailure::TooManyAttempts),
+        OutboxState::Failed(SendFailure::EncryptionInterrupted),
         OutboxState::Sending,
     ] {
         let current = store

@@ -144,6 +144,34 @@ username and password (an app password is sometimes required)."
 5. Try signing in on your provider's website: your account may be
    temporarily locked after several attempts.
 
+## Connection cut while checking your credentials
+
+**What you see**: "the server cut the connection while checking your
+credentials, without clearly rejecting them…"
+
+Some servers respond this way to a wrong password. Norelly does not send
+your credentials again on its own: some servers lock the account after
+several attempts.
+
+**What to do**: check the address, username and password (see
+"Credentials rejected" above), then click the button again. If the message
+comes back with correct credentials, wait a few minutes before trying
+again.
+
+## Connection cut before encryption
+
+**What you see**: "the connection was cut before it could be encrypted…";
+in the outbox: "connection cut before encryption, possibly by the network
+in use".
+
+The server was reached, but the connection stopped before it became
+secure. Your credentials and messages were not sent.
+
+**What to do**: if Norelly shows the server settings, check the **Port**
+and **Security**. If they are right, try from another network (for
+example your phone's hotspot): some networks, such as public Wi-Fi, block
+or intercept these connections.
+
 ## Server unreachable
 
 **What you see**: "server unreachable. Check the name and port."

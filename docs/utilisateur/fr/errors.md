@@ -162,6 +162,35 @@ de passe.
 5. Essayez de vous connecter sur le site de votre fournisseur : votre
    compte est peut-être bloqué temporairement après plusieurs essais.
 
+## Connexion coupée pendant la vérification des identifiants
+
+**Ce que vous voyez** : « le serveur a coupé la connexion pendant la
+vérification de vos identifiants, sans les refuser clairement… »
+
+Certains serveurs répondent ainsi à un mot de passe faux. Norelly ne
+renvoie pas vos identifiants de lui-même : certains serveurs bloquent le
+compte après plusieurs essais.
+
+**Quoi faire** : vérifiez l'adresse, l'utilisateur et le mot de passe
+(voir « Identifiants refusés » ci-dessus), puis cliquez de nouveau sur le
+bouton. Si le message revient avec des identifiants corrects, attendez
+quelques minutes avant un nouvel essai.
+
+## Connexion coupée avant le chiffrement
+
+**Ce que vous voyez** : « la connexion a été coupée avant d'être
+chiffrée… » ; dans la boîte d'envoi : « connexion coupée avant le
+chiffrement, peut-être par le réseau utilisé ».
+
+Le serveur a été joint, mais la connexion s'est interrompue avant de
+devenir sûre. Vos identifiants et vos messages ne sont pas partis.
+
+**Quoi faire** : si Norelly vous montre les réglages des serveurs,
+vérifiez le **Port** et la **Sécurité**. Si tout est juste, essayez
+depuis un autre réseau (par exemple le partage de connexion de votre
+téléphone) : certains réseaux, comme un Wi-Fi public, bloquent ou
+interceptent ces connexions.
+
 ## Serveur injoignable
 
 **Ce que vous voyez** : « serveur injoignable. Vérifiez le nom et le

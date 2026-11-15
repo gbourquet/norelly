@@ -233,6 +233,17 @@ acceptés) sont supprimées. **Rien n'est supprimé sur le serveur.**
   mot de passe refusé lentement par le serveur est bien annoncé comme
   refusé, sans être renvoyé. Un refus du serveur (identifiants,
   sécurité) ne se réessaie pas.
+- Seuls les échecs survenus avant l'envoi des identifiants (connexion,
+  chiffrement, présentation du serveur) sont réessayés. Un serveur qui
+  coupe la connexion ou se tait juste après avoir reçu les identifiants
+  (certains répondent ainsi à un mot de passe faux) n'en reçoit pas
+  d'autres : l'écran invite à les vérifier avant de réessayer, car certains
+  serveurs bloquent le compte après plusieurs essais.
+- Connexion coupée avant d'être chiffrée : rien n'est parti. Norelly
+  réessaie ; si la coupure persiste, l'écran invite à vérifier le port et
+  le chiffrement, et signale que le réseau utilisé (Wi-Fi public, réseau
+  d'entreprise) peut en être la cause : un réseau qui intercepte les
+  connexions produit exactement ce symptôme.
 - Liaison très lente (satellite, mobile avec pertes) : la synchronisation
   et l'envoi laissent au serveur plus de temps qu'à la vérification de
   l'ajout, qui préfère réessayer vite.
@@ -246,10 +257,11 @@ acceptés) sont supprimées. **Rien n'est supprimé sur le serveur.**
   la façon dont le navigateur joint l'ordinateur lui-même ; un autre
   programme de l'ordinateur ne peut ni le capter ni bloquer l'attente.
 - Compte Microsoft : réception vérifiée, mais serveur d'envoi de Microsoft
-  qui ne répond pas ou coupe la connexion : le compte est ajouté quand
-  même, et un message dit que l'envoi n'a pas pu être vérifié ; il le sera
-  au premier message. Un refus ou une protection empêchent toujours
-  l'ajout. Pour un compte ajouté avec un mot de passe, l'envoi doit être
+  qui ne répond pas ou coupe la connexion une fois chiffrée : le compte
+  est ajouté quand même, et un message dit que l'envoi n'a pas pu être
+  vérifié ; il le sera au premier message. Un refus, une protection, ou
+  une connexion coupée ou bloquée avant d'être chiffrée (ce que
+  provoquerait un réseau hostile) empêchent toujours l'ajout. Pour un compte ajouté avec un mot de passe, l'envoi doit être
   vérifié : un port ou un chiffrement faux fait lui aussi taire le serveur.
 - Serveur qui ne répond pas : le message ne met en cause ni le nom ni le
   port, il invite à vérifier la connexion à Internet puis à réessayer.
@@ -324,6 +336,8 @@ acceptés) sont supprimées. **Rien n'est supprimé sur le serveur.**
 | Compte Google refusé (serveurs de Google seulement) | {prefix}identifiants refusés : un compte Google demande un mot de passe d'application. Puis « Créer un mot de passe d'application Google » : validation en deux étapes, création du mot de passe (« Ouvrir la page Google »), collage à la place du mot de passe habituel. |
 | Serveur injoignable | {prefix}serveur injoignable. Vérifiez le nom et le port. |
 | Serveur qui ne répond pas | {prefix}le serveur ne répond pas. Vérifiez votre connexion à Internet, puis réessayez. |
+| Connexion coupée avant le chiffrement | {prefix}la connexion a été coupée avant d'être chiffrée. Vérifiez le port et la sécurité ; si cela se répète, le réseau utilisé peut en être la cause (Wi-Fi public, réseau d'entreprise) : réessayez depuis un autre réseau. |
+| Connexion coupée pendant la vérification des identifiants | {prefix}le serveur a coupé la connexion pendant la vérification de vos identifiants, sans les refuser clairement. Vérifiez-les avant de réessayer : certains serveurs bloquent le compte après plusieurs essais. |
 | Adresse Microsoft | Outlook.com et Hotmail n'acceptent pas de mot de passe ici : connectez-vous chez Microsoft dans votre navigateur. Norelly ne voit jamais votre mot de passe. |
 | Attente du navigateur | Connectez-vous dans la fenêtre de votre navigateur, puis revenez ici. |
 | Nouvel essai sans navigateur | Connexion à votre messagerie Microsoft… (Google : « Connexion à votre messagerie Gmail… ».) |

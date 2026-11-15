@@ -161,6 +161,14 @@ const MICROSOFT_DOMAINS: [&str; 12] = [
 ];
 
 impl OAuthProvider {
+    /// Vrai si le fournisseur délivre un identifiant stable du compte
+    /// ([`OAuthSubject`]) qui le reconnaît aux reconnexions : Microsoft
+    /// (`oid`). Chez Google, l'adresse vérifiée suffit.
+    #[must_use]
+    pub fn has_stable_subject(self) -> bool {
+        matches!(self, Self::Microsoft)
+    }
+
     /// Nom stocké (base locale) et transmis à l'interface.
     #[must_use]
     pub fn as_str(self) -> &'static str {
@@ -496,6 +504,52 @@ pub struct OAuthIdentity {
     pub email_verified: Option<bool>,
     /// Locataire du compte (`tid`, Microsoft).
     pub tenant: Option<String>,
+    /// Identifiant stable du compte chez le fournisseur (`oid`, Microsoft).
+    pub subject: Option<OAuthSubject>,
+}
+
+impl OAuthIdentity {
+    /// Identifiant stable qui reconnaît le compte chez `provider` : seul
+    /// Microsoft en délivre un.
+    #[must_use]
+    pub fn stable_subject(&self, provider: OAuthProvider) -> Option<&OAuthSubject> {
+        self.subject
+            .as_ref()
+            .filter(|_| provider.has_stable_subject())
+    }
+}
+
+/// Longueur maximale d'un [`OAuthSubject`] (un `oid` de Microsoft est un
+/// GUID de 36 caractères).
+const OAUTH_SUBJECT_MAX_LEN: usize = 128;
+
+/// Identifiant stable d'un compte chez son fournisseur OAuth (`oid` chez
+/// Microsoft) : contrairement à l'identifiant de connexion et à l'adresse,
+/// l'utilisateur ne peut pas le modifier. Ce n'est pas un secret.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OAuthSubject(String);
+
+impl OAuthSubject {
+    /// `None` si `raw` est vide, trop long, ou contient autre chose que des
+    /// caractères ASCII visibles.
+    #[must_use]
+    pub fn parse(raw: &str) -> Option<Self> {
+        let valid = !raw.is_empty()
+            && raw.len() <= OAUTH_SUBJECT_MAX_LEN
+            && raw.bytes().all(|b| b.is_ascii_graphic());
+        valid.then(|| Self(raw.to_owned()))
+    }
+
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl fmt::Display for OAuthSubject {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
+    }
 }
 
 /// Émetteurs de l'`id_token` de Google.
@@ -556,6 +610,61 @@ pub fn verify_sign_in(
         check_identity_claims(provider, config, identity)?;
     }
     verify_identity(address, identity)
+}
+
+/// Identifiant stable à enregistrer pour le compte `address` d'après une
+/// identité déjà vérifiée ([`verify_identity`]). Il liera le compte pour
+/// toujours : il n'est retenu que si l'identifiant de connexion
+/// (`preferred_username`) est l'adresse, l'adresse `email` seule (connexion
+/// par numéro de téléphone) ne suffit pas ; le compte reste alors reconnu à
+/// son adresse.
+#[must_use]
+pub fn subject_to_record(
+    provider: OAuthProvider,
+    address: &EmailAddress,
+    identity: &OAuthIdentity,
+) -> Option<OAuthSubject> {
+    let signed_in_as_address = identity
+        .preferred_username
+        .as_deref()
+        .is_some_and(|login| login.trim().eq_ignore_ascii_case(&address.to_string()));
+    identity
+        .stable_subject(provider)
+        .filter(|_| signed_in_as_address)
+        .cloned()
+}
+
+/// Vérification de l'identité d'une reconnexion du compte `address`, dont
+/// l'identifiant stable enregistré est `known`. Identifiant enregistré :
+/// revendications du fournisseur ([`check_identity_claims`]), puis seul le
+/// même identifiant est accepté (l'adresse principale du compte a pu
+/// changer chez le fournisseur) ; identité sans identifiant : refus, faute
+/// de preuve. Sans identifiant enregistré : vérification d'une connexion
+/// ([`verify_sign_in`], compte de l'adresse).
+///
+/// Rend l'identifiant à enregistrer quand aucun ne l'est encore
+/// ([`subject_to_record`]).
+pub fn verify_reconnection(
+    provider: OAuthProvider,
+    config: &OAuthConfig,
+    address: &EmailAddress,
+    known: Option<&OAuthSubject>,
+    identity: Option<&OAuthIdentity>,
+) -> Result<Option<OAuthSubject>, TokenError> {
+    let Some(known) = known else {
+        verify_sign_in(provider, config, address, identity)?;
+        return Ok(identity.and_then(|i| subject_to_record(provider, address, i)));
+    };
+    let identity =
+        identity.ok_or_else(|| TokenError::Protocol("identité du compte absente".to_owned()))?;
+    check_identity_claims(provider, config, identity)?;
+    match identity.stable_subject(provider) {
+        Some(subject) if subject == known => Ok(None),
+        Some(_) => Err(TokenError::WrongAccount),
+        None => Err(TokenError::Protocol(
+            "identifiant stable du compte absent".to_owned(),
+        )),
+    }
 }
 
 /// Refuse les jetons d'un autre compte que celui de `address` : erreur de

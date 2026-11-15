@@ -29,7 +29,7 @@ use norelly_domain::account::{Account, AccountDraft, AccountId, DisplayName, Ser
 use norelly_domain::address::EmailAddress;
 use norelly_domain::credentials::Username;
 use norelly_domain::endpoint::{Host, Protocol, Security, ServerEndpoint};
-use norelly_domain::oauth::OAuthProvider;
+use norelly_domain::oauth::{OAuthProvider, OAuthSubject};
 use norelly_domain::ports::{
     AccountRepository, AccountStoreError, CertificateExceptionStore, StoreError,
 };
@@ -57,6 +57,7 @@ fn migrations() -> Migrations<'static> {
         M::up(include_str!("../migrations/0014_oauth_google.sql")),
         M::up(include_str!("../migrations/0015_outbox_interruptions.sql")),
         M::up(include_str!("../migrations/0016_outbox_unresponsive.sql")),
+        M::up(include_str!("../migrations/0017_oauth_subject.sql")),
     ])
 }
 
@@ -297,7 +298,7 @@ impl SqliteAccountRepository {
 
 const ACCOUNT_COLUMNS: &str = "id, address, display_name, \
      imap_host, imap_port, imap_security, imap_username, \
-     smtp_host, smtp_port, smtp_security, smtp_username, oauth_provider";
+     smtp_host, smtp_port, smtp_security, smtp_username, oauth_provider, oauth_subject";
 
 /// Ligne brute, validée ensuite par le domaine.
 struct AccountRow {
@@ -306,6 +307,7 @@ struct AccountRow {
     display_name: String,
     servers: [(String, i64, String, String); 2],
     oauth_provider: Option<String>,
+    oauth_subject: Option<String>,
 }
 
 impl AccountRow {
@@ -319,6 +321,7 @@ impl AccountRow {
                 (row.get(7)?, row.get(8)?, row.get(9)?, row.get(10)?),
             ],
             oauth_provider: row.get(11)?,
+            oauth_subject: row.get(12)?,
         })
     }
 
@@ -356,6 +359,13 @@ impl AccountRow {
             let provider = OAuthProvider::parse(raw)
                 .ok_or_else(|| corrupted("fournisseur OAuth", &raw.as_str()))?;
             draft = draft.with_oauth(provider);
+        }
+        if let Some(raw) = &self.oauth_subject {
+            let subject = OAuthSubject::parse(raw)
+                .ok_or_else(|| corrupted("identifiant OAuth", &"illisible"))?;
+            draft = draft
+                .with_oauth_subject(subject)
+                .map_err(|e| corrupted("identifiant OAuth", &e))?;
         }
         Ok(draft.with_id(id))
     }
@@ -421,8 +431,9 @@ impl AccountRepository for SqliteAccountRepository {
                 let inserted = c.execute(
                     "INSERT INTO accounts (address, display_name, \
                      imap_host, imap_port, imap_security, imap_username, \
-                     smtp_host, smtp_port, smtp_security, smtp_username, oauth_provider) \
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11) \
+                     smtp_host, smtp_port, smtp_security, smtp_username, oauth_provider, \
+                     oauth_subject) \
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12) \
                      ON CONFLICT (address) DO NOTHING",
                     params![
                         d.address().to_string(),
@@ -436,6 +447,7 @@ impl AccountRepository for SqliteAccountRepository {
                         security_str(smtp.endpoint.security()),
                         smtp.username.as_str(),
                         d.oauth_provider().map(OAuthProvider::as_str),
+                        d.oauth_subject().map(OAuthSubject::as_str),
                     ],
                 );
                 match inserted.map_err(store_error)? {
@@ -461,6 +473,26 @@ impl AccountRepository for SqliteAccountRepository {
             })
             .await?;
         Ok(deleted > 0)
+    }
+
+    async fn record_oauth_subject(
+        &self,
+        id: AccountId,
+        subject: &OAuthSubject,
+    ) -> Result<bool, AccountStoreError> {
+        let subject = subject.as_str().to_owned();
+        let recorded = self
+            .db
+            .run(move |c| {
+                c.execute(
+                    "UPDATE accounts SET oauth_subject = ?2 \
+                     WHERE id = ?1 AND oauth_subject IS NULL AND oauth_provider = 'microsoft'",
+                    params![id.get(), subject],
+                )
+                .map_err(store_error)
+            })
+            .await?;
+        Ok(recorded > 0)
     }
 }
 
@@ -636,6 +668,8 @@ mod tests {
          state, failure, attempts, queued_at) \
          VALUES (1, 'v16@example.com', '[]', x'00', x'00', 'v16', 'failed', \
          'unresponsive', 8, 90);",
+        // v17 : identifiant stable du compte Microsoft.
+        "UPDATE accounts SET oauth_subject = 'oid-v17' WHERE id = 1;",
     ];
 
     /// Montée de version depuis chaque version précédente, données
@@ -712,6 +746,70 @@ mod tests {
             )
             .is_err(),
             "fournisseur inconnu accepté"
+        );
+    }
+
+    /// Base de version 16 : à la montée en version 17, les comptes gardent
+    /// leur fournisseur, sans identifiant stable (enregistré à la prochaine
+    /// reconnexion) ; un compte à mot de passe n'en accepte pas.
+    #[test]
+    fn upgrading_to_v17_keeps_accounts_without_a_stable_subject() {
+        let mut conn = Connection::open_in_memory().unwrap_or_else(|e| panic!("{e}"));
+        let m = migrations();
+        for (version, fixture) in FIXTURES.iter().enumerate().take(16) {
+            m.to_version(&mut conn, version + 1)
+                .unwrap_or_else(|e| panic!("vers v{} : {e}", version + 1));
+            conn.execute_batch(fixture)
+                .unwrap_or_else(|e| panic!("fixture v{} : {e}", version + 1));
+        }
+        conn.execute_batch(
+            "INSERT INTO accounts (address, display_name, imap_host, imap_port, imap_security, \
+             imap_username, smtp_host, smtp_port, smtp_security, smtp_username) \
+             VALUES ('mdp@example.com', 'Mdp', 'imap.example.com', 993, 'tls', 'mdp', \
+             'smtp.example.com', 465, 'tls', 'mdp');",
+        )
+        .unwrap_or_else(|e| panic!("{e}"));
+        m.to_version(&mut conn, 17)
+            .unwrap_or_else(|e| panic!("{e}"));
+        let row: (Option<String>, Option<String>) = conn
+            .query_row(
+                "SELECT oauth_provider, oauth_subject FROM accounts WHERE id = 1",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(row, (Some("microsoft".to_owned()), None));
+        assert!(
+            conn.execute(
+                "UPDATE accounts SET oauth_subject = 'oid' WHERE address = 'mdp@example.com'",
+                []
+            )
+            .is_err(),
+            "identifiant OAuth accepté sur un compte à mot de passe"
+        );
+        for refused in ["", "a b", "é", &"a".repeat(129)] {
+            assert!(
+                conn.execute(
+                    "UPDATE accounts SET oauth_subject = ?1 WHERE id = 1",
+                    [refused]
+                )
+                .is_err(),
+                "identifiant illisible accepté : {refused:?}"
+            );
+        }
+        conn.execute(
+            "UPDATE accounts SET oauth_subject = ?1 WHERE id = 1",
+            ["a".repeat(128)],
+        )
+        .unwrap_or_else(|e| panic!("identifiant valide refusé : {e}"));
+        // Google ne délivre pas d'identifiant stable.
+        assert!(
+            conn.execute(
+                "UPDATE accounts SET oauth_provider = 'google' WHERE id = 1",
+                []
+            )
+            .is_err(),
+            "identifiant accepté sur un compte Google"
         );
     }
 

@@ -29,7 +29,8 @@ use norelly_domain::credentials::Username;
 use norelly_domain::endpoint::{Host, Security};
 use norelly_domain::oauth::{
     OAuthProvider, OAuthSource, TokenError, add_account_sign_in_error, is_mailbox_not_connected,
-    is_smtp_oauth_disabled, require_mail_access, require_offline_access, verify_sign_in,
+    is_smtp_oauth_disabled, require_mail_access, require_offline_access, subject_to_record,
+    verify_reconnection, verify_sign_in,
 };
 use norelly_domain::ports::OAuthClient;
 
@@ -352,7 +353,19 @@ where
             smtp,
             &PlaintextPolicy::deny_all(),
         ) {
-            Ok(draft) => draft.with_oauth(provider),
+            Ok(draft) => {
+                let draft = draft.with_oauth(provider);
+                // Identifiant stable : reconnaîtra le compte aux reconnexions.
+                let subject = grant
+                    .identity
+                    .as_ref()
+                    .and_then(|i| subject_to_record(provider, draft.address(), i));
+                match subject.map(|s| draft.clone().with_oauth_subject(s)) {
+                    None => draft,
+                    Some(Ok(with_subject)) => with_subject,
+                    Some(Err(e)) => return AddAccountOutcome::Invalid(e.to_string()),
+                }
+            }
             Err(e) => return AddAccountOutcome::Invalid(e.to_string()),
         };
         let mut send_unchecked = false;
@@ -538,6 +551,10 @@ pub struct Reconnected {
 /// Le compte n'est tenu qu'au retour du navigateur (une suppression n'attend
 /// pas l'utilisateur), puis relu : supprimé entre-temps, rien n'est rangé
 /// et la reconnexion rapporte [`ReconnectError::NotFound`].
+///
+/// Le compte est reconnu à son identifiant stable chez le fournisseur
+/// quand il est enregistré, sinon à son adresse, et son identifiant est
+/// alors enregistré ([`verify_reconnection`]).
 pub async fn reconnect_oauth_account<O: OAuthClient, K: SecretStore, D: AccountRepository>(
     broker: &TokenBroker<O, K>,
     accounts: &D,
@@ -557,10 +574,11 @@ pub async fn reconnect_oauth_account<O: OAuthClient, K: SecretStore, D: AccountR
         .client()
         .authorize(&broker.config(provider), account.address())
         .await?;
-    verify_sign_in(
+    let new_subject = verify_reconnection(
         provider,
         &broker.config(provider),
         account.address(),
+        account.oauth_subject(),
         grant.identity.as_ref(),
     )?;
     require_offline_access(grant.refresh_token.as_ref())?;
@@ -582,10 +600,33 @@ pub async fn reconnect_oauth_account<O: OAuthClient, K: SecretStore, D: AccountR
         c.id() == account.id()
             && c.address() == account.address()
             && c.oauth_provider() == Some(provider)
+            && c.oauth_subject() == account.oauth_subject()
     });
     if !unchanged {
         return Err(ReconnectError::NotFound);
     }
+    // Compte ajouté sans identifiant stable : enregistré avant les jetons,
+    // pour qu'un échec n'en range aucun (la reconnexion pourra être
+    // refaite).
+    let account = match new_subject {
+        Some(subject) => {
+            let recorded = accounts
+                .record_oauth_subject(id, &subject)
+                .await
+                .map_err(|e| ReconnectError::Storage(e.to_string()))?;
+            // Identifiant enregistré entre-temps : ce n'est plus le compte
+            // vérifié.
+            if !recorded {
+                return Err(ReconnectError::NotFound);
+            }
+            accounts
+                .get(id)
+                .await
+                .map_err(|e| ReconnectError::Storage(e.to_string()))?
+                .ok_or(ReconnectError::NotFound)?
+        }
+        None => account,
+    };
     let source = OAuthSource {
         provider,
         refresh_key: account.secret_key(Protocol::Imap),

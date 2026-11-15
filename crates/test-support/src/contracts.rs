@@ -184,9 +184,15 @@ pub async fn account_repository_contract<R: AccountRepository>(
 ) -> Result<(), AccountStoreError> {
     assert!(repo.list().await?.is_empty(), "dépôt non vide au départ");
 
-    // Compte OAuth : le fournisseur est conservé.
+    // Compte OAuth : le fournisseur et l'identifiant stable sont conservés.
+    let subject = |raw: &str| {
+        norelly_domain::oauth::OAuthSubject::parse(raw)
+            .unwrap_or_else(|| panic!("identifiant valide refusé : {raw}"))
+    };
     let oauth = sample_account("carol@outlook.com", false)
-        .with_oauth(norelly_domain::oauth::OAuthProvider::Microsoft);
+        .with_oauth(norelly_domain::oauth::OAuthProvider::Microsoft)
+        .with_oauth_subject(subject("oid-carol"))
+        .unwrap_or_else(|e| panic!("identifiant refusé : {e}"));
     let stored = repo.insert(&oauth).await?;
     assert_eq!(
         stored.oauth_provider(),
@@ -197,6 +203,24 @@ pub async fn account_repository_contract<R: AccountRepository>(
         reread.as_ref().map(|a| a.draft()),
         Some(&oauth),
         "fournisseur perdu"
+    );
+    assert_eq!(
+        reread.as_ref().and_then(|a| a.oauth_subject()),
+        Some(&subject("oid-carol")),
+        "identifiant stable perdu"
+    );
+    // Un identifiant déjà enregistré n'est jamais remplacé.
+    assert!(
+        !repo
+            .record_oauth_subject(stored.id(), &subject("oid-autre"))
+            .await?
+    );
+    assert_eq!(
+        repo.get(stored.id())
+            .await?
+            .and_then(|a| a.oauth_subject().cloned()),
+        Some(subject("oid-carol")),
+        "identifiant enregistré remplacé"
     );
     // Compte Google : chaque fournisseur est accepté par le stockage.
     let google = sample_account("dave@gmail.com", false)
@@ -209,6 +233,47 @@ pub async fn account_repository_contract<R: AccountRepository>(
         Some(norelly_domain::oauth::OAuthProvider::Google),
         "compte Google refusé ou fournisseur perdu"
     );
+    // Google ne délivre pas d'identifiant stable : aucun n'est enregistré.
+    assert!(
+        !repo
+            .record_oauth_subject(stored_google.id(), &subject("oid-dave"))
+            .await?
+    );
+    // Compte ajouté sans identifiant : enregistré une fois, puis gardé.
+    let without = repo
+        .insert(
+            &sample_account("erin@outlook.com", false)
+                .with_oauth(norelly_domain::oauth::OAuthProvider::Microsoft),
+        )
+        .await?;
+    assert_eq!(without.oauth_subject(), None);
+    assert!(
+        repo.record_oauth_subject(without.id(), &subject("oid-erin"))
+            .await?
+    );
+    assert!(
+        !repo
+            .record_oauth_subject(without.id(), &subject("oid-autre"))
+            .await?
+    );
+    let recorded = repo.get(without.id()).await?;
+    assert_eq!(
+        recorded.as_ref().and_then(|a| a.oauth_subject()),
+        Some(&subject("oid-erin")),
+        "identifiant non enregistré, ou remplacé"
+    );
+    assert_eq!(
+        recorded.as_ref().map(|a| a.address().to_string()),
+        Some("erin@outlook.com".to_owned()),
+        "compte modifié au-delà de son identifiant"
+    );
+    let unknown = AccountId::new(i64::MAX).unwrap_or_else(|_| panic!("id"));
+    assert!(
+        !repo
+            .record_oauth_subject(unknown, &subject("oid-x"))
+            .await?
+    );
+    repo.delete(without.id()).await?;
     repo.delete(stored_google.id()).await?;
     repo.delete(stored.id()).await?;
 
@@ -218,6 +283,12 @@ pub async fn account_repository_contract<R: AccountRepository>(
     assert_eq!(stored_a.draft(), &a, "compte relu différent");
     let stored_b = repo.insert(&b).await?;
     assert_ne!(stored_a.id(), stored_b.id(), "identifiants identiques");
+    // Compte à mot de passe : aucun identifiant OAuth.
+    assert!(
+        !repo
+            .record_oauth_subject(stored_a.id(), &subject("oid-alice"))
+            .await?
+    );
 
     // Relecture, y compris d'un serveur en clair consenti.
     assert_eq!(repo.get(stored_a.id()).await?, Some(stored_a.clone()));
@@ -313,6 +384,25 @@ impl AccountRepository for InMemoryAccountRepository {
         state.1.retain(|a| a.id() != id);
         Ok(state.1.len() != before)
     }
+    async fn record_oauth_subject(
+        &self,
+        id: AccountId,
+        subject: &norelly_domain::oauth::OAuthSubject,
+    ) -> Result<bool, AccountStoreError> {
+        let mut state = self.lock();
+        let Some(account) = state
+            .1
+            .iter_mut()
+            .find(|a| a.id() == id && a.oauth_subject().is_none())
+        else {
+            return Ok(false);
+        };
+        let Ok(draft) = account.draft().clone().with_oauth_subject(subject.clone()) else {
+            return Ok(false);
+        };
+        *account = draft.with_id(id);
+        Ok(true)
+    }
 }
 
 /// Faux [`AccountDataStore`] : mémorise les purges demandées.
@@ -393,7 +483,7 @@ impl FakeOAuthClient {
 
 /// Identité qu'un compte Microsoft personnel `login` rapporte à Norelly :
 /// émise par le locataire des comptes personnels, pour l'identifiant client
-/// de Norelly.
+/// de Norelly, d'identifiant stable `oid-<login>`.
 #[must_use]
 pub fn microsoft_identity(login: &str) -> norelly_domain::oauth::OAuthIdentity {
     use norelly_domain::oauth::{MICROSOFT_CONSUMERS_TENANT, OAuthIdentity, OAuthProvider};
@@ -404,6 +494,7 @@ pub fn microsoft_identity(login: &str) -> norelly_domain::oauth::OAuthIdentity {
         )),
         audience: vec![OAuthProvider::Microsoft.config().client_id.to_owned()],
         tenant: Some(MICROSOFT_CONSUMERS_TENANT.to_owned()),
+        subject: norelly_domain::oauth::OAuthSubject::parse(&format!("oid-{login}")),
         ..OAuthIdentity::default()
     }
 }
@@ -502,6 +593,14 @@ pub async fn oauth_client_contract<C: norelly_domain::ports::OAuthClient>(client
         ),
         Ok(()),
         "identité refusée par le domaine : {:?}",
+        signed_in.identity
+    );
+    assert!(
+        signed_in
+            .identity
+            .as_ref()
+            .is_some_and(|i| i.subject.is_some()),
+        "identifiant stable du compte absent : {:?}",
         signed_in.identity
     );
     let grant = client

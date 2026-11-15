@@ -12,9 +12,9 @@ import type {
 } from "./ipc/api";
 // Constante générée depuis le domaine, lue dans les bindings eux-mêmes
 // (et non via `api.ts`, simulé par les tests de l'application).
-import { MAX_CONTACT_SELECTION } from "./ipc/bindings";
+import { MAX_CONTACT_SELECTION, type FieldDto } from "./ipc/bindings";
 import { SvelteMap, SvelteSet } from "svelte/reactivity";
-import { errorText } from "./errors";
+import { IpcFailure, errorText } from "./errors";
 
 export type ContactsApi = Pick<
   Api,
@@ -243,6 +243,15 @@ export class ContactsState {
   }
 }
 
+/** Champs de nom du formulaire. */
+export type ContactNameField = "display_name" | "given_name" | "family_name" | "nickname";
+
+const NAME_FIELDS: readonly FieldDto[] = ["display_name", "given_name", "family_name", "nickname"];
+
+function isNameField(field: FieldDto | null): field is ContactNameField {
+  return field !== null && NAME_FIELDS.includes(field);
+}
+
 export class ContactFormState {
   readonly #api: ContactsApi;
   fields = $state<ContactFieldsDto>(emptyFields());
@@ -250,6 +259,9 @@ export class ContactFormState {
   id = $state<number | null>(null);
   busy = $state(false);
   error = $state<string | null>(null);
+  /** Refus propre à un champ de nom (nom qui imite une adresse), affiché
+   * sous ce champ. */
+  fieldError = $state<{ field: ContactNameField; text: string } | null>(null);
 
   readonly canSubmit = $derived(
     !this.busy && this.fields.emails.some((e) => e.address.trim() !== ""),
@@ -269,7 +281,13 @@ export class ContactFormState {
       contact === null ? emptyFields() : structuredClone($state.snapshot(contact.fields));
     if (this.fields.emails.length === 0) this.addEmail();
     this.error = null;
+    this.fieldError = null;
     this.busy = false;
+  }
+
+  /** Champ modifié : son explication, désormais dépassée, disparaît. */
+  edited(field: ContactNameField): void {
+    if (this.fieldError?.field === field) this.fieldError = null;
   }
 
   /** Nouveau contact pré-rempli avec un correspondant (« Ajouter au
@@ -328,13 +346,22 @@ export class ContactFormState {
     if (!this.canSubmit) return null;
     this.busy = true;
     this.error = null;
+    this.fieldError = null;
     try {
       const payload = this.#payload();
       return this.id === null
         ? await this.#api.createContact(payload)
         : await this.#api.updateContact(this.id, payload);
     } catch (e) {
-      this.error = errorText(e);
+      if (
+        e instanceof IpcFailure &&
+        e.code === "contact_name_looks_like_address" &&
+        isNameField(e.field)
+      ) {
+        this.fieldError = { field: e.field, text: errorText(e) };
+      } else {
+        this.error = errorText(e);
+      }
       return null;
     } finally {
       this.busy = false;

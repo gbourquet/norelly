@@ -59,6 +59,10 @@ describe("traduction des erreurs IPC", () => {
     expect(errorText(new IpcFailure("contact_selection_too_many"))).toBe(
       `Vous pouvez sélectionner au plus ${new Intl.NumberFormat("fr").format(1000)} contacts à la fois.`,
     );
+    expect(errorText(new IpcFailure("contact_name_looks_like_address", "display_name"))).toBe(
+      "Un nom ne peut pas ressembler à une adresse e-mail : retirez « @ », « < », « > » et les caractères qui leur ressemblent. " +
+        "Saisissez par exemple « Alice Martin ».",
+    );
   });
 
   it("explique les refus des listes de diffusion", () => {
@@ -155,6 +159,7 @@ describe("traduction des erreurs IPC", () => {
       contact_no_address: true,
       contact_invalid: true,
       contact_too_long: true,
+      contact_name_looks_like_address: true,
       contact_repeated_address: true,
       contact_duplicate_address: true,
       contact_not_found: true,

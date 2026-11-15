@@ -419,6 +419,66 @@ describe("formulaire d'un contact", () => {
   });
 });
 
+describe("nom refusé à la saisie", () => {
+  const imitation =
+    "Un nom ne peut pas ressembler à une adresse e-mail : retirez « @ », « < », « > » et les caractères qui leur ressemblent. " +
+    "Saisissez par exemple « Alice Martin ».";
+
+  it("affiche à côté du champ un nom qui imite une adresse", async () => {
+    const api = fakeApi();
+    api.createContact.mockRejectedValueOnce(
+      new IpcFailure("contact_name_looks_like_address", "given_name"),
+    );
+    const f = new ContactFormState(api);
+    f.reset(null);
+    f.fields.given_name = "ceo@bank.example";
+    at(f.fields.emails, 0).address = "a@example.com";
+    expect(await f.submit()).toBeNull();
+    expect(f.error).toBeNull();
+    expect(f.fieldError).toEqual({ field: "given_name", text: imitation });
+    expect(f.fields.given_name).toBe("ceo@bank.example");
+    // Modifier un autre champ garde le message ; corriger le nom l'efface.
+    f.edited("family_name");
+    expect(f.fieldError?.field).toBe("given_name");
+    f.edited("given_name");
+    expect(f.fieldError).toBeNull();
+  });
+
+  it("efface le message à la réouverture et au nouvel envoi", async () => {
+    const api = fakeApi();
+    api.createContact.mockRejectedValueOnce(
+      new IpcFailure("contact_name_looks_like_address", "display_name"),
+    );
+    const f = new ContactFormState(api);
+    f.reset(null);
+    at(f.fields.emails, 0).address = "a@example.com";
+    await f.submit();
+    expect(f.fieldError?.field).toBe("display_name");
+    await f.submit();
+    expect(f.fieldError).toBeNull();
+    api.createContact.mockRejectedValueOnce(
+      new IpcFailure("contact_name_looks_like_address", "nickname"),
+    );
+    await f.submit();
+    expect(f.fieldError?.field).toBe("nickname");
+    f.reset(null);
+    expect(f.fieldError).toBeNull();
+  });
+
+  it("garde en bas du formulaire un refus sans champ de nom", async () => {
+    const api = fakeApi();
+    api.createContact.mockRejectedValueOnce(
+      new IpcFailure("contact_name_looks_like_address", "organization"),
+    );
+    const f = new ContactFormState(api);
+    f.reset(null);
+    at(f.fields.emails, 0).address = "a@example.com";
+    await f.submit();
+    expect(f.fieldError).toBeNull();
+    expect(f.error).toBe(imitation);
+  });
+});
+
 describe("suppression de contacts", () => {
   it("supprime les fiches visées et renvoie leur nombre", async () => {
     const api = fakeApi([contact(1, "A"), contact(2, "B")]);

@@ -479,6 +479,7 @@
   "err_contact_no_address": "Indiquez au moins une adresse électronique.",
   "err_contact_invalid": "Valeur refusée dans la fiche : {field}.",
   "err_contact_too_long": "Texte trop long : {field}.",
+  "err_contact_name_looks_like_address": "Un nom ne peut pas ressembler à une adresse e-mail : retirez « @ », « < », « > » et les caractères qui leur ressemblent. Saisissez par exemple « Alice Martin ».",
   "err_contact_repeated_address": "Cette adresse figure deux fois dans la fiche.",
   "err_contact_duplicate_address": "Cette adresse appartient déjà à un autre contact.",
   "err_contact_not_found": "Ce contact n'existe plus.",

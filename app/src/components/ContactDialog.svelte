@@ -2,12 +2,14 @@
   import { m } from "../lib/paraglide/messages.js";
   // Ajout ou modification d'un contact : noms, adresses (une préférée),
   // téléphones, organisation, notes et favori. La fiche est revalidée par
-  // Rust ; ses refus s'affichent au-dessus des boutons.
+  // Rust ; ses refus s'affichent au-dessus des boutons, sauf un nom qui
+  // imite une adresse, expliqué sous son champ.
   import PlusIcon from "@lucide/svelte/icons/plus";
   import TrashIcon from "@lucide/svelte/icons/trash-2";
+  import { tick } from "svelte";
   import Modal from "./Modal.svelte";
   import type { ContactDto } from "../lib/ipc/api";
-  import type { ContactFormState } from "../lib/contacts.svelte";
+  import type { ContactFormState, ContactNameField } from "../lib/contacts.svelte";
 
   interface Props {
     open: boolean;
@@ -18,9 +20,20 @@
 
   let { open, form, onSaved, onClose }: Props = $props();
 
+  /** Explication propre au champ `field`, s'il y en a une. */
+  function fieldError(field: ContactNameField): string | null {
+    return form.fieldError?.field === field ? form.fieldError.text : null;
+  }
+
   async function submit(): Promise<void> {
     const saved = await form.submit();
     if (saved !== null) onSaved(saved);
+    // Nom refusé : le champ reçoit le focus, son explication est lue avec
+    // lui (et visible même si la fenêtre défilait plus bas).
+    else if (form.fieldError !== null) {
+      await tick();
+      document.getElementById(`contact-${form.fieldError.field}`)?.focus();
+    }
   }
 </script>
 
@@ -46,10 +59,17 @@
           class="input"
           type="text"
           autocomplete="off"
+          id="contact-given_name"
           bind:value={form.fields.given_name}
           autofocus
+          oninput={() => form.edited("given_name")}
+          aria-invalid={fieldError("given_name") ? "true" : undefined}
+          aria-describedby={fieldError("given_name") ? "contact-given_name-error" : undefined}
           disabled={form.busy}
         />
+        {#if fieldError("given_name")}
+          <span id="contact-given_name-error" class="field-error">{fieldError("given_name")}</span>
+        {/if}
       </label>
       <label class="field">
         <span>{m.contact_family_name()}</span>
@@ -57,9 +77,17 @@
           class="input"
           type="text"
           autocomplete="off"
+          id="contact-family_name"
           bind:value={form.fields.family_name}
+          oninput={() => form.edited("family_name")}
+          aria-invalid={fieldError("family_name") ? "true" : undefined}
+          aria-describedby={fieldError("family_name") ? "contact-family_name-error" : undefined}
           disabled={form.busy}
         />
+        {#if fieldError("family_name")}
+          <span id="contact-family_name-error" class="field-error">{fieldError("family_name")}</span
+          >
+        {/if}
       </label>
       <label class="field">
         <span>{m.contact_display_name()}</span>
@@ -68,9 +96,18 @@
           type="text"
           autocomplete="off"
           placeholder={m.contact_display_name_hint()}
+          id="contact-display_name"
           bind:value={form.fields.display_name}
+          oninput={() => form.edited("display_name")}
+          aria-invalid={fieldError("display_name") ? "true" : undefined}
+          aria-describedby={fieldError("display_name") ? "contact-display_name-error" : undefined}
           disabled={form.busy}
         />
+        {#if fieldError("display_name")}
+          <span id="contact-display_name-error" class="field-error"
+            >{fieldError("display_name")}</span
+          >
+        {/if}
       </label>
       <label class="field">
         <span>{m.contact_nickname()}</span>
@@ -78,9 +115,16 @@
           class="input"
           type="text"
           autocomplete="off"
+          id="contact-nickname"
           bind:value={form.fields.nickname}
+          oninput={() => form.edited("nickname")}
+          aria-invalid={fieldError("nickname") ? "true" : undefined}
+          aria-describedby={fieldError("nickname") ? "contact-nickname-error" : undefined}
           disabled={form.busy}
         />
+        {#if fieldError("nickname")}
+          <span id="contact-nickname-error" class="field-error">{fieldError("nickname")}</span>
+        {/if}
       </label>
     </div>
 
@@ -318,5 +362,10 @@
   .error {
     margin: 0;
     color: var(--color-danger);
+  }
+
+  .field-error {
+    color: var(--color-danger);
+    font-size: var(--font-size-sm);
   }
 </style>

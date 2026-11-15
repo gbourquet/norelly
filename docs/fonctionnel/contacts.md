@@ -198,7 +198,8 @@ l'ordinateur** : rien n'est envoyé à un serveur.
   destinataires.
 - Une liste abîmée dans les données de l'application n'empêche pas de
   lire les autres : elle seule disparaît de la section « Listes » et des
-  suggestions, les autres restent affichées et proposées.
+  suggestions, les autres restent affichées et proposées. Son nom reste
+  pris : une nouvelle liste du même nom est refusée.
 
 ### Importer des contacts
 

@@ -8,17 +8,18 @@
 
 use std::collections::{BTreeSet, HashMap};
 use std::fmt;
-use std::sync::Mutex;
+use std::sync::{Mutex, PoisonError};
 
 use norelly_domain::contact_lists::{
     ContactList, ContactListDraft, ContactListError, ContactListFilter, ContactListId,
-    ContactListInput,
+    ContactListInput, MAX_CONTACT_LIST_MEMBERS,
 };
 use norelly_domain::ports::{
     ContactListBook, ContactListCursor, ContactListDirectory, ContactListPage,
     ContactListStoreError, ContactListSummary, PageSize, StoreError,
 };
-use rusqlite::types::Value;
+use rusqlite::ToSql;
+use rusqlite::types::{FromSql, FromSqlResult, ToSqlOutput, Value, ValueRef};
 use rusqlite::{Connection, Row, Transaction, params};
 
 use crate::contacts::{SqliteContactBook, json_list};
@@ -60,13 +61,14 @@ fn skip_corrupted(id: i64, defect: Defect) {
     }
 }
 
-/// Vrai la première fois que la liste `id` est signalée (registre
-/// inaccessible : signalée, mieux vaut un doublon qu'un oubli).
+/// Vrai la première fois que la liste `id` est signalée.
 fn first_report(id: i64) -> bool {
+    // Un verrou empoisonné garde un registre cohérent (une insertion
+    // n'est jamais à moitié faite) : il est repris tel quel.
     REPORTED
         .lock()
-        .map(|mut reported| reported.insert(id))
-        .unwrap_or(true)
+        .unwrap_or_else(PoisonError::into_inner)
+        .insert(id)
 }
 
 /// Valeur d'une colonne, `None` si elle n'a pas le type attendu (ligne
@@ -77,7 +79,8 @@ fn tolerant<T>(read: rusqlite::Result<T>) -> rusqlite::Result<Option<T>> {
         Err(
             rusqlite::Error::InvalidColumnType(..)
             | rusqlite::Error::FromSqlConversionFailure(..)
-            | rusqlite::Error::IntegralValueOutOfRange(..),
+            | rusqlite::Error::IntegralValueOutOfRange(..)
+            | rusqlite::Error::Utf8Error(..),
         ) => Ok(None),
         Err(e) => Err(e),
     }
@@ -171,13 +174,20 @@ fn load(c: &Connection, ids: &[i64]) -> Result<Vec<ContactList>, StoreError> {
         .map_err(store_error)?;
     let mut stmt = c
         .prepare_cached(
-            "SELECT list_id, contact_id FROM contact_list_members \
-             WHERE list_id IN (SELECT value FROM json_each(?1)) \
+            "SELECT list_id, contact_id FROM ( \
+                 SELECT list_id, contact_id, position, \
+                        row_number() OVER (PARTITION BY list_id ORDER BY position) AS rank \
+                 FROM contact_list_members \
+                 WHERE list_id IN (SELECT value FROM json_each(?1))) \
+             WHERE rank <= ?2 \
              ORDER BY list_id, position",
         )
         .map_err(store_error)?;
+    // Un membre de plus que la borne suffit au domaine pour refuser une
+    // liste trop longue : une liste corrompue n'est pas lue en entier.
+    let cap = i64::try_from(MAX_CONTACT_LIST_MEMBERS + 1).map_err(|e| StoreError(e.to_string()))?;
     let members = stmt
-        .query_map(params![list], |r| {
+        .query_map(params![list, cap], |r| {
             Ok((r.get::<_, i64>(0)?, tolerant(r.get::<_, i64>(1))?))
         })
         .map_err(store_error)?;
@@ -337,6 +347,35 @@ impl ContactListBook for SqliteContactBook {
     }
 }
 
+/// Clé de tri telle que stockée, relue et reliée octet pour octet : une
+/// clé corrompue (texte qui n'est pas de l'UTF-8, autre type) ne bloque
+/// pas la lecture de la suite, et un texte reste comparé comme un texte.
+enum RawKey {
+    Text(Vec<u8>),
+    Other(Value),
+}
+
+impl FromSql for RawKey {
+    fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
+        Ok(match value {
+            ValueRef::Text(bytes) => Self::Text(bytes.to_vec()),
+            ValueRef::Null => Self::Other(Value::Null),
+            ValueRef::Integer(i) => Self::Other(Value::Integer(i)),
+            ValueRef::Real(f) => Self::Other(Value::Real(f)),
+            ValueRef::Blob(bytes) => Self::Other(Value::Blob(bytes.to_vec())),
+        })
+    }
+}
+
+impl ToSql for RawKey {
+    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
+        Ok(ToSqlOutput::Borrowed(match self {
+            Self::Text(bytes) => ValueRef::Text(bytes),
+            Self::Other(value) => value.into(),
+        }))
+    }
+}
+
 /// Identifiants et clés de tri de la page : filtre sur `name_key`, après
 /// le curseur, dans l'ordre de la liste.
 const PAGE_FIRST: &str = "SELECT id, name_key FROM contact_lists \
@@ -368,14 +407,12 @@ impl ContactListDirectory for SqliteContactBook {
                 let text = filter.text();
                 let mut lists = Vec::new();
                 // Position de la dernière ligne lue, valide ou non : une
-                // liste corrompue est écartée sans arrêter la lecture. La
-                // clé est relue telle quelle : une clé qui n'est pas du
-                // texte ne bloque pas la suite.
-                let mut after: Option<(Value, i64)> =
-                    cursor.map(|from| (Value::Text(from.sort_key), from.id.get()));
+                // liste corrompue est écartée sans arrêter la lecture.
+                let mut after: Option<(RawKey, i64)> =
+                    cursor.map(|from| (RawKey::Text(from.sort_key.into_bytes()), from.id.get()));
                 loop {
                     let fetch = i64::from(batch);
-                    let mut rows: Vec<(i64, Value)> = match &after {
+                    let mut rows: Vec<(i64, RawKey)> = match &after {
                         None => c.prepare_cached(PAGE_FIRST).and_then(|mut s| {
                             s.query_map(params![text, fetch], |r| Ok((r.get(0)?, r.get(1)?)))?
                                 .collect()
@@ -419,7 +456,7 @@ impl ContactListDirectory for SqliteContactBook {
 
 #[cfg(test)]
 mod tests {
-    use norelly_domain::ports::{ContactBook, PageSize};
+    use norelly_domain::ports::ContactBook;
     use norelly_test_support::contact_lists_contracts::{
         contact_list_contract, contact_list_page_size_contract, contact_merge_contract,
         corrupted_list_contract, sample_list,
@@ -509,13 +546,17 @@ mod tests {
 
     /// Corruptions injectées tour à tour : nom vide (refusé par le
     /// domaine), clé de nom qui n'est pas celle du domaine, nom qui n'est
-    /// pas du texte, clé de nom qui n'est pas du texte, description de
-    /// plusieurs lignes.
-    const CORRUPTIONS: [&str; 5] = [
+    /// pas du texte, clé de nom qui n'est pas du texte, texte qui n'est pas
+    /// de l'UTF-8 (nom, description, clé de nom), description de plusieurs
+    /// lignes.
+    const CORRUPTIONS: [&str; 8] = [
         "UPDATE contact_lists SET name = '' WHERE id = ?1",
         "UPDATE contact_lists SET name_key = 'zz' || name_key WHERE id = ?1",
         "UPDATE contact_lists SET name = x'00ff' WHERE id = ?1",
         "UPDATE contact_lists SET name_key = CAST(name_key AS BLOB) WHERE id = ?1",
+        "UPDATE contact_lists SET name = CAST(x'ff' AS TEXT) WHERE id = ?1",
+        "UPDATE contact_lists SET description = CAST(x'ff' AS TEXT) WHERE id = ?1",
+        "UPDATE contact_lists SET name_key = name_key || CAST(x'ff' AS TEXT) WHERE id = ?1",
         "UPDATE contact_lists SET description = 'a' || char(10) || 'b' WHERE id = ?1",
     ];
 
@@ -536,6 +577,25 @@ mod tests {
             })
             .await?;
         }
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn a_list_over_the_member_cap_is_skipped() -> Result<(), ContactListStoreError> {
+        let book = book();
+        let list = with_list(&book).await?;
+        // Membres 2 à 101 ajoutés au premier : un de trop.
+        book.db
+            .write_for_tests(
+                "WITH RECURSIVE n(i) AS (SELECT 2 UNION ALL SELECT i + 1 FROM n WHERE i < 101) \
+                 INSERT INTO contacts (id, sort_key, search_text) SELECT i, 'c', 'c' FROM n; \
+                 WITH RECURSIVE n(i) AS (SELECT 2 UNION ALL SELECT i + 1 FROM n WHERE i < 101) \
+                 INSERT INTO contact_list_members (list_id, position, contact_id) \
+                 SELECT 1, i, i FROM n;",
+            )
+            .await?;
+        assert_eq!(MAX_CONTACT_LIST_MEMBERS, 100, "jeu de test à ajuster");
+        assert_eq!(book.get_list(list.id()).await?, None);
         Ok(())
     }
 

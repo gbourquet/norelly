@@ -196,6 +196,9 @@ l'ordinateur** : rien n'est envoyé à un serveur.
   même choisie dans le champ À : aucun membre ne voit l'adresse des
   autres. Les pastilles se modifient ensuite comme les autres
   destinataires.
+- Une liste abîmée dans les données de l'application n'empêche pas de
+  lire les autres : elle seule disparaît de la section « Listes » et des
+  suggestions, les autres restent affichées et proposées.
 
 ### Importer des contacts
 

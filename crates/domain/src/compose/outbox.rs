@@ -12,7 +12,10 @@
 //!   est simplement différé jusqu'au retour du réseau.
 //! - Un échec temporaire (réponse SMTP 4xx, coupure en cours d'envoi) est
 //!   retenté avec une attente croissante, au plus [`MAX_SEND_ATTEMPTS`]
-//!   fois.
+//!   fois. Une connexion coupée ou bloquée avant la mise en place du
+//!   chiffrement l'est de même, mais son échec définitif le dit
+//!   ([`SendFailure::EncryptionInterrupted`]) : répétée, elle peut venir du
+//!   réseau utilisé.
 //! - Un envoi interrompu par l'arrêt de l'application (`Sending` au
 //!   démarrage) a peut-être abouti : il devient un échec
 //!   [`SendFailure::Uncertain`], jamais renvoyé automatiquement (pas de
@@ -51,6 +54,16 @@ pub enum SendFailure {
     Uncertain,
     /// Trop d'échecs temporaires.
     TooManyAttempts,
+    /// Connexion coupée ou bloquée avant la mise en place du chiffrement :
+    /// réessayée comme un échec temporaire, puis échec définitif sous ce
+    /// nom, car une coupure répétée à ce moment peut venir du réseau
+    /// utilisé (interception). Rien n'est parti.
+    EncryptionInterrupted,
+    /// Connexion coupée, ou serveur muet, après l'envoi des identifiants :
+    /// échec définitif, les identifiants ne sont jamais renvoyés
+    /// automatiquement (un serveur peut bloquer le compte après quelques
+    /// échecs) ; l'utilisateur relance.
+    AuthenticationInterrupted,
 }
 
 /// Faut-il déposer une copie du message envoyé dans « Envoyés » ? Non
@@ -71,9 +84,17 @@ impl SendFailure {
             SendError::Rejected(_) | SendError::InvalidAddress(_) => Self::Rejected,
             SendError::Connection(e) => match e {
                 // Avant tout échange : hors ligne, rien n'est parti.
-                ConnectionError::Network(_)
-                | ConnectionError::Timeout(TimeoutStage::Connect | TimeoutStage::TlsHandshake) => {
+                ConnectionError::Network(_) | ConnectionError::Timeout(TimeoutStage::Connect) => {
                     Self::Unreachable
+                }
+                // Serveur joint, chiffrement jamais en place : rien n'est
+                // parti, mais l'échec répété doit être nommé.
+                ConnectionError::ClosedBeforeEncryption
+                | ConnectionError::Timeout(
+                    TimeoutStage::TlsHandshake | TimeoutStage::BeforeEncryption,
+                ) => Self::EncryptionInterrupted,
+                ConnectionError::Authentication(AuthError::Interrupted) => {
+                    Self::AuthenticationInterrupted
                 }
                 ConnectionError::Timeout(TimeoutStage::Response | TimeoutStage::Write)
                 | ConnectionError::Closed
@@ -205,7 +226,9 @@ impl OutboxEntry {
         Ok(match failure {
             // Hors ligne : l'essai ne compte pas.
             SendFailure::Unreachable => queued(self.attempts.saturating_sub(1), RETRY_BASE_SECS),
-            SendFailure::Temporary if self.attempts < MAX_SEND_ATTEMPTS => {
+            SendFailure::Temporary | SendFailure::EncryptionInterrupted
+                if self.attempts < MAX_SEND_ATTEMPTS =>
+            {
                 queued(self.attempts, retry_delay(self.attempts))
             }
             SendFailure::Temporary => Self {
@@ -240,9 +263,99 @@ impl OutboxEntry {
     }
 }
 
+/// Attente avant de présenter de nouveau les identifiants d'un compte
+/// après un refus ou une interruption à l'envoi (15 min), sauf action de
+/// l'utilisateur.
+pub const CREDENTIALS_HOLD_SECS: i64 = 15 * 60;
+
+/// Échéance avant laquelle la file d'un compte n'envoie plus rien, après
+/// les échecs `failures` d'une tournée faite à `now` : les messages
+/// suivants présenteraient les mêmes identifiants, et un serveur peut
+/// bloquer le compte après quelques échecs. `None` : pas d'attente.
+#[must_use]
+pub fn credentials_hold<'a>(
+    failures: impl IntoIterator<Item = &'a SendFailure>,
+    now: i64,
+) -> Option<i64> {
+    failures
+        .into_iter()
+        .any(|f| {
+            matches!(
+                f,
+                SendFailure::Authentication | SendFailure::AuthenticationInterrupted
+            )
+        })
+        .then(|| now.saturating_add(CREDENTIALS_HOLD_SECS))
+}
+
+/// Même règle que [`credentials_hold`] pour une connexion (copie des
+/// brouillons et des messages envoyés sur le serveur de réception) dont
+/// le mot de passe a été refusé ou interrompu (un jeton OAuth ne fait pas
+/// bloquer le compte : [`ConnectionError::replay_risks_lockout`]).
+#[must_use]
+pub fn connection_hold(
+    error: &ConnectionError,
+    kind: crate::credentials::CredentialKind,
+    now: i64,
+) -> Option<i64> {
+    error
+        .replay_risks_lockout(kind)
+        .then(|| now.saturating_add(CREDENTIALS_HOLD_SECS))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_credentials_failure_on_connection_holds_the_remote_work() {
+        use crate::auth::AuthError;
+        use crate::credentials::CredentialKind;
+        for e in [
+            ConnectionError::from(AuthError::Interrupted),
+            ConnectionError::from(AuthError::Rejected {
+                message: "x".into(),
+            }),
+        ] {
+            assert_eq!(
+                connection_hold(&e, CredentialKind::Password, NOW),
+                Some(NOW + CREDENTIALS_HOLD_SECS),
+                "{e:?}"
+            );
+        }
+        assert_eq!(
+            connection_hold(&ConnectionError::Closed, CredentialKind::Password, NOW),
+            None
+        );
+        // Jeton OAuth : refus parfois passager chez Microsoft, sans risque
+        // de blocage du compte.
+        assert_eq!(
+            connection_hold(
+                &ConnectionError::from(AuthError::Interrupted),
+                CredentialKind::OAuth2,
+                NOW
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn a_credentials_failure_holds_the_queue() {
+        for failure in [
+            SendFailure::Authentication,
+            SendFailure::AuthenticationInterrupted,
+        ] {
+            assert_eq!(
+                credentials_hold(&[SendFailure::Temporary, failure], NOW),
+                Some(NOW + CREDENTIALS_HOLD_SECS)
+            );
+        }
+        assert_eq!(
+            credentials_hold(&[SendFailure::Temporary, SendFailure::Security], NOW),
+            None
+        );
+        assert_eq!(credentials_hold(&[], NOW), None);
+    }
 
     const NOW: i64 = 1_000;
 
@@ -339,8 +452,64 @@ mod tests {
     }
 
     #[test]
+    fn a_connection_cut_before_encryption_is_retried_then_named() {
+        let mut e = OutboxEntry::queued(NOW);
+        for n in 1..MAX_SEND_ATTEMPTS {
+            e = e
+                .start()
+                .and_then(|e| e.failed(SendFailure::EncryptionInterrupted, NOW))
+                .unwrap_or_else(|e| panic!("{e}"));
+            assert_eq!(
+                e.state,
+                OutboxState::Queued {
+                    not_before: NOW + retry_delay(n)
+                },
+                "essai {n} compté, comme un échec temporaire"
+            );
+        }
+        let e = e
+            .start()
+            .and_then(|e| e.failed(SendFailure::EncryptionInterrupted, NOW))
+            .unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(
+            e.state,
+            OutboxState::Failed(SendFailure::EncryptionInterrupted),
+            "l'échec définitif dit que la coupure précède le chiffrement"
+        );
+    }
+
+    #[test]
+    fn cuts_before_encryption_and_during_authentication_at_send() {
+        use crate::auth::AuthError;
+        let conn = |e: ConnectionError| SendFailure::of(&SendError::Connection(e));
+        assert_eq!(
+            conn(ConnectionError::ClosedBeforeEncryption),
+            SendFailure::EncryptionInterrupted
+        );
+        assert_eq!(
+            conn(ConnectionError::Timeout(TimeoutStage::TlsHandshake)),
+            SendFailure::EncryptionInterrupted,
+            "serveur joint, négociation TLS bloquée : compté, jamais en attente sans fin"
+        );
+        assert_eq!(
+            conn(ConnectionError::Timeout(TimeoutStage::BeforeEncryption)),
+            SendFailure::EncryptionInterrupted,
+            "serveur muet avant STARTTLS"
+        );
+        assert_eq!(
+            conn(ConnectionError::Authentication(AuthError::Interrupted)),
+            SendFailure::AuthenticationInterrupted,
+            "identifiants jamais renvoyés automatiquement"
+        );
+    }
+
+    #[test]
     fn permanent_failures_stop_at_once() {
-        for failure in [SendFailure::Rejected, SendFailure::Authentication] {
+        for failure in [
+            SendFailure::Rejected,
+            SendFailure::Authentication,
+            SendFailure::AuthenticationInterrupted,
+        ] {
             let e = sending()
                 .failed(failure, NOW)
                 .unwrap_or_else(|e| panic!("{e}"));

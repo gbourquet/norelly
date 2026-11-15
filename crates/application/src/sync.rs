@@ -130,6 +130,13 @@ impl SyncFailure {
         matches!(self, Self::Connection(e) if e.retry_is_useless())
     }
 
+    /// Vrai si une reconnexion rapide risque de faire bloquer le compte
+    /// ([`ConnectionError::replay_risks_lockout`]).
+    #[must_use]
+    pub fn replay_risks_lockout(&self, kind: norelly_domain::credentials::CredentialKind) -> bool {
+        matches!(self, Self::Connection(e) if e.replay_risks_lockout(kind))
+    }
+
     /// Vrai si la connexion est à rouvrir (erreur réseau ou protocole) ;
     /// faux pour une commande simplement refusée (`NO`).
     #[must_use]

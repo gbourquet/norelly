@@ -649,11 +649,14 @@ mod tests {
             .taking(CONNECTION_TEST_BUDGET * 10);
         let uc = TestConnection::new(
             hanging.clone(),
-            hanging,
+            hanging.clone(),
             InMemoryCertificateExceptionStore::default(),
         );
         let started = tokio::time::Instant::now();
-        for protocol in [Protocol::Imap, Protocol::Smtp] {
+        for (n, protocol) in [Protocol::Imap, Protocol::Smtp].into_iter().enumerate() {
+            // Essai coupé au plafond (serveur muet, par exemple pendant
+            // l'authentification) : jamais d'autre essai, les identifiants
+            // ne repartent pas.
             let outcome = tokio::time::timeout(
                 CONNECTION_TEST_BUDGET * 4,
                 uc.execute(params(protocol, Security::Tls)),
@@ -666,6 +669,7 @@ mod tests {
                 ))),
                 "{protocol:?}"
             );
+            assert_eq!(hanging.requests().len(), n + 1, "{protocol:?}");
         }
         assert!(
             started.elapsed() <= CONNECTION_TEST_BUDGET * 2,
@@ -685,5 +689,43 @@ mod tests {
             TestConnectionOutcome::Authentication(_)
         ));
         assert_eq!(imap.requests().len(), 1);
+    }
+
+    /// Coupure après l'envoi des identifiants : un seul essai, les
+    /// identifiants ne sont jamais renvoyés.
+    #[tokio::test(start_paused = true)]
+    async fn interrupted_authentication_is_not_replayed() {
+        let interrupted = ConnectionError::from(AuthError::Interrupted);
+        for protocol in [Protocol::Imap, Protocol::Smtp] {
+            let (uc, imap, smtp) = use_case(Err(interrupted.clone()), Err(interrupted.clone()));
+            assert_eq!(
+                uc.execute(params(protocol, Security::Tls)).await,
+                TestConnectionOutcome::Authentication(AuthError::Interrupted)
+            );
+            assert_eq!(
+                imap.requests().len() + smtp.requests().len(),
+                1,
+                "{protocol:?}"
+            );
+        }
+    }
+
+    /// Coupure avant le chiffrement : aucun identifiant n'est parti, le
+    /// test réessaie sur une nouvelle connexion.
+    #[tokio::test(start_paused = true)]
+    async fn cut_before_encryption_is_retried() {
+        let caps = ServerCapabilities::from_imap(["IMAP4rev1"]);
+        let flaky = FakeConnector::new(Ok(caps.clone()))
+            .first(vec![Err(ConnectionError::ClosedBeforeEncryption)]);
+        let uc = TestConnection::new(
+            flaky.clone(),
+            flaky.clone(),
+            InMemoryCertificateExceptionStore::default(),
+        );
+        assert_eq!(
+            uc.execute(params(Protocol::Imap, Security::StartTls)).await,
+            TestConnectionOutcome::Success { capabilities: caps }
+        );
+        assert_eq!(flaky.requests().len(), 2);
     }
 }

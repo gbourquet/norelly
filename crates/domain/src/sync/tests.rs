@@ -594,6 +594,30 @@ fn backoff_grows_exponentially_and_is_capped() {
     }
 }
 
+/// Identifiants refusés ou authentification interrompue : la reconnexion
+/// les renverrait ; elle attend l'attente maximale, jamais quelques
+/// secondes (un serveur peut bloquer le compte après quelques échecs).
+#[test]
+fn credentials_failure_waits_the_longest_before_reconnecting() {
+    let mut b = Backoff::new(1_000, 10_000);
+    assert_eq!(b.next_delay_after(true, 0.0), CREDENTIALS_RETRY_MS);
+    assert_eq!(
+        b.next_delay_after(true, 1.0),
+        CREDENTIALS_RETRY_MS,
+        "sans gigue"
+    );
+    assert_eq!(b.attempts(), 2);
+    let mut long = Backoff::new(1_000, CREDENTIALS_RETRY_MS * 2);
+    assert_eq!(long.next_delay_after(true, 0.0), CREDENTIALS_RETRY_MS * 2);
+    b.reset();
+    assert_eq!(
+        b.next_delay_after(false, 0.0),
+        1_000,
+        "autre échec : inchangé"
+    );
+    assert_eq!(b.next_delay_after(false, 0.0), 2_000);
+}
+
 // ---------------------------------------------------------------------------
 // Propriétés
 // ---------------------------------------------------------------------------

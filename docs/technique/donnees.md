@@ -51,6 +51,7 @@ système.
 | 12 | `0012_contact_lists.sql` | listes de diffusion du carnet (ADR-012) : `contact_lists` (`name_key`, nom en minuscules calculé par le domaine, unique et ordonnant la liste ; `bcc`), `contact_list_members` (contacts dans l'ordre de la liste, chacun une fois) ; cascade à la suppression d'une liste ou d'un contact |
 | 13 | `0013_oauth_accounts.sql` | `accounts.oauth_provider` (`microsoft`, ou `NULL` pour un compte à mot de passe) : compte connecté par OAuth ; le jeton de rafraîchissement reste dans le trousseau, sous la clé IMAP du compte |
 | 14 | `0014_oauth_google.sql` | `accounts.oauth_provider` accepte aussi `google` : la colonne est remplacée par une colonne de même nom à la nouvelle contrainte `CHECK` (ajout, recopie, `DROP COLUMN`, `RENAME COLUMN`), sans reconstruire `accounts` ni toucher à ses dépendances en cascade |
+| 15 | `0015_outbox_interruptions.sql` | `outbox.failure` accepte aussi `encryption_interrupted` (connexion coupée ou bloquée avant le chiffrement, à plusieurs reprises) et `authentication_interrupted` (connexion coupée pendant l'authentification) : une contrainte de table cite la colonne, la table `outbox` est donc reconstruite (copie des lignes, numérotation `sqlite_sequence` conservée, index `outbox_by_account` recréé) ; aucune table ne la référence |
 
 Le schéma courant complet est la somme de ces fichiers ; ils sont commentés
 en tête et à chaque table.

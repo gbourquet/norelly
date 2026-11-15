@@ -409,7 +409,8 @@ where
             });
             return false;
         }
-        let delay = backoff.next_delay_ms(jitter());
+        let lockout = failure.replay_risks_lockout(self.request.credentials.kind());
+        let delay = backoff.next_delay_after(lockout, jitter());
         tracing::warn!(account = %self.account, error = %failure, delay_ms = delay, "connexion perdue");
         self.emit(SyncEvent::Offline {
             account: self.account,

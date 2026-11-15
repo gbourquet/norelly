@@ -1701,7 +1701,7 @@ mod oauth {
         w.servers.set(
             &smtp.endpoint,
             Err(ConnectionError::Timeout(
-                norelly_domain::connection::TimeoutStage::TlsHandshake,
+                norelly_domain::connection::TimeoutStage::Response,
             )),
         );
         let outcome = add(&w, &b).await;
@@ -1711,6 +1711,33 @@ mod oauth {
         );
         assert!(!b.has_pending(OAuthProvider::Microsoft, &outlook()));
         assert!(w.accounts.list().await.is_ok_and(|l| l.len() == 1));
+    }
+
+    /// Serveur d'envoi coupé ou bloqué avant la fin du chiffrement : c'est
+    /// ce que produirait un réseau qui intercepte la connexion ; l'ajout
+    /// échoue au lieu de laisser l'envoi « à vérifier ».
+    #[tokio::test(start_paused = true)]
+    async fn send_server_cut_before_encryption_blocks_the_oauth_account() {
+        for error in [
+            ConnectionError::ClosedBeforeEncryption,
+            ConnectionError::Timeout(norelly_domain::connection::TimeoutStage::TlsHandshake),
+        ] {
+            let w = World::new();
+            let (b, _) = broker_with_clock(grant());
+            let (_, smtp) = oauth_servers(OAuthProvider::Microsoft, &outlook())
+                .unwrap_or_else(|e| panic!("{e}"));
+            w.servers.set(&smtp.endpoint, Err(error.clone()));
+            let outcome = add(&w, &b).await;
+            assert_eq!(
+                outcome,
+                AddAccountOutcome::ConnectionFailed {
+                    protocol: Protocol::Smtp,
+                    outcome: TestConnectionOutcome::Network(error),
+                    advice: None,
+                }
+            );
+            assert!(w.accounts.list().await.is_ok_and(|l| l.is_empty()));
+        }
     }
 
     #[tokio::test]

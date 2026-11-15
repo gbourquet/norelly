@@ -489,7 +489,7 @@ async fn silent_server_times_out() -> TestResult {
         .await;
     assert_eq!(
         result.err(),
-        Some(ConnectionError::Timeout(TimeoutStage::Response))
+        Some(ConnectionError::Timeout(TimeoutStage::BeforeEncryption))
     );
     Ok(())
 }
@@ -516,7 +516,8 @@ const SLOW_SERVER: Duration = Duration::from_secs(9);
 const ABANDONED_WITHIN: Duration = Duration::from_secs(6);
 
 /// Serveur muet après `AUTHENTICATE` : abandon au plancher de
-/// l'authentification par mot de passe, pas au délai de réponse.
+/// l'authentification par mot de passe, pas au délai de réponse ;
+/// authentification interrompue, jamais rejouée.
 #[tokio::test]
 async fn server_silent_after_authenticate_is_abandoned_at_the_opening_delay() -> TestResult {
     let ca = TestCa::new()?;
@@ -537,7 +538,7 @@ async fn server_silent_after_authenticate_is_abandoned_at_the_opening_delay() ->
         .await;
     assert_eq!(
         result.err(),
-        Some(ConnectionError::Timeout(TimeoutStage::Response))
+        Some(ConnectionError::Authentication(AuthError::Interrupted))
     );
     // Pas avant le plancher de l'authentification par mot de passe.
     assert!(
@@ -632,7 +633,11 @@ async fn trickled_greeting_is_bounded_by_the_total_opening_delay() -> TestResult
             password_auth: Duration::from_millis(300),
             open_total: Duration::from_secs(1),
             response: Duration::from_secs(10),
-        });
+        })
+        // Adresse IPv4 explicite : sous Windows, « localhost » essaie
+        // d'abord `::1`, où le faux serveur n'écoute pas, et ce refus prend
+        // environ une seconde, soit toute la durée totale d'ouverture.
+        .connecting_to(std::net::SocketAddr::from(([127, 0, 0, 1], server.port())));
     let started = tokio::time::Instant::now();
     let result = connector
         .connect(&request(
@@ -643,7 +648,7 @@ async fn trickled_greeting_is_bounded_by_the_total_opening_delay() -> TestResult
         .await;
     assert_eq!(
         result.err(),
-        Some(ConnectionError::Timeout(TimeoutStage::Response))
+        Some(ConnectionError::Timeout(TimeoutStage::BeforeEncryption))
     );
     assert!(
         started.elapsed() < ABANDONED_WITHIN,
@@ -671,7 +676,7 @@ async fn late_plaintext_greeting_is_abandoned_at_the_opening_delay() -> TestResu
         .await;
     assert_eq!(
         result.err(),
-        Some(ConnectionError::Timeout(TimeoutStage::Response))
+        Some(ConnectionError::Timeout(TimeoutStage::BeforeEncryption))
     );
     assert!(
         started.elapsed() < ABANDONED_WITHIN,
@@ -743,7 +748,7 @@ async fn malformed_responses_do_not_panic() -> TestResult {
         assert!(
             matches!(
                 result,
-                Err(ConnectionError::Protocol(_) | ConnectionError::Closed)
+                Err(ConnectionError::Protocol(_) | ConnectionError::ClosedBeforeEncryption)
             ),
             "{:?}  {result:?}",
             String::from_utf8_lossy(greeting)
@@ -779,7 +784,7 @@ async fn malformed_responses_do_not_panic() -> TestResult {
         assert!(
             matches!(
                 result,
-                Err(ConnectionError::Protocol(_) | ConnectionError::Closed)
+                Err(ConnectionError::Protocol(_) | ConnectionError::ClosedBeforeEncryption)
             ),
             "{response:?}  {result:?}"
         );
@@ -1862,5 +1867,266 @@ async fn oauth_account_sends_nothing_without_xoauth2() -> TestResult {
         assert!(!text.contains(needle), "envoyé : {needle}\n{text}");
     }
     outcome.result?;
+    Ok(())
+}
+
+/// Manières dont un serveur coupe la connexion : fermeture, réinitialisation,
+/// `* BYE` puis fermeture.
+fn cuts() -> [fn(Script) -> Script; 3] {
+    [Script::close, Script::reset, |s: Script| {
+        s.send("* BYE trop d'echecs\r\n").close()
+    }]
+}
+
+/// Connexion en TLS implicite au faux serveur ; résultat de l'ouverture.
+async fn connect_tls(
+    script: Script,
+) -> Result<Result<(), ConnectionError>, Box<dyn std::error::Error>> {
+    let f = fixture()?;
+    let cert = f.ca.issue(&["localhost"])?;
+    let server = ScriptedServer::start_tls(script, cert.server_config()?).await?;
+    let result = f
+        .connector
+        .connect(&request(
+            server.port(),
+            Security::Tls,
+            PlaintextPolicy::deny_all(),
+        ))
+        .await
+        .map(|_| ());
+    let _ = server.finish().await;
+    Ok(result)
+}
+
+/// Coupure juste après `AUTHENTICATE` : certains serveurs répondent ainsi à
+/// un mot de passe faux. Authentification interrompue, jamais prise pour
+/// une coupure passagère (qui ferait renvoyer le mot de passe).
+#[tokio::test]
+async fn cut_during_authenticate_is_an_interrupted_authentication() -> TestResult {
+    for cut in cuts() {
+        let script = cut(Script::new()
+            .send(imap::greeting("IMAP4rev1 AUTH=PLAIN SASL-IR"))
+            .expect(format!("AUTHENTICATE PLAIN {PLAIN_B64}")));
+        assert_eq!(
+            connect_tls(script).await?.err(),
+            Some(ConnectionError::Authentication(AuthError::Interrupted))
+        );
+    }
+    Ok(())
+}
+
+/// Même règle pour la commande `LOGIN`.
+#[tokio::test]
+async fn cut_during_login_is_an_interrupted_authentication() -> TestResult {
+    for cut in cuts() {
+        let script = cut(Script::new()
+            .send(imap::greeting("IMAP4rev1"))
+            .expect(format!("LOGIN alice {PASSWORD}")));
+        assert_eq!(
+            connect_tls(script).await?.err(),
+            Some(ConnectionError::Authentication(AuthError::Interrupted))
+        );
+    }
+    Ok(())
+}
+
+/// Coupure une fois le canal chiffré, avant l'envoi des identifiants :
+/// coupure passagère ordinaire, quelle que soit la manière.
+#[tokio::test]
+async fn cut_after_encryption_before_auth_is_a_closed_connection() -> TestResult {
+    for cut in cuts() {
+        let script = cut(Script::new().send("* OK pret\r\n").expect("CAPABILITY"));
+        assert_eq!(
+            connect_tls(script).await?.err(),
+            Some(ConnectionError::Closed)
+        );
+    }
+    Ok(())
+}
+
+/// Coupure avant la fin de la mise en place du chiffrement : échange en
+/// clair avant STARTTLS, ou poignée de main après son acceptation ; nommée
+/// comme telle, et aucun identifiant n'est parti.
+#[tokio::test]
+async fn cut_before_encryption_is_named_as_such() -> TestResult {
+    let f = fixture()?;
+    let cert = f.ca.issue(&["localhost"])?;
+    let before_starttls = Script::new().send("* OK pret\r\n").expect("CAPABILITY");
+    let during_handshake = Script::new()
+        .send(imap::greeting("IMAP4rev1 STARTTLS"))
+        .expect("STARTTLS")
+        .send(imap::ok("Debut de la negociation TLS"))
+        .expect_data();
+    for script in [before_starttls, during_handshake] {
+        for cut in [Script::close, Script::reset] {
+            let server =
+                ScriptedServer::start(cut(script.clone()), Some(cert.server_config()?)).await?;
+            let result = f
+                .connector
+                .connect(&request(
+                    server.port(),
+                    Security::StartTls,
+                    PlaintextPolicy::deny_all(),
+                ))
+                .await;
+            assert_eq!(result.err(), Some(ConnectionError::ClosedBeforeEncryption));
+            assert_no_credentials_sent(&server.finish().await);
+        }
+    }
+    Ok(())
+}
+
+/// Serveur en clair consenti : il n'y a pas de chiffrement à attendre,
+/// une coupure avant l'authentification est une coupure ordinaire.
+#[tokio::test]
+async fn cut_on_a_consented_plaintext_server_is_a_closed_connection() -> TestResult {
+    let f = fixture()?;
+    let server = ScriptedServer::start(
+        Script::new()
+            .send("* OK pret\r\n")
+            .expect("CAPABILITY")
+            .reset(),
+        None,
+    )
+    .await?;
+    let port = server.port();
+    let result = f
+        .connector
+        .connect(&request(port, Security::Plain, consent(port)))
+        .await;
+    assert_eq!(result.err(), Some(ConnectionError::Closed));
+    let _ = server.finish().await;
+    Ok(())
+}
+
+/// Coupure pendant l'échange XOAUTH2 : authentification interrompue, le
+/// jeton n'a été présenté qu'une fois.
+#[tokio::test]
+async fn cut_during_xoauth2_is_an_interrupted_authentication() -> TestResult {
+    for cut in cuts() {
+        let script = cut(Script::new()
+            .send(imap::greeting("IMAP4rev1 AUTH=XOAUTH2 SASL-IR"))
+            .expect(format!("AUTHENTICATE XOAUTH2 {XOAUTH2_B64}")));
+        let (result, outcome) = oauth_connect(script).await?;
+        assert_eq!(
+            result.err(),
+            Some(ConnectionError::Authentication(AuthError::Interrupted))
+        );
+        assert_eq!(outcome.transcript.text().matches(XOAUTH2_B64).count(), 1);
+    }
+    Ok(())
+}
+
+/// Durée totale d'ouverture écoulée pendant l'authentification :
+/// authentification interrompue, pas délai passager.
+#[tokio::test]
+async fn total_opening_delay_reached_during_auth_is_an_interruption() -> TestResult {
+    let ca = TestCa::new()?;
+    let cert = ca.issue(&["localhost"])?;
+    let script = Script::new()
+        .send(imap::greeting("IMAP4rev1 AUTH=PLAIN SASL-IR"))
+        .expect(format!("AUTHENTICATE PLAIN {PLAIN_B64}"))
+        .wait(SLOW_SERVER);
+    let server = ScriptedServer::start_tls(script, cert.server_config()?).await?;
+    let tls = TlsClientFactory::new(TrustRoots::Custom(vec![ca.root()]))
+        .with_handshake_timeout(Duration::from_secs(5));
+    let result = ImapConnector::new(tls)
+        .with_timeouts(Timeouts {
+            connect: Duration::from_secs(5),
+            open: Duration::from_secs(5),
+            password_auth: SLOW_SERVER,
+            open_total: Duration::from_secs(3),
+            response: Duration::from_secs(5),
+        })
+        .connect(&request(
+            server.port(),
+            Security::Tls,
+            PlaintextPolicy::deny_all(),
+        ))
+        .await;
+    assert_eq!(
+        result.err(),
+        Some(ConnectionError::Authentication(AuthError::Interrupted))
+    );
+    Ok(())
+}
+
+/// Échange en clair avant STARTTLS distillé octet par octet, chacun avant
+/// le délai d'ouverture : la phase entière est bornée par ce délai, bien
+/// avant la durée totale ; silence avant le chiffrement.
+#[tokio::test]
+async fn trickled_plaintext_exchange_is_bounded_as_a_whole() -> TestResult {
+    let ca = TestCa::new()?;
+    let mut script = Script::new();
+    for byte in b"* OK salutation interminable".repeat(4) {
+        script = script.send_raw(vec![byte]).wait(Duration::from_millis(100));
+    }
+    let server = ScriptedServer::start(script, None).await?;
+    let connector = ImapConnector::new(TlsClientFactory::new(TrustRoots::Custom(vec![ca.root()])))
+        .with_timeouts(Timeouts {
+            connect: Duration::from_secs(5),
+            open: Duration::from_millis(400),
+            password_auth: Duration::from_millis(400),
+            open_total: Duration::from_secs(60),
+            response: Duration::from_secs(10),
+        });
+    let started = tokio::time::Instant::now();
+    let result = connector
+        .connect(&request(
+            server.port(),
+            Security::StartTls,
+            PlaintextPolicy::deny_all(),
+        ))
+        .await;
+    assert_eq!(
+        result.err(),
+        Some(ConnectionError::Timeout(TimeoutStage::BeforeEncryption))
+    );
+    assert!(
+        started.elapsed() < Duration::from_secs(3),
+        "{:?}",
+        started.elapsed()
+    );
+    Ok(())
+}
+
+/// `AUTHENTICATE` sans SASL-IR : coupure après la réponse au défi.
+#[tokio::test]
+async fn cut_after_the_challenge_answer_is_an_interrupted_authentication() -> TestResult {
+    for cut in cuts() {
+        let script = cut(Script::new()
+            .send(imap::greeting("IMAP4rev1 AUTH=PLAIN"))
+            .expect("AUTHENTICATE PLAIN")
+            .send("+ \r\n")
+            .expect_data_with(PLAIN_B64));
+        assert_eq!(
+            connect_tls(script).await?.err(),
+            Some(ConnectionError::Authentication(AuthError::Interrupted))
+        );
+    }
+    Ok(())
+}
+
+/// Serveur muet après `LOGIN` : authentification interrompue.
+#[tokio::test]
+async fn silence_after_login_is_an_interrupted_authentication() -> TestResult {
+    let ca = TestCa::new()?;
+    let cert = ca.issue(&["localhost"])?;
+    let script = Script::new()
+        .send(imap::greeting("IMAP4rev1"))
+        .expect(format!("LOGIN alice {PASSWORD}"))
+        .wait(SLOW_SERVER);
+    let server = ScriptedServer::start_tls(script, cert.server_config()?).await?;
+    let result = quick_opening(&ca)
+        .connect(&request(
+            server.port(),
+            Security::Tls,
+            PlaintextPolicy::deny_all(),
+        ))
+        .await;
+    assert_eq!(
+        result.err(),
+        Some(ConnectionError::Authentication(AuthError::Interrupted))
+    );
     Ok(())
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { AddAccountFlow, defaultServers } from "./add-account.svelte";
+import { AddAccountFlow, defaultServers, failureMessage } from "./add-account.svelte";
 import type {
   AddOAuthAccountInput,
   AccountDto,
@@ -801,6 +801,38 @@ describe("se connecter avec Microsoft", () => {
     expect(f.step).toBe("form");
     expect(f.message).toBe(
       "Serveur de réception (IMAP) : le serveur ne répond pas. Vérifiez votre connexion à Internet, puis réessayez.",
+    );
+  });
+
+  it("serveur d'envoi coupé avant le chiffrement : le réseau peut en être la cause", async () => {
+    const { api } = fakeApi(found, [
+      { kind: "failed", protocol: "smtp", failure: "closed_before_encryption", detail: null },
+    ]);
+    const f = outlook(api);
+    await f.detectProvider();
+    await f.signInWithProvider();
+    expect(f.step).toBe("form");
+    expect(f.message).toBe(
+      "Serveur d'envoi (SMTP) : la connexion a été coupée avant d'être chiffrée. Vérifiez le port et la sécurité ; si cela se répète, le réseau utilisé peut en être la cause (Wi-Fi public, réseau d'entreprise) : réessayez depuis un autre réseau.",
+    );
+  });
+
+  it("coupure pendant la connexion Microsoft : ni identifiants ni mot de passe mis en cause", async () => {
+    const { api } = fakeApi(found, [
+      { kind: "failed", protocol: "imap", failure: "authentication_interrupted", detail: null },
+    ]);
+    const f = outlook(api);
+    await f.detectProvider();
+    await f.signInWithProvider();
+    expect(f.step).toBe("form");
+    expect(f.message).toBe(
+      "Serveur de réception (IMAP) : le serveur a coupé la connexion juste après votre connexion chez le fournisseur. Réessayez dans quelques minutes.",
+    );
+  });
+
+  it("coupure pendant la vérification d'un mot de passe : identifiants à vérifier", () => {
+    expect(failureMessage("authentication_interrupted", "smtp", null, "a@example.com")).toBe(
+      "Serveur d'envoi (SMTP) : le serveur a coupé la connexion pendant la vérification de vos identifiants, sans les refuser clairement. Vérifiez-les avant de réessayer : certains serveurs bloquent le compte après plusieurs essais.",
     );
   });
 

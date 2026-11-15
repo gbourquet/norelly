@@ -489,6 +489,10 @@ pub fn apply(local: &mut LocalMailbox, outcome: &SyncOutcome) {
 // Reconnexion
 // ---------------------------------------------------------------------------
 
+/// Attente minimale avant de reconnecter un compte dont les identifiants
+/// ont été refusés ou dont l'authentification a été interrompue (15 min).
+pub const CREDENTIALS_RETRY_MS: u64 = 15 * 60 * 1_000;
+
 /// Attente exponentielle entre deux tentatives de reconnexion, bornée.
 /// Le hasard (gigue) est fourni par l'appelant pour garder le calcul pur.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -531,6 +535,21 @@ impl Backoff {
         // Conversion bornée : la gigue retire au plus la moitié de raw.
         let cut = ((raw as f64) * 0.5 * jitter) as u64;
         raw - cut.min(raw / 2)
+    }
+
+    /// Comme [`Self::next_delay_ms`], mais après un échec des identifiants
+    /// qu'une reconnexion rapide renverrait au risque d'un blocage
+    /// (`credentials_failed`, voir
+    /// [`crate::connection::ConnectionError::credentials_failed`]) :
+    /// au moins [`CREDENTIALS_RETRY_MS`], sans gigue : un serveur qui
+    /// bloque un compte après quelques échecs en quelques minutes ne le
+    /// bloque pas.
+    pub fn next_delay_after(&mut self, credentials_failed: bool, jitter: f64) -> u64 {
+        if credentials_failed {
+            self.attempt = self.attempt.saturating_add(1);
+            return self.max_ms.max(CREDENTIALS_RETRY_MS);
+        }
+        self.next_delay_ms(jitter)
     }
 
     /// Nombre de tentatives depuis le dernier succès.

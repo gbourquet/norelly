@@ -137,6 +137,8 @@ const fn failure_dto(f: SendFailure) -> SendFailureDto {
         SendFailure::Security => SendFailureDto::Security,
         SendFailure::Uncertain => SendFailureDto::Uncertain,
         SendFailure::TooManyAttempts => SendFailureDto::TooManyAttempts,
+        SendFailure::EncryptionInterrupted => SendFailureDto::EncryptionInterrupted,
+        SendFailure::AuthenticationInterrupted => SendFailureDto::AuthenticationInterrupted,
     }
 }
 
@@ -345,7 +347,7 @@ pub async fn send_draft(state: State<'_, AppState>, draft: DraftDto) -> Result<u
     }
     .execute(id, &draft, &from, unix_now())
     .await?;
-    state.mail.compose_soon(draft.account).await;
+    state.mail.compose_now(draft.account).await;
     id32(queued.get())
 }
 
@@ -541,7 +543,7 @@ pub async fn retry_send(state: State<'_, AppState>, account: u32, id: u32) -> Re
     {
         return Err(IpcError::new(ErrorCodeDto::OutboxBusy));
     }
-    state.mail.compose_soon(account).await;
+    state.mail.compose_now(account).await;
     Ok(())
 }
 
@@ -911,5 +913,25 @@ mod tests {
         let queued = outbox_dto(&item(OutboxState::Queued { not_before: -5 }))
             .unwrap_or_else(|e| panic!("{e:?}"));
         assert_eq!(queued.state, OutboxStateDto::Queued { not_before: 0 });
+        let cut = outbox_dto(&item(OutboxState::Failed(
+            SendFailure::EncryptionInterrupted,
+        )))
+        .unwrap_or_else(|e| panic!("{e:?}"));
+        assert_eq!(
+            cut.state,
+            OutboxStateDto::Failed {
+                failure: SendFailureDto::EncryptionInterrupted
+            }
+        );
+        let interrupted = outbox_dto(&item(OutboxState::Failed(
+            SendFailure::AuthenticationInterrupted,
+        )))
+        .unwrap_or_else(|e| panic!("{e:?}"));
+        assert_eq!(
+            interrupted.state,
+            OutboxStateDto::Failed {
+                failure: SendFailureDto::AuthenticationInterrupted
+            }
+        );
     }
 }

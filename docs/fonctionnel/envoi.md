@@ -37,6 +37,15 @@ En attente ──▶ Envoi en cours ──▶ Envoyé
   l'essai compte.
 - **Refus temporaire** du serveur ou coupure : nouvel essai, avec une
   attente croissante (30 secondes à 1 heure), **8 essais** au plus.
+- **Connexion coupée ou bloquée avant d'être chiffrée** : rien n'est parti ;
+  nouveaux essais comme pour un refus temporaire, puis un échec qui le dit
+  et signale que le réseau utilisé peut en être la cause.
+- **Connexion coupée pendant la vérification des identifiants** : échec
+  immédiat, sans nouvel essai automatique (certains serveurs bloquent le
+  compte après plusieurs essais) ; l'utilisateur relance. Après des
+  identifiants refusés ou une telle coupure, les autres messages du compte
+  attendent un quart d'heure, sauf si l'utilisateur envoie un message ou
+  clique sur « Réessayer ».
 - **Refus définitif**, identifiants refusés, connexion non sûre : échec
   immédiat.
 - **Envoi incertain** : si l'application s'arrête pendant un envoi, ou si
@@ -65,7 +74,7 @@ En attente ──▶ Envoi en cours ──▶ Envoyé
 | États | En attente, Envoi en cours, Envoyé |
 | Envoi programmé | Programmé pour le {date} |
 | Échec | Envoi impossible : « {subject} » ({reason}). |
-| Raison de l'échec | serveur injoignable, refus temporaire, refusé par le serveur, identifiants refusés, connexion non sûre, envoi interrompu, peut-être parti, trop d'essais |
+| Raison de l'échec | serveur injoignable, refus temporaire, refusé par le serveur, identifiants refusés, connexion non sûre, envoi interrompu, peut-être parti, trop d'essais, connexion coupée avant le chiffrement, peut-être par le réseau utilisé, connexion coupée pendant la vérification des identifiants |
 | Boutons | Réessayer, Annuler l'envoi, Modifier |
 | Envoi différé | Envoyer plus tard, Programmer, Envoi programmé. |
 | Date trop lointaine | L'envoi ne peut pas être programmé à plus d'un an. |

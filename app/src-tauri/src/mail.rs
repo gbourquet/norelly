@@ -270,6 +270,14 @@ impl MailServices {
         }
     }
 
+    /// Demande un passage à l'initiative de l'utilisateur (envoi,
+    /// « Réessayer ») : lève l'attente qui suit des identifiants refusés.
+    pub async fn compose_now(&self, account: AccountId) {
+        if let Some(handle) = self.workers.lock().await.get(&account) {
+            handle.retry_now();
+        }
+    }
+
     /// Mémorise des fichiers déposés sur la fenêtre ; renvoie leur jeton.
     pub fn remember_dropped(&self, paths: Vec<PathBuf>) -> u32 {
         let mut dropped = self.dropped.lock().unwrap_or_else(PoisonError::into_inner);

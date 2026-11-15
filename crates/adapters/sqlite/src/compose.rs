@@ -443,6 +443,8 @@ const fn failure_name(f: SendFailure) -> &'static str {
         SendFailure::Security => "security",
         SendFailure::Uncertain => "uncertain",
         SendFailure::TooManyAttempts => "too_many_attempts",
+        SendFailure::EncryptionInterrupted => "encryption_interrupted",
+        SendFailure::AuthenticationInterrupted => "authentication_interrupted",
     }
 }
 
@@ -455,6 +457,8 @@ fn failure_of(raw: &str) -> Result<SendFailure, StoreError> {
         "security" => SendFailure::Security,
         "uncertain" => SendFailure::Uncertain,
         "too_many_attempts" => SendFailure::TooManyAttempts,
+        "encryption_interrupted" => SendFailure::EncryptionInterrupted,
+        "authentication_interrupted" => SendFailure::AuthenticationInterrupted,
         _ => return Err(corrupted("cause d'échec")),
     })
 }

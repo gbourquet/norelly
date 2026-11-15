@@ -1,7 +1,7 @@
 use norelly_domain::address::EmailAddress;
 use norelly_domain::capabilities::ServerCapabilities;
 use norelly_domain::compose::draft::Draft;
-use norelly_domain::compose::outbox::RETRY_BASE_SECS;
+use norelly_domain::compose::outbox::{CREDENTIALS_HOLD_SECS, RETRY_BASE_SECS};
 use norelly_domain::credentials::{Credentials, Secret, Username};
 use norelly_domain::endpoint::{Host, Protocol, Security, ServerEndpoint};
 use norelly_domain::fetch_policy::FetchPolicy;
@@ -170,6 +170,58 @@ async fn a_temporary_failure_schedules_the_next_attempt() {
     assert!(!tick.imap_used, "rien à déposer");
 }
 
+/// Identifiants refusés ou interrompus à l'envoi : les messages suivants
+/// n'en présentent pas d'autres avant l'attente (ni dans la tournée, ni à
+/// la suivante), puis partent.
+#[tokio::test]
+async fn a_credentials_failure_holds_the_queue() {
+    use norelly_domain::auth::AuthError;
+    use norelly_domain::compose::outbox::{CREDENTIALS_HOLD_SECS, credentials_hold};
+    use norelly_domain::connection::ConnectionError;
+    let (w, _) = worker().await;
+    for _ in 0..3 {
+        queue(&w).await;
+    }
+    w.sender
+        .reply(Err(SendError::Connection(ConnectionError::Authentication(
+            AuthError::Interrupted,
+        ))));
+    let tick = w
+        .run_once_after(NOW, &mut Holds::default())
+        .await
+        .unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(tick.delivery.failed.len(), 1);
+    let hold = credentials_hold(tick.delivery.failed.iter().map(|(_, f)| f), NOW);
+    assert_eq!(hold, Some(NOW + CREDENTIALS_HOLD_SECS));
+    let tick = w
+        .run_once_after(
+            NOW + 1,
+            &mut Holds {
+                send: hold,
+                imap: None,
+            },
+        )
+        .await
+        .unwrap_or_else(|e| panic!("{e}"));
+    assert!(tick.delivery.failed.is_empty() && tick.delivery.sent.is_empty());
+    assert!(
+        w.sender.accepted().is_empty(),
+        "rien envoyé pendant l'attente"
+    );
+    assert_eq!(tick.next_wake, hold);
+    let tick = w
+        .run_once_after(
+            NOW + CREDENTIALS_HOLD_SECS,
+            &mut Holds {
+                send: hold,
+                imap: None,
+            },
+        )
+        .await
+        .unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(tick.delivery.sent.len(), 2);
+}
+
 #[tokio::test]
 async fn drafts_are_copied_and_the_next_copy_is_scheduled() {
     let (w, imap) = worker().await;
@@ -190,6 +242,160 @@ async fn drafts_are_copied_and_the_next_copy_is_scheduled() {
     assert_eq!(tick.drafts_saved, 0);
     assert!(!tick.imap_used, "trop tôt : pas de connexion");
     assert_eq!(tick.next_wake, Some(NOW + REMOTE_SAVE_INTERVAL_SECS));
+}
+
+/// Travailleur lancé : après des identifiants interrompus, un réveil
+/// ordinaire (brouillon enregistré) n'envoie rien ; une action de
+/// l'utilisateur (envoi, « Réessayer ») lève l'attente.
+#[tokio::test]
+async fn only_a_user_action_lifts_the_credentials_hold() {
+    use norelly_domain::auth::AuthError;
+    use norelly_domain::connection::ConnectionError;
+    let (w, _) = worker().await;
+    let store = Arc::clone(&w.store);
+    let sender = Arc::clone(&w.sender);
+    for _ in 0..2 {
+        QueueMessage {
+            store: &*store,
+            blobs: &*w.blobs,
+            composer: &*w.composer,
+        }
+        .execute(None, &draft(), &me(), unix_now())
+        .await
+        .unwrap_or_else(|e| panic!("{e}"));
+    }
+    sender.reply(Err(SendError::Connection(ConnectionError::Authentication(
+        AuthError::Interrupted,
+    ))));
+    let failed = || async {
+        store
+            .outbox(account())
+            .await
+            .unwrap_or_else(|e| panic!("{e}"))
+            .iter()
+            .any(|i| matches!(i.entry.state, OutboxState::Failed(_)))
+    };
+    let handle = spawn(w);
+    // Premier passage : un échec définitif, la tournée s'arrête.
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while !failed().await {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .unwrap_or_else(|_| panic!("aucun échec"));
+    handle.trigger();
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert!(
+        sender.accepted().is_empty(),
+        "réveil ordinaire : rien envoyé"
+    );
+    handle.retry_now();
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while sender.accepted().is_empty() {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .unwrap_or_else(|_| panic!("rien envoyé après « Réessayer »"));
+    handle.shutdown().await;
+}
+
+/// Envoi en échec sur les identifiants puis serveur de réception coupé
+/// dans la même tournée : l'attente d'envoi est tout de même posée.
+#[tokio::test]
+async fn a_failed_remote_step_keeps_the_send_hold() {
+    use norelly_domain::auth::AuthError;
+    use norelly_domain::connection::ConnectionError;
+    let (w, _) = worker().await;
+    for _ in 0..3 {
+        queue(&w).await;
+    }
+    w.sender.reply(Ok(()));
+    w.sender
+        .reply(Err(SendError::Connection(ConnectionError::Authentication(
+            AuthError::Interrupted,
+        ))));
+    w.connector
+        .set(&w.imap.endpoint, Err(ConnectionError::Closed));
+    let mut holds = Holds::default();
+    let result = w.run_once_after(NOW, &mut holds).await;
+    assert!(result.is_err(), "copie dans « Envoyés » impossible");
+    assert_eq!(holds.send, Some(NOW + CREDENTIALS_HOLD_SECS));
+    assert_eq!(holds.imap, None, "coupure ordinaire");
+    let _ = w.run_once_after(NOW + 1, &mut holds).await;
+    assert_eq!(w.sender.accepted().len(), 1, "identifiants renvoyés");
+}
+
+/// Pendant l'attente qui suit des identifiants IMAP refusés, aucun
+/// travail distant (copie dans « Envoyés », brouillons) n'ouvre de
+/// connexion ; l'attente passée, il reprend.
+#[tokio::test]
+async fn an_imap_hold_skips_the_remote_work() {
+    let (w, _) = worker().await;
+    queue(&w).await;
+    let mut held = Holds {
+        send: None,
+        imap: Some(NOW + 100),
+    };
+    let tick = w
+        .run_once_after(NOW, &mut held)
+        .await
+        .unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(tick.delivery.sent.len(), 1, "l'envoi n'est pas concerné");
+    assert!(!tick.imap_used);
+    assert_eq!(imap_connections(&w), 0);
+    assert_eq!(tick.next_wake, Some(NOW + 100));
+    let tick = w
+        .run_once_after(NOW + 100, &mut held)
+        .await
+        .unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(tick.filed, 1);
+}
+
+/// Travailleur lancé, serveur de réception qui coupe après `LOGIN` :
+/// les réveils ordinaires (brouillon enregistré toutes les deux
+/// secondes) ne renvoient pas le mot de passe.
+#[tokio::test]
+async fn interrupted_imap_credentials_are_not_replayed_on_every_wake() {
+    use norelly_domain::auth::AuthError;
+    use norelly_domain::connection::ConnectionError;
+    let (w, _) = worker().await;
+    let store = Arc::clone(&w.store);
+    QueueMessage {
+        store: &*store,
+        blobs: &*w.blobs,
+        composer: &*w.composer,
+    }
+    .execute(None, &draft(), &me(), unix_now())
+    .await
+    .unwrap_or_else(|e| panic!("{e}"));
+    let servers = Arc::clone(&w.connector);
+    servers.set(
+        &w.imap.endpoint,
+        Err(ConnectionError::Authentication(AuthError::Interrupted)),
+    );
+    let handle = spawn(w);
+    let imap = || {
+        servers
+            .requests()
+            .iter()
+            .filter(|(p, _)| *p == Protocol::Imap)
+            .count()
+    };
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while imap() == 0 {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .unwrap_or_else(|_| panic!("aucune connexion IMAP"));
+    for _ in 0..5 {
+        handle.trigger();
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert_eq!(imap(), 1, "mot de passe IMAP renvoyé");
+    handle.shutdown().await;
 }
 
 #[tokio::test]

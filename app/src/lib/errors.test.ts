@@ -93,6 +93,13 @@ describe("traduction des erreurs IPC", () => {
     expect(failureText("unresponsive")).toBe("server not responding");
   });
 
+  it("coupures avant le chiffrement et pendant l'authentification : libellés propres", () => {
+    expect(failureText("closed_before_encryption")).toBe("connexion coupée avant le chiffrement");
+    expect(failureText("authentication_interrupted")).toBe(
+      "connexion coupée pendant l'authentification",
+    );
+  });
+
   it("compte Google refusé : libellé du mot de passe d'application", () => {
     expect(failureText("google_app_password")).toBe("mot de passe d'application Google nécessaire");
   });
@@ -222,6 +229,8 @@ describe("traduction des erreurs IPC", () => {
       oauth_offline_access: true,
       oauth: true,
       unresponsive: true,
+      closed_before_encryption: true,
+      authentication_interrupted: true,
     } satisfies Record<FailureKindDto, true>;
     const texts = (Object.keys(codes) as ErrorCodeDto[]).map((c) =>
       errorText(new IpcFailure(c, "address")),

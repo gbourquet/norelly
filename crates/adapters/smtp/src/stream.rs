@@ -220,9 +220,20 @@ impl AsyncRead for LettreStream {
             this.position += n;
             return Poll::Ready(Ok(()));
         }
-        match &mut this.inner {
+        let before = buf.filled().len();
+        let polled = match &mut this.inner {
             Inner::Plain(s) => Pin::new(s).poll_read(cx, buf),
             Inner::Tls(s) => Pin::new(s.as_mut()).poll_read(cx, buf),
+        };
+        // Fin du flux (fermeture par le serveur) : une erreur de coupure,
+        // comme une réinitialisation. `lettre` la prendrait sinon pour une
+        // réponse incomplète (serveur non conforme). Un serveur SMTP ne
+        // ferme jamais la connexion pendant que le client attend sa réponse.
+        match polled {
+            Poll::Ready(Ok(())) if buf.remaining() > 0 && buf.filled().len() == before => {
+                Poll::Ready(Err(io::ErrorKind::UnexpectedEof.into()))
+            }
+            other => other,
         }
     }
 }

@@ -1153,7 +1153,17 @@ export type FailureKindDto =
 /**  Serveur introuvable ou qui refuse la connexion. */
 "network" | 
 /**  Serveur joint, puis muet ou qui coupe la connexion. */
-"unresponsive" | "authentication" | 
+"unresponsive" | 
+/**
+ *  Connexion coupée avant la mise en place du chiffrement : port ou
+ *  chiffrement faux, ou réseau qui intercepte la connexion.
+ */
+"closed_before_encryption" | "authentication" | 
+/**
+ *  Connexion coupée, ou serveur muet, après l'envoi des identifiants :
+ *  identifiants peut-être faux ; rien n'est renvoyé automatiquement.
+ */
+"authentication_interrupted" | 
 /**
  *  Identifiants refusés sur un compte Google : il faut un mot de passe
  *  d'application.
@@ -1508,7 +1518,17 @@ export type SegmentDto = {
 };
 
 /**  Cause d'échec d'un envoi. */
-export type SendFailureDto = "unreachable" | "temporary" | "rejected" | "authentication" | "security" | "uncertain" | "too_many_attempts";
+export type SendFailureDto = "unreachable" | "temporary" | "rejected" | "authentication" | "security" | "uncertain" | "too_many_attempts" | 
+/**
+ *  Connexion coupée ou bloquée à plusieurs reprises avant la mise en
+ *  place du chiffrement : le réseau utilisé peut en être la cause.
+ */
+"encryption_interrupted" | 
+/**
+ *  Connexion coupée pendant la vérification des identifiants : ils ne
+ *  sont pas renvoyés automatiquement.
+ */
+"authentication_interrupted";
 
 /**  Serveur (affichage et saisie). */
 export type ServerDto = {

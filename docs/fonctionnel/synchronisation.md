@@ -38,7 +38,10 @@ redevient identique au serveur après toute interruption.
   pièces jointes seulement sous un **seuil** (2 Mio par défaut, réglable) :
   au-delà, elles sont téléchargées à l'ouverture.
 - Hors ligne, une icône (Wi-Fi barré) s'affiche à côté du compte, avec la
-  raison au survol ; la reconnexion est automatique.
+  raison au survol ; la reconnexion est automatique. Après un mot de passe
+  refusé, ou une connexion coupée pendant sa vérification,
+  elle attend un quart d'heure : certains serveurs bloquent le compte
+  après quelques essais rapprochés.
 - Les dossiers affichent leur rôle (icône) et leur nombre de non lus.
 
 ## Règles

@@ -55,6 +55,7 @@ fn migrations() -> Migrations<'static> {
         M::up(include_str!("../migrations/0012_contact_lists.sql")),
         M::up(include_str!("../migrations/0013_oauth_accounts.sql")),
         M::up(include_str!("../migrations/0014_oauth_google.sql")),
+        M::up(include_str!("../migrations/0015_outbox_interruptions.sql")),
     ])
 }
 
@@ -624,6 +625,11 @@ mod tests {
          VALUES ('v14@gmail.com', 'V14', 'imap.gmail.com', 993, 'tls', 'v14@gmail.com', \
          'smtp.gmail.com', 587, 'starttls', 'v14@gmail.com', 'google'); \
          DELETE FROM accounts WHERE address = 'v14@gmail.com';",
+        // v15 : un message en échec, coupé avant le chiffrement.
+        "INSERT INTO outbox (account_id, envelope_from, recipients, raw, sent_copy, subject, \
+         state, failure, attempts, queued_at) \
+         VALUES (1, 'v15@example.com', '[]', x'00', x'00', 'v15', 'failed', \
+         'encryption_interrupted', 8, 80);",
     ];
 
     /// Montée de version depuis chaque version précédente, données
@@ -701,6 +707,89 @@ mod tests {
             .is_err(),
             "fournisseur inconnu accepté"
         );
+    }
+
+    /// Base de version 14 : à la montée en version 15, la file d'envoi est
+    /// conservée à l'identique (numérotation comprise) et la cause d'échec
+    /// « coupé avant le chiffrement » devient acceptée.
+    #[test]
+    fn upgrading_to_v15_keeps_the_outbox_and_accepts_the_interruptions() {
+        let mut conn = Connection::open_in_memory().unwrap_or_else(|e| panic!("{e}"));
+        conn.pragma_update(None, "foreign_keys", "ON")
+            .unwrap_or_else(|e| panic!("{e}"));
+        let m = migrations();
+        for (version, fixture) in FIXTURES.iter().enumerate().take(14) {
+            m.to_version(&mut conn, version + 1)
+                .unwrap_or_else(|e| panic!("vers v{} : {e}", version + 1));
+            conn.execute_batch(fixture)
+                .unwrap_or_else(|e| panic!("fixture v{} : {e}", version + 1));
+        }
+        // Un second message, supprimé : son numéro ne doit pas resservir.
+        conn.execute_batch(
+            "INSERT INTO outbox (account_id, envelope_from, recipients, raw, sent_copy, subject, \
+             state, failure, attempts, queued_at) \
+             VALUES (1, 'b@example.com', '[]', x'01', x'02', 'b', 'failed', 'security', 3, 90); \
+             DELETE FROM outbox WHERE subject = 'b';",
+        )
+        .unwrap_or_else(|e| panic!("{e}"));
+        let before: (i64, String, Option<String>, i64) = conn
+            .query_row(
+                "SELECT id, state, draft_content, queued_at FROM outbox",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+            )
+            .unwrap_or_else(|e| panic!("{e}"));
+        m.to_version(&mut conn, 15)
+            .unwrap_or_else(|e| panic!("{e}"));
+        let after: (i64, String, Option<String>, i64) = conn
+            .query_row(
+                "SELECT id, state, draft_content, queued_at FROM outbox",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+            )
+            .unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(after, before);
+        conn.execute(
+            "UPDATE outbox SET state = 'failed', not_before = NULL, \
+             failure = 'encryption_interrupted' WHERE id = 1",
+            [],
+        )
+        .unwrap_or_else(|e| panic!("cause refusée : {e}"));
+        conn.execute(
+            "UPDATE outbox SET failure = 'authentication_interrupted' WHERE id = 1",
+            [],
+        )
+        .unwrap_or_else(|e| panic!("cause refusée : {e}"));
+        assert!(
+            conn.execute("UPDATE outbox SET failure = 'inconnue' WHERE id = 1", [])
+                .is_err(),
+            "cause inconnue acceptée"
+        );
+        assert!(
+            conn.execute("UPDATE outbox SET failure = NULL WHERE id = 1", [])
+                .is_err(),
+            "échec sans cause accepté"
+        );
+        let next: i64 = conn
+            .query_row(
+                "INSERT INTO outbox (account_id, envelope_from, recipients, raw, sent_copy, \
+                 subject, state, not_before, attempts, queued_at) \
+                 VALUES (1, 'c@example.com', '[]', x'00', x'00', 'c', 'queued', 0, 0, 100) \
+                 RETURNING id",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(next, 3, "numéro d'un message supprimé réutilisé");
+        let indexed: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' \
+                 AND name = 'outbox_by_account'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(indexed, 1);
     }
 
     /// Base de version 7 : à la montée en version 8, les copies distantes

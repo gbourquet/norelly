@@ -37,7 +37,8 @@ use norelly_domain::auth::{
 };
 use norelly_domain::capabilities::ServerCapabilities;
 use norelly_domain::connection::{
-    ConnectionError, PASSWORD_AUTH_TIMEOUT, TimeoutStage, authentication_timeout, server_text,
+    ConnectionError, ConnectionPhase, OpeningPhase, PASSWORD_AUTH_TIMEOUT, TimeoutStage,
+    authentication_timeout, server_text,
 };
 use norelly_domain::credentials::Credentials;
 use norelly_domain::endpoint::{Security, ServerEndpoint};
@@ -116,9 +117,10 @@ pub struct Timeouts {
 
 impl Timeouts {
     /// Test de connexion, qui réessaie aussitôt sur une nouvelle
-    /// connexion : un serveur muet est abandonné tôt.
+    /// connexion : un serveur muet est abandonné tôt. Jusqu'à la fin du
+    /// chiffrement, un essai tient dans le plafond du test (`CONNECTION_TEST_BUDGET`).
     pub const CONNECTION_TEST: Self = Self {
-        connect: Duration::from_secs(20),
+        connect: Duration::from_secs(15),
         open: Duration::from_secs(15),
         password_auth: PASSWORD_AUTH_TIMEOUT,
         open_total: OPEN_TOTAL,
@@ -349,7 +351,12 @@ impl SmtpSender {
     }
 
     /// Connexion, TLS, EHLO ; capacités relues sur le canal final.
-    async fn open(&self, request: &ConnectRequest) -> Result<Session, ConnectionError> {
+    /// `opening` suit la phase de l'ouverture (voir `open_authenticated`).
+    async fn open(
+        &self,
+        request: &ConnectRequest,
+        opening: &OpeningPhase,
+    ) -> Result<Session, ConnectionError> {
         request.plaintext.authorize(&request.endpoint)?;
         request.authorize_credentials()?;
         let endpoint = &request.endpoint;
@@ -358,25 +365,46 @@ impl SmtpSender {
         let (tcp, peer) = self.tcp(endpoint).await?;
 
         let stream = if endpoint.security() == Security::Tls {
+            opening.enter(ConnectionPhase::BeforeEncryption);
             let tls = self.tls.connect(tcp, endpoint.host(), exceptions).await?;
             LettreStream::tls(tls, peer, Vec::new())
         } else {
-            let mut plain = PlainSession::new(tcp, self.timeouts.open);
-            plain.greeting().await?;
-            let caps = plain.ehlo().await?;
-            match decide_starttls(endpoint.security(), caps.starttls())? {
-                StartTlsDecision::Upgrade => {
-                    tracing::debug!(endpoint = %endpoint, "passage en TLS par STARTTLS");
-                    let tcp = plain.starttls().await?;
+            // Échange en clair : avant le chiffrement si STARTTLS est exigé ;
+            // borné en entier par le délai d'ouverture (un serveur qui
+            // distille ses réponses ne le prolonge pas).
+            let phase = ConnectionPhase::plaintext_opening(endpoint.security());
+            opening.enter(phase);
+            let exchange = async {
+                let mut plain = PlainSession::new(tcp, self.timeouts.open);
+                plain.greeting().await?;
+                let caps = plain.ehlo().await?;
+                match decide_starttls(endpoint.security(), caps.starttls())? {
+                    StartTlsDecision::Upgrade => {
+                        tracing::debug!(endpoint = %endpoint, "passage en TLS par STARTTLS");
+                        Ok(Ok(plain.starttls().await?))
+                    }
+                    StartTlsDecision::StayPlain | StartTlsDecision::AlreadyEncrypted => {
+                        Ok(Err(plain))
+                    }
+                }
+            };
+            let outcome = tokio::time::timeout(self.timeouts.open, exchange)
+                .await
+                .map_err(|_| phase.classify(ConnectionError::Timeout(TimeoutStage::Response)))?
+                .map_err(|e| phase.classify(e))?;
+            match outcome {
+                Ok(tcp) => {
+                    opening.enter(ConnectionPhase::BeforeEncryption);
                     let tls = self.tls.connect(tcp, endpoint.host(), exceptions).await?;
                     LettreStream::tls(tls, peer, LOCAL_GREETING.to_vec())
                 }
-                StartTlsDecision::StayPlain | StartTlsDecision::AlreadyEncrypted => {
+                Err(plain) => {
                     tracing::warn!(endpoint = %endpoint, "connexion SMTP en clair (consentie)");
                     LettreStream::plain(plain.into_tcp()?, peer, LOCAL_GREETING.to_vec())
                 }
             }
         };
+        opening.enter(ConnectionPhase::BeforeAuthentication);
 
         // `connect_with_transport` lit la bannière et envoie lui-même
         // `EHLO` : un second `EHLO` est refusé par certains serveurs (GMX :
@@ -392,18 +420,28 @@ impl SmtpSender {
         Ok(Session { conn, capabilities })
     }
 
-    /// Ouvre et authentifie, dans la durée totale d'ouverture.
+    /// Ouvre et authentifie, dans la durée totale d'ouverture. Atteinte,
+    /// elle donne l'erreur de la phase en cours (pendant
+    /// l'authentification, celle-ci est interrompue).
     async fn open_authenticated(
         &self,
         request: &ConnectRequest,
     ) -> Result<Session, ConnectionError> {
-        tokio::time::timeout(self.timeouts.open_total, self.authenticate(request))
-            .await
-            .map_err(|_| ConnectionError::Timeout(TimeoutStage::Response))?
+        let opening = OpeningPhase::default();
+        tokio::time::timeout(
+            self.timeouts.open_total,
+            self.authenticate(request, &opening),
+        )
+        .await
+        .map_err(|_| opening.deadline_reached())?
     }
 
-    async fn authenticate(&self, request: &ConnectRequest) -> Result<Session, ConnectionError> {
-        let mut session = self.open(request).await?;
+    async fn authenticate(
+        &self,
+        request: &ConnectRequest,
+        opening: &OpeningPhase,
+    ) -> Result<Session, ConnectionError> {
+        let mut session = self.open(request, opening).await?;
         let kind = request.credentials.kind();
         let mechanism = match select_smtp_auth_mechanism(&session.capabilities, kind)? {
             AuthMechanism::Plain => Mechanism::Plain,
@@ -418,9 +456,14 @@ impl SmtpSender {
             self.timeouts.open,
             self.timeouts.password_auth,
         );
+        // Coupure ou silence une fois les identifiants envoyés :
+        // authentification interrompue, jamais rejouée.
+        let during_auth = |e| ConnectionPhase::Authentication.classify(e);
+        opening.enter(ConnectionPhase::Authentication);
         if mechanism == Mechanism::Xoauth2 {
             self.timed_within(limit, xoauth2(&mut session.conn, credentials), |e| e)
-                .await?;
+                .await
+                .map_err(during_auth)?;
             return Ok(session);
         }
         let lettre_credentials = LettreCredentials::new(
@@ -432,7 +475,8 @@ impl SmtpSender {
             session.conn.auth(&[mechanism], &lettre_credentials),
             |e| auth_failure(&e),
         )
-        .await?;
+        .await
+        .map_err(during_auth)?;
         Ok(session)
     }
 

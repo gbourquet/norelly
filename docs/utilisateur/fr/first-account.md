@@ -23,8 +23,9 @@ adresse pour une association).
 2. Tapez votre **adresse électronique** et votre **mot de passe**. Le
    **nom affiché** est facultatif : c'est le nom que vos correspondants
    verront à côté de votre adresse (par exemple « Marie Durand »). Il ne
-   peut pas contenir « @ », « < », « > » ni un caractère qui leur
-   ressemble : Norelly vous le signale sous le champ dès la saisie.
+   peut pas contenir « @ », « < », « > », un caractère qui leur
+   ressemble, ni « @ » écrit en toutes lettres (« (at) », « arobase ») :
+   Norelly vous le signale sous le champ dès la saisie.
 
    ![Le message « Le nom affiché ne peut pas contenir « @ »… » sous le champ du nom](captures/display-name-refused.png)
 

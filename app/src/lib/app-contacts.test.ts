@@ -185,8 +185,18 @@ function message(id: number, from: CorrespondentDto | null): ConversationMessage
   };
 }
 
-const bob: CorrespondentDto = { name: "Bob Martin", address: "bob@example.com", contact: null };
-const alice: CorrespondentDto = { name: "Alice", address: "alice@example.com", contact: 4 };
+const bob: CorrespondentDto = {
+  name: "Bob Martin",
+  address: "bob@example.com",
+  contact: null,
+  show_address: false,
+};
+const alice: CorrespondentDto = {
+  name: "Alice",
+  address: "alice@example.com",
+  contact: 4,
+  show_address: false,
+};
 
 describe("personnes d'un message et carnet", () => {
   let off: () => void = () => undefined;

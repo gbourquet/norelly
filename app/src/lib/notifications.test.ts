@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { notificationText, type NewMailEvent } from "./notifications";
 
-const bob = { name: "Bob", address: "bob@example.com" };
+const bob = { name: "Bob", address: "bob@example.com", contact: null, show_address: false };
 
 function event(count: number, from: NewMailEvent["from"], subject: string | null): NewMailEvent {
   return { kind: "new_mail", account: 1, count, from, subject };
@@ -14,11 +14,29 @@ describe("texte des notifications", () => {
       body: "Devis",
     });
     expect(
-      notificationText(event(1, { name: "", address: "x@y.z" }, ""), "moi@example.com"),
+      notificationText(
+        event(1, { name: "", address: "x@y.z", contact: null, show_address: false }, ""),
+        "moi@example.com",
+      ),
     ).toEqual({
       title: "x@y.z",
       body: "(sans objet)",
     });
+  });
+
+  it("un nom en forme de domaine : l'adresse aussi", () => {
+    const fake = {
+      name: "Banque.fr",
+      address: "pirate@exemple.net",
+      contact: null,
+      show_address: true,
+    };
+    expect(notificationText(event(1, fake, "Alerte"), "moi@example.com").title).toBe(
+      "pirate@exemple.net (Banque.fr)",
+    );
+    expect(notificationText(event(2, fake, "Alerte"), "moi@example.com").body).toBe(
+      "Dernier : pirate@exemple.net (Banque.fr) — Alerte",
+    );
   });
 
   it("plusieurs messages : regroupés, avec le plus récent", () => {

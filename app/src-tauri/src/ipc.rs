@@ -1207,6 +1207,9 @@ pub struct CorrespondentDto {
     pub address: String,
     /// Contact du carnet qui porte l'adresse.
     pub contact: Option<u32>,
+    /// Afficher aussi l'adresse à côté du nom dans les listes (décision du
+    /// domaine : le nom de l'en-tête contient un domaine).
+    pub show_address: bool,
 }
 
 impl From<&norelly_domain::mailbox::Correspondent> for CorrespondentDto {
@@ -1217,6 +1220,7 @@ impl From<&norelly_domain::mailbox::Correspondent> for CorrespondentDto {
             name: label.name,
             address: label.address,
             contact: None,
+            show_address: label.show_address,
         }
     }
 }
@@ -1234,6 +1238,7 @@ impl CorrespondentDto {
             name: label.name,
             address: label.address,
             contact: label.contact.and_then(|id| id32(id.get()).ok()),
+            show_address: label.show_address,
         }
     }
 }
@@ -1735,6 +1740,33 @@ mod reading_tests {
         );
         let dto = CorrespondentDto::from(&Correspondent::new("Bob", "bob@example.com"));
         assert_eq!(dto.name, "Bob");
+        assert!(!dto.show_address);
+    }
+
+    #[test]
+    fn a_correspondent_named_with_a_textual_at_has_no_name_to_prefill() {
+        // Le nom repris par « Ajouter au carnet » est celui de ce DTO.
+        use norelly_domain::mailbox::Correspondent;
+        use norelly_domain::sender::SenderNames;
+        let header = Correspondent::new("support(at)banque.fr", "pirate@exemple.net");
+        assert_eq!(CorrespondentDto::from(&header).name, "");
+        assert_eq!(
+            CorrespondentDto::named(&SenderNames::default(), &header).name,
+            ""
+        );
+    }
+
+    #[test]
+    fn a_correspondent_named_like_a_domain_shows_its_address_too() {
+        use norelly_domain::mailbox::Correspondent;
+        use norelly_domain::sender::SenderNames;
+        let header = Correspondent::new("Banque.fr", "pirate@exemple.net");
+        let dto = CorrespondentDto::named(&SenderNames::default(), &header);
+        assert_eq!(
+            (dto.name.as_str(), dto.address.as_str(), dto.show_address),
+            ("Banque.fr", "pirate@exemple.net", true)
+        );
+        assert!(CorrespondentDto::from(&header).show_address);
     }
 }
 

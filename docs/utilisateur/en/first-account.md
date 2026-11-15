@@ -83,7 +83,9 @@ your company's), and if its administrator has confirmed the
 ## Gmail: sign in with Google
 
 With a Gmail address, you sign in on Google's page, in your browser,
-without giving your password to Norelly:
+without giving your password to Norelly. (The version installed from
+Flathub does not have this button: there, use
+[the app password](#gmail-the-app-password).)
 
 1. In the **Add an account** window, type your address (for example
    `mary.smith@gmail.com`). The **Password** field disappears and the

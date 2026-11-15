@@ -194,7 +194,7 @@ async fn expand_reads_members_at_their_preferred_address() -> Result<(), Contact
     assert_eq!(
         e.recipients
             .iter()
-            .map(|r| (r.name.as_str(), r.address.to_string()))
+            .map(|r| (r.name(), r.address().to_string()))
             .collect::<Vec<_>>(),
         [
             ("Bob", "robert@example.net".to_owned()),

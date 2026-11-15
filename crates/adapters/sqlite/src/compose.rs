@@ -63,8 +63,8 @@ struct DraftDto {
 fn recipients_dto(list: &[Recipient]) -> Vec<RecipientDto> {
     list.iter()
         .map(|r| RecipientDto {
-            name: r.name.clone(),
-            address: r.address.to_string(),
+            name: r.name().to_owned(),
+            address: r.address().to_string(),
         })
         .collect()
 }

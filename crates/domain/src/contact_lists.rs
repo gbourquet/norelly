@@ -400,7 +400,7 @@ mod tests {
     fn sent(e: &Expansion) -> Vec<(&str, String)> {
         e.recipients
             .iter()
-            .map(|r| (r.name.as_str(), r.address.to_string()))
+            .map(|r| (r.name(), r.address().to_string()))
             .collect()
     }
 

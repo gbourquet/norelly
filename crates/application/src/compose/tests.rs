@@ -414,9 +414,9 @@ async fn prepare_reply_fills_recipients_subject_threading_and_quote() {
         .await
         .unwrap_or_else(|e| panic!("{e}"));
     assert_eq!(reply.account, account());
-    let to: Vec<String> = reply.to.iter().map(|r| r.address.to_string()).collect();
+    let to: Vec<String> = reply.to.iter().map(|r| r.address().to_string()).collect();
     assert_eq!(to, ["liste@example.org", "bob@example.com"]);
-    let cc: Vec<String> = reply.cc.iter().map(|r| r.address.to_string()).collect();
+    let cc: Vec<String> = reply.cc.iter().map(|r| r.address().to_string()).collect();
     assert_eq!(cc, ["carole@example.com"]);
     assert_eq!(reply.subject, "Re: Reunion");
     assert_eq!(
@@ -954,7 +954,7 @@ Content-Transfer-Encoding: base64\r\n\r\nJVBERi0xLjQ=\r\n--b--\r\n";
         draft
             .to
             .iter()
-            .map(|r| r.address.to_string())
+            .map(|r| r.address().to_string())
             .collect::<Vec<_>>(),
         ["bob@example.com"]
     );

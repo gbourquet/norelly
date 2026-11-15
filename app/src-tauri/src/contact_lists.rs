@@ -266,8 +266,8 @@ pub async fn expand_contact_list(
             .recipients
             .into_iter()
             .map(|r| RecipientDto {
-                name: r.name,
-                address: r.address.to_string(),
+                name: r.name().to_owned(),
+                address: r.address().to_string(),
             })
             .collect(),
         field: target,

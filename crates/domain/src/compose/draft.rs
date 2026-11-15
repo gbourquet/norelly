@@ -56,12 +56,47 @@ pub const REMOTE_REFUSED_RETRY_SECS: i64 = 3600;
 pub const MAX_RECIPIENT_INPUT_LEN: usize = 4 * MAX_ADDRESS_CHARS + MAX_ADDRESS_LEN + 8;
 
 /// Destinataire validé.
+///
+/// Les champs sont privés : tout destinataire passe par [`Self::new`] ou
+/// [`Self::parse`], qui écartent un nom imitant une adresse. Un
+/// destinataire construit champ par champ ne compile pas :
+///
+/// ```compile_fail,E0451
+/// use norelly_domain::address::EmailAddress;
+/// use norelly_domain::compose::draft::Recipient;
+///
+/// let address = EmailAddress::parse("vrai@exemple.fr").unwrap();
+/// let _ = Recipient { name: "faux@banque.fr".into(), address };
+/// ```
+///
+/// Ni modifié après coup :
+///
+/// ```compile_fail,E0616
+/// use norelly_domain::address::EmailAddress;
+/// use norelly_domain::compose::draft::Recipient;
+///
+/// let address = EmailAddress::parse("vrai@exemple.fr").unwrap();
+/// let mut recipient = Recipient::new("", address);
+/// recipient.name = "faux@banque.fr".into();
+/// ```
+///
+/// Seule la lecture est offerte :
+///
+/// ```
+/// use norelly_domain::address::EmailAddress;
+/// use norelly_domain::compose::draft::Recipient;
+///
+/// let address = EmailAddress::parse("vrai@exemple.fr").unwrap();
+/// let recipient = Recipient::new("faux@banque.fr", address.clone());
+/// assert_eq!(recipient.name(), "");
+/// assert_eq!(recipient.address(), &address);
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Recipient {
     /// Nom affiché, assaini (sans retour à la ligne ni caractère de
     /// contrôle).
-    pub name: String,
-    pub address: EmailAddress,
+    name: String,
+    address: EmailAddress,
 }
 
 impl Recipient {
@@ -102,6 +137,18 @@ impl Recipient {
             .and_then(|n| n.strip_suffix('"'))
             .unwrap_or(name);
         EmailAddress::parse(address).map(|a| Self::new(name, a))
+    }
+
+    /// Nom affiché, assaini ; vide s'il a été écarté ou n'a pas été donné.
+    #[must_use]
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    /// Adresse du destinataire.
+    #[must_use]
+    pub fn address(&self) -> &EmailAddress {
+        &self.address
     }
 }
 

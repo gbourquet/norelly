@@ -446,8 +446,8 @@ fn lettre_address(address: &EmailAddress) -> Result<lettre::Address, BuildError>
 }
 
 fn mailbox(r: &Recipient) -> Result<Mailbox, BuildError> {
-    let name = (!r.name.trim().is_empty()).then(|| r.name.clone());
-    Ok(Mailbox::new(name, lettre_address(&r.address)?))
+    let name = (!r.name().trim().is_empty()).then(|| r.name().to_owned());
+    Ok(Mailbox::new(name, lettre_address(r.address())?))
 }
 
 fn mailboxes(list: &[Recipient]) -> Result<Option<Mailboxes>, BuildError> {
@@ -549,13 +549,13 @@ enum Body {
 pub fn outgoing(c: &Composition) -> Result<OutgoingMessage, BuildError> {
     let d = &c.draft;
     Ok(OutgoingMessage {
-        from: c.from.address.to_string(),
+        from: c.from.address().to_string(),
         recipients: d
             .to
             .iter()
             .chain(&d.cc)
             .chain(&d.bcc)
-            .map(|r| r.address.to_string())
+            .map(|r| r.address().to_string())
             .collect(),
         raw: build_message(c, BccHeader::Omit)?,
     })

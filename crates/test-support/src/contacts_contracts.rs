@@ -431,7 +431,11 @@ pub async fn contact_import_contract<B: ContactBook + ContactDirectory>(
         .get(listed[0].id)
         .await?
         .unwrap_or_else(|| panic!("Alice relue"));
-    let bob_id = listed[1].id;
+    let bob = book
+        .get(listed[1].id)
+        .await?
+        .unwrap_or_else(|| panic!("Bob relu"));
+    let bob_id = bob.id();
 
     // Création et complément ensemble.
     let completed =
@@ -525,7 +529,8 @@ pub async fn contact_import_contract<B: ContactBook + ContactDirectory>(
         Err(ContactStoreError::Conflict)
     );
     assert_eq!(book.get(alice.id()).await?, Some(completed));
-    assert!(book.get(bob_id).await?.is_some());
+    // Aucun complément n'est écrit, celui de Bob compris.
+    assert_eq!(book.get(bob_id).await?, Some(bob));
     assert_eq!(
         names(&all_pages(book, &all, 10).await?),
         vec!["Alice", "Bob", "Carole"]

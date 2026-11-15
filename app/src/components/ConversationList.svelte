@@ -22,7 +22,7 @@
   import ActionButtons from "./ActionButtons.svelte";
   import ActionBar from "./ActionBar.svelte";
   import { VirtualList } from "../lib/virtual-list.svelte";
-  import { personName, shortDate } from "../lib/format";
+  import { listedName, shortDate } from "../lib/format";
   import { dragPayload, type DragMove } from "../lib/drag-move.svelte";
 
   interface Props {
@@ -111,7 +111,7 @@
   function senders(index: number): string {
     const c = mail.conversations[index];
     if (c === undefined || c.senders.length === 0) return m.common_unknown_sender();
-    return c.senders.map((s) => personName(s)).join(", ");
+    return c.senders.map((s) => listedName(s)).join(", ");
   }
 
   /** Bouton de la souris enfoncé sur une ligne : début possible d'un

@@ -56,6 +56,41 @@ export function personName(p: { name: string; address: string } | null | undefin
   return p.name !== "" ? p.name : p.address;
 }
 
+/** Longueur au-delà de laquelle la partie locale d'une adresse est abrégée. */
+const MAX_LOCAL_PART = 20;
+
+/** Adresse dont une longue partie locale est abrégée (« … »), pour que le
+ * domaine réel reste en vue au début d'une ligne. */
+function shortAddress(address: string): string {
+  const at = address.lastIndexOf("@");
+  const local = [...address.slice(0, Math.max(at, 0))];
+  if (at < 0 || local.length <= MAX_LOCAL_PART) return address;
+  return `${local.slice(0, MAX_LOCAL_PART).join("")}…${address.slice(at)}`;
+}
+
+/** Isole un texte du sens d'écriture qui l'entoure (FSI … PDI). */
+const isolated = (text: string): string => `⁨${text}⁩`;
+
+/** Nom d'un correspondant dans une liste ou une notification : l'adresse
+ * l'accompagne quand Rust le demande (`show_address`, nom en forme de
+ * domaine), sans quoi seul le nom s'afficherait. L'adresse vient d'abord,
+ * pour qu'un nom long ne la repousse pas hors de vue ; `isolate` isole
+ * chaque partie du sens d'écriture de l'autre (sans effet pour une
+ * notification, dont le texte est débarrassé de ces caractères). */
+export function listedName(
+  p: { name: string; address: string; show_address?: boolean } | null | undefined,
+  { isolate = true }: { isolate?: boolean } = {},
+): string {
+  if (p?.show_address === true && p.name !== "") {
+    const part = isolate ? isolated : (text: string) => text;
+    return m.common_person_with_address({
+      name: part(p.name),
+      address: part(shortAddress(p.address)),
+    });
+  }
+  return personName(p);
+}
+
 /** Décalage du fuseau local par rapport à UTC, en minutes (pour
  * `before:` et `after:` dans une recherche). */
 export function localUtcOffset(now = new Date()): number {

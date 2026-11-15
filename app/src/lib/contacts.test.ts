@@ -274,6 +274,13 @@ describe("formulaire d'un contact", () => {
     expect(at(f.fields.emails, 0).address).toBe("zoe@example.com");
   });
 
+  it("ne reprend pas un nom que Rust accompagne de l'adresse (forme de domaine)", () => {
+    const f = new ContactFormState(fakeApi());
+    f.prefill({ name: "Banque.fr", address: "pirate@exemple.net", show_address: true });
+    expect(f.fields.display_name).toBe("");
+    expect(at(f.fields.emails, 0).address).toBe("pirate@exemple.net");
+  });
+
   it("ajoute et retire des adresses ; une seule est préférée", () => {
     const f = new ContactFormState(fakeApi());
     f.reset(null);

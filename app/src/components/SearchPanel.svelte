@@ -9,7 +9,7 @@
   import FlagIcon from "@lucide/svelte/icons/flag";
   import type { SegmentDto } from "../lib/ipc/api";
   import type { SearchState } from "../lib/search.svelte";
-  import { personName, shortDate } from "../lib/format";
+  import { listedName, shortDate } from "../lib/format";
 
   interface Props {
     search: SearchState;
@@ -119,7 +119,7 @@
         }}
       >
         <div class="line">
-          <span class="from">{h.from ? personName(h.from) : m.common_unknown_sender()}</span>
+          <span class="from">{h.from ? listedName(h.from) : m.common_unknown_sender()}</span>
           {#if h.has_attachments}<PaperclipIcon size={14} aria-label={m.list_attachment()} />{/if}
           {#if h.flagged}<FlagIcon size={14} aria-label={m.list_flagged()} />{/if}
           <span class="date">{shortDate(h.date)}</span>

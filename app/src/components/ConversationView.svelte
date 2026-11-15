@@ -93,6 +93,8 @@
               {#each recipients(msg) as p, i (i)}
                 {#if i > 0}<span aria-hidden="true">, </span>{/if}
                 {#if person}{@render person(p, false)}{:else}<span>{personName(p)}</span>{/if}
+                {#if p.show_address && p.name !== ""}<span class="address">&lt;{p.address}&gt;</span
+                  >{/if}
               {/each}
             </p>
           {/if}

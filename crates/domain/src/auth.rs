@@ -76,6 +76,12 @@ pub enum AuthError {
     UnexpectedChallenge { step: usize },
     #[error("identifiants refusés par le serveur : {message}")]
     Rejected { message: String },
+    /// Connexion coupée, ou serveur muet, après l'envoi des identifiants
+    /// et avant sa réponse : certains serveurs répondent ainsi à des
+    /// identifiants faux. Jamais rejoué aussitôt : un serveur qui bloque un
+    /// compte après quelques échecs le bloquerait plus vite.
+    #[error("connexion interrompue pendant l'authentification")]
+    Interrupted,
     /// Jeton OAuth destiné à un serveur qui n'est pas celui du fournisseur,
     /// ou à une connexion en clair : il n'est pas envoyé.
     #[error("jeton refusé pour {host} (serveur hors du fournisseur ou connexion en clair)")]

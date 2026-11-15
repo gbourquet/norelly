@@ -12,7 +12,10 @@
 //!   est simplement différé jusqu'au retour du réseau.
 //! - Un échec temporaire (réponse SMTP 4xx, coupure en cours d'envoi) est
 //!   retenté avec une attente croissante, au plus [`MAX_SEND_ATTEMPTS`]
-//!   fois.
+//!   fois. Une connexion coupée ou bloquée avant la mise en place du
+//!   chiffrement l'est de même, mais son échec définitif le dit
+//!   ([`SendFailure::EncryptionInterrupted`]) : répétée, elle peut venir du
+//!   réseau utilisé.
 //! - Un envoi interrompu par l'arrêt de l'application (`Sending` au
 //!   démarrage) a peut-être abouti : il devient un échec
 //!   [`SendFailure::Uncertain`], jamais renvoyé automatiquement (pas de
@@ -51,6 +54,11 @@ pub enum SendFailure {
     Uncertain,
     /// Trop d'échecs temporaires.
     TooManyAttempts,
+    /// Connexion coupée ou bloquée avant la mise en place du chiffrement :
+    /// réessayée comme un échec temporaire, puis échec définitif sous ce
+    /// nom, car une coupure répétée à ce moment peut venir du réseau
+    /// utilisé (interception). Rien n'est parti.
+    EncryptionInterrupted,
 }
 
 /// Faut-il déposer une copie du message envoyé dans « Envoyés » ? Non
@@ -71,9 +79,14 @@ impl SendFailure {
             SendError::Rejected(_) | SendError::InvalidAddress(_) => Self::Rejected,
             SendError::Connection(e) => match e {
                 // Avant tout échange : hors ligne, rien n'est parti.
-                ConnectionError::Network(_)
-                | ConnectionError::Timeout(TimeoutStage::Connect | TimeoutStage::TlsHandshake) => {
+                ConnectionError::Network(_) | ConnectionError::Timeout(TimeoutStage::Connect) => {
                     Self::Unreachable
+                }
+                // Serveur joint, chiffrement jamais en place : rien n'est
+                // parti, mais l'échec répété doit être nommé.
+                ConnectionError::ClosedBeforeEncryption
+                | ConnectionError::Timeout(TimeoutStage::TlsHandshake) => {
+                    Self::EncryptionInterrupted
                 }
                 ConnectionError::Timeout(TimeoutStage::Response | TimeoutStage::Write)
                 | ConnectionError::Closed
@@ -82,7 +95,10 @@ impl SendFailure {
                 // n'est parti.
                 | ConnectionError::Authentication(
                     AuthError::SecretStoreUnavailable { .. } | AuthError::ProviderUnavailable { .. },
-                ) => Self::Temporary,
+                )
+                // Coupure après l'envoi des identifiants : nouvel essai
+                // espacé (attente croissante), jamais immédiat.
+                | ConnectionError::Authentication(AuthError::Interrupted) => Self::Temporary,
                 ConnectionError::Rejected(_) => Self::Rejected,
                 ConnectionError::Authentication(_) => Self::Authentication,
                 ConnectionError::Certificate(_)
@@ -205,7 +221,9 @@ impl OutboxEntry {
         Ok(match failure {
             // Hors ligne : l'essai ne compte pas.
             SendFailure::Unreachable => queued(self.attempts.saturating_sub(1), RETRY_BASE_SECS),
-            SendFailure::Temporary if self.attempts < MAX_SEND_ATTEMPTS => {
+            SendFailure::Temporary | SendFailure::EncryptionInterrupted
+                if self.attempts < MAX_SEND_ATTEMPTS =>
+            {
                 queued(self.attempts, retry_delay(self.attempts))
             }
             SendFailure::Temporary => Self {
@@ -336,6 +354,53 @@ mod tests {
             .and_then(|e| e.failed(SendFailure::Temporary, NOW))
             .unwrap_or_else(|e| panic!("{e}"));
         assert_eq!(e.state, OutboxState::Failed(SendFailure::TooManyAttempts));
+    }
+
+    #[test]
+    fn a_connection_cut_before_encryption_is_retried_then_named() {
+        let mut e = OutboxEntry::queued(NOW);
+        for n in 1..MAX_SEND_ATTEMPTS {
+            e = e
+                .start()
+                .and_then(|e| e.failed(SendFailure::EncryptionInterrupted, NOW))
+                .unwrap_or_else(|e| panic!("{e}"));
+            assert_eq!(
+                e.state,
+                OutboxState::Queued {
+                    not_before: NOW + retry_delay(n)
+                },
+                "essai {n} compté, comme un échec temporaire"
+            );
+        }
+        let e = e
+            .start()
+            .and_then(|e| e.failed(SendFailure::EncryptionInterrupted, NOW))
+            .unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(
+            e.state,
+            OutboxState::Failed(SendFailure::EncryptionInterrupted),
+            "l'échec définitif dit que la coupure précède le chiffrement"
+        );
+    }
+
+    #[test]
+    fn cuts_before_encryption_and_during_authentication_at_send() {
+        use crate::auth::AuthError;
+        let conn = |e: ConnectionError| SendFailure::of(&SendError::Connection(e));
+        assert_eq!(
+            conn(ConnectionError::ClosedBeforeEncryption),
+            SendFailure::EncryptionInterrupted
+        );
+        assert_eq!(
+            conn(ConnectionError::Timeout(TimeoutStage::TlsHandshake)),
+            SendFailure::EncryptionInterrupted,
+            "serveur joint, négociation TLS bloquée : compté, jamais en attente sans fin"
+        );
+        assert_eq!(
+            conn(ConnectionError::Authentication(AuthError::Interrupted)),
+            SendFailure::Temporary,
+            "nouvel essai espacé, jamais immédiat"
+        );
     }
 
     #[test]

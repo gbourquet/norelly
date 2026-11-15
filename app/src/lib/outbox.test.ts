@@ -18,10 +18,17 @@ describe("libellés de la file d'envoi", () => {
       "security",
       "uncertain",
       "too_many_attempts",
+      "encryption_interrupted",
     ];
     const labels = failures.map(failureLabel);
     expect(new Set(labels).size).toBe(failures.length);
     for (const l of labels) expect(l).not.toBe("");
+  });
+
+  it("coupure répétée avant le chiffrement : le réseau utilisé peut en être la cause", () => {
+    expect(failureLabel("encryption_interrupted")).toBe(
+      "connexion coupée avant le chiffrement, peut-être par le réseau utilisé",
+    );
   });
 });
 

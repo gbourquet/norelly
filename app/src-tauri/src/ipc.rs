@@ -617,7 +617,13 @@ pub enum FailureKindDto {
     Network,
     /// Serveur joint, puis muet ou qui coupe la connexion.
     Unresponsive,
+    /// Connexion coupée avant la mise en place du chiffrement : port ou
+    /// chiffrement faux, ou réseau qui intercepte la connexion.
+    ClosedBeforeEncryption,
     Authentication,
+    /// Connexion coupée, ou serveur muet, après l'envoi des identifiants :
+    /// identifiants peut-être faux ; rien n'est renvoyé automatiquement.
+    AuthenticationInterrupted,
     /// Identifiants refusés sur un compte Google : il faut un mot de passe
     /// d'application.
     GoogleAppPassword,
@@ -679,7 +685,10 @@ pub fn connection_failure_of(e: &ConnectionError) -> (FailureKindDto, Option<Str
     }
     let kind = match e.category() {
         FailureCategory::Network => network_kind(e),
-        FailureCategory::Authentication => FailureKindDto::Authentication,
+        FailureCategory::Authentication => match e {
+            ConnectionError::Authentication(a) => auth_kind(a),
+            _ => FailureKindDto::Authentication,
+        },
         FailureCategory::Certificate | FailureCategory::Security => FailureKindDto::Security,
         FailureCategory::Protocol => FailureKindDto::Protocol,
     };
@@ -689,10 +698,21 @@ pub fn connection_failure_of(e: &ConnectionError) -> (FailureKindDto, Option<Str
 /// Serveur muet ou introuvable : le nom et le port ne sont en cause que
 /// dans le second cas.
 fn network_kind(e: &ConnectionError) -> FailureKindDto {
-    if e.is_unresponsive() {
+    if matches!(e, ConnectionError::ClosedBeforeEncryption) {
+        FailureKindDto::ClosedBeforeEncryption
+    } else if e.is_unresponsive() {
         FailureKindDto::Unresponsive
     } else {
         FailureKindDto::Network
+    }
+}
+
+/// Refus des identifiants, ou coupure pendant leur vérification.
+fn auth_kind(e: &AuthError) -> FailureKindDto {
+    if matches!(e, AuthError::Interrupted) {
+        FailureKindDto::AuthenticationInterrupted
+    } else {
+        FailureKindDto::Authentication
     }
 }
 
@@ -706,6 +726,7 @@ fn connection_detail(e: &ConnectionError) -> Option<String> {
         ConnectionError::Authentication(a) => auth_detail(a),
         ConnectionError::Timeout(_)
         | ConnectionError::Closed
+        | ConnectionError::ClosedBeforeEncryption
         | ConnectionError::Certificate(_)
         | ConnectionError::StartTlsUnavailable
         | ConnectionError::PlaintextInjection
@@ -724,6 +745,7 @@ fn auth_detail(a: &AuthError) -> Option<String> {
         | AuthError::ProviderNotConfigured
         | AuthError::ReauthRequired
         | AuthError::LoginDisabled
+        | AuthError::Interrupted
         | AuthError::UnexpectedChallenge { .. } => None,
     }
 }
@@ -885,7 +907,7 @@ fn connection_failure(
             },
         },
         TestConnectionOutcome::Authentication(e) => {
-            let kind = advice.map_or(FailureKindDto::Authentication, FailureKindDto::advised);
+            let kind = advice.map_or(auth_kind(e), FailureKindDto::advised);
             failed(p, kind, auth_detail(e))
         }
         TestConnectionOutcome::Network(e) => failed(p, network_kind(e), connection_detail(e)),
@@ -1095,6 +1117,9 @@ pub enum SendFailureDto {
     Security,
     Uncertain,
     TooManyAttempts,
+    /// Connexion coupée ou bloquée à plusieurs reprises avant la mise en
+    /// place du chiffrement : le réseau utilisé peut en être la cause.
+    EncryptionInterrupted,
 }
 
 /// État d'un message de la file d'envoi.
@@ -1541,6 +1566,39 @@ mod error_tests {
         let json =
             serde_json::to_value(AddAccountResultDto::from_outcome(&outcome)).unwrap_or_default();
         assert_eq!(json["failure"], "unresponsive", "{json}");
+    }
+
+    #[test]
+    fn cuts_before_encryption_and_during_authentication_have_their_own_kinds() {
+        use norelly_application::accounts::AddAccountOutcome;
+        assert_eq!(
+            connection_failure_of(&ConnectionError::ClosedBeforeEncryption),
+            (FailureKindDto::ClosedBeforeEncryption, None)
+        );
+        assert_eq!(
+            connection_failure_of(&ConnectionError::Authentication(AuthError::Interrupted)),
+            (FailureKindDto::AuthenticationInterrupted, None)
+        );
+        let json = |outcome: TestConnectionOutcome| {
+            let o = AddAccountOutcome::ConnectionFailed {
+                protocol: Protocol::Smtp,
+                outcome,
+                advice: None,
+            };
+            serde_json::to_value(AddAccountResultDto::from_outcome(&o)).unwrap_or_default()
+        };
+        assert_eq!(
+            json(TestConnectionOutcome::Network(
+                ConnectionError::ClosedBeforeEncryption
+            ))["failure"],
+            "closed_before_encryption"
+        );
+        assert_eq!(
+            json(TestConnectionOutcome::Authentication(
+                AuthError::Interrupted
+            ))["failure"],
+            "authentication_interrupted"
+        );
     }
 
     #[test]

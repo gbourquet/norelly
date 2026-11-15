@@ -241,6 +241,10 @@ export function failureText(failure: FailureKindDto): string {
       return m.failure_network();
     case "unresponsive":
       return m.failure_unresponsive();
+    case "closed_before_encryption":
+      return m.failure_closed_before_encryption();
+    case "authentication_interrupted":
+      return m.failure_authentication_interrupted();
     case "authentication":
       return m.failure_authentication();
     case "google_app_password":

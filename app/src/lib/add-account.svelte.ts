@@ -664,6 +664,10 @@ export function failureMessage(
         return m.add_fail_network({ prefix });
       case "unresponsive":
         return m.add_fail_unresponsive({ prefix });
+      case "closed_before_encryption":
+        return m.add_fail_closed_before_encryption({ prefix });
+      case "authentication_interrupted":
+        return m.add_fail_authentication_interrupted({ prefix });
       case "security":
         return m.add_fail_security({ prefix });
       case "invalid_input":

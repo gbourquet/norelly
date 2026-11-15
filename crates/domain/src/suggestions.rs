@@ -128,6 +128,7 @@ mod tests {
     use super::*;
     use crate::contacts::{ContactDraft, ContactInput, EmailInput};
 
+    /// Fiche telle que relue du carnet.
     fn contact(id: i64, input: ContactInput, emails: &[&str]) -> Contact {
         let input = ContactInput {
             emails: emails
@@ -139,7 +140,8 @@ mod tests {
                 .collect(),
             ..input
         };
-        let draft = ContactDraft::new(input).unwrap_or_else(|e| panic!("fiche refusée : {e}"));
+        let draft =
+            ContactDraft::from_stored(input).unwrap_or_else(|e| panic!("fiche refusée : {e}"));
         draft.with_id(ContactId::new(id).unwrap_or_else(|| panic!("identifiant {id}")))
     }
 

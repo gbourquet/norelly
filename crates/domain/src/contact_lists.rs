@@ -380,8 +380,9 @@ mod tests {
         ContactId::new(raw).unwrap_or_else(|| panic!("identifiant {raw}"))
     }
 
+    /// Fiche telle que relue du carnet.
     fn contact(id: i64, name: &str, emails: &[(&str, bool)]) -> Contact {
-        ContactDraft::new(ContactInput {
+        ContactDraft::from_stored(ContactInput {
             display_name: name.to_owned(),
             emails: emails
                 .iter()

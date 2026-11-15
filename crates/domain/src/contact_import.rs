@@ -17,7 +17,6 @@ use crate::contacts::{
     EmailInput, MAX_CONTACT_EMAILS, MAX_CONTACT_PHONES, PhoneInput, is_invisible,
 };
 use crate::ports::{ContactStoreError, TextNormalizer};
-use crate::sender::imitates_address;
 
 /// Taille maximale d'un fichier de contacts importé, en octets.
 pub const MAX_IMPORT_FILE_BYTES: usize = 20 * 1024 * 1024;
@@ -326,21 +325,6 @@ pub fn plan_import(
 /// près) écartées, la première adresse préférée seule gardée préférée.
 fn prepare(input: &ContactInput, normalizer: &impl TextNormalizer) -> (ContactInput, bool) {
     let nfc = |text: &str| normalizer.nfc(text);
-    let mut renamed = false;
-    let mut name = |raw: &str| {
-        let value = nfc(raw);
-        if imitates_address(&value) {
-            renamed = true;
-            String::new()
-        } else {
-            value
-        }
-    };
-    let display_name = name(&input.display_name);
-    let given_name = name(&input.given_name);
-    let family_name = name(&input.family_name);
-    let nickname = name(&input.nickname);
-
     let mut keys = HashSet::new();
     let mut preferred_seen = false;
     let mut emails = Vec::with_capacity(input.emails.len());
@@ -373,17 +357,19 @@ fn prepare(input: &ContactInput, normalizer: &impl TextNormalizer) -> (ContactIn
             label: nfc(&p.label),
         })
         .collect();
-    let prepared = ContactInput {
-        display_name,
-        given_name,
-        family_name,
-        nickname,
+    let mut prepared = ContactInput {
+        display_name: nfc(&input.display_name),
+        given_name: nfc(&input.given_name),
+        family_name: nfc(&input.family_name),
+        nickname: nfc(&input.nickname),
         organization: nfc(&input.organization),
         notes: nfc(&input.notes),
         emails,
         phones,
         favorite: input.favorite,
     };
+    // Vérifié sur les noms normalisés, comme à la relecture d'une fiche.
+    let renamed = prepared.drop_names_imitating_address();
     (prepared, renamed)
 }
 

@@ -37,9 +37,13 @@ fn named(name: &str, address: &str) -> ContactInput {
     }
 }
 
+/// Fiche telle que relue du carnet (un nom imitant une adresse,
+/// enregistré avant que la saisie ne le refuse, y est retiré).
 fn stored(id: i64, input: ContactInput) -> Contact {
     let id = ContactId::new(id).unwrap_or_else(|| panic!("identifiant {id}"));
-    draft(input).with_id(id)
+    ContactDraft::from_stored(input)
+        .unwrap_or_else(|e| panic!("fiche refusée : {e}"))
+        .with_id(id)
 }
 
 fn id(raw: i64) -> ContactId {
@@ -102,7 +106,8 @@ fn a_card_without_name_or_with_an_address_like_name_has_no_name_key() {
         emails: vec![email("a@example.com")],
         ..ContactInput::default()
     });
-    let imitation = draft(named("bob@example.com", "b@example.com"));
+    let imitation = ContactDraft::from_stored(named("bob@example.com", "b@example.com"))
+        .unwrap_or_else(|e| panic!("fiche refusée : {e}"));
     assert_eq!(name_key(&nameless, &FakeNfc), None);
     assert_eq!(name_key(&imitation, &FakeNfc), None);
 }

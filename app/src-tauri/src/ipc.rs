@@ -156,6 +156,9 @@ pub enum ErrorCodeDto {
     ContactImportReadFailed,
     /// Aperçu d'import périmé (remplacé par un autre, ou déjà importé).
     ContactImportExpired,
+    /// Carnet modifié pendant l'import, à chaque tentative : rien n'a été
+    /// importé.
+    ContactImportConflict,
     /// Aucun contact à exporter (carnet vide, sélection supprimée).
     ContactExportEmpty,
     /// Export trop gros pour être réimporté (trop de contacts, ou fichier

@@ -229,7 +229,10 @@ l'ordinateur** : rien n'est envoyé à un serveur.
 - **Importer** écrit tout en une fois : soit tout l'import réussit, soit
   rien ne change. Un message annonce ensuite le nombre de contacts
   ajoutés et complétés. Un contact ajouté entre l'aperçu et l'import est
-  traité comme un doublon.
+  traité comme un doublon. Un contact à compléter qui est modifié pendant
+  l'import n'est jamais écrasé : l'import repart du contact modifié et le
+  complète. S'il change sans cesse, l'import s'arrête sans rien changer et
+  un message invite à le relancer.
 - Fichiers refusés en entier, avec un message clair : format inconnu (le
   message invite à exporter en vCard ou CSV), fichier trop gros (20 Mo)
   ou trop de contacts (25 000).

@@ -11,6 +11,7 @@ use std::collections::HashMap;
 
 use norelly_domain::address::EmailAddress;
 use norelly_domain::contact_export::ContactSelection;
+use norelly_domain::contact_import::ContactCompletion;
 use norelly_domain::contacts::{
     AddressKey, Contact, ContactDraft, ContactFilter, ContactId, ContactInput, EmailInput,
     PhoneInput,
@@ -331,7 +332,7 @@ impl ContactBook for SqliteContactBook {
     async fn import(
         &self,
         create: &[ContactDraft],
-        complete: &[Contact],
+        complete: &[ContactCompletion],
     ) -> Result<ImportOutcome, ContactStoreError> {
         let create = create.to_vec();
         let complete = complete.to_vec();
@@ -339,14 +340,24 @@ impl ContactBook for SqliteContactBook {
             .run(move |c| {
                 let tx = c.transaction().map_err(store_error)?;
                 // Sans commit, la transaction est annulée à sa fermeture.
+                // Chaque contact à compléter tel qu'il a été lu pour
+                // calculer le plan : une modification entre-temps serait
+                // écrasée.
+                let ids: Vec<i64> = complete.iter().map(|c| c.id().get()).collect();
+                let current: HashMap<i64, Contact> = load(&tx, &ids)?
+                    .into_iter()
+                    .map(|c| (c.id().get(), c))
+                    .collect();
                 for contact in &complete {
-                    let exists = tx
-                        .prepare_cached("SELECT 1 FROM contacts WHERE id = ?1")
-                        .and_then(|mut s| s.exists(params![contact.id().get()]))
-                        .map_err(store_error)?;
-                    if !exists {
-                        return Ok(Err(ContactStoreError::NotFound));
+                    match current.get(&contact.id().get()) {
+                        None => return Ok(Err(ContactStoreError::NotFound)),
+                        Some(c) if c != contact.read() => {
+                            return Ok(Err(ContactStoreError::Conflict));
+                        }
+                        Some(_) => {}
                     }
+                }
+                for contact in &complete {
                     if let Some(address) = taken(&tx, contact.draft(), Some(contact.id()))? {
                         return Ok(Err(ContactStoreError::DuplicateAddress(address)));
                     }

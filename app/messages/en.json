@@ -688,6 +688,7 @@
   "err_contact_import_unknown_format": "This file is not a recognised address book. From your former program, export your contacts as vCard (.vcf) or CSV.",
   "err_contact_import_read_failed": "This file cannot be read.",
   "err_contact_import_expired": "This preview is no longer valid: choose the file again.",
+  "err_contact_import_conflict": "The address book changed several times during the import: nothing was imported. Wait for the changes in progress to finish, then start the import again.",
   "cmd_contacts_export": "Export contacts…",
   "cmd_contacts_export_keywords": "export save backup address book file vcard vcf csv ldif gmail google outlook thunderbird",
   "cmd_contacts_find_duplicates": "Find duplicates…",

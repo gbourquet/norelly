@@ -130,6 +130,13 @@ impl SyncFailure {
         matches!(self, Self::Connection(e) if e.retry_is_useless())
     }
 
+    /// Vrai si les identifiants ont été refusés ou leur vérification
+    /// interrompue ([`ConnectionError::credentials_failed`]).
+    #[must_use]
+    pub fn credentials_failed(&self) -> bool {
+        matches!(self, Self::Connection(e) if e.credentials_failed())
+    }
+
     /// Vrai si la connexion est à rouvrir (erreur réseau ou protocole) ;
     /// faux pour une commande simplement refusée (`NO`).
     #[must_use]

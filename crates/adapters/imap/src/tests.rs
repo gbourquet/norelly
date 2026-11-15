@@ -489,7 +489,7 @@ async fn silent_server_times_out() -> TestResult {
         .await;
     assert_eq!(
         result.err(),
-        Some(ConnectionError::Timeout(TimeoutStage::Response))
+        Some(ConnectionError::Timeout(TimeoutStage::BeforeEncryption))
     );
     Ok(())
 }
@@ -644,7 +644,7 @@ async fn trickled_greeting_is_bounded_by_the_total_opening_delay() -> TestResult
         .await;
     assert_eq!(
         result.err(),
-        Some(ConnectionError::Timeout(TimeoutStage::Response))
+        Some(ConnectionError::Timeout(TimeoutStage::BeforeEncryption))
     );
     assert!(
         started.elapsed() < ABANDONED_WITHIN,
@@ -672,7 +672,7 @@ async fn late_plaintext_greeting_is_abandoned_at_the_opening_delay() -> TestResu
         .await;
     assert_eq!(
         result.err(),
-        Some(ConnectionError::Timeout(TimeoutStage::Response))
+        Some(ConnectionError::Timeout(TimeoutStage::BeforeEncryption))
     );
     assert!(
         started.elapsed() < ABANDONED_WITHIN,
@@ -2034,6 +2034,86 @@ async fn total_opening_delay_reached_during_auth_is_an_interruption() -> TestRes
             open_total: Duration::from_secs(3),
             response: Duration::from_secs(5),
         })
+        .connect(&request(
+            server.port(),
+            Security::Tls,
+            PlaintextPolicy::deny_all(),
+        ))
+        .await;
+    assert_eq!(
+        result.err(),
+        Some(ConnectionError::Authentication(AuthError::Interrupted))
+    );
+    Ok(())
+}
+
+/// Échange en clair avant STARTTLS distillé octet par octet, chacun avant
+/// le délai d'ouverture : la phase entière est bornée par ce délai, bien
+/// avant la durée totale ; silence avant le chiffrement.
+#[tokio::test]
+async fn trickled_plaintext_exchange_is_bounded_as_a_whole() -> TestResult {
+    let ca = TestCa::new()?;
+    let mut script = Script::new();
+    for byte in b"* OK salutation interminable".repeat(4) {
+        script = script.send_raw(vec![byte]).wait(Duration::from_millis(100));
+    }
+    let server = ScriptedServer::start(script, None).await?;
+    let connector = ImapConnector::new(TlsClientFactory::new(TrustRoots::Custom(vec![ca.root()])))
+        .with_timeouts(Timeouts {
+            connect: Duration::from_secs(5),
+            open: Duration::from_millis(400),
+            password_auth: Duration::from_millis(400),
+            open_total: Duration::from_secs(60),
+            response: Duration::from_secs(10),
+        });
+    let started = tokio::time::Instant::now();
+    let result = connector
+        .connect(&request(
+            server.port(),
+            Security::StartTls,
+            PlaintextPolicy::deny_all(),
+        ))
+        .await;
+    assert_eq!(
+        result.err(),
+        Some(ConnectionError::Timeout(TimeoutStage::BeforeEncryption))
+    );
+    assert!(
+        started.elapsed() < Duration::from_secs(3),
+        "{:?}",
+        started.elapsed()
+    );
+    Ok(())
+}
+
+/// `AUTHENTICATE` sans SASL-IR : coupure après la réponse au défi.
+#[tokio::test]
+async fn cut_after_the_challenge_answer_is_an_interrupted_authentication() -> TestResult {
+    for cut in cuts() {
+        let script = cut(Script::new()
+            .send(imap::greeting("IMAP4rev1 AUTH=PLAIN"))
+            .expect("AUTHENTICATE PLAIN")
+            .send("+ \r\n")
+            .expect_data_with(PLAIN_B64));
+        assert_eq!(
+            connect_tls(script).await?.err(),
+            Some(ConnectionError::Authentication(AuthError::Interrupted))
+        );
+    }
+    Ok(())
+}
+
+/// Serveur muet après `LOGIN` : authentification interrompue.
+#[tokio::test]
+async fn silence_after_login_is_an_interrupted_authentication() -> TestResult {
+    let ca = TestCa::new()?;
+    let cert = ca.issue(&["localhost"])?;
+    let script = Script::new()
+        .send(imap::greeting("IMAP4rev1"))
+        .expect(format!("LOGIN alice {PASSWORD}"))
+        .wait(SLOW_SERVER);
+    let server = ScriptedServer::start_tls(script, cert.server_config()?).await?;
+    let result = quick_opening(&ca)
         .connect(&request(
             server.port(),
             Security::Tls,

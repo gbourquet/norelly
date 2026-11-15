@@ -58,11 +58,18 @@ n'est pas chiffrée (ADR-003) : on s'appuie sur le chiffrement du disque.
   ou `AUTH` envoyé donne `AuthError::Interrupted`, que le test de connexion
   ne réessaie pas (un serveur qui bloque un compte après N échecs le
   bloquerait sinon plus vite) ; seuls les échecs qui précèdent l'envoi des
-  identifiants sont réessayés (`ConnectionPhase`, domaine). Une coupure
-  avant la fin du chiffrement (`ClosedBeforeEncryption`) ou une poignée de
-  main bloquée ne laisse jamais ajouter un compte OAuth avec « envoi non
-  vérifié » : c'est ce que produirait un réseau hostile ; à l'envoi, son
-  échec répété est nommé (`SendFailure::EncryptionInterrupted`).
+  identifiants sont réessayés (`ConnectionPhase`, domaine). La file
+  d'envoi en fait un échec définitif (`SendFailure::AuthenticationInterrupted`) ;
+  l'acteur de synchronisation attend au moins `CREDENTIALS_RETRY_MS`
+  (15 min) avant de se reconnecter après un refus ou une interruption
+  (`Backoff::next_delay_after`).
+- Une coupure ou un silence avant la fin du chiffrement (échange en clair
+  précédant STARTTLS, borné en entier par le délai d'ouverture, ou poignée
+  de main : `ClosedBeforeEncryption`, `Timeout(BeforeEncryption)`,
+  `Timeout(TlsHandshake)`) ne laisse jamais ajouter un compte OAuth avec
+  « envoi non vérifié » : c'est ce que produirait un réseau hostile ; à
+  l'envoi, son échec répété est nommé (`SendFailure::EncryptionInterrupted`).
+  Un réseau perdu (hôte injoignable) n'est pas requalifié.
 - Niveau `TRACE` supprimé à la compilation : `imap-next` y journaliserait
   les mots de passe ; test `credentials_never_appear_in_logs_or_debug`.
 - Secrets : type `Secret` sans `Display`, `Debug` masqué, non sérialisable,

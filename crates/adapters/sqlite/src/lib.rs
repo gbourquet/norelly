@@ -55,9 +55,7 @@ fn migrations() -> Migrations<'static> {
         M::up(include_str!("../migrations/0012_contact_lists.sql")),
         M::up(include_str!("../migrations/0013_oauth_accounts.sql")),
         M::up(include_str!("../migrations/0014_oauth_google.sql")),
-        M::up(include_str!(
-            "../migrations/0015_outbox_encryption_interrupted.sql"
-        )),
+        M::up(include_str!("../migrations/0015_outbox_interruptions.sql")),
     ])
 }
 
@@ -715,7 +713,7 @@ mod tests {
     /// conservée à l'identique (numérotation comprise) et la cause d'échec
     /// « coupé avant le chiffrement » devient acceptée.
     #[test]
-    fn upgrading_to_v15_keeps_the_outbox_and_accepts_encryption_interrupted() {
+    fn upgrading_to_v15_keeps_the_outbox_and_accepts_the_interruptions() {
         let mut conn = Connection::open_in_memory().unwrap_or_else(|e| panic!("{e}"));
         conn.pragma_update(None, "foreign_keys", "ON")
             .unwrap_or_else(|e| panic!("{e}"));
@@ -754,6 +752,11 @@ mod tests {
         conn.execute(
             "UPDATE outbox SET state = 'failed', not_before = NULL, \
              failure = 'encryption_interrupted' WHERE id = 1",
+            [],
+        )
+        .unwrap_or_else(|e| panic!("cause refusée : {e}"));
+        conn.execute(
+            "UPDATE outbox SET failure = 'authentication_interrupted' WHERE id = 1",
             [],
         )
         .unwrap_or_else(|e| panic!("cause refusée : {e}"));

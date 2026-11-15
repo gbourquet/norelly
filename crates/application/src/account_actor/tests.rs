@@ -195,6 +195,34 @@ async fn reconnects_with_backoff_and_converges() {
     r.handle.shutdown().await;
 }
 
+/// Identifiants refusés, ou coupure pendant leur vérification : la
+/// reconnexion attend longtemps, sans renvoyer les identifiants toutes les
+/// quelques secondes (blocage du compte après quelques échecs).
+#[tokio::test]
+async fn credentials_failure_waits_long_before_reconnecting() {
+    use norelly_domain::auth::AuthError;
+    use norelly_domain::sync::CREDENTIALS_RETRY_MS;
+    for error in [
+        ConnectionError::Authentication(AuthError::Interrupted),
+        ConnectionError::Authentication(AuthError::Rejected {
+            message: "x".into(),
+        }),
+    ] {
+        let imap = FakeImap::new();
+        imap.set_connect_error(Some(error.clone()));
+        let mut r = start(&imap);
+        let event = wait_for(&mut r.events, WAIT, offline).await;
+        let SyncEvent::Offline { retry_in_ms, .. } = event else {
+            panic!("{event:?}");
+        };
+        assert_eq!(retry_in_ms, Some(CREDENTIALS_RETRY_MS), "{error:?}");
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        let attempts = r.imap.connect_attempts();
+        assert!(attempts <= 2, "{attempts} essais");
+        r.handle.shutdown().await;
+    }
+}
+
 #[tokio::test]
 async fn provider_missing_from_this_version_stops_the_actor_without_retrying() {
     use norelly_domain::auth::AuthError;

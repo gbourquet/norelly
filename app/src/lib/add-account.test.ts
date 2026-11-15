@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { AddAccountFlow, defaultServers } from "./add-account.svelte";
+import { AddAccountFlow, defaultServers, failureMessage } from "./add-account.svelte";
 import type {
   AddOAuthAccountInput,
   AccountDto,
@@ -817,7 +817,7 @@ describe("se connecter avec Microsoft", () => {
     );
   });
 
-  it("coupure pendant l'authentification : identifiants à vérifier avant de réessayer", async () => {
+  it("coupure pendant la connexion Microsoft : ni identifiants ni mot de passe mis en cause", async () => {
     const { api } = fakeApi(found, [
       { kind: "failed", protocol: "imap", failure: "authentication_interrupted", detail: null },
     ]);
@@ -826,7 +826,13 @@ describe("se connecter avec Microsoft", () => {
     await f.signInWithProvider();
     expect(f.step).toBe("form");
     expect(f.message).toBe(
-      "Serveur de réception (IMAP) : le serveur a coupé la connexion pendant la vérification de vos identifiants, sans les refuser clairement. Vérifiez-les avant de réessayer : certains serveurs bloquent le compte après plusieurs essais.",
+      "Serveur de réception (IMAP) : le serveur a coupé la connexion juste après votre connexion chez le fournisseur. Réessayez dans quelques minutes.",
+    );
+  });
+
+  it("coupure pendant la vérification d'un mot de passe : identifiants à vérifier", () => {
+    expect(failureMessage("authentication_interrupted", "smtp", null, "a@example.com")).toBe(
+      "Serveur d'envoi (SMTP) : le serveur a coupé la connexion pendant la vérification de vos identifiants, sans les refuser clairement. Vérifiez-les avant de réessayer : certains serveurs bloquent le compte après plusieurs essais.",
     );
   });
 

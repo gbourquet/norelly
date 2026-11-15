@@ -386,6 +386,7 @@ impl<O: OutboxStore, S: MailSender> DeliverOutbox<'_, O, S> {
                         failure,
                         SendFailure::Unreachable
                             | SendFailure::Authentication
+                            | SendFailure::AuthenticationInterrupted
                             | SendFailure::Security
                     ) {
                         break;

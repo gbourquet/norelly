@@ -427,7 +427,7 @@ async fn trickled_banner_is_bounded_by_the_total_opening_delay() -> TestResult {
         matches!(
             result,
             Err(ConnectionError::Timeout(
-                norelly_domain::connection::TimeoutStage::Response
+                norelly_domain::connection::TimeoutStage::BeforeEncryption
             ))
         ),
         "{result:?}"
@@ -458,7 +458,7 @@ async fn late_banner_is_abandoned_at_the_opening_delay() -> TestResult {
         matches!(
             result,
             Err(ConnectionError::Timeout(
-                norelly_domain::connection::TimeoutStage::Response
+                norelly_domain::connection::TimeoutStage::BeforeEncryption
             ))
         ),
         "{result:?}"
@@ -1114,5 +1114,80 @@ async fn total_opening_delay_reached_during_auth_is_an_interruption() -> TestRes
         result.err(),
         Some(ConnectionError::Authentication(AuthError::Interrupted))
     );
+    Ok(())
+}
+
+/// Échange en clair avant STARTTLS distillé octet par octet, chacun avant
+/// le délai d'ouverture : la phase entière est bornée par ce délai, bien
+/// avant la durée totale ; silence avant le chiffrement.
+#[tokio::test]
+async fn trickled_plaintext_exchange_is_bounded_as_a_whole() -> TestResult {
+    let ca = TestCa::new()?;
+    let mut script = Script::new();
+    for byte in b"220 banniere interminable".repeat(4) {
+        script = script.send_raw(vec![byte]).wait(Duration::from_millis(100));
+    }
+    let server = ScriptedServer::start(script, None).await?;
+    let sender = SmtpSender::new(TlsClientFactory::new(TrustRoots::Custom(vec![ca.root()])))
+        .with_timeouts(Timeouts {
+            connect: Duration::from_secs(5),
+            open: Duration::from_millis(400),
+            password_auth: Duration::from_millis(400),
+            open_total: Duration::from_secs(60),
+            response: Duration::from_secs(10),
+        });
+    let started = tokio::time::Instant::now();
+    let result = sender
+        .verify(&request(
+            server.port(),
+            Security::StartTls,
+            PlaintextPolicy::deny_all(),
+        ))
+        .await;
+    assert_eq!(
+        result.err(),
+        Some(ConnectionError::Timeout(
+            norelly_domain::connection::TimeoutStage::BeforeEncryption
+        ))
+    );
+    assert!(
+        started.elapsed() < Duration::from_secs(3),
+        "{:?}",
+        started.elapsed()
+    );
+    Ok(())
+}
+
+/// `AUTH LOGIN` en plusieurs étapes : coupure après le nom d'utilisateur
+/// ou après le mot de passe.
+#[tokio::test]
+async fn cut_during_auth_login_steps_is_an_interrupted_authentication() -> TestResult {
+    let ca = TestCa::new()?;
+    let cert = ca.issue(&["localhost"])?;
+    let after_user = || {
+        ehlo_once(Script::new().send(smtp::greeting()), &["AUTH LOGIN"])
+            .expect("AUTH LOGIN")
+            .send("334 VXNlcm5hbWU6\r\n")
+            .expect_any()
+    };
+    let after_password = || after_user().send("334 UGFzc3dvcmQ6\r\n").expect_any();
+    for script in [after_user(), after_password()] {
+        for cut in [Script::close, Script::reset] {
+            let server =
+                ScriptedServer::start_tls(cut(script.clone()), cert.server_config()?).await?;
+            let result = sender(&ca)
+                .verify(&request(
+                    server.port(),
+                    Security::Tls,
+                    PlaintextPolicy::deny_all(),
+                ))
+                .await;
+            assert_eq!(
+                result.err(),
+                Some(ConnectionError::Authentication(AuthError::Interrupted))
+            );
+            let _ = server.finish().await;
+        }
+    }
     Ok(())
 }

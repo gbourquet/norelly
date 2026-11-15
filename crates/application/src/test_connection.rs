@@ -649,11 +649,14 @@ mod tests {
             .taking(CONNECTION_TEST_BUDGET * 10);
         let uc = TestConnection::new(
             hanging.clone(),
-            hanging,
+            hanging.clone(),
             InMemoryCertificateExceptionStore::default(),
         );
         let started = tokio::time::Instant::now();
-        for protocol in [Protocol::Imap, Protocol::Smtp] {
+        for (n, protocol) in [Protocol::Imap, Protocol::Smtp].into_iter().enumerate() {
+            // Essai coupé au plafond (serveur muet, par exemple pendant
+            // l'authentification) : jamais d'autre essai, les identifiants
+            // ne repartent pas.
             let outcome = tokio::time::timeout(
                 CONNECTION_TEST_BUDGET * 4,
                 uc.execute(params(protocol, Security::Tls)),
@@ -666,6 +669,7 @@ mod tests {
                 ))),
                 "{protocol:?}"
             );
+            assert_eq!(hanging.requests().len(), n + 1, "{protocol:?}");
         }
         assert!(
             started.elapsed() <= CONNECTION_TEST_BUDGET * 2,

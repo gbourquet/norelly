@@ -59,6 +59,11 @@ pub enum SendFailure {
     /// nom, car une coupure répétée à ce moment peut venir du réseau
     /// utilisé (interception). Rien n'est parti.
     EncryptionInterrupted,
+    /// Connexion coupée, ou serveur muet, après l'envoi des identifiants :
+    /// échec définitif, les identifiants ne sont jamais renvoyés
+    /// automatiquement (un serveur peut bloquer le compte après quelques
+    /// échecs) ; l'utilisateur relance.
+    AuthenticationInterrupted,
 }
 
 /// Faut-il déposer une copie du message envoyé dans « Envoyés » ? Non
@@ -85,8 +90,11 @@ impl SendFailure {
                 // Serveur joint, chiffrement jamais en place : rien n'est
                 // parti, mais l'échec répété doit être nommé.
                 ConnectionError::ClosedBeforeEncryption
-                | ConnectionError::Timeout(TimeoutStage::TlsHandshake) => {
-                    Self::EncryptionInterrupted
+                | ConnectionError::Timeout(
+                    TimeoutStage::TlsHandshake | TimeoutStage::BeforeEncryption,
+                ) => Self::EncryptionInterrupted,
+                ConnectionError::Authentication(AuthError::Interrupted) => {
+                    Self::AuthenticationInterrupted
                 }
                 ConnectionError::Timeout(TimeoutStage::Response | TimeoutStage::Write)
                 | ConnectionError::Closed
@@ -95,10 +103,7 @@ impl SendFailure {
                 // n'est parti.
                 | ConnectionError::Authentication(
                     AuthError::SecretStoreUnavailable { .. } | AuthError::ProviderUnavailable { .. },
-                )
-                // Coupure après l'envoi des identifiants : nouvel essai
-                // espacé (attente croissante), jamais immédiat.
-                | ConnectionError::Authentication(AuthError::Interrupted) => Self::Temporary,
+                ) => Self::Temporary,
                 ConnectionError::Rejected(_) => Self::Rejected,
                 ConnectionError::Authentication(_) => Self::Authentication,
                 ConnectionError::Certificate(_)
@@ -397,15 +402,24 @@ mod tests {
             "serveur joint, négociation TLS bloquée : compté, jamais en attente sans fin"
         );
         assert_eq!(
+            conn(ConnectionError::Timeout(TimeoutStage::BeforeEncryption)),
+            SendFailure::EncryptionInterrupted,
+            "serveur muet avant STARTTLS"
+        );
+        assert_eq!(
             conn(ConnectionError::Authentication(AuthError::Interrupted)),
-            SendFailure::Temporary,
-            "nouvel essai espacé, jamais immédiat"
+            SendFailure::AuthenticationInterrupted,
+            "identifiants jamais renvoyés automatiquement"
         );
     }
 
     #[test]
     fn permanent_failures_stop_at_once() {
-        for failure in [SendFailure::Rejected, SendFailure::Authentication] {
+        for failure in [
+            SendFailure::Rejected,
+            SendFailure::Authentication,
+            SendFailure::AuthenticationInterrupted,
+        ] {
             let e = sending()
                 .failed(failure, NOW)
                 .unwrap_or_else(|e| panic!("{e}"));

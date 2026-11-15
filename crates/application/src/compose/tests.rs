@@ -1125,6 +1125,10 @@ async fn delivery_stops_on_authentication_or_security_failure() {
             SendFailure::Authentication,
         ),
         (
+            ConnectionError::Authentication(AuthError::Interrupted),
+            SendFailure::AuthenticationInterrupted,
+        ),
+        (
             ConnectionError::Tls("certificat".into()),
             SendFailure::Security,
         ),

@@ -19,7 +19,6 @@ mod session;
 mod utf7;
 
 use std::collections::BTreeSet;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use imap_next::imap_types::flag::Flag;
@@ -29,7 +28,8 @@ use norelly_domain::auth::{AuthMethod, authenticator_for, select_imap_auth_metho
 use norelly_domain::capabilities::ServerCapabilities;
 use norelly_domain::compose::draft::RemoteCopy;
 use norelly_domain::connection::{
-    ConnectionError, ConnectionPhase, PASSWORD_AUTH_TIMEOUT, TimeoutStage, authentication_timeout,
+    ConnectionError, ConnectionPhase, OpeningPhase, PASSWORD_AUTH_TIMEOUT, TimeoutStage,
+    authentication_timeout,
 };
 use norelly_domain::endpoint::{Security, ServerEndpoint};
 use norelly_domain::fetch_policy::BodyFetch;
@@ -177,10 +177,12 @@ impl ImapConnector {
 
     /// Connexion chiffrée (ou en clair consenti), salutation lue, avant
     /// authentification. Renvoie aussi les capacités valables sur ce canal
-    /// et `true` si le serveur a pré-authentifié la session.
+    /// et `true` si le serveur a pré-authentifié la session. `opening` suit
+    /// la phase de l'ouverture (voir `connect`).
     async fn open(
         &self,
         request: &ConnectRequest,
+        opening: &OpeningPhase,
     ) -> Result<(Connection, ServerCapabilities, bool), ConnectionError> {
         let endpoint = &request.endpoint;
         let exceptions = &request.certificate_exceptions;
@@ -190,7 +192,9 @@ impl ImapConnector {
         let tcp = self.tcp(endpoint).await?;
 
         if endpoint.security() == Security::Tls {
+            opening.enter(ConnectionPhase::BeforeEncryption);
             let tls = self.tls.connect(tcp, endpoint.host(), exceptions).await?;
+            opening.enter(ConnectionPhase::BeforeAuthentication);
             let mut conn = Connection::new(
                 Transport::Tls(Box::new(tls)),
                 true,
@@ -206,34 +210,28 @@ impl ImapConnector {
             return Ok((conn, caps, preauth));
         }
 
-        // Échange en clair : avant le chiffrement si STARTTLS est exigé.
-        let plaintext = |e| ConnectionPhase::plaintext_opening(endpoint.security()).classify(e);
-        let mut conn = Connection::new(
+        // Échange en clair : avant le chiffrement si STARTTLS est exigé ;
+        // borné en entier par le délai d'ouverture (un serveur qui distille
+        // ses réponses ne le prolonge pas).
+        let phase = ConnectionPhase::plaintext_opening(endpoint.security());
+        opening.enter(phase);
+        let conn = Connection::new(
             Transport::Plain(tcp),
             true,
             timeout,
             PRE_TLS_MAX_RESPONSE_SIZE,
         );
-        let greeting = conn.read_greeting().await.map_err(plaintext)?;
-        if greeting.kind == GreetingKind::PreAuth {
-            // Session déjà authentifiée en clair : STARTTLS n'est plus
-            // possible (RFC 3501, 6.2.1). Refus sauf clair consenti.
-            if endpoint.security() == Security::StartTls {
-                return Err(ConnectionError::StartTlsUnavailable);
-            }
-            let caps = conn.capability().await.map_err(plaintext)?;
-            return Ok((conn, caps, true));
-        }
-        // Capacités en clair : uniquement pour décider de STARTTLS.
-        let plain_caps = match greeting_capabilities(&greeting) {
-            Some(caps) => caps,
-            None => conn.capability().await.map_err(plaintext)?,
-        };
-        match decide_starttls(endpoint.security(), plain_caps.starttls())? {
-            StartTlsDecision::Upgrade => {
-                tracing::debug!(endpoint = %endpoint, "passage en TLS par STARTTLS");
-                let tcp = conn.starttls().await.map_err(plaintext)?;
+        let exchange = Self::plaintext_exchange(conn, endpoint);
+        let outcome = tokio::time::timeout(timeout, exchange)
+            .await
+            .map_err(|_| phase.classify(ConnectionError::Timeout(TimeoutStage::Response)))?
+            .map_err(|e| phase.classify(e))?;
+        match outcome {
+            Plaintext::PreAuth(conn, caps) => Ok((conn, caps, true)),
+            Plaintext::Upgrade(tcp) => {
+                opening.enter(ConnectionPhase::BeforeEncryption);
                 let tls = self.tls.connect(tcp, endpoint.host(), exceptions).await?;
+                opening.enter(ConnectionPhase::BeforeAuthentication);
                 let mut conn = Connection::new(
                     Transport::Tls(Box::new(tls)),
                     false,
@@ -243,15 +241,57 @@ impl ImapConnector {
                 let caps = conn.capability().await?;
                 Ok((conn, caps, false))
             }
+            Plaintext::StayPlain(conn, caps) => {
+                opening.enter(ConnectionPhase::BeforeAuthentication);
+                Ok((conn, caps, false))
+            }
+        }
+    }
+
+    /// Salutation, capacités et `STARTTLS` en clair.
+    async fn plaintext_exchange(
+        mut conn: Connection,
+        endpoint: &ServerEndpoint,
+    ) -> Result<Plaintext, ConnectionError> {
+        let greeting = conn.read_greeting().await?;
+        if greeting.kind == GreetingKind::PreAuth {
+            // Session déjà authentifiée en clair : STARTTLS n'est plus
+            // possible (RFC 3501, 6.2.1). Refus sauf clair consenti.
+            if endpoint.security() == Security::StartTls {
+                return Err(ConnectionError::StartTlsUnavailable);
+            }
+            let caps = conn.capability().await?;
+            return Ok(Plaintext::PreAuth(conn, caps));
+        }
+        // Capacités en clair : uniquement pour décider de STARTTLS.
+        let plain_caps = match greeting_capabilities(&greeting) {
+            Some(caps) => caps,
+            None => conn.capability().await?,
+        };
+        match decide_starttls(endpoint.security(), plain_caps.starttls())? {
+            StartTlsDecision::Upgrade => {
+                tracing::debug!(endpoint = %endpoint, "passage en TLS par STARTTLS");
+                Ok(Plaintext::Upgrade(conn.starttls().await?))
+            }
             StartTlsDecision::StayPlain | StartTlsDecision::AlreadyEncrypted => {
                 // Le canal garde la limite de réponse d'avant TLS (64 Kio)
                 // jusqu'à l'authentification ; elle est relevée ensuite
                 // (voir `connect`).
                 tracing::warn!(endpoint = %endpoint, "connexion IMAP en clair (consentie)");
-                Ok((conn, plain_caps, false))
+                Ok(Plaintext::StayPlain(conn, plain_caps))
             }
         }
     }
+}
+
+/// Issue de l'échange en clair.
+enum Plaintext {
+    /// Session pré-authentifiée en clair (consentie), capacités.
+    PreAuth(Connection, ServerCapabilities),
+    /// `STARTTLS` accepté : flux TCP prêt pour la poignée de main.
+    Upgrade(TcpStream),
+    /// Clair consenti, capacités.
+    StayPlain(Connection, ServerCapabilities),
 }
 
 impl RemoteMailboxConnector for ImapConnector {
@@ -261,34 +301,26 @@ impl RemoteMailboxConnector for ImapConnector {
         request.plaintext.authorize(&request.endpoint)?;
         request.authorize_credentials()?;
         tracing::debug!(endpoint = %request.endpoint, "connexion IMAP");
-        // Durée totale atteinte pendant l'authentification : elle est
-        // interrompue ([`ConnectionPhase::Authentication`]).
-        let authenticating = AtomicBool::new(false);
+        // Durée totale atteinte : erreur de la phase en cours (pendant
+        // l'authentification, celle-ci est interrompue).
+        let opening = OpeningPhase::default();
         tokio::time::timeout(
             self.timeouts.open_total,
-            self.open_session(request, &authenticating),
+            self.open_session(request, &opening),
         )
         .await
-        .map_err(|_| {
-            let phase = if authenticating.load(Ordering::Relaxed) {
-                ConnectionPhase::Authentication
-            } else {
-                ConnectionPhase::BeforeAuthentication
-            };
-            phase.classify(ConnectionError::Timeout(TimeoutStage::Response))
-        })?
+        .map_err(|_| opening.deadline_reached())?
     }
 }
 
 impl ImapConnector {
     /// Ouverture complète : connexion, authentification, capacités.
-    /// `authenticating` : vrai de l'envoi des identifiants à la réponse.
     async fn open_session(
         &self,
         request: &ConnectRequest,
-        authenticating: &AtomicBool,
+        opening: &OpeningPhase,
     ) -> Result<ImapSession, ConnectionError> {
-        let (mut conn, caps, preauth) = self.open(request).await?;
+        let (mut conn, caps, preauth) = self.open(request, opening).await?;
         if !preauth {
             let credentials = &request.credentials;
             conn.set_timeout(authentication_timeout(
@@ -300,7 +332,7 @@ impl ImapConnector {
             // authentification interrompue, jamais rejouée.
             let during_auth = |e| ConnectionPhase::Authentication.classify(e);
             let method = select_imap_auth_method(&caps, credentials.kind())?;
-            authenticating.store(true, Ordering::Relaxed);
+            opening.enter(ConnectionPhase::Authentication);
             match method {
                 AuthMethod::ImapLogin => {
                     tracing::debug!(user = %credentials.username(), "authentification par LOGIN");
@@ -322,7 +354,7 @@ impl ImapConnector {
                     .map_err(during_auth)?;
                 }
             }
-            authenticating.store(false, Ordering::Relaxed);
+            opening.enter(ConnectionPhase::BeforeAuthentication);
             conn.set_timeout(self.timeouts.open);
         }
         conn.mark_authenticated();

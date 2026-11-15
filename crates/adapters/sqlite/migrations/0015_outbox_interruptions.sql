@@ -1,5 +1,6 @@
--- Version 15 : cause d'échec d'envoi « connexion coupée avant le
--- chiffrement » (encryption_interrupted).
+-- Version 15 : causes d'échec d'envoi « connexion coupée avant le
+-- chiffrement » (encryption_interrupted) et « connexion coupée pendant
+-- l'authentification » (authentication_interrupted).
 --
 -- La contrainte CHECK de outbox.failure ne se modifie pas, et la colonne
 -- ne peut pas être remplacée (une contrainte de table la cite) : la table
@@ -19,7 +20,7 @@ CREATE TABLE outbox_v15 (
     failure       TEXT    CHECK (failure IS NULL OR failure IN
                       ('unreachable', 'temporary', 'rejected', 'authentication',
                        'security', 'uncertain', 'too_many_attempts',
-                       'encryption_interrupted')),
+                       'encryption_interrupted', 'authentication_interrupted')),
     attempts      INTEGER NOT NULL CHECK (attempts >= 0),
     queued_at     INTEGER NOT NULL,
     draft_content TEXT,

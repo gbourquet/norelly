@@ -1523,7 +1523,12 @@ export type SendFailureDto = "unreachable" | "temporary" | "rejected" | "authent
  *  Connexion coupée ou bloquée à plusieurs reprises avant la mise en
  *  place du chiffrement : le réseau utilisé peut en être la cause.
  */
-"encryption_interrupted";
+"encryption_interrupted" | 
+/**
+ *  Connexion coupée pendant la vérification des identifiants : ils ne
+ *  sont pas renvoyés automatiquement.
+ */
+"authentication_interrupted";
 
 /**  Serveur (affichage et saisie). */
 export type ServerDto = {

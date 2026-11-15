@@ -19,6 +19,7 @@ describe("libellés de la file d'envoi", () => {
       "uncertain",
       "too_many_attempts",
       "encryption_interrupted",
+      "authentication_interrupted",
     ];
     const labels = failures.map(failureLabel);
     expect(new Set(labels).size).toBe(failures.length);

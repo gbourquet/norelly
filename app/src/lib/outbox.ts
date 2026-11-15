@@ -23,6 +23,8 @@ export function failureLabel(failure: SendFailureDto): string {
       return m.send_failure_too_many_attempts();
     case "encryption_interrupted":
       return m.send_failure_encryption_interrupted();
+    case "authentication_interrupted":
+      return m.send_failure_authentication_interrupted();
   }
 }
 

@@ -51,6 +51,9 @@ pub(crate) fn is_format_char(c: char) -> bool {
 pub enum TimeoutStage {
     Connect,
     TlsHandshake,
+    /// Serveur muet pendant l'échange en clair qui précède STARTTLS : le
+    /// chiffrement n'a pas pu être mis en place.
+    BeforeEncryption,
     Response,
     Write,
 }
@@ -165,7 +168,10 @@ impl ConnectionError {
         matches!(
             self,
             Self::Timeout(
-                TimeoutStage::TlsHandshake | TimeoutStage::Response | TimeoutStage::Write
+                TimeoutStage::TlsHandshake
+                    | TimeoutStage::BeforeEncryption
+                    | TimeoutStage::Response
+                    | TimeoutStage::Write
             ) | Self::Closed
                 | Self::ClosedBeforeEncryption
         )
@@ -178,16 +184,65 @@ impl ConnectionError {
     /// L'envoi sera vérifié au premier message. Un serveur introuvable, un
     /// refus ou une protection bloquent l'ajout, de même qu'une coupure ou
     /// une négociation bloquée avant la fin du chiffrement : c'est ce que
-    /// produirait un réseau qui intercepte la connexion. Pour des serveurs
-    /// saisis, un port ou un chiffrement faux produit le même silence :
-    /// cette règle ne s'y applique pas.
+    /// produirait un réseau qui intercepte la connexion. Un jeton présenté
+    /// une fois sur le canal chiffré, puis coupé ou resté sans réponse
+    /// ([`AuthError::Interrupted`]), ne bloque pas l'ajout : il n'est pas
+    /// renvoyé. Pour des serveurs saisis, un port ou un chiffrement faux
+    /// produit le même silence : cette règle ne s'y applique pas.
     #[must_use]
     pub fn send_check_can_wait(&self) -> bool {
-        self.is_unresponsive()
-            && !matches!(
-                self,
-                Self::ClosedBeforeEncryption | Self::Timeout(TimeoutStage::TlsHandshake)
-            )
+        let before_encryption = matches!(
+            self,
+            Self::ClosedBeforeEncryption
+                | Self::Timeout(TimeoutStage::TlsHandshake | TimeoutStage::BeforeEncryption)
+        );
+        (self.is_unresponsive() && !before_encryption)
+            || matches!(self, Self::Authentication(AuthError::Interrupted))
+    }
+
+    /// Identifiants refusés ou authentification interrompue : une
+    /// reconnexion les renverrait au serveur, qui peut bloquer le compte
+    /// après quelques échecs.
+    #[must_use]
+    pub fn credentials_failed(&self) -> bool {
+        matches!(
+            self,
+            Self::Authentication(AuthError::Rejected { .. } | AuthError::Interrupted)
+        )
+    }
+}
+
+/// Phase courante d'une ouverture de connexion, lue par le délai total qui
+/// l'enveloppe.
+#[derive(Debug, Default)]
+pub struct OpeningPhase(std::sync::atomic::AtomicU8);
+
+impl OpeningPhase {
+    /// L'ouverture entre dans `phase`.
+    pub fn enter(&self, phase: ConnectionPhase) {
+        let code = match phase {
+            ConnectionPhase::BeforeAuthentication => 0,
+            ConnectionPhase::BeforeEncryption => 1,
+            ConnectionPhase::Authentication => 2,
+        };
+        self.0.store(code, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// Phase courante (au départ : rien d'envoyé, ni chiffrement exigé).
+    #[must_use]
+    pub fn current(&self) -> ConnectionPhase {
+        match self.0.load(std::sync::atomic::Ordering::Relaxed) {
+            1 => ConnectionPhase::BeforeEncryption,
+            2 => ConnectionPhase::Authentication,
+            _ => ConnectionPhase::BeforeAuthentication,
+        }
+    }
+
+    /// Erreur du délai total d'ouverture atteint dans la phase courante.
+    #[must_use]
+    pub fn deadline_reached(&self) -> ConnectionError {
+        self.current()
+            .classify(ConnectionError::Timeout(TimeoutStage::Response))
     }
 }
 
@@ -207,37 +262,41 @@ pub enum ConnectionPhase {
 }
 
 impl ConnectionPhase {
-    /// Phase de l'échange en clair qui précède l'authentification :
-    /// avant le chiffrement si STARTTLS est exigé ; sur un serveur en clair
-    /// consenti, il n'y a pas de chiffrement à attendre.
+    /// Phase de l'échange en clair qui précède l'authentification : avant
+    /// le chiffrement si STARTTLS est exigé ; sur un serveur en clair
+    /// consenti, il n'y a pas de chiffrement à attendre. En TLS implicite,
+    /// il n'y a pas d'échange en clair.
     #[must_use]
     pub fn plaintext_opening(security: crate::endpoint::Security) -> Self {
         match security {
-            crate::endpoint::Security::Tls | crate::endpoint::Security::StartTls => {
-                Self::BeforeEncryption
+            crate::endpoint::Security::StartTls => Self::BeforeEncryption,
+            crate::endpoint::Security::Tls | crate::endpoint::Security::Plain => {
+                Self::BeforeAuthentication
             }
-            crate::endpoint::Security::Plain => Self::BeforeAuthentication,
         }
     }
 
     /// Erreur d'une connexion survenue pendant cette phase :
-    /// - avant le chiffrement, une coupure (fermeture ou réinitialisation,
-    ///   indifféremment) devient [`ConnectionError::ClosedBeforeEncryption`] ;
-    /// - pendant l'authentification, une coupure ou un silence devient
-    ///   [`AuthError::Interrupted`], qui n'est pas rejoué ;
+    /// - avant le chiffrement, une coupure par le serveur ou le réseau
+    ///   (fermeture ou réinitialisation, indifféremment) devient
+    ///   [`ConnectionError::ClosedBeforeEncryption`], et un silence
+    ///   [`TimeoutStage::BeforeEncryption`] ; un réseau perdu (hors ligne,
+    ///   hôte injoignable) reste une erreur réseau ;
+    /// - pendant l'authentification, une coupure, un silence ou un réseau
+    ///   perdu devient [`AuthError::Interrupted`], qui n'est pas rejoué :
+    ///   les identifiants ont pu arriver ;
     /// - tout autre échec est gardé tel quel.
     #[must_use]
     pub fn classify(self, error: ConnectionError) -> ConnectionError {
         match (self, error) {
-            (Self::BeforeEncryption, ConnectionError::Closed | ConnectionError::Network(_)) => {
+            (Self::BeforeEncryption, ConnectionError::Closed) => {
                 ConnectionError::ClosedBeforeEncryption
             }
             (
-                Self::Authentication,
-                ConnectionError::Closed
-                | ConnectionError::Network(_)
-                | ConnectionError::Timeout(TimeoutStage::Response | TimeoutStage::Write),
-            ) => AuthError::Interrupted.into(),
+                Self::BeforeEncryption,
+                ConnectionError::Timeout(TimeoutStage::Response | TimeoutStage::Write),
+            ) => ConnectionError::Timeout(TimeoutStage::BeforeEncryption),
+            (Self::Authentication, error) if error.is_transient() => AuthError::Interrupted.into(),
             (_, error) => error,
         }
     }
@@ -409,10 +468,9 @@ mod tests {
         use crate::endpoint::Security;
 
         /// Coupures et silences du serveur.
-        fn cuts_and_silences() -> [ConnectionError; 4] {
+        fn cuts_and_silences() -> [ConnectionError; 3] {
             [
                 ConnectionError::Closed,
-                ConnectionError::Network("connexion réinitialisée".into()),
                 ConnectionError::Timeout(TimeoutStage::Response),
                 ConnectionError::Timeout(TimeoutStage::Write),
             ]
@@ -433,7 +491,10 @@ mod tests {
 
         #[test]
         fn a_cut_or_silence_after_the_credentials_is_an_interrupted_authentication() {
-            for e in cuts_and_silences() {
+            // Réseau perdu une fois les identifiants partis : ils ont pu
+            // arriver, un nouvel essai les renverrait.
+            let lost = ConnectionError::Network("réseau injoignable".into());
+            for e in cuts_and_silences().into_iter().chain([lost]) {
                 let classified = ConnectionPhase::Authentication.classify(e.clone());
                 assert_eq!(
                     classified,
@@ -444,11 +505,40 @@ mod tests {
         }
 
         #[test]
+        fn no_failure_during_authentication_stays_transient() {
+            for stage in [
+                TimeoutStage::Connect,
+                TimeoutStage::TlsHandshake,
+                TimeoutStage::BeforeEncryption,
+                TimeoutStage::Response,
+                TimeoutStage::Write,
+            ] {
+                let e = ConnectionError::Timeout(stage);
+                assert!(
+                    !ConnectionPhase::Authentication.classify(e).is_transient(),
+                    "{stage:?}"
+                );
+            }
+            for e in [
+                ConnectionError::Closed,
+                ConnectionError::ClosedBeforeEncryption,
+                ConnectionError::Network("x".into()),
+            ] {
+                assert!(
+                    !ConnectionPhase::Authentication
+                        .classify(e.clone())
+                        .is_transient(),
+                    "{e:?}"
+                );
+            }
+        }
+
+        #[test]
         fn an_interrupted_authentication_is_never_replayed() {
             let interrupted = ConnectionError::from(AuthError::Interrupted);
             assert!(!interrupted.is_transient());
             assert!(!interrupted.retry_is_useless());
-            assert!(!interrupted.send_check_can_wait());
+            assert!(interrupted.credentials_failed());
             assert_eq!(interrupted.category(), FailureCategory::Authentication);
             assert_eq!(
                 next_test_attempt(1, Some(&interrupted), std::time::Duration::ZERO),
@@ -457,37 +547,74 @@ mod tests {
         }
 
         #[test]
-        fn a_cut_before_encryption_is_named_as_such() {
+        fn an_interrupted_token_lets_the_oauth_account_wait_for_its_first_send() {
+            // Serveur d'envoi coupé après le jeton, sur un canal chiffré :
+            // rien n'est rejoué, l'envoi sera vérifié au premier message.
+            assert!(ConnectionError::from(AuthError::Interrupted).send_check_can_wait());
+        }
+
+        #[test]
+        fn only_a_refusal_or_an_interruption_is_a_credentials_failure() {
+            assert!(
+                ConnectionError::from(AuthError::Rejected {
+                    message: "x".into()
+                })
+                .credentials_failed()
+            );
             for e in [
                 ConnectionError::Closed,
-                ConnectionError::Network("connexion réinitialisée".into()),
+                ConnectionError::from(AuthError::LoginDisabled),
+                ConnectionError::from(AuthError::ProviderUnavailable {
+                    message: "x".into(),
+                }),
+                ConnectionError::Rejected("x".into()),
             ] {
-                assert_eq!(
-                    ConnectionPhase::BeforeEncryption.classify(e.clone()),
-                    ConnectionError::ClosedBeforeEncryption,
-                    "{e:?}"
-                );
-            }
-            // Un silence garde son étape : le délai qui a expiré.
-            for e in [
-                ConnectionError::Timeout(TimeoutStage::Response),
-                ConnectionError::Timeout(TimeoutStage::TlsHandshake),
-            ] {
-                assert_eq!(ConnectionPhase::BeforeEncryption.classify(e.clone()), e);
+                assert!(!e.credentials_failed(), "{e:?}");
             }
         }
 
         #[test]
-        fn a_cut_before_encryption_is_retried_but_never_tolerated() {
-            let cut = ConnectionError::ClosedBeforeEncryption;
-            assert!(cut.is_transient(), "aucun identifiant n'est parti");
-            assert!(cut.is_unresponsive());
-            assert_eq!(cut.category(), FailureCategory::Network);
-            assert!(!cut.send_check_can_wait());
-            assert!(
-                !ConnectionError::Timeout(TimeoutStage::TlsHandshake).send_check_can_wait(),
-                "négociation TLS bloquée"
+        fn a_cut_or_silence_before_encryption_is_named_as_such() {
+            assert_eq!(
+                ConnectionPhase::BeforeEncryption.classify(ConnectionError::Closed),
+                ConnectionError::ClosedBeforeEncryption
             );
+            for e in [
+                ConnectionError::Timeout(TimeoutStage::Response),
+                ConnectionError::Timeout(TimeoutStage::Write),
+            ] {
+                assert_eq!(
+                    ConnectionPhase::BeforeEncryption.classify(e.clone()),
+                    ConnectionError::Timeout(TimeoutStage::BeforeEncryption),
+                    "{e:?}"
+                );
+            }
+            // Réseau perdu (hors ligne, hôte injoignable) : pas une coupure
+            // par le serveur ni le signe d'une interception.
+            let lost = ConnectionError::Network("réseau injoignable".into());
+            assert_eq!(
+                ConnectionPhase::BeforeEncryption.classify(lost.clone()),
+                lost
+            );
+            let handshake = ConnectionError::Timeout(TimeoutStage::TlsHandshake);
+            assert_eq!(
+                ConnectionPhase::BeforeEncryption.classify(handshake.clone()),
+                handshake
+            );
+        }
+
+        #[test]
+        fn a_cut_before_encryption_is_retried_but_never_tolerated() {
+            for e in [
+                ConnectionError::ClosedBeforeEncryption,
+                ConnectionError::Timeout(TimeoutStage::BeforeEncryption),
+                ConnectionError::Timeout(TimeoutStage::TlsHandshake),
+            ] {
+                assert!(e.is_transient(), "aucun identifiant n'est parti : {e:?}");
+                assert!(e.is_unresponsive(), "{e:?}");
+                assert_eq!(e.category(), FailureCategory::Network);
+                assert!(!e.send_check_can_wait(), "{e:?}");
+            }
         }
 
         #[test]
@@ -507,18 +634,40 @@ mod tests {
         }
 
         #[test]
-        fn the_plaintext_opening_precedes_encryption_unless_plaintext_was_consented() {
+        fn only_starttls_has_a_plaintext_exchange_before_encryption() {
             assert_eq!(
                 ConnectionPhase::plaintext_opening(Security::StartTls),
                 ConnectionPhase::BeforeEncryption
             );
+            for security in [Security::Tls, Security::Plain] {
+                assert_eq!(
+                    ConnectionPhase::plaintext_opening(security),
+                    ConnectionPhase::BeforeAuthentication
+                );
+            }
+        }
+
+        #[test]
+        fn the_total_opening_delay_is_classified_by_the_current_phase() {
+            let opening = OpeningPhase::default();
             assert_eq!(
-                ConnectionPhase::plaintext_opening(Security::Tls),
-                ConnectionPhase::BeforeEncryption
+                opening.deadline_reached(),
+                ConnectionError::Timeout(TimeoutStage::Response)
             );
+            opening.enter(ConnectionPhase::BeforeEncryption);
             assert_eq!(
-                ConnectionPhase::plaintext_opening(Security::Plain),
-                ConnectionPhase::BeforeAuthentication
+                opening.deadline_reached(),
+                ConnectionError::Timeout(TimeoutStage::BeforeEncryption)
+            );
+            opening.enter(ConnectionPhase::Authentication);
+            assert_eq!(
+                opening.deadline_reached(),
+                ConnectionError::from(AuthError::Interrupted)
+            );
+            opening.enter(ConnectionPhase::BeforeAuthentication);
+            assert_eq!(
+                opening.deadline_reached(),
+                ConnectionError::Timeout(TimeoutStage::Response)
             );
         }
     }
@@ -641,14 +790,15 @@ mod tests {
             ConnectionError::Timeout(TimeoutStage::Response),
             ConnectionError::Timeout(TimeoutStage::Write),
             ConnectionError::Closed,
+            ConnectionError::from(AuthError::Interrupted),
         ] {
             assert!(e.send_check_can_wait(), "{e:?}");
         }
         for e in [
             // Avant la fin du chiffrement : interception possible.
             ConnectionError::Timeout(TimeoutStage::TlsHandshake),
+            ConnectionError::Timeout(TimeoutStage::BeforeEncryption),
             ConnectionError::ClosedBeforeEncryption,
-            ConnectionError::from(AuthError::Interrupted),
             ConnectionError::Network("nom inconnu".into()),
             ConnectionError::Timeout(TimeoutStage::Connect),
             ConnectionError::from(AuthError::LoginDisabled),

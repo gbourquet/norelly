@@ -1120,6 +1120,9 @@ pub enum SendFailureDto {
     /// Connexion coupée ou bloquée à plusieurs reprises avant la mise en
     /// place du chiffrement : le réseau utilisé peut en être la cause.
     EncryptionInterrupted,
+    /// Connexion coupée pendant la vérification des identifiants : ils ne
+    /// sont pas renvoyés automatiquement.
+    AuthenticationInterrupted,
 }
 
 /// État d'un message de la file d'envoi.

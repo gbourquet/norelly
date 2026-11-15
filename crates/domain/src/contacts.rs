@@ -168,6 +168,19 @@ pub struct ContactInput {
 }
 
 impl ContactInput {
+    /// Un nom (affiché, prénom, nom, surnom) imite-t-il une adresse ?
+    #[must_use]
+    pub fn has_names_imitating_address(&self) -> bool {
+        [
+            &self.display_name,
+            &self.given_name,
+            &self.family_name,
+            &self.nickname,
+        ]
+        .into_iter()
+        .any(|name| imitates_address(name))
+    }
+
     /// Retire les noms (affiché, prénom, nom, surnom) qui imitent une
     /// adresse ; vrai si un nom l'a été.
     pub fn drop_names_imitating_address(&mut self) -> bool {
@@ -714,6 +727,24 @@ pub fn clean_invisible(input: ContactInput) -> InvisibleCleanup {
     // Retirer des caractères ne rend invalide aucune fiche qui suivait les
     // règles d'avant : un refus vient d'un autre défaut de la ligne.
     ContactDraft::new(cleaned).map_or(InvisibleCleanup::Keep, InvisibleCleanup::Rewrite)
+}
+
+/// Nettoie une fiche enregistrée avant que les noms qui imitent une
+/// adresse ne soient refusés à la saisie : ces noms sont retirés, comme à
+/// l'import. Une fiche qui contient aussi des caractères invisibles (restée
+/// telle quelle au nettoyage de [`clean_invisible`], qui la validait avec
+/// ce nom) en est nettoyée du même coup. Sans tel nom : [`InvisibleCleanup::Keep`].
+#[must_use]
+pub fn clean_names_imitating_address(mut input: ContactInput) -> InvisibleCleanup {
+    if !input.drop_names_imitating_address() {
+        return InvisibleCleanup::Keep;
+    }
+    match clean_invisible(input.clone()) {
+        InvisibleCleanup::Keep => {
+            ContactDraft::new(input).map_or(InvisibleCleanup::Keep, InvisibleCleanup::Rewrite)
+        }
+        cleaned => cleaned,
+    }
 }
 
 /// Filtre de la liste des contacts.
@@ -1357,13 +1388,64 @@ mod tests {
         let mut i = input(&["a@example.com"]);
         i.given_name = "Alice".into();
         i.organization = "a@b".into();
+        assert!(!i.has_names_imitating_address());
         assert!(!i.drop_names_imitating_address());
         assert_eq!(i.given_name, "Alice");
         assert_eq!(i.organization, "a@b");
         i.nickname = "x@y".into();
+        assert!(i.has_names_imitating_address());
         assert!(i.drop_names_imitating_address());
+        assert!(!i.has_names_imitating_address());
         assert_eq!(i.nickname, "");
         assert_eq!(i.given_name, "Alice");
+    }
+
+    #[test]
+    fn stored_names_imitating_an_address_are_cleaned() {
+        // Sans tel nom : rien à faire.
+        let mut i = input(&["a@example.com"]);
+        i.display_name = "Alice".into();
+        assert_eq!(clean_names_imitating_address(i), InvisibleCleanup::Keep);
+        // Nom retiré, fiche réécrite.
+        let mut i = input(&["a@example.com"]);
+        i.display_name = "ceo@bank.example".into();
+        i.given_name = "Bob".into();
+        let InvisibleCleanup::Rewrite(d) = clean_names_imitating_address(i) else {
+            panic!("fiche non réécrite");
+        };
+        assert_eq!(
+            (d.display_name_field(), d.given_name()),
+            (None, Some("Bob"))
+        );
+        // Fiche invalide pour une autre raison : laissée telle quelle.
+        let mut i = input(&["a@example.com"]);
+        i.display_name = "x@y".into();
+        i.notes = "a\0b".into();
+        assert_eq!(clean_names_imitating_address(i), InvisibleCleanup::Keep);
+    }
+
+    #[test]
+    fn stored_names_imitating_an_address_are_cleaned_with_invisible_characters() {
+        // Restée telle quelle au nettoyage des invisibles (nom refusé) :
+        // nettoyée des deux à la fois.
+        let mut i = input(&["ali\u{3164}ce@example.com", "alice@example.com"]);
+        i.display_name = "ceo@bank.example".into();
+        i.given_name = "Ali\u{2800}ce".into();
+        assert_eq!(clean_invisible(i.clone()), InvisibleCleanup::Keep);
+        let InvisibleCleanup::Rewrite(d) = clean_names_imitating_address(i) else {
+            panic!("fiche non réécrite");
+        };
+        assert_eq!(
+            (d.display_name_field(), d.given_name()),
+            (None, Some("Alice"))
+        );
+        let keys: Vec<&str> = d.emails().iter().map(|e| e.key().as_str()).collect();
+        assert_eq!(keys, ["alice@example.com"]);
+        // Plus aucune adresse utilisable : retirée, comme au nettoyage des
+        // invisibles.
+        let mut i = input(&["\u{2800}@example.com"]);
+        i.nickname = "<x>".into();
+        assert_eq!(clean_names_imitating_address(i), InvisibleCleanup::Remove);
     }
 
     #[test]

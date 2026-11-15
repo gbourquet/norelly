@@ -15,7 +15,7 @@ use norelly_domain::contact_export::ContactSelection;
 use norelly_domain::contact_import::ContactCompletion;
 use norelly_domain::contacts::{
     AddressKey, Contact, ContactDraft, ContactFilter, ContactId, ContactInput, EmailInput,
-    InvisibleCleanup, MAX_CONTACT_ID, PhoneInput, clean_invisible,
+    InvisibleCleanup, MAX_CONTACT_ID, PhoneInput, clean_invisible, clean_names_imitating_address,
 };
 use norelly_domain::ports::{
     ContactBook, ContactCursor, ContactDirectory, ContactListItem, ContactPage, ContactStoreError,
@@ -145,7 +145,11 @@ impl ContactRow {
         let id = ContactId::new(raw).ok_or_else(|| corrupted(raw, "identifiant"))?;
         let derived = self.derived.clone();
         let (input, keys) = self.into_input();
-        let draft = ContactDraft::new(input).map_err(|e| corrupted(raw, &e.to_string()))?;
+        // Nom imitant une adresse, retiré à la relecture : tri et filtre
+        // stockés ont été calculés avec lui, ils ne peuvent pas être ceux
+        // de la fiche relue (la fiche reste valide).
+        let names_dropped = input.has_names_imitating_address();
+        let draft = ContactDraft::from_stored(input).map_err(|e| corrupted(raw, &e.to_string()))?;
         // La contrainte d'unicité et la recherche par adresse portent sur
         // la clé stockée : elle doit être celle que calcule le domaine.
         let stored = keys.iter().map(String::as_str);
@@ -154,7 +158,7 @@ impl ContactRow {
         }
         // L'ordre de la liste et le filtre portent sur les colonnes
         // stockées : elles doivent être celles que calcule le domaine.
-        if derived != (draft.sort_key(), draft.search_text()) {
+        if !names_dropped && derived != (draft.sort_key(), draft.search_text()) {
             return Err(corrupted(raw, "clé de tri ou texte cherché"));
         }
         Ok(draft.with_id(id))
@@ -229,6 +233,76 @@ pub(crate) fn clean_invisible_contacts(tx: &Transaction<'_>) -> Result<(), Store
         removed,
         unreadable,
         "carnet : caractères invisibles retirés"
+    );
+    Ok(())
+}
+
+/// Étape de la migration 19 : retire des fiches enregistrées les noms qui
+/// imitent une adresse, que la saisie refuse désormais, selon
+/// [`clean_names_imitating_address`] (fiche réécrite, tri et filtre
+/// recalculés). Comme à la migration 18, une fiche illisible (type ou
+/// encodage d'une colonne) ou invalide pour une autre raison est laissée
+/// telle quelle : elle ne doit pas empêcher d'ouvrir la base.
+pub(crate) fn drop_names_imitating_address(tx: &Transaction<'_>) -> Result<(), StoreError> {
+    let (mut rewritten, mut removed, mut unreadable) = (0_usize, 0_usize, 0_usize);
+    let mut after = 0_i64;
+    loop {
+        let ids: Vec<i64> = tx
+            .prepare_cached("SELECT id FROM contacts WHERE id > ?1 ORDER BY id LIMIT ?2")
+            .and_then(|mut s| {
+                s.query_map(params![after, CLEANUP_BATCH], |r| r.get(0))?
+                    .collect()
+            })
+            .map_err(store_error)?;
+        let Some(&last) = ids.last() else {
+            break;
+        };
+        after = last;
+        // Lot illisible : fiches relues une à une, les illisibles passées.
+        let mut batch = match rows(tx, &ids) {
+            Ok(batch) => batch,
+            Err(_) => {
+                let mut batch = HashMap::new();
+                for &id in &ids {
+                    match rows(tx, &[id]) {
+                        Ok(one) => batch.extend(one),
+                        Err(_) => unreadable += 1,
+                    }
+                }
+                batch
+            }
+        };
+        for id in ids {
+            let Some(row) = batch.remove(&id) else {
+                continue;
+            };
+            // Valeur d'un type inattendu : champs lus incomplets, la fiche
+            // est laissée telle quelle, comme à la migration 18.
+            if row.unreadable {
+                unreadable += 1;
+                continue;
+            }
+            let (input, _) = row.into_input();
+            match clean_names_imitating_address(input) {
+                InvisibleCleanup::Keep => {}
+                InvisibleCleanup::Rewrite(draft) => {
+                    write(tx, id, &draft)?;
+                    rewritten += 1;
+                }
+                InvisibleCleanup::Remove => {
+                    tx.execute("DELETE FROM contacts WHERE id = ?1", params![id])
+                        .map_err(store_error)?;
+                    removed += 1;
+                }
+            }
+        }
+    }
+    // Des nombres seulement : aucune donnée de fiche dans le journal.
+    tracing::info!(
+        rewritten,
+        removed,
+        unreadable,
+        "carnet : noms imitant une adresse retirés"
     );
     Ok(())
 }
@@ -929,6 +1003,73 @@ mod tests {
             book.get(a.id()).await.is_err(),
             "clé stockée incohérente acceptée"
         );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn a_stored_name_imitating_an_address_is_dropped_on_read() -> Result<(), ContactStoreError>
+    {
+        let book = book();
+        let a = book
+            .create(&sample_contact("Alice", &["a@example.com"]))
+            .await?;
+        book.db
+            .write_for_tests("UPDATE contacts SET display_name = 'ceo@bank.example';")
+            .await?;
+        let read = book
+            .get(a.id())
+            .await?
+            .unwrap_or_else(|| panic!("contact absent"));
+        assert_eq!(read.draft().display_name_field(), None);
+        assert_eq!(read.draft().display_name(), "a@example.com");
+        Ok(())
+    }
+
+    /// Fiche enregistrée avec un nom qui imite une adresse (règle élargie
+    /// après son écriture) : relue sans ce nom, elle reste dans la liste
+    /// (ses tri et filtre stockés, calculés avec ce nom, ne la rendent pas
+    /// invalide) ; une fiche invalide pour une autre raison est écartée
+    /// seule.
+    #[tokio::test]
+    async fn a_stored_name_imitating_an_address_keeps_its_card_listed()
+    -> Result<(), ContactStoreError> {
+        let book = book();
+        let alice = book
+            .create(&sample_contact("Alice", &["alice@example.com"]))
+            .await?;
+        let bob = book
+            .create(&sample_contact("Bob", &["bob@example.com"]))
+            .await?;
+        let carole = book
+            .create(&sample_contact("Carole", &["carole@example.com"]))
+            .await?;
+        let (alice_id, bob_id) = (alice.id().get(), bob.id().get());
+        book.db
+            .run(move |c| {
+                c.execute(
+                    "UPDATE contacts SET display_name = 'ceo@bank.example' WHERE id = ?1",
+                    params![alice_id],
+                )
+                .map_err(store_error)?;
+                c.execute(
+                    "UPDATE contact_emails SET address = 'pas une adresse' \
+                     WHERE contact_id = ?1",
+                    params![bob_id],
+                )
+                .map_err(store_error)
+            })
+            .await?;
+        let page = book
+            .page(&ContactFilter::default(), None, PageSize::new(10))
+            .await?;
+        let ids: Vec<ContactId> = page.items.iter().map(|i| i.id).collect();
+        assert_eq!(ids, vec![alice.id(), carole.id()]);
+        let read = book
+            .get(alice.id())
+            .await?
+            .unwrap_or_else(|| panic!("fiche absente"));
+        assert_eq!(read.draft().display_name_field(), None);
+        assert!(book.get(bob.id()).await.is_err(), "fiche invalide relue");
         Ok(())
     }
 

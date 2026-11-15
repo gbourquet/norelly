@@ -65,6 +65,13 @@ fn migrations() -> Migrations<'static> {
                     .map_err(|e| rusqlite_migration::HookError::Hook(e.0))
             },
         ),
+        M::up_with_hook(
+            include_str!("../migrations/0019_contact_names.sql"),
+            |tx: &rusqlite::Transaction<'_>| {
+                contacts::drop_names_imitating_address(tx)
+                    .map_err(|e| rusqlite_migration::HookError::Hook(e.0))
+            },
+        ),
     ])
 }
 
@@ -682,6 +689,9 @@ mod tests {
          VALUES ('V18', 'v18', 'v18\nv18@example.com'); \
          INSERT INTO contact_emails (contact_id, position, address, address_key, label, preferred) \
          VALUES (2, 0, 'v18@example.com', 'v18@example.com', NULL, 1);",
+        // v19 : schéma inchangé (noms imitant une adresse retirés) ; un
+        // surnom au contact de la version 11.
+        "UPDATE contacts SET nickname = 'V19' WHERE id = 1;",
     ];
 
     /// Base de version 17 : à la montée en version 18, les caractères
@@ -871,6 +881,178 @@ mod tests {
             )
             .unwrap_or_else(|e| panic!("depuis v{} : {e}", start + 1));
         }
+    }
+
+    /// Noms, tri et filtre d'une fiche, lus tels quels en base.
+    type StoredNames = (
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        String,
+        String,
+    );
+
+    fn stored_names(conn: &Connection, id: i64) -> StoredNames {
+        conn.query_row(
+            "SELECT display_name, given_name, family_name, nickname, organization, \
+             sort_key, search_text FROM contacts WHERE id = ?1",
+            [id],
+            |r| {
+                Ok((
+                    r.get(0)?,
+                    r.get(1)?,
+                    r.get(2)?,
+                    r.get(3)?,
+                    r.get(4)?,
+                    r.get(5)?,
+                    r.get(6)?,
+                ))
+            },
+        )
+        .unwrap_or_else(|e| panic!("fiche {id} : {e}"))
+    }
+
+    /// Base de version 18 : à la montée en version 19, un nom de contact
+    /// qui imite une adresse est retiré (tri et filtre recalculés), les
+    /// autres noms et fiches sont gardés tels quels, et la fiche se relit ;
+    /// une fiche invalide pour une autre raison ou illisible n'empêche pas
+    /// l'ouverture de la base.
+    #[tokio::test]
+    async fn upgrading_to_v19_drops_contact_names_imitating_an_address() -> Result<(), StoreError> {
+        use norelly_domain::contacts::ContactId;
+        use norelly_domain::ports::ContactDirectory;
+        let mut conn = Connection::open_in_memory().map_err(store_error)?;
+        conn.pragma_update(None, "foreign_keys", "ON")
+            .map_err(store_error)?;
+        let m = migrations();
+        for (version, fixture) in FIXTURES.iter().enumerate().take(18) {
+            m.to_version(&mut conn, version + 1)
+                .map_err(|e| StoreError(e.to_string()))?;
+            conn.execute_batch(fixture).map_err(store_error)?;
+        }
+        // Fiche 10 : noms à retirer, organisation et téléphone gardés.
+        // Fiche 11 : sans adresse (invalide pour une autre raison).
+        // Fiche 12 : surnom illisible (UTF-8 invalide).
+        // Fiche 15 : surnom d'un type inattendu (BLOB), lu incomplet.
+        conn.execute_batch(
+            "INSERT INTO contacts (id, display_name, given_name, family_name, nickname, \
+             organization, sort_key, search_text) VALUES \
+             (10, 'ceo@bank.example', 'Bob', 'Banque <x>', 'Bobby', 'ACME <ventes>', \
+             'ceo@bank.example', \
+             'ceo@bank.example\nbob\nbanque <x>\nbobby\nacme <ventes>\npirate@example.net'), \
+             (11, 'x@y', NULL, NULL, NULL, NULL, 'x@y', 'x@y'), \
+             (12, 'z@w', NULL, NULL, CAST(X'FF' AS TEXT), NULL, 'z@w', 'z@w'), \
+             (15, 'w@v', NULL, NULL, X'00FF', NULL, 'w@v', 'w@v'); \
+             INSERT INTO contact_emails (contact_id, position, address, address_key, label, \
+             preferred) VALUES \
+             (10, 0, 'pirate@example.net', 'pirate@example.net', NULL, 1), \
+             (12, 0, 'z@example.net', 'z@example.net', NULL, 1), \
+             (15, 0, 'w@example.net', 'w@example.net', NULL, 1); \
+             INSERT INTO contact_phones (contact_id, position, number, label) \
+             VALUES (10, 0, '06 00', 'maison');",
+        )
+        .map_err(store_error)?;
+        m.to_version(&mut conn, 19)
+            .map_err(|e| StoreError(e.to_string()))?;
+        assert_eq!(
+            stored_names(&conn, 10),
+            (
+                None,
+                Some("Bob".to_owned()),
+                None,
+                Some("Bobby".to_owned()),
+                Some("ACME <ventes>".to_owned()),
+                "bob".to_owned(),
+                "bob\nbobby\nacme <ventes>\npirate@example.net".to_owned(),
+            )
+        );
+        // Fiche saine : rien n'est réécrit.
+        assert_eq!(
+            stored_names(&conn, 1),
+            (
+                Some("V11".to_owned()),
+                None,
+                None,
+                None,
+                None,
+                "v11".to_owned(),
+                "v11\nv11@example.com".to_owned(),
+            )
+        );
+        // Fiches invalide et illisible : laissées telles quelles.
+        assert_eq!(stored_names(&conn, 11).0.as_deref(), Some("x@y"));
+        let untouched: String = conn
+            .query_row("SELECT display_name FROM contacts WHERE id = 12", [], |r| {
+                r.get(0)
+            })
+            .map_err(store_error)?;
+        assert_eq!(untouched, "z@w");
+        let blob: (String, Vec<u8>) = conn
+            .query_row(
+                "SELECT display_name, nickname FROM contacts WHERE id = 15",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .map_err(store_error)?;
+        assert_eq!(blob, ("w@v".to_owned(), vec![0x00, 0xFF]));
+
+        let db = Database::init(conn).map_err(|e| StoreError(e.to_string()))?;
+        let book = contacts::SqliteContactBook::new(db);
+        let id = ContactId::new(10).ok_or_else(|| StoreError("id".into()))?;
+        let bob = book.get(id).await?.ok_or_else(|| StoreError("10".into()))?;
+        assert_eq!(bob.draft().display_name(), "Bob");
+        assert_eq!(bob.draft().phones().len(), 1);
+        Ok(())
+    }
+
+    /// Base de version 17 : une fiche qui contient à la fois des caractères
+    /// invisibles et un nom imitant une adresse est nettoyée des deux par
+    /// les montées en versions 18 puis 19, et se relit.
+    #[tokio::test]
+    async fn upgrading_from_v17_cleans_invisible_characters_and_address_like_names()
+    -> Result<(), StoreError> {
+        use norelly_domain::contacts::ContactId;
+        use norelly_domain::ports::ContactDirectory;
+        let mut conn = Connection::open_in_memory().map_err(store_error)?;
+        conn.pragma_update(None, "foreign_keys", "ON")
+            .map_err(store_error)?;
+        let m = migrations();
+        for (version, fixture) in FIXTURES.iter().enumerate().take(17) {
+            m.to_version(&mut conn, version + 1)
+                .map_err(|e| StoreError(e.to_string()))?;
+            conn.execute_batch(fixture).map_err(store_error)?;
+        }
+        conn.execute_batch(
+            "INSERT INTO contacts (id, display_name, given_name, notes, sort_key, search_text) \
+             VALUES (20, 'ceo@bank.example', 'Ali\u{2800}ce', 'a\u{200B}b', 'x', 'x'); \
+             INSERT INTO contact_emails (contact_id, position, address, address_key, label, \
+             preferred) VALUES \
+             (20, 0, 'ali\u{3164}ce@example.com', 'ali\u{3164}ce@example.com', NULL, 1), \
+             (20, 1, 'alice@example.com', 'alice@example.com', 'tra\u{E0041}vail', 0);",
+        )
+        .map_err(store_error)?;
+        m.to_version(&mut conn, 18)
+            .map_err(|e| StoreError(e.to_string()))?;
+        m.to_version(&mut conn, 19)
+            .map_err(|e| StoreError(e.to_string()))?;
+        let (display, given, .., sort_key, search_text) = stored_names(&conn, 20);
+        assert_eq!((display, given), (None, Some("Alice".to_owned())));
+        assert_eq!(sort_key, "alice");
+        assert!(!search_text.contains("bank"), "{search_text}");
+
+        let db = Database::init(conn).map_err(|e| StoreError(e.to_string()))?;
+        let book = contacts::SqliteContactBook::new(db);
+        let id = ContactId::new(20).ok_or_else(|| StoreError("id".into()))?;
+        let alice = book.get(id).await?.ok_or_else(|| StoreError("20".into()))?;
+        let alice = alice.draft();
+        assert_eq!(alice.display_name(), "Alice");
+        assert_eq!(alice.notes(), Some("ab"));
+        let keys: Vec<&str> = alice.emails().iter().map(|e| e.key().as_str()).collect();
+        assert_eq!(keys, ["alice@example.com"]);
+        assert_eq!(alice.emails()[0].label(), Some("travail"));
+        Ok(())
     }
 
     /// Base de version 13 : à la montée en version 14, le fournisseur des

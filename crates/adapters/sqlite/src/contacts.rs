@@ -177,12 +177,12 @@ const CLEANUP_BATCH: i64 = 500;
 /// [`clean_invisible`] (fiche réécrite, ou retirée sans adresse
 /// restante). Une fiche illisible (type ou encodage d'une colonne) est
 /// laissée telle quelle : elle ne doit pas empêcher d'ouvrir la base. De
-/// même pour une fiche dont la réécriture heurterait l'unicité des clés
-/// d'adresse (clé stockée modifiée à la main, clé recalculée déjà portée
-/// par une autre fiche).
+/// même, comme à la migration 19, pour une fiche dont une adresse gardée
+/// n'a pas pour clé stockée celle que calcule le domaine (clé modifiée à
+/// la main) : la réécrire pourrait heurter l'unicité des clés.
 pub(crate) fn clean_invisible_contacts(tx: &Transaction<'_>) -> Result<(), StoreError> {
     let (mut rewritten, mut removed, mut unreadable) = (0_usize, 0_usize, 0_usize);
-    let mut colliding = 0_usize;
+    let mut invalid = 0_usize;
     let mut after = 0_i64;
     loop {
         let ids: Vec<i64> = tx
@@ -220,14 +220,19 @@ pub(crate) fn clean_invisible_contacts(tx: &Transaction<'_>) -> Result<(), Store
                 unreadable += 1;
                 continue;
             }
-            let (input, _) = row.into_input();
+            let (input, keys) = row.into_input();
             match clean_invisible(input) {
                 InvisibleCleanup::Keep => {}
                 InvisibleCleanup::Rewrite(draft) => {
-                    // Les adresses de la fiche sont remplacées par `write` :
-                    // seule une clé portée par une autre fiche heurterait.
-                    if taken_except(tx, &draft, Some(id))?.is_some() {
-                        colliding += 1;
+                    // Les clés stockées sont uniques dans le carnet : une clé
+                    // recalculée déjà portée par cette fiche ne peut heurter
+                    // aucune autre fiche, quel que soit l'ordre de passage.
+                    let owned = draft
+                        .emails()
+                        .iter()
+                        .all(|e| keys.iter().any(|k| k == e.key().as_str()));
+                    if !owned {
+                        invalid += 1;
                         continue;
                     }
                     write(tx, id, &draft)?;
@@ -246,7 +251,7 @@ pub(crate) fn clean_invisible_contacts(tx: &Transaction<'_>) -> Result<(), Store
         rewritten,
         removed,
         unreadable,
-        colliding,
+        invalid,
         "carnet : caractères invisibles retirés"
     );
     Ok(())
@@ -479,16 +484,6 @@ fn taken(
     draft: &ContactDraft,
     except: Option<ContactId>,
 ) -> Result<Option<EmailAddress>, StoreError> {
-    taken_except(tx, draft, except.map(ContactId::get))
-}
-
-/// Comme [`taken`], la fiche `except` désignée par son identifiant brut
-/// (fiche enregistrée, relue sans validation).
-fn taken_except(
-    tx: &Transaction<'_>,
-    draft: &ContactDraft,
-    except: Option<i64>,
-) -> Result<Option<EmailAddress>, StoreError> {
     let mut stmt = tx
         .prepare_cached(
             "SELECT 1 FROM contact_emails WHERE address_key = ?1 \
@@ -497,7 +492,7 @@ fn taken_except(
         .map_err(store_error)?;
     for email in draft.emails() {
         let found = stmt
-            .exists(params![email.key().as_str(), except])
+            .exists(params![email.key().as_str(), except.map(ContactId::get)])
             .map_err(store_error)?;
         if found {
             return Ok(Some(email.address().clone()));

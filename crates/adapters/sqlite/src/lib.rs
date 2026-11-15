@@ -846,12 +846,13 @@ mod tests {
     }
 
     /// Base de version 17 : une fiche à nettoyer dont la clé stockée d'une
-    /// adresse gardée a été modifiée à la main, et dont la clé recalculée
-    /// est déjà portée par une autre fiche, est laissée telle quelle par la
-    /// montée en version 18 (la réécrire heurterait l'unicité des clés) ;
-    /// la base s'ouvre et les autres fiches sont nettoyées.
+    /// adresse gardée n'est pas celle de son adresse (modifiée à la main)
+    /// est laissée telle quelle par la montée en version 18, comme à la
+    /// version 19 : la réécrire pourrait heurter l'unicité des clés, même
+    /// avec une fiche que la migration retire ensuite. La base s'ouvre et
+    /// les autres fiches sont nettoyées.
     #[test]
-    fn upgrading_to_v18_leaves_a_contact_with_a_colliding_address_key_untouched()
+    fn upgrading_to_v18_leaves_a_contact_with_a_forged_address_key_untouched()
     -> Result<(), StoreError> {
         let mut conn = Connection::open_in_memory().map_err(store_error)?;
         conn.pragma_update(None, "foreign_keys", "ON")
@@ -865,21 +866,30 @@ mod tests {
         // Fiche 30 : nom à nettoyer, clé stockée de son adresse forgée ; sa
         // clé recalculée est celle que porte déjà la fiche 31.
         // Fiche 32 : à nettoyer, saine par ailleurs.
+        // Fiche 33 : à nettoyer, clé forgée sans collision.
+        // Fiches 34 et 35 : clé recalculée de la 34 portée par la 35, que la
+        // migration retire ensuite (sa seule adresse est à écarter).
         conn.execute_batch(
             "INSERT INTO contacts (id, display_name, sort_key, search_text) VALUES \
              (30, 'Bo\u{2800}b', 'x', 'x'), \
              (31, 'Autre', 'autre', 'autre'), \
-             (32, 'Ca\u{200B}rol', 'x', 'x'); \
+             (32, 'Ca\u{200B}rol', 'x', 'x'), \
+             (33, 'Da\u{200B}n', 'x', 'x'), \
+             (34, 'E\u{200B}ve', 'x', 'x'), \
+             (35, 'Retirée', 'x', 'x'); \
              INSERT INTO contact_emails (contact_id, position, address, address_key, label, \
              preferred) VALUES \
              (30, 0, 'bob@x.example', 'zzz@x.example', NULL, 1), \
              (31, 0, 'other@y.example', 'bob@x.example', NULL, 1), \
-             (32, 0, 'carol@x.example', 'carol@x.example', NULL, 1);",
+             (32, 0, 'carol@x.example', 'carol@x.example', NULL, 1), \
+             (33, 0, 'dan@x.example', 'yyy@x.example', NULL, 1), \
+             (34, 0, 'eve@x.example', 'xxx@x.example', NULL, 1), \
+             (35, 0, '\u{2800}@x.example', 'eve@x.example', NULL, 1);",
         )
         .map_err(store_error)?;
         m.to_version(&mut conn, 18)
             .map_err(|e| StoreError(e.to_string()))?;
-        let fiche = |id: i64| -> Result<(String, String), StoreError> {
+        let fiche = |conn: &Connection, id: i64| -> Result<(String, String), StoreError> {
             conn.query_row(
                 "SELECT c.display_name, e.address_key FROM contacts c \
                  JOIN contact_emails e ON e.contact_id = c.id WHERE c.id = ?1",
@@ -889,14 +899,40 @@ mod tests {
             .map_err(store_error)
         };
         assert_eq!(
-            fiche(30)?,
+            fiche(&conn, 30)?,
             ("Bo\u{2800}b".to_owned(), "zzz@x.example".to_owned()),
             "fiche en collision modifiée"
         );
-        assert_eq!(fiche(31)?, ("Autre".to_owned(), "bob@x.example".to_owned()));
         assert_eq!(
-            fiche(32)?,
+            fiche(&conn, 31)?,
+            ("Autre".to_owned(), "bob@x.example".to_owned())
+        );
+        assert_eq!(
+            fiche(&conn, 32)?,
             ("Carol".to_owned(), "carol@x.example".to_owned())
+        );
+        assert_eq!(
+            fiche(&conn, 33)?,
+            ("Da\u{200B}n".to_owned(), "yyy@x.example".to_owned()),
+            "clé forgée réécrite"
+        );
+        assert_eq!(
+            fiche(&conn, 34)?,
+            ("E\u{200B}ve".to_owned(), "xxx@x.example".to_owned()),
+            "traitement dépendant de l'ordre des fiches"
+        );
+        let removed: i64 = conn
+            .query_row("SELECT COUNT(*) FROM contacts WHERE id = 35", [], |r| {
+                r.get(0)
+            })
+            .map_err(store_error)?;
+        assert_eq!(removed, 0, "fiche sans adresse restante gardée");
+        // La montée suivante (version 19) n'y bute pas non plus.
+        m.to_latest(&mut conn)
+            .map_err(|e| StoreError(e.to_string()))?;
+        assert_eq!(
+            fiche(&conn, 30)?,
+            ("Bo\u{2800}b".to_owned(), "zzz@x.example".to_owned())
         );
         Ok(())
     }

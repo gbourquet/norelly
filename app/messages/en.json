@@ -740,7 +740,7 @@
   "failure_oauth_wrong_account": "another account was chosen in the browser",
   "failure_oauth_offline_access": "permission to stay signed in was refused",
   "failure_oauth": "cannot reach the provider",
-  "add_fail_microsoft_smtp_disabled": "{prefix}sending messages is disabled on this Microsoft account. Turn it on in your Outlook.com account settings, then try again.",
+  "add_fail_microsoft_smtp_disabled": "{prefix}Microsoft does not allow sending from apps for this account. Send from outlook.com, or contact Microsoft support.",
   "add_fail_reauth_required": "Your sign-in has expired: please sign in again.",
   "add_fail_oauth_cancelled": "Sign-in was cancelled in the browser.",
   "add_fail_oauth_wrong_account": "The account chosen in the browser does not match this address. Try again and choose the account for {address}.",

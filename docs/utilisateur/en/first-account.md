@@ -202,8 +202,9 @@ sign-in: the next attempt goes through the browser again.
 
 On some Outlook.com accounts, Microsoft turns off sending from email
 programs, while receiving works. Norelly tells you so when adding the
-account: turn sending on in your Outlook.com account settings, then try
-again.
+account. No setting of a personal account turns this sending back on:
+send your messages from the outlook.com website, or contact Microsoft
+support.
 
 ## Removing an account
 

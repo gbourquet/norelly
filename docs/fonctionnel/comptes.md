@@ -219,7 +219,10 @@ acceptés) sont supprimées. **Rien n'est supprimé sur le serveur.**
   ajouté (ni reconnecté), et l'écran demande d'accepter toutes les
   autorisations demandées.
 - Envoi désactivé par Microsoft sur la boîte, alors que la réception
-  fonctionne : le compte n'est pas ajouté et l'écran l'explique.
+  fonctionne : le compte n'est pas ajouté et l'écran l'explique. Aucun
+  réglage d'un compte personnel ne réactive cet envoi : l'écran propose
+  d'envoyer depuis le site outlook.com ou de contacter le support de
+  Microsoft, sans promettre de réglage.
 - Connexion Microsoft acceptée mais boîte inaccessible en réception (refus
   parfois passager chez Microsoft) : Norelly réessaie plusieurs fois ; si
   le refus persiste, il demande de vérifier que l'accès IMAP est activé
@@ -352,7 +355,7 @@ acceptés) sont supprimées. **Rien n'est supprimé sur le serveur.**
 | Rester connecté refusé | Norelly n'a pas reçu l'autorisation de rester connecté à votre compte. Réessayez en acceptant toutes les autorisations demandées dans la page de connexion. (Reconnexion : « autorisation de rester connecté refusée ».) |
 | Accès aux messages refusé | Norelly n'a pas reçu l'autorisation d'accéder à vos messages. Réessayez en cochant toutes les autorisations demandées dans la page de connexion. (Compte déjà ajouté : « accès aux messages refusé ».) |
 | Fournisseur absent de cette version | Cette version de Norelly ne peut pas se connecter à ce fournisseur. Installez la version publiée de Norelly ou, pour Gmail, utilisez un mot de passe d'application. (Compte déjà ajouté : « connexion à ce fournisseur indisponible dans cette version ».) |
-| Envoi désactivé (Microsoft) | {prefix}l'envoi de messages est désactivé sur ce compte Microsoft. Activez-le dans les réglages de votre compte Outlook.com, puis réessayez. |
+| Envoi désactivé (Microsoft) | {prefix}Microsoft n'autorise pas l'envoi depuis les applications pour ce compte. Envoyez depuis outlook.com, ou contactez le support Microsoft. |
 | Changer le mot de passe | Saisissez le nouveau mot de passe de {address}. Norelly l'essaie avant de remplacer l'ancien. Champ « Nouveau mot de passe », bouton « Enregistrer » ; pendant l'essai : « Vérification du nouveau mot de passe… » ; champ vide : « Saisissez le nouveau mot de passe. » |
 | Mot de passe changé | Mot de passe changé. La synchronisation reprend. |
 | Mot de passe d'application révoqué (compte existant, serveurs de Google seulement) | Sous le compte : « Google demande un nouveau mot de passe d'application. » et bouton « Changer le mot de passe » (infobulle « Changer le mot de passe de {address} ») ; raison de l'icône « Hors ligne » : « mot de passe d'application Google nécessaire ». Dans la fenêtre : les trois étapes, la dernière étant « Copiez le code de 16 lettres affiché par Google et collez-le ci-dessous, dans le champ « Nouveau mot de passe ». » |

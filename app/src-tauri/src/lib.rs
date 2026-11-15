@@ -116,6 +116,12 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             ipc::ComposeEventDto,
             ipc::UpdateEventDto
         ])
+        // Borne du domaine reprise telle quelle par l'interface (cases
+        // cochées du carnet) : Rust reste seul juge.
+        .constant(
+            "MAX_CONTACT_SELECTION",
+            norelly_domain::contacts::MAX_CONTACT_SELECTION,
+        )
 }
 
 /// Configuration de l'export TypeScript (en-tête stable).

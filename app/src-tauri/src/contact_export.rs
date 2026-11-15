@@ -16,8 +16,8 @@ use std::time::SystemTime;
 use norelly_application::contact_export::{ExportFailure, PrepareContactExport};
 use norelly_domain::connection::server_text;
 use norelly_domain::contact_export::{
-    ContactSelection, ExportFormat, MAX_EXPORT_FILE_BYTES, MAX_EXPORT_FOLDER_SCAN, TemporaryLock,
-    is_export_temporary_of, is_stale_export_temporary,
+    ContactSelection, ExportFormat, MAX_EXPORT_FILE_BYTES, MAX_EXPORT_FOLDER_SCAN, SelectionError,
+    TemporaryLock, is_export_temporary_of, is_stale_export_temporary,
 };
 use norelly_domain::ports::{ContactCodec, ContactCodecError};
 use tauri::{AppHandle, State};
@@ -34,7 +34,12 @@ pub(crate) fn selection_of(dto: &ContactExportSelectionDto) -> Result<ContactSel
     match dto {
         ContactExportSelectionDto::All => Ok(ContactSelection::All),
         ContactExportSelectionDto::Contacts { ids } => {
-            ContactSelection::of(ids).map_err(|_| IpcError::invalid(FieldDto::Contact))
+            ContactSelection::of(ids).map_err(|e| match e {
+                SelectionError::TooMany => IpcError::new(ErrorCodeDto::ContactSelectionTooMany),
+                SelectionError::Empty | SelectionError::InvalidId => {
+                    IpcError::invalid(FieldDto::Contact)
+                }
+            })
         }
     }
 }

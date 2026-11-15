@@ -4,7 +4,16 @@
 // traduit. Aucune décision de sécurité ici.
 
 import type { ErrorCodeDto, FailureKindDto, FieldDto } from "./ipc/bindings";
+import { MAX_CONTACT_SELECTION } from "./ipc/bindings";
+import { activeLocale } from "./i18n";
 import { m } from "./paraglide/messages.js";
+
+/** Refus d'une sélection de contacts trop grande, avec la borne du
+ * domaine écrite dans la langue active. */
+export function contactSelectionLimitText(): string {
+  const max = new Intl.NumberFormat(activeLocale()).format(MAX_CONTACT_SELECTION);
+  return m.err_contact_selection_too_many({ max });
+}
 
 /** Erreur IPC structurée (voir `IpcError` côté Rust). */
 export class IpcFailure extends Error {
@@ -189,6 +198,8 @@ function codeText(code: ErrorCodeDto, field: FieldDto | null): string {
       return m.err_contact_duplicate_address();
     case "contact_not_found":
       return m.err_contact_not_found();
+    case "contact_selection_too_many":
+      return contactSelectionLimitText();
     case "contact_list_no_name":
       return m.err_contact_list_no_name();
     case "contact_list_invalid":

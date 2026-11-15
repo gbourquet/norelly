@@ -20,13 +20,20 @@ fn selection_is_revalidated() {
         Some(ContactSelection::Contacts(vec![id(2), id(1)]))
     );
     let max = u32::try_from(MAX_CONTACT_SELECTION).unwrap_or(0);
-    for ids in [vec![], vec![0], (1..=max + 1).collect()] {
+    for ids in [vec![], vec![0]] {
         let e = selection_of(&ContactExportSelectionDto::Contacts { ids });
         assert_eq!(
             e.map_err(|e| (e.code, e.field)).err(),
             Some((ErrorCodeDto::InvalidInput, Some(FieldDto::Contact)))
         );
     }
+    let e = selection_of(&ContactExportSelectionDto::Contacts {
+        ids: (1..=max + 1).collect(),
+    });
+    assert_eq!(
+        e.map_err(|e| (e.code, e.field)).err(),
+        Some((ErrorCodeDto::ContactSelectionTooMany, None))
+    );
 }
 
 #[test]

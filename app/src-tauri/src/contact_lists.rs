@@ -21,7 +21,7 @@ use norelly_domain::ports::{
 };
 use tauri::State;
 
-use crate::contacts::item_dto as contact_item_dto;
+use crate::contacts::{item_dto as contact_item_dto, selection_error};
 use crate::ipc::{
     ContactItemDto, ContactListCursorDto, ContactListDto, ContactListFieldsDto, ContactListItemDto,
     ContactListPageDto, ErrorCodeDto, ExpandedListDto, FieldDto, IpcError, RecipientDto,
@@ -231,8 +231,7 @@ pub async fn add_to_contact_list(
     contacts: Vec<u32>,
 ) -> Result<ContactListDto, IpcError> {
     let id = list_id(id)?;
-    let contacts =
-        contact_selection(&contacts).map_err(|_| IpcError::invalid(FieldDto::Contact))?;
+    let contacts = contact_selection(&contacts).map_err(selection_error)?;
     AddToContactList {
         book: &state.contacts,
     }

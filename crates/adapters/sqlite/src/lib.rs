@@ -326,7 +326,8 @@ impl AccountRow {
         };
         let id = AccountId::new(self.id).map_err(|e| corrupted("identifiant", &e))?;
         let address = EmailAddress::parse(&self.address).map_err(|e| corrupted("adresse", &e))?;
-        let name = DisplayName::parse(&self.display_name).map_err(|e| corrupted("nom", &e))?;
+        let name =
+            DisplayName::from_stored(&self.display_name).map_err(|e| corrupted("nom", &e))?;
         let [imap, smtp] = [Protocol::Imap, Protocol::Smtp];
         let mut settings = Vec::with_capacity(2);
         for (protocol, (host, port, security, username)) in
@@ -942,6 +943,31 @@ mod tests {
             repo.get(stored.id()).await,
             Err(AccountStoreError::Corrupted(_))
         ));
+        Ok(())
+    }
+
+    /// Compte enregistré avant le refus des noms qui imitent une adresse :
+    /// il s'ouvre toujours, avec son nom tel quel.
+    #[tokio::test]
+    async fn stored_display_name_imitating_an_address_still_loads() -> Result<(), AccountStoreError>
+    {
+        let db = db();
+        let repo = SqliteAccountRepository::new(db.clone());
+        let stored = repo
+            .insert(&sample_account("alice@example.com", false))
+            .await?;
+        db.run(|c| {
+            c.execute("UPDATE accounts SET display_name = 'ceo@banque.fr'", [])
+                .map(|_| ())
+                .map_err(store_error)
+        })
+        .await?;
+        let loaded = repo.get(stored.id()).await?;
+        assert_eq!(
+            loaded.map(|a| a.display_name().as_str().to_owned()),
+            Some("ceo@banque.fr".to_owned())
+        );
+        assert_eq!(repo.list().await?.len(), 1);
         Ok(())
     }
 

@@ -37,6 +37,12 @@ pub fn imitates_address(name: &str) -> bool {
     name.contains(ADDRESS_LOOK_ALIKES)
 }
 
+/// Vrai si `c` sert, ou ressemble, à `@`, `<` ou `>`.
+#[must_use]
+pub fn is_address_look_alike(c: char) -> bool {
+    ADDRESS_LOOK_ALIKES.contains(&c)
+}
+
 /// Nom affiché d'un correspondant : celui de `contact` s'il porte
 /// exactement l'adresse de l'en-tête (même clé), sinon le nom de
 /// l'en-tête, vide s'il imite une adresse. Un contact sans nom (ni nom

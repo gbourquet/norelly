@@ -4,14 +4,21 @@
 //!
 //! Le fichier est produit en mémoire (borné à la taille d'un import)
 //! avant d'ouvrir le sélecteur, puis écrit de façon atomique : fichier
-//! temporaire voisin, synchronisé, renommé sur la cible.
+//! temporaire voisin, synchronisé, renommé sur la cible. Les temporaires
+//! abandonnés par un export interrompu vers la même cible sont effacés
+//! avant l'écriture.
 
+use std::ffi::OsStr;
 use std::io::Write;
 use std::path::Path;
+use std::time::SystemTime;
 
 use norelly_application::contact_export::{ExportFailure, PrepareContactExport};
 use norelly_domain::connection::server_text;
-use norelly_domain::contact_export::{ContactSelection, ExportFormat, MAX_EXPORT_FILE_BYTES};
+use norelly_domain::contact_export::{
+    ContactSelection, ExportFormat, MAX_EXPORT_FILE_BYTES, MAX_EXPORT_FOLDER_SCAN, TemporaryLock,
+    is_export_temporary_of, is_stale_export_temporary,
+};
 use norelly_domain::ports::{ContactCodec, ContactCodecError};
 use tauri::{AppHandle, State};
 use tauri_plugin_dialog::DialogExt;
@@ -65,7 +72,9 @@ pub(crate) fn codec_error(e: ContactCodecError) -> IpcError {
 /// exclusivité (droits du propriétaire seul sous Unix, ou les droits de
 /// lecture et d'écriture du fichier ordinaire remplacé), écrit et synchronisé, puis renommé sur `path` (un lien à
 /// cet emplacement est remplacé, jamais suivi). En cas d'échec, `path`
-/// est intact et le temporaire retiré.
+/// est intact et le temporaire retiré. Les temporaires d'un export vers
+/// `path` interrompu par un arrêt brutal sont d'abord effacés
+/// ([`remove_stale_temporaries`]).
 pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     if bytes.len() > MAX_EXPORT_FILE_BYTES {
         return Err(std::io::Error::other("export plus gros que la borne"));
@@ -77,29 +86,8 @@ pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
         Some(dir) if !dir.as_os_str().is_empty() => dir,
         _ => Path::new("."),
     };
-    let mut created = None;
-    for n in 0..100_u32 {
-        let mut temp_name = std::ffi::OsString::from(".");
-        temp_name.push(name);
-        temp_name.push(format!(".{}-{n}.tmp", std::process::id()));
-        let temp = dir.join(temp_name);
-        let mut options = std::fs::OpenOptions::new();
-        options.write(true).create_new(true);
-        // Le carnet est une donnée personnelle : lisible par son
-        // propriétaire seulement.
-        #[cfg(unix)]
-        std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
-        match options.open(&temp) {
-            Ok(file) => {
-                created = Some((temp, file));
-                break;
-            }
-            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
-            Err(e) => return Err(e),
-        }
-    }
-    let (temp, mut file) =
-        created.ok_or_else(|| std::io::Error::other("trop de fichiers temporaires"))?;
+    remove_stale_temporaries(dir, name, SystemTime::now());
+    let (temp, mut file) = create_temporary(dir, name)?;
     let result = (|| {
         file.write_all(bytes)?;
         // Un fichier ordinaire remplacé garde ses droits de lecture et
@@ -128,6 +116,111 @@ pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
         let _ = std::fs::remove_file(&temp);
     }
     result
+}
+
+/// Crée, dans `dir`, le temporaire d'un export vers `target`
+/// (`.<target>.<pid>-<n>.tmp`), en exclusivité et lisible par son
+/// propriétaire seulement sous Unix, et pose son verrou consultatif : tenu
+/// jusqu'à la fermeture du fichier, il dit à un autre export vers la même
+/// cible que ce temporaire est vivant. Le verrou est facultatif (certains
+/// partages n'en ont pas).
+pub(crate) fn create_temporary(
+    dir: &Path,
+    target: &OsStr,
+) -> std::io::Result<(std::path::PathBuf, std::fs::File)> {
+    for n in 0..100_u32 {
+        let mut temp_name = std::ffi::OsString::from(".");
+        temp_name.push(target);
+        temp_name.push(format!(".{}-{n}.tmp", std::process::id()));
+        let temp = dir.join(temp_name);
+        let mut options = std::fs::OpenOptions::new();
+        options.write(true).create_new(true);
+        // Le carnet est une donnée personnelle : lisible par son
+        // propriétaire seulement.
+        #[cfg(unix)]
+        std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+        match options.open(&temp) {
+            Ok(file) => {
+                let _ = file.try_lock();
+                return Ok((temp, file));
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
+            Err(e) => return Err(e),
+        }
+    }
+    Err(std::io::Error::other("trop de fichiers temporaires"))
+}
+
+/// Efface, dans `dir`, les temporaires qu'un export vers `target` a pu
+/// laisser après un arrêt brutal (ils contiennent tout un carnet) : seuls
+/// les fichiers ordinaires dont le nom est reconnu par
+/// [`is_export_temporary_of`] et que le domaine juge abandonnés à l'heure
+/// `now` ([`is_stale_export_temporary`] : verrou libre et assez ancien).
+/// Un lien, un dossier ou un fichier spécial n'est ni suivi ni effacé. Au
+/// plus [`MAX_EXPORT_FOLDER_SCAN`] entrées sont examinées. Un échec
+/// (dossier illisible, fichier déjà parti) est ignoré : il n'empêche pas
+/// l'export.
+pub(crate) fn remove_stale_temporaries(dir: &Path, target: &OsStr, now: SystemTime) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.take(MAX_EXPORT_FOLDER_SCAN).flatten() {
+        let name = entry.file_name();
+        if !is_export_temporary_of(target.as_encoded_bytes(), name.as_encoded_bytes()) {
+            continue;
+        }
+        let path = entry.path();
+        // Fichier ordinaire seulement : un lien ou une jonction n'est pas
+        // suivi, un dossier ou un fichier spécial n'est pas ouvert.
+        if !std::fs::symlink_metadata(&path).is_ok_and(|m| m.file_type().is_file()) {
+            continue;
+        }
+        let Ok(file) = open_temporary(&path) else {
+            continue;
+        };
+        let Ok(meta) = file.metadata() else {
+            continue;
+        };
+        let age = meta
+            .modified()
+            .ok()
+            .and_then(|modified| now.duration_since(modified).ok());
+        // Un temporaire trop récent est gardé quel que soit son verrou :
+        // il n'est pas verrouillé ici, pour ne pas gêner l'export qui vient
+        // de le créer.
+        if !meta.file_type().is_file() || !is_stale_export_temporary(TemporaryLock::Free, age) {
+            continue;
+        }
+        let lock = match file.try_lock() {
+            Ok(()) => TemporaryLock::Free,
+            Err(std::fs::TryLockError::WouldBlock) => TemporaryLock::Held,
+            Err(std::fs::TryLockError::Error(_)) => TemporaryLock::Unknown,
+        };
+        if is_stale_export_temporary(lock, age) {
+            // Effacer un lien qui aurait pris la place du fichier ne
+            // retirerait que le lien, jamais sa cible.
+            let _ = std::fs::remove_file(&path);
+        }
+    }
+}
+
+/// Ouvre en lecture un temporaire à examiner, sans suivre de lien qui
+/// aurait pris sa place (Unix : échec ; Windows : le lien lui-même est
+/// ouvert, et l'appelant le refuse car ce n'est pas un fichier ordinaire)
+/// ni bloquer sur un fichier spécial (Unix).
+fn open_temporary(path: &Path) -> std::io::Result<std::fs::File> {
+    let mut options = std::fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::custom_flags(
+        &mut options,
+        libc::O_NOFOLLOW | libc::O_NONBLOCK,
+    );
+    // FILE_FLAG_OPEN_REPARSE_POINT : un lien symbolique ou une jonction est
+    // ouvert lui-même, jamais sa cible.
+    #[cfg(windows)]
+    std::os::windows::fs::OpenOptionsExt::custom_flags(&mut options, 0x0020_0000);
+    options.open(path)
 }
 
 /// Prépare et produit le fichier, ouvre le sélecteur d'enregistrement du

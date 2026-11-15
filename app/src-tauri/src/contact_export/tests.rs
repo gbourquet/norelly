@@ -180,3 +180,168 @@ fn write_atomic_keeps_the_book_private() {
     assert_eq!(mode(&link), 0o600);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// Nom d'un temporaire d'export de `target`, comme l'écrit `write_atomic`.
+fn temporary(target: &str, n: u32) -> String {
+    format!(".{target}.{}-{n}.tmp", std::process::id())
+}
+
+/// Recule la date de modification de `path` d'une heure.
+fn age(path: &Path) {
+    let old = std::time::SystemTime::now() - std::time::Duration::from_secs(3600);
+    std::fs::File::options()
+        .write(true)
+        .open(path)
+        .and_then(|f| f.set_modified(old))
+        .unwrap_or_else(|e| panic!("{e}"));
+}
+
+/// Crée `path` avec un contenu quelconque, modifié il y a une heure.
+fn old_file(path: &Path) {
+    std::fs::write(path, b"ancien carnet").unwrap_or_else(|e| panic!("{e}"));
+    age(path);
+}
+
+#[test]
+fn write_atomic_removes_the_temporaries_left_by_an_interrupted_export() {
+    let dir = scratch("orphelins");
+    let path = dir.join("contacts.vcf");
+    // Le même numéro de processus d'un lancement à l'autre (bac à sable
+    // Flatpak) n'empêche pas le nettoyage ; la casse non plus.
+    for stale in [
+        temporary("contacts.vcf", 0),
+        temporary("contacts.vcf", 7),
+        temporary("Contacts.VCF", 1),
+    ] {
+        old_file(&dir.join(stale));
+    }
+    // Rien d'autre n'est touché : autre cible, noms approchants.
+    let others = [
+        temporary("autre.vcf", 0),
+        format!("{}.bak", temporary("contacts.vcf", 0)),
+        temporary("contacts.vcf", 0).replacen('.', "", 1),
+        "notes.txt".to_owned(),
+    ];
+    for other in &others {
+        old_file(&dir.join(other));
+    }
+    assert!(write_atomic(&path, b"export").is_ok());
+    assert_eq!(std::fs::read(&path).ok().as_deref(), Some(&b"export"[..]));
+    let mut expected = others.to_vec();
+    expected.push("contacts.vcf".to_owned());
+    expected.sort();
+    assert_eq!(entries(&dir), expected);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn write_atomic_keeps_the_temporaries_of_an_export_in_progress() {
+    let dir = scratch("orphelins-vivants");
+    let path = dir.join("contacts.vcf");
+    // Temporaire récent (un export vient de le créer).
+    let recent = temporary("contacts.vcf", 0);
+    std::fs::write(dir.join(&recent), b"en cours").unwrap_or_else(|e| panic!("{e}"));
+    // Temporaire ancien mais verrouillé par l'export qui l'écrit (autre
+    // fenêtre, autre poste, écriture lente).
+    let locked = temporary("contacts.vcf", 50);
+    old_file(&dir.join(&locked));
+    let writer = std::fs::File::options()
+        .write(true)
+        .open(dir.join(&locked))
+        .unwrap_or_else(|e| panic!("{e}"));
+    writer.try_lock().unwrap_or_else(|e| panic!("{e}"));
+    assert!(write_atomic(&path, b"export").is_ok());
+    let mut expected = vec![recent, locked.clone(), "contacts.vcf".to_owned()];
+    expected.sort();
+    assert_eq!(entries(&dir), expected);
+    // Verrou relâché (export terminé ou interrompu) : effacé au suivant.
+    drop(writer);
+    assert!(write_atomic(&path, b"export").is_ok());
+    assert!(!entries(&dir).contains(&locked));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn an_export_locks_its_temporary_while_writing_it() {
+    // Le verrou de l'écrivain est vu par un autre descripteur du même
+    // fichier, comme le verrait un autre export.
+    let dir = scratch("verrou");
+    let (temp, writer) =
+        create_temporary(&dir, OsStr::new("contacts.vcf")).unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(
+        temp.file_name().map(|n| n.to_string_lossy().into_owned()),
+        Some(temporary("contacts.vcf", 0))
+    );
+    let other = open_temporary(&temp).unwrap_or_else(|e| panic!("{e}"));
+    assert!(matches!(
+        other.try_lock(),
+        Err(std::fs::TryLockError::WouldBlock)
+    ));
+    drop(writer);
+    assert!(other.try_lock().is_ok());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn cleanup_never_removes_a_link_a_folder_or_a_socket_named_like_a_temporary() {
+    let dir = scratch("orphelin-lien");
+    let victim = dir.join("victime.vcf");
+    old_file(&victim);
+    let link = dir.join(temporary("contacts.vcf", 0));
+    std::os::unix::fs::symlink(&victim, &link).unwrap_or_else(|e| panic!("{e}"));
+    let socket = dir.join(temporary("contacts.vcf", 1));
+    let _listener =
+        std::os::unix::net::UnixListener::bind(&socket).unwrap_or_else(|e| panic!("{e}"));
+    let folder = dir.join(temporary("contacts.vcf", 2));
+    std::fs::create_dir(&folder).unwrap_or_else(|e| panic!("{e}"));
+    // Témoin : un fichier ordinaire du même âge est bien effacé.
+    let stale = dir.join(temporary("contacts.vcf", 3));
+    std::fs::write(&stale, b"ancien carnet").unwrap_or_else(|e| panic!("{e}"));
+    // Lien, socket et dossier ont leur propre date, récente : l'horloge est
+    // avancée pour qu'aucun ne soit gardé à cause de son âge.
+    let later = std::time::SystemTime::now() + std::time::Duration::from_secs(86_400);
+    remove_stale_temporaries(&dir, OsStr::new("contacts.vcf"), later);
+    assert!(std::fs::symlink_metadata(&stale).is_err());
+    assert_eq!(
+        std::fs::read(&victim).ok().as_deref(),
+        Some(&b"ancien carnet"[..])
+    );
+    assert!(
+        std::fs::symlink_metadata(&link)
+            .map(|m| m.file_type().is_symlink())
+            .unwrap_or(false)
+    );
+    assert!(std::fs::symlink_metadata(&socket).is_ok());
+    assert!(folder.is_dir());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn opening_a_temporary_never_follows_a_link_nor_blocks() {
+    let dir = scratch("ouverture");
+    let victim = dir.join("victime.vcf");
+    old_file(&victim);
+    let link = dir.join(temporary("contacts.vcf", 0));
+    std::os::unix::fs::symlink(&victim, &link).unwrap_or_else(|e| panic!("{e}"));
+    assert!(open_temporary(&link).is_err());
+    assert!(open_temporary(&victim).is_ok());
+    // Un tube nommé sans écrivain s'ouvre sans attendre.
+    let fifo = dir.join(temporary("contacts.vcf", 1));
+    let made = std::process::Command::new("mkfifo")
+        .arg(&fifo)
+        .status()
+        .unwrap_or_else(|e| panic!("{e}"));
+    assert!(made.success());
+    let (tx, rx) = std::sync::mpsc::channel();
+    let opener = fifo.clone();
+    std::thread::spawn(move || {
+        let _ = tx.send(open_temporary(&opener).is_ok());
+    });
+    assert_eq!(
+        rx.recv_timeout(std::time::Duration::from_secs(5)).ok(),
+        Some(true)
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}

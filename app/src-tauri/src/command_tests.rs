@@ -275,9 +275,7 @@ async fn cancelling_the_oauth_sign_in_forgets_the_kept_one() {
     );
     cancel_oauth_sign_in(t.state());
     assert!(
-        tokens
-            .take_pending(OAuthProvider::Microsoft, &address)
-            .is_none(),
+        tokens.take_pending(&address).is_none(),
         "connexion gardée oubliée"
     );
 }

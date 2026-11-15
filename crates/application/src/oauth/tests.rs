@@ -323,7 +323,11 @@ async fn removed_account_tokens_are_discarded() {
         identity: None,
         granted_scopes: None,
     };
-    assert_eq!(f.broker.store_grant(&source(), grant).await, Ok(()));
+    // Refus explicite : l'appelant ne croit pas le jeton rangé.
+    assert!(
+        f.broker.store_grant(&source(), grant).await.is_err(),
+        "jeton d'un compte supprimé déclaré rangé"
+    );
     assert_eq!(f.broker.secrets.read(&key()).as_deref(), Some("r1"));
     let _ = f.broker.secrets.delete(&key()).await;
     assert_eq!(

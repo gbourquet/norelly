@@ -7,7 +7,7 @@ use norelly_application::accounts::{
 };
 use norelly_application::accounts::{
     AddOAuthAccount, AddOAuthAccountRequest, ChangePassword, ChangePasswordError, ReconnectError,
-    reconnect_oauth_account,
+    Reconnected, reconnect_oauth_account,
 };
 use norelly_application::test_connection::TestConnectionOutcome;
 use norelly_domain::account::{AccountId, DisplayName, ServerSettings};
@@ -167,30 +167,22 @@ pub fn oauth_provider_for(address: String) -> Option<OAuthProviderDto> {
     norelly_domain::oauth::OAuthProvider::offered_for(&address).map(Into::into)
 }
 
-/// Fournisseur d'un ajout par « Se connecter avec … », revalidé : il doit
-/// être celui que le domaine propose pour l'adresse (fournisseur de
-/// l'adresse, identifiants client compilés). Une demande de l'interface
-/// périmée (adresse changée pendant la saisie) est refusée.
-fn oauth_request_provider(
-    address: &EmailAddress,
-    provider: &str,
-) -> Result<norelly_domain::oauth::OAuthProvider, IpcError> {
-    oauth_request_provider_with(address, provider, |p| p.config().is_usable())
+/// Ajout par « Se connecter avec … » possible pour l'adresse : le domaine
+/// propose un fournisseur (celui de l'adresse, identifiants client
+/// compilés). Le fournisseur ne vient pas de l'interface : le cas d'usage
+/// le déduit de l'adresse.
+fn oauth_sign_in_offered(address: &EmailAddress) -> Result<(), IpcError> {
+    oauth_sign_in_offered_with(address, |p| p.config().is_usable())
 }
 
-/// [`oauth_request_provider`], fournisseurs utilisables donnés par `usable`.
-fn oauth_request_provider_with(
+/// [`oauth_sign_in_offered`], fournisseurs utilisables donnés par `usable`.
+fn oauth_sign_in_offered_with(
     address: &EmailAddress,
-    provider: &str,
     usable: impl Fn(norelly_domain::oauth::OAuthProvider) -> bool,
-) -> Result<norelly_domain::oauth::OAuthProvider, IpcError> {
-    let provider = norelly_domain::oauth::OAuthProvider::parse(provider)
-        .ok_or_else(|| IpcError::invalid(FieldDto::Address))?;
-    if norelly_domain::oauth::offered_provider(address, usable) == Some(provider) {
-        Ok(provider)
-    } else {
-        Err(IpcError::invalid(FieldDto::Address))
-    }
+) -> Result<(), IpcError> {
+    norelly_domain::oauth::offered_provider(address, usable)
+        .map(|_| ())
+        .ok_or_else(|| IpcError::invalid(FieldDto::Address))
 }
 
 /// Fenêtre d'ajout fermée ou annulée : arrête l'attente du navigateur d'un
@@ -222,7 +214,7 @@ pub async fn add_oauth_account(
             Some(DisplayName::parse(name).map_err(|_| IpcError::invalid(FieldDto::DisplayName))?)
         }
     };
-    let provider = oauth_request_provider(&address, &input.provider)?;
+    oauth_sign_in_offered(&address)?;
     if !state.secrets.usable().await {
         return Ok(AddAccountResultDto::SecretStorageConsentRequired {
             path: state.secrets_file().display().to_string(),
@@ -237,7 +229,6 @@ pub async fn add_oauth_account(
         AddOAuthAccountRequest {
             address,
             display_name,
-            provider,
         },
         |step| {
             // Interface fermée : la progression n'est plus affichée.
@@ -267,8 +258,17 @@ pub async fn reconnect_account(
 ) -> Result<AddAccountResultDto, IpcError> {
     let id =
         AccountId::new(i64::from(account)).map_err(|_| IpcError::invalid(FieldDto::Account))?;
-    match reconnect_oauth_account(state.tokens.as_ref(), &state.accounts, id).await {
-        Ok(account) => {
+    let reconnected = reconnect_oauth_account(
+        state.tokens.as_ref(),
+        &state.accounts,
+        &state.account_locks,
+        id,
+    )
+    .await;
+    match reconnected {
+        Ok(Reconnected { account, held }) => {
+            // Compte tenu pendant la relance : une suppression demandée
+            // entre-temps attend, puis arrête la synchronisation relancée.
             if let Err(e) = state
                 .mail
                 .start(&app, &account, &state.secrets, &state.exceptions)
@@ -276,6 +276,7 @@ pub async fn reconnect_account(
             {
                 tracing::warn!(error = %e, "synchronisation non relancée");
             }
+            drop(held);
             Ok(AddAccountResultDto::from_outcome(
                 &AddAccountOutcome::Added(account),
             ))
@@ -457,36 +458,18 @@ mod tests {
     }
 
     #[test]
-    fn oauth_provider_must_be_the_one_offered_for_the_address() {
+    fn oauth_sign_in_needs_a_provider_offered_for_the_address() {
         use norelly_domain::oauth::OAuthProvider;
         let address = |raw: &str| EmailAddress::parse(raw).unwrap_or_else(|_| panic!("{raw}"));
-        assert_eq!(
-            oauth_request_provider(&address("alice@outlook.com"), "microsoft").ok(),
-            Some(OAuthProvider::Microsoft)
-        );
-        for (raw, provider) in [
-            ("alice@outlook.com", "google"),
-            ("alice@societe.fr", "google"),
-            ("alice@gmail.com", "microsoft"),
-            ("alice@outlook.com", "yahoo"),
-        ] {
-            assert!(
-                oauth_request_provider(&address(raw), provider).is_err(),
-                "{raw} {provider}"
-            );
-        }
+        assert!(oauth_sign_in_offered(&address("alice@outlook.com")).is_ok());
+        assert!(oauth_sign_in_offered(&address("alice@societe.fr")).is_err());
         // Google n'est accepté que si l'application a reçu ses identifiants
         // client à la compilation.
         let gmail = address("alice@gmail.com");
+        assert!(oauth_sign_in_offered_with(&gmail, |_| true).is_ok());
+        assert!(oauth_sign_in_offered_with(&gmail, |p| p != OAuthProvider::Google).is_err());
         assert_eq!(
-            oauth_request_provider_with(&gmail, "google", |_| true).ok(),
-            Some(OAuthProvider::Google)
-        );
-        assert!(
-            oauth_request_provider_with(&gmail, "google", |p| p != OAuthProvider::Google).is_err()
-        );
-        assert_eq!(
-            oauth_request_provider(&gmail, "google").is_ok(),
+            oauth_sign_in_offered(&gmail).is_ok(),
             OAuthProvider::Google.config().is_usable()
         );
     }

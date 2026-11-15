@@ -436,13 +436,12 @@ impl From<OAuthSignInStep> for OAuthSignInStepDto {
     }
 }
 
-/// Ajout d'un compte par « Se connecter avec … ».
+/// Ajout d'un compte par « Se connecter avec … », chez le fournisseur que
+/// le domaine déduit de l'adresse.
 #[derive(Debug, Clone, Deserialize, Type)]
 pub struct AddOAuthAccountInput {
     pub address: String,
     pub display_name: Option<String>,
-    /// Nom du fournisseur (`microsoft`, `google`), revalidé par le domaine.
-    pub provider: String,
 }
 
 impl TryFrom<&Account> for AccountDto {

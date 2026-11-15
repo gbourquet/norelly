@@ -226,12 +226,12 @@ where
     }
 }
 
-/// Demande d'ajout d'un compte connecté par OAuth.
+/// Demande d'ajout d'un compte connecté par OAuth, chez le fournisseur de
+/// l'adresse.
 #[derive(Debug, Clone)]
 pub struct AddOAuthAccountRequest {
     pub address: EmailAddress,
     pub display_name: Option<DisplayName>,
-    pub provider: OAuthProvider,
 }
 
 /// Étape d'un ajout par « Se connecter avec … », annoncée à l'interface.
@@ -277,23 +277,22 @@ where
         // fournisseur (serveur muet) : elle resservira, une seule fois, sans
         // navigateur. Prise d'abord : elle est oubliée quelle que soit
         // l'issue de cet essai.
-        let kept = self.broker.take_pending(request.provider, &request.address);
-        if !request.provider.serves(&request.address) {
-            return AddAccountOutcome::Invalid(format!(
-                "fournisseur {} étranger à l'adresse",
-                request.provider
-            ));
-        }
+        let kept = self.broker.take_pending(&request.address);
+        // Le fournisseur est celui de l'adresse : il ne vient pas de
+        // l'interface.
+        let Some(provider) = OAuthProvider::for_address(&request.address) else {
+            return AddAccountOutcome::Invalid("adresse sans fournisseur OAuth".to_owned());
+        };
         match self.accounts.find_by_address(&request.address).await {
             Ok(Some(_)) => return AddAccountOutcome::AlreadyExists,
             Ok(None) => {}
             Err(e) => return AddAccountOutcome::StorageFailed(e.to_string()),
         }
-        let (imap, smtp) = match oauth_servers(request.provider, &request.address) {
+        let (imap, smtp) = match oauth_servers(provider, &request.address) {
             Ok(servers) => servers,
             Err(e) => return AddAccountOutcome::Invalid(e),
         };
-        if !self.broker.is_usable(request.provider) {
+        if !self.broker.is_usable(provider) {
             return AddAccountOutcome::OAuthFailed(TokenError::ProviderNotConfigured);
         }
         let (grant, fresh_since) = match kept {
@@ -302,7 +301,7 @@ where
                 // Annoncé quand Norelly passe par le navigateur (pas pour
                 // une connexion gardée) ; un échec de son ouverture suit.
                 progress(OAuthSignInStep::BrowserOpened);
-                let config = self.broker.config(request.provider);
+                let config = self.broker.config(provider);
                 let authorize = self.broker.client().authorize(&config, &request.address);
                 // Annulé : le futur abandonné ferme l'écoute du retour, un
                 // onglet terminé plus tard ne livre plus rien.
@@ -318,8 +317,7 @@ where
                     Ok(grant) => (grant, Some(self.broker.now())),
                     Err(e) => {
                         return AddAccountOutcome::OAuthFailed(add_account_sign_in_error(
-                            request.provider,
-                            e,
+                            provider, e,
                         ));
                     }
                 }
@@ -327,8 +325,8 @@ where
         };
         progress(OAuthSignInStep::SignedIn);
         if let Err(e) = verify_sign_in(
-            request.provider,
-            &self.broker.config(request.provider),
+            provider,
+            &self.broker.config(provider),
             &request.address,
             grant.identity.as_ref(),
         ) {
@@ -338,8 +336,8 @@ where
             return AddAccountOutcome::OAuthFailed(e);
         }
         if let Err(e) = require_mail_access(
-            request.provider,
-            &self.broker.config(request.provider),
+            provider,
+            &self.broker.config(provider),
             grant.granted_scopes.as_deref(),
         ) {
             return AddAccountOutcome::OAuthFailed(e);
@@ -354,7 +352,7 @@ where
             smtp,
             &PlaintextPolicy::deny_all(),
         ) {
-            Ok(draft) => draft.with_oauth(request.provider),
+            Ok(draft) => draft.with_oauth(provider),
             Err(e) => return AddAccountOutcome::Invalid(e.to_string()),
         };
         let mut send_unchecked = false;
@@ -363,7 +361,7 @@ where
             let credentials = match Credentials::oauth2(
                 server.username.clone(),
                 grant.access_token.clone(),
-                request.provider,
+                provider,
             ) {
                 Ok(c) => c,
                 Err(e) => return AddAccountOutcome::Invalid(e.to_string()),
@@ -407,7 +405,7 @@ where
                     && worth_retrying(&outcome)
                 {
                     self.broker.keep_pending(
-                        request.provider,
+                        provider,
                         draft.address(),
                         grant,
                         obtained_at,
@@ -434,14 +432,19 @@ where
             Err(e) => return AddAccountOutcome::StorageFailed(e.to_string()),
         };
         let source = OAuthSource {
-            provider: request.provider,
+            provider,
             refresh_key: account.secret_key(Protocol::Imap),
         };
         if let Err(e) = self.broker.store_grant(&source, grant).await {
             // Une écriture abandonnée (délai dépassé) pourrait aboutir plus
             // tard : effacée, pour ne pas laisser de jeton sans compte.
             self.broker.abandon(&source.refresh_key).await;
-            let _ = self.accounts.delete(account.id()).await;
+            if let Err(e) = self.accounts.delete(account.id()).await {
+                // Compte resté : ses jetons redeviennent utilisables, pour
+                // qu'une reconnexion puisse les ranger.
+                tracing::warn!(error = %e, "compte d'un ajout échoué non retiré");
+                self.broker.restore(&source.refresh_key).await;
+            }
             return AddAccountOutcome::SecretStoreFailed(e.to_string());
         }
         if send_unchecked {
@@ -520,13 +523,27 @@ pub enum ReconnectError {
     Storage(String),
 }
 
+/// Reconnexion aboutie : le compte, tenu ([`AccountLocks`]) jusqu'à la fin
+/// de vie de `held`. L'appelant relance sa synchronisation avant de lâcher
+/// la garde : une suppression attend, et l'arrête ensuite.
+#[derive(Debug)]
+pub struct Reconnected {
+    pub account: Account,
+    pub held: tokio::sync::OwnedMutexGuard<()>,
+}
+
 /// Cas d'usage : se reconnecter chez le fournisseur quand le jeton ne peut
 /// plus être rafraîchi (« Reconnexion nécessaire »).
+///
+/// Le compte n'est tenu qu'au retour du navigateur (une suppression n'attend
+/// pas l'utilisateur), puis relu : supprimé entre-temps, rien n'est rangé
+/// et la reconnexion rapporte [`ReconnectError::NotFound`].
 pub async fn reconnect_oauth_account<O: OAuthClient, K: SecretStore, D: AccountRepository>(
     broker: &TokenBroker<O, K>,
     accounts: &D,
+    locks: &AccountLocks,
     id: AccountId,
-) -> Result<Account, ReconnectError> {
+) -> Result<Reconnected, ReconnectError> {
     let account = accounts
         .get(id)
         .await
@@ -552,6 +569,23 @@ pub async fn reconnect_oauth_account<O: OAuthClient, K: SecretStore, D: AccountR
         &broker.config(provider),
         grant.granted_scopes.as_deref(),
     )?;
+    // Une suppression en cours s'achève avant ; une suppression demandée
+    // ensuite attend que la synchronisation soit relancée.
+    let held = locks.lock(id).await;
+    // Relu : supprimé, ou devenu un autre compte que celui dont l'identité
+    // vient d'être vérifiée, rien n'est rangé.
+    let current = accounts
+        .get(id)
+        .await
+        .map_err(|e| ReconnectError::Storage(e.to_string()))?;
+    let unchanged = current.is_some_and(|c| {
+        c.id() == account.id()
+            && c.address() == account.address()
+            && c.oauth_provider() == Some(provider)
+    });
+    if !unchanged {
+        return Err(ReconnectError::NotFound);
+    }
     let source = OAuthSource {
         provider,
         refresh_key: account.secret_key(Protocol::Imap),
@@ -560,7 +594,7 @@ pub async fn reconnect_oauth_account<O: OAuthClient, K: SecretStore, D: AccountR
         .store_grant(&source, grant)
         .await
         .map_err(|e| ReconnectError::SecretStore(e.to_string()))?;
-    Ok(account)
+    Ok(Reconnected { account, held })
 }
 
 /// Conseil pour un compte enregistré dont la synchronisation échoue
@@ -728,8 +762,11 @@ where
 }
 
 /// Verrous par compte : sérialisent les opérations qui touchent au compte
-/// et à ses secrets (changement de mot de passe, suppression), pour
-/// qu'aucune ne réécrive les secrets d'un compte que l'autre supprime.
+/// et à ses secrets (changement de mot de passe, fin d'une reconnexion
+/// OAuth et relance de sa synchronisation, suppression), pour qu'aucune ne
+/// réécrive les secrets d'un compte que l'autre supprime. Ordre : ce verrou
+/// d'abord, puis ceux des services de synchronisation ; jamais tenu pendant
+/// une attente de l'utilisateur (navigateur).
 #[derive(Debug, Default)]
 pub struct AccountLocks {
     locks: std::sync::Mutex<
@@ -805,6 +842,14 @@ where
         Ok(())
     }
 
+    /// Compte gardé après un échec : ses jetons redeviennent utilisables (il
+    /// pourra être reconnecté) ; ceux gardés en mémoire sont perdus.
+    async fn restore_tokens(&self, account: &Account) {
+        for protocol in [Protocol::Imap, Protocol::Smtp] {
+            self.tokens.restore(&account.secret_key(protocol)).await;
+        }
+    }
+
     /// Ordre : jetons gardés en mémoire (un rafraîchissement en cours
     /// s'achève avant, et ne peut donc pas réécrire le trousseau après son
     /// effacement), puis secrets (un échec laisse le compte intact, l'action
@@ -820,17 +865,13 @@ where
             self.tokens.discard(&account.secret_key(protocol)).await;
         }
         if let Err(e) = self.delete_secrets(&account).await {
-            // Compte gardé : ses jetons redeviennent utilisables (il pourra
-            // être reconnecté) ; ceux gardés en mémoire sont perdus.
-            for protocol in [Protocol::Imap, Protocol::Smtp] {
-                self.tokens.restore(&account.secret_key(protocol)).await;
-            }
+            self.restore_tokens(&account).await;
             return Err(e);
         }
-        self.accounts
-            .delete(id)
-            .await
-            .map_err(|e| RemoveAccountError::Storage(e.to_string()))?;
+        if let Err(e) = self.accounts.delete(id).await {
+            self.restore_tokens(&account).await;
+            return Err(RemoveAccountError::Storage(e.to_string()));
+        }
         self.local_data
             .purge(id)
             .await

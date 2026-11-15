@@ -232,17 +232,26 @@ export class AddAccountFlow {
   /** « Se connecter avec … » : le navigateur du système s'ouvre, Rust
    *  attend le retour, teste les serveurs et ajoute le compte. */
   async signInWithProvider(): Promise<void> {
-    // L'adresse a pu changer depuis la dernière détection : Rust refuserait
-    // un fournisseur qui n'est pas celui de l'adresse. Fournisseur changé :
-    // rien n'est ouvert, l'utilisateur clique sur le bouton mis à jour.
+    // Rust se connecte chez le fournisseur de l'adresse envoyée : celle du
+    // clic, dont le fournisseur est redétecté. Adresse ou fournisseur
+    // changé entre-temps : rien n'est ouvert, l'utilisateur clique sur le
+    // bouton mis à jour.
     const shown = this.signInProvider;
+    const address = this.address.trim();
     const attempt = ++this.#attempt;
     // Une annulation encore en route arrêterait ce nouvel essai : Rust la
     // reçoit d'abord.
     await this.#cancelling;
     await this.detectProvider();
     const provider = this.signInProvider;
-    if (attempt !== this.#attempt || provider === null || provider !== shown) return;
+    if (
+      attempt !== this.#attempt ||
+      provider === null ||
+      provider !== shown ||
+      this.address.trim() !== address
+    ) {
+      return;
+    }
     this.message = null;
     this.appPasswordHelp = false;
     this.#oauth = true;
@@ -253,9 +262,8 @@ export class AddAccountFlow {
     try {
       result = await this.#api.addOAuthAccount(
         {
-          address: this.address.trim(),
+          address,
           display_name: this.displayName.trim() || null,
-          provider,
         },
         // Rust annonce le navigateur seulement quand il l'ouvre vraiment.
         (step) => {

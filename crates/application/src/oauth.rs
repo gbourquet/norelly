@@ -146,19 +146,16 @@ impl<O: OAuthClient, K: SecretStore> TokenBroker<O, K> {
             .is_some_and(|(pending, _)| pending.usable_for(provider, address, (self.clock)()))
     }
 
-    /// Connexion gardée pour ajouter `address` chez `provider`, si elle
-    /// peut resservir. Elle est oubliée dans tous les cas.
-    pub fn take_pending(
-        &self,
-        provider: OAuthProvider,
-        address: &EmailAddress,
-    ) -> Option<OAuthGrant> {
+    /// Connexion gardée pour ajouter `address` chez son fournisseur, si
+    /// elle peut resservir. Elle est oubliée dans tous les cas.
+    pub fn take_pending(&self, address: &EmailAddress) -> Option<OAuthGrant> {
         let kept = self
             .pending
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .take()?;
         let (pending, grant) = kept;
+        let provider = OAuthProvider::for_address(address)?;
         pending
             .usable_for(provider, address, (self.clock)())
             .then_some(grant)
@@ -183,6 +180,12 @@ impl<O: OAuthClient, K: SecretStore> TokenBroker<O, K> {
     /// Client OAuth (connexion interactive).
     pub fn client(&self) -> &O {
         &self.client
+    }
+
+    /// Trousseau des jetons de rafraîchissement.
+    #[cfg(test)]
+    pub(crate) fn secrets(&self) -> &K {
+        &self.secrets
     }
 
     fn slot(&self, key: &SecretKey) -> Arc<Mutex<Slot>> {
@@ -289,8 +292,9 @@ impl<O: OAuthClient, K: SecretStore> TokenBroker<O, K> {
         let slot = self.slot(&source.refresh_key);
         let mut slot = slot.lock().await;
         if slot.discarded {
-            // Compte supprimé pendant la connexion : rien n'est enregistré.
-            return Ok(());
+            // Compte supprimé pendant la connexion : rien n'est enregistré,
+            // et l'appelant le sait (pas de compte « reconnecté » sans jeton).
+            return Err(SecretStoreError::Backend("compte supprimé".to_owned()));
         }
         if let Some(refresh) = &grant.refresh_token {
             tokio::time::timeout(

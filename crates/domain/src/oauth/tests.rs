@@ -60,20 +60,6 @@ fn gmail_addresses_sign_in_with_google() {
 }
 
 #[test]
-fn a_provider_serves_only_its_own_addresses() {
-    assert!(OAuthProvider::Google.serves(&address("alice@GMAIL.com")));
-    assert!(OAuthProvider::Microsoft.serves(&address("alice@outlook.com")));
-    for (provider, raw) in [
-        (OAuthProvider::Google, "alice@societe.fr"),
-        (OAuthProvider::Google, "alice@outlook.com"),
-        (OAuthProvider::Microsoft, "alice@gmail.com"),
-        (OAuthProvider::Microsoft, "alice@example.com"),
-    ] {
-        assert!(!provider.serves(&address(raw)), "{provider} {raw}");
-    }
-}
-
-#[test]
 fn google_config_uses_google_endpoints_and_full_mail_scope() {
     let c = OAuthProvider::Google.config();
     assert_eq!(
@@ -447,14 +433,97 @@ fn google_identity_comes_from_google_for_norelly_with_a_verified_address() {
         )
         .is_err()
     );
-    // Microsoft : sans ces revendications (vérifiées ailleurs, à venir).
+}
+
+/// Identité d'un compte Microsoft émise par `issuer` pour `audience`, dans
+/// le locataire `tenant`.
+fn microsoft_identity(
+    issuer: Option<&str>,
+    audience: &[&str],
+    tenant: Option<&str>,
+) -> OAuthIdentity {
+    OAuthIdentity {
+        preferred_username: Some("alice@outlook.com".to_owned()),
+        issuer: issuer.map(str::to_owned),
+        audience: audience.iter().map(|a| (*a).to_owned()).collect(),
+        tenant: tenant.map(str::to_owned),
+        ..OAuthIdentity::default()
+    }
+}
+
+#[test]
+fn microsoft_identity_comes_from_the_personal_accounts_tenant_for_norelly() {
+    let microsoft = OAuthProvider::Microsoft;
+    let config = microsoft.config();
+    let id = config.client_id;
+    let consumers = "9188040d-6c67-4c5b-b112-36a304b66dad";
+    let issuer = "https://login.microsoftonline.com/9188040d-6c67-4c5b-b112-36a304b66dad/v2.0";
+    assert_eq!(config.tenant, Some(consumers));
     assert_eq!(
         check_identity_claims(
-            OAuthProvider::Microsoft,
-            OAuthProvider::Microsoft.config(),
-            &identity(Some("a@outlook.com"), None)
+            microsoft,
+            config,
+            &microsoft_identity(Some(issuer), &[id], Some(consumers))
         ),
         Ok(())
+    );
+    let organization = "72f988bf-86f1-41af-91ab-2d7cd011db47";
+    let organization_issuer =
+        "https://login.microsoftonline.com/72f988bf-86f1-41af-91ab-2d7cd011db47/v2.0";
+    for (identity, why) in [
+        (
+            microsoft_identity(Some(issuer), &["autre-application"], Some(consumers)),
+            "autre application",
+        ),
+        (
+            microsoft_identity(Some(issuer), &[], Some(consumers)),
+            "destinataire absent",
+        ),
+        (
+            microsoft_identity(Some(issuer), &[id], Some(organization)),
+            "compte d'organisation",
+        ),
+        (
+            microsoft_identity(Some(issuer), &[id], None),
+            "locataire absent",
+        ),
+        (
+            microsoft_identity(Some(organization_issuer), &[id], Some(consumers)),
+            "émetteur d'un autre locataire",
+        ),
+        (
+            microsoft_identity(Some("https://evil.example/v2.0"), &[id], Some(consumers)),
+            "émetteur étranger",
+        ),
+        (
+            microsoft_identity(None, &[id], Some(consumers)),
+            "émetteur absent",
+        ),
+        (
+            identity(Some("alice@outlook.com"), None),
+            "aucune revendication",
+        ),
+    ] {
+        assert!(
+            matches!(
+                check_identity_claims(microsoft, config, &identity),
+                Err(TokenError::Protocol(_))
+            ),
+            "{why}"
+        );
+    }
+    // Sans locataire configuré, aucune identité Microsoft n'est crue.
+    let without_tenant = OAuthConfig {
+        tenant: None,
+        ..config.clone()
+    };
+    assert!(
+        check_identity_claims(
+            microsoft,
+            &without_tenant,
+            &microsoft_identity(Some(issuer), &[id], Some(consumers))
+        )
+        .is_err()
     );
 }
 

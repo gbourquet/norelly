@@ -440,23 +440,28 @@ send_unchecked: boolean } | { kind: "already_exists" } | { kind: "needs_review";
  */
 { kind: "failed"; protocol: ProtocolDto | null; failure: FailureKindDto; detail: string | null };
 
-/**  Ajout d'un compte par « Se connecter avec … ». */
+/**
+ *  Ajout d'un compte par « Se connecter avec … », chez le fournisseur que
+ *  le domaine déduit de l'adresse.
+ */
 export type AddOAuthAccountInput = AddOAuthAccountInput_Serialize | AddOAuthAccountInput_Deserialize;
 
-/**  Ajout d'un compte par « Se connecter avec … ». */
+/**
+ *  Ajout d'un compte par « Se connecter avec … », chez le fournisseur que
+ *  le domaine déduit de l'adresse.
+ */
 export type AddOAuthAccountInput_Deserialize = {
 	address: string,
 	display_name?: string | null,
-	/**  Nom du fournisseur (`microsoft`, `google`), revalidé par le domaine. */
-	provider: string,
 };
 
-/**  Ajout d'un compte par « Se connecter avec … ». */
+/**
+ *  Ajout d'un compte par « Se connecter avec … », chez le fournisseur que
+ *  le domaine déduit de l'adresse.
+ */
 export type AddOAuthAccountInput_Serialize = {
 	address: string,
 	display_name: string | null,
-	/**  Nom du fournisseur (`microsoft`, `google`), revalidé par le domaine. */
-	provider: string,
 };
 
 /**  Pièce jointe d'un message ouvert. */

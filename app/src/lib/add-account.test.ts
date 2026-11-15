@@ -435,9 +435,7 @@ describe("se connecter avec Google", () => {
     const f = gmail(api);
     await f.detectProvider();
     await f.signInWithProvider();
-    expect(oauthCalls).toEqual([
-      { address: "alice@gmail.com", display_name: null, provider: "google" },
-    ]);
+    expect(oauthCalls).toEqual([{ address: "alice@gmail.com", display_name: null }]);
     expect(f.step).toBe("done");
   });
 
@@ -543,12 +541,26 @@ describe("se connecter avec Microsoft", () => {
     await f.detectProvider();
     f.displayName = " Alice ";
     await f.signInWithProvider();
-    expect(oauthCalls).toEqual([
-      { address: "alice@outlook.com", display_name: "Alice", provider: "microsoft" },
-    ]);
+    expect(oauthCalls).toEqual([{ address: "alice@outlook.com", display_name: "Alice" }]);
     expect(api.discoverSettings).not.toHaveBeenCalled();
     expect(api.addAccount).not.toHaveBeenCalled();
     expect(f.step).toBe("done");
+  });
+
+  it("adresse changée pendant la détection : rien n'est envoyé à Rust", async () => {
+    const { api } = fakeApi(found, []);
+    const f = outlook(api);
+    await f.detectProvider();
+    expect(f.signInProvider).toBe("microsoft");
+    // La détection lancée par le clic répond pendant que l'adresse change
+    // vers une adresse Google : sa réponse est périmée.
+    vi.mocked(api.oauthProviderFor).mockImplementationOnce(async () => {
+      f.address = "alice@gmail.com";
+      return "microsoft";
+    });
+    await f.signInWithProvider();
+    expect(api.addOAuthAccount).not.toHaveBeenCalled();
+    expect(f.step).toBe("form");
   });
 
   it("connexion annulée : retour au formulaire avec une explication", async () => {

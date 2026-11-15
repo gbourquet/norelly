@@ -17,7 +17,9 @@ use norelly_domain::compose::draft::{
     ComposeError, Draft, DraftAttachment, MAX_ATTACHMENTS, MAX_ATTACHMENTS_BYTES, Recipient,
     RemoteCopy, remote_drafts_supported,
 };
-use norelly_domain::compose::outbox::{OutboxEntry, OutboxState, SendFailure, sent_copy_needed};
+use norelly_domain::compose::outbox::{
+    OutboxEntry, OutboxState, SendFailure, next_send_connection, sent_copy_needed,
+};
 use norelly_domain::compose::{
     ReplyKind, Threading, forward_subject, quote, reply_recipients, reply_subject, reply_threading,
     resumed_threading,
@@ -28,8 +30,8 @@ use norelly_domain::mailbox::{Correspondent, MailboxName, MailboxRole};
 use norelly_domain::ports::{
     BlobStore, ComposeBuildError, ComposedAttachment, ComposedMessage, Composition, ConnectRequest,
     DraftId, DraftStore, FetchedBody, MailSender, MessageComposer, MessageId, MessageLocation,
-    MessageLocator, OutboxId, OutboxStore, PendingOpStore, RemoteBodyFetcher, RemoteMailboxSession,
-    StoreError, StoredBody, StoredDraft,
+    MessageLocator, OutboxId, OutboxStore, OutgoingMessage, PendingOpStore, RemoteBodyFetcher,
+    RemoteMailboxSession, SendError, StoreError, StoredBody, StoredDraft,
 };
 
 /// Échec d'un cas d'usage de rédaction.
@@ -352,6 +354,10 @@ impl<O: OutboxStore, S: MailSender> DeliverOutbox<'_, O, S> {
         now: i64,
     ) -> Result<DeliveryReport, StoreError> {
         let mut report = DeliveryReport::default();
+        // Les connexions rapprochées allongent le passage : l'échéance d'un
+        // nouvel essai part de la fin de l'essai, pas du début du passage.
+        let pass_started = tokio::time::Instant::now();
+        let provider = request.credentials.oauth().map(|b| b.provider);
         for item in self.outbox.outbox(self.account).await? {
             if !item.entry.is_due(now) {
                 continue;
@@ -363,34 +369,40 @@ impl<O: OutboxStore, S: MailSender> DeliverOutbox<'_, O, S> {
             if !self.outbox.transition(item.id, item.entry, started).await? {
                 continue;
             }
-            let result = self.sender.send(request, &item.message).await;
-            let next = match &result {
-                Ok(()) => started.succeeded(),
-                Err(e) => started.failed(SendFailure::of(e), now),
+            let errors = self.send_with_retries(request, &item.message).await;
+            let failure = SendFailure::of_attempt(&errors, provider);
+            let next = match failure {
+                None => started.succeeded(),
+                Some(failure) => {
+                    let elapsed = i64::try_from(pass_started.elapsed().as_secs()).unwrap_or(0);
+                    started.failed(failure, now.saturating_add(elapsed))
+                }
             };
             let Ok(next) = next else { continue };
             self.outbox.transition(item.id, started, next).await?;
-            match result {
-                Ok(()) => {
-                    tracing::debug!(account = %self.account, "message envoyé");
-                    report.sent.push(item.id);
-                }
-                Err(e) => {
-                    let failure = SendFailure::of(&e);
+            match (failure, errors.last()) {
+                (Some(failure), Some(e)) => {
                     tracing::warn!(account = %self.account, error = %e, ?failure, "envoi en échec");
                     report.failed.push((item.id, failure));
-                    // Même cause pour tous les messages (hors ligne,
-                    // identifiants ou connexion refusés) : inutile de tenter
-                    // les suivants, ni d'enchaîner les échecs d'AUTH.
+                    // Même cause pour tous les messages (hors ligne, serveur
+                    // muet, identifiants ou connexion refusés) : inutile de
+                    // tenter les suivants, ni d'enchaîner les échecs d'AUTH.
                     if matches!(
                         failure,
                         SendFailure::Unreachable
+                            | SendFailure::Unresponsive
+                            | SendFailure::EncryptionInterrupted
                             | SendFailure::Authentication
                             | SendFailure::AuthenticationInterrupted
+                            | SendFailure::MicrosoftSmtpDisabled
                             | SendFailure::Security
                     ) {
                         break;
                     }
+                }
+                _ => {
+                    tracing::debug!(account = %self.account, "message envoyé");
+                    report.sent.push(item.id);
                 }
             }
         }
@@ -405,6 +417,29 @@ impl<O: OutboxStore, S: MailSender> DeliverOutbox<'_, O, S> {
             })
             .min();
         Ok(report)
+    }
+
+    /// Un essai d'envoi : de nouvelles connexions rapprochées tant que
+    /// l'échec est passager (règle du domaine : `next_send_connection`).
+    /// Renvoie l'erreur de chaque connexion, dans l'ordre (aucune : envoyé).
+    async fn send_with_retries(
+        &self,
+        request: &ConnectRequest,
+        message: &OutgoingMessage,
+    ) -> Vec<SendError> {
+        let mut errors = Vec::new();
+        loop {
+            let Err(error) = self.sender.send(request, message).await else {
+                return Vec::new();
+            };
+            let wait = next_send_connection(errors.len() + 1, &error);
+            if wait.is_some() {
+                tracing::debug!(account = %self.account, %error, "connexion d'envoi refaite");
+            }
+            errors.push(error);
+            let Some(wait) = wait else { return errors };
+            tokio::time::sleep(wait).await;
+        }
     }
 }
 

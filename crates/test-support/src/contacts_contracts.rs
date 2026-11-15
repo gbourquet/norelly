@@ -14,7 +14,7 @@ use norelly_domain::contacts::{
 };
 use norelly_domain::ports::{
     ContactBook, ContactCursor, ContactDirectory, ContactListItem, ContactPage, ContactStoreError,
-    ImportOutcome, MAX_CONTACT_LOOKUP, MAX_PAGE_SIZE, StoreError,
+    ImportOutcome, MAX_CONTACT_LOOKUP, MAX_PAGE_SIZE, PageSize, StoreError,
 };
 
 /// Fiche de test : `name` (nom affiché, vide : aucun) et ses adresses, la
@@ -89,7 +89,7 @@ async fn all_pages<D: ContactDirectory>(
     let mut items = Vec::new();
     let mut cursor = None;
     loop {
-        let page = directory.page(filter, cursor, limit).await?;
+        let page = directory.page(filter, cursor, PageSize::new(limit)).await?;
         assert!(
             page.items.len() <= limit as usize,
             "page plus longue que la limite"
@@ -112,7 +112,7 @@ pub async fn contact_book_contract<B: ContactBook + ContactDirectory>(
 ) -> Result<(), ContactStoreError> {
     let all = ContactFilter::default();
     assert_eq!(
-        book.page(&all, None, 10).await?,
+        book.page(&all, None, PageSize::new(10)).await?,
         ContactPage::default(),
         "carnet non vide au départ"
     );
@@ -213,25 +213,25 @@ pub async fn contact_book_contract<B: ContactBook + ContactDirectory>(
             "pages de {limit}"
         );
     }
-    let first = book.page(&all, None, 5).await?;
+    let first = book.page(&all, None, PageSize::new(5)).await?;
     assert_eq!(first.items.len(), 5);
     assert_eq!(
         first.next, None,
         "page complète en fin de liste : pas de suite"
     );
     assert_eq!(
-        book.page(&all, None, 0).await?,
+        book.page(&all, None, PageSize::new(0)).await?,
         ContactPage::default(),
         "limite nulle"
     );
-    let page = book.page(&all, None, 2).await?;
+    let page = book.page(&all, None, PageSize::new(2)).await?;
     let Some(cursor) = page.next.clone() else {
         panic!("suite attendue");
     };
     assert_eq!(page.items.last().map(|i| i.id), Some(cursor.id));
     // Ligne de liste : nom, adresse préférée, organisation, favori.
     let line = book
-        .page(&ContactFilter::new("acme", false), None, 10)
+        .page(&ContactFilter::new("acme", false), None, PageSize::new(10))
         .await?;
     assert!(
         line.items.is_empty(),
@@ -239,7 +239,7 @@ pub async fn contact_book_contract<B: ContactBook + ContactDirectory>(
     );
     let favorite = book.update(alice.id(), &full_contact()).await?;
     let line = book
-        .page(&ContactFilter::new("acme", false), None, 10)
+        .page(&ContactFilter::new("acme", false), None, PageSize::new(10))
         .await?;
     assert_eq!(line.items, vec![ContactListItem::from(&favorite)]);
     assert_eq!(line.items[0].name, "Alice Martin");
@@ -255,26 +255,28 @@ pub async fn contact_book_contract<B: ContactBook + ContactDirectory>(
     // destinataires.
     for text in ["ALICE", "martin", "lili", "alice@example.com", "perso@"] {
         let found = book
-            .page(&ContactFilter::new(text, false), None, 10)
+            .page(&ContactFilter::new(text, false), None, PageSize::new(10))
             .await?;
         assert_eq!(
             found.items.iter().map(|i| i.id).collect::<Vec<_>>(),
             vec![favorite.id()],
             "{text}"
         );
-        let favorites = book.page(&ContactFilter::new(text, true), None, 10).await?;
+        let favorites = book
+            .page(&ContactFilter::new(text, true), None, PageSize::new(10))
+            .await?;
         assert_eq!(favorites.items.len(), 1, "{text} parmi les favoris");
     }
 
     // Un contact ajouté avant le curseur ne décale pas la suite.
-    let page = book.page(&all, None, 2).await?;
+    let page = book.page(&all, None, PageSize::new(2)).await?;
     let Some(cursor) = page.next else {
         panic!("suite attendue");
     };
     let aaron = book
         .create(&sample_contact("Aaron", &["aaron@example.com"]))
         .await?;
-    let rest = book.page(&all, Some(cursor), 10).await?;
+    let rest = book.page(&all, Some(cursor), PageSize::new(10)).await?;
     assert_eq!(names(&rest.items), vec!["Bob", "bob", "zoé"]);
     assert_eq!(
         ContactCursor::of(&aaron),
@@ -346,7 +348,10 @@ pub async fn contact_book_contract<B: ContactBook + ContactDirectory>(
             .await?,
         4
     );
-    assert_eq!(book.page(&all, None, 10).await?, ContactPage::default());
+    assert_eq!(
+        book.page(&all, None, PageSize::new(10)).await?,
+        ContactPage::default()
+    );
     Ok(())
 }
 
@@ -383,6 +388,32 @@ pub async fn contact_selection_contract<B: ContactBook + ContactDirectory>(
     Ok(())
 }
 
+/// Contrat de la taille de page (carnet vide au départ) : une demande
+/// plus grande que [`MAX_PAGE_SIZE`] renvoie au plus [`MAX_PAGE_SIZE`]
+/// contacts, et la suite donne le reste.
+pub async fn contact_page_size_contract<B: ContactBook + ContactDirectory>(
+    book: &B,
+) -> Result<(), ContactStoreError> {
+    let all = ContactFilter::default();
+    let drafts: Vec<ContactDraft> = (0..=MAX_PAGE_SIZE)
+        .map(|i| sample_contact(&format!("c{i:04}"), &[&format!("c{i}@example.com")]))
+        .collect();
+    book.import(&drafts, &[]).await?;
+    let first = book
+        .page(&all, None, PageSize::new(MAX_PAGE_SIZE + 1))
+        .await?;
+    assert_eq!(first.items.len(), MAX_PAGE_SIZE as usize, "page plafonnée");
+    let Some(cursor) = first.next else {
+        panic!("suite attendue au-delà du plafond");
+    };
+    let rest = book
+        .page(&all, Some(cursor), PageSize::new(u32::MAX))
+        .await?;
+    assert_eq!(names(&rest.items), vec![format!("c{MAX_PAGE_SIZE:04}")]);
+    assert_eq!(rest.next, None);
+    Ok(())
+}
+
 /// Contrat de l'import en une transaction ([`ContactBook::import`]),
 /// carnet vide au départ : tout ou rien.
 pub async fn contact_import_contract<B: ContactBook + ContactDirectory>(
@@ -407,7 +438,10 @@ pub async fn contact_import_contract<B: ContactBook + ContactDirectory>(
             "alice@example.com"
         )))
     );
-    assert_eq!(book.page(&all, None, 10).await?, ContactPage::default());
+    assert_eq!(
+        book.page(&all, None, PageSize::new(10)).await?,
+        ContactPage::default()
+    );
 
     let outcome = book
         .import(
@@ -767,9 +801,9 @@ impl ContactDirectory for InMemoryContactBook {
         &self,
         filter: &ContactFilter,
         cursor: Option<ContactCursor>,
-        limit: u32,
+        limit: PageSize,
     ) -> Result<ContactPage, StoreError> {
-        let limit = limit.min(MAX_PAGE_SIZE) as usize;
+        let limit = limit.get() as usize;
         let after = cursor.map(SortKey);
         let mut rest = sorted(&self.lock().1)
             .into_iter()
@@ -835,5 +869,10 @@ mod tests {
     #[tokio::test]
     async fn in_memory_contact_book_passes_selection_contract() -> Result<(), ContactStoreError> {
         contact_selection_contract(&InMemoryContactBook::default()).await
+    }
+
+    #[tokio::test]
+    async fn in_memory_contact_book_passes_page_size_contract() -> Result<(), ContactStoreError> {
+        contact_page_size_contract(&InMemoryContactBook::default()).await
     }
 }

@@ -62,8 +62,8 @@ l'ordinateur** : rien n'est envoyé à un serveur.
   - même adresse deux fois dans la fiche ;
   - adresse qui appartient déjà à **un autre contact**, sans tenir compte
     des majuscules (citée) : une adresse n'appartient qu'à un contact ;
-  - texte trop long ou caractère invisible dans un champ (le champ est
-    nommé).
+  - texte trop long ou caractère invisible ou trompeur dans un champ ou
+    dans une adresse (le champ est nommé), comme pour un import.
 - Contact enregistré : la fenêtre se ferme, un avis « Contact … ajouté. »
   s'affiche, la liste est relue et la fiche du contact s'ouvre.
 
@@ -196,6 +196,10 @@ l'ordinateur** : rien n'est envoyé à un serveur.
   même choisie dans le champ À : aucun membre ne voit l'adresse des
   autres. Les pastilles se modifient ensuite comme les autres
   destinataires.
+- Une liste abîmée dans les données de l'application n'empêche pas de
+  lire les autres : elle seule disparaît de la section « Listes » et des
+  suggestions, les autres restent affichées et proposées. Son nom reste
+  pris : une nouvelle liste du même nom est refusée.
 
 ### Importer des contacts
 
@@ -332,7 +336,11 @@ l'ordinateur** : rien n'est envoyé à un serveur.
 - Un fichier importé est lu par l'application elle-même, taille limitée
   avant lecture ; l'écran ne reçoit que le résumé. Il ne fait charger
   aucune ressource extérieure (photo, lien). Les caractères invisibles ou
-  trompeurs d'une fiche importée la font refuser.
+  trompeurs d'une fiche importée la font refuser, comme à la saisie. Ceux
+  que contenaient déjà les fiches du carnet sont retirés à la mise à jour
+  de l'application : un champ ainsi vidé disparaît ; une adresse qui en
+  contenait est écartée plutôt que corrigée (corrigée, elle désignerait une
+  autre boîte), et un contact sans adresse restante est supprimé.
 - Un fichier exporté est écrit par l'application à l'emplacement choisi
   dans la fenêtre du système ; l'écran ne fournit jamais de chemin. Les
   cellules d'un CSV ne peuvent pas devenir des formules de tableur.

@@ -892,6 +892,31 @@ pub struct MessagePage {
 /// Taille maximale d'une page.
 pub const MAX_PAGE_SIZE: u32 = 500;
 
+/// Nombre d'éléments demandés pour une page, borné à [`MAX_PAGE_SIZE`] dès
+/// la construction : une demande plus grande est ramenée au plafond. Zéro
+/// reste permis (page vide).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct PageSize(u32);
+
+impl PageSize {
+    /// La plus grande page.
+    pub const MAX: Self = Self(MAX_PAGE_SIZE);
+
+    #[must_use]
+    pub const fn new(requested: u32) -> Self {
+        if requested > MAX_PAGE_SIZE {
+            Self::MAX
+        } else {
+            Self(requested)
+        }
+    }
+
+    #[must_use]
+    pub const fn get(self) -> u32 {
+        self.0
+    }
+}
+
 /// Liste paginée des messages d'un dossier.
 pub trait MessageListQuery: Send + Sync {
     /// Au plus `limit` messages (borné à [`MAX_PAGE_SIZE`]) après
@@ -1576,14 +1601,14 @@ pub const MAX_CONTACT_LOOKUP: usize = 500;
 
 /// Lectures d'écran du carnet d'adresses.
 pub trait ContactDirectory: Send + Sync {
-    /// Au plus `limit` contacts (borné à [`MAX_PAGE_SIZE`]) qui passent
-    /// `filter` ([`ContactFilter::matches`]), après `cursor`, dans l'ordre
-    /// de [`ContactCursor`].
+    /// Au plus `limit` contacts ([`PageSize`], donc au plus
+    /// [`MAX_PAGE_SIZE`]) qui passent `filter` ([`ContactFilter::matches`]),
+    /// après `cursor`, dans l'ordre de [`ContactCursor`].
     fn page(
         &self,
         filter: &ContactFilter,
         cursor: Option<ContactCursor>,
-        limit: u32,
+        limit: PageSize,
     ) -> impl Future<Output = Result<ContactPage, StoreError>> + Send;
 
     /// Fiche complète.
@@ -1723,13 +1748,14 @@ pub struct ContactListPage {
 
 /// Lectures d'écran des listes de diffusion.
 pub trait ContactListDirectory: Send + Sync {
-    /// Au plus `limit` listes (borné à [`MAX_PAGE_SIZE`]) qui passent
-    /// `filter`, après `cursor`, dans l'ordre de [`ContactListCursor`].
+    /// Au plus `limit` listes ([`PageSize`], donc au plus
+    /// [`MAX_PAGE_SIZE`]) qui passent `filter`, après `cursor`, dans l'ordre
+    /// de [`ContactListCursor`].
     fn list_page(
         &self,
         filter: &ContactListFilter,
         cursor: Option<ContactListCursor>,
-        limit: u32,
+        limit: PageSize,
     ) -> impl Future<Output = Result<ContactListPage, StoreError>> + Send;
 
     /// Liste complète (membres dans leur ordre).
@@ -1973,6 +1999,19 @@ pub trait ReadingPreferences: Send + Sync {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn page_size_is_capped_at_max() {
+        assert_eq!(PageSize::new(MAX_PAGE_SIZE + 1), PageSize::MAX);
+        assert_eq!(PageSize::new(u32::MAX).get(), MAX_PAGE_SIZE);
+        assert_eq!(PageSize::new(MAX_PAGE_SIZE).get(), MAX_PAGE_SIZE);
+    }
+
+    #[test]
+    fn page_size_keeps_smaller_requests() {
+        assert_eq!(PageSize::new(0).get(), 0);
+        assert_eq!(PageSize::new(10).get(), 10);
+    }
 
     #[test]
     fn secret_key_for_server() {

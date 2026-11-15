@@ -11,7 +11,7 @@ use norelly_domain::contacts::{AddressKey, ContactId, MAX_CONTACT_NAME_CHARS};
 use norelly_domain::ports::{
     ContactBook, ContactDirectory, ContactListBook, ContactListCursor, ContactListDirectory,
     ContactListPage, ContactListStoreError, ContactListSummary, ContactStoreError,
-    MAX_CONTACT_LIST_SORT_KEY_CHARS, MAX_PAGE_SIZE, StoreError,
+    MAX_CONTACT_LIST_SORT_KEY_CHARS, MAX_PAGE_SIZE, PageSize, StoreError,
 };
 
 use crate::contacts_contracts::{InMemoryContactBook, sample_contact};
@@ -37,7 +37,9 @@ async fn all_pages<D: ContactListDirectory>(
     let mut items = Vec::new();
     let mut cursor = None;
     loop {
-        let page = directory.list_page(filter, cursor, limit).await?;
+        let page = directory
+            .list_page(filter, cursor, PageSize::new(limit))
+            .await?;
         assert!(
             page.items.len() <= limit as usize,
             "page plus longue que la limite"
@@ -52,6 +54,33 @@ async fn all_pages<D: ContactListDirectory>(
 
 fn names(items: &[ContactListSummary]) -> Vec<&str> {
     items.iter().map(|i| i.name.as_str()).collect()
+}
+
+/// Contrat de la taille de page (carnet vide au départ) : une demande
+/// plus grande que [`MAX_PAGE_SIZE`] renvoie au plus [`MAX_PAGE_SIZE`]
+/// listes, et la suite donne le reste.
+pub async fn contact_list_page_size_contract<B>(book: &B) -> Result<(), ContactListStoreError>
+where
+    B: ContactListBook + ContactListDirectory,
+{
+    let all = ContactListFilter::default();
+    for i in 0..=MAX_PAGE_SIZE {
+        book.create_list(&sample_list(&format!("l{i:04}"), &[], false))
+            .await?;
+    }
+    let first = book
+        .list_page(&all, None, PageSize::new(MAX_PAGE_SIZE + 1))
+        .await?;
+    assert_eq!(first.items.len(), MAX_PAGE_SIZE as usize, "page plafonnée");
+    let Some(cursor) = first.next else {
+        panic!("suite attendue au-delà du plafond");
+    };
+    let rest = book
+        .list_page(&all, Some(cursor), PageSize::new(u32::MAX))
+        .await?;
+    assert_eq!(names(&rest.items), vec![format!("l{MAX_PAGE_SIZE:04}")]);
+    assert_eq!(rest.next, None);
+    Ok(())
 }
 
 /// Contrat des listes de diffusion (carnet vide au départ).
@@ -71,7 +100,7 @@ where
     let carol = contact("Carol", "carol@example.org").await?;
 
     assert_eq!(
-        book.list_page(&all, None, 10).await?,
+        book.list_page(&all, None, PageSize::new(10)).await?,
         ContactListPage::default(),
         "listes au départ"
     );
@@ -138,7 +167,7 @@ where
     );
 
     // Ligne de liste : nom, nombre de membres, Cci.
-    let line = book.list_page(&all, None, 10).await?;
+    let line = book.list_page(&all, None, PageSize::new(10)).await?;
     assert_eq!(
         line.items,
         vec![
@@ -168,14 +197,14 @@ where
             "pages de {limit}"
         );
     }
-    let first = book.list_page(&all, None, 5).await?;
+    let first = book.list_page(&all, None, PageSize::new(5)).await?;
     assert_eq!(first.next, None, "page complète en fin : pas de suite");
     assert_eq!(
-        book.list_page(&all, None, 0).await?,
+        book.list_page(&all, None, PageSize::new(0)).await?,
         ContactListPage::default(),
         "limite nulle"
     );
-    let page = book.list_page(&all, None, 2).await?;
+    let page = book.list_page(&all, None, PageSize::new(2)).await?;
     let Some(cursor) = page.next.clone() else {
         panic!("suite attendue");
     };
@@ -183,7 +212,12 @@ where
     // Une liste ajoutée avant le curseur ne décale pas la suite.
     let aaa = book.create_list(&sample_list("Aaa", &[], false)).await?;
     assert_eq!(
-        names(&book.list_page(&all, Some(cursor), 10).await?.items),
+        names(
+            &book
+                .list_page(&all, Some(cursor), PageSize::new(10))
+                .await?
+                .items
+        ),
         vec!["FAMILLE", "Voisins", "Zumba"]
     );
     assert_eq!(
@@ -205,7 +239,11 @@ where
             "{joker:?}"
         );
     }
-    assert!(book.list_page(&all, None, MAX_PAGE_SIZE + 1).await.is_ok());
+    assert!(
+        book.list_page(&all, None, PageSize::new(MAX_PAGE_SIZE + 1))
+            .await
+            .is_ok()
+    );
     assert!(ContactListCursor::parse("a".repeat(MAX_CONTACT_LIST_SORT_KEY_CHARS + 1), 1).is_none());
     assert!(ContactListCursor::parse("a".repeat(MAX_CONTACT_NAME_CHARS), 1).is_some());
 
@@ -237,7 +275,7 @@ where
         Some(vec![alice])
     );
     let line = book
-        .list_page(&ContactListFilter::new("club"), None, 10)
+        .list_page(&ContactListFilter::new("club"), None, PageSize::new(10))
         .await?;
     assert_eq!(line.items.first().map(|i| i.members), Some(2));
 
@@ -275,9 +313,63 @@ where
         .collect();
     assert_eq!(book.delete_lists(&rest).await?, rest.len());
     assert_eq!(
-        book.list_page(&all, None, 10).await?,
+        book.list_page(&all, None, PageSize::new(10)).await?,
         ContactListPage::default()
     );
+    Ok(())
+}
+
+/// Contrat d'une liste corrompue en base : elle seule est écartée (absente
+/// des pages, des suggestions et de la relecture), les autres restent
+/// lisibles et la pagination ne saute ni ne répète aucune liste valide.
+///
+/// `corrupt` abîme la liste donnée directement dans le stockage (une ligne
+/// que le domaine refuse à la relecture) ; un faux, qui ne garde que des
+/// listes valides, la fait disparaître. Carnet vide au départ.
+pub async fn corrupted_list_contract<B, F, Fut>(
+    book: &B,
+    corrupt: F,
+) -> Result<(), ContactListStoreError>
+where
+    B: ContactBook + ContactDirectory + ContactListBook + ContactListDirectory,
+    F: Fn(ContactListId) -> Fut,
+    Fut: Future<Output = Result<(), ContactListStoreError>>,
+{
+    let all = ContactListFilter::default();
+    let alice = book
+        .create(&sample_contact("Alice", &["alice@example.com"]))
+        .await
+        .map_err(|e| ContactListStoreError::Store(StoreError(e.to_string())))?
+        .id();
+    let mut lists = Vec::new();
+    for name in ["Liste a", "Liste b", "Liste c", "Liste d", "Liste e"] {
+        lists.push(
+            book.create_list(&sample_list(name, &[alice], false))
+                .await?,
+        );
+    }
+    // Deux listes corrompues qui se suivent, puis la dernière.
+    for index in [1, 2, 4] {
+        corrupt(lists[index].id()).await?;
+    }
+    let valid = vec!["Liste a", "Liste d"];
+    for limit in [1, 2, 3, 10] {
+        assert_eq!(
+            names(&all_pages(book, &all, limit).await?),
+            valid,
+            "pages de {limit}"
+        );
+    }
+    // Suggestions : la page filtrée garde les listes valides.
+    let suggested = book
+        .list_page(&ContactListFilter::new("liste"), None, PageSize::MAX)
+        .await?;
+    assert_eq!(names(&suggested.items), valid);
+    assert_eq!(suggested.next, None);
+    assert_eq!(book.get_list(lists[1].id()).await?, None);
+    assert_eq!(book.get_list(lists[4].id()).await?, None);
+    assert_eq!(book.get_list(lists[0].id()).await?, Some(lists[0].clone()));
+    assert_eq!(book.get_list(lists[3].id()).await?, Some(lists[3].clone()));
     Ok(())
 }
 
@@ -489,9 +581,9 @@ impl ContactListDirectory for InMemoryContactBook {
         &self,
         filter: &ContactListFilter,
         cursor: Option<ContactListCursor>,
-        limit: u32,
+        limit: PageSize,
     ) -> Result<ContactListPage, StoreError> {
-        let limit = limit.min(MAX_PAGE_SIZE) as usize;
+        let limit = limit.get() as usize;
         let mut rest = sorted(&self.lock_lists().1)
             .into_iter()
             .filter(|l| filter.matches(l.draft()))
@@ -526,7 +618,23 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn in_memory_corrupted_list_passes_contract() -> Result<(), ContactListStoreError> {
+        let book = InMemoryContactBook::default();
+        corrupted_list_contract(&book, |id| {
+            let book = &book;
+            async move { book.delete_lists(&[id]).await.map(|_| ()) }
+        })
+        .await
+    }
+
+    #[tokio::test]
     async fn in_memory_contact_merge_passes_contract() -> Result<(), ContactListStoreError> {
         contact_merge_contract(&InMemoryContactBook::default()).await
+    }
+
+    #[tokio::test]
+    async fn in_memory_contact_lists_pass_page_size_contract() -> Result<(), ContactListStoreError>
+    {
+        contact_list_page_size_contract(&InMemoryContactBook::default()).await
     }
 }

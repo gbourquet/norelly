@@ -17,7 +17,7 @@ use norelly_domain::contact_lists::{
 use norelly_domain::contacts::{Contact, ContactId};
 use norelly_domain::ports::{
     ContactDirectory, ContactListBook, ContactListCursor, ContactListDirectory, ContactListPage,
-    ContactListStoreError, ContactListSummary, MAX_PAGE_SIZE, StoreError,
+    ContactListStoreError, ContactListSummary, PageSize, StoreError,
 };
 
 /// Échec d'un cas d'usage des listes.
@@ -103,7 +103,7 @@ impl<D: ContactListDirectory> ListContactLists<'_, D> {
         &self,
         text: &str,
         cursor: Option<ContactListCursor>,
-        limit: u32,
+        limit: PageSize,
     ) -> Result<ContactListPage, ContactListFailure> {
         let filter = ContactListFilter::new(text);
         Ok(self.directory.list_page(&filter, cursor, limit).await?)
@@ -182,7 +182,7 @@ impl<D: ContactListDirectory> SuggestContactLists<'_, D> {
         // plus que demandé.
         let page = self
             .directory
-            .list_page(&filter, None, MAX_PAGE_SIZE)
+            .list_page(&filter, None, PageSize::MAX)
             .await?;
         Ok(list_suggestions(text, &page.items, limit))
     }

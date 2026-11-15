@@ -17,7 +17,7 @@ use norelly_domain::contact_lists::{
 };
 use norelly_domain::contacts::{Contact, contact_selection};
 use norelly_domain::ports::{
-    ContactListCursor, ContactListItem, ContactListStoreError, ContactListSummary,
+    ContactListCursor, ContactListItem, ContactListStoreError, ContactListSummary, PageSize,
 };
 use tauri::State;
 
@@ -146,7 +146,7 @@ pub async fn list_contact_lists(
     let page = ListContactLists {
         directory: &state.contacts,
     }
-    .execute(&text, cursor, limit)
+    .execute(&text, cursor, PageSize::new(limit))
     .await
     .map_err(list_error)?;
     Ok(ContactListPageDto {

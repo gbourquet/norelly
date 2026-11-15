@@ -296,7 +296,7 @@ mod tests {
             &self,
             _: &norelly_domain::contacts::ContactFilter,
             _: Option<norelly_domain::ports::ContactCursor>,
-            _: u32,
+            _: norelly_domain::ports::PageSize,
         ) -> Result<norelly_domain::ports::ContactPage, StoreError> {
             Err(StoreError("carnet illisible".into()))
         }

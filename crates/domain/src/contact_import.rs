@@ -14,16 +14,20 @@ use std::collections::{HashMap, HashSet};
 use crate::address::EmailAddressError;
 use crate::connection::is_format_char;
 use crate::contacts::{
-    AddressKey, Contact, ContactDraft, ContactError, ContactField, ContactInput, EmailInput,
-    MAX_CONTACT_EMAILS, MAX_CONTACT_PHONES, PhoneInput,
+    AddressKey, Contact, ContactDraft, ContactError, ContactField, ContactId, ContactInput,
+    EmailInput, MAX_CONTACT_EMAILS, MAX_CONTACT_PHONES, PhoneInput,
 };
-use crate::ports::TextNormalizer;
+use crate::ports::{ContactStoreError, TextNormalizer};
 use crate::sender::imitates_address;
 
 /// Taille maximale d'un fichier de contacts importé, en octets.
 pub const MAX_IMPORT_FILE_BYTES: usize = 20 * 1024 * 1024;
 /// Nombre maximal de fiches d'un fichier importé.
 pub const MAX_IMPORT_CARDS: usize = 25_000;
+/// Nombre maximal de tentatives d'un import : un carnet qui a changé entre
+/// la lecture et l'écriture ([`plan_outdated`]) fait relire le carnet et
+/// recalculer le plan ; au-delà, l'import est abandonné sans rien écrire.
+pub const MAX_IMPORT_ATTEMPTS: usize = 3;
 /// Longueur maximale du repère d'une fiche rejetée, en caractères.
 pub const MAX_IMPORT_HINT_CHARS: usize = 80;
 
@@ -98,13 +102,65 @@ pub struct ImportRejection {
     pub reason: RejectReason,
 }
 
+/// Complément d'un contact du carnet : la fiche telle qu'elle a été lue
+/// pour calculer le plan, et son nouveau contenu. L'import ne l'écrit que
+/// si la fiche n'a pas changé depuis cette lecture
+/// ([`crate::ports::ContactBook::import`]) : une modification faite
+/// entre-temps n'est jamais écrasée.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ContactCompletion {
+    read: Contact,
+    draft: ContactDraft,
+}
+
+impl ContactCompletion {
+    /// Complément de la fiche `read` par le contenu `draft`.
+    #[must_use]
+    pub fn new(read: Contact, draft: ContactDraft) -> Self {
+        Self { read, draft }
+    }
+
+    /// Identifiant du contact complété.
+    #[must_use]
+    pub fn id(&self) -> ContactId {
+        self.read.id()
+    }
+
+    /// Fiche telle qu'elle a été lue pour calculer le complément.
+    #[must_use]
+    pub fn read(&self) -> &Contact {
+        &self.read
+    }
+
+    /// Nouveau contenu de la fiche.
+    #[must_use]
+    pub fn draft(&self) -> &ContactDraft {
+        &self.draft
+    }
+}
+
+/// `true` si le refus d'un import vient d'un carnet qui a changé depuis la
+/// lecture qui a servi au plan : contact à compléter modifié (`Conflict`)
+/// ou supprimé (`NotFound`), adresse prise entre-temps par un contact
+/// (`DuplicateAddress`, le plan n'en écrit jamais une déjà portée). Un plan
+/// recalculé sur le carnet relu en tient compte.
+#[must_use]
+pub fn plan_outdated(error: &ContactStoreError) -> bool {
+    matches!(
+        error,
+        ContactStoreError::Conflict
+            | ContactStoreError::NotFound
+            | ContactStoreError::DuplicateAddress(_)
+    )
+}
+
 /// Plan d'import : ce que l'import écrira, et ce qu'il laisse de côté.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ImportPlan {
     /// Nouvelles fiches, dans l'ordre du fichier.
     pub create: Vec<ContactDraft>,
-    /// Contacts du carnet complétés (identifiant, nouveau contenu).
-    pub complete: Vec<Contact>,
+    /// Contacts du carnet complétés (fiche lue, nouveau contenu).
+    pub complete: Vec<ContactCompletion>,
     /// Fiches en double ignorées (ou qui n'apportaient rien).
     pub duplicates: usize,
     /// Fiches dont un nom imitant une adresse a été retiré.
@@ -261,7 +317,7 @@ pub fn plan_import(
     plan.complete = existing
         .iter()
         .zip(completed)
-        .filter_map(|(contact, draft)| draft.map(|d| d.with_id(contact.id())))
+        .filter_map(|(contact, draft)| draft.map(|d| ContactCompletion::new(contact.clone(), d)))
         .collect();
     plan
 }

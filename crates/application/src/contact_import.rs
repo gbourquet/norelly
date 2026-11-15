@@ -7,13 +7,18 @@
 //! ([`norelly_domain::contact_import::plan_import`]), calculé contre les
 //! contacts du carnet qui portent les adresses du fichier. L'import
 //! recalcule le plan contre le carnet du moment : une fiche ajoutée entre
-//! l'aperçu et l'import devient un doublon.
+//! l'aperçu et l'import devient un doublon. Un carnet qui change entre
+//! cette relecture et l'écriture (contact à compléter modifié ou supprimé,
+//! adresse prise entre-temps, voir
+//! [`norelly_domain::contact_import::plan_outdated`]) n'est pas écrasé :
+//! l'écriture est refusée, le carnet relu et le plan recalculé, au plus
+//! [`MAX_IMPORT_ATTEMPTS`] fois.
 
 use std::collections::HashSet;
 
 use norelly_domain::contact_import::{
-    ContactFormat, DecodedContacts, DuplicatePolicy, ImportPlan, ImportedCard, import_keys,
-    plan_import,
+    ContactFormat, DecodedContacts, DuplicatePolicy, ImportPlan, ImportedCard, MAX_IMPORT_ATTEMPTS,
+    import_keys, plan_import, plan_outdated,
 };
 use norelly_domain::contacts::Contact;
 use norelly_domain::ports::{
@@ -111,9 +116,19 @@ impl<B: ContactBook + ContactDirectory, N: TextNormalizer> ApplyContactImport<'_
         cards: &[ImportedCard],
         policy: DuplicatePolicy,
     ) -> Result<ImportOutcome, ImportFailure> {
-        let existing = existing(self.book, cards).await?;
-        let plan = plan_import(&existing, cards, policy, self.normalizer);
-        Ok(self.book.import(&plan.create, &plan.complete).await?)
+        let mut attempt = 1;
+        loop {
+            let existing = existing(self.book, cards).await?;
+            let plan = plan_import(&existing, cards, policy, self.normalizer);
+            match self.book.import(&plan.create, &plan.complete).await {
+                // Le carnet a changé depuis sa lecture : rien n'est écrit,
+                // le plan est recalculé sur le carnet relu.
+                Err(e) if plan_outdated(&e) && attempt < MAX_IMPORT_ATTEMPTS => {
+                    attempt += 1;
+                }
+                outcome => return Ok(outcome?),
+            }
+        }
     }
 }
 

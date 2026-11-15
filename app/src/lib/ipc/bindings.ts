@@ -1118,6 +1118,11 @@ export type ErrorCodeDto =
 "contact_import_read_failed" | 
 /**  Aperçu d'import périmé (remplacé par un autre, ou déjà importé). */
 "contact_import_expired" | 
+/**
+ *  Carnet modifié pendant l'import, à chaque tentative : rien n'a été
+ *  importé.
+ */
+"contact_import_conflict" | 
 /**  Aucun contact à exporter (carnet vide, sélection supprimée). */
 "contact_export_empty" | 
 /**

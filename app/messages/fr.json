@@ -688,6 +688,7 @@
   "err_contact_import_unknown_format": "Ce fichier n'est pas un carnet d'adresses reconnu. Depuis votre ancien logiciel, exportez vos contacts au format vCard (.vcf) ou CSV.",
   "err_contact_import_read_failed": "Impossible de lire ce fichier.",
   "err_contact_import_expired": "Cet aperçu n'est plus valable : choisissez de nouveau le fichier.",
+  "err_contact_import_conflict": "Le carnet a changé plusieurs fois pendant l'import : rien n'a été importé. Attendez la fin des modifications en cours, puis relancez l'import.",
   "cmd_contacts_export": "Exporter les contacts…",
   "cmd_contacts_export_keywords": "exporter sauvegarder enregistrer carnet adresses fichier vcard vcf csv ldif gmail google outlook thunderbird",
   "cmd_contacts_find_duplicates": "Rechercher les doublons…",

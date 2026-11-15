@@ -211,6 +211,8 @@ function codeText(code: ErrorCodeDto, field: FieldDto | null): string {
       return m.err_contact_import_read_failed();
     case "contact_import_expired":
       return m.err_contact_import_expired();
+    case "contact_import_conflict":
+      return m.err_contact_import_conflict();
     case "contact_export_empty":
       return m.err_contact_export_empty();
     case "contact_export_too_large":

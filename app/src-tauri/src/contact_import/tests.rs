@@ -2,7 +2,8 @@ use std::io::Write;
 
 use norelly_application::contact_import::ImportPreview;
 use norelly_domain::contact_import::{
-    ContactFormat, ImportPlan, ImportRejection, MAX_IMPORT_FILE_BYTES, RejectReason,
+    ContactCompletion, ContactFormat, ImportPlan, ImportRejection, MAX_IMPORT_FILE_BYTES,
+    RejectReason,
 };
 use norelly_domain::contacts::{ContactError, ContactField, ContactId};
 use norelly_domain::ports::{ContactCodecError, ContactStoreError, StoreError};
@@ -34,7 +35,7 @@ fn preview(rejected: Vec<ImportRejection>) -> ImportPreview {
         },
         complete: ImportPlan {
             create: vec![alice.clone()],
-            complete: vec![alice.with_id(id)],
+            complete: vec![ContactCompletion::new(alice.clone().with_id(id), alice)],
             duplicates: 2,
             renamed: 1,
             rejected,
@@ -156,6 +157,10 @@ fn failures_become_codes() {
     assert_eq!(
         code(ContactStoreError::NotFound.into()),
         ErrorCodeDto::ContactNotFound
+    );
+    assert_eq!(
+        code(ContactStoreError::Conflict.into()),
+        ErrorCodeDto::ContactImportConflict
     );
     assert_eq!(
         code(StoreError("disque plein".into()).into()),

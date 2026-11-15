@@ -6,6 +6,7 @@ use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use norelly_domain::address::EmailAddress;
 use norelly_domain::contact_export::ContactSelection;
+use norelly_domain::contact_import::ContactCompletion;
 use norelly_domain::contact_lists::{ContactList, ContactListDraft, ContactListInput};
 use norelly_domain::contacts::{
     AddressKey, Contact, ContactDraft, ContactFilter, ContactId, ContactInput, EmailInput,
@@ -438,7 +439,10 @@ pub async fn contact_import_contract<B: ContactBook + ContactDirectory>(
     let outcome = book
         .import(
             &[sample_contact("Carole", &["carole@example.org"])],
-            std::slice::from_ref(&completed),
+            &[ContactCompletion::new(
+                alice.clone(),
+                completed.draft().clone(),
+            )],
         )
         .await?;
     assert_eq!(
@@ -453,8 +457,10 @@ pub async fn contact_import_contract<B: ContactBook + ContactDirectory>(
 
     // Un complément qui prendrait l'adresse d'un autre contact, ou un
     // contact inconnu, annule tout l'import.
-    let stolen =
-        sample_contact("Alice", &["alice@example.com", "BOB@example.net"]).with_id(alice.id());
+    let stolen = ContactCompletion::new(
+        completed.clone(),
+        sample_contact("Alice", &["alice@example.com", "BOB@example.net"]),
+    );
     assert_eq!(
         book.import(
             &[sample_contact("Denis", &["denis@example.org"])],
@@ -465,8 +471,12 @@ pub async fn contact_import_contract<B: ContactBook + ContactDirectory>(
             "BOB@example.net"
         )))
     );
-    let unknown = sample_contact("Zoé", &["zoe@example.org"])
-        .with_id(ContactId::new(i64::MAX).unwrap_or_else(|| panic!("id")));
+    let zoe = sample_contact("Zoé", &["zoe@example.org"]);
+    let unknown = ContactCompletion::new(
+        zoe.clone()
+            .with_id(ContactId::new(i64::MAX).unwrap_or_else(|| panic!("id"))),
+        zoe,
+    );
     assert_eq!(
         book.import(
             &[sample_contact("Denis", &["denis@example.org"])],
@@ -477,14 +487,42 @@ pub async fn contact_import_contract<B: ContactBook + ContactDirectory>(
     );
     // Une création qui reprend une adresse complétée dans le même import
     // est refusée aussi.
-    let again =
-        sample_contact("Alice", &["alice@example.com", "a3@example.com"]).with_id(alice.id());
+    let again = ContactCompletion::new(
+        completed.clone(),
+        sample_contact("Alice", &["alice@example.com", "a3@example.com"]),
+    );
     assert_eq!(
         book.import(&[sample_contact("Autre", &["A3@example.com"])], &[again])
             .await,
         Err(ContactStoreError::DuplicateAddress(address(
             "A3@example.com"
         )))
+    );
+    // Un contact modifié depuis la lecture qui a servi au complément
+    // n'est pas écrasé : tout l'import est annulé.
+    let stale = ContactCompletion::new(
+        alice.clone(),
+        sample_contact("Alice", &["alice@example.com", "a4@example.com"]),
+    );
+    assert_eq!(
+        book.import(&[sample_contact("Denis", &["denis@example.org"])], &[stale])
+            .await,
+        Err(ContactStoreError::Conflict)
+    );
+    // Les fiches lues sont toutes vérifiées avant toute écriture : un
+    // contact modifié l'emporte sur l'adresse prise d'un complément qui le
+    // précède.
+    let takes_carole = ContactCompletion::new(
+        completed.clone(),
+        sample_contact("Alice", &["alice@example.com", "carole@example.org"]),
+    );
+    let stale_bob = ContactCompletion::new(
+        sample_contact("Bob ancien", &["bob@example.net"]).with_id(bob_id),
+        sample_contact("Bob", &["bob@example.net", "b2@example.net"]),
+    );
+    assert_eq!(
+        book.import(&[], &[takes_carole, stale_bob]).await,
+        Err(ContactStoreError::Conflict)
     );
     assert_eq!(book.get(alice.id()).await?, Some(completed));
     assert!(book.get(bob_id).await?.is_some());
@@ -593,11 +631,20 @@ impl ContactBook for InMemoryContactBook {
     async fn import(
         &self,
         create: &[ContactDraft],
-        complete: &[Contact],
+        complete: &[ContactCompletion],
     ) -> Result<ImportOutcome, ContactStoreError> {
         let mut state = self.lock();
         // Écrit sur une copie, gardée seulement si tout passe.
         let (mut last, mut contacts) = state.clone();
+        // Chaque contact à compléter tel qu'il a été lu pour calculer le
+        // plan, vérifié avant toute écriture.
+        for contact in complete {
+            match state.1.iter().find(|c| c.id() == contact.id()) {
+                None => return Err(ContactStoreError::NotFound),
+                Some(c) if c != contact.read() => return Err(ContactStoreError::Conflict),
+                Some(_) => {}
+            }
+        }
         for contact in complete {
             let Some(index) = contacts.iter().position(|c| c.id() == contact.id()) else {
                 return Err(ContactStoreError::NotFound);
@@ -605,7 +652,7 @@ impl ContactBook for InMemoryContactBook {
             if let Some(address) = taken(&contacts, contact.draft(), Some(contact.id())) {
                 return Err(ContactStoreError::DuplicateAddress(address));
             }
-            contacts[index] = contact.clone();
+            contacts[index] = contact.draft().clone().with_id(contact.id());
         }
         for draft in create {
             if let Some(address) = taken(&contacts, draft, None) {

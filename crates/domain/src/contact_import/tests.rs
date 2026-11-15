@@ -298,6 +298,9 @@ fn complete_fills_empty_fields_and_adds_missing_addresses_and_phones() {
     assert_eq!(p.complete.len(), 1);
     let c = &p.complete[0];
     assert_eq!(c.id().get(), 7);
+    // La fiche lue accompagne le complément, pour que l'import refuse
+    // d'écraser une modification faite depuis.
+    assert_eq!(c.read(), &existing[0]);
     let d = c.draft();
     // Rien n'est écrasé : nom affiché, adresse préférée, favori gardés.
     assert_eq!(d.display_name_field(), Some("Alice"));
@@ -570,4 +573,18 @@ fn imported_addresses_are_normalized_and_free_of_invisible_characters() {
         DuplicatePolicy::Skip,
     );
     assert_eq!(p.rejected[0].hint, "Alice");
+}
+
+#[test]
+fn only_a_book_changed_since_the_read_outdates_the_plan() {
+    use crate::ports::{ContactStoreError, StoreError};
+    let taken = crate::address::EmailAddress::parse("a@example.com")
+        .unwrap_or_else(|e| panic!("adresse : {e}"));
+    assert!(plan_outdated(&ContactStoreError::Conflict));
+    assert!(plan_outdated(&ContactStoreError::NotFound));
+    assert!(plan_outdated(&ContactStoreError::DuplicateAddress(taken)));
+    assert!(!plan_outdated(&ContactStoreError::Corrupted("x".into())));
+    assert!(!plan_outdated(&ContactStoreError::Store(StoreError(
+        "disque plein".into()
+    ))));
 }

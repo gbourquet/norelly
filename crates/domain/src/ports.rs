@@ -20,7 +20,7 @@ use crate::compose::draft::{ComposeError, Draft, DraftSync, Recipient, RemoteCop
 use crate::compose::outbox::OutboxEntry;
 use crate::connection::ConnectionError;
 use crate::contact_export::{ContactSelection, ExportCard, ExportFormat};
-use crate::contact_import::DecodedContacts;
+use crate::contact_import::{ContactCompletion, DecodedContacts};
 use crate::contact_lists::{ContactList, ContactListDraft, ContactListFilter, ContactListId};
 use crate::contacts::{
     AddressKey, Contact, ContactDraft, ContactFilter, ContactId, MAX_CONTACT_NAME_CHARS,
@@ -1382,7 +1382,7 @@ pub enum ContactStoreError {
     DuplicateAddress(EmailAddress),
     #[error("contact inconnu")]
     NotFound,
-    /// Une fiche a changé depuis sa lecture (fusion).
+    /// Une fiche a changé depuis sa lecture (fusion, import).
     #[error("contact modifié entre-temps")]
     Conflict,
     #[error("données de contact corrompues : {0}")]
@@ -1423,14 +1423,15 @@ pub trait ContactBook: Send + Sync {
     ) -> impl Future<Output = Result<usize, ContactStoreError>> + Send;
 
     /// Importe en une transaction : enregistre les fiches `create`,
-    /// remplace le contenu des contacts `complete` (identifiant existant,
-    /// nouveau contenu). Tout ou rien : une adresse déjà portée par un
-    /// autre contact (`DuplicateAddress`) ou un contact inconnu
-    /// (`NotFound`) annule tout l'import.
+    /// remplace le contenu des contacts `complete` par leur nouveau
+    /// contenu. Tout ou rien : une adresse déjà portée par un autre
+    /// contact (`DuplicateAddress`), un contact inconnu (`NotFound`) ou un
+    /// contact qui a changé depuis sa lecture ([`ContactCompletion::read`],
+    /// `Conflict`) annule tout l'import.
     fn import(
         &self,
         create: &[ContactDraft],
-        complete: &[Contact],
+        complete: &[ContactCompletion],
     ) -> impl Future<Output = Result<ImportOutcome, ContactStoreError>> + Send;
 
     /// Fusionne en une transaction ([`crate::contact_duplicates`]) : la

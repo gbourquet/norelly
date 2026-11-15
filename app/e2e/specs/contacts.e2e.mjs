@@ -68,7 +68,8 @@ describe("carnet d'adresses", () => {
       mail("Z. M. <Zoe@norelly.test>", "Réunion du carnet", "carnet-zoe"),
       mail("Hugo Petit <hugo@norelly.test>", "Prêt du carnet de chant", "carnet-hugo"),
       mail('"service@banque.test" <pirate@norelly.test>', "Votre carnet bancaire", "carnet-faux"),
-      mail("support(at)banque.test <pirate2@norelly.test>", "Carnet de chèques", "carnet-at"),
+      // Entre guillemets : sans eux, « (at) » serait un commentaire d'en-tête.
+      mail('"support(at)banque.test" <pirate2@norelly.test>', "Carnet de chèques", "carnet-at"),
       mail("Banque.test <pirate3@norelly.test>", "Carnet d'épargne", "carnet-domaine"),
     ]);
     await addTestAccount();

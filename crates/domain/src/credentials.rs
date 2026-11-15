@@ -292,9 +292,75 @@ impl fmt::Display for Credentials {
     }
 }
 
+/// Endroit où l'écran d'ajout annonce que le mot de passe sera conservé,
+/// décidé **sans lire le trousseau** : une lecture peut afficher une invite
+/// de déverrouillage, et le trousseau n'est sollicité qu'à l'enregistrement.
+///
+/// L'annonce ne promet le trousseau que s'il a répondu à son ouverture et
+/// qu'aucun autre rangement n'est possible sans nouveau consentement ; elle
+/// n'annonce le fichier non chiffré que s'il a été accepté et qu'aucun
+/// trousseau n'est ouvert. Dans le doute, rien n'est annoncé.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SecretDestination {
+    /// Trousseau ouvert, fichier non accepté : le mot de passe ira au
+    /// trousseau, ou l'enregistrement demandera le consentement au fichier.
+    SystemKeyring,
+    /// Fichier non chiffré déjà accepté par l'utilisateur, aucun trousseau
+    /// ouvert.
+    File,
+    /// Rien n'est annoncé : trousseau introuvable et fichier pas encore
+    /// accepté (l'enregistrement demandera le consentement), ou trousseau
+    /// revenu depuis l'accord (le rangement ne se sait qu'à l'écriture).
+    Undecided,
+}
+
+impl SecretDestination {
+    /// Annonce pour un trousseau ouvert ou non (`system_opened`) et un
+    /// fichier accepté ou non (`file_consented`).
+    #[must_use]
+    pub fn announced(system_opened: bool, file_consented: bool) -> Self {
+        match (system_opened, file_consented) {
+            (true, false) => Self::SystemKeyring,
+            (false, true) => Self::File,
+            (true, true) | (false, false) => Self::Undecided,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_consented_file_is_announced_when_no_keyring_is_open() {
+        assert_eq!(
+            SecretDestination::announced(false, true),
+            SecretDestination::File
+        );
+    }
+
+    #[test]
+    fn a_consented_file_with_an_open_keyring_announces_nothing() {
+        // Trousseau revenu depuis l'accord : le mot de passe ira sans doute
+        // au trousseau, mais sans lecture rien ne le garantit. Ni « fichier,
+        // car le trousseau n'est pas disponible » (faux), ni le trousseau.
+        assert_eq!(
+            SecretDestination::announced(true, true),
+            SecretDestination::Undecided
+        );
+    }
+
+    #[test]
+    fn the_keyring_is_announced_only_when_opened_and_without_file() {
+        assert_eq!(
+            SecretDestination::announced(true, false),
+            SecretDestination::SystemKeyring
+        );
+        assert_eq!(
+            SecretDestination::announced(false, false),
+            SecretDestination::Undecided
+        );
+    }
 
     const PASSWORD: &str = "s3cr3t-P@ss";
 

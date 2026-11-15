@@ -501,17 +501,18 @@ async fn trapped_messages_cannot_alter_the_database() -> Result<(), Box<dyn std:
     Ok(())
 }
 
-/// Fiche dont chaque champ texte porte une charge (décalée de `n`).
 /// Charge en nom de fiche : un nom ne peut pas imiter une adresse (refusé
-/// à la saisie), `@`, `<` et `>` y sont donc remplacés ; guillemets,
+/// à la saisie), `@`, `<` et `>` y sont donc remplacés (`@` par un mot
+/// qui ne l'écrit pas en toutes lettres) ; guillemets,
 /// apostrophes, points-virgules et accolades restent tels quels.
 fn as_name(payload: &str) -> String {
     payload
-        .replace('@', " at ")
+        .replace('@', " chez ")
         .replace('<', "(")
         .replace('>', ")")
 }
 
+/// Fiche dont chaque champ texte porte une charge (décalée de `n`).
 fn trapped_contact(n: usize) -> norelly_domain::contacts::ContactInput {
     use norelly_domain::contacts::{ContactInput, EmailInput, PhoneInput};
     let p = |i: usize| PAYLOADS[(n + i) % PAYLOADS.len()].to_owned();

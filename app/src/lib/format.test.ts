@@ -37,9 +37,14 @@ describe("mise en forme", () => {
       address: "banque.fr.service.client.securite.alerte@pirate.net",
       show_address: true,
     };
-    expect(listedName(long, { isolate: false })).toBe(
-      "banque.fr.service.cl…@pirate.net (Banque.fr)",
+    expect(listedName(long, { isolate: false })).toBe("banque.f…@pirate.net (Banque.fr)");
+    // Version complète (infobulle de la ligne).
+    expect(listedName(long, { isolate: false, abbreviate: false })).toBe(
+      "banque.fr.service.client.securite.alerte@pirate.net (Banque.fr)",
     );
+    // Un long domaine garde sa fin, qui désigne l'expéditeur réel.
+    const deep = { ...long, address: "a@secure.banque.fr.verification.pirate.net" };
+    expect(listedName(deep, { isolate: false })).toBe("a@….verification.pirate.net (Banque.fr)");
   });
 });
 

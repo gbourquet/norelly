@@ -593,6 +593,21 @@ async fn trapped_contacts_cannot_alter_the_database() -> Result<(), Box<dyn std:
             "{payload:?} : suggestion absente ({found:?})"
         );
     }
+    // Charges brutes (« @ » compris, préfixe de paramètre nommé en SQL),
+    // comme filtre et comme saisie : la fiche dont l'organisation porte la
+    // charge est retrouvée, sans erreur.
+    let len = PAYLOADS.len();
+    for (k, payload) in PAYLOADS.iter().enumerate() {
+        let page = book
+            .page(&ContactFilter::new(payload, false), None, PageSize::new(50))
+            .await?;
+        let owner = created[(k + len - 4) % len].id();
+        assert!(
+            page.items.iter().any(|i| i.id == owner),
+            "{payload:?} : fiche à l'organisation piégée non retrouvée"
+        );
+        suggest.execute(l.account, payload, 20).await?;
+    }
 
     // Modification et suppression piégées.
     let renamed = UpdateContact { book: &book }

@@ -238,10 +238,12 @@ export class ContactFormState {
   }
 
   /** Nouveau contact pré-rempli avec un correspondant (« Ajouter au
-   * carnet ») : son nom tel qu'affiché, son adresse préférée. */
-  prefill(person: { name: string; address: string }): void {
+   * carnet ») : son nom tel qu'affiché, son adresse préférée. Un nom que
+   * Rust fait accompagner de l'adresse (`show_address`, nom en forme de
+   * domaine) n'est pas repris : enregistré, il s'afficherait seul. */
+  prefill(person: { name: string; address: string; show_address?: boolean }): void {
     this.reset(null);
-    this.fields.display_name = person.name;
+    this.fields.display_name = person.show_address === true ? "" : person.name;
     const first = this.fields.emails[0];
     if (first !== undefined) first.address = person.address;
   }

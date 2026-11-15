@@ -22,7 +22,7 @@
   import ActionButtons from "./ActionButtons.svelte";
   import ActionBar from "./ActionBar.svelte";
   import { VirtualList } from "../lib/virtual-list.svelte";
-  import { personName, shortDate } from "../lib/format";
+  import { listedName, shortDate } from "../lib/format";
   import { dragPayload, type DragMove } from "../lib/drag-move.svelte";
 
   interface Props {
@@ -108,10 +108,10 @@
     }
   });
 
-  function senders(index: number): string {
+  function senders(index: number, abbreviate = true): string {
     const c = mail.conversations[index];
     if (c === undefined || c.senders.length === 0) return m.common_unknown_sender();
-    return c.senders.map((s) => personName(s)).join(", ");
+    return c.senders.map((s) => listedName(s, { abbreviate })).join(", ");
   }
 
   /** Bouton de la souris enfoncé sur une ligne : début possible d'un
@@ -240,7 +240,9 @@
                   />
                   <div class="content">
                     <div class="line">
-                      <span class="senders">{senders(row.index)}</span>
+                      <span class="senders" title={senders(row.index, false)}
+                        >{senders(row.index)}</span
+                      >
                       {#if c.messages > 1}<span class="count">{c.messages}</span>{/if}
                       <span class="date">{shortDate(c.date)}</span>
                     </div>

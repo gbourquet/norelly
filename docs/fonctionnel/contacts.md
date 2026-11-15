@@ -120,11 +120,28 @@ l'ordinateur** : rien n'est envoyé à un serveur.
 - Dans un message ouvert, une petite **pastille** à côté du nom signale
   une personne du carnet (« Dans vos contacts » au survol).
 - Une personne absente du carnet garde le nom donné par le message, sauf
-  si ce nom ressemble à une adresse (il contient « @ », « < » ou « > ») :
+  si ce nom ressemble à une adresse (il contient « @ », « < » ou « > »,
+  un caractère qui leur ressemble, ou un « @ » écrit en toutes lettres
+  comme « support(at)banque.fr » ou « support arobase banque point fr ») :
   seule l'adresse réelle s'affiche alors, pour qu'un message ne puisse pas
   se faire passer pour une autre adresse. La même règle vaut pour le nom
   d'une fiche : un contact nommé comme une adresse s'affiche sous son
-  adresse réelle.
+  adresse réelle. « Ajouter au carnet » ne reprend pas un tel nom.
+- Une personne absente du carnet dont le nom contient un nom de domaine
+  (« Banque.fr », « Service secure.paypal.com ») garde ce nom, mais la
+  liste des conversations, les résultats de recherche et les
+  notifications montrent d'abord son adresse réelle, puis ce nom entre
+  parenthèses : le nom seul pourrait passer pour l'expéditeur. Une adresse
+  longue y est abrégée (le début de ce qui précède le « @ », la fin du
+  domaine) pour que le domaine réel reste en vue ; l'adresse complète
+  s'affiche au survol de la ligne. Dans un message ouvert, l'adresse s'affiche aussi à côté d'un tel
+  nom parmi les destinataires, et « Ajouter au carnet » ne reprend pas ce
+  nom. Les noms ordinaires (initiales, abréviations comme « Dr. Martin »,
+  noms composés) ne sont pas concernés.
+- Un caractère invisible, une lettre d'un autre alphabet qui ressemble à
+  une lettre latine ou un sosie du point ne suffisent pas à déjouer ces
+  règles. Un pays entre parenthèses à la fin d'un nom (« Hans Müller
+  (AT) ») n'est pas pris pour une adresse.
 - Après un ajout, une modification ou une suppression dans le carnet, les
   noms se mettent à jour au retour dans le courrier.
 

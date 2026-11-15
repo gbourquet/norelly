@@ -56,6 +56,51 @@ export function personName(p: { name: string; address: string } | null | undefin
   return p.name !== "" ? p.name : p.address;
 }
 
+/** Longueur au-delà de laquelle la partie locale d'une adresse est abrégée. */
+const MAX_LOCAL_PART = 8;
+
+/** Longueur au-delà de laquelle le domaine d'une adresse est abrégé par le
+ * début (sa fin désigne l'expéditeur réel). */
+const MAX_DOMAIN = 24;
+
+/** Adresse abrégée (« … ») pour tenir au début d'une ligne étroite : début
+ * de la partie locale, fin du domaine. */
+function shortAddress(address: string): string {
+  const at = address.lastIndexOf("@");
+  if (at < 0) return address;
+  const local = [...address.slice(0, at)];
+  const domain = [...address.slice(at + 1)];
+  const shownLocal =
+    local.length > MAX_LOCAL_PART ? `${local.slice(0, MAX_LOCAL_PART).join("")}…` : local.join("");
+  const shownDomain =
+    domain.length > MAX_DOMAIN ? `…${domain.slice(-MAX_DOMAIN).join("")}` : domain.join("");
+  return `${shownLocal}@${shownDomain}`;
+}
+
+/** Isole un texte du sens d'écriture qui l'entoure (FSI … PDI). */
+const isolated = (text: string): string => `⁨${text}⁩`;
+
+/** Nom d'un correspondant dans une liste ou une notification : l'adresse
+ * l'accompagne quand Rust le demande (`show_address`, nom en forme de
+ * domaine), sans quoi seul le nom s'afficherait. L'adresse vient d'abord,
+ * pour qu'un nom long ne la repousse pas hors de vue ; `isolate` isole
+ * chaque partie du sens d'écriture de l'autre (sans effet pour une
+ * notification, dont le texte est débarrassé de ces caractères) ;
+ * `abbreviate` abrège l'adresse (sauf pour une infobulle). */
+export function listedName(
+  p: { name: string; address: string; show_address?: boolean } | null | undefined,
+  { isolate = true, abbreviate = true }: { isolate?: boolean; abbreviate?: boolean } = {},
+): string {
+  if (p?.show_address === true && p.name !== "") {
+    const part = isolate ? isolated : (text: string) => text;
+    return m.common_person_with_address({
+      name: part(p.name),
+      address: part(abbreviate ? shortAddress(p.address) : p.address),
+    });
+  }
+  return personName(p);
+}
+
 /** Décalage du fuseau local par rapport à UTC, en minutes (pour
  * `before:` et `after:` dans une recherche). */
 export function localUtcOffset(now = new Date()): number {

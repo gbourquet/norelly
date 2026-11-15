@@ -738,4 +738,36 @@ describe(`captures d'écran (${lang})`, () => {
     await browser.keys("Escape");
     await dialog.waitForDisplayed({ reverse: true, timeout: 20000 });
   });
+
+  it("expéditeur au nom en forme de domaine : adresse réelle affichée", async () => {
+    // Nom d'en-tête qui ressemble à un site, longue adresse réelle : la
+    // liste montre l'adresse (abrégée) puis le nom.
+    const subject = lang === "fr" ? "Votre compte est suspendu" : "Your account is suspended";
+    const date = new Date(Date.UTC(2026, 10, 5, 9, 0, 0)).toUTCString().replace("GMT", "+0000");
+    await appendMessages(
+      [
+        `From: Banque.fr <service.client.securite.alerte@exemple.net>
+To: ${content.name} <${address}>
+Subject: ${subject}
+Date: ${date}
+Message-ID: <capture-${lang}-domaine@norelly.test>
+MIME-Version: 1.0
+Content-Type: text/plain; charset=utf-8
+
+${lang === "fr" ? "Cliquez ici." : "Click here."}
+`,
+      ],
+      user,
+    );
+    await $("nav")
+      .$(`button*=${msg("mailbox_unified_inbox")}`)
+      .click();
+    const row = $(`//*[@role="option"][.//*[normalize-space()="${subject}"]]`);
+    await row.waitForDisplayed({ timeout: 90000 });
+    // Annonce d'une action précédente refermée (« Liste créée »).
+    await browser.waitUntil(async () => (await $(".notice-region").getText()) === "", {
+      timeout: 20000,
+    });
+    await capture("sender-domain-name");
+  });
 });

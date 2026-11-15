@@ -174,7 +174,8 @@ acceptés) sont supprimées. **Rien n'est supprimé sur le serveur.**
 
 - Adresse déjà enregistrée : refus.
 - Nom affiché qui ressemble à une adresse (il contient « @ », « < »,
-  « > » ou un caractère qui leur ressemble) : refusé dès la saisie, avec
+  « > », un caractère qui leur ressemble, ou un « @ » écrit en toutes
+  lettres comme « (at) » ou « arobase ») : refusé dès la saisie, avec
   un message sous le champ ; la recherche des serveurs ne démarre pas
   tant qu'il n'est pas corrigé. Un tel nom serait de toute façon retiré
   des messages envoyés, qui partiraient sans nom.
@@ -350,7 +351,7 @@ acceptés) sont supprimées. **Rien n'est supprimé sur le serveur.**
 | Serveurs trouvés en partie | Les serveurs n'ont pas tous été trouvés automatiquement : vérifiez ou complétez les paramètres. |
 | Serveur hors du domaine | Serveur trouvé par le DNS en dehors du domaine de votre adresse : {hosts}. … |
 | Certificat refusé | Certificat non reconnu, avec la raison : autorité inconnue, expiré, pas encore valide, nom différent, révoqué, signature invalide, illisible, autre ; un certificat autosigné, cas courant d'un serveur personnel, est toujours présenté comme « autorité inconnue » ; s'il ne correspond pas non plus au nom du serveur : « Ce certificat ne mentionne pas non plus le nom du serveur. » |
-| Nom affiché refusé | Le nom affiché ne peut pas contenir « @ », « < », « > » ni un caractère qui leur ressemble : il serait pris pour une adresse. Saisissez un nom, par exemple « Alice Martin ». |
+| Nom affiché refusé | Le nom affiché ne peut pas contenir « @ », « < », « > », un caractère qui leur ressemble, ni « @ » écrit en toutes lettres (« (at) », « arobase ») : il serait pris pour une adresse. Saisissez un nom, par exemple « Alice Martin ». |
 | Certificat changé | ce serveur présente un certificat différent de celui que vous aviez accepté. … |
 | Connexion non chiffrée | La connexion à {host}:{port} ne serait pas chiffrée : … |
 | Aucun trousseau | Aucun trousseau du système … ne répond. … fichier non chiffré … |

@@ -86,6 +86,12 @@ message, which a fraudster can imitate. It does not guarantee that the
 message really comes from that person: if in doubt (a request for money or
 a password), check by other means.
 
+When the sender is not in your contacts and their name looks like a
+website ("Bank.com"), the message list shows their real address first,
+then that name in brackets: the address is what counts. A name that imitates an address
+("support(at)bank.com") is not shown at all: only the real address
+appears.
+
 ## Writing to a group: mailing lists
 
 A **mailing list** groups several contacts (your family, a club) so you

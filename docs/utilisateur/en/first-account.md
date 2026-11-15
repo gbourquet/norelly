@@ -20,8 +20,9 @@ several (for example a personal address and one for a club).
    account, otherwise on the **+** button at the top of the left panel.
 2. Type your **email address** and your **password**. The **display name**
    is optional: it is the name your contacts will see next to your address
-   (for example "Mary Smith"). It cannot contain "@", "<", ">" or a
-   character that looks like them: Norelly tells you so under the field
+   (for example "Mary Smith"). It cannot contain "@", "<", ">", a
+   character that looks like them, or "@" spelled out ("(at)", "[at]"):
+   Norelly tells you so under the field
    as you type.
 
    ![The message "The display name can’t contain “@”…" under the name field](captures/display-name-refused.png)

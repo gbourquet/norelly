@@ -87,6 +87,12 @@ par le message, qu'un fraudeur peut imiter. Il ne garantit pas que le
 message vient vraiment de cette personne : en cas de doute (demande
 d'argent, de mot de passe), vérifiez par un autre moyen.
 
+Quand l'expéditeur n'est pas dans vos contacts et que son nom ressemble à
+un site (« Banque.fr »), la liste des messages montre d'abord son adresse
+réelle, puis ce nom entre parenthèses : c'est l'adresse qui compte. Un nom qui imite une
+adresse (« support(at)banque.fr ») n'est pas affiché du tout : seule
+l'adresse réelle apparaît.
+
 ## Écrire à un groupe : les listes de diffusion
 
 Une **liste de diffusion** regroupe plusieurs contacts (votre famille, un

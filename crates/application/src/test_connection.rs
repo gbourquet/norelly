@@ -327,6 +327,7 @@ mod tests {
             fingerprint: CertificateFingerprint::from_bytes([1; 32]),
             issue: CertificateIssue::UnknownIssuer,
             fingerprint_changed: false,
+            name_mismatch: false,
         }
     }
 

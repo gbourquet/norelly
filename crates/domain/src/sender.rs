@@ -23,10 +23,14 @@ pub struct SenderLabel {
 }
 
 /// Caractères qui servent, ou ressemblent, à `@`, `<` et `>` (formes
-/// pleine largeur, petites formes, guillemets et chevrons).
-const ADDRESS_LOOK_ALIKES: [char; 17] = [
+/// pleine largeur, petites formes, guillemets, chevrons, lettres
+/// modificatives et ornements). Les guillemets français `« »`, d'usage
+/// courant, n'en font pas partie, ni les lettres d'une écriture (syllabaire
+/// canadien `ᐸ ᐳ`).
+const ADDRESS_LOOK_ALIKES: [char; 23] = [
     '@', '<', '>', '\u{FF20}', '\u{FE6B}', '\u{FF1C}', '\u{FF1E}', '\u{FE64}', '\u{FE65}',
     '\u{2039}', '\u{203A}', '\u{2329}', '\u{232A}', '\u{27E8}', '\u{27E9}', '\u{3008}', '\u{3009}',
+    '\u{02C2}', '\u{02C3}', '\u{276C}', '\u{276D}', '\u{276E}', '\u{276F}',
 ];
 
 /// Vrai si un nom d'en-tête imite une adresse (`@`, `<`, `>` ou un
@@ -34,7 +38,13 @@ const ADDRESS_LOOK_ALIKES: [char; 17] = [
 /// pour une autre.
 #[must_use]
 pub fn imitates_address(name: &str) -> bool {
-    name.contains(ADDRESS_LOOK_ALIKES)
+    name.chars().any(is_address_look_alike)
+}
+
+/// Vrai si `c` sert, ou ressemble, à `@`, `<` ou `>`.
+#[must_use]
+pub fn is_address_look_alike(c: char) -> bool {
+    ADDRESS_LOOK_ALIKES.contains(&c)
 }
 
 /// Nom affiché d'un correspondant : celui de `contact` s'il porte
@@ -183,6 +193,9 @@ mod tests {
             "Banque \u{2329}x\u{232A}",
             "Banque \u{27E8}x\u{27E9}",
             "Banque \u{3008}x\u{3009}",
+            "Banque \u{02C2}x\u{02C3}",
+            "Banque \u{276E}x\u{276F}",
+            "Banque \u{276C}x\u{276D}",
         ] {
             assert!(imitates_address(name), "{name}");
         }

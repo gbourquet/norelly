@@ -88,6 +88,7 @@ describe("changement du mot de passe d'un compte", () => {
         fingerprint: "AA",
         issue: "unknown_issuer",
         fingerprint_changed: false,
+        name_mismatch: false,
         can_trust: true,
       },
     });

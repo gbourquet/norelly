@@ -208,7 +208,12 @@ describe(`captures d'écran (${lang})`, () => {
       .click();
     await $("#account-address").setValue(address);
     await $("#account-password").setValue(password);
+    // Nom affiché qui imite une adresse : message sous le champ.
+    await $("#account-name").setValue("support@banque.fr");
+    await $("#account-name-error").waitForDisplayed({ timeout: 10000 });
+    await capture("display-name-refused");
     await $("#account-name").setValue(content.name);
+    await $("#account-name-error").waitForDisplayed({ reverse: true, timeout: 10000 });
     await capture("add-account");
     await $(`button=${msg("common_continue")}`).click();
     await $("#imap-host").waitForDisplayed({ timeout: 90000 });

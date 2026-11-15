@@ -28,8 +28,9 @@ navigation, ou depuis l'accueil quand il n'y a aucun compte.
    STARTTLS, aucune) et utilisateur, pour la réception et pour l'envoi.
 5. Le test peut s'arrêter sur un écran de décision :
    - **certificat non reconnu** : raison, serveur, empreinte du
-     certificat ; « Faire confiance à ce serveur » si le problème le
-     permet ;
+     certificat ; si le certificat ne mentionne pas non plus le nom du
+     serveur, c'est dit en plus de la raison ; « Faire confiance à ce
+     serveur » si le problème le permet ;
    - **connexion non chiffrée** : consentement explicite pour ce serveur et
      ce port ;
    - **aucun trousseau** sur le système (certaines installations Linux) :
@@ -159,6 +160,14 @@ acceptés) sont supprimées. **Rien n'est supprimé sur le serveur.**
 ## Cas limites
 
 - Adresse déjà enregistrée : refus.
+- Nom affiché qui ressemble à une adresse (il contient « @ », « < »,
+  « > » ou un caractère qui leur ressemble) : refusé dès la saisie, avec
+  un message sous le champ ; la recherche des serveurs ne démarre pas
+  tant qu'il n'est pas corrigé. Un tel nom serait de toute façon retiré
+  des messages envoyés, qui partiraient sans nom.
+- Compte enregistré avant ce refus avec un tel nom : il s'ouvre et
+  fonctionne comme avant ; son nom reste affiché dans Norelly, mais ses
+  messages partent avec l'adresse seule.
 - Serveurs trouvés en partie (réception sans envoi, par exemple) : saisie
   manuelle préremplie.
 - Certificat non acceptable (révoqué, signature invalide) : pas de bouton
@@ -306,7 +315,8 @@ acceptés) sont supprimées. **Rien n'est supprimé sur le serveur.**
 | Test de connexion | Test de la connexion à {imap} et {smtp}… |
 | Serveurs trouvés en partie | Les serveurs n'ont pas tous été trouvés automatiquement : vérifiez ou complétez les paramètres. |
 | Serveur hors du domaine | Serveur trouvé par le DNS en dehors du domaine de votre adresse : {hosts}. … |
-| Certificat refusé | Certificat non reconnu, avec la raison : autorité inconnue, expiré, pas encore valide, nom différent, révoqué, signature invalide, illisible, autre ; un certificat autosigné, cas courant d'un serveur personnel, est toujours présenté comme « autorité inconnue » |
+| Certificat refusé | Certificat non reconnu, avec la raison : autorité inconnue, expiré, pas encore valide, nom différent, révoqué, signature invalide, illisible, autre ; un certificat autosigné, cas courant d'un serveur personnel, est toujours présenté comme « autorité inconnue » ; s'il ne correspond pas non plus au nom du serveur : « Ce certificat ne mentionne pas non plus le nom du serveur. » |
+| Nom affiché refusé | Le nom affiché ne peut pas contenir « @ », « < », « > » ni un caractère qui leur ressemble : il serait pris pour une adresse. Saisissez un nom, par exemple « Alice Martin ». |
 | Certificat changé | ce serveur présente un certificat différent de celui que vous aviez accepté. … |
 | Connexion non chiffrée | La connexion à {host}:{port} ne serait pas chiffrée : … |
 | Aucun trousseau | Aucun trousseau du système … ne répond. … fichier non chiffré … |

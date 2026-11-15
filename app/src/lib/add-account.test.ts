@@ -11,6 +11,7 @@ import type {
   ServerDto,
 } from "./ipc/api";
 import { m } from "./paraglide/messages.js";
+import { IpcFailure } from "./errors";
 
 const imap: ServerDto = {
   host: "imap.example.com",
@@ -44,6 +45,7 @@ const certificate: AddAccountResult = {
     fingerprint: "AA:BB",
     issue: "unknown_issuer",
     fingerprint_changed: false,
+    name_mismatch: false,
     can_trust: true,
   },
 };
@@ -53,6 +55,13 @@ function fakeApi(discovery: Discovery, results: AddAccountResult[]) {
   const oauthCalls: AddOAuthAccountInput[] = [];
   const api: AccountApi = {
     listAccounts: vi.fn(async () => []),
+    // Comme Rust : un nom qui imite une adresse a son propre code.
+    checkDisplayName: vi.fn(async (name: string) => {
+      if (/[@<>]/.test(name)) {
+        throw new IpcFailure("display_name_looks_like_address", "display_name");
+      }
+      return null;
+    }),
     oauthProviderFor: vi.fn(async (address: string) =>
       address.trim().endsWith("@outlook.com")
         ? ("microsoft" as const)
@@ -808,5 +817,151 @@ describe("se connecter avec Microsoft", () => {
     expect(oauthCalls).toHaveLength(2);
     expect(api.addAccount).not.toHaveBeenCalled();
     expect(f.step).toBe("done");
+  });
+});
+
+describe("nom affiché qui imite une adresse", () => {
+  const refused = () => m.err_display_name_looks_like_address();
+
+  it("refusé par Rust pendant la saisie, message sous le champ", async () => {
+    const { api } = fakeApi(found, []);
+    const f = flow(api);
+    f.displayName = " ceo@banque.fr ";
+    await f.checkDisplayName();
+    expect(api.checkDisplayName).toHaveBeenCalledWith("ceo@banque.fr");
+    expect(f.displayNameError).toBe(refused());
+    f.displayName = "Alice Martin";
+    await f.checkDisplayName();
+    expect(f.displayNameError).toBeNull();
+  });
+
+  it("nom vide : nom par défaut, rien à vérifier", async () => {
+    const { api } = fakeApi(found, []);
+    const f = flow(api);
+    f.displayName = "x@y";
+    await f.checkDisplayName();
+    f.displayName = "  ";
+    await f.checkDisplayName();
+    expect(f.displayNameError).toBeNull();
+    expect(api.checkDisplayName).toHaveBeenCalledTimes(1);
+  });
+
+  it("réponse périmée ignorée : le nom a changé pendant la vérification", async () => {
+    const { api } = fakeApi(found, []);
+    const f = flow(api);
+    f.displayName = "ceo@banque.fr";
+    const pending = f.checkDisplayName();
+    f.displayName = "Alice";
+    await pending;
+    expect(f.displayNameError).toBeNull();
+  });
+
+  it("refusé : la découverte n'est pas lancée", async () => {
+    const { api } = fakeApi(found, []);
+    const f = flow(api);
+    f.displayName = "Alice <alice@example.com>";
+    await f.submit();
+    expect(f.step).toBe("form");
+    expect(f.displayNameError).toBe(refused());
+    expect(api.discoverSettings).not.toHaveBeenCalled();
+  });
+
+  it("refusé : le navigateur n'est pas ouvert", async () => {
+    const { api } = fakeApi(found, []);
+    const f = new AddAccountFlow(api);
+    f.address = "alice@outlook.com";
+    f.displayName = "ceo@banque.fr";
+    await f.detectProvider();
+    await f.signInWithProvider();
+    expect(f.step).toBe("form");
+    expect(f.displayNameError).toBe(refused());
+    expect(api.addOAuthAccount).not.toHaveBeenCalled();
+  });
+
+  it("refusé en saisie manuelle : le champ du nom y apparaît, serveurs gardés", async () => {
+    const { api, calls } = fakeApi(found, [{ kind: "added", account, send_unchecked: false }]);
+    const f = flow(api);
+    f.displayName = "ceo@banque.fr";
+    f.step = "manual";
+    f.imap = { ...imap, host: "imap.perso.fr", port: 31993 };
+    await f.submitManual();
+    expect(f.step).toBe("manual");
+    expect(f.nameInManual).toBe(true);
+    expect(f.displayNameError).toBe(refused());
+    expect(api.addAccount).not.toHaveBeenCalled();
+    f.displayName = "Alice";
+    await f.submitManual();
+    expect(f.step).toBe("done");
+    expect(calls[0]).toMatchObject({ display_name: "Alice", imap: { host: "imap.perso.fr" } });
+  });
+
+  it("refusé par l'ajout lui-même : retour à l'étape en cours, message sous le champ", async () => {
+    const { api } = fakeApi(found, []);
+    api.addAccount = vi.fn(async () => {
+      throw new IpcFailure("display_name_looks_like_address", "display_name");
+    });
+    const f = flow(api);
+    f.displayName = "Alice";
+    f.step = "manual";
+    await f.submitManual();
+    expect(f.step).toBe("manual");
+    expect(f.nameInManual).toBe(true);
+    expect(f.displayNameError).toBe(refused());
+    expect(f.message).toBeNull();
+  });
+
+  it("vérification impossible (autre erreur) : pas de message sous le champ, Rust revalide à l'ajout", async () => {
+    const { api } = fakeApi(found, [{ kind: "added", account, send_unchecked: false }]);
+    api.checkDisplayName = vi.fn(async () => {
+      throw new IpcFailure("internal");
+    });
+    const f = flow(api);
+    f.displayName = "Alice";
+    await f.checkDisplayName();
+    expect(f.displayNameError).toBeNull();
+    await f.submit();
+    expect(f.step).toBe("done");
+  });
+
+  it("double clic sur Continuer : une seule recherche", async () => {
+    const { api } = fakeApi(found, [{ kind: "added", account, send_unchecked: false }]);
+    const f = flow(api);
+    f.displayName = "Alice";
+    await Promise.all([f.submit(), f.submit()]);
+    expect(api.discoverSettings).toHaveBeenCalledTimes(1);
+    expect(f.step).toBe("done");
+  });
+
+  it("nom corrigé pendant la vérification de Continuer : c'est le nouveau nom qui compte", async () => {
+    const { api } = fakeApi(found, [{ kind: "added", account, send_unchecked: false }]);
+    const f = flow(api);
+    f.displayName = "a@b";
+    const pending = f.submit();
+    f.displayName = "ab";
+    await pending;
+    expect(f.displayNameError).toBeNull();
+    expect(f.step).toBe("done");
+
+    const second = fakeApi(found, []);
+    const g = flow(second.api);
+    g.displayName = "ab";
+    const started = g.submit();
+    g.displayName = "a@b";
+    await started;
+    expect(g.step).toBe("form");
+    expect(g.displayNameError).toBe(refused());
+    expect(second.api.discoverSettings).not.toHaveBeenCalled();
+  });
+
+  it("nom corrigé : l'ajout reprend", async () => {
+    const { api, calls } = fakeApi(found, [{ kind: "added", account, send_unchecked: false }]);
+    const f = flow(api);
+    f.displayName = "ceo@banque.fr";
+    await f.submit();
+    f.displayName = "Alice";
+    await f.submit();
+    expect(f.step).toBe("done");
+    expect(f.displayNameError).toBeNull();
+    expect(calls[0]?.display_name).toBe("Alice");
   });
 });

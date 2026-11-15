@@ -104,6 +104,7 @@ describe("traduction des erreurs IPC", () => {
   it("traduit chaque code, champ et catégorie d'échec (liste vérifiée par le typage)", () => {
     const codes = {
       invalid_input: true,
+      display_name_looks_like_address: true,
       not_found: true,
       no_valid_sender: true,
       download_failed: true,

@@ -12,6 +12,7 @@ use crate::endpoint::{Protocol, Security, ServerEndpoint};
 use crate::oauth::OAuthProvider;
 use crate::ports::SecretKey;
 use crate::security::{PlaintextConsent, PlaintextPolicy};
+use crate::sender::{imitates_address, is_address_look_alike};
 
 /// Longueur maximale d'un nom affiché, en caractères.
 const MAX_DISPLAY_NAME_CHARS: usize = 128;
@@ -56,6 +57,8 @@ pub enum AccountError {
     DisplayNameTooLong,
     #[error("le nom affiché contient un caractère non autorisé")]
     DisplayNameInvalidCharacter,
+    #[error("le nom affiché imite une adresse (« @ », « < » ou « > »)")]
+    DisplayNameLooksLikeAddress,
     #[error("le serveur {0} doit être un serveur {1}")]
     WrongProtocol(Protocol, Protocol),
     #[error("connexion en clair vers {0} sans consentement explicite")]
@@ -64,13 +67,28 @@ pub enum AccountError {
 
 /// Nom affiché à côté de l'adresse (« Alice Martin »). Sans caractère de
 /// contrôle ni de mise en forme invisible : il finira dans un en-tête
-/// `From`.
+/// `From`. Saisi par l'utilisateur, il n'imite pas non plus une adresse
+/// ([`imitates_address`]) : un tel nom serait écarté à l'envoi, et le
+/// message partirait sans nom.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct DisplayName(String);
 
 impl DisplayName {
-    /// Valide un nom ; les espaces de début et de fin sont retirés.
+    /// Valide un nom saisi ; les espaces de début et de fin sont retirés.
     pub fn parse(raw: &str) -> Result<Self, AccountError> {
+        let name = Self::from_stored(raw)?;
+        if imitates_address(name.as_str()) {
+            return Err(AccountError::DisplayNameLooksLikeAddress);
+        }
+        Ok(name)
+    }
+
+    /// Nom relu par un adaptateur de stockage, et seulement pour cela (toute
+    /// saisie passe par [`Self::parse`]) : mêmes règles que `parse`, sauf
+    /// l'imitation d'une adresse. Un compte enregistré avec un tel nom
+    /// s'ouvre donc normalement ; ce nom reste écarté à l'envoi, et le
+    /// message part avec l'adresse seule.
+    pub fn from_stored(raw: &str) -> Result<Self, AccountError> {
         let name = raw.trim();
         if name.is_empty() {
             return Err(AccountError::EmptyDisplayName);
@@ -87,10 +105,28 @@ impl DisplayName {
         Ok(Self(name.to_owned()))
     }
 
-    /// Nom par défaut : la partie locale de l'adresse.
+    /// Nom par défaut : la partie locale de l'adresse, sans les caractères
+    /// qui imitent une adresse ; s'il n'en reste rien, le domaine, borné à
+    /// la longueur d'un nom.
     #[must_use]
     pub fn from_address(address: &EmailAddress) -> Self {
-        Self::parse(address.local_part()).unwrap_or_else(|_| Self(address.to_string()))
+        let local: String = address
+            .local_part()
+            .chars()
+            .filter(|&c| !is_address_look_alike(c))
+            .collect();
+        Self::parse(&local).unwrap_or_else(|_| {
+            // Nom d'hôte ASCII (lettres, chiffres, « - », « . », « _ ») :
+            // jamais vide, sans caractère interdit ni sosie d'adresse.
+            Self(
+                address
+                    .domain()
+                    .as_str()
+                    .chars()
+                    .take(MAX_DISPLAY_NAME_CHARS)
+                    .collect(),
+            )
+        })
     }
 
     #[must_use]
@@ -320,6 +356,61 @@ mod tests {
             );
         }
         assert_eq!(DisplayName::from_address(&address()).as_str(), "alice");
+    }
+
+    #[test]
+    fn display_name_imitating_an_address_is_refused() {
+        for raw in [
+            "ceo@banque.fr",
+            "Alice <alice@example.com>",
+            "Service client \u{FF20} banque",
+            "a > b",
+        ] {
+            assert_eq!(
+                DisplayName::parse(raw),
+                Err(AccountError::DisplayNameLooksLikeAddress),
+                "{raw}"
+            );
+        }
+    }
+
+    #[test]
+    fn stored_display_name_imitating_an_address_still_loads() {
+        assert_eq!(
+            DisplayName::from_stored(" ceo@banque.fr ").map(|n| n.to_string()),
+            Ok("ceo@banque.fr".to_owned())
+        );
+        assert_eq!(
+            DisplayName::from_stored(" "),
+            Err(AccountError::EmptyDisplayName)
+        );
+        assert_eq!(
+            DisplayName::from_stored(&"é".repeat(129)),
+            Err(AccountError::DisplayNameTooLong)
+        );
+        assert_eq!(
+            DisplayName::from_stored("a\r\nBcc: x"),
+            Err(AccountError::DisplayNameInvalidCharacter)
+        );
+    }
+
+    #[test]
+    fn default_display_name_never_imitates_an_address() {
+        let parse = |raw: &str| EmailAddress::parse(raw).unwrap_or_else(|_| panic!("{raw}"));
+        assert_eq!(
+            DisplayName::from_address(&parse("a\u{FF20}b@example.com")).as_str(),
+            "ab"
+        );
+        assert_eq!(
+            DisplayName::from_address(&parse("\u{FF1C}\u{FF1E}@example.com")).as_str(),
+            "example.com"
+        );
+        // Domaine plus long qu'un nom : tronqué, toujours relisible.
+        let long = format!("\u{FF1C}@{}.{}.com", "a".repeat(63), "b".repeat(63));
+        let name = DisplayName::from_address(&parse(&long));
+        assert_eq!(name.as_str().chars().count(), MAX_DISPLAY_NAME_CHARS);
+        assert_eq!(DisplayName::parse(name.as_str()), Ok(name.clone()));
+        assert_eq!(DisplayName::from_stored(name.as_str()), Ok(name));
     }
 
     #[test]

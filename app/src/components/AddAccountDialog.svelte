@@ -103,7 +103,18 @@
         />
       {/if}
       <label for="account-name">{m.add_display_name()}</label>
-      <input id="account-name" class="input" bind:value={flow.displayName} autocomplete="name" />
+      <input
+        id="account-name"
+        class="input"
+        bind:value={flow.displayName}
+        oninput={() => void flow.checkDisplayName()}
+        autocomplete="name"
+        aria-invalid={flow.displayNameError ? "true" : undefined}
+        aria-describedby={flow.displayNameError ? "account-name-error" : undefined}
+      />
+      {#if flow.displayNameError}
+        <p id="account-name-error" class="field-error">{flow.displayNameError}</p>
+      {/if}
       {#if flow.signInProvider !== null}
         <p class="hint">{providerText.hint[flow.signInProvider]()}</p>
       {:else if flow.secretsBackend === "system_keyring"}
@@ -199,6 +210,21 @@
           required
         />
       {/if}
+      {#if flow.nameInManual}
+        <label for="manual-name">{m.add_display_name()}</label>
+        <input
+          id="manual-name"
+          class="input"
+          bind:value={flow.displayName}
+          oninput={() => void flow.checkDisplayName()}
+          autocomplete="name"
+          aria-invalid={flow.displayNameError ? "true" : undefined}
+          aria-describedby={flow.displayNameError ? "manual-name-error" : undefined}
+        />
+        {#if flow.displayNameError}
+          <p id="manual-name-error" class="field-error">{flow.displayNameError}</p>
+        {/if}
+      {/if}
       {#each flow.unconfirmed as item (item.host)}
         {#if [flow.imap.host.trim(), flow.smtp.host.trim()].includes(item.host)}
           <div
@@ -242,6 +268,9 @@
         </p>
       {/if}
       <p>{issueText(problem.issue)}</p>
+      {#if problem.name_mismatch}
+        <p>{m.add_cert_name_mismatch()}</p>
+      {/if}
       <dl>
         <dt>{m.add_cert_server()}</dt>
         <dd>{problem.host} ({problem.protocol.toUpperCase()})</dd>
@@ -336,6 +365,12 @@
   .hint {
     margin: var(--space-1) 0 0;
     color: var(--color-text-muted);
+    font-size: var(--font-size-sm);
+  }
+
+  .field-error {
+    margin: var(--space-1) 0 0;
+    color: var(--color-danger);
     font-size: var(--font-size-sm);
   }
 

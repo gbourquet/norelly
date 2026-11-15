@@ -101,6 +101,8 @@ function codeText(code: ErrorCodeDto, field: FieldDto | null): string {
   switch (code) {
     case "invalid_input":
       return m.err_invalid_input({ field: fieldLabel(field) });
+    case "display_name_looks_like_address":
+      return m.err_display_name_looks_like_address();
     case "not_found":
       return m.err_not_found({ field: fieldLabel(field) });
     case "no_valid_sender":

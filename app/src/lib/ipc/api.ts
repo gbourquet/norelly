@@ -179,6 +179,10 @@ export const api = {
   addAccount: (input: AddAccountInput): Promise<AddAccountResult> =>
     unwrap(commands.addAccount(input)),
 
+  /** Nom d'affichage saisi pour un compte, vérifié par Rust (mêmes règles
+   * que l'ajout) ; refusé : `IpcFailure`. */
+  checkDisplayName: (name: string): Promise<null> => unwrap(commands.checkDisplayName(name)),
+
   /** Fournisseur OAuth de l'adresse (décidé par Rust), `null` sinon. */
   oauthProviderFor: (address: string): Promise<OAuthProviderDto | null> =>
     commands.oauthProviderFor(address),
@@ -473,6 +477,7 @@ export type AccountApi = Pick<
   | "listAccounts"
   | "discoverSettings"
   | "addAccount"
+  | "checkDisplayName"
   | "oauthProviderFor"
   | "addOAuthAccount"
   | "cancelOAuthSignIn"

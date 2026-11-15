@@ -9,7 +9,8 @@ to do. Here are the most common ones, explained in more detail.
 
 **What you see**: an **Unrecognised certificate** window, with a server
 name, a reason (for example "The certificate has expired.") and a long
-string of digits and letters called the **fingerprint**.
+string of digits and letters called the **fingerprint**. If the
+certificate does not name the server either, the window says so too.
 
 ![The "Unrecognised certificate" warning](captures/certificate.png)
 

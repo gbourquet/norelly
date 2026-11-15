@@ -297,6 +297,7 @@ async fn certificate_problem_is_reported_then_trusted() {
         fingerprint: CertificateFingerprint::from_bytes([7; 32]),
         issue: CertificateIssue::UnknownIssuer,
         fingerprint_changed: false,
+        name_mismatch: false,
     };
     w.servers.set(
         &draft.imap().endpoint,
@@ -840,6 +841,7 @@ async fn trusting_a_changed_fingerprint_replaces_the_old_one() {
         fingerprint: CertificateFingerprint::from_bytes([2; 32]),
         issue: CertificateIssue::UnknownIssuer,
         fingerprint_changed: true,
+        name_mismatch: false,
     };
     assert_eq!(trust_certificate(&w.exceptions, &changed).await, Ok(()));
     assert_eq!(

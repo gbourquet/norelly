@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/svelte";
 import AddAccountDialog from "./AddAccountDialog.svelte";
 import type { AccountApi, AccountDto, AddAccountResult, ServerDto } from "../lib/ipc/api";
+import { IpcFailure } from "../lib/errors";
 
 const server = (host: string, port: number): ServerDto => ({
   host,
@@ -21,6 +22,12 @@ const account: AccountDto = {
 function fakeApi(results: AddAccountResult[]): AccountApi {
   return {
     listAccounts: vi.fn(async () => []),
+    checkDisplayName: vi.fn(async (name: string) => {
+      if (/[@<>]/.test(name)) {
+        throw new IpcFailure("display_name_looks_like_address", "display_name");
+      }
+      return null;
+    }),
     oauthProviderFor: vi.fn(async (address: string) =>
       address.trim().endsWith("@outlook.com")
         ? ("microsoft" as const)
@@ -70,6 +77,7 @@ describe("fenêtre d'ajout de compte", () => {
           fingerprint: "AA:BB",
           issue: "unknown_issuer",
           fingerprint_changed: false,
+          name_mismatch: false,
           can_trust: true,
         },
       },
@@ -86,6 +94,7 @@ describe("fenêtre d'ajout de compte", () => {
     // Découverte complète : la connexion est tentée aussitôt.
     await fireEvent.click(screen.getByRole("button", { name: "Continuer" }));
     expect(await screen.findByText(/AA:BB/)).toBeInTheDocument();
+    expect(screen.queryByText(/ne mentionne pas non plus le nom du serveur/)).toBeNull();
     await fireEvent.click(screen.getByRole("button", { name: "Faire confiance à ce serveur" }));
     await waitFor(() => expect(onAdded).toHaveBeenCalledWith(account, null));
     expect(api.trustCertificate).toHaveBeenCalledWith("imap.example.com", "AA:BB");
@@ -235,5 +244,84 @@ describe("fenêtre d'ajout de compte", () => {
     await fireEvent.click(screen.getByRole("button", { name: "Fermer" }));
     await waitFor(() => expect(onClose).toHaveBeenCalled());
     expect(api.cancelOAuthSignIn).toHaveBeenCalled();
+  });
+
+  it("nom affiché qui imite une adresse : message sous le champ dès la saisie", async () => {
+    const api = fakeApi([]);
+    render(AddAccountDialog, { open: true, api, onClose: vi.fn(), onAdded: vi.fn() });
+    const name = document.querySelector("#account-name") as HTMLInputElement;
+    await fireEvent.input(name, { target: { value: "ceo@banque.fr" } });
+    const error = await screen.findByText(/ne peut pas contenir « @ »/);
+    expect(name).toHaveAttribute("aria-invalid", "true");
+    expect(name.getAttribute("aria-describedby")).toBe(error.id);
+    await fireEvent.input(name, { target: { value: "Alice Martin" } });
+    await waitFor(() => expect(screen.queryByText(/ne peut pas contenir « @ »/)).toBeNull());
+    expect(name).not.toHaveAttribute("aria-invalid");
+  });
+
+  it("certificat autosigné au mauvais nom : les deux défauts sont affichés", async () => {
+    const api = fakeApi([
+      {
+        kind: "certificate",
+        problem: {
+          protocol: "imap",
+          host: "imap.example.com",
+          fingerprint: "AA:BB",
+          issue: "unknown_issuer",
+          fingerprint_changed: false,
+          name_mismatch: true,
+          can_trust: true,
+        },
+      },
+    ]);
+    render(AddAccountDialog, { open: true, api, onClose: vi.fn(), onAdded: vi.fn() });
+    await fireEvent.input(document.querySelector("#account-address") as HTMLInputElement, {
+      target: { value: "alice@example.com" },
+    });
+    await fireEvent.input(document.querySelector("#account-password") as HTMLInputElement, {
+      target: { value: "secret" },
+    });
+    await fireEvent.click(screen.getByRole("button", { name: "Continuer" }));
+    expect(await screen.findByText(/AA:BB/)).toBeInTheDocument();
+    expect(screen.getByText(/autorité|autosigné/i)).toBeInTheDocument();
+    expect(
+      screen.getByText("Ce certificat ne mentionne pas non plus le nom du serveur."),
+    ).toBeInTheDocument();
+  });
+
+  it("nom refusé en saisie manuelle : le champ du nom y apparaît avec son message", async () => {
+    const api = fakeApi([{ kind: "added", account, send_unchecked: false }]);
+    const onAdded = vi.fn();
+    render(AddAccountDialog, { open: true, api, onClose: vi.fn(), onAdded });
+    await fireEvent.input(document.querySelector("#account-address") as HTMLInputElement, {
+      target: { value: "alice@example.com" },
+    });
+    await fireEvent.input(document.querySelector("#account-password") as HTMLInputElement, {
+      target: { value: "secret" },
+    });
+    await fireEvent.input(document.querySelector("#account-name") as HTMLInputElement, {
+      target: { value: "ceo@banque.fr" },
+    });
+    await fireEvent.click(screen.getByRole("button", { name: "Saisie manuelle" }));
+    const servers: [string, string][] = [
+      ["#imap-host", "imap.example.com"],
+      ["#imap-username", "alice"],
+      ["#smtp-host", "smtp.example.com"],
+      ["#smtp-username", "alice"],
+    ];
+    for (const [id, value] of servers) {
+      await fireEvent.input(document.querySelector(id) as HTMLInputElement, {
+        target: { value },
+      });
+    }
+    await fireEvent.click(screen.getByRole("button", { name: "Tester et ajouter" }));
+    const name = (await screen.findByLabelText("Nom affiché (facultatif)")) as HTMLInputElement;
+    expect(name.id).toBe("manual-name");
+    expect(name).toHaveAttribute("aria-invalid", "true");
+    expect(screen.getByText(/ne peut pas contenir « @ »/)).toBeInTheDocument();
+    expect(api.addAccount).not.toHaveBeenCalled();
+    await fireEvent.input(name, { target: { value: "Alice" } });
+    await fireEvent.click(screen.getByRole("button", { name: "Tester et ajouter" }));
+    await waitFor(() => expect(onAdded).toHaveBeenCalled());
   });
 });

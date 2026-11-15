@@ -18,6 +18,11 @@ export const commands = {
 	/**  Ajoute un compte : test des connexions, trousseau, persistance. */
 	addAccount: (input: AddAccountInput_Deserialize) => typedError<AddAccountResultDto_Serialize, IpcError_Serialize>(__TAURI_INVOKE("add_account", { input })),
 	/**
+	 *  Vérifie le nom d'affichage saisi pour un compte, pendant la saisie :
+	 *  mêmes règles et mêmes codes que l'ajout. Vide : nom par défaut.
+	 */
+	checkDisplayName: (name: string) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("check_display_name", { name })),
+	/**
 	 *  Fournisseur OAuth d'une adresse (décidé par le domaine) : l'interface
 	 *  propose alors « Se connecter avec … ».
 	 */
@@ -495,6 +500,11 @@ export type CertificateProblemDto = {
 	issue: CertificateIssueDto,
 	/**  L'empreinte diffère d'une exception enregistrée (attaque possible). */
 	fingerprint_changed: boolean,
+	/**
+	 *  Le certificat ne correspond pas non plus au nom du serveur, en plus
+	 *  de `issue`.
+	 */
+	name_mismatch: boolean,
 	/**  Une exception est possible (pas pour un certificat révoqué). */
 	can_trust: boolean,
 };
@@ -953,6 +963,11 @@ export type EndpointDto = {
 export type ErrorCodeDto = 
 /**  Donnée reçue de l'interface refusée par le domaine (`field`). */
 "invalid_input" | 
+/**
+ *  Nom d'affichage d'un compte qui imite une adresse (« @ », « < »,
+ *  « > » ou un caractère qui leur ressemble).
+ */
+"display_name_looks_like_address" | 
 /**  Élément introuvable (`field` : message, partie, certificat…). */
 "not_found" | 
 /**  Expéditeur sans adresse valide : autorisation impossible. */

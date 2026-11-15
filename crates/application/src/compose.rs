@@ -125,7 +125,7 @@ where
             draft: draft.clone(),
             attachments,
             date: now,
-            message_id: self.composer.new_message_id(&from.address)?,
+            message_id: self.composer.new_message_id(from.address())?,
         };
         Ok(self.composer.compose(&composition)?)
     }
@@ -658,7 +658,7 @@ where
             draft: draft.clone(),
             attachments,
             date: now,
-            message_id: self.composer.new_message_id(&from.address)?,
+            message_id: self.composer.new_message_id(from.address())?,
         };
         Ok(self.composer.compose(&composition)?.local_copy)
     }

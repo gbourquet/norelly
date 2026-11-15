@@ -53,8 +53,8 @@ fn recipients_of(list: &[RecipientDto]) -> Result<Vec<Recipient>, IpcError> {
 fn recipients_dto(list: &[Recipient]) -> Vec<RecipientDto> {
     list.iter()
         .map(|r| RecipientDto {
-            name: r.name.clone(),
-            address: r.address.to_string(),
+            name: r.name().to_owned(),
+            address: r.address().to_string(),
         })
         .collect()
 }
@@ -422,7 +422,7 @@ pub async fn list_drafts(state: State<'_, AppState>, account: u32) -> Result<Dra
             Ok(DraftSummaryDto {
                 id: id32(d.id.get())?,
                 subject: d.draft.subject.clone(),
-                to: d.draft.to.iter().map(|r| r.address.to_string()).collect(),
+                to: d.draft.to.iter().map(|r| r.address().to_string()).collect(),
                 updated_at: date_dto(d.updated_at),
             })
         })
@@ -599,8 +599,8 @@ pub async fn cancel_send(
 pub fn parse_recipient(raw: String) -> Result<RecipientDto, IpcError> {
     let r = Recipient::parse(&raw).map_err(|_| IpcError::invalid(FieldDto::Address))?;
     Ok(RecipientDto {
-        name: r.name,
-        address: r.address.to_string(),
+        name: r.name().to_owned(),
+        address: r.address().to_string(),
     })
 }
 
@@ -772,8 +772,8 @@ mod tests {
         let (id, draft) = draft_of(&dto()).unwrap_or_else(|e| panic!("{e:?}"));
         assert_eq!(id.map(DraftId::get), Some(4));
         assert_eq!(draft.account.get(), 2);
-        assert_eq!(draft.to[0].address.to_string(), "bob@example.com");
-        assert!(!draft.to[0].name.contains(['\r', '\n']), "nom assaini");
+        assert_eq!(draft.to[0].address().to_string(), "bob@example.com");
+        assert!(!draft.to[0].name().contains(['\r', '\n']), "nom assaini");
         assert_eq!(draft.html.as_deref(), Some("<p>Salut</p>"));
         assert_eq!(draft.threading.references.len(), 2);
         assert_eq!(draft.attachments[0].size, 12);

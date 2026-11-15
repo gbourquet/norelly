@@ -502,16 +502,27 @@ async fn trapped_messages_cannot_alter_the_database() -> Result<(), Box<dyn std:
 }
 
 /// Fiche dont chaque champ texte porte une charge (décalée de `n`).
+/// Charge en nom de fiche : un nom ne peut pas imiter une adresse (refusé
+/// à la saisie), `@`, `<` et `>` y sont donc remplacés ; guillemets,
+/// apostrophes, points-virgules et accolades restent tels quels.
+fn as_name(payload: &str) -> String {
+    payload
+        .replace('@', " at ")
+        .replace('<', "(")
+        .replace('>', ")")
+}
+
 fn trapped_contact(n: usize) -> norelly_domain::contacts::ContactInput {
     use norelly_domain::contacts::{ContactInput, EmailInput, PhoneInput};
     let p = |i: usize| PAYLOADS[(n + i) % PAYLOADS.len()].to_owned();
+    let name = |i: usize| as_name(&p(i));
     // Étiquettes et numéros : au plus 64 caractères.
     let short = |i: usize| p(i).chars().take(64).collect::<String>();
     ContactInput {
-        display_name: p(0),
-        given_name: p(1),
-        family_name: p(2),
-        nickname: p(3),
+        display_name: name(0),
+        given_name: name(1),
+        family_name: name(2),
+        nickname: name(3),
         organization: p(4),
         notes: PAYLOADS.join("\n"),
         emails: vec![
@@ -557,13 +568,15 @@ async fn trapped_contacts_cannot_alter_the_database() -> Result<(), Box<dyn std:
         created.push(contact);
     }
 
-    // Chaque charge, comme filtre de la liste et comme saisie d'un
-    // destinataire : de simples données, qui retrouvent leur fiche.
+    // Chaque charge (sous sa forme de nom), comme filtre de la liste et
+    // comme saisie d'un destinataire : de simples données, qui retrouvent
+    // leur fiche.
     let suggest = SuggestRecipients {
         collected: &*l.store,
         directory: &book,
     };
-    for (n, payload) in PAYLOADS.iter().enumerate() {
+    for (n, payload) in PAYLOADS.iter().map(|p| as_name(p)).enumerate() {
+        let payload = payload.as_str();
         let page = book
             .page(&ContactFilter::new(payload, false), None, PageSize::new(50))
             .await?;
@@ -585,8 +598,8 @@ async fn trapped_contacts_cannot_alter_the_database() -> Result<(), Box<dyn std:
         .execute(
             created[0].id(),
             ContactInput {
-                display_name: PAYLOADS[4].to_owned(),
-                given_name: PAYLOADS[7].to_owned(),
+                display_name: as_name(PAYLOADS[4]),
+                given_name: as_name(PAYLOADS[7]),
                 ..trapped_contact(0)
             },
         )

@@ -498,6 +498,27 @@ mod tests {
         assert!(
             norelly_imap::Timeouts::CONNECTION_TEST.open < norelly_imap::Timeouts::default().open
         );
+        // Jusqu'à la fin du chiffrement (connexion, échange en clair,
+        // poignée de main), un essai tient dans le plafond du test avec de
+        // la marge : c'est l'erreur de l'étape bloquée qui est rendue, pas
+        // un délai dépassé générique (qui laisserait ajouter un compte OAuth
+        // « envoi à vérifier »).
+        let margin = std::time::Duration::from_secs(5);
+        for (connect, open) in [
+            (
+                norelly_imap::Timeouts::CONNECTION_TEST.connect,
+                norelly_imap::Timeouts::CONNECTION_TEST.open,
+            ),
+            (
+                norelly_smtp::Timeouts::CONNECTION_TEST.connect,
+                norelly_smtp::Timeouts::CONNECTION_TEST.open,
+            ),
+        ] {
+            assert!(
+                connect + open + norelly_tls::SHORT_HANDSHAKE_TIMEOUT + margin
+                    <= norelly_domain::connection::CONNECTION_TEST_BUDGET
+            );
+        }
     }
 
     fn rejection(h: &str, byte: u8) -> CertificateRejection {

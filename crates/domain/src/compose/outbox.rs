@@ -263,9 +263,52 @@ impl OutboxEntry {
     }
 }
 
+/// Attente avant de présenter de nouveau les identifiants d'un compte
+/// après un refus ou une interruption à l'envoi (15 min), sauf action de
+/// l'utilisateur.
+pub const CREDENTIALS_HOLD_SECS: i64 = 15 * 60;
+
+/// Échéance avant laquelle la file d'un compte n'envoie plus rien, après
+/// les échecs `failures` d'une tournée faite à `now` : les messages
+/// suivants présenteraient les mêmes identifiants, et un serveur peut
+/// bloquer le compte après quelques échecs. `None` : pas d'attente.
+#[must_use]
+pub fn credentials_hold<'a>(
+    failures: impl IntoIterator<Item = &'a SendFailure>,
+    now: i64,
+) -> Option<i64> {
+    failures
+        .into_iter()
+        .any(|f| {
+            matches!(
+                f,
+                SendFailure::Authentication | SendFailure::AuthenticationInterrupted
+            )
+        })
+        .then(|| now.saturating_add(CREDENTIALS_HOLD_SECS))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_credentials_failure_holds_the_queue() {
+        for failure in [
+            SendFailure::Authentication,
+            SendFailure::AuthenticationInterrupted,
+        ] {
+            assert_eq!(
+                credentials_hold(&[SendFailure::Temporary, failure], NOW),
+                Some(NOW + CREDENTIALS_HOLD_SECS)
+            );
+        }
+        assert_eq!(
+            credentials_hold(&[SendFailure::Temporary, SendFailure::Security], NOW),
+            None
+        );
+        assert_eq!(credentials_hold(&[], NOW), None);
+    }
 
     const NOW: i64 = 1_000;
 

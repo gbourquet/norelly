@@ -347,7 +347,7 @@ pub async fn send_draft(state: State<'_, AppState>, draft: DraftDto) -> Result<u
     }
     .execute(id, &draft, &from, unix_now())
     .await?;
-    state.mail.compose_soon(draft.account).await;
+    state.mail.compose_now(draft.account).await;
     id32(queued.get())
 }
 
@@ -543,7 +543,7 @@ pub async fn retry_send(state: State<'_, AppState>, account: u32, id: u32) -> Re
     {
         return Err(IpcError::new(ErrorCodeDto::OutboxBusy));
     }
-    state.mail.compose_soon(account).await;
+    state.mail.compose_now(account).await;
     Ok(())
 }
 

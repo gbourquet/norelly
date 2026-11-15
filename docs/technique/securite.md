@@ -59,10 +59,14 @@ n'est pas chiffrée (ADR-003) : on s'appuie sur le chiffrement du disque.
   ne réessaie pas (un serveur qui bloque un compte après N échecs le
   bloquerait sinon plus vite) ; seuls les échecs qui précèdent l'envoi des
   identifiants sont réessayés (`ConnectionPhase`, domaine). La file
-  d'envoi en fait un échec définitif (`SendFailure::AuthenticationInterrupted`) ;
-  l'acteur de synchronisation attend au moins `CREDENTIALS_RETRY_MS`
-  (15 min) avant de se reconnecter après un refus ou une interruption
-  (`Backoff::next_delay_after`).
+  d'envoi en fait un échec définitif (`SendFailure::AuthenticationInterrupted`)
+  et, après un refus ou une interruption, n'envoie plus rien pour ce
+  compte pendant `CREDENTIALS_HOLD_SECS` (15 min) sauf action de
+  l'utilisateur (`credentials_hold`) : les messages suivants ne
+  présentent pas les mêmes identifiants coup sur coup. L'acteur de
+  synchronisation attend au moins `CREDENTIALS_RETRY_MS` (15 min) avant de
+  se reconnecter après un mot de passe refusé ou interrompu
+  (`Backoff::next_delay_after`, `replay_risks_lockout`).
 - Une coupure ou un silence avant la fin du chiffrement (échange en clair
   précédant STARTTLS, borné en entier par le délai d'ouverture, ou poignée
   de main : `ClosedBeforeEncryption`, `Timeout(BeforeEncryption)`,

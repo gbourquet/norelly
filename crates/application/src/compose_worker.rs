@@ -9,11 +9,12 @@
 //! toutes les [`IDLE_TICK`].
 
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use norelly_domain::account::AccountId;
 use norelly_domain::compose::draft::{REMOTE_SAVE_INTERVAL_SECS, Recipient};
-use norelly_domain::compose::outbox::OutboxState;
+use norelly_domain::compose::outbox::{OutboxState, credentials_hold};
 use norelly_domain::ports::{
     BlobStore, ConnectRequest, DraftStore, MailSender, MessageComposer, OutboxStore,
     PendingOpStore, RemoteMailboxConnector, RemoteMailboxSession,
@@ -78,13 +79,32 @@ where
 {
     /// Un passage à l'instant `now`.
     pub async fn run_once(&self, now: i64) -> Result<Tick, RemoteComposeFailure> {
-        let delivery = DeliverOutbox {
-            account: self.account,
-            outbox: &*self.store,
-            sender: &*self.sender,
-        }
-        .execute(&self.smtp, now)
-        .await?;
+        self.run_once_after(now, None).await
+    }
+
+    /// Un passage à l'instant `now`, sans aucun envoi avant `hold_until`
+    /// (identifiants refusés ou interrompus à une tournée précédente :
+    /// [`credentials_hold`]).
+    pub async fn run_once_after(
+        &self,
+        now: i64,
+        hold_until: Option<i64>,
+    ) -> Result<Tick, RemoteComposeFailure> {
+        let delivery = match hold_until {
+            Some(until) if until > now => DeliveryReport {
+                next_attempt: Some(until),
+                ..DeliveryReport::default()
+            },
+            _ => {
+                DeliverOutbox {
+                    account: self.account,
+                    outbox: &*self.store,
+                    sender: &*self.sender,
+                }
+                .execute(&self.smtp, now)
+                .await?
+            }
+        };
         let mut tick = Tick {
             delivery,
             ..Tick::default()
@@ -150,10 +170,18 @@ where
     }
 }
 
+/// Demande de passage ; `by_user` : demandé par l'utilisateur (lève
+/// l'attente qui suit un échec des identifiants).
+#[derive(Debug, Default)]
+struct Wake {
+    notify: Notify,
+    by_user: AtomicBool,
+}
+
 /// Poignée d'un travailleur en cours d'exécution.
 #[derive(Debug)]
 pub struct ComposeHandle {
-    trigger: Arc<Notify>,
+    trigger: Arc<Wake>,
     events: broadcast::Sender<ComposeEvent>,
     stop: watch::Sender<bool>,
     task: JoinHandle<()>,
@@ -162,7 +190,15 @@ pub struct ComposeHandle {
 impl ComposeHandle {
     /// Demande un passage (nouveau message en file, brouillon enregistré).
     pub fn trigger(&self) {
-        self.trigger.notify_one();
+        self.trigger.notify.notify_one();
+    }
+
+    /// Demande un passage à l'initiative de l'utilisateur (envoi,
+    /// « Réessayer ») : lève aussi l'attente qui suit des identifiants
+    /// refusés ou interrompus.
+    pub fn retry_now(&self) {
+        self.trigger.by_user.store(true, Ordering::Relaxed);
+        self.trigger.notify.notify_one();
     }
 
     #[must_use]
@@ -196,7 +232,7 @@ where
     M: MessageComposer + 'static,
     C::Session: Send,
 {
-    let trigger = Arc::new(Notify::new());
+    let trigger = Arc::new(Wake::default());
     let (events, _) = broadcast::channel(64);
     let (stop, stop_rx) = watch::channel(false);
     let task = tokio::spawn(run(worker, Arc::clone(&trigger), events.clone(), stop_rx));
@@ -210,7 +246,7 @@ where
 
 async fn run<C, S, St, F, B, M>(
     worker: ComposeWorker<C, S, St, F, B, M>,
-    trigger: Arc<Notify>,
+    trigger: Arc<Wake>,
     events: broadcast::Sender<ComposeEvent>,
     mut stop: watch::Receiver<bool>,
 ) where
@@ -235,6 +271,9 @@ async fn run<C, S, St, F, B, M>(
         }
         Err(e) => tracing::error!(%account, error = %e, "reprise de la file d'envoi"),
     }
+    // Pas d'envoi avant cette échéance après des identifiants refusés ou
+    // interrompus ; levée par une action de l'utilisateur (réveil).
+    let mut hold: Option<i64> = None;
     loop {
         if *stop.borrow() {
             return;
@@ -242,8 +281,13 @@ async fn run<C, S, St, F, B, M>(
         let now = unix_now();
         let wait = tokio::select! {
             _ = stop.changed() => return,
-            r = worker.run_once(now) => match r {
+            r = worker.run_once_after(now, hold) => match r {
                 Ok(tick) => {
+                    if let Some(until) =
+                        credentials_hold(tick.delivery.failed.iter().map(|(_, f)| f), now)
+                    {
+                        hold = Some(until);
+                    }
                     if !tick.delivery.sent.is_empty()
                         || !tick.delivery.failed.is_empty()
                         || tick.filed > 0
@@ -262,7 +306,11 @@ async fn run<C, S, St, F, B, M>(
         };
         tokio::select! {
             _ = stop.changed() => return,
-            () = trigger.notified() => {}
+            () = trigger.notify.notified() => {
+                if trigger.by_user.swap(false, Ordering::Relaxed) {
+                    hold = None;
+                }
+            }
             () = tokio::time::sleep(wait) => {}
         }
     }

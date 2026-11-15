@@ -117,9 +117,10 @@ pub struct Timeouts {
 
 impl Timeouts {
     /// Test de connexion, qui réessaie aussitôt sur une nouvelle
-    /// connexion : un serveur muet est abandonné tôt.
+    /// connexion : un serveur muet est abandonné tôt. Jusqu'à la fin du
+    /// chiffrement, un essai tient dans le plafond du test (`CONNECTION_TEST_BUDGET`).
     pub const CONNECTION_TEST: Self = Self {
-        connect: Duration::from_secs(20),
+        connect: Duration::from_secs(15),
         open: Duration::from_secs(15),
         password_auth: PASSWORD_AUTH_TIMEOUT,
         open_total: OPEN_TOTAL,

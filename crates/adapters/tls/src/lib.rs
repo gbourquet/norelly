@@ -371,7 +371,9 @@ fn handshake_error(error: &std::io::Error) -> ConnectionError {
         None => match error.kind() {
             std::io::ErrorKind::UnexpectedEof
             | std::io::ErrorKind::ConnectionReset
-            | std::io::ErrorKind::BrokenPipe => ConnectionError::Closed,
+            | std::io::ErrorKind::ConnectionAborted
+            | std::io::ErrorKind::BrokenPipe
+            | std::io::ErrorKind::NotConnected => ConnectionError::Closed,
             _ => ConnectionError::Network(error.to_string()),
         },
     }
@@ -626,6 +628,30 @@ mod tests {
             "{err:?}"
         );
         Ok(())
+    }
+
+    /// Toute coupure signalée par le système pendant la poignée de main
+    /// (Windows : connexion abandonnée) est une coupure, pas un réseau perdu.
+    #[test]
+    fn every_kind_of_cut_during_the_handshake_is_a_cut() {
+        use std::io::{Error, ErrorKind};
+        for kind in [
+            ErrorKind::UnexpectedEof,
+            ErrorKind::ConnectionReset,
+            ErrorKind::ConnectionAborted,
+            ErrorKind::BrokenPipe,
+            ErrorKind::NotConnected,
+        ] {
+            assert_eq!(
+                handshake_error(&Error::from(kind)),
+                ConnectionError::Closed,
+                "{kind:?}"
+            );
+        }
+        assert!(matches!(
+            handshake_error(&Error::from(ErrorKind::HostUnreachable)),
+            ConnectionError::Network(_)
+        ));
     }
 
     /// Serveur qui ferme ou réinitialise la connexion pendant la poignée de

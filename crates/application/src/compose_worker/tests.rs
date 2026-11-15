@@ -170,6 +170,46 @@ async fn a_temporary_failure_schedules_the_next_attempt() {
     assert!(!tick.imap_used, "rien à déposer");
 }
 
+/// Identifiants refusés ou interrompus à l'envoi : les messages suivants
+/// n'en présentent pas d'autres avant l'attente (ni dans la tournée, ni à
+/// la suivante), puis partent.
+#[tokio::test]
+async fn a_credentials_failure_holds_the_queue() {
+    use norelly_domain::auth::AuthError;
+    use norelly_domain::compose::outbox::{CREDENTIALS_HOLD_SECS, credentials_hold};
+    use norelly_domain::connection::ConnectionError;
+    let (w, _) = worker().await;
+    for _ in 0..3 {
+        queue(&w).await;
+    }
+    w.sender
+        .reply(Err(SendError::Connection(ConnectionError::Authentication(
+            AuthError::Interrupted,
+        ))));
+    let tick = w
+        .run_once_after(NOW, None)
+        .await
+        .unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(tick.delivery.failed.len(), 1);
+    let hold = credentials_hold(tick.delivery.failed.iter().map(|(_, f)| f), NOW);
+    assert_eq!(hold, Some(NOW + CREDENTIALS_HOLD_SECS));
+    let tick = w
+        .run_once_after(NOW + 1, hold)
+        .await
+        .unwrap_or_else(|e| panic!("{e}"));
+    assert!(tick.delivery.failed.is_empty() && tick.delivery.sent.is_empty());
+    assert!(
+        w.sender.accepted().is_empty(),
+        "rien envoyé pendant l'attente"
+    );
+    assert_eq!(tick.next_wake, hold);
+    let tick = w
+        .run_once_after(NOW + CREDENTIALS_HOLD_SECS, hold)
+        .await
+        .unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(tick.delivery.sent.len(), 2);
+}
+
 #[tokio::test]
 async fn drafts_are_copied_and_the_next_copy_is_scheduled() {
     let (w, imap) = worker().await;
@@ -190,6 +230,63 @@ async fn drafts_are_copied_and_the_next_copy_is_scheduled() {
     assert_eq!(tick.drafts_saved, 0);
     assert!(!tick.imap_used, "trop tôt : pas de connexion");
     assert_eq!(tick.next_wake, Some(NOW + REMOTE_SAVE_INTERVAL_SECS));
+}
+
+/// Travailleur lancé : après des identifiants interrompus, un réveil
+/// ordinaire (brouillon enregistré) n'envoie rien ; une action de
+/// l'utilisateur (envoi, « Réessayer ») lève l'attente.
+#[tokio::test]
+async fn only_a_user_action_lifts_the_credentials_hold() {
+    use norelly_domain::auth::AuthError;
+    use norelly_domain::connection::ConnectionError;
+    let (w, _) = worker().await;
+    let store = Arc::clone(&w.store);
+    let sender = Arc::clone(&w.sender);
+    for _ in 0..2 {
+        QueueMessage {
+            store: &*store,
+            blobs: &*w.blobs,
+            composer: &*w.composer,
+        }
+        .execute(None, &draft(), &me(), unix_now())
+        .await
+        .unwrap_or_else(|e| panic!("{e}"));
+    }
+    sender.reply(Err(SendError::Connection(ConnectionError::Authentication(
+        AuthError::Interrupted,
+    ))));
+    let failed = || async {
+        store
+            .outbox(account())
+            .await
+            .unwrap_or_else(|e| panic!("{e}"))
+            .iter()
+            .any(|i| matches!(i.entry.state, OutboxState::Failed(_)))
+    };
+    let handle = spawn(w);
+    // Premier passage : un échec définitif, la tournée s'arrête.
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while !failed().await {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .unwrap_or_else(|_| panic!("aucun échec"));
+    handle.trigger();
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert!(
+        sender.accepted().is_empty(),
+        "réveil ordinaire : rien envoyé"
+    );
+    handle.retry_now();
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while sender.accepted().is_empty() {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .unwrap_or_else(|_| panic!("rien envoyé après « Réessayer »"));
+    handle.shutdown().await;
 }
 
 #[tokio::test]

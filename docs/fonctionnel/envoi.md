@@ -42,7 +42,10 @@ En attente ──▶ Envoi en cours ──▶ Envoyé
   et signale que le réseau utilisé peut en être la cause.
 - **Connexion coupée pendant la vérification des identifiants** : échec
   immédiat, sans nouvel essai automatique (certains serveurs bloquent le
-  compte après plusieurs essais) ; l'utilisateur relance.
+  compte après plusieurs essais) ; l'utilisateur relance. Après des
+  identifiants refusés ou une telle coupure, les autres messages du compte
+  attendent un quart d'heure, sauf si l'utilisateur envoie un message ou
+  clique sur « Réessayer ».
 - **Refus définitif**, identifiants refusés, connexion non sûre : échec
   immédiat.
 - **Envoi incertain** : si l'application s'arrête pendant un envoi, ou si

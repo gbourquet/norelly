@@ -210,6 +210,14 @@ impl ConnectionError {
             Self::Authentication(AuthError::Rejected { .. } | AuthError::Interrupted)
         )
     }
+
+    /// Vrai si une reconnexion rapide risque de faire bloquer le compte :
+    /// mot de passe refusé ou interrompu ([`Self::credentials_failed`]). Un
+    /// jeton OAuth ne déclenche pas ces blocages.
+    #[must_use]
+    pub fn replay_risks_lockout(&self, kind: crate::credentials::CredentialKind) -> bool {
+        kind == crate::credentials::CredentialKind::Password && self.credentials_failed()
+    }
 }
 
 /// Phase courante d'une ouverture de connexion, lue par le délai total qui
@@ -551,6 +559,18 @@ mod tests {
             // Serveur d'envoi coupé après le jeton, sur un canal chiffré :
             // rien n'est rejoué, l'envoi sera vérifié au premier message.
             assert!(ConnectionError::from(AuthError::Interrupted).send_check_can_wait());
+        }
+
+        #[test]
+        fn only_a_password_risks_a_lockout_when_replayed() {
+            use crate::credentials::CredentialKind;
+            let interrupted = ConnectionError::from(AuthError::Interrupted);
+            assert!(interrupted.replay_risks_lockout(CredentialKind::Password));
+            // Jeton OAuth (déjà rafraîchi) : Microsoft refuse parfois une
+            // session de façon passagère, la reconnexion ne doit pas
+            // attendre un quart d'heure.
+            assert!(!interrupted.replay_risks_lockout(CredentialKind::OAuth2));
+            assert!(!ConnectionError::Closed.replay_risks_lockout(CredentialKind::Password));
         }
 
         #[test]

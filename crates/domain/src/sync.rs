@@ -538,6 +538,7 @@ impl Backoff {
     }
 
     /// Comme [`Self::next_delay_ms`], mais après un échec des identifiants
+    /// qu'une reconnexion rapide renverrait au risque d'un blocage
     /// (`credentials_failed`, voir
     /// [`crate::connection::ConnectionError::credentials_failed`]) :
     /// au moins [`CREDENTIALS_RETRY_MS`], sans gigue : un serveur qui

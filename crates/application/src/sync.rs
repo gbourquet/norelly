@@ -130,11 +130,11 @@ impl SyncFailure {
         matches!(self, Self::Connection(e) if e.retry_is_useless())
     }
 
-    /// Vrai si les identifiants ont été refusés ou leur vérification
-    /// interrompue ([`ConnectionError::credentials_failed`]).
+    /// Vrai si une reconnexion rapide risque de faire bloquer le compte
+    /// ([`ConnectionError::replay_risks_lockout`]).
     #[must_use]
-    pub fn credentials_failed(&self) -> bool {
-        matches!(self, Self::Connection(e) if e.credentials_failed())
+    pub fn replay_risks_lockout(&self, kind: norelly_domain::credentials::CredentialKind) -> bool {
+        matches!(self, Self::Connection(e) if e.replay_risks_lockout(kind))
     }
 
     /// Vrai si la connexion est à rouvrir (erreur réseau ou protocole) ;

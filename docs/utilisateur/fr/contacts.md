@@ -198,6 +198,8 @@ autres fiches sont supprimées.
 - Plusieurs contacts : cochez la case au début de chaque ligne ; une
   barre apparaît en haut de la liste, avec **Supprimer le contact** et
   **Écrire au contact**. **Désélectionner les contacts** décoche tout.
+  Vous pouvez cocher jusqu'à 1 000 contacts à la fois : au-delà, la case
+  reste vide et la barre vous le signale.
 
 Supprimer un contact ne touche pas à vos messages et le retire de ses
 listes. La suppression est définitive.

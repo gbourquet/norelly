@@ -191,6 +191,8 @@ cards are deleted.
 - Several contacts: tick the box at the start of each line; a bar appears
   at the top of the list, with **Delete contact** and **Write to
   contact**. **Clear contact selection** unticks everything.
+  You can tick up to 1,000 contacts at a time: beyond that, the box stays
+  empty and the bar tells you so.
 
 Deleting a contact does not touch your messages and removes them from
 their lists. Deletion is permanent.

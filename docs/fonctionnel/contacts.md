@@ -98,6 +98,13 @@ l'ordinateur** : rien n'est envoyé à un serveur.
 - Les actions visent le contact du menu du clic droit s'il est ouvert,
   sinon les contacts cochés, sinon le contact affiché. **Modifier** et le
   favori ne visent qu'un contact à la fois.
+- Le nombre de contacts cochés à la fois est limité, pour que les actions
+  groupées restent rapides et sûres. Une fois la limite atteinte, une
+  nouvelle case reste décochée et la barre l'explique en indiquant la
+  limite. Le message disparaît dès qu'un contact est décoché ou supprimé,
+  ou que tout est désélectionné. Si une action groupée vise malgré tout
+  trop de contacts, elle est refusée avec ce même message, sans rien
+  modifier.
 
 ### Supprimer des contacts
 

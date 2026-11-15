@@ -292,8 +292,9 @@ impl<O: OAuthClient, K: SecretStore> TokenBroker<O, K> {
         let slot = self.slot(&source.refresh_key);
         let mut slot = slot.lock().await;
         if slot.discarded {
-            // Compte supprimé pendant la connexion : rien n'est enregistré.
-            return Ok(());
+            // Compte supprimé pendant la connexion : rien n'est enregistré,
+            // et l'appelant le sait (pas de compte « reconnecté » sans jeton).
+            return Err(SecretStoreError::Backend("compte supprimé".to_owned()));
         }
         if let Some(refresh) = &grant.refresh_token {
             tokio::time::timeout(

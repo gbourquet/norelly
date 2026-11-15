@@ -346,6 +346,10 @@ fn restoring_removes_the_apostrophe_of_other_spreadsheets() {
     assert_eq!(restore_csv_cell("'"), "'");
 }
 
+fn temporary_of(target: &str, candidate: &str) -> bool {
+    is_export_temporary_of(target.as_bytes(), candidate.as_bytes())
+}
+
 #[test]
 fn export_temporaries_of_the_target_are_recognized() {
     for name in [
@@ -353,9 +357,43 @@ fn export_temporaries_of_the_target_are_recognized() {
         ".contacts.vcf.1-99.tmp",
         ".contacts.vcf.4294967295-0.tmp",
     ] {
-        assert!(is_export_temporary_of("contacts.vcf", name), "{name:?}");
+        assert!(temporary_of("contacts.vcf", name), "{name:?}");
     }
-    assert!(is_export_temporary_of("a b.csv", ".a b.csv.7-3.tmp"));
+    assert!(temporary_of("a b.csv", ".a b.csv.7-3.tmp"));
+    // Nom qui n'est pas de l'UTF-8 : comparé octet par octet.
+    assert!(is_export_temporary_of(b"c\xff.vcf", b".c\xff.vcf.5-0.tmp"));
+    assert!(!is_export_temporary_of(b"c\xff.vcf", b".c\xfe.vcf.5-0.tmp"));
+}
+
+#[test]
+fn the_case_of_the_name_is_ignored() {
+    // Un système de fichiers insensible à la casse (Windows, clé USB) voit
+    // « Contacts.vcf » et « contacts.vcf » comme un seul fichier.
+    assert!(temporary_of("Contacts.vcf", ".contacts.VCF.3-0.tmp"));
+    assert!(temporary_of("Carnet-É.vcf", ".carnet-é.vcf.3-0.tmp"));
+    assert!(is_export_temporary_of(b"C\xff.vcf", b".c\xff.VCF.5-0.tmp"));
+    // La forme reste exacte : ni « .TMP » ni autre lettre.
+    assert!(!temporary_of("Contacts.vcf", ".Contacts.vcf.3-0.TMP"));
+    assert!(!temporary_of("Carnet-É.vcf", ".carnet-e.vcf.3-0.tmp"));
+}
+
+#[test]
+fn only_old_unlocked_temporaries_are_stale() {
+    let old = Some(STALE_EXPORT_TEMPORARY_AGE);
+    assert!(is_stale_export_temporary(TemporaryLock::Free, old));
+    assert!(is_stale_export_temporary(
+        TemporaryLock::Free,
+        Some(STALE_EXPORT_TEMPORARY_AGE * 100)
+    ));
+    // Export peut-être en cours : verrou tenu ou impossible à vérifier,
+    // temporaire récent ou d'âge inconnu.
+    assert!(!is_stale_export_temporary(TemporaryLock::Held, old));
+    assert!(!is_stale_export_temporary(TemporaryLock::Unknown, old));
+    assert!(!is_stale_export_temporary(
+        TemporaryLock::Free,
+        Some(STALE_EXPORT_TEMPORARY_AGE - Duration::from_secs(1))
+    ));
+    assert!(!is_stale_export_temporary(TemporaryLock::Free, None));
 }
 
 #[test]
@@ -376,22 +414,24 @@ fn other_names_are_not_export_temporaries() {
         ".contacts.vcf.1-0.tmp.2-0.tmp",
         ".autre.vcf.1234-0.tmp",
         ".contacts.vcf2.1234-0.tmp",
-        ".Contacts.vcf.1234-0.tmp",
         ".contacts.vcf.12345678901-0.tmp",
         ".contacts.vcf.1-12345678901.tmp",
+        ".contacts.vcf.4294967296-0.tmp",
+        ".contacts.vcf.1-4294967296.tmp",
         ".contacts.vcf.\u{661}-0.tmp",
+        "..1-0.tmp",
     ] {
-        assert!(!is_export_temporary_of("contacts.vcf", name), "{name:?}");
+        assert!(!temporary_of("contacts.vcf", name), "{name:?}");
     }
     // Sans nom de cible, rien n'est un temporaire.
-    assert!(!is_export_temporary_of("", "..1-0.tmp"));
+    assert!(!temporary_of("", "..1-0.tmp"));
 }
 
 proptest! {
     #[test]
     fn written_temporaries_are_recognized(target in "[^/\\\\\\x00]{1,12}", pid: u32, n in 0_u32..100) {
         let name = format!(".{target}.{pid}-{n}.tmp");
-        prop_assert!(is_export_temporary_of(&target, &name));
+        prop_assert!(temporary_of(&target, &name));
     }
 
     #[test]

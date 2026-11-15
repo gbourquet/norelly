@@ -27,7 +27,9 @@ use norelly_domain::actions::{ActionFlag, FlagChange, StoreOutcome};
 use norelly_domain::auth::{AuthMethod, authenticator_for, select_imap_auth_method};
 use norelly_domain::capabilities::ServerCapabilities;
 use norelly_domain::compose::draft::RemoteCopy;
-use norelly_domain::connection::{ConnectionError, TimeoutStage};
+use norelly_domain::connection::{
+    ConnectionError, PASSWORD_AUTH_TIMEOUT, TimeoutStage, authentication_timeout,
+};
 use norelly_domain::endpoint::{Security, ServerEndpoint};
 use norelly_domain::fetch_policy::BodyFetch;
 use norelly_domain::mailbox::{Flags, ListedMailbox, MailboxName, MessageMeta, ModSeq, Uid};
@@ -45,19 +47,54 @@ use crate::connection::{
     Connection, MAX_RESPONSE_SIZE, PRE_TLS_MAX_RESPONSE_SIZE, Transport, greeting_capabilities,
 };
 
+/// Durée totale de l'ouverture d'une connexion (TCP, TLS, salutation,
+/// authentification, capacités).
+const OPEN_TOTAL: Duration = Duration::from_secs(120);
+
 /// Délais d'attente.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Timeouts {
     /// Établissement TCP.
     pub connect: Duration,
-    /// Chaque lecture ou écriture.
+    /// Chaque lecture ou écriture pendant l'ouverture : salutation,
+    /// STARTTLS, authentification et capacités relues ensuite. Un serveur
+    /// sain y répond en quelques secondes ; un serveur muet à ce stade
+    /// (même juste après l'authentification) répond en général à une
+    /// nouvelle connexion.
+    pub open: Duration,
+    /// Plancher du délai de l'authentification par mot de passe
+    /// (`authentication_timeout`).
+    pub password_auth: Duration,
+    /// Durée totale de l'ouverture : un serveur qui envoie un octet de
+    /// temps en temps ne la prolonge pas.
+    pub open_total: Duration,
+    /// Chaque lecture ou écriture une fois la session ouverte (grosses
+    /// boîtes, messages volumineux).
     pub response: Duration,
 }
 
+impl Timeouts {
+    /// Test de connexion, qui réessaie aussitôt sur une nouvelle
+    /// connexion : un serveur muet est abandonné tôt.
+    pub const CONNECTION_TEST: Self = Self {
+        connect: Duration::from_secs(20),
+        open: Duration::from_secs(15),
+        password_auth: PASSWORD_AUTH_TIMEOUT,
+        open_total: OPEN_TOTAL,
+        response: Duration::from_secs(15),
+    };
+}
+
 impl Default for Timeouts {
+    /// Synchronisation : l'acteur du compte réessaie lui-même, avec une
+    /// attente croissante ; l'ouverture garde de la marge pour un serveur
+    /// lent à authentifier.
     fn default() -> Self {
         Self {
             connect: Duration::from_secs(20),
+            open: Duration::from_secs(30),
+            password_auth: PASSWORD_AUTH_TIMEOUT,
+            open_total: OPEN_TOTAL,
             response: Duration::from_secs(60),
         }
     }
@@ -111,6 +148,18 @@ impl ImapConnector {
         self
     }
 
+    /// Délais d'attente.
+    #[must_use]
+    pub fn timeouts(&self) -> Timeouts {
+        self.timeouts
+    }
+
+    /// Fabrique TLS utilisée.
+    #[must_use]
+    pub fn tls(&self) -> &TlsClientFactory {
+        &self.tls
+    }
+
     async fn tcp(&self, endpoint: &ServerEndpoint) -> Result<TcpStream, ConnectionError> {
         let connect = async {
             #[cfg(test)]
@@ -134,7 +183,9 @@ impl ImapConnector {
     ) -> Result<(Connection, ServerCapabilities, bool), ConnectionError> {
         let endpoint = &request.endpoint;
         let exceptions = &request.certificate_exceptions;
-        let timeout = self.timeouts.response;
+        // Délai d'ouverture jusqu'aux capacités relues après
+        // l'authentification (voir `connect`).
+        let timeout = self.timeouts.open;
         let tcp = self.tcp(endpoint).await?;
 
         if endpoint.security() == Security::Tls {
@@ -207,9 +258,23 @@ impl RemoteMailboxConnector for ImapConnector {
         request.plaintext.authorize(&request.endpoint)?;
         request.authorize_credentials()?;
         tracing::debug!(endpoint = %request.endpoint, "connexion IMAP");
+        tokio::time::timeout(self.timeouts.open_total, self.open_session(request))
+            .await
+            .map_err(|_| ConnectionError::Timeout(TimeoutStage::Response))?
+    }
+}
+
+impl ImapConnector {
+    /// Ouverture complète : connexion, authentification, capacités.
+    async fn open_session(&self, request: &ConnectRequest) -> Result<ImapSession, ConnectionError> {
         let (mut conn, caps, preauth) = self.open(request).await?;
         if !preauth {
             let credentials = &request.credentials;
+            conn.set_timeout(authentication_timeout(
+                credentials.kind(),
+                self.timeouts.open,
+                self.timeouts.password_auth,
+            ));
             match select_imap_auth_method(&caps, credentials.kind())? {
                 AuthMethod::ImapLogin => {
                     tracing::debug!(user = %credentials.username(), "authentification par LOGIN");
@@ -230,9 +295,13 @@ impl RemoteMailboxConnector for ImapConnector {
                     .await?;
                 }
             }
+            conn.set_timeout(self.timeouts.open);
         }
         conn.mark_authenticated();
         let capabilities = conn.capability().await?.without(&self.hidden);
+        // Session ouverte : le délai de réponse laisse le temps aux
+        // commandes longues (grosses boîtes).
+        conn.set_timeout(self.timeouts.response);
         if request.endpoint.security() == Security::Plain {
             // Canal en clair consenti, authentifié : il transporte désormais
             // des messages (limite d'avant TLS levée).

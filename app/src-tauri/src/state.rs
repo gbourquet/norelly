@@ -298,6 +298,24 @@ pub(crate) fn create_private_dir(dir: &Path) -> std::io::Result<()> {
     }
 }
 
+/// Test de connexion : il réessaie aussitôt sur une nouvelle connexion,
+/// donc abandonne tôt une poignée de main ou une ouverture bloquées
+/// (délais courts). La synchronisation et l'envoi gardent les délais larges
+/// par défaut.
+fn connection_test(
+    tls: &TlsClientFactory,
+    exceptions: SqliteCertificateExceptionStore,
+) -> AppTestConnection {
+    let tls = tls
+        .clone()
+        .with_handshake_timeout(norelly_tls::SHORT_HANDSHAKE_TIMEOUT);
+    TestConnection::new(
+        ImapConnector::new(tls.clone()).with_timeouts(norelly_imap::Timeouts::CONNECTION_TEST),
+        SmtpSender::new(tls).with_timeouts(norelly_smtp::Timeouts::CONNECTION_TEST),
+        exceptions,
+    )
+}
+
 /// Nombre maximal de refus mémorisés.
 const MAX_PENDING_REJECTIONS: usize = 16;
 
@@ -358,11 +376,7 @@ impl AppState {
             contacts: SqliteContactBook::new(db.clone()),
             imports: ContactImports::default(),
             accounts: SqliteAccountRepository::new(db),
-            test: TestConnection::new(
-                ImapConnector::new(tls.clone()),
-                SmtpSender::new(tls),
-                exceptions.clone(),
-            ),
+            test: connection_test(&tls, exceptions.clone()),
             exceptions,
             secrets,
             tokens,
@@ -461,6 +475,29 @@ mod tests {
 
     fn host(raw: &str) -> Host {
         Host::parse(raw).unwrap_or_else(|_| panic!("hôte"))
+    }
+
+    /// Le test de connexion, qui réessaie, abandonne tôt une poignée de
+    /// main ou une ouverture bloquées ; la synchronisation et l'envoi
+    /// gardent des délais larges.
+    #[test]
+    fn connection_test_has_its_own_short_delays() {
+        let s = state();
+        let (imap, smtp) = s.test.connectors();
+        assert_eq!(
+            imap.tls().handshake_timeout(),
+            norelly_tls::SHORT_HANDSHAKE_TIMEOUT
+        );
+        assert_eq!(
+            smtp.tls().handshake_timeout(),
+            norelly_tls::SHORT_HANDSHAKE_TIMEOUT
+        );
+        assert_eq!(imap.timeouts(), norelly_imap::Timeouts::CONNECTION_TEST);
+        assert_eq!(smtp.timeouts(), norelly_smtp::Timeouts::CONNECTION_TEST);
+        assert!(norelly_tls::SHORT_HANDSHAKE_TIMEOUT < norelly_tls::DEFAULT_HANDSHAKE_TIMEOUT);
+        assert!(
+            norelly_imap::Timeouts::CONNECTION_TEST.open < norelly_imap::Timeouts::default().open
+        );
     }
 
     fn rejection(h: &str, byte: u8) -> CertificateRejection {

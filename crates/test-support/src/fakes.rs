@@ -130,6 +130,8 @@ pub struct FakeSession {
     capabilities: ServerCapabilities,
     inner: FakeImapSession,
     logout_error: Option<ConnectionError>,
+    /// Durée de `logout` (serveur muet à la déconnexion).
+    logout_delay: std::time::Duration,
 }
 
 impl FakeSession {
@@ -144,7 +146,15 @@ impl FakeSession {
             capabilities,
             inner: imap.session()?,
             logout_error,
+            logout_delay: std::time::Duration::ZERO,
         })
+    }
+
+    /// `logout` ne répond qu'au bout de `delay`.
+    #[must_use]
+    pub fn with_logout_delay(mut self, delay: std::time::Duration) -> Self {
+        self.logout_delay = delay;
+        self
     }
 }
 
@@ -281,6 +291,7 @@ impl RemoteMailboxSession for FakeSession {
         self.inner.idle(max)
     }
     async fn logout(self) -> Result<(), ConnectionError> {
+        tokio::time::sleep(self.logout_delay).await;
         if let Some(e) = self.logout_error {
             return Err(e);
         }
@@ -303,6 +314,7 @@ impl RemoteMailboxConnector for FakeMailServers {
             capabilities,
             inner,
             logout_error: None,
+            logout_delay: std::time::Duration::ZERO,
         })
     }
 }

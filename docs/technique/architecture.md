@@ -106,7 +106,9 @@ Orchestration async des ports, sans règle métier propre :
 
 - `state.rs` : `AppState` ouvre la base, les blobs, le trousseau, démarre les
   acteurs et travailleurs ; c'est le seul endroit qui choisit les
-  implémentations.
+  implémentations, et leurs délais : le test de connexion reçoit ses
+  propres connecteurs IMAP et SMTP, aux délais courts (`connection_test`),
+  la synchronisation et l'envoi les délais par défaut.
 - `ipc.rs` : **contrat IPC** (DTO), sans dépendance de `specta` dans le
   domaine ; toute entrée est revalidée par les constructeurs du domaine.
 - `commands.rs`, `reading.rs`, `actions.rs`, `compose.rs`, `search.rs`,

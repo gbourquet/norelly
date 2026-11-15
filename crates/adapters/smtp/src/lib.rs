@@ -36,7 +36,9 @@ use norelly_domain::auth::{
     AuthError, AuthMechanism, XOAuth2Authenticator, select_smtp_auth_mechanism,
 };
 use norelly_domain::capabilities::ServerCapabilities;
-use norelly_domain::connection::{ConnectionError, TimeoutStage, server_text};
+use norelly_domain::connection::{
+    ConnectionError, PASSWORD_AUTH_TIMEOUT, TimeoutStage, authentication_timeout, server_text,
+};
 use norelly_domain::credentials::Credentials;
 use norelly_domain::endpoint::{Security, ServerEndpoint};
 use norelly_domain::ports::{
@@ -87,18 +89,52 @@ fn capabilities_of(info: &ServerInfo) -> ServerCapabilities {
 /// documentation du module).
 const LOCAL_GREETING: &[u8] = b"220 norelly STARTTLS local\r\n";
 
+/// Attente au plus de la réponse à `QUIT`.
+const QUIT_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Durée totale de l'ouverture d'une connexion (TCP, TLS, salutation,
+/// authentification, capacités).
+const OPEN_TOTAL: Duration = Duration::from_secs(120);
+
 /// Délais d'attente.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Timeouts {
     pub connect: Duration,
-    /// Chaque échange commande/réponse.
+    /// Chaque échange pendant l'ouverture : bannière, `EHLO`, `STARTTLS`,
+    /// authentification, puis `QUIT`. Un serveur sain y répond en quelques
+    /// secondes.
+    pub open: Duration,
+    /// Plancher du délai de l'authentification par mot de passe
+    /// (`authentication_timeout`).
+    pub password_auth: Duration,
+    /// Durée totale de l'ouverture : un serveur qui envoie un octet de
+    /// temps en temps ne la prolonge pas.
+    pub open_total: Duration,
+    /// Transmission d'un message (augmentée selon sa taille).
     pub response: Duration,
 }
 
+impl Timeouts {
+    /// Test de connexion, qui réessaie aussitôt sur une nouvelle
+    /// connexion : un serveur muet est abandonné tôt.
+    pub const CONNECTION_TEST: Self = Self {
+        connect: Duration::from_secs(20),
+        open: Duration::from_secs(15),
+        password_auth: PASSWORD_AUTH_TIMEOUT,
+        open_total: OPEN_TOTAL,
+        response: Duration::from_secs(15),
+    };
+}
+
 impl Default for Timeouts {
+    /// Envoi : l'ouverture garde de la marge pour un serveur lent à
+    /// authentifier.
     fn default() -> Self {
         Self {
             connect: Duration::from_secs(20),
+            open: Duration::from_secs(30),
+            password_auth: PASSWORD_AUTH_TIMEOUT,
+            open_total: OPEN_TOTAL,
             response: Duration::from_secs(60),
         }
     }
@@ -258,12 +294,34 @@ impl SmtpSender {
         self
     }
 
+    /// Délais d'attente.
+    #[must_use]
+    pub fn timeouts(&self) -> Timeouts {
+        self.timeouts
+    }
+
+    /// Fabrique TLS utilisée.
+    #[must_use]
+    pub fn tls(&self) -> &TlsClientFactory {
+        &self.tls
+    }
+
+    /// Échange de l'ouverture (ou `QUIT`), borné par le délai d'ouverture.
     async fn timed<T, E>(
         &self,
         future: impl Future<Output = Result<T, E>>,
         map: impl FnOnce(E) -> ConnectionError,
     ) -> Result<T, ConnectionError> {
-        tokio::time::timeout(self.timeouts.response, future)
+        self.timed_within(self.timeouts.open, future, map).await
+    }
+
+    async fn timed_within<T, E>(
+        &self,
+        limit: Duration,
+        future: impl Future<Output = Result<T, E>>,
+        map: impl FnOnce(E) -> ConnectionError,
+    ) -> Result<T, ConnectionError> {
+        tokio::time::timeout(limit, future)
             .await
             .map_err(|_| ConnectionError::Timeout(TimeoutStage::Response))?
             .map_err(map)
@@ -303,7 +361,7 @@ impl SmtpSender {
             let tls = self.tls.connect(tcp, endpoint.host(), exceptions).await?;
             LettreStream::tls(tls, peer, Vec::new())
         } else {
-            let mut plain = PlainSession::new(tcp, self.timeouts.response);
+            let mut plain = PlainSession::new(tcp, self.timeouts.open);
             plain.greeting().await?;
             let caps = plain.ehlo().await?;
             match decide_starttls(endpoint.security(), caps.starttls())? {
@@ -334,11 +392,17 @@ impl SmtpSender {
         Ok(Session { conn, capabilities })
     }
 
-    /// Ouvre et authentifie.
+    /// Ouvre et authentifie, dans la durée totale d'ouverture.
     async fn open_authenticated(
         &self,
         request: &ConnectRequest,
     ) -> Result<Session, ConnectionError> {
+        tokio::time::timeout(self.timeouts.open_total, self.authenticate(request))
+            .await
+            .map_err(|_| ConnectionError::Timeout(TimeoutStage::Response))?
+    }
+
+    async fn authenticate(&self, request: &ConnectRequest) -> Result<Session, ConnectionError> {
         let mut session = self.open(request).await?;
         let kind = request.credentials.kind();
         let mechanism = match select_smtp_auth_mechanism(&session.capabilities, kind)? {
@@ -349,8 +413,13 @@ impl SmtpSender {
         };
         let credentials = &request.credentials;
         tracing::debug!(user = %credentials.username(), mechanism = ?mechanism, "authentification SMTP");
+        let limit = authentication_timeout(
+            credentials.kind(),
+            self.timeouts.open,
+            self.timeouts.password_auth,
+        );
         if mechanism == Mechanism::Xoauth2 {
-            self.timed(xoauth2(&mut session.conn, credentials), |e| e)
+            self.timed_within(limit, xoauth2(&mut session.conn, credentials), |e| e)
                 .await?;
             return Ok(session);
         }
@@ -358,16 +427,22 @@ impl SmtpSender {
             credentials.username().as_str().to_owned(),
             credentials.secret().expose().to_owned(),
         );
-        self.timed(session.conn.auth(&[mechanism], &lettre_credentials), |e| {
-            auth_failure(&e)
-        })
+        self.timed_within(
+            limit,
+            session.conn.auth(&[mechanism], &lettre_credentials),
+            |e| auth_failure(&e),
+        )
         .await?;
         Ok(session)
     }
 
     async fn quit(&self, mut session: Session) {
         // Échec du QUIT sans conséquence : le travail est fait.
-        let _ = self.timed(session.conn.quit(), |e| lettre_error(&e)).await;
+        // Attente courte : la connexion est fermée de toute façon.
+        let limit = self.timeouts.open.min(QUIT_TIMEOUT);
+        let _ = self
+            .timed_within(limit, session.conn.quit(), |e| lettre_error(&e))
+            .await;
     }
 }
 

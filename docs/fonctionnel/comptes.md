@@ -210,8 +210,16 @@ acceptés) sont supprimées. **Rien n'est supprimé sur le serveur.**
   dans Outlook.com, sans parler de mot de passe.
 - Réseau instable, ou serveur joint mais qui ne répond pas ou coupe la
   connexion : Norelly réessaie seul, sur une nouvelle connexion, avant
-  d'annoncer un échec. Un refus du serveur (identifiants, sécurité) ne se
-  réessaie pas.
+  d'annoncer un échec. Un serveur qui se tait pendant la connexion (par
+  exemple juste après l'authentification) est vite abandonné au profit
+  d'un nouvel essai, et la vérification de chaque serveur (réception,
+  envoi) reste courte : la fenêtre d'ajout ne semble jamais bloquée. Un
+  mot de passe refusé lentement par le serveur est bien annoncé comme
+  refusé, sans être renvoyé. Un refus du serveur (identifiants,
+  sécurité) ne se réessaie pas.
+- Liaison très lente (satellite, mobile avec pertes) : la synchronisation
+  et l'envoi laissent au serveur plus de temps qu'à la vérification de
+  l'ajout, qui préfère réessayer vite.
 - Échec de la connexion après le passage chez Microsoft (serveur muet,
   réseau instable) : un nouvel essai pour la même adresse, dans les dix
   minutes, réutilise cette connexion sans rouvrir le navigateur. Elle n'est

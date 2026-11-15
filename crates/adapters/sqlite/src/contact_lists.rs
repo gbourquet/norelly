@@ -6,34 +6,144 @@
 //! SQLite). L'unicité du nom et l'existence des membres sont vérifiées
 //! avant l'écriture (pour nommer le refus) et garanties par le schéma.
 
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
+use std::fmt;
+use std::sync::Mutex;
 
 use norelly_domain::contact_lists::{
-    ContactList, ContactListDraft, ContactListFilter, ContactListId, ContactListInput,
+    ContactList, ContactListDraft, ContactListError, ContactListFilter, ContactListId,
+    ContactListInput,
 };
 use norelly_domain::ports::{
     ContactListBook, ContactListCursor, ContactListDirectory, ContactListPage,
     ContactListStoreError, ContactListSummary, PageSize, StoreError,
 };
-use rusqlite::{Connection, Transaction, params};
+use rusqlite::types::Value;
+use rusqlite::{Connection, Row, Transaction, params};
 
 use crate::contacts::{SqliteContactBook, json_list};
 use crate::store_error;
 
-fn corrupted(id: i64, detail: &str) -> StoreError {
-    StoreError(format!("liste {id} corrompue : {detail}"))
+/// Listes corrompues déjà signalées : chacune n'est journalisée qu'une
+/// fois par lancement, même relue à chaque page ou suggestion.
+static REPORTED: Mutex<BTreeSet<i64>> = Mutex::new(BTreeSet::new());
+
+/// Défaut d'une liste en base, sans rien de son contenu.
+#[derive(Debug, Clone, Copy)]
+enum Defect {
+    Id,
+    ColumnType,
+    UnreadableMember,
+    Refused(ContactListError),
+    KeyOrMembers,
 }
 
-/// Ligne brute d'une liste, revalidée par le domaine.
-struct ListRow {
+impl fmt::Display for Defect {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Id => f.write_str("identifiant"),
+            Self::ColumnType => f.write_str("type de colonne"),
+            Self::UnreadableMember => f.write_str("membre illisible"),
+            // Refus du domaine : une nature et un nom de champ, jamais une
+            // valeur.
+            Self::Refused(e) => write!(f, "refus du domaine : {e}"),
+            Self::KeyOrMembers => f.write_str("clé de nom ou membres"),
+        }
+    }
+}
+
+/// Liste `id` écartée de la lecture. Seuls son identifiant et la nature
+/// du défaut sont journalisés, jamais son contenu, une fois par liste.
+fn skip_corrupted(id: i64, defect: Defect) {
+    if first_report(id) {
+        tracing::warn!(list_id = id, %defect, "liste corrompue écartée");
+    }
+}
+
+/// Vrai la première fois que la liste `id` est signalée (registre
+/// inaccessible : signalée, mieux vaut un doublon qu'un oubli).
+fn first_report(id: i64) -> bool {
+    REPORTED
+        .lock()
+        .map(|mut reported| reported.insert(id))
+        .unwrap_or(true)
+}
+
+/// Valeur d'une colonne, `None` si elle n'a pas le type attendu (ligne
+/// corrompue) ; toute autre erreur de lecture est remontée.
+fn tolerant<T>(read: rusqlite::Result<T>) -> rusqlite::Result<Option<T>> {
+    match read {
+        Ok(value) => Ok(Some(value)),
+        Err(
+            rusqlite::Error::InvalidColumnType(..)
+            | rusqlite::Error::FromSqlConversionFailure(..)
+            | rusqlite::Error::IntegralValueOutOfRange(..),
+        ) => Ok(None),
+        Err(e) => Err(e),
+    }
+}
+
+/// Champs d'une liste tels que stockés, revalidés par le domaine.
+struct ListFields {
     name: String,
     name_key: String,
     description: Option<String>,
     bcc: bool,
-    members: Vec<i64>,
 }
 
-/// Listes `ids`, dans cet ordre (inconnues omises).
+impl ListFields {
+    /// Colonnes 1 à 4 de `r` ; `None` si l'une n'a pas le type attendu.
+    fn read(r: &Row<'_>) -> rusqlite::Result<Option<Self>> {
+        let (Some(name), Some(name_key), Some(description), Some(bcc)) = (
+            tolerant(r.get(1))?,
+            tolerant(r.get(2))?,
+            tolerant(r.get(3))?,
+            tolerant(r.get(4))?,
+        ) else {
+            return Ok(None);
+        };
+        Ok(Some(Self {
+            name,
+            name_key,
+            description,
+            bcc,
+        }))
+    }
+}
+
+/// Ligne brute d'une liste : `fields` vaut `None` si une colonne n'a pas
+/// le type attendu ; un membre illisible rend la liste entière corrompue.
+struct ListRow {
+    fields: Option<ListFields>,
+    members: Vec<i64>,
+    unreadable_member: bool,
+}
+
+/// Liste revalidée par le domaine, ou la nature de son défaut.
+fn validate(raw: i64, row: ListRow) -> Result<ContactList, Defect> {
+    let id = ContactListId::new(raw).ok_or(Defect::Id)?;
+    let fields = row.fields.ok_or(Defect::ColumnType)?;
+    if row.unreadable_member {
+        return Err(Defect::UnreadableMember);
+    }
+    let count = row.members.len();
+    let draft = ContactListDraft::new(ContactListInput {
+        name: fields.name,
+        description: fields.description.unwrap_or_default(),
+        members: row.members,
+        bcc: fields.bcc,
+    })
+    .map_err(Defect::Refused)?;
+    // Unicité et tri portent sur la clé stockée : elle doit être celle du
+    // domaine ; un membre répété serait fusionné en silence.
+    if draft.name_key() != fields.name_key || draft.members().len() != count {
+        return Err(Defect::KeyOrMembers);
+    }
+    Ok(draft.with_id(id))
+}
+
+/// Listes `ids`, dans cet ordre (inconnues omises) ; une liste corrompue
+/// est écartée et journalisée, les autres restent lisibles.
 fn load(c: &Connection, ids: &[i64]) -> Result<Vec<ContactList>, StoreError> {
     if ids.is_empty() {
         return Ok(Vec::new());
@@ -50,11 +160,9 @@ fn load(c: &Connection, ids: &[i64]) -> Result<Vec<ContactList>, StoreError> {
             Ok((
                 r.get::<_, i64>(0)?,
                 ListRow {
-                    name: r.get(1)?,
-                    name_key: r.get(2)?,
-                    description: r.get(3)?,
-                    bcc: r.get(4)?,
+                    fields: ListFields::read(r)?,
                     members: Vec::new(),
+                    unreadable_member: false,
                 },
             ))
         })
@@ -70,36 +178,27 @@ fn load(c: &Connection, ids: &[i64]) -> Result<Vec<ContactList>, StoreError> {
         .map_err(store_error)?;
     let members = stmt
         .query_map(params![list], |r| {
-            Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?))
+            Ok((r.get::<_, i64>(0)?, tolerant(r.get::<_, i64>(1))?))
         })
         .map_err(store_error)?;
     for member in members {
         let (id, contact) = member.map_err(store_error)?;
         if let Some(row) = rows.get_mut(&id) {
-            row.members.push(contact);
+            match contact {
+                Some(contact) => row.members.push(contact),
+                None => row.unreadable_member = true,
+            }
         }
     }
-    ids.iter()
+    Ok(ids
+        .iter()
         .filter_map(|id| rows.remove(id).map(|row| (*id, row)))
-        .map(|(raw, row)| {
-            let id = ContactListId::new(raw).ok_or_else(|| corrupted(raw, "identifiant"))?;
-            let count = row.members.len();
-            let draft = ContactListDraft::new(ContactListInput {
-                name: row.name,
-                description: row.description.unwrap_or_default(),
-                members: row.members,
-                bcc: row.bcc,
-            })
-            .map_err(|e| corrupted(raw, &e.to_string()))?;
-            // Unicité et tri portent sur la clé stockée : elle doit être
-            // celle du domaine ; un membre répété serait fusionné en
-            // silence.
-            if draft.name_key() != row.name_key || draft.members().len() != count {
-                return Err(corrupted(raw, "clé de nom ou membres"));
-            }
-            Ok(draft.with_id(id))
+        .filter_map(|(raw, row)| {
+            validate(raw, row)
+                .inspect_err(|defect| skip_corrupted(raw, *defect))
+                .ok()
         })
-        .collect()
+        .collect())
 }
 
 /// Refus d'une écriture : nom pris par une autre liste que `except`, ou
@@ -238,12 +337,12 @@ impl ContactListBook for SqliteContactBook {
     }
 }
 
-/// Identifiants de la page : filtre sur `name_key`, après le curseur, dans
-/// l'ordre de la liste.
-const PAGE_FIRST: &str = "SELECT id FROM contact_lists \
+/// Identifiants et clés de tri de la page : filtre sur `name_key`, après
+/// le curseur, dans l'ordre de la liste.
+const PAGE_FIRST: &str = "SELECT id, name_key FROM contact_lists \
      WHERE (?1 = '' OR instr(name_key, ?1) > 0) \
      ORDER BY name_key, id LIMIT ?2";
-const PAGE_AFTER: &str = "SELECT id FROM contact_lists \
+const PAGE_AFTER: &str = "SELECT id, name_key FROM contact_lists \
      WHERE (?1 = '' OR instr(name_key, ?1) > 0) AND (name_key, id) > (?3, ?4) \
      ORDER BY name_key, id LIMIT ?2";
 
@@ -261,23 +360,45 @@ impl ContactListDirectory for SqliteContactBook {
         let filter = filter.clone();
         self.db
             .read(move |c| {
-                // Une ligne de plus : savoir s'il existe une suite.
-                let fetch = i64::from(limit) + 1;
+                // Une liste valide de plus : savoir s'il existe une suite.
+                let wanted = limit as usize + 1;
+                // Lignes lues par requête : la page d'abord, puis par
+                // grands lots une fois des listes corrompues écartées.
+                let mut batch = limit.saturating_add(1);
                 let text = filter.text();
-                let ids: Vec<i64> = match &cursor {
-                    None => c.prepare_cached(PAGE_FIRST).and_then(|mut s| {
-                        s.query_map(params![text, fetch], |r| r.get(0))?.collect()
-                    }),
-                    Some(after) => c.prepare_cached(PAGE_AFTER).and_then(|mut s| {
-                        s.query_map(params![text, fetch, after.sort_key, after.id.get()], |r| {
-                            r.get(0)
-                        })?
-                        .collect()
-                    }),
+                let mut lists = Vec::new();
+                // Position de la dernière ligne lue, valide ou non : une
+                // liste corrompue est écartée sans arrêter la lecture. La
+                // clé est relue telle quelle : une clé qui n'est pas du
+                // texte ne bloque pas la suite.
+                let mut after: Option<(Value, i64)> =
+                    cursor.map(|from| (Value::Text(from.sort_key), from.id.get()));
+                loop {
+                    let fetch = i64::from(batch);
+                    let mut rows: Vec<(i64, Value)> = match &after {
+                        None => c.prepare_cached(PAGE_FIRST).and_then(|mut s| {
+                            s.query_map(params![text, fetch], |r| Ok((r.get(0)?, r.get(1)?)))?
+                                .collect()
+                        }),
+                        Some((key, id)) => c.prepare_cached(PAGE_AFTER).and_then(|mut s| {
+                            s.query_map(params![text, fetch, key, id], |r| {
+                                Ok((r.get(0)?, r.get(1)?))
+                            })?
+                            .collect()
+                        }),
+                    }
+                    .map_err(store_error)?;
+                    let ids: Vec<i64> = rows.iter().map(|(id, _)| *id).collect();
+                    lists.extend(load(c, &ids)?);
+                    let exhausted = rows.len() < batch as usize;
+                    after = rows.pop().map(|(id, key)| (key, id));
+                    if exhausted || lists.len() >= wanted {
+                        break;
+                    }
+                    batch = PageSize::MAX.get().saturating_add(1);
                 }
-                .map_err(store_error)?;
-                let more = ids.len() > limit as usize;
-                let lists = load(c, &ids[..ids.len().min(limit as usize)])?;
+                let more = lists.len() > limit as usize;
+                lists.truncate(limit as usize);
                 let next = if more {
                     lists.last().map(ContactListCursor::of)
                 } else {
@@ -300,7 +421,8 @@ impl ContactListDirectory for SqliteContactBook {
 mod tests {
     use norelly_domain::ports::{ContactBook, PageSize};
     use norelly_test_support::contact_lists_contracts::{
-        contact_list_contract, contact_list_page_size_contract, contact_merge_contract, sample_list,
+        contact_list_contract, contact_list_page_size_contract, contact_merge_contract,
+        corrupted_list_contract, sample_list,
     };
     use norelly_test_support::contacts_contracts::sample_contact;
 
@@ -385,26 +507,64 @@ mod tests {
         Ok(())
     }
 
+    /// Corruptions injectées tour à tour : nom vide (refusé par le
+    /// domaine), clé de nom qui n'est pas celle du domaine, nom qui n'est
+    /// pas du texte, clé de nom qui n'est pas du texte, description de
+    /// plusieurs lignes.
+    const CORRUPTIONS: [&str; 5] = [
+        "UPDATE contact_lists SET name = '' WHERE id = ?1",
+        "UPDATE contact_lists SET name_key = 'zz' || name_key WHERE id = ?1",
+        "UPDATE contact_lists SET name = x'00ff' WHERE id = ?1",
+        "UPDATE contact_lists SET name_key = CAST(name_key AS BLOB) WHERE id = ?1",
+        "UPDATE contact_lists SET description = 'a' || char(10) || 'b' WHERE id = ?1",
+    ];
+
     #[tokio::test]
-    async fn corrupted_lists_are_reported() -> Result<(), ContactListStoreError> {
+    async fn corrupted_list_passes_contract() -> Result<(), ContactListStoreError> {
+        for first in 0..CORRUPTIONS.len() {
+            let book = book();
+            let turn = std::sync::atomic::AtomicUsize::new(first);
+            corrupted_list_contract(&book, |id| {
+                let sql = CORRUPTIONS
+                    [turn.fetch_add(1, std::sync::atomic::Ordering::Relaxed) % CORRUPTIONS.len()];
+                let db = book.db.clone();
+                async move {
+                    db.run(move |c| c.execute(sql, params![id.get()]).map_err(store_error))
+                        .await?;
+                    Ok(())
+                }
+            })
+            .await?;
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn a_corrupted_list_is_reported_once() {
+        // Identifiant propre à ce test : le registre vit pour le processus.
+        let id = -4242;
+        assert!(first_report(id));
+        assert!(!first_report(id), "liste signalée deux fois");
+        assert!(first_report(id - 1));
+    }
+
+    #[tokio::test]
+    async fn a_corrupted_list_can_still_be_replaced_or_deleted() -> Result<(), ContactListStoreError>
+    {
         let book = book();
         let list = with_list(&book).await?;
         book.db
-            .write_for_tests("UPDATE contact_lists SET name_key = 'autre';")
+            .write_for_tests("UPDATE contact_lists SET name = '';")
             .await?;
-        assert!(
-            book.get_list(list.id()).await.is_err(),
-            "clé incohérente acceptée"
-        );
+        assert_eq!(book.get_list(list.id()).await?, None);
+        let repaired = book
+            .update_list(list.id(), &sample_list("L", list.draft().members(), false))
+            .await?;
+        assert_eq!(book.get_list(list.id()).await?, Some(repaired));
         book.db
-            .write_for_tests("UPDATE contact_lists SET name = '', name_key = '';")
+            .write_for_tests("UPDATE contact_lists SET name = '';")
             .await?;
-        assert!(book.get_list(list.id()).await.is_err(), "nom vide accepté");
-        assert!(
-            book.list_page(&ContactListFilter::default(), None, PageSize::new(10))
-                .await
-                .is_err()
-        );
+        assert_eq!(book.delete_lists(&[list.id()]).await?, 1);
         Ok(())
     }
 }

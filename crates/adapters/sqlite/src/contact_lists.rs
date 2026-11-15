@@ -4,7 +4,8 @@
 //! Tri et filtre portent sur `name_key`, calculée par le domaine à
 //! l'écriture (comparaison du domaine, sans le `lower()` ASCII de
 //! SQLite). L'unicité du nom et l'existence des membres sont vérifiées
-//! avant l'écriture (pour nommer le refus) et garanties par le schéma.
+//! avant l'écriture (pour nommer le refus) et garanties par le schéma ;
+//! une liste écartée à la lecture (corrompue) ne garde pas son nom.
 
 use std::collections::{BTreeSet, HashMap};
 use std::fmt;
@@ -211,21 +212,57 @@ fn load(c: &Connection, ids: &[i64]) -> Result<Vec<ContactList>, StoreError> {
         .collect())
 }
 
-/// Refus d'une écriture : nom pris par une autre liste que `except`, ou
-/// membre absent du carnet.
-fn refused(
+/// Libère la clé de nom de la liste écartée `id` : seule colonne
+/// réécrite, le reste de la ligne (nom, description, Cci, membres) est
+/// intact, et la liste reste écartée (sa clé n'est plus celle de son nom,
+/// qui permet de la recalculer). La clé libre choisie commence par un
+/// caractère de contrôle, refusé dans un nom : jamais celle d'une liste
+/// lisible ; une ligne abîmée qui la porterait déjà est contournée.
+fn release_name(tx: &Transaction<'_>, id: i64) -> Result<(), StoreError> {
+    let mut key = format!("\u{1}{id}");
+    let mut taken = tx
+        .prepare_cached("SELECT 1 FROM contact_lists WHERE name_key = ?1")
+        .map_err(store_error)?;
+    // Chaque essai est une clé nouvelle : la boucle s'arrête au plus
+    // après autant d'essais que de lignes.
+    while taken.exists(params![key]).map_err(store_error)? {
+        key.push('\u{1}');
+    }
+    tx.execute(
+        "UPDATE contact_lists SET name_key = ?2 WHERE id = ?1",
+        params![id, key],
+    )
+    .map_err(store_error)?;
+    Ok(())
+}
+
+/// Admission d'une écriture : refusée si le nom est pris par une autre
+/// liste lisible que `except`, ou si un membre est absent du carnet. Une
+/// liste écartée à la lecture ne compte pas dans l'unicité du nom : une
+/// fois tous les refus écartés, sa clé est libérée ([`release_name`]),
+/// dans la transaction de l'écriture.
+fn admit(
     tx: &Transaction<'_>,
     draft: &ContactListDraft,
     except: Option<ContactListId>,
-) -> Result<Option<ContactListStoreError>, StoreError> {
-    let taken = tx
+) -> Result<Result<(), ContactListStoreError>, StoreError> {
+    let holder: Option<i64> = tx
         .prepare_cached(
-            "SELECT 1 FROM contact_lists WHERE name_key = ?1 AND (?2 IS NULL OR id <> ?2)",
+            "SELECT id FROM contact_lists WHERE name_key = ?1 AND (?2 IS NULL OR id <> ?2)",
         )
-        .and_then(|mut s| s.exists(params![draft.name_key(), except.map(ContactListId::get)]))
+        .and_then(|mut s| {
+            s.query_map(
+                params![draft.name_key(), except.map(ContactListId::get)],
+                |r| r.get(0),
+            )?
+            .next()
+            .transpose()
+        })
         .map_err(store_error)?;
-    if taken {
-        return Ok(Some(ContactListStoreError::DuplicateName(
+    if let Some(holder) = holder
+        && !load(tx, &[holder])?.is_empty()
+    {
+        return Ok(Err(ContactListStoreError::DuplicateName(
             draft.name().to_owned(),
         )));
     }
@@ -234,10 +271,13 @@ fn refused(
         .map_err(store_error)?;
     for &member in draft.members() {
         if !stmt.exists(params![member.get()]).map_err(store_error)? {
-            return Ok(Some(ContactListStoreError::UnknownContact(member)));
+            return Ok(Err(ContactListStoreError::UnknownContact(member)));
         }
     }
-    Ok(None)
+    if let Some(holder) = holder {
+        release_name(tx, holder)?;
+    }
+    Ok(Ok(()))
 }
 
 /// Écrit le contenu de la liste `id` (ligne existante), membres remplacés.
@@ -281,14 +321,14 @@ impl ContactListBook for SqliteContactBook {
         self.db
             .run(move |c| {
                 let tx = c.transaction().map_err(store_error)?;
-                if let Some(refusal) = refused(&tx, &draft, None)? {
+                if let Err(refusal) = admit(&tx, &draft, None)? {
                     return Ok(Err(refusal));
                 }
-                // Clé provisoire unique (un nom ne contient pas de saut de
-                // ligne) : remplacée par write.
+                // Clé du nom, libre après l'admission ; le reste est écrit
+                // par write.
                 tx.execute(
                     "INSERT INTO contact_lists (name, name_key) VALUES ('', ?1)",
-                    params![format!("\n{}", draft.name_key())],
+                    params![draft.name_key()],
                 )
                 .map_err(store_error)?;
                 let raw = tx.last_insert_rowid();
@@ -319,7 +359,7 @@ impl ContactListBook for SqliteContactBook {
                 if !exists {
                     return Ok(Err(ContactListStoreError::NotFound));
                 }
-                if let Some(refusal) = refused(&tx, &draft, Some(id))? {
+                if let Err(refusal) = admit(&tx, &draft, Some(id))? {
                     return Ok(Err(refusal));
                 }
                 write(&tx, id.get(), &draft)?;
@@ -606,6 +646,102 @@ mod tests {
         assert!(first_report(id));
         assert!(!first_report(id), "liste signalée deux fois");
         assert!(first_report(id - 1));
+    }
+
+    /// Nom, description, Cci et membres de la liste 1, tels que stockés.
+    async fn raw_content(db: &Database) -> Result<(Vec<u8>, Vec<u8>, i64, Vec<i64>), StoreError> {
+        db.read_for_tests(|c| {
+            let row = c
+                .query_row(
+                    "SELECT CAST(name AS BLOB), CAST(description AS BLOB), bcc \
+                     FROM contact_lists WHERE id = 1",
+                    [],
+                    |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+                )
+                .map_err(store_error)?;
+            let members = c
+                .prepare("SELECT contact_id FROM contact_list_members WHERE list_id = 1 ORDER BY position")
+                .and_then(|mut s| s.query_map([], |r| r.get(0))?.collect())
+                .map_err(store_error)?;
+            Ok((row.0, row.1, row.2, members))
+        })
+        .await
+    }
+
+    #[tokio::test]
+    async fn reusing_the_name_of_a_corrupted_list_keeps_its_content()
+    -> Result<(), ContactListStoreError> {
+        let book = book();
+        let list = with_list(&book).await?;
+        book.db
+            .write_for_tests(
+                "UPDATE contact_lists SET bcc = 1, description = CAST(x'ff' AS TEXT) WHERE id = 1;",
+            )
+            .await?;
+        assert_eq!(book.get_list(list.id()).await?, None);
+        let before = raw_content(&book.db).await?;
+        let key = |db: Database| async move {
+            db.read_for_tests(|c| {
+                c.query_row("SELECT name_key FROM contact_lists WHERE id = 1", [], |r| {
+                    r.get::<_, String>(0)
+                })
+                .map_err(store_error)
+            })
+            .await
+        };
+        // Écriture refusée pour une autre raison : la clé n'est pas libérée.
+        let ghost = norelly_domain::contacts::ContactId::new(99).unwrap_or_else(|| panic!("id"));
+        assert_eq!(
+            book.create_list(&sample_list("l", &[ghost], false)).await,
+            Err(ContactListStoreError::UnknownContact(ghost))
+        );
+        assert_eq!(key(book.db.clone()).await?, "l");
+        let other = book.create_list(&sample_list("l", &[], false)).await;
+        assert!(
+            other.is_ok(),
+            "nom d'une liste écartée encore pris : {other:?}"
+        );
+        let other = other?;
+        assert_eq!(raw_content(&book.db).await?, before, "contenu touché");
+        assert_eq!(book.get_list(list.id()).await?, None);
+        // Libérée, la clé ne heurte ni un autre nom ni un renommage.
+        book.update_list(other.id(), &sample_list("M", &[], false))
+            .await?;
+        book.create_list(&sample_list("L", &[], false)).await?;
+        assert_eq!(raw_content(&book.db).await?, before, "contenu touché");
+        // Réparée sous un nom libre, elle redevient lisible.
+        let repaired = book
+            .update_list(list.id(), &sample_list("N", list.draft().members(), true))
+            .await?;
+        assert_eq!(book.get_list(list.id()).await?, Some(repaired));
+        assert!(book.db.integrity_problems().await?.is_empty());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn damaged_rows_holding_reserved_keys_do_not_block_a_name()
+    -> Result<(), ContactListStoreError> {
+        let book = book();
+        let list = with_list(&book).await?;
+        // La liste « L » abîmée, puis des lignes abîmées qui portent la clé
+        // que sa libération viserait, et une clé en saut de ligne.
+        book.db
+            .write_for_tests(
+                "UPDATE contact_lists SET name = '' WHERE id = 1; \
+                 INSERT INTO contact_lists (name, name_key) VALUES ('', char(1) || '1'); \
+                 INSERT INTO contact_lists (name, name_key) VALUES ('', char(1) || '1' || char(1)); \
+                 INSERT INTO contact_lists (name, name_key) VALUES ('', char(10) || 'l');",
+            )
+            .await?;
+        let created = book.create_list(&sample_list("L", &[], false)).await;
+        assert!(
+            created.is_ok(),
+            "nom bloqué par une ligne abîmée : {created:?}"
+        );
+        let created = created?;
+        assert_eq!(book.get_list(created.id()).await?, Some(created));
+        assert_eq!(book.get_list(list.id()).await?, None);
+        Ok(())
     }
 
     #[tokio::test]

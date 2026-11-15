@@ -370,6 +370,39 @@ where
     assert_eq!(book.get_list(lists[4].id()).await?, None);
     assert_eq!(book.get_list(lists[0].id()).await?, Some(lists[0].clone()));
     assert_eq!(book.get_list(lists[3].id()).await?, Some(lists[3].clone()));
+
+    // Une liste écartée ne compte plus dans l'unicité du nom : une liste
+    // de ce nom se crée (casse comprise), une autre peut le prendre ; le
+    // nom d'une liste lisible reste pris.
+    let recreated = sample_list("LISTE B", &[alice], true);
+    assert_eq!(
+        book.create_list(&recreated)
+            .await
+            .as_ref()
+            .map(ContactList::draft),
+        Ok(&recreated),
+        "nom d'une liste écartée encore pris à la création"
+    );
+    let renamed = sample_list("liste E", &[], false);
+    assert_eq!(
+        book.update_list(lists[0].id(), &renamed)
+            .await
+            .as_ref()
+            .map(ContactList::draft),
+        Ok(&renamed),
+        "nom d'une liste écartée encore pris au renommage"
+    );
+    assert_eq!(
+        book.create_list(&sample_list("Liste D", &[], false)).await,
+        Err(ContactListStoreError::DuplicateName("Liste D".into()))
+    );
+    assert_eq!(
+        names(&all_pages(book, &all, 1).await?),
+        vec!["LISTE B", "Liste d", "liste E"]
+    );
+    for index in [1, 2, 4] {
+        assert_eq!(book.get_list(lists[index].id()).await?, None);
+    }
     Ok(())
 }
 

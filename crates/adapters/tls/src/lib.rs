@@ -11,6 +11,9 @@
 //! Le nom d'hôte est toujours vérifié par le vérificateur standard ; une
 //! exception mémorisée couvre l'éventuel défaut constaté pour ce certificat
 //! précis. Les signatures de la poignée de main sont toujours vérifiées.
+//! Un certificat refusé pour une autre raison est aussi comparé au nom
+//! demandé, pour le signaler à l'utilisateur en plus de la raison : ce
+//! constat ne change jamais la décision.
 
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
@@ -98,6 +101,16 @@ fn is_ca_used_as_end_entity(error: &rustls::OtherError) -> bool {
     )
 }
 
+/// Vrai si le certificat, lisible, ne couvre pas `server_name`. Constat
+/// d'information seulement, fait après le refus : la vérification standard
+/// s'arrête à la première erreur (autorité inconnue d'un certificat
+/// autosigné, `CA:TRUE` en feuille) sans comparer le nom. Un certificat
+/// illisible n'ajoute rien : sa raison principale suffit.
+fn name_mismatch(end_entity: &CertificateDer<'_>, server_name: &ServerName<'_>) -> bool {
+    rustls::server::ParsedCertificate::try_from(end_entity)
+        .is_ok_and(|cert| rustls::client::verify_server_name(&cert, server_name).is_err())
+}
+
 /// Racines de confiance.
 #[derive(Debug, Clone)]
 pub enum TrustRoots {
@@ -154,11 +167,14 @@ impl ServerCertVerifier for ExceptionAwareVerifier {
                 Ok(ServerCertVerified::assertion())
             }
             TrustDecision::Rejected(rejection) => {
+                let rejection =
+                    rejection.with_name_mismatch(name_mismatch(end_entity, server_name));
                 tracing::warn!(
                     host = %self.host,
                     fingerprint = %fp,
                     issue = %rejection.issue,
                     changed = rejection.fingerprint_changed,
+                    name_mismatch = rejection.name_mismatch,
                     "certificat refusé"
                 );
                 *self
@@ -480,6 +496,46 @@ mod tests {
         let cert = ca.issue(&["wrong.example"])?;
         let r = rejection(attempt(&factory, &cert, "localhost", &[]).await?);
         assert_eq!(r.issue, CertificateIssue::HostnameMismatch);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn self_signed_with_wrong_name_reports_both_defects() -> TestResult {
+        let (ca, factory) = setup()?;
+        for (cert, issue) in [
+            (
+                TestCert::self_signed(&["wrong.example"])?,
+                CertificateIssue::UnknownIssuer,
+            ),
+            (
+                TestCert::self_signed_ca(&["wrong.example"])?,
+                CertificateIssue::UnknownIssuer,
+            ),
+            (
+                ca.issue_expired(&["wrong.example"])?,
+                CertificateIssue::Expired,
+            ),
+        ] {
+            let r = rejection(attempt(&factory, &cert, "localhost", &[]).await?);
+            assert_eq!(r.issue, issue);
+            assert!(r.name_mismatch, "{issue:?} : mauvais nom non signalé");
+            assert!(r.can_be_excepted());
+        }
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn right_name_or_name_as_main_issue_is_not_noted_twice() -> TestResult {
+        let (ca, factory) = setup()?;
+        for cert in [
+            TestCert::self_signed(&["localhost"])?,
+            TestCert::self_signed_ca(&["localhost"])?,
+            ca.issue_expired(&["localhost"])?,
+            ca.issue(&["wrong.example"])?,
+        ] {
+            let r = rejection(attempt(&factory, &cert, "localhost", &[]).await?);
+            assert!(!r.name_mismatch, "{:?}", r.issue);
+        }
         Ok(())
     }
 

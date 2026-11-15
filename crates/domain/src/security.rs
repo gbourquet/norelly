@@ -149,9 +149,25 @@ pub struct CertificateRejection {
     /// le certificat a changé (renouvellement, ou attaque de l'homme du
     /// milieu). À signaler clairement.
     pub fingerprint_changed: bool,
+    /// Le certificat ne couvre pas non plus le nom du serveur, en plus de
+    /// [`Self::issue`] (autorité inconnue d'un certificat autosigné…).
+    /// Toujours faux quand `issue` est déjà ce défaut.
+    #[serde(default)]
+    pub name_mismatch: bool,
 }
 
 impl CertificateRejection {
+    /// Note si le certificat couvre aussi mal le nom du serveur : constat
+    /// d'information seulement, sans effet sur le refus ni sur
+    /// l'exception possible.
+    #[must_use]
+    pub fn with_name_mismatch(self, mismatch: bool) -> Self {
+        Self {
+            name_mismatch: mismatch && self.issue != CertificateIssue::HostnameMismatch,
+            ..self
+        }
+    }
+
     /// Vrai si l'utilisateur peut accepter ce certificat par une exception.
     #[must_use]
     pub fn can_be_excepted(&self) -> bool {
@@ -200,6 +216,7 @@ impl TlsTrustPolicy {
             host: host.clone(),
             fingerprint: *fingerprint,
             fingerprint_changed: for_host().any(|e| &e.fingerprint != fingerprint),
+            name_mismatch: false,
             issue,
         })
     }
@@ -350,6 +367,7 @@ mod tests {
                     fingerprint: FP_A,
                     issue: issue.clone(),
                     fingerprint_changed: false,
+                    name_mismatch: false,
                 })
             );
         }
@@ -405,6 +423,39 @@ mod tests {
         assert!(rejection.fingerprint_changed);
         assert!(rejection.can_be_excepted());
         assert_eq!(rejection.issue, CertificateIssue::UnknownIssuer);
+    }
+
+    fn rejected(issue: CertificateIssue) -> CertificateRejection {
+        match TlsTrustPolicy::evaluate(&host("imap.example.com"), &FP_A, Err(issue), &[]) {
+            TrustDecision::Rejected(r) => r,
+            other => panic!("rejet attendu, obtenu {other:?}"),
+        }
+    }
+
+    #[test]
+    fn name_mismatch_is_noted_besides_the_main_issue() {
+        for issue in ALL_ISSUES
+            .into_iter()
+            .filter(|i| i != &CertificateIssue::HostnameMismatch)
+        {
+            let r = rejected(issue.clone());
+            assert!(!r.name_mismatch, "{issue:?} : aucun constat sur le nom");
+            let noted = r.with_name_mismatch(true);
+            assert!(noted.name_mismatch, "{issue:?}");
+            assert_eq!(noted.issue, issue, "la raison principale reste");
+            assert!(!noted.clone().with_name_mismatch(false).name_mismatch);
+        }
+        // Le nom est déjà la raison principale : rien à ajouter.
+        let r = rejected(CertificateIssue::HostnameMismatch).with_name_mismatch(true);
+        assert!(!r.name_mismatch);
+    }
+
+    #[test]
+    fn name_mismatch_changes_nothing_to_the_exception() {
+        let r = rejected(CertificateIssue::UnknownIssuer).with_name_mismatch(true);
+        assert!(r.can_be_excepted());
+        let revoked = rejected(CertificateIssue::Revoked).with_name_mismatch(true);
+        assert!(!revoked.can_be_excepted());
     }
 
     #[test]

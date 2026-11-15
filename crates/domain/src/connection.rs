@@ -475,6 +475,7 @@ mod tests {
                 fingerprint: crate::security::CertificateFingerprint::from_bytes([1; 32]),
                 issue: crate::security::CertificateIssue::UnknownIssuer,
                 fingerprint_changed: false,
+                name_mismatch: false,
             }),
         ] {
             assert!(!e.send_check_can_wait(), "{e:?}");

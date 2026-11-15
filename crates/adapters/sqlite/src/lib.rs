@@ -793,6 +793,48 @@ mod tests {
         Ok(())
     }
 
+    /// Une fiche illisible (valeur d'un type inattendu) dont l'adresse, elle
+    /// lisible, porte un caractère invisible n'est ni réécrite (champs
+    /// illisibles perdus) ni retirée par la montée en version 18.
+    #[test]
+    fn upgrading_to_v18_leaves_an_unreadable_contact_untouched() -> Result<(), StoreError> {
+        use rusqlite::OptionalExtension;
+        let mut conn = Connection::open_in_memory().map_err(store_error)?;
+        conn.pragma_update(None, "foreign_keys", "ON")
+            .map_err(store_error)?;
+        let m = migrations();
+        for (version, fixture) in FIXTURES.iter().enumerate().take(17) {
+            m.to_version(&mut conn, version + 1)
+                .map_err(|e| StoreError(e.to_string()))?;
+            conn.execute_batch(fixture).map_err(store_error)?;
+        }
+        conn.execute_batch(
+            "INSERT INTO contacts (id, display_name, notes, sort_key, search_text) VALUES \
+             (7, X'41', 'garde', 'x', 'x'); \
+             INSERT INTO contact_emails (contact_id, position, address, address_key, label, \
+             preferred) VALUES (7, 0, '\u{2800}@example.com', '\u{2800}@example.com', NULL, 1);",
+        )
+        .map_err(store_error)?;
+        m.to_version(&mut conn, 18)
+            .map_err(|e| StoreError(e.to_string()))?;
+        let kept: Option<(Vec<u8>, String, i64)> = conn
+            .query_row(
+                "SELECT display_name, notes, \
+                 (SELECT COUNT(*) FROM contact_emails WHERE contact_id = 7) \
+                 FROM contacts WHERE id = 7",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .optional()
+            .map_err(store_error)?;
+        assert_eq!(
+            kept,
+            Some((b"A".to_vec(), "garde".to_owned(), 1)),
+            "fiche illisible modifiée ou retirée"
+        );
+        Ok(())
+    }
+
     /// Montée de version depuis chaque version précédente, données
     /// conservées.
     #[test]

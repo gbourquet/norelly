@@ -133,7 +133,7 @@ where
     assert_eq!(all_pages(book, &all, 10).await?.len(), 2);
 
     // Membre absent du carnet : refus sans effet.
-    let ghost = ContactId::new(i64::MAX).unwrap_or_else(|| panic!("id"));
+    let ghost = ContactId::new(i64::from(u32::MAX)).unwrap_or_else(|| panic!("id"));
     assert_eq!(
         book.create_list(&sample_list("Fantômes", &[alice, ghost], false))
             .await,
@@ -415,7 +415,7 @@ where
         ],
     );
     let unknown = sample_contact("Inconnue", &["x@example.com"])
-        .with_id(ContactId::new(i64::MAX).unwrap_or_else(|| panic!("id")));
+        .with_id(ContactId::new(i64::from(u32::MAX)).unwrap_or_else(|| panic!("id")));
     // La troisième fiche change après avoir été lue.
     let third_read = book
         .update(

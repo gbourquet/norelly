@@ -80,6 +80,23 @@ en tête et à chaque table.
   `lower()` de SQLite (ASCII seul) : SQLite et le faux en mémoire trient
   et filtrent à l'identique. Le carnet n'appartient à aucun compte : la
   suppression d'un compte n'y touche pas.
+- Fiches relues : chaque fiche est revalidée par le domaine
+  (`ContactDraft::new`, `ContactId::new`) ; clé d'adresse, `sort_key` et
+  `search_text` stockées doivent être celles que calcule le domaine, et
+  une valeur d'un type inattendu rend la fiche invalide elle aussi.
+  Changer le calcul de `sort_key` ou de `search_text` exige donc une
+  migration qui les recalcule. Un identifiant de contact tient sur
+  32 bits (`MAX_CONTACT_ID`, ceux de l'interface) : la séquence épuisée,
+  la création est refusée (transaction annulée), jamais un identifiant
+  réattribué. Une fiche invalide est écartée de la liste, des fiches
+  cherchées par adresse (noms du courrier, suggestions), de l'export et
+  de la recherche des doublons, et journalisée une fois par processus
+  (son identifiant seul). La pagination la dépasse (la reprise d'un lot
+  relit la clé de tri en SQL, dans une transaction) : les pages restent
+  pleines, mais une page lit au plus dix lots de lignes, au-delà la liste
+  s'arrête. Lue seule (`get`) ou à la fusion, elle reste une erreur.
+  Aucune migration : rien n'est réécrit, la fiche redevient visible si
+  elle est réparée.
 
 ### Lectures d'écran (CQRS léger)
 

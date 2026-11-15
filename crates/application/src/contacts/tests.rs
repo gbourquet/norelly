@@ -185,6 +185,46 @@ async fn senders_are_named_from_the_book() -> Result<(), ContactFailure> {
     Ok(())
 }
 
+/// Une fiche invalide en base n'écarte qu'elle-même : les autres
+/// correspondants restent nommés d'après le carnet, et les autres contacts
+/// restent proposés pendant la saisie.
+#[tokio::test]
+async fn an_invalid_contact_only_leaves_out_itself() -> Result<(), ContactFailure> {
+    use norelly_domain::mailbox::Correspondent;
+
+    let book = InMemoryContactBook::default();
+    let create = CreateContact { book: &book };
+    let alice = create
+        .execute(input("Alice Martin", &["alice@example.com"]))
+        .await?;
+    let bob = create
+        .execute(input("Bob Martin", &["bob@example.com"]))
+        .await?;
+    book.corrupt(bob.id());
+
+    let people = [
+        Correspondent::new("alice", "alice@example.com"),
+        Correspondent::new("bob", "bob@example.com"),
+    ];
+    let names = NameSenders { directory: &book }.execute(&people).await;
+    assert_eq!(names.label(&people[0]).name, "Alice Martin");
+    assert_eq!(names.label(&people[0]).contact, Some(alice.id()));
+    assert_eq!(names.label(&people[1]).name, "bob");
+    assert_eq!(names.label(&people[1]).contact, None);
+
+    let found = SuggestRecipients {
+        collected: &Collected(Vec::new()),
+        directory: &book,
+    }
+    .execute(account(), "martin", 10)
+    .await?;
+    assert_eq!(
+        suggested(&found),
+        vec![("Alice Martin", "alice@example.com", true)]
+    );
+    Ok(())
+}
+
 /// Carnet dont toute lecture échoue.
 struct BrokenDirectory;
 

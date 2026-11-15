@@ -371,9 +371,17 @@ l'ordinateur** : rien n'est envoyé à un serveur.
 - Le nom du carnet s'affiche d'après l'adresse annoncée par le message,
   que l'expéditeur peut falsifier : il ne prouve pas que le message vient
   bien de ce contact.
+- Une fiche abîmée dans la base (modifiée hors de l'application) est
+  seulement écartée : la liste, les noms du carnet dans le courrier, les
+  propositions de destinataires, l'export et la recherche des doublons
+  restent disponibles pour toutes les autres fiches. Elle est signalée une
+  fois dans le journal, sans son contenu.
 
 ## Limites actuelles
 
+- Une fiche abîmée dans la base n'apparaît nulle part : l'application ne
+  permet ni de la voir, ni de la réparer, ni de la supprimer. Une très
+  longue suite de fiches abîmées peut arrêter la liste avant sa fin.
 - Un nom de fiche qui ressemble à une adresse est accepté à la saisie
   (il est seulement écarté à l'affichage) ; l'import ne le reprend pas.
 - Un groupe passé n'est pas retenu : il est proposé de nouveau à chaque

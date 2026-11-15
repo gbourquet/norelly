@@ -7,14 +7,15 @@
 //! L'unicité d'une adresse dans le carnet est vérifiée avant l'écriture
 //! (pour nommer l'adresse refusée) et garantie par le schéma.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::sync::{Arc, Mutex, PoisonError};
 
 use norelly_domain::address::EmailAddress;
 use norelly_domain::contact_export::ContactSelection;
 use norelly_domain::contact_import::ContactCompletion;
 use norelly_domain::contacts::{
     AddressKey, Contact, ContactDraft, ContactFilter, ContactId, ContactInput, EmailInput,
-    InvisibleCleanup, PhoneInput, clean_invisible,
+    InvisibleCleanup, MAX_CONTACT_ID, PhoneInput, clean_invisible,
 };
 use norelly_domain::ports::{
     ContactBook, ContactCursor, ContactDirectory, ContactListItem, ContactPage, ContactStoreError,
@@ -28,46 +29,87 @@ use crate::{Database, store_error};
 #[derive(Debug, Clone)]
 pub struct SqliteContactBook {
     pub(crate) db: Database,
+    /// Fiches invalides déjà signalées : une fois par fiche et par
+    /// processus, quel que soit le nombre de relectures.
+    reported: Arc<Mutex<HashSet<i64>>>,
 }
 
 impl SqliteContactBook {
     #[must_use]
     pub fn new(db: Database) -> Self {
-        Self { db }
+        Self {
+            db,
+            reported: Arc::default(),
+        }
+    }
+
+    /// Journalise les fiches écartées pas encore signalées, par leur seul
+    /// identifiant : ni leur contenu ni le détail du refus.
+    fn report(&self, skipped: &[i64]) {
+        if skipped.is_empty() {
+            return;
+        }
+        let mut reported = self.reported.lock().unwrap_or_else(PoisonError::into_inner);
+        for &id in skipped {
+            if reported.insert(id) {
+                tracing::warn!(contact = id, "fiche du carnet invalide écartée");
+            }
+        }
     }
 }
 
 /// Colonnes d'une fiche, dans l'ordre lu par [`ContactRow::read`].
 const CONTACT_COLUMNS: &str = "id, display_name, given_name, family_name, nickname, \
-     organization, notes, favorite";
+     organization, notes, favorite, sort_key, search_text";
 
 /// Fiche brute, revalidée par le domaine.
 struct ContactRow {
     id: i64,
     texts: [Option<String>; 6],
     favorite: bool,
+    /// Clé de tri et texte cherché stockés.
+    derived: (String, String),
     emails: Vec<EmailInput>,
     /// Clés stockées des adresses, dans le même ordre.
     keys: Vec<String>,
     phones: Vec<PhoneInput>,
+    /// Une valeur de la fiche, de ses adresses ou de ses téléphones n'a pas
+    /// le type attendu : la fiche est invalide.
+    unreadable: bool,
 }
 
 impl ContactRow {
+    /// Ligne de la fiche ; une valeur d'un type inattendu la rend invalide
+    /// sans faire échouer la lecture des autres (l'identifiant, clé
+    /// primaire entière, se lit toujours).
     fn read(row: &Row<'_>) -> rusqlite::Result<Self> {
+        let fields = || -> rusqlite::Result<_> {
+            Ok((
+                [
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                    row.get(5)?,
+                    row.get(6)?,
+                ],
+                row.get(7)?,
+                (row.get(8)?, row.get(9)?),
+            ))
+        };
+        let (texts, favorite, derived, unreadable) = match fields() {
+            Ok((texts, favorite, derived)) => (texts, favorite, derived, false),
+            Err(_) => (Default::default(), false, Default::default(), true),
+        };
         Ok(Self {
             id: row.get(0)?,
-            texts: [
-                row.get(1)?,
-                row.get(2)?,
-                row.get(3)?,
-                row.get(4)?,
-                row.get(5)?,
-                row.get(6)?,
-            ],
-            favorite: row.get(7)?,
+            texts,
+            favorite,
+            derived,
             emails: Vec::new(),
             keys: Vec::new(),
             phones: Vec::new(),
+            unreadable,
         })
     }
 
@@ -97,7 +139,11 @@ impl ContactRow {
 
     fn into_contact(self) -> Result<Contact, StoreError> {
         let raw = self.id;
+        if self.unreadable {
+            return Err(corrupted(raw, "type de valeur"));
+        }
         let id = ContactId::new(raw).ok_or_else(|| corrupted(raw, "identifiant"))?;
+        let derived = self.derived.clone();
         let (input, keys) = self.into_input();
         let draft = ContactDraft::new(input).map_err(|e| corrupted(raw, &e.to_string()))?;
         // La contrainte d'unicité et la recherche par adresse portent sur
@@ -105,6 +151,11 @@ impl ContactRow {
         let stored = keys.iter().map(String::as_str);
         if !draft.emails().iter().map(|e| e.key().as_str()).eq(stored) {
             return Err(corrupted(raw, "clé d'adresse"));
+        }
+        // L'ordre de la liste et le filtre portent sur les colonnes
+        // stockées : elles doivent être celles que calcule le domaine.
+        if derived != (draft.sort_key(), draft.search_text()) {
+            return Err(corrupted(raw, "clé de tri ou texte cherché"));
         }
         Ok(draft.with_id(id))
     }
@@ -151,6 +202,12 @@ pub(crate) fn clean_invisible_contacts(tx: &Transaction<'_>) -> Result<(), Store
             let Some(row) = batch.remove(&id) else {
                 continue;
             };
+            // Valeur d'un type inattendu : champs lus incomplets, la fiche
+            // est laissée telle quelle (ni réécrite vide, ni retirée).
+            if row.unreadable {
+                unreadable += 1;
+                continue;
+            }
             let (input, _) = row.into_input();
             match clean_invisible(input) {
                 InvisibleCleanup::Keep => {}
@@ -186,19 +243,42 @@ pub(crate) fn json_list<T: serde::Serialize>(values: &[T]) -> Result<String, Sto
     serde_json::to_string(values).map_err(|e| StoreError(e.to_string()))
 }
 
-/// Fiches `ids`, dans cet ordre (inconnues omises).
+/// Fiches `ids`, dans cet ordre (inconnues omises) ; une fiche invalide
+/// fait échouer la lecture.
 fn load(c: &Connection, ids: &[i64]) -> Result<Vec<Contact>, StoreError> {
-    if ids.is_empty() {
-        return Ok(Vec::new());
-    }
-    let mut rows = rows(c, ids)?;
-    ids.iter()
-        .filter_map(|id| rows.remove(id))
+    load_rows(c, ids)?
+        .into_iter()
         .map(ContactRow::into_contact)
         .collect()
 }
 
-/// Fiches brutes `ids`, par identifiant (inconnues omises).
+/// Fiches valides parmi `ids`, dans cet ordre (inconnues omises), et
+/// identifiants des fiches invalides écartées.
+fn load_valid(c: &Connection, ids: &[i64]) -> Result<(Vec<Contact>, Vec<i64>), StoreError> {
+    let mut contacts = Vec::new();
+    let mut skipped = Vec::new();
+    for row in load_rows(c, ids)? {
+        let id = row.id;
+        match row.into_contact() {
+            Ok(contact) => contacts.push(contact),
+            Err(_) => skipped.push(id),
+        }
+    }
+    Ok((contacts, skipped))
+}
+
+/// Lignes brutes des fiches `ids`, dans cet ordre (inconnues omises).
+fn load_rows(c: &Connection, ids: &[i64]) -> Result<Vec<ContactRow>, StoreError> {
+    if ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut rows = rows(c, ids)?;
+    Ok(ids.iter().filter_map(|id| rows.remove(id)).collect())
+}
+
+/// Fiches brutes `ids`, par identifiant (inconnues omises). Une valeur
+/// d'un type inattendu marque sa fiche illisible (`unreadable`) sans
+/// faire échouer la lecture des autres.
 fn rows(c: &Connection, ids: &[i64]) -> Result<HashMap<i64, ContactRow>, StoreError> {
     let list = json_list(ids)?;
     // sql-const : liste des colonnes.
@@ -222,22 +302,29 @@ fn rows(c: &Connection, ids: &[i64]) -> Result<HashMap<i64, ContactRow>, StoreEr
         .map_err(store_error)?;
     let emails = stmt
         .query_map(params![list], |r| {
-            Ok((
-                r.get::<_, i64>(0)?,
-                EmailInput {
-                    address: r.get(1)?,
-                    label: r.get::<_, Option<String>>(2)?.unwrap_or_default(),
-                    preferred: r.get(3)?,
-                },
-                r.get::<_, String>(4)?,
-            ))
+            let email = || -> rusqlite::Result<_> {
+                Ok((
+                    EmailInput {
+                        address: r.get(1)?,
+                        label: r.get::<_, Option<String>>(2)?.unwrap_or_default(),
+                        preferred: r.get(3)?,
+                    },
+                    r.get::<_, String>(4)?,
+                ))
+            };
+            Ok((r.get::<_, i64>(0)?, email().ok()))
         })
         .map_err(store_error)?;
     for email in emails {
-        let (id, email, key) = email.map_err(store_error)?;
+        let (id, email) = email.map_err(store_error)?;
         if let Some(row) = rows.get_mut(&id) {
-            row.emails.push(email);
-            row.keys.push(key);
+            match email {
+                Some((email, key)) => {
+                    row.emails.push(email);
+                    row.keys.push(key);
+                }
+                None => row.unreadable = true,
+            }
         }
     }
 
@@ -250,22 +337,37 @@ fn rows(c: &Connection, ids: &[i64]) -> Result<HashMap<i64, ContactRow>, StoreEr
         .map_err(store_error)?;
     let phones = stmt
         .query_map(params![list], |r| {
-            Ok((
-                r.get::<_, i64>(0)?,
-                PhoneInput {
+            let phone = || -> rusqlite::Result<_> {
+                Ok(PhoneInput {
                     number: r.get(1)?,
                     label: r.get::<_, Option<String>>(2)?.unwrap_or_default(),
-                },
-            ))
+                })
+            };
+            Ok((r.get::<_, i64>(0)?, phone().ok()))
         })
         .map_err(store_error)?;
     for phone in phones {
         let (id, phone) = phone.map_err(store_error)?;
         if let Some(row) = rows.get_mut(&id) {
-            row.phones.push(phone);
+            match phone {
+                Some(phone) => row.phones.push(phone),
+                None => row.unreadable = true,
+            }
         }
     }
     Ok(rows)
+}
+
+/// Identifiant de la fiche tout juste insérée, au plus [`MAX_CONTACT_ID`].
+/// Au-delà (séquence épuisée), la création est refusée : la transaction,
+/// non validée, est annulée. Un identifiant n'est jamais réattribué, une
+/// fiche restée ouverte pourrait encore le désigner.
+fn new_id(tx: &Transaction<'_>) -> Result<i64, StoreError> {
+    let raw = tx.last_insert_rowid();
+    if raw > MAX_CONTACT_ID {
+        return Err(StoreError("carnet plein : identifiants épuisés".into()));
+    }
+    Ok(raw)
 }
 
 /// Première adresse de `draft` déjà portée par un contact autre que
@@ -367,7 +469,7 @@ impl ContactBook for SqliteContactBook {
                     [],
                 )
                 .map_err(store_error)?;
-                let raw = tx.last_insert_rowid();
+                let raw = new_id(&tx)?;
                 write(&tx, raw, &draft)?;
                 tx.commit().map_err(store_error)?;
                 Ok(ContactId::new(raw)
@@ -450,7 +552,7 @@ impl ContactBook for SqliteContactBook {
                         [],
                     )
                     .map_err(store_error)?;
-                    let raw = tx.last_insert_rowid();
+                    let raw = new_id(&tx)?;
                     write(&tx, raw, draft)?;
                 }
                 tx.commit().map_err(store_error)?;
@@ -561,6 +663,16 @@ const PAGE_AFTER: &str = "SELECT id FROM contacts \
      WHERE (?1 = 0 OR favorite = 1) AND (?2 = '' OR instr(search_text, ?2) > 0) \
        AND (sort_key, id) > (?4, ?5) \
      ORDER BY sort_key, id LIMIT ?3";
+/// Suite d'une lecture : après la ligne `?4`, dont SQL relit la clé de
+/// tri (jamais relue par Rust : elle peut être illisible).
+const PAGE_AFTER_ROW: &str = "SELECT id FROM contacts \
+     WHERE (?1 = 0 OR favorite = 1) AND (?2 = '' OR instr(search_text, ?2) > 0) \
+       AND (sort_key, id) > ((SELECT sort_key FROM contacts WHERE id = ?4), ?4) \
+     ORDER BY sort_key, id LIMIT ?3";
+/// Lignes lues au plus pour une page, en lots de la taille de la page
+/// plus une : une longue suite de fiches invalides arrête la liste au lieu
+/// d'être parcourue à chaque lecture.
+const MAX_PAGE_BATCHES: usize = 10;
 
 impl ContactDirectory for SqliteContactBook {
     async fn page(
@@ -574,39 +686,67 @@ impl ContactDirectory for SqliteContactBook {
             return Ok(ContactPage::default());
         }
         let filter = filter.clone();
-        self.db
+        let (contacts, skipped, more) = self
+            .db
             .read(move |c| {
-                // Une ligne de plus : savoir s'il existe une suite.
+                // Une fiche valide de plus : savoir s'il existe une suite.
+                let wanted = limit as usize + 1;
                 let fetch = i64::from(limit) + 1;
                 let favorites = filter.favorites_only();
                 let text = filter.text();
-                let ids: Vec<i64> = match &cursor {
-                    None => c.prepare_cached(PAGE_FIRST).and_then(|mut s| {
-                        s.query_map(params![favorites, text, fetch], |r| r.get(0))?
+                // Une seule transaction : la ligne de reprise d'un lot ne
+                // disparaît pas avant le lot suivant.
+                let tx = c.transaction().map_err(store_error)?;
+                let mut contacts = Vec::new();
+                let mut skipped = Vec::new();
+                let mut last_row: Option<i64> = None;
+                let mut more = false;
+                for _ in 0..MAX_PAGE_BATCHES {
+                    let ids: Vec<i64> = match (last_row, &cursor) {
+                        (Some(row), _) => tx.prepare_cached(PAGE_AFTER_ROW).and_then(|mut s| {
+                            s.query_map(params![favorites, text, fetch, row], |r| r.get(0))?
+                                .collect()
+                        }),
+                        (None, None) => tx.prepare_cached(PAGE_FIRST).and_then(|mut s| {
+                            s.query_map(params![favorites, text, fetch], |r| r.get(0))?
+                                .collect()
+                        }),
+                        (None, Some(after)) => tx.prepare_cached(PAGE_AFTER).and_then(|mut s| {
+                            s.query_map(
+                                params![favorites, text, fetch, after.sort_key, after.id.get()],
+                                |r| r.get(0),
+                            )?
                             .collect()
-                    }),
-                    Some(after) => c.prepare_cached(PAGE_AFTER).and_then(|mut s| {
-                        s.query_map(
-                            params![favorites, text, fetch, after.sort_key, after.id.get()],
-                            |r| r.get(0),
-                        )?
-                        .collect()
-                    }),
+                        }),
+                    }
+                    .map_err(store_error)?;
+                    let (valid, invalid) = load_valid(&tx, &ids)?;
+                    contacts.extend(valid);
+                    skipped.extend(invalid);
+                    if contacts.len() > limit as usize {
+                        more = true;
+                        break;
+                    }
+                    // Moins de lignes que demandé : fin de la liste.
+                    if ids.len() < wanted {
+                        break;
+                    }
+                    last_row = ids.last().copied();
                 }
-                .map_err(store_error)?;
-                let more = ids.len() > limit as usize;
-                let contacts = load(c, &ids[..ids.len().min(limit as usize)])?;
-                let next = if more {
-                    contacts.last().map(ContactCursor::of)
-                } else {
-                    None
-                };
-                Ok(ContactPage {
-                    items: contacts.iter().map(ContactListItem::from).collect(),
-                    next,
-                })
+                contacts.truncate(limit as usize);
+                Ok((contacts, skipped, more))
             })
-            .await
+            .await?;
+        self.report(&skipped);
+        let next = if more {
+            contacts.last().map(ContactCursor::of)
+        } else {
+            None
+        };
+        Ok(ContactPage {
+            items: contacts.iter().map(ContactListItem::from).collect(),
+            next,
+        })
     }
 
     async fn get(&self, id: ContactId) -> Result<Option<Contact>, StoreError> {
@@ -623,7 +763,8 @@ impl ContactDirectory for SqliteContactBook {
             return Ok(Vec::new());
         }
         let list = json_list(&keys)?;
-        self.db
+        let (contacts, skipped) = self
+            .db
             .read(move |c| {
                 let ids: Vec<i64> = c
                     .prepare_cached(
@@ -634,9 +775,11 @@ impl ContactDirectory for SqliteContactBook {
                     )
                     .and_then(|mut s| s.query_map(params![list], |r| r.get(0))?.collect())
                     .map_err(store_error)?;
-                load(c, &ids)
+                load_valid(c, &ids)
             })
-            .await
+            .await?;
+        self.report(&skipped);
+        Ok(contacts)
     }
 
     async fn contacts(
@@ -651,7 +794,10 @@ impl ContactDirectory for SqliteContactBook {
                 &ids.iter().map(|id| id.get()).collect::<Vec<_>>(),
             )?),
         };
-        self.db
+        // Export et recherche des doublons : une fiche invalide, invisible
+        // partout ailleurs, est écartée (signalée) sans bloquer les autres.
+        let (contacts, skipped) = self
+            .db
             .read(move |c| {
                 let ids: Vec<i64> = match &chosen {
                     None => c
@@ -668,17 +814,19 @@ impl ContactDirectory for SqliteContactBook {
                         }),
                 }
                 .map_err(store_error)?;
-                load(c, &ids)
+                load_valid(c, &ids)
             })
-            .await
+            .await?;
+        self.report(&skipped);
+        Ok(contacts)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use norelly_test_support::contacts_contracts::{
-        contact_book_contract, contact_import_contract, contact_page_size_contract,
-        contact_selection_contract, full_contact, sample_contact,
+        contact_book_contract, contact_corruption_contract, contact_import_contract,
+        contact_page_size_contract, contact_selection_contract, full_contact, sample_contact,
     };
 
     use super::*;
@@ -794,16 +942,289 @@ mod tests {
             .write_for_tests("UPDATE contact_emails SET address = 'pas une adresse';")
             .await?;
         assert!(book.get(a.id()).await.is_err());
-        assert!(
+        // Écartée de la liste, sans la faire échouer.
+        assert_eq!(
             book.page(&ContactFilter::default(), None, PageSize::new(10))
-                .await
-                .is_err()
+                .await?,
+            ContactPage::default()
         );
         // Une fiche sans adresse est invalide.
         book.db
             .write_for_tests("DELETE FROM contact_emails;")
             .await?;
         assert!(book.get(a.id()).await.is_err());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn contact_book_passes_corruption_contract() -> Result<(), ContactStoreError> {
+        let book = book();
+        contact_corruption_contract(&book, |id| {
+            let db = book.db.clone();
+            async move {
+                db.run(move |c| {
+                    c.execute(
+                        "UPDATE contact_emails SET address = 'pas une adresse' \
+                         WHERE contact_id = ?1",
+                        params![id.get()],
+                    )
+                    .map(drop)
+                    .map_err(store_error)
+                })
+                .await
+            }
+        })
+        .await
+    }
+
+    /// Fiche d'identifiant `id` écrite directement en base, valide par
+    /// ailleurs.
+    async fn insert_raw(book: &SqliteContactBook, id: i64, name: &'static str) {
+        let key = format!("{}@example.com", name.to_lowercase());
+        let draft = sample_contact(name, &[&key]);
+        book.db
+            .run(move |c| {
+                c.execute(
+                    "INSERT INTO contacts (id, display_name, sort_key, search_text) \
+                     VALUES (?1, ?2, ?3, ?4)",
+                    params![id, name, draft.sort_key(), draft.search_text()],
+                )
+                .map_err(store_error)?;
+                c.execute(
+                    "INSERT INTO contact_emails (contact_id, position, address, address_key, \
+                     preferred) VALUES (?1, 0, ?2, ?2, 0)",
+                    params![id, key],
+                )
+                .map(drop)
+                .map_err(store_error)
+            })
+            .await
+            .unwrap_or_else(|e| panic!("{e}"));
+    }
+
+    fn address_key(raw: &str) -> AddressKey {
+        AddressKey::parse(raw).unwrap_or_else(|e| panic!("{raw} : {e}"))
+    }
+
+    /// Les identifiants de fiche tiennent sur 32 bits (ceux de l'interface) :
+    /// une fiche au-delà est écartée comme une fiche invalide.
+    #[tokio::test]
+    async fn contact_ids_beyond_32_bits_are_skipped() -> Result<(), ContactStoreError> {
+        let book = book();
+        let alice = book
+            .create(&sample_contact("Alice", &["alice@example.com"]))
+            .await?;
+        insert_raw(&book, i64::from(u32::MAX), "Bob").await;
+        insert_raw(&book, i64::from(u32::MAX) + 1, "Carole").await;
+        let page = book
+            .page(&ContactFilter::default(), None, PageSize::new(10))
+            .await
+            .unwrap_or_else(|e| panic!("page en échec : {e}"));
+        let names: Vec<_> = page.items.iter().map(|i| i.name.as_str()).collect();
+        assert_eq!(names, ["Alice", "Bob"]);
+        let keys = [
+            address_key("alice@example.com"),
+            address_key("carole@example.com"),
+        ];
+        let found = book
+            .by_addresses(&keys)
+            .await
+            .unwrap_or_else(|e| panic!("recherche en échec : {e}"));
+        assert_eq!(found, vec![alice]);
+        Ok(())
+    }
+
+    /// Le carnet n'attribue jamais d'identifiant au-delà de 32 bits : la
+    /// séquence épuisée, la création est refusée sans rien écrire (jamais
+    /// la réutilisation d'un identifiant, qu'une fiche restée ouverte
+    /// pourrait encore désigner).
+    #[tokio::test]
+    async fn ids_beyond_32_bits_are_never_assigned() -> Result<(), ContactStoreError> {
+        let book = book();
+        insert_raw(&book, i64::from(u32::MAX) - 1, "Bob").await;
+        let alice = book
+            .create(&sample_contact("Alice", &["alice@example.com"]))
+            .await?;
+        assert_eq!(alice.id().get(), i64::from(u32::MAX));
+        let before = book.db.read_for_tests(|c| count(c, "contacts")).await?;
+        let created = book
+            .create(&sample_contact("Carole", &["carole@example.com"]))
+            .await;
+        assert!(
+            created.is_err(),
+            "identifiant hors limites attribué : {created:?}"
+        );
+        let imported = book
+            .import(&[sample_contact("David", &["david@example.com"])], &[])
+            .await;
+        assert!(
+            imported.is_err(),
+            "identifiant hors limites attribué : {imported:?}"
+        );
+        let after = book.db.read_for_tests(|c| count(c, "contacts")).await?;
+        assert_eq!(after, before);
+        assert!(book.db.integrity_problems().await?.is_empty());
+        Ok(())
+    }
+
+    /// Contrat joué en corrompant par des requêtes SQL, une liste de
+    /// requêtes par appel de `corrupt` (la dernière se répète).
+    async fn corrupt_with(
+        book: &SqliteContactBook,
+        rounds: &[&[&'static str]],
+    ) -> Result<(), ContactStoreError> {
+        let round = std::sync::atomic::AtomicUsize::new(0);
+        contact_corruption_contract(book, |id| {
+            let db = book.db.clone();
+            let n = round.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            let sql: Vec<&'static str> = rounds[n.min(rounds.len() - 1)].to_vec();
+            async move {
+                db.run(move |c| {
+                    for statement in sql {
+                        c.execute(statement, params![id.get()])
+                            .map_err(store_error)?;
+                    }
+                    Ok(())
+                })
+                .await
+            }
+        })
+        .await
+    }
+
+    /// Une valeur d'un type inattendu n'écarte, elle aussi, que sa fiche ;
+    /// une clé de tri illisible n'arrête pas la pagination.
+    #[tokio::test]
+    async fn contact_book_passes_corruption_contract_with_wrong_types()
+    -> Result<(), ContactStoreError> {
+        corrupt_with(
+            &book(),
+            &[
+                &["UPDATE contacts SET display_name = x'00ff' WHERE id = ?1"],
+                &[
+                    "UPDATE contacts SET sort_key = CAST(x'ff' AS TEXT) WHERE id = ?1",
+                    "UPDATE contact_emails SET address = x'00' WHERE contact_id = ?1",
+                ],
+            ],
+        )
+        .await
+    }
+
+    /// Clé de tri ou texte cherché stockés qui ne sont pas ceux du domaine :
+    /// la fiche est invalide (elle serait mal placée, ou proposée à tort).
+    #[tokio::test]
+    async fn contact_book_passes_corruption_contract_with_stale_derived_columns()
+    -> Result<(), ContactStoreError> {
+        corrupt_with(
+            &book(),
+            &[
+                &["UPDATE contacts SET search_text = search_text || ' patron' WHERE id = ?1"],
+                &["UPDATE contacts SET sort_key = x'00' WHERE id = ?1"],
+            ],
+        )
+        .await
+    }
+
+    /// Une longue suite de fiches invalides ne rend pas la lecture d'une
+    /// page sans borne : au-delà de dix lots, la liste s'arrête.
+    #[tokio::test]
+    async fn a_long_run_of_invalid_contacts_bounds_the_page_read() -> Result<(), ContactStoreError>
+    {
+        let book = book();
+        book.create(&sample_contact("Aaron", &["aaron@example.com"]))
+            .await?;
+        for n in 0..30 {
+            let name = format!("B{n:02}");
+            let address = format!("b{n}@example.com");
+            book.create(&sample_contact(&name, &[&address])).await?;
+        }
+        book.create(&sample_contact("Zoe", &["zoe@example.com"]))
+            .await?;
+        book.db
+            .write_for_tests(
+                "UPDATE contact_emails SET address = 'invalide' \
+                 WHERE contact_id IN (SELECT id FROM contacts WHERE display_name LIKE 'B%');",
+            )
+            .await?;
+        // Une fiche par page : lots de 2 lignes, 20 lignes lues au plus.
+        let first = book
+            .page(&ContactFilter::default(), None, PageSize::new(1))
+            .await?;
+        let names: Vec<_> = first.items.iter().map(|i| i.name.as_str()).collect();
+        assert_eq!(names, ["Aaron"]);
+        assert_eq!(first.next, None, "lecture poursuivie au-delà de la borne");
+        // Avec des pages plus grandes, la fiche suivante est atteinte.
+        let all = book
+            .page(&ContactFilter::default(), None, PageSize::new(10))
+            .await?;
+        let names: Vec<_> = all.items.iter().map(|i| i.name.as_str()).collect();
+        assert_eq!(names, ["Aaron", "Zoe"]);
+        Ok(())
+    }
+
+    /// Journal partagé entre le test et l'abonné `tracing`.
+    #[derive(Clone, Default)]
+    struct CapturedLogs(std::sync::Arc<std::sync::Mutex<Vec<u8>>>);
+
+    impl std::io::Write for CapturedLogs {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.0
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .extend_from_slice(buf);
+            Ok(buf.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    /// Une fiche invalide est signalée une seule fois, par son seul
+    /// identifiant : ni son contenu ni le détail de l'erreur.
+    #[tokio::test]
+    async fn an_invalid_contact_is_logged_once_without_its_content() -> Result<(), ContactStoreError>
+    {
+        let logs = CapturedLogs::default();
+        let writer = logs.clone();
+        let subscriber = tracing_subscriber::fmt()
+            .with_ansi(false)
+            .with_writer(move || writer.clone())
+            .finish();
+        let book = book();
+        let bob = book
+            .create(&sample_contact("Bob Secret", &["bob.secret@example.com"]))
+            .await?;
+        book.db
+            .write_for_tests("UPDATE contact_emails SET address = 'adresse-secrete';")
+            .await?;
+        // Exécuteur à un seul fil (`tokio::test`) : l'abonné du fil du
+        // test reçoit les événements des lectures du carnet (installé après
+        // l'ouverture de la base, qui journalise ses migrations).
+        let _guard = tracing::subscriber::set_default(subscriber);
+        let key = address_key("bob.secret@example.com");
+        for _ in 0..3 {
+            for filter in [ContactFilter::default(), ContactFilter::new("bob", false)] {
+                book.page(&filter, None, PageSize::new(10))
+                    .await
+                    .unwrap_or_else(|e| panic!("page en échec : {e}"));
+            }
+            book.by_addresses(std::slice::from_ref(&key))
+                .await
+                .unwrap_or_else(|e| panic!("recherche en échec : {e}"));
+        }
+        let text = String::from_utf8_lossy(
+            &logs
+                .0
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner),
+        )
+        .into_owned();
+        assert_eq!(text.lines().count(), 1, "{text}");
+        assert!(text.contains(&format!("contact={}", bob.id())), "{text}");
+        for secret in ["Secret", "secret", "adresse"] {
+            assert!(!text.contains(secret), "contenu journalisé : {text}");
+        }
         Ok(())
     }
 }

@@ -421,7 +421,7 @@ describe("formulaire d'un contact", () => {
 
 describe("nom refusé à la saisie", () => {
   const imitation =
-    "Un nom ne peut pas ressembler à une adresse e-mail : retirez « @ », « < », « > » et les caractères qui leur ressemblent. " +
+    "Un nom ne peut pas ressembler à une adresse e-mail : retirez « @ », « < », « > », les caractères qui leur ressemblent et « @ » écrit en toutes lettres (« (at) », « arobase »). " +
     "Saisissez par exemple « Alice Martin ».";
 
   it("affiche à côté du champ un nom qui imite une adresse", async () => {

@@ -60,7 +60,7 @@ describe("traduction des erreurs IPC", () => {
       `Vous pouvez sélectionner au plus ${new Intl.NumberFormat("fr").format(1000)} contacts à la fois.`,
     );
     expect(errorText(new IpcFailure("contact_name_looks_like_address", "display_name"))).toBe(
-      "Un nom ne peut pas ressembler à une adresse e-mail : retirez « @ », « < », « > » et les caractères qui leur ressemblent. " +
+      "Un nom ne peut pas ressembler à une adresse e-mail : retirez « @ », « < », « > », les caractères qui leur ressemblent et « @ » écrit en toutes lettres (« (at) », « arobase »). " +
         "Saisissez par exemple « Alice Martin ».",
     );
   });

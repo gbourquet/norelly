@@ -39,7 +39,7 @@ adresse ne peut appartenir qu'à un seul contact ; modifiez plutôt celui
 qui l'a déjà.
 
 Un nom ne peut pas ressembler à une adresse électronique : « @ », « < »
-et « > » y sont refusés, pour qu'un message ne puisse pas se faire passer
+et « > » y sont refusés (« @ » aussi écrit en toutes lettres, comme « (at) »), pour qu'un message ne puisse pas se faire passer
 pour quelqu'un d'autre. L'explication s'affiche sous le champ concerné ;
 saisissez un nom, par exemple « Alice Martin ».
 

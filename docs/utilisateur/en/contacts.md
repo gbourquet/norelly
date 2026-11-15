@@ -38,7 +38,7 @@ common case: the address already belongs to another contact. An address
 can only belong to one contact; edit the one that already has it instead.
 
 A name can't look like an email address: "@", "<" and ">" are refused in
-it, so that a message can't pass itself off as someone else. The
+it (also "@" spelled out, like "(at)"), so that a message can't pass itself off as someone else. The
 explanation appears under the field concerned; type a name, such as
 "Alice Martin".
 

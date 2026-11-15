@@ -3119,6 +3119,7 @@ dependencies = [
 name = "norelly-app"
 version = "0.1.0"
 dependencies = [
+ "libc",
  "norelly-application",
  "norelly-blobs",
  "norelly-contacts-io",

@@ -62,6 +62,12 @@ norelly-render.workspace = true
 norelly-contacts-io.workspace = true
 norelly-oauth.workspace = true
 
+[target.'cfg(unix)'.dependencies]
+# Ouverture d'un temporaire d'export à nettoyer sans suivre de lien ni
+# bloquer sur un fichier spécial (O_NOFOLLOW, O_NONBLOCK), dont les valeurs
+# changent d'une architecture à l'autre. Déjà présente par tokio.
+libc = "0.2"
+
 [features]
 updater = ["dep:tauri-plugin-updater"]
 

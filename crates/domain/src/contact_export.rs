@@ -10,6 +10,7 @@
 //! réimporte.
 
 use std::borrow::Cow;
+use std::time::Duration;
 
 use crate::contact_import::{MAX_IMPORT_CARDS, MAX_IMPORT_FILE_BYTES};
 use crate::contacts::{
@@ -254,6 +255,79 @@ pub fn restore_csv_cell(cell: &str) -> &str {
         Some(rest) if formula_like(rest) => rest,
         _ => cell,
     }
+}
+
+/// Âge à partir duquel un temporaire d'export libre est jugé abandonné :
+/// plus récent, il peut appartenir à un export qui vient de le créer et
+/// n'a pas encore posé son verrou, ou qui vient de le relâcher avant de le
+/// renommer.
+pub const STALE_EXPORT_TEMPORARY_AGE: Duration = Duration::from_secs(5 * 60);
+
+/// Nombre maximal d'entrées du dossier cible examinées pour y chercher des
+/// temporaires abandonnés : au-delà, le nettoyage s'arrête (il est
+/// facultatif) et l'export continue.
+pub const MAX_EXPORT_FOLDER_SCAN: usize = 50_000;
+
+/// État du verrou consultatif d'un temporaire d'export, que tout export
+/// tient pendant qu'il écrit le sien.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TemporaryLock {
+    /// Personne ne le tient.
+    Free,
+    /// Un export en cours le tient.
+    Held,
+    /// Impossible à vérifier (système de fichiers sans verrou, erreur).
+    Unknown,
+}
+
+/// `candidate` est-il le nom d'un fichier temporaire laissé par l'écriture
+/// d'un export dans `target` (même dossier) ? Seule la forme
+/// `.<target>.<pid>-<n>.tmp` est reconnue, `pid` et `n` étant des `u32`
+/// écrits en 1 à 10 chiffres ASCII. Le nom de la cible est comparé sans
+/// tenir compte de la casse (systèmes de fichiers insensibles à la casse) :
+/// en minuscules Unicode si les deux noms sont de l'UTF-8, sinon octet par
+/// octet aux lettres ASCII près.
+#[must_use]
+pub fn is_export_temporary_of(target: &[u8], candidate: &[u8]) -> bool {
+    fn number(digits: &[u8]) -> bool {
+        (1..=10).contains(&digits.len())
+            && digits.iter().all(u8::is_ascii_digit)
+            && std::str::from_utf8(digits).is_ok_and(|d| d.parse::<u32>().is_ok())
+    }
+    fn same_name(a: &[u8], b: &[u8]) -> bool {
+        match (std::str::from_utf8(a), std::str::from_utf8(b)) {
+            (Ok(a), Ok(b)) => a
+                .chars()
+                .flat_map(char::to_lowercase)
+                .eq(b.chars().flat_map(char::to_lowercase)),
+            _ => a.eq_ignore_ascii_case(b),
+        }
+    }
+    // Lu depuis la fin : `.tmp`, puis `<pid>-<n>` après le dernier point ;
+    // ce qui précède ce point est le nom de la cible.
+    let Some(rest) = candidate
+        .strip_prefix(b".")
+        .and_then(|rest| rest.strip_suffix(b".tmp"))
+    else {
+        return false;
+    };
+    let Some(dot) = rest.iter().rposition(|&b| b == b'.') else {
+        return false;
+    };
+    let (name, numbers) = rest.split_at(dot);
+    let mut parts = numbers[1..].split(|&b| b == b'-');
+    let (Some(pid), Some(n), None) = (parts.next(), parts.next(), parts.next()) else {
+        return false;
+    };
+    !target.is_empty() && number(pid) && number(n) && same_name(name, target)
+}
+
+/// Un temporaire d'export dont le verrou est dans l'état `lock`, modifié
+/// il y a `age` (inconnu, ou dans le futur : `None`), est-il abandonné ?
+/// Seulement s'il est libre et assez ancien : dans le doute, il est gardé.
+#[must_use]
+pub fn is_stale_export_temporary(lock: TemporaryLock, age: Option<Duration>) -> bool {
+    lock == TemporaryLock::Free && age.is_some_and(|age| age >= STALE_EXPORT_TEMPORARY_AGE)
 }
 
 #[cfg(test)]

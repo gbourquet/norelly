@@ -319,6 +319,60 @@ where
     Ok(())
 }
 
+/// Contrat d'une liste corrompue en base : elle seule est écartée (absente
+/// des pages, des suggestions et de la relecture), les autres restent
+/// lisibles et la pagination ne saute ni ne répète aucune liste valide.
+///
+/// `corrupt` abîme la liste donnée directement dans le stockage (une ligne
+/// que le domaine refuse à la relecture) ; un faux, qui ne garde que des
+/// listes valides, la fait disparaître. Carnet vide au départ.
+pub async fn corrupted_list_contract<B, F, Fut>(
+    book: &B,
+    corrupt: F,
+) -> Result<(), ContactListStoreError>
+where
+    B: ContactBook + ContactDirectory + ContactListBook + ContactListDirectory,
+    F: Fn(ContactListId) -> Fut,
+    Fut: Future<Output = Result<(), ContactListStoreError>>,
+{
+    let all = ContactListFilter::default();
+    let alice = book
+        .create(&sample_contact("Alice", &["alice@example.com"]))
+        .await
+        .map_err(|e| ContactListStoreError::Store(StoreError(e.to_string())))?
+        .id();
+    let mut lists = Vec::new();
+    for name in ["Liste a", "Liste b", "Liste c", "Liste d", "Liste e"] {
+        lists.push(
+            book.create_list(&sample_list(name, &[alice], false))
+                .await?,
+        );
+    }
+    // Deux listes corrompues qui se suivent, puis la dernière.
+    for index in [1, 2, 4] {
+        corrupt(lists[index].id()).await?;
+    }
+    let valid = vec!["Liste a", "Liste d"];
+    for limit in [1, 2, 3, 10] {
+        assert_eq!(
+            names(&all_pages(book, &all, limit).await?),
+            valid,
+            "pages de {limit}"
+        );
+    }
+    // Suggestions : la page filtrée garde les listes valides.
+    let suggested = book
+        .list_page(&ContactListFilter::new("liste"), None, PageSize::MAX)
+        .await?;
+    assert_eq!(names(&suggested.items), valid);
+    assert_eq!(suggested.next, None);
+    assert_eq!(book.get_list(lists[1].id()).await?, None);
+    assert_eq!(book.get_list(lists[4].id()).await?, None);
+    assert_eq!(book.get_list(lists[0].id()).await?, Some(lists[0].clone()));
+    assert_eq!(book.get_list(lists[3].id()).await?, Some(lists[3].clone()));
+    Ok(())
+}
+
 /// Contrat de la fusion de contacts ([`ContactBook::merge`]) : listes de
 /// diffusion reportées, tout ou rien (carnet vide au départ).
 pub async fn contact_merge_contract<B>(book: &B) -> Result<(), ContactListStoreError>
@@ -561,6 +615,16 @@ mod tests {
     #[tokio::test]
     async fn in_memory_contact_lists_pass_contract() -> Result<(), ContactListStoreError> {
         contact_list_contract(&InMemoryContactBook::default()).await
+    }
+
+    #[tokio::test]
+    async fn in_memory_corrupted_list_passes_contract() -> Result<(), ContactListStoreError> {
+        let book = InMemoryContactBook::default();
+        corrupted_list_contract(&book, |id| {
+            let book = &book;
+            async move { book.delete_lists(&[id]).await.map(|_| ()) }
+        })
+        .await
     }
 
     #[tokio::test]

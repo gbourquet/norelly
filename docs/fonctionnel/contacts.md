@@ -213,6 +213,10 @@ l'ordinateur** : rien n'est envoyé à un serveur.
   même choisie dans le champ À : aucun membre ne voit l'adresse des
   autres. Les pastilles se modifient ensuite comme les autres
   destinataires.
+- Une liste abîmée dans les données de l'application n'empêche pas de
+  lire les autres : elle seule disparaît de la section « Listes » et des
+  suggestions, les autres restent affichées et proposées. Son nom reste
+  pris : une nouvelle liste du même nom est refusée.
 
 ### Importer des contacts
 
@@ -271,7 +275,12 @@ l'ordinateur** : rien n'est envoyé à un serveur.
   ramène au choix du format.
 - Un message annonce le nombre de contacts exportés et le nom du fichier.
   Un fichier du même nom est remplacé d'un coup : en cas d'échec, l'ancien
-  reste intact.
+  reste intact. Si l'ordinateur s'est arrêté brutalement pendant un export,
+  la copie de travail cachée laissée à côté du fichier est effacée lors
+  d'un export suivant vers ce même fichier. Une copie encore utilisée par
+  un export en cours (autre fenêtre, autre poste), toute récente, ou dont
+  l'état ne peut pas être vérifié est laissée : dans le doute, rien n'est
+  effacé. Rien d'autre dans le dossier n'est touché.
 - Un fichier exporté par Norelly se réimporte dans Norelly et redonne le
   même carnet : noms, accents, notes sur plusieurs lignes, toutes les
   adresses et la préférée, téléphones, organisation. Ce que chaque format

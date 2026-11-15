@@ -89,9 +89,13 @@ d'argent, de mot de passe), vérifiez par un autre moyen.
 
 Quand l'expéditeur n'est pas dans vos contacts et que son nom ressemble à
 un site (« Banque.fr »), la liste des messages montre d'abord son adresse
-réelle, puis ce nom entre parenthèses : c'est l'adresse qui compte. Un nom qui imite une
-adresse (« support(at)banque.fr ») n'est pas affiché du tout : seule
-l'adresse réelle apparaît.
+réelle, puis ce nom entre parenthèses : c'est l'adresse qui compte. Une
+adresse longue est abrégée, en gardant la fin, qui désigne l'expéditeur
+réel ; posez la souris sur la ligne pour lire l'adresse complète. Un nom qui imite une adresse
+(« support(at)banque.fr ») n'est pas affiché du tout : seule l'adresse
+réelle apparaît.
+
+![Un message de « Banque.fr » affiché avec son adresse réelle en premier](captures/sender-domain-name.png)
 
 ## Écrire à un groupe : les listes de diffusion
 

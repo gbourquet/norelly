@@ -132,8 +132,9 @@ l'ordinateur** : rien n'est envoyé à un serveur.
   liste des conversations, les résultats de recherche et les
   notifications montrent d'abord son adresse réelle, puis ce nom entre
   parenthèses : le nom seul pourrait passer pour l'expéditeur. Une adresse
-  très longue y est abrégée avant le « @ », pour que le domaine réel reste
-  en vue. Dans un message ouvert, l'adresse s'affiche aussi à côté d'un tel
+  longue y est abrégée (le début de ce qui précède le « @ », la fin du
+  domaine) pour que le domaine réel reste en vue ; l'adresse complète
+  s'affiche au survol de la ligne. Dans un message ouvert, l'adresse s'affiche aussi à côté d'un tel
   nom parmi les destinataires, et « Ajouter au carnet » ne reprend pas ce
   nom. Les noms ordinaires (initiales, abréviations comme « Dr. Martin »,
   noms composés) ne sont pas concernés.

@@ -20,7 +20,7 @@ import type {
   ServerDto,
 } from "./ipc/api";
 import { m } from "./paraglide/messages.js";
-import { errorText, withDetail } from "./errors";
+import { IpcFailure, errorText, withDetail } from "./errors";
 
 /** Page Google de création des mots de passe d'application. */
 export const GOOGLE_APP_PASSWORDS_URL = "https://myaccount.google.com/apppasswords";
@@ -214,6 +214,37 @@ export class AddAccountFlow {
     this.confirmed = value ? [...others, host] : others;
   }
 
+  /** Nom affiché refusé par Rust, montré sous le champ ; `null` : accepté
+   *  ou vide (nom par défaut). */
+  displayNameError = $state<string | null>(null);
+
+  /** Fait vérifier par Rust le nom affiché saisi ; vrai s'il est accepté
+   *  (ou vide). Une réponse périmée (nom changé pendant l'appel) ne touche
+   *  pas au message. */
+  async checkDisplayName(): Promise<boolean> {
+    const name = this.displayName.trim();
+    let error: string | null = null;
+    if (name) {
+      try {
+        await this.#api.checkDisplayName(name);
+      } catch (e) {
+        error = errorText(e);
+      }
+    }
+    if (this.displayName.trim() === name) this.displayNameError = error;
+    return error === null;
+  }
+
+  /** Nom affiché refusé à l'ajout : retour au formulaire, où le champ et
+   *  son message sont visibles. */
+  #nameRefused(e: unknown): boolean {
+    if (!(e instanceof IpcFailure && e.code === "display_name_looks_like_address")) return false;
+    this.step = "form";
+    this.message = null;
+    this.displayNameError = errorText(e);
+    return true;
+  }
+
   /** Demande à Rust si l'adresse relève d'un fournisseur OAuth. */
   async detectProvider(): Promise<void> {
     const address = this.address.trim();
@@ -252,6 +283,13 @@ export class AddAccountFlow {
     ) {
       return;
     }
+    if (
+      !(await this.checkDisplayName()) ||
+      attempt !== this.#attempt ||
+      this.address.trim() !== address
+    ) {
+      return;
+    }
     this.message = null;
     this.appPasswordHelp = false;
     this.#oauth = true;
@@ -273,6 +311,7 @@ export class AddAccountFlow {
     } catch (e) {
       if (attempt !== this.#attempt) return;
       this.#signInStep = null;
+      if (this.#nameRefused(e)) return;
       this.step = "form";
       this.message = errorText(e);
       return;
@@ -351,6 +390,7 @@ export class AddAccountFlow {
       this.message = m.add_msg_missing_fields();
       return;
     }
+    if (!(await this.checkDisplayName())) return;
     this.step = "discovering";
     this.progress = [];
     let discovery: Discovery;
@@ -463,6 +503,7 @@ export class AddAccountFlow {
         confirmed_hosts: [...this.confirmed],
       });
     } catch (e) {
+      if (this.#nameRefused(e)) return;
       this.step = "manual";
       this.message = errorText(e);
       return;

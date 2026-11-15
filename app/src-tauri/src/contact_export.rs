@@ -204,8 +204,10 @@ pub(crate) fn remove_stale_temporaries(dir: &Path, target: &OsStr, now: SystemTi
     }
 }
 
-/// Ouvre en lecture un temporaire à examiner, sans suivre de lien ni
-/// bloquer sur un fichier spécial qui aurait pris sa place (Unix).
+/// Ouvre en lecture un temporaire à examiner, sans suivre de lien qui
+/// aurait pris sa place (Unix : échec ; Windows : le lien lui-même est
+/// ouvert, et l'appelant le refuse car ce n'est pas un fichier ordinaire)
+/// ni bloquer sur un fichier spécial (Unix).
 fn open_temporary(path: &Path) -> std::io::Result<std::fs::File> {
     let mut options = std::fs::OpenOptions::new();
     options.read(true);
@@ -214,6 +216,10 @@ fn open_temporary(path: &Path) -> std::io::Result<std::fs::File> {
         &mut options,
         libc::O_NOFOLLOW | libc::O_NONBLOCK,
     );
+    // FILE_FLAG_OPEN_REPARSE_POINT : un lien symbolique ou une jonction est
+    // ouvert lui-même, jamais sa cible.
+    #[cfg(windows)]
+    std::os::windows::fs::OpenOptionsExt::custom_flags(&mut options, 0x0020_0000);
     options.open(path)
 }
 

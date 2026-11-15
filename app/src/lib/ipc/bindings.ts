@@ -830,6 +830,11 @@ export type CorrespondentDto_Deserialize = {
 	address: string,
 	/**  Contact du carnet qui porte l'adresse. */
 	contact?: number | null,
+	/**
+	 *  Afficher aussi l'adresse à côté du nom dans les listes (décision du
+	 *  domaine : le nom de l'en-tête contient un domaine).
+	 */
+	show_address: boolean,
 };
 
 /**
@@ -841,6 +846,11 @@ export type CorrespondentDto_Serialize = {
 	address: string,
 	/**  Contact du carnet qui porte l'adresse. */
 	contact: number | null,
+	/**
+	 *  Afficher aussi l'adresse à côté du nom dans les listes (décision du
+	 *  domaine : le nom de l'en-tête contient un domaine).
+	 */
+	show_address: boolean,
 };
 
 /**  Serveur découvert. */

@@ -10,7 +10,7 @@ function hit(n: number, conversation: number | null = n): SearchHit {
     account: 1,
     mailbox: 10,
     date: 1_700_000_000 - n,
-    from: { name: "Alice", address: "alice@example.com", contact: null },
+    from: { name: "Alice", address: "alice@example.com", contact: null, show_address: false },
     subject: [
       { text: "Facture", hit: true },
       { text: ` ${n}`, hit: false },
@@ -162,7 +162,9 @@ describe("état de la recherche", () => {
       mailbox: 10,
       date: 1_700_000_000 - 4,
       subject: "Facture 4",
-      senders: [{ name: "Alice", address: "alice@example.com", contact: null }],
+      senders: [
+        { name: "Alice", address: "alice@example.com", contact: null, show_address: false },
+      ],
       messages: 1,
       unread: 1,
       flagged: false,

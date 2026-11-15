@@ -242,9 +242,12 @@ pub(crate) fn clean_invisible_contacts(tx: &Transaction<'_>) -> Result<(), Store
 /// [`clean_names_imitating_address`] (fiche réécrite, tri et filtre
 /// recalculés). Comme à la migration 18, une fiche illisible (type ou
 /// encodage d'une colonne) ou invalide pour une autre raison est laissée
-/// telle quelle : elle ne doit pas empêcher d'ouvrir la base.
+/// telle quelle : elle ne doit pas empêcher d'ouvrir la base. C'est le cas
+/// d'une fiche dont une clé d'adresse stockée n'est pas celle de son
+/// adresse : la réécrire pourrait heurter l'unicité des clés.
 pub(crate) fn drop_names_imitating_address(tx: &Transaction<'_>) -> Result<(), StoreError> {
     let (mut rewritten, mut removed, mut unreadable) = (0_usize, 0_usize, 0_usize);
+    let mut invalid = 0_usize;
     let mut after = 0_i64;
     loop {
         let ids: Vec<i64> = tx
@@ -282,7 +285,16 @@ pub(crate) fn drop_names_imitating_address(tx: &Transaction<'_>) -> Result<(), S
                 unreadable += 1;
                 continue;
             }
-            let (input, _) = row.into_input();
+            let (input, keys) = row.into_input();
+            let consistent =
+                input.emails.len() == keys.len()
+                    && input.emails.iter().zip(&keys).all(|(e, key)| {
+                        AddressKey::parse(&e.address).is_ok_and(|k| k.as_str() == key)
+                    });
+            if !consistent {
+                invalid += 1;
+                continue;
+            }
             match clean_names_imitating_address(input) {
                 InvisibleCleanup::Keep => {}
                 InvisibleCleanup::Rewrite(draft) => {
@@ -302,6 +314,7 @@ pub(crate) fn drop_names_imitating_address(tx: &Transaction<'_>) -> Result<(), S
         rewritten,
         removed,
         unreadable,
+        invalid,
         "carnet : noms imitant une adresse retirés"
     );
     Ok(())

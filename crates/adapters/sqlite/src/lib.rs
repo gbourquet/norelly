@@ -932,23 +932,31 @@ mod tests {
                 .map_err(|e| StoreError(e.to_string()))?;
             conn.execute_batch(fixture).map_err(store_error)?;
         }
+        // Fiche 1 : saine, repère dans son tri (une réécriture l'effacerait).
         // Fiche 10 : noms à retirer, organisation et téléphone gardés.
         // Fiche 11 : sans adresse (invalide pour une autre raison).
         // Fiche 12 : surnom illisible (UTF-8 invalide).
         // Fiche 15 : surnom d'un type inattendu (BLOB), lu incomplet.
+        // Fiches 13 et 14 : clé stockée de la 13 modifiée à la main, sa clé
+        // recalculée déjà portée par la 14 (la réécrire heurterait l'unicité).
         conn.execute_batch(
-            "INSERT INTO contacts (id, display_name, given_name, family_name, nickname, \
+            "UPDATE contacts SET sort_key = 'repère' WHERE id = 1; \
+             INSERT INTO contacts (id, display_name, given_name, family_name, nickname, \
              organization, sort_key, search_text) VALUES \
              (10, 'ceo@bank.example', 'Bob', 'Banque <x>', 'Bobby', 'ACME <ventes>', \
              'ceo@bank.example', \
              'ceo@bank.example\nbob\nbanque <x>\nbobby\nacme <ventes>\npirate@example.net'), \
              (11, 'x@y', NULL, NULL, NULL, NULL, 'x@y', 'x@y'), \
              (12, 'z@w', NULL, NULL, CAST(X'FF' AS TEXT), NULL, 'z@w', 'z@w'), \
+             (13, 'ceo@bank.example', NULL, NULL, NULL, NULL, 'x', 'x'), \
+             (14, 'Autre', NULL, NULL, NULL, NULL, 'autre', 'autre'), \
              (15, 'w@v', NULL, NULL, X'00FF', NULL, 'w@v', 'w@v'); \
              INSERT INTO contact_emails (contact_id, position, address, address_key, label, \
              preferred) VALUES \
              (10, 0, 'pirate@example.net', 'pirate@example.net', NULL, 1), \
              (12, 0, 'z@example.net', 'z@example.net', NULL, 1), \
+             (13, 0, 'bob@x.example', 'zzz@x.example', NULL, 1), \
+             (14, 0, 'other@y.example', 'bob@x.example', NULL, 1), \
              (15, 0, 'w@example.net', 'w@example.net', NULL, 1); \
              INSERT INTO contact_phones (contact_id, position, number, label) \
              VALUES (10, 0, '06 00', 'maison');",
@@ -977,12 +985,17 @@ mod tests {
                 None,
                 None,
                 None,
-                "v11".to_owned(),
+                "repère".to_owned(),
                 "v11\nv11@example.com".to_owned(),
             )
         );
         // Fiches invalide et illisible : laissées telles quelles.
         assert_eq!(stored_names(&conn, 11).0.as_deref(), Some("x@y"));
+        assert_eq!(
+            stored_names(&conn, 13).0.as_deref(),
+            Some("ceo@bank.example")
+        );
+        assert_eq!(stored_names(&conn, 14).0.as_deref(), Some("Autre"));
         let untouched: String = conn
             .query_row("SELECT display_name FROM contacts WHERE id = 12", [], |r| {
                 r.get(0)

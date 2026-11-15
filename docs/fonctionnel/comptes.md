@@ -75,6 +75,11 @@ avec Google**, sur le même parcours que Microsoft, sans mot de passe.
 4. La reconnexion d'un compte Google se fait comme pour Microsoft
    (« Se reconnecter »).
 
+La version distribuée par Flathub ne propose pas **Se connecter avec
+Google** : une adresse Gmail y est ajoutée avec un mot de passe
+d'application. Les autres versions (Windows, paquets .deb et
+.rpm) le proposent.
+
 ### Changer le mot de passe
 
 Pour un compte ajouté avec un mot de passe (pas pour un compte connecté

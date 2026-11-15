@@ -77,6 +77,14 @@ flatpak install flathub io.github.gbourquet.Norelly
 Les mises à jour arrivent alors par la Logithèque, comme pour vos autres
 applications.
 
+> **Vous avez une adresse Gmail ?** La version Flathub ne propose pas le
+> bouton **Se connecter avec Google**. Votre adresse Gmail y fonctionne
+> quand même, avec un **mot de passe d'application** : Norelly vous montre
+> comment le créer quand vous ajoutez l'adresse (voir
+> [Gmail : le mot de passe d'application](first-account.md#gmail--le-mot-de-passe-dapplication)).
+> Le bouton existe dans les paquets .deb et .rpm ci-dessous, et sous
+> Windows.
+
 ### Autre méthode : paquet .deb ou .rpm
 
 1. Allez à l'adresse <https://github.com/gbourquet/norelly/releases>.

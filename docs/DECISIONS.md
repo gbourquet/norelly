@@ -706,6 +706,14 @@ est majoritairement écrit par Claude et relu par le mainteneur.
     `ProviderNotConfigured`) ; les e2e compilent avec des valeurs
     factices ; secrets rangés dans l'environnement `release` (jobs Linux et
     Windows) ;
+  - Flatpak (2026-11-15, décision du mainteneur) : **pas de « Se connecter
+    avec Google »**. Flathub compile depuis le manifeste public
+    (`packaging/flatpak/`), sans secret : le manifeste ne fournit pas les
+    identifiants, et l'application en est compilée sans eux (même
+    comportement qu'en développement). Une adresse Gmail y passe par le
+    mot de passe d'application ; l'aide d'installation et l'ajout d'un
+    compte le disent. Les paquets .deb, .rpm et Windows de la CI gardent la
+    connexion Google ;
   - identité Google : `iss`, `aud` et `email_verified` vérifiés ; scope de
     messagerie exigé parmi les scopes accordés (Google permet d'en
     décocher) ;

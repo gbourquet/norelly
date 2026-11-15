@@ -29,12 +29,18 @@ pas.
   notification : leur nombre et, au plus, le plus récent.
 - Avec l'option de confidentialité, l'expéditeur et le sujet ne sont jamais
   transmis au système.
+- L'expéditeur est nommé comme dans la liste des messages : par le nom
+  de sa fiche quand son adresse figure dans le carnet, sinon par le nom
+  donné par le message (écarté au profit de l'adresse s'il ressemble
+  lui-même à une adresse).
 - Le sujet et l'expéditeur s'affichent tels quels : aucune mise en forme
   qu'ils contiendraient n'est interprétée.
 
 ## Cas limites
 
 - Fenêtre au premier plan : pas de notification.
+- Carnet momentanément illisible : la notification s'affiche quand même,
+  avec le nom donné par le message.
 - Sujet ou expéditeur contenant du balisage (`<b>`, `&amp;`) : affiché
   littéralement.
 

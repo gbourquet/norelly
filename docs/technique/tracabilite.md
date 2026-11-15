@@ -455,7 +455,7 @@ Fiche : [contacts.md](../fonctionnel/contacts.md). Décision : ADR-012.
 | Saisie affichée en texte, jamais interprétée | `ContactCard.svelte`, `ContactList.svelte` |
 | Nom affiché d'un correspondant (`sender_label`) : nom du contact qui porte l'adresse (même `AddressKey`), vide pour une fiche sans nom ; sinon nom de l'en-tête, vide s'il imite une adresse (`imitates_address` : `@`, `<`, `>`) | `crates/domain/src/sender.rs` |
 | Adresses cherchées dans le carnet (`sender_keys`) : valides, dédoublonnées dans l'ordre (expéditeurs d'abord), `MAX_CONTACT_LOOKUP` au plus ; carnet non interrogé sans adresse valide | `sender.rs`, `crates/application/src/contacts.rs` (`NameSenders`) |
-| Liste des conversations, messages d'une conversation (expéditeur, destinataires) et résultats de recherche nommés d'après le carnet ; DTO `CorrespondentDto.contact` ; sans carnet (notification), nom imitant une adresse écarté | `app/src-tauri/src/reading.rs`, `app/src-tauri/src/search.rs`, `app/src-tauri/src/ipc.rs` |
+| Liste des conversations, messages d'une conversation (expéditeur, destinataires) et résultats de recherche et expéditeur des notifications nommés d'après le carnet ; DTO `CorrespondentDto.contact` ; hors du carnet, nom imitant une adresse écarté | `app/src-tauri/src/reading.rs`, `app/src-tauri/src/search.rs`, `app/src-tauri/src/settings.rs` (`new_mail_event`), `app/src-tauri/src/ipc.rs` |
 | Personne visée par « Ajouter au carnet » / « Voir le contact » : celle du menu, sinon l'expéditeur du dernier message ouvert ; fiche préremplie (`ContactFormState.prefill`) ; courrier relu au retour du carnet et après un ajout | `app/src/lib/app.svelte.ts`, `app/src/lib/contacts.svelte.ts`, `App.svelte` |
 | Actions visibles : nom cliquable de l'expéditeur et des destinataires, pastille du carnet, menu contextuel d'une ligne, « Plus… » du message ouvert | `PersonMenu.svelte`, `ConversationView.svelte`, `ConversationList.svelte`, `visible-actions.ts` (`personActions`) |
 | Nom d'une fiche qui imite une adresse écarté à l'affichage (`contact_name`), comme un nom d'en-tête | `sender.rs` |
@@ -582,6 +582,7 @@ Fiche : [notifications.md](../fonctionnel/notifications.md).
 | Rien à la **première synchronisation** d'une boîte | `notify.rs` |
 | Arrivées d'une synchronisation **regroupées** : un nombre et, au plus, le message le plus récent | `notify.rs` |
 | Confidentialité : contenu retiré **en Rust** (`NewMail::without_content`) avant d'atteindre l'interface | `notify.rs`, `app/src-tauri/src/settings.rs` (`new_mail_event`) |
+| Expéditeur nommé d'après le carnet (`NameSenders`, `SenderNames::label`) comme dans la liste ; carnet illisible : nom de l'en-tête filtré, la notification part quand même ; carnet non interrogé sans contenu (confidentialité) | `app/src-tauri/src/settings.rs` (`new_mail_event`), `crates/domain/src/sender.rs` |
 | Texte composé par l'interface dans la langue de l'utilisateur, revalidé par la commande `show_notification` (balisage freedesktop neutralisé) | ADR-011, `app/src-tauri/src/settings.rs` |
 | Affichage par `notify-rust` (sans zbus) depuis Rust seulement | dérogation à consigner |
 

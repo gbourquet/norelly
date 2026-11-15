@@ -334,8 +334,6 @@ l'ordinateur** : rien n'est envoyé à un serveur.
 
 ## Limites actuelles
 
-- Les notifications de nouveaux messages gardent le nom donné par le
-  message.
 - Un nom de fiche qui ressemble à une adresse est accepté à la saisie
   (il est seulement écarté à l'affichage) ; l'import ne le reprend pas.
 - Un groupe passé n'est pas retenu : il est proposé de nouveau à chaque

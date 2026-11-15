@@ -192,6 +192,8 @@ function codeText(code: ErrorCodeDto, field: FieldDto | null): string {
       return m.err_contact_invalid({ field: fieldLabel(field) });
     case "contact_too_long":
       return m.err_contact_too_long({ field: fieldLabel(field) });
+    case "contact_name_looks_like_address":
+      return m.err_contact_name_looks_like_address();
     case "contact_repeated_address":
       return m.err_contact_repeated_address();
     case "contact_duplicate_address":

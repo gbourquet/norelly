@@ -575,6 +575,16 @@ describe(`captures d'écran (${lang})`, () => {
         await button(msg("contact_add_phone")).click();
         await $(`[aria-label="${msg("contact_phone_n", { n: 1 })}"]`).setValue("06 12 34 56 78");
         await capture("contact-dialog");
+        // Nom qui imite une adresse : refusé, message sous le champ.
+        const displayName = field("contact_display_name");
+        await displayName.setValue("support@banque.fr");
+        await button(msg("contact_save")).click();
+        await $("#contact-display_name-error").waitForDisplayed({ timeout: 10000 });
+        await capture("contact-name-refused");
+        // Champ corrigé (puis vidé) : le message disparaît.
+        await displayName.setValue("x");
+        await browser.keys("Backspace");
+        await $("#contact-display_name-error").waitForDisplayed({ reverse: true, timeout: 10000 });
       }
       await button(msg("contact_save")).click();
       await form.waitForDisplayed({ reverse: true, timeout: 10000 });

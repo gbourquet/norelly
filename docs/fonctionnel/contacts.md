@@ -58,6 +58,10 @@ l'ordinateur** : rien n'est envoyé à un serveur.
 - Nom affiché d'un contact : le **nom affiché** s'il est saisi, sinon
   prénom et nom, sinon le surnom, sinon l'adresse préférée.
 - Refus, fenêtre gardée ouverte avec la saisie et l'explication :
+  - un nom (prénom, nom, nom affiché, surnom) qui ressemble à une adresse
+    électronique (il contient « @ », « < », « > » ou un caractère qui leur
+    ressemble) : l'explication s'affiche sous ce champ et disparaît dès
+    qu'on le corrige ;
   - aucune adresse, ou adresse mal formée (citée) ;
   - même adresse deux fois dans la fiche ;
   - adresse qui appartient déjà à **un autre contact**, sans tenir compte
@@ -131,9 +135,11 @@ l'ordinateur** : rien n'est envoyé à un serveur.
   un caractère qui leur ressemble, ou un « @ » écrit en toutes lettres
   comme « support(at)banque.fr » ou « support arobase banque point fr ») :
   seule l'adresse réelle s'affiche alors, pour qu'un message ne puisse pas
-  se faire passer pour une autre adresse. La même règle vaut pour le nom
-  d'une fiche : un contact nommé comme une adresse s'affiche sous son
-  adresse réelle. « Ajouter au carnet » ne reprend pas un tel nom.
+  se faire passer pour une autre adresse. Une fiche ne peut pas porter un
+  tel nom : il est refusé à la saisie, et retiré des fiches enregistrées
+  avant que cette règle n'existe (le contact s'affiche alors sous son autre
+  nom, ou sous son adresse réelle). « Ajouter au carnet » ne reprend pas un
+  tel nom.
 - Une personne absente du carnet dont le nom contient un nom de domaine
   (« Banque.fr », « Service secure.paypal.com ») garde ce nom, mais la
   liste des conversations, les résultats de recherche et les
@@ -382,8 +388,6 @@ l'ordinateur** : rien n'est envoyé à un serveur.
 - Une fiche abîmée dans la base n'apparaît nulle part : l'application ne
   permet ni de la voir, ni de la réparer, ni de la supprimer. Une très
   longue suite de fiches abîmées peut arrêter la liste avant sa fin.
-- Un nom de fiche qui ressemble à une adresse est accepté à la saisie
-  (il est seulement écarté à l'affichage) ; l'import ne le reprend pas.
 - Un groupe passé n'est pas retenu : il est proposé de nouveau à chaque
   recherche. Les listes ne s'importent ni ne s'exportent, les favoris ne s'exportent pas. Photos,
   adresses postales et anniversaires d'un fichier importé sont ignorés.

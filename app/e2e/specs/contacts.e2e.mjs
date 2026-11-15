@@ -2,6 +2,8 @@
 // - « Contacts » du panneau de gauche ouvre la vue ; « Nouveau contact »
 //   crée une fiche à deux adresses dont la seconde est préférée ;
 // - une adresse déjà dans le carnet (à la casse près) est refusée ;
+// - un nom qui imite une adresse est refusé, expliqué sous son champ,
+//   explication effacée dès que le champ est corrigé ;
 // - « Modifier le contact », le favori (« Plus… ») et le filtre des
 //   favoris ;
 // - « Écrire au contact » ouvre la rédaction avec l'adresse préférée ;
@@ -119,6 +121,33 @@ describe("carnet d'adresses", () => {
     );
     await button("Annuler").click();
     await form.waitForDisplayed({ reverse: true, timeout: 10000 });
+  });
+
+  it("refuse un nom qui imite une adresse, expliqué sous le champ", async () => {
+    await button("Nouveau contact").click();
+    const form = dialog("Nouveau contact");
+    await form.waitForDisplayed();
+    const name = field("Nom affiché");
+    await name.setValue("ceo@bank.example");
+    await $('[aria-label="Adresse électronique 1"]').setValue("ceo@norelly.test");
+    await button("Enregistrer").click();
+    const explanation = form.$("#contact-display_name-error");
+    await expect(explanation).toHaveText(
+      expect.stringContaining("Un nom ne peut pas ressembler à une adresse e-mail"),
+    );
+    await expect(name).toHaveAttribute("aria-invalid", "true");
+    await expect(name).toHaveAttribute("aria-describedby", "contact-display_name-error");
+    // Le champ refusé reçoit le focus.
+    await expect(name).toBeFocused();
+    // Rien n'a été enregistré, la fenêtre et la saisie restent.
+    await expect(name).toHaveValue("ceo@bank.example");
+    await expect(form.$('[role="alert"]')).not.toBeExisting();
+    // Corriger le nom efface l'explication.
+    await name.setValue("Direction");
+    await expect(explanation).not.toBeExisting();
+    await button("Annuler").click();
+    await form.waitForDisplayed({ reverse: true, timeout: 10000 });
+    await expect(row("ceo@norelly.test")).not.toBeExisting();
   });
 
   it("modifie la fiche, l'ajoute aux favoris et filtre", async () => {

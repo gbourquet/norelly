@@ -1,0 +1,9 @@
+-- Version 19 : noms de contact imitant une adresse.
+--
+-- La saisie d'une fiche refuse désormais un nom (affiché, prénom, nom,
+-- surnom) qui imite une adresse (norelly_domain::sender::imitates_address).
+-- Les fiches enregistrées avant sont assainies comme à l'import : le nom
+-- est retiré, sort_key et search_text recalculés par le domaine. Le schéma
+-- ne change pas ; le travail est fait en Rust par le crochet de la
+-- migration (norelly_sqlite::contacts::drop_names_imitating_address), dans
+-- la même transaction, avec des paramètres liés.

@@ -13,6 +13,7 @@ use std::fmt;
 use crate::address::{EmailAddress, EmailAddressError};
 use crate::connection::is_format_char;
 use crate::mailbox::{MAX_ADDRESS_CHARS, header_text};
+use crate::sender::imitates_address;
 
 /// Longueur maximale d'un nom (affiché, prénom, nom, surnom, organisation),
 /// en caractères : celle d'un nom de correspondant.
@@ -132,6 +133,8 @@ pub enum ContactError {
     TooLong(ContactField),
     #[error("champ {0:?} avec un caractère interdit")]
     InvalidCharacter(ContactField),
+    #[error("nom {0:?} imitant une adresse")]
+    NameLooksLikeAddress(ContactField),
 }
 
 /// Adresse saisie ou importée, non validée.
@@ -162,6 +165,39 @@ pub struct ContactInput {
     pub emails: Vec<EmailInput>,
     pub phones: Vec<PhoneInput>,
     pub favorite: bool,
+}
+
+impl ContactInput {
+    /// Un nom (affiché, prénom, nom, surnom) imite-t-il une adresse ?
+    #[must_use]
+    pub fn has_names_imitating_address(&self) -> bool {
+        [
+            &self.display_name,
+            &self.given_name,
+            &self.family_name,
+            &self.nickname,
+        ]
+        .into_iter()
+        .any(|name| imitates_address(name))
+    }
+
+    /// Retire les noms (affiché, prénom, nom, surnom) qui imitent une
+    /// adresse ; vrai si un nom l'a été.
+    pub fn drop_names_imitating_address(&mut self) -> bool {
+        let mut dropped = false;
+        for name in [
+            &mut self.display_name,
+            &mut self.given_name,
+            &mut self.family_name,
+            &mut self.nickname,
+        ] {
+            if imitates_address(name) {
+                name.clear();
+                dropped = true;
+            }
+        }
+        dropped
+    }
 }
 
 /// Adresse d'un contact.
@@ -214,6 +250,16 @@ impl ContactPhone {
     }
 }
 
+/// Sort d'un nom qui imite une adresse lors de la validation d'une fiche.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum NameRule {
+    /// Refusé : toute fiche saisie, importée ou relue.
+    RefuseImitations,
+    /// Gardé : seulement pour recalculer les clés d'une fiche telle
+    /// qu'enregistrée ([`ContactDraft::keys_as_stored`]), jamais rendue.
+    KeepImitations,
+}
+
 /// Fiche valide, pas encore enregistrée (ou contenu d'une fiche
 /// enregistrée).
 ///
@@ -221,7 +267,8 @@ impl ContactPhone {
 /// distinctes à la casse près, exactement une préférée ; textes et parties
 /// locales d'adresse sans caractère invisible ([`INVISIBLE`]) ; textes sans
 /// espaces de bord, bornés, sans caractère de contrôle (les notes
-/// admettent sauts de ligne et tabulations).
+/// admettent sauts de ligne et tabulations) ; noms (affiché, prénom, nom,
+/// surnom) qui n'imitent pas une adresse.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ContactDraft {
     display_name: Option<String>,
@@ -236,8 +283,38 @@ pub struct ContactDraft {
 }
 
 impl ContactDraft {
+    /// Fiche relue par un adaptateur de stockage, et seulement pour cela
+    /// (toute saisie passe par [`Self::new`]) : mêmes règles que `new`,
+    /// sauf qu'un nom imitant une adresse est retiré au lieu d'être refusé,
+    /// comme à l'import. Une fiche enregistrée avant que la règle ne
+    /// l'écarte s'ouvre donc normalement, sans ce nom.
+    pub fn from_stored(mut input: ContactInput) -> Result<Self, ContactError> {
+        input.drop_names_imitating_address();
+        Self::new(input)
+    }
+
+    /// Clés de tri et de recherche d'une fiche enregistrée qui porte un nom
+    /// imitant une adresse, calculées avec ce nom : celles que le stockage a
+    /// écrites avant que la règle ne l'écarte. `None` si aucun nom n'imite
+    /// une adresse, ou si la fiche est invalide pour une autre raison.
+    /// [`Self::from_stored`] rend, elle, les clés de la fiche sans ce nom.
+    #[must_use]
+    pub fn keys_as_stored(input: &ContactInput) -> Option<(String, String)> {
+        if !input.has_names_imitating_address() {
+            return None;
+        }
+        let stored = Self::validate(input.clone(), NameRule::KeepImitations).ok()?;
+        Some((stored.sort_key(), stored.search_text()))
+    }
+
     /// Valide une fiche. Sans adresse marquée préférée, la première l'est.
     pub fn new(input: ContactInput) -> Result<Self, ContactError> {
+        Self::validate(input, NameRule::RefuseImitations)
+    }
+
+    /// Règles de [`Self::new`] ; `rule` dit seulement si un nom imitant une
+    /// adresse est refusé (toujours, hors calcul de [`Self::keys_as_stored`]).
+    fn validate(input: ContactInput, rule: NameRule) -> Result<Self, ContactError> {
         if input.emails.is_empty() {
             return Err(ContactError::NoAddress);
         }
@@ -247,12 +324,26 @@ impl ContactDraft {
         if input.phones.len() > MAX_CONTACT_PHONES {
             return Err(ContactError::TooManyPhones);
         }
-        let name = |raw: &str, field| text(raw, field, MAX_CONTACT_NAME_CHARS);
+        // Un nom qui imite une adresse pourrait faire passer une adresse
+        // pour une autre : il est refusé (l'organisation n'est jamais
+        // affichée comme nom du correspondant).
+        let name = |raw: &str, field| {
+            let value = text(raw, field, MAX_CONTACT_NAME_CHARS)?;
+            if rule == NameRule::RefuseImitations && value.as_deref().is_some_and(imitates_address)
+            {
+                return Err(ContactError::NameLooksLikeAddress(field));
+            }
+            Ok(value)
+        };
+        let organization = text(
+            &input.organization,
+            ContactField::Organization,
+            MAX_CONTACT_NAME_CHARS,
+        )?;
         let display_name = name(&input.display_name, ContactField::DisplayName)?;
         let given_name = name(&input.given_name, ContactField::GivenName)?;
         let family_name = name(&input.family_name, ContactField::FamilyName)?;
         let nickname = name(&input.nickname, ContactField::Nickname)?;
-        let organization = name(&input.organization, ContactField::Organization)?;
         let notes = notes(&input.notes)?;
 
         if input.emails.iter().filter(|e| e.preferred).count() > 1 {
@@ -667,6 +758,24 @@ pub fn clean_invisible(input: ContactInput) -> InvisibleCleanup {
     // Retirer des caractères ne rend invalide aucune fiche qui suivait les
     // règles d'avant : un refus vient d'un autre défaut de la ligne.
     ContactDraft::new(cleaned).map_or(InvisibleCleanup::Keep, InvisibleCleanup::Rewrite)
+}
+
+/// Nettoie une fiche enregistrée avant que les noms qui imitent une
+/// adresse ne soient refusés à la saisie : ces noms sont retirés, comme à
+/// l'import. Une fiche qui contient aussi des caractères invisibles (restée
+/// telle quelle au nettoyage de [`clean_invisible`], qui la validait avec
+/// ce nom) en est nettoyée du même coup. Sans tel nom : [`InvisibleCleanup::Keep`].
+#[must_use]
+pub fn clean_names_imitating_address(mut input: ContactInput) -> InvisibleCleanup {
+    if !input.drop_names_imitating_address() {
+        return InvisibleCleanup::Keep;
+    }
+    match clean_invisible(input.clone()) {
+        InvisibleCleanup::Keep => {
+            ContactDraft::new(input).map_or(InvisibleCleanup::Keep, InvisibleCleanup::Rewrite)
+        }
+        cleaned => cleaned,
+    }
 }
 
 /// Filtre de la liste des contacts.
@@ -1243,6 +1352,157 @@ mod tests {
         let mut i = input(&["alice@example.com"]);
         i.display_name = "Ali\u{2800}ce\u{0}".into();
         assert_eq!(cleanup(i), InvisibleCleanup::Keep);
+    }
+
+    /// Remplit un champ de nom d'une saisie.
+    type NameSetter = fn(&mut ContactInput, &str);
+
+    /// Champs de nom d'une fiche, et comment les remplir.
+    fn name_fields() -> Vec<(ContactField, NameSetter)> {
+        vec![
+            (ContactField::DisplayName, |i, s| i.display_name = s.into()),
+            (ContactField::GivenName, |i, s| i.given_name = s.into()),
+            (ContactField::FamilyName, |i, s| i.family_name = s.into()),
+            (ContactField::Nickname, |i, s| i.nickname = s.into()),
+        ]
+    }
+
+    #[test]
+    fn names_imitating_an_address_are_refused() {
+        for (field, set) in name_fields() {
+            for bad in ["ceo@bank.example", "Banque <service@banque.fr>", "a > b"] {
+                let mut i = input(&["a@example.com"]);
+                set(&mut i, bad);
+                assert_eq!(
+                    ContactDraft::new(i),
+                    Err(ContactError::NameLooksLikeAddress(field)),
+                    "{field:?} : {bad:?}"
+                );
+            }
+            // Guillemets français : un nom ordinaire.
+            let mut i = input(&["a@example.com"]);
+            set(&mut i, "Alice « Lili » Martin");
+            assert!(ContactDraft::new(i).is_ok(), "{field:?}");
+        }
+        // L'organisation ne s'affiche pas comme nom du correspondant.
+        let mut i = input(&["a@example.com"]);
+        i.organization = "ACME <ventes>".into();
+        assert_eq!(draft(i).organization(), Some("ACME <ventes>"));
+    }
+
+    #[test]
+    fn a_stored_card_drops_its_names_imitating_an_address() {
+        let mut i = input(&["pirate@example.net"]);
+        i.display_name = "ceo@bank.example".into();
+        i.given_name = "Bob".into();
+        i.family_name = "<x>".into();
+        i.nickname = "Lili".into();
+        let stored = ContactDraft::from_stored(i).unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(stored.display_name_field(), None);
+        assert_eq!(stored.given_name(), Some("Bob"));
+        assert_eq!(stored.family_name(), None);
+        assert_eq!(stored.nickname(), Some("Lili"));
+        assert_eq!(stored.display_name(), "Bob");
+        assert!(
+            !stored.search_text().contains("bank"),
+            "{}",
+            stored.search_text()
+        );
+        // Les autres règles s'appliquent toujours.
+        let mut i = input(&[]);
+        i.display_name = "ceo@bank.example".into();
+        assert_eq!(ContactDraft::from_stored(i), Err(ContactError::NoAddress));
+    }
+
+    #[test]
+    fn dropping_names_imitating_an_address_says_whether_one_was() {
+        let mut i = input(&["a@example.com"]);
+        i.given_name = "Alice".into();
+        i.organization = "a@b".into();
+        assert!(!i.has_names_imitating_address());
+        assert!(!i.drop_names_imitating_address());
+        assert_eq!(i.given_name, "Alice");
+        assert_eq!(i.organization, "a@b");
+        i.nickname = "x@y".into();
+        assert!(i.has_names_imitating_address());
+        assert!(i.drop_names_imitating_address());
+        assert!(!i.has_names_imitating_address());
+        assert_eq!(i.nickname, "");
+        assert_eq!(i.given_name, "Alice");
+    }
+
+    #[test]
+    fn stored_names_imitating_an_address_are_cleaned() {
+        // Sans tel nom : rien à faire.
+        let mut i = input(&["a@example.com"]);
+        i.display_name = "Alice".into();
+        assert_eq!(clean_names_imitating_address(i), InvisibleCleanup::Keep);
+        // Nom retiré, fiche réécrite.
+        let mut i = input(&["a@example.com"]);
+        i.display_name = "ceo@bank.example".into();
+        i.given_name = "Bob".into();
+        let InvisibleCleanup::Rewrite(d) = clean_names_imitating_address(i) else {
+            panic!("fiche non réécrite");
+        };
+        assert_eq!(
+            (d.display_name_field(), d.given_name()),
+            (None, Some("Bob"))
+        );
+        // Fiche invalide pour une autre raison : laissée telle quelle.
+        let mut i = input(&["a@example.com"]);
+        i.display_name = "x@y".into();
+        i.notes = "a\0b".into();
+        assert_eq!(clean_names_imitating_address(i), InvisibleCleanup::Keep);
+    }
+
+    #[test]
+    fn stored_names_imitating_an_address_are_cleaned_with_invisible_characters() {
+        // Restée telle quelle au nettoyage des invisibles (nom refusé) :
+        // nettoyée des deux à la fois.
+        let mut i = input(&["ali\u{3164}ce@example.com", "alice@example.com"]);
+        i.display_name = "ceo@bank.example".into();
+        i.given_name = "Ali\u{2800}ce".into();
+        assert_eq!(clean_invisible(i.clone()), InvisibleCleanup::Keep);
+        let InvisibleCleanup::Rewrite(d) = clean_names_imitating_address(i) else {
+            panic!("fiche non réécrite");
+        };
+        assert_eq!(
+            (d.display_name_field(), d.given_name()),
+            (None, Some("Alice"))
+        );
+        let keys: Vec<&str> = d.emails().iter().map(|e| e.key().as_str()).collect();
+        assert_eq!(keys, ["alice@example.com"]);
+        // Plus aucune adresse utilisable : retirée, comme au nettoyage des
+        // invisibles.
+        let mut i = input(&["\u{2800}@example.com"]);
+        i.nickname = "<x>".into();
+        assert_eq!(clean_names_imitating_address(i), InvisibleCleanup::Remove);
+    }
+
+    #[test]
+    fn keys_as_stored_are_computed_with_the_name_imitating_an_address() {
+        let mut i = input(&["alice@example.com"]);
+        i.display_name = "CEO@Bank.example".into();
+        i.organization = "ACME".into();
+        assert_eq!(
+            ContactDraft::keys_as_stored(&i),
+            Some((
+                "ceo@bank.example".to_owned(),
+                "ceo@bank.example\nacme\nalice@example.com".to_owned()
+            ))
+        );
+        // Relue, la fiche n'a plus ce nom : d'autres clés.
+        let read = ContactDraft::from_stored(i).unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(read.sort_key(), "alice@example.com");
+        // Sans nom imitant une adresse : rien de tel.
+        let mut i = input(&["alice@example.com"]);
+        i.display_name = "Alice".into();
+        assert_eq!(ContactDraft::keys_as_stored(&i), None);
+        // Invalide pour une autre raison : rien non plus.
+        let mut i = input(&["alice@example.com"]);
+        i.display_name = "x@y".into();
+        i.notes = "a\0b".into();
+        assert_eq!(ContactDraft::keys_as_stored(&i), None);
     }
 
     #[test]

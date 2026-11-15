@@ -60,6 +60,26 @@ fn refused_cards_become_codes_with_their_field() {
 }
 
 #[test]
+fn a_name_imitating_an_address_has_its_own_code_and_field() {
+    for (field, expected) in [
+        (ContactField::DisplayName, FieldDto::DisplayName),
+        (ContactField::GivenName, FieldDto::GivenName),
+        (ContactField::FamilyName, FieldDto::FamilyName),
+        (ContactField::Nickname, FieldDto::Nickname),
+    ] {
+        assert_eq!(
+            code(ContactError::NameLooksLikeAddress(field)),
+            (
+                ErrorCodeDto::ContactNameLooksLikeAddress,
+                Some(expected),
+                None
+            ),
+            "{field:?}"
+        );
+    }
+}
+
+#[test]
 fn store_refusals_become_codes() {
     assert_eq!(
         code(ContactStoreError::DuplicateAddress(address(

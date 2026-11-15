@@ -479,6 +479,7 @@
   "err_contact_no_address": "Enter at least one email address.",
   "err_contact_invalid": "Value rejected on the card: {field}.",
   "err_contact_too_long": "Text too long: {field}.",
+  "err_contact_name_looks_like_address": "A name can’t look like an email address: remove “@”, “<”, “>”, any character that looks like them and “@” spelled out (“(at)”, “[at]”). Type a name such as “Alice Martin”.",
   "err_contact_repeated_address": "This address appears twice on the card.",
   "err_contact_duplicate_address": "This address already belongs to another contact.",
   "err_contact_not_found": "This contact no longer exists.",

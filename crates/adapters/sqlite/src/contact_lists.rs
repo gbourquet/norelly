@@ -13,7 +13,7 @@ use norelly_domain::contact_lists::{
 };
 use norelly_domain::ports::{
     ContactListBook, ContactListCursor, ContactListDirectory, ContactListPage,
-    ContactListStoreError, ContactListSummary, MAX_PAGE_SIZE, StoreError,
+    ContactListStoreError, ContactListSummary, PageSize, StoreError,
 };
 use rusqlite::{Connection, Transaction, params};
 
@@ -252,9 +252,9 @@ impl ContactListDirectory for SqliteContactBook {
         &self,
         filter: &ContactListFilter,
         cursor: Option<ContactListCursor>,
-        limit: u32,
+        limit: PageSize,
     ) -> Result<ContactListPage, StoreError> {
-        let limit = limit.min(MAX_PAGE_SIZE);
+        let limit = limit.get();
         if limit == 0 {
             return Ok(ContactListPage::default());
         }
@@ -298,9 +298,9 @@ impl ContactListDirectory for SqliteContactBook {
 
 #[cfg(test)]
 mod tests {
-    use norelly_domain::ports::ContactBook;
+    use norelly_domain::ports::{ContactBook, PageSize};
     use norelly_test_support::contact_lists_contracts::{
-        contact_list_contract, contact_merge_contract, sample_list,
+        contact_list_contract, contact_list_page_size_contract, contact_merge_contract, sample_list,
     };
     use norelly_test_support::contacts_contracts::sample_contact;
 
@@ -319,6 +319,11 @@ mod tests {
     #[tokio::test]
     async fn contact_merge_passes_contract() -> Result<(), ContactListStoreError> {
         contact_merge_contract(&book()).await
+    }
+
+    #[tokio::test]
+    async fn contact_lists_pass_page_size_contract() -> Result<(), ContactListStoreError> {
+        contact_list_page_size_contract(&book()).await
     }
 
     async fn with_list(book: &SqliteContactBook) -> Result<ContactList, ContactListStoreError> {
@@ -396,7 +401,7 @@ mod tests {
             .await?;
         assert!(book.get_list(list.id()).await.is_err(), "nom vide accepté");
         assert!(
-            book.list_page(&ContactListFilter::default(), None, 10)
+            book.list_page(&ContactListFilter::default(), None, PageSize::new(10))
                 .await
                 .is_err()
         );

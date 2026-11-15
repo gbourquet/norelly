@@ -3,7 +3,7 @@
 use norelly_domain::contact_export::ContactSelection;
 use norelly_domain::contacts::{Contact, ContactFilter, ContactId};
 use norelly_domain::ports::{
-    ContactBook, ContactCursor, ContactPage, MAX_CONTACT_LOOKUP, StoreError,
+    ContactBook, ContactCursor, ContactPage, MAX_CONTACT_LOOKUP, PageSize, StoreError,
 };
 use norelly_test_support::contacts_contracts::{InMemoryContactBook, full_contact, sample_contact};
 
@@ -80,7 +80,7 @@ impl ContactDirectory for EndlessDirectory {
         &self,
         _: &ContactFilter,
         _: Option<ContactCursor>,
-        _: u32,
+        _: PageSize,
     ) -> Result<ContactPage, StoreError> {
         Ok(ContactPage::default())
     }

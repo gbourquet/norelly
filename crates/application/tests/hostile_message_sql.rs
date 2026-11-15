@@ -30,7 +30,7 @@ use norelly_domain::mailbox::{Flags, Keyword, header_text};
 use norelly_domain::mailbox::{MailboxName, Uid, UidValidity};
 use norelly_domain::ports::{
     AccountRepository, BlobStore, ConversationQuery, DraftStore, FolderTreeQuery, MailStore,
-    MessageListQuery, OutboxStore, OutgoingMessage, PendingOpStore, ReadingPreferences,
+    MessageListQuery, OutboxStore, OutgoingMessage, PageSize, PendingOpStore, ReadingPreferences,
     RemoteMailboxSession, StoredBody,
 };
 use norelly_domain::ports::{SearchIndex, SearchRequest, SearchScope};
@@ -565,7 +565,7 @@ async fn trapped_contacts_cannot_alter_the_database() -> Result<(), Box<dyn std:
     };
     for (n, payload) in PAYLOADS.iter().enumerate() {
         let page = book
-            .page(&ContactFilter::new(payload, false), None, 50)
+            .page(&ContactFilter::new(payload, false), None, PageSize::new(50))
             .await?;
         assert!(
             page.items.iter().any(|i| i.id == created[n].id()),
@@ -595,7 +595,7 @@ async fn trapped_contacts_cannot_alter_the_database() -> Result<(), Box<dyn std:
     let ids: Vec<_> = created.iter().map(|c| c.id()).collect();
     assert_eq!(book.delete_many(&ids).await?, PAYLOADS.len());
     assert!(
-        book.page(&ContactFilter::default(), None, 50)
+        book.page(&ContactFilter::default(), None, PageSize::new(50))
             .await?
             .items
             .is_empty()
@@ -646,7 +646,7 @@ async fn trapped_contact_lists_cannot_alter_the_database() -> Result<(), Box<dyn
     for (n, payload) in PAYLOADS.iter().enumerate() {
         let name = format!("{n} {payload}");
         let page = ListContactLists { directory: &book }
-            .execute(&name, None, 50)
+            .execute(&name, None, PageSize::new(50))
             .await?;
         assert!(
             page.items.iter().any(|i| i.id == created[n].id()),
@@ -756,7 +756,9 @@ async fn trapped_import_cannot_alter_the_database() -> Result<(), Box<dyn std::e
     };
     let outcome = apply.execute(&preview.cards, DuplicatePolicy::Skip).await?;
     assert_eq!(outcome.created, PAYLOADS.len());
-    let page = book.page(&ContactFilter::default(), None, 50).await?;
+    let page = book
+        .page(&ContactFilter::default(), None, PageSize::new(50))
+        .await?;
     assert_eq!(page.items.len(), PAYLOADS.len());
     for item in &page.items {
         let contact = book
@@ -768,7 +770,7 @@ async fn trapped_import_cannot_alter_the_database() -> Result<(), Box<dyn std::e
     // Chaque charge retrouve sa fiche comme filtre.
     for payload in PAYLOADS {
         let found = book
-            .page(&ContactFilter::new(payload, false), None, 50)
+            .page(&ContactFilter::new(payload, false), None, PageSize::new(50))
             .await?;
         assert!(!found.items.is_empty(), "{payload:?} : aucune fiche");
     }
@@ -784,7 +786,9 @@ async fn trapped_import_cannot_alter_the_database() -> Result<(), Box<dyn std::e
     .cards;
     let outcome = apply.execute(&cards, DuplicatePolicy::Complete).await?;
     assert_eq!((outcome.created, outcome.completed), (0, PAYLOADS.len()));
-    let page = book.page(&ContactFilter::default(), None, 50).await?;
+    let page = book
+        .page(&ContactFilter::default(), None, PageSize::new(50))
+        .await?;
     for item in &page.items {
         let contact = book
             .get(item.id)
@@ -891,7 +895,7 @@ async fn trapped_google_labels_and_apostrophes_cannot_alter_the_database()
         async move {
             let [first, ..] = apostrophe_addresses(n);
             let page = book
-                .page(&ContactFilter::new(&first, false), None, 50)
+                .page(&ContactFilter::new(&first, false), None, PageSize::new(50))
                 .await?;
             let [item] = &page.items[..] else {
                 panic!("{first:?} : {} fiches", page.items.len());
@@ -965,7 +969,7 @@ async fn trapped_google_labels_and_apostrophes_cannot_alter_the_database()
         // destinataire, retrouve sa fiche et seulement elle.
         for address in [&first, &second, &second_bis] {
             let found = book
-                .page(&ContactFilter::new(address, false), None, 50)
+                .page(&ContactFilter::new(address, false), None, PageSize::new(50))
                 .await?;
             assert_eq!(
                 found.items.iter().map(|i| i.id).collect::<Vec<_>>(),
@@ -1005,7 +1009,7 @@ async fn trapped_google_labels_and_apostrophes_cannot_alter_the_database()
         assert_phone(&contact, n);
     }
     assert_eq!(
-        book.page(&ContactFilter::default(), None, 50)
+        book.page(&ContactFilter::default(), None, PageSize::new(50))
             .await?
             .items
             .len(),

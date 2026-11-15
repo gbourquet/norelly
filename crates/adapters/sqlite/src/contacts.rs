@@ -18,7 +18,7 @@ use norelly_domain::contacts::{
 };
 use norelly_domain::ports::{
     ContactBook, ContactCursor, ContactDirectory, ContactListItem, ContactPage, ContactStoreError,
-    ImportOutcome, MAX_CONTACT_LOOKUP, MAX_PAGE_SIZE, StoreError,
+    ImportOutcome, MAX_CONTACT_LOOKUP, PageSize, StoreError,
 };
 use rusqlite::{Connection, OptionalExtension, Row, Transaction, params};
 
@@ -567,9 +567,9 @@ impl ContactDirectory for SqliteContactBook {
         &self,
         filter: &ContactFilter,
         cursor: Option<ContactCursor>,
-        limit: u32,
+        limit: PageSize,
     ) -> Result<ContactPage, StoreError> {
-        let limit = limit.min(MAX_PAGE_SIZE);
+        let limit = limit.get();
         if limit == 0 {
             return Ok(ContactPage::default());
         }
@@ -677,8 +677,8 @@ impl ContactDirectory for SqliteContactBook {
 #[cfg(test)]
 mod tests {
     use norelly_test_support::contacts_contracts::{
-        contact_book_contract, contact_import_contract, contact_selection_contract, full_contact,
-        sample_contact,
+        contact_book_contract, contact_import_contract, contact_page_size_contract,
+        contact_selection_contract, full_contact, sample_contact,
     };
 
     use super::*;
@@ -700,6 +700,11 @@ mod tests {
     #[tokio::test]
     async fn contact_book_passes_selection_contract() -> Result<(), ContactStoreError> {
         contact_selection_contract(&book()).await
+    }
+
+    #[tokio::test]
+    async fn contact_book_passes_page_size_contract() -> Result<(), ContactStoreError> {
+        contact_page_size_contract(&book()).await
     }
 
     fn count(c: &rusqlite::Connection, table: &'static str) -> Result<i64, StoreError> {
@@ -790,7 +795,7 @@ mod tests {
             .await?;
         assert!(book.get(a.id()).await.is_err());
         assert!(
-            book.page(&ContactFilter::default(), None, 10)
+            book.page(&ContactFilter::default(), None, PageSize::new(10))
                 .await
                 .is_err()
         );

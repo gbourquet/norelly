@@ -13,7 +13,7 @@ use norelly_domain::contacts::{
     Contact, ContactError, ContactField, ContactId, ContactInput, EmailInput, MAX_CONTACT_EMAILS,
     PhoneInput, contact_selection,
 };
-use norelly_domain::ports::{ContactCursor, ContactListItem, ContactStoreError};
+use norelly_domain::ports::{ContactCursor, ContactListItem, ContactStoreError, PageSize};
 use tauri::State;
 
 use crate::ipc::{
@@ -196,7 +196,7 @@ pub async fn list_contacts(
     let page = ListContacts {
         directory: &state.contacts,
     }
-    .execute(&text, favorites_only, cursor, limit)
+    .execute(&text, favorites_only, cursor, PageSize::new(limit))
     .await
     .map_err(|e| contact_error(e, &[]))?;
     Ok(ContactPageDto {

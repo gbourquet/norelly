@@ -49,7 +49,8 @@ async fn invalid_input_writes_nothing() -> Result<(), ContactFailure> {
         }))
     );
     assert_eq!(
-        book.page(&ContactFilter::default(), None, 10).await?,
+        book.page(&ContactFilter::default(), None, PageSize::new(10))
+            .await?,
         ContactPage::default()
     );
     Ok(())
@@ -116,21 +117,29 @@ async fn delete_list_and_get() -> Result<(), ContactFailure> {
 
     let list = ListContacts { directory: &book };
     assert_eq!(
-        names(&list.execute("", false, None, 10).await?),
+        names(&list.execute("", false, None, PageSize::new(10)).await?),
         vec!["Alice", "Bob", "Carole"]
     );
     assert_eq!(
-        names(&list.execute("  BO ", false, None, 10).await?),
+        names(
+            &list
+                .execute("  BO ", false, None, PageSize::new(10))
+                .await?
+        ),
         vec!["Bob"]
     );
     assert_eq!(
-        names(&list.execute("", true, None, 10).await?),
+        names(&list.execute("", true, None, PageSize::new(10)).await?),
         vec!["Carole"]
     );
-    let first = list.execute("", false, None, 1).await?;
+    let first = list.execute("", false, None, PageSize::new(1)).await?;
     assert_eq!(first.items, vec![ContactListItem::from(&a)]);
     assert_eq!(
-        names(&list.execute("", false, first.next, 10).await?),
+        names(
+            &list
+                .execute("", false, first.next, PageSize::new(10))
+                .await?
+        ),
         vec!["Bob", "Carole"]
     );
 
@@ -144,7 +153,7 @@ async fn delete_list_and_get() -> Result<(), ContactFailure> {
         2
     );
     assert_eq!(
-        names(&list.execute("", false, None, 10).await?),
+        names(&list.execute("", false, None, PageSize::new(10)).await?),
         vec!["Bob"]
     );
     assert_eq!(
@@ -184,7 +193,7 @@ impl ContactDirectory for BrokenDirectory {
         &self,
         _: &ContactFilter,
         _: Option<ContactCursor>,
-        _: u32,
+        _: PageSize,
     ) -> Result<ContactPage, StoreError> {
         Err(StoreError("carnet illisible".into()))
     }

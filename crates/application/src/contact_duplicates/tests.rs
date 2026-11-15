@@ -4,7 +4,7 @@ use norelly_domain::contact_duplicates::{DuplicateReason, MergeSelection, merge_
 use norelly_domain::contacts::{AddressKey, ContactFilter};
 use norelly_domain::contacts::{ContactError, ContactId, ContactInput, EmailInput};
 use norelly_domain::ports::{
-    ContactBook, ContactCursor, ContactPage, MAX_CONTACT_LOOKUP, StoreError,
+    ContactBook, ContactCursor, ContactPage, MAX_CONTACT_LOOKUP, PageSize, StoreError,
 };
 use norelly_test_support::contact_import_contracts::FakeNfc;
 use norelly_test_support::contacts_contracts::{InMemoryContactBook, sample_contact};
@@ -53,7 +53,7 @@ impl ContactDirectory for HugeBook {
         &self,
         _: &ContactFilter,
         _: Option<ContactCursor>,
-        _: u32,
+        _: PageSize,
     ) -> Result<ContactPage, StoreError> {
         Ok(ContactPage::default())
     }

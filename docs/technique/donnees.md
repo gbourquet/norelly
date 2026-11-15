@@ -80,9 +80,13 @@ en tête et à chaque table.
   retiré au lieu d'être refusé. La migration 19 a retiré ces noms des
   fiches enregistrées ; la relecture tolérante garde lisibles les fiches
   qu'une règle élargie plus tard viendrait à viser. Pour une telle fiche,
-  `sort_key` et `search_text` stockés (calculés avec ce nom) ne sont pas
-  comparés à ceux du domaine : elle reste valide, et non écartée comme
-  une fiche abîmée.
+  `sort_key` et `search_text` stockés doivent être ceux que le domaine
+  calcule pour la fiche relue, ou pour la fiche telle qu'enregistrée, avec
+  ce nom (`ContactDraft::keys_as_stored`) ; d'autres valeurs la rendent
+  invalide (écartée seule), même avec un tel nom. Le curseur de la liste
+  reprend après la clé de tri **stockée** de la dernière fiche, celle de
+  l'ordre SQL : une fiche rangée sous son nom enregistré ne fait ni sauter
+  ni répéter de fiches.
 - Carnet d'adresses : une adresse (à la casse près) n'appartient qu'à un
   contact (`contact_emails.address_key UNIQUE`) ; ordre et filtre de la
   liste comparent `sort_key` et `search_text` octet par octet, sans le

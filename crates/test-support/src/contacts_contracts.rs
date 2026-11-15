@@ -116,7 +116,7 @@ pub async fn contact_book_contract<B: ContactBook + ContactDirectory>(
         ContactPage::default(),
         "carnet non vide au départ"
     );
-    let unknown = ContactId::new(i64::MAX).unwrap_or_else(|| panic!("id"));
+    let unknown = ContactId::new(i64::from(u32::MAX)).unwrap_or_else(|| panic!("id"));
     assert_eq!(book.get(unknown).await?, None);
 
     // Création et relecture, tous champs compris.
@@ -512,7 +512,7 @@ pub async fn contact_import_contract<B: ContactBook + ContactDirectory>(
     let zoe = sample_contact("Zoé", &["zoe@example.org"]);
     let unknown = ContactCompletion::new(
         zoe.clone()
-            .with_id(ContactId::new(i64::MAX).unwrap_or_else(|| panic!("id"))),
+            .with_id(ContactId::new(i64::from(u32::MAX)).unwrap_or_else(|| panic!("id"))),
         zoe,
     );
     assert_eq!(
@@ -572,6 +572,109 @@ pub async fn contact_import_contract<B: ContactBook + ContactDirectory>(
     Ok(())
 }
 
+/// Page qui doit être lue malgré les fiches invalides.
+async fn readable_page<D: ContactDirectory>(
+    directory: &D,
+    filter: &ContactFilter,
+    cursor: Option<ContactCursor>,
+    limit: u32,
+) -> ContactPage {
+    directory
+        .page(filter, cursor, PageSize::new(limit))
+        .await
+        .unwrap_or_else(|e| panic!("une fiche invalide fait échouer la page : {e}"))
+}
+
+/// Contrat d'une fiche relue invalide (carnet vide au départ) : `corrupt`
+/// rend illisible en base la fiche désignée. Elle seule est écartée de la
+/// liste (pages pleines, pagination menée jusqu'au bout) et des fiches
+/// cherchées par adresse ; la lecture de cette fiche reste une erreur.
+pub async fn contact_corruption_contract<B, F, Fut>(
+    book: &B,
+    corrupt: F,
+) -> Result<(), ContactStoreError>
+where
+    B: ContactBook + ContactDirectory,
+    F: Fn(ContactId) -> Fut,
+    Fut: Future<Output = Result<(), StoreError>>,
+{
+    let all = ContactFilter::default();
+    let mut ids = Vec::new();
+    for name in ["Alice", "Bob", "Carole", "David", "Zoe"] {
+        let address = format!("{}@example.com", name.to_lowercase());
+        ids.push(book.create(&sample_contact(name, &[&address])).await?.id());
+    }
+    // Bob, au milieu de la liste, et Zoe, la dernière fiche.
+    corrupt(ids[1]).await?;
+    corrupt(ids[4]).await?;
+
+    // Page pleine malgré la fiche écartée, et suite annoncée.
+    let first = readable_page(book, &all, None, 2).await;
+    assert_eq!(names(&first.items), vec!["Alice", "Carole"]);
+    assert!(first.next.is_some(), "suite non annoncée");
+    // La dernière fiche, illisible, n'annonce pas une page vide.
+    let second = readable_page(book, &all, first.next, 2).await;
+    assert_eq!(names(&second.items), vec!["David"]);
+    assert_eq!(second.next, None, "suite annoncée sans fiche valide");
+    for limit in 1..=5 {
+        let items = all_pages(book, &all, limit)
+            .await
+            .unwrap_or_else(|e| panic!("pagination interrompue ({limit}) : {e}"));
+        assert_eq!(names(&items), vec!["Alice", "Carole", "David"], "{limit}");
+    }
+    // Filtre : seule la fiche invalide correspondait.
+    let bob = readable_page(book, &ContactFilter::new("bob", false), None, 10).await;
+    assert_eq!(bob, ContactPage::default());
+
+    // Fiches par adresse : la fiche invalide est écartée, pas les autres.
+    let keys = [
+        key("alice@example.com"),
+        key("bob@example.com"),
+        key("david@example.com"),
+    ];
+    let found = book
+        .by_addresses(&keys)
+        .await
+        .unwrap_or_else(|e| panic!("une fiche invalide fait échouer la recherche : {e}"));
+    assert_eq!(
+        found.iter().map(Contact::id).collect::<Vec<_>>(),
+        vec![ids[0], ids[3]]
+    );
+
+    assert!(book.get(ids[1]).await.is_err(), "fiche invalide relue");
+    let alice = book
+        .get(ids[0])
+        .await?
+        .unwrap_or_else(|| panic!("fiche valide perdue"));
+    // Export et recherche des doublons : la fiche invalide est écartée,
+    // les autres restent lues.
+    let bob = ContactSelection::Contacts(vec![ids[1], ids[3]]);
+    let exported = book
+        .contacts(&bob, 10)
+        .await
+        .unwrap_or_else(|e| panic!("une fiche invalide fait échouer l'export : {e}"));
+    assert_eq!(
+        exported.iter().map(Contact::id).collect::<Vec<_>>(),
+        vec![ids[3]]
+    );
+    let everyone = book
+        .contacts(&ContactSelection::All, 10)
+        .await
+        .unwrap_or_else(|e| panic!("une fiche invalide fait échouer l'export : {e}"));
+    assert_eq!(
+        everyone.iter().map(Contact::id).collect::<Vec<_>>(),
+        vec![ids[0], ids[2], ids[3]]
+    );
+    // La fusion, qui écrit, refuse une fiche invalide.
+    let stale = sample_contact("Bob", &["bob@example.com"]).with_id(ids[1]);
+    assert!(
+        book.merge(&alice, alice.draft(), &[stale]).await.is_err(),
+        "fiche invalide fusionnée"
+    );
+    assert_eq!(book.get(ids[0]).await?, Some(alice));
+    Ok(())
+}
+
 /// Faux carnet d'adresses en mémoire, listes de diffusion comprises
 /// ([`crate::contact_lists_contracts`]).
 #[derive(Debug, Default)]
@@ -580,9 +683,35 @@ pub struct InMemoryContactBook {
     /// Listes : dernier identifiant attribué, listes. Verrouillé après
     /// `state` quand les deux le sont.
     pub(crate) lists: Mutex<(i64, Vec<ContactList>)>,
+    /// Fiches rendues illisibles par [`Self::corrupt`].
+    unreadable: Mutex<Vec<ContactId>>,
 }
 
 impl InMemoryContactBook {
+    /// Rend la fiche `id` illisible, comme une ligne invalide en base
+    /// ([`contact_corruption_contract`]).
+    pub fn corrupt(&self, id: ContactId) {
+        self.unreadable
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push(id);
+    }
+
+    fn is_unreadable(&self, id: ContactId) -> bool {
+        self.unreadable
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .contains(&id)
+    }
+
+    /// Fiches lisibles, dans l'ordre de la liste : une fiche illisible est
+    /// écartée, comme par SQLite.
+    fn readable(&self) -> Vec<Contact> {
+        let mut contacts = sorted(&self.lock().1);
+        contacts.retain(|c| !self.is_unreadable(c.id()));
+        contacts
+    }
+
     pub(crate) fn lock(&self) -> MutexGuard<'_, (i64, Vec<Contact>)> {
         self.state.lock().unwrap_or_else(PoisonError::into_inner)
     }
@@ -718,6 +847,12 @@ impl ContactBook for InMemoryContactBook {
         let read: Vec<Contact> = std::iter::once(keep).chain(absorbed).cloned().collect();
         let keep = keep.id();
         let absorbed: Vec<ContactId> = absorbed.iter().map(Contact::id).collect();
+        if let Some(id) = std::iter::once(&keep)
+            .chain(&absorbed)
+            .find(|id| self.is_unreadable(**id))
+        {
+            return Err(StoreError(format!("contact {id} corrompu")).into());
+        }
         let mut state = self.lock();
         let known = |id: &ContactId| state.1.iter().any(|c| c.id() == *id);
         if !known(&keep) || !absorbed.iter().all(known) {
@@ -805,7 +940,8 @@ impl ContactDirectory for InMemoryContactBook {
     ) -> Result<ContactPage, StoreError> {
         let limit = limit.get() as usize;
         let after = cursor.map(SortKey);
-        let mut rest = sorted(&self.lock().1)
+        let mut rest = self
+            .readable()
             .into_iter()
             .filter(|c| filter.matches(c.draft()))
             .filter(|c| {
@@ -825,12 +961,16 @@ impl ContactDirectory for InMemoryContactBook {
     }
 
     async fn get(&self, id: ContactId) -> Result<Option<Contact>, StoreError> {
+        if self.is_unreadable(id) {
+            return Err(StoreError(format!("contact {id} corrompu")));
+        }
         Ok(self.lock().1.iter().find(|c| c.id() == id).cloned())
     }
 
     async fn by_addresses(&self, keys: &[AddressKey]) -> Result<Vec<Contact>, StoreError> {
         let keys = &keys[..keys.len().min(MAX_CONTACT_LOOKUP)];
-        Ok(sorted(&self.lock().1)
+        Ok(self
+            .readable()
             .into_iter()
             .filter(|c| keys.iter().any(|k| c.draft().has_address(k)))
             .collect())
@@ -841,7 +981,8 @@ impl ContactDirectory for InMemoryContactBook {
         selection: &ContactSelection,
         limit: usize,
     ) -> Result<Vec<Contact>, StoreError> {
-        Ok(sorted(&self.lock().1)
+        Ok(self
+            .readable()
             .into_iter()
             .filter(|c| match selection {
                 ContactSelection::All => true,
@@ -874,5 +1015,15 @@ mod tests {
     #[tokio::test]
     async fn in_memory_contact_book_passes_page_size_contract() -> Result<(), ContactStoreError> {
         contact_page_size_contract(&InMemoryContactBook::default()).await
+    }
+
+    #[tokio::test]
+    async fn in_memory_contact_book_passes_corruption_contract() -> Result<(), ContactStoreError> {
+        let book = InMemoryContactBook::default();
+        contact_corruption_contract(&book, |id| {
+            book.corrupt(id);
+            async { Ok(()) }
+        })
+        .await
     }
 }

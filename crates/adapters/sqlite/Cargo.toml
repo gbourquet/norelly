@@ -21,6 +21,8 @@ tracing.workspace = true
 [dev-dependencies]
 norelly-test-support.workspace = true
 criterion.workspace = true
+# Journal capturé (fiche invalide signalée une fois, sans son contenu).
+tracing-subscriber.workspace = true
 
 [[bench]]
 name = "message_list"

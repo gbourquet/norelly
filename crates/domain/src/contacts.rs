@@ -32,15 +32,19 @@ pub const MAX_CONTACT_FILTER_CHARS: usize = 200;
 /// Nombre maximal de fiches visées en une fois (suppression).
 pub const MAX_CONTACT_SELECTION: usize = 1000;
 
+/// Plus grand identifiant de contact : ceux de l'interface tiennent sur
+/// 32 bits (`u32::MAX`).
+pub const MAX_CONTACT_ID: i64 = u32::MAX as i64;
+
 /// Identifiant local d'un contact, attribué par le carnet (strictement
-/// positif).
+/// positif, au plus [`MAX_CONTACT_ID`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct ContactId(i64);
 
 impl ContactId {
     #[must_use]
     pub fn new(raw: i64) -> Option<Self> {
-        (raw > 0).then_some(Self(raw))
+        (1..=MAX_CONTACT_ID).contains(&raw).then_some(Self(raw))
     }
 
     #[must_use]
@@ -770,6 +774,17 @@ mod tests {
         assert_eq!(ContactId::new(-3), None);
         assert_eq!(ContactId::new(7).map(ContactId::get), Some(7));
         assert_eq!(ContactId::new(7).map(|i| i.to_string()), Some("7".into()));
+    }
+
+    /// Les identifiants exposés à l'interface tiennent sur 32 bits : un
+    /// identifiant au-delà ne désigne aucune fiche valide.
+    #[test]
+    fn contact_id_fits_in_32_bits() {
+        let max = i64::from(u32::MAX);
+        assert_eq!(MAX_CONTACT_ID, max);
+        assert_eq!(ContactId::new(max).map(ContactId::get), Some(max));
+        assert_eq!(ContactId::new(max + 1), None);
+        assert_eq!(ContactId::new(i64::MAX), None);
     }
 
     #[test]

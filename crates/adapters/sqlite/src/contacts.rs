@@ -14,7 +14,7 @@ use norelly_domain::contact_export::ContactSelection;
 use norelly_domain::contact_import::ContactCompletion;
 use norelly_domain::contacts::{
     AddressKey, Contact, ContactDraft, ContactFilter, ContactId, ContactInput, EmailInput,
-    PhoneInput,
+    InvisibleCleanup, PhoneInput, clean_invisible,
 };
 use norelly_domain::ports::{
     ContactBook, ContactCursor, ContactDirectory, ContactListItem, ContactPage, ContactStoreError,
@@ -71,8 +71,8 @@ impl ContactRow {
         })
     }
 
-    fn into_contact(self) -> Result<Contact, StoreError> {
-        let id = ContactId::new(self.id).ok_or_else(|| corrupted(self.id, "identifiant"))?;
+    /// Fiche brute, non validée, et clés stockées de ses adresses.
+    fn into_input(self) -> (ContactInput, Vec<String>) {
         let [
             display_name,
             given_name,
@@ -81,7 +81,7 @@ impl ContactRow {
             organization,
             notes,
         ] = self.texts.map(Option::unwrap_or_default);
-        let draft = ContactDraft::new(ContactInput {
+        let input = ContactInput {
             display_name,
             given_name,
             family_name,
@@ -91,16 +91,89 @@ impl ContactRow {
             emails: self.emails,
             phones: self.phones,
             favorite: self.favorite,
-        })
-        .map_err(|e| corrupted(self.id, &e.to_string()))?;
+        };
+        (input, self.keys)
+    }
+
+    fn into_contact(self) -> Result<Contact, StoreError> {
+        let raw = self.id;
+        let id = ContactId::new(raw).ok_or_else(|| corrupted(raw, "identifiant"))?;
+        let (input, keys) = self.into_input();
+        let draft = ContactDraft::new(input).map_err(|e| corrupted(raw, &e.to_string()))?;
         // La contrainte d'unicité et la recherche par adresse portent sur
         // la clé stockée : elle doit être celle que calcule le domaine.
-        let stored = self.keys.iter().map(String::as_str);
+        let stored = keys.iter().map(String::as_str);
         if !draft.emails().iter().map(|e| e.key().as_str()).eq(stored) {
-            return Err(corrupted(self.id, "clé d'adresse"));
+            return Err(corrupted(raw, "clé d'adresse"));
         }
         Ok(draft.with_id(id))
     }
+}
+
+/// Nombre de fiches relues à la fois par [`clean_invisible_contacts`].
+const CLEANUP_BATCH: i64 = 500;
+
+/// Étape de la migration 18 : retire des fiches enregistrées les
+/// caractères invisibles que la saisie refuse désormais, selon
+/// [`clean_invisible`] (fiche réécrite, ou retirée sans adresse
+/// restante). Une fiche illisible (type ou encodage d'une colonne) est
+/// laissée telle quelle : elle ne doit pas empêcher d'ouvrir la base.
+pub(crate) fn clean_invisible_contacts(tx: &Transaction<'_>) -> Result<(), StoreError> {
+    let (mut rewritten, mut removed, mut unreadable) = (0_usize, 0_usize, 0_usize);
+    let mut after = 0_i64;
+    loop {
+        let ids: Vec<i64> = tx
+            .prepare_cached("SELECT id FROM contacts WHERE id > ?1 ORDER BY id LIMIT ?2")
+            .and_then(|mut s| {
+                s.query_map(params![after, CLEANUP_BATCH], |r| r.get(0))?
+                    .collect()
+            })
+            .map_err(store_error)?;
+        let Some(&last) = ids.last() else {
+            break;
+        };
+        after = last;
+        // Lot illisible : fiches relues une à une, les illisibles passées.
+        let mut batch = match rows(tx, &ids) {
+            Ok(batch) => batch,
+            Err(_) => {
+                let mut batch = HashMap::new();
+                for &id in &ids {
+                    match rows(tx, &[id]) {
+                        Ok(one) => batch.extend(one),
+                        Err(_) => unreadable += 1,
+                    }
+                }
+                batch
+            }
+        };
+        for id in ids {
+            let Some(row) = batch.remove(&id) else {
+                continue;
+            };
+            let (input, _) = row.into_input();
+            match clean_invisible(input) {
+                InvisibleCleanup::Keep => {}
+                InvisibleCleanup::Rewrite(draft) => {
+                    write(tx, id, &draft)?;
+                    rewritten += 1;
+                }
+                InvisibleCleanup::Remove => {
+                    tx.execute("DELETE FROM contacts WHERE id = ?1", params![id])
+                        .map_err(store_error)?;
+                    removed += 1;
+                }
+            }
+        }
+    }
+    // Des nombres seulement : aucune donnée de fiche dans le journal.
+    tracing::info!(
+        rewritten,
+        removed,
+        unreadable,
+        "carnet : caractères invisibles retirés"
+    );
+    Ok(())
 }
 
 fn corrupted(id: i64, detail: &str) -> StoreError {
@@ -118,6 +191,15 @@ fn load(c: &Connection, ids: &[i64]) -> Result<Vec<Contact>, StoreError> {
     if ids.is_empty() {
         return Ok(Vec::new());
     }
+    let mut rows = rows(c, ids)?;
+    ids.iter()
+        .filter_map(|id| rows.remove(id))
+        .map(ContactRow::into_contact)
+        .collect()
+}
+
+/// Fiches brutes `ids`, par identifiant (inconnues omises).
+fn rows(c: &Connection, ids: &[i64]) -> Result<HashMap<i64, ContactRow>, StoreError> {
     let list = json_list(ids)?;
     // sql-const : liste des colonnes.
     let sql = format!(
@@ -183,11 +265,7 @@ fn load(c: &Connection, ids: &[i64]) -> Result<Vec<Contact>, StoreError> {
             row.phones.push(phone);
         }
     }
-
-    ids.iter()
-        .filter_map(|id| rows.remove(id))
-        .map(ContactRow::into_contact)
-        .collect()
+    Ok(rows)
 }
 
 /// Première adresse de `draft` déjà portée par un contact autre que

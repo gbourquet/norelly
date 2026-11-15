@@ -290,11 +290,16 @@ pub fn credentials_hold<'a>(
 
 /// Même règle que [`credentials_hold`] pour une connexion (copie des
 /// brouillons et des messages envoyés sur le serveur de réception) dont
-/// les identifiants ont été refusés ou interrompus.
+/// le mot de passe a été refusé ou interrompu (un jeton OAuth ne fait pas
+/// bloquer le compte : [`ConnectionError::replay_risks_lockout`]).
 #[must_use]
-pub fn connection_hold(error: &ConnectionError, now: i64) -> Option<i64> {
+pub fn connection_hold(
+    error: &ConnectionError,
+    kind: crate::credentials::CredentialKind,
+    now: i64,
+) -> Option<i64> {
     error
-        .credentials_failed()
+        .replay_risks_lockout(kind)
         .then(|| now.saturating_add(CREDENTIALS_HOLD_SECS))
 }
 
@@ -305,6 +310,7 @@ mod tests {
     #[test]
     fn a_credentials_failure_on_connection_holds_the_remote_work() {
         use crate::auth::AuthError;
+        use crate::credentials::CredentialKind;
         for e in [
             ConnectionError::from(AuthError::Interrupted),
             ConnectionError::from(AuthError::Rejected {
@@ -312,12 +318,25 @@ mod tests {
             }),
         ] {
             assert_eq!(
-                connection_hold(&e, NOW),
+                connection_hold(&e, CredentialKind::Password, NOW),
                 Some(NOW + CREDENTIALS_HOLD_SECS),
                 "{e:?}"
             );
         }
-        assert_eq!(connection_hold(&ConnectionError::Closed, NOW), None);
+        assert_eq!(
+            connection_hold(&ConnectionError::Closed, CredentialKind::Password, NOW),
+            None
+        );
+        // Jeton OAuth : refus parfois passager chez Microsoft, sans risque
+        // de blocage du compte.
+        assert_eq!(
+            connection_hold(
+                &ConnectionError::from(AuthError::Interrupted),
+                CredentialKind::OAuth2,
+                NOW
+            ),
+            None
+        );
     }
 
     #[test]

@@ -92,7 +92,7 @@ where
 {
     /// Un passage à l'instant `now`.
     pub async fn run_once(&self, now: i64) -> Result<Tick, RemoteComposeFailure> {
-        self.run_once_after(now, Holds::default()).await
+        self.run_once_after(now, &mut Holds::default()).await
     }
 
     /// Un passage à l'instant `now`, en respectant les attentes qui suivent
@@ -100,7 +100,7 @@ where
     pub async fn run_once_after(
         &self,
         now: i64,
-        holds: Holds,
+        holds: &mut Holds,
     ) -> Result<Tick, RemoteComposeFailure> {
         let held = |hold: Option<i64>| hold.filter(|until| *until > now);
         let delivery = match held(holds.send) {
@@ -118,6 +118,10 @@ where
                 .await?
             }
         };
+        // Posée avant le travail distant : son échec ne doit pas la perdre.
+        if let Some(until) = credentials_hold(delivery.failed.iter().map(|(_, f)| f), now) {
+            holds.send = Some(until);
+        }
         let mut tick = Tick {
             delivery,
             ..Tick::default()
@@ -133,7 +137,12 @@ where
         let trash = !self.store.remote_trash(self.account).await?.is_empty();
         let imap_held = held(holds.imap);
         if (has_sent || drafts_due || trash) && imap_held.is_none() {
-            let mut session = self.connector.connect(&self.imap).await?;
+            let kind = self.imap.credentials.kind();
+            let mut session = self.connector.connect(&self.imap).await.inspect_err(|e| {
+                if let Some(until) = connection_hold(e, kind, now) {
+                    holds.imap = Some(until);
+                }
+            })?;
             tick.imap_used = true;
             let result = self.remote_work(&mut session, now, &mut tick).await;
             let _ = session.logout().await;
@@ -295,13 +304,8 @@ async fn run<C, S, St, F, B, M>(
         let now = unix_now();
         let wait = tokio::select! {
             _ = stop.changed() => return,
-            r = worker.run_once_after(now, holds) => match r {
+            r = worker.run_once_after(now, &mut holds) => match r {
                 Ok(tick) => {
-                    if let Some(until) =
-                        credentials_hold(tick.delivery.failed.iter().map(|(_, f)| f), now)
-                    {
-                        holds.send = Some(until);
-                    }
                     if !tick.delivery.sent.is_empty()
                         || !tick.delivery.failed.is_empty()
                         || tick.filed > 0
@@ -313,11 +317,9 @@ async fn run<C, S, St, F, B, M>(
                         .map_or(IDLE_TICK, |d| d.min(IDLE_TICK))
                 }
                 Err(e) => {
-                    if let RemoteComposeFailure::Connection(c) = &e
-                        && let Some(until) = connection_hold(c, now)
-                    {
-                        holds.imap = Some(until);
-                    }
+                    // Un envoi a pu avoir lieu avant l'échec du travail
+                    // distant.
+                    let _ = events.send(ComposeEvent::OutboxChanged { account });
                     tracing::warn!(%account, error = %e, "rédaction : nouvel essai plus tard");
                     IDLE_TICK
                 }

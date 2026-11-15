@@ -1,7 +1,7 @@
 use norelly_domain::address::EmailAddress;
 use norelly_domain::capabilities::ServerCapabilities;
 use norelly_domain::compose::draft::Draft;
-use norelly_domain::compose::outbox::RETRY_BASE_SECS;
+use norelly_domain::compose::outbox::{CREDENTIALS_HOLD_SECS, RETRY_BASE_SECS};
 use norelly_domain::credentials::{Credentials, Secret, Username};
 use norelly_domain::endpoint::{Host, Protocol, Security, ServerEndpoint};
 use norelly_domain::fetch_policy::FetchPolicy;
@@ -187,7 +187,7 @@ async fn a_credentials_failure_holds_the_queue() {
             AuthError::Interrupted,
         ))));
     let tick = w
-        .run_once_after(NOW, Holds::default())
+        .run_once_after(NOW, &mut Holds::default())
         .await
         .unwrap_or_else(|e| panic!("{e}"));
     assert_eq!(tick.delivery.failed.len(), 1);
@@ -196,7 +196,7 @@ async fn a_credentials_failure_holds_the_queue() {
     let tick = w
         .run_once_after(
             NOW + 1,
-            Holds {
+            &mut Holds {
                 send: hold,
                 imap: None,
             },
@@ -212,7 +212,7 @@ async fn a_credentials_failure_holds_the_queue() {
     let tick = w
         .run_once_after(
             NOW + CREDENTIALS_HOLD_SECS,
-            Holds {
+            &mut Holds {
                 send: hold,
                 imap: None,
             },
@@ -301,6 +301,32 @@ async fn only_a_user_action_lifts_the_credentials_hold() {
     handle.shutdown().await;
 }
 
+/// Envoi en échec sur les identifiants puis serveur de réception coupé
+/// dans la même tournée : l'attente d'envoi est tout de même posée.
+#[tokio::test]
+async fn a_failed_remote_step_keeps_the_send_hold() {
+    use norelly_domain::auth::AuthError;
+    use norelly_domain::connection::ConnectionError;
+    let (w, _) = worker().await;
+    for _ in 0..3 {
+        queue(&w).await;
+    }
+    w.sender.reply(Ok(()));
+    w.sender
+        .reply(Err(SendError::Connection(ConnectionError::Authentication(
+            AuthError::Interrupted,
+        ))));
+    w.connector
+        .set(&w.imap.endpoint, Err(ConnectionError::Closed));
+    let mut holds = Holds::default();
+    let result = w.run_once_after(NOW, &mut holds).await;
+    assert!(result.is_err(), "copie dans « Envoyés » impossible");
+    assert_eq!(holds.send, Some(NOW + CREDENTIALS_HOLD_SECS));
+    assert_eq!(holds.imap, None, "coupure ordinaire");
+    let _ = w.run_once_after(NOW + 1, &mut holds).await;
+    assert_eq!(w.sender.accepted().len(), 1, "identifiants renvoyés");
+}
+
 /// Pendant l'attente qui suit des identifiants IMAP refusés, aucun
 /// travail distant (copie dans « Envoyés », brouillons) n'ouvre de
 /// connexion ; l'attente passée, il reprend.
@@ -308,12 +334,12 @@ async fn only_a_user_action_lifts_the_credentials_hold() {
 async fn an_imap_hold_skips_the_remote_work() {
     let (w, _) = worker().await;
     queue(&w).await;
-    let held = Holds {
+    let mut held = Holds {
         send: None,
         imap: Some(NOW + 100),
     };
     let tick = w
-        .run_once_after(NOW, held)
+        .run_once_after(NOW, &mut held)
         .await
         .unwrap_or_else(|e| panic!("{e}"));
     assert_eq!(tick.delivery.sent.len(), 1, "l'envoi n'est pas concerné");
@@ -321,7 +347,7 @@ async fn an_imap_hold_skips_the_remote_work() {
     assert_eq!(imap_connections(&w), 0);
     assert_eq!(tick.next_wake, Some(NOW + 100));
     let tick = w
-        .run_once_after(NOW + 100, held)
+        .run_once_after(NOW + 100, &mut held)
         .await
         .unwrap_or_else(|e| panic!("{e}"));
     assert_eq!(tick.filed, 1);

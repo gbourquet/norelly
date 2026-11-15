@@ -14,7 +14,7 @@ use std::time::Duration;
 
 use norelly_domain::account::AccountId;
 use norelly_domain::compose::draft::{REMOTE_SAVE_INTERVAL_SECS, Recipient};
-use norelly_domain::compose::outbox::{OutboxState, credentials_hold};
+use norelly_domain::compose::outbox::{OutboxState, connection_hold, credentials_hold};
 use norelly_domain::ports::{
     BlobStore, ConnectRequest, DraftStore, MailSender, MessageComposer, OutboxStore,
     PendingOpStore, RemoteMailboxConnector, RemoteMailboxSession,
@@ -35,6 +35,19 @@ pub const IDLE_TICK: Duration = Duration::from_secs(60);
 pub enum ComposeEvent {
     /// La file d'envoi ou les brouillons d'un compte ont changé.
     OutboxChanged { account: AccountId },
+}
+
+/// Échéances avant lesquelles un passage ne présente plus les
+/// identifiants d'un serveur, après un refus ou une interruption
+/// ([`credentials_hold`], [`connection_hold`]) ; levées par une action de
+/// l'utilisateur.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Holds {
+    /// Envoi (SMTP).
+    pub send: Option<i64>,
+    /// Travail sur le serveur de réception (copies dans « Envoyés »,
+    /// brouillons).
+    pub imap: Option<i64>,
 }
 
 /// Bilan d'un passage.
@@ -79,23 +92,23 @@ where
 {
     /// Un passage à l'instant `now`.
     pub async fn run_once(&self, now: i64) -> Result<Tick, RemoteComposeFailure> {
-        self.run_once_after(now, None).await
+        self.run_once_after(now, Holds::default()).await
     }
 
-    /// Un passage à l'instant `now`, sans aucun envoi avant `hold_until`
-    /// (identifiants refusés ou interrompus à une tournée précédente :
-    /// [`credentials_hold`]).
+    /// Un passage à l'instant `now`, en respectant les attentes qui suivent
+    /// des identifiants refusés ou interrompus ([`Holds`]).
     pub async fn run_once_after(
         &self,
         now: i64,
-        hold_until: Option<i64>,
+        holds: Holds,
     ) -> Result<Tick, RemoteComposeFailure> {
-        let delivery = match hold_until {
-            Some(until) if until > now => DeliveryReport {
+        let held = |hold: Option<i64>| hold.filter(|until| *until > now);
+        let delivery = match held(holds.send) {
+            Some(until) => DeliveryReport {
                 next_attempt: Some(until),
                 ..DeliveryReport::default()
             },
-            _ => {
+            None => {
                 DeliverOutbox {
                     account: self.account,
                     outbox: &*self.store,
@@ -118,7 +131,8 @@ where
         let drafts = self.store.drafts(self.account).await?;
         let drafts_due = drafts.iter().any(|d| d.sync.remote_save_due(now));
         let trash = !self.store.remote_trash(self.account).await?.is_empty();
-        if has_sent || drafts_due || trash {
+        let imap_held = held(holds.imap);
+        if (has_sent || drafts_due || trash) && imap_held.is_none() {
             let mut session = self.connector.connect(&self.imap).await?;
             tick.imap_used = true;
             let result = self.remote_work(&mut session, now, &mut tick).await;
@@ -136,7 +150,7 @@ where
             .map(|last| last.saturating_add(REMOTE_SAVE_INTERVAL_SECS))
             .filter(|at| *at > now)
             .min();
-        tick.next_wake = [tick.delivery.next_attempt, next_draft]
+        tick.next_wake = [tick.delivery.next_attempt, next_draft, imap_held]
             .into_iter()
             .flatten()
             .min();
@@ -271,9 +285,9 @@ async fn run<C, S, St, F, B, M>(
         }
         Err(e) => tracing::error!(%account, error = %e, "reprise de la file d'envoi"),
     }
-    // Pas d'envoi avant cette échéance après des identifiants refusés ou
+    // Ni envoi ni travail distant avant ces échéances après des identifiants refusés ou
     // interrompus ; levée par une action de l'utilisateur (réveil).
-    let mut hold: Option<i64> = None;
+    let mut holds = Holds::default();
     loop {
         if *stop.borrow() {
             return;
@@ -281,12 +295,12 @@ async fn run<C, S, St, F, B, M>(
         let now = unix_now();
         let wait = tokio::select! {
             _ = stop.changed() => return,
-            r = worker.run_once_after(now, hold) => match r {
+            r = worker.run_once_after(now, holds) => match r {
                 Ok(tick) => {
                     if let Some(until) =
                         credentials_hold(tick.delivery.failed.iter().map(|(_, f)| f), now)
                     {
-                        hold = Some(until);
+                        holds.send = Some(until);
                     }
                     if !tick.delivery.sent.is_empty()
                         || !tick.delivery.failed.is_empty()
@@ -299,6 +313,11 @@ async fn run<C, S, St, F, B, M>(
                         .map_or(IDLE_TICK, |d| d.min(IDLE_TICK))
                 }
                 Err(e) => {
+                    if let RemoteComposeFailure::Connection(c) = &e
+                        && let Some(until) = connection_hold(c, now)
+                    {
+                        holds.imap = Some(until);
+                    }
                     tracing::warn!(%account, error = %e, "rédaction : nouvel essai plus tard");
                     IDLE_TICK
                 }
@@ -308,7 +327,7 @@ async fn run<C, S, St, F, B, M>(
             _ = stop.changed() => return,
             () = trigger.notify.notified() => {
                 if trigger.by_user.swap(false, Ordering::Relaxed) {
-                    hold = None;
+                    holds = Holds::default();
                 }
             }
             () = tokio::time::sleep(wait) => {}

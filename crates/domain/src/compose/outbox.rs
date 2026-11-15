@@ -288,9 +288,37 @@ pub fn credentials_hold<'a>(
         .then(|| now.saturating_add(CREDENTIALS_HOLD_SECS))
 }
 
+/// Même règle que [`credentials_hold`] pour une connexion (copie des
+/// brouillons et des messages envoyés sur le serveur de réception) dont
+/// les identifiants ont été refusés ou interrompus.
+#[must_use]
+pub fn connection_hold(error: &ConnectionError, now: i64) -> Option<i64> {
+    error
+        .credentials_failed()
+        .then(|| now.saturating_add(CREDENTIALS_HOLD_SECS))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_credentials_failure_on_connection_holds_the_remote_work() {
+        use crate::auth::AuthError;
+        for e in [
+            ConnectionError::from(AuthError::Interrupted),
+            ConnectionError::from(AuthError::Rejected {
+                message: "x".into(),
+            }),
+        ] {
+            assert_eq!(
+                connection_hold(&e, NOW),
+                Some(NOW + CREDENTIALS_HOLD_SECS),
+                "{e:?}"
+            );
+        }
+        assert_eq!(connection_hold(&ConnectionError::Closed, NOW), None);
+    }
 
     #[test]
     fn a_credentials_failure_holds_the_queue() {

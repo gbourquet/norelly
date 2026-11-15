@@ -63,7 +63,10 @@ n'est pas chiffrée (ADR-003) : on s'appuie sur le chiffrement du disque.
   et, après un refus ou une interruption, n'envoie plus rien pour ce
   compte pendant `CREDENTIALS_HOLD_SECS` (15 min) sauf action de
   l'utilisateur (`credentials_hold`) : les messages suivants ne
-  présentent pas les mêmes identifiants coup sur coup. L'acteur de
+  présentent pas les mêmes identifiants coup sur coup. Le travailleur de
+  rédaction applique la même attente à sa connexion IMAP (copie des
+  brouillons enregistrés toutes les deux secondes, dépôt dans
+  « Envoyés ») : `connection_hold`. L'acteur de
   synchronisation attend au moins `CREDENTIALS_RETRY_MS` (15 min) avant de
   se reconnecter après un mot de passe refusé ou interrompu
   (`Backoff::next_delay_after`, `replay_risks_lockout`).

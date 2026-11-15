@@ -845,6 +845,62 @@ mod tests {
         Ok(())
     }
 
+    /// Base de version 17 : une fiche à nettoyer dont la clé stockée d'une
+    /// adresse gardée a été modifiée à la main, et dont la clé recalculée
+    /// est déjà portée par une autre fiche, est laissée telle quelle par la
+    /// montée en version 18 (la réécrire heurterait l'unicité des clés) ;
+    /// la base s'ouvre et les autres fiches sont nettoyées.
+    #[test]
+    fn upgrading_to_v18_leaves_a_contact_with_a_colliding_address_key_untouched()
+    -> Result<(), StoreError> {
+        let mut conn = Connection::open_in_memory().map_err(store_error)?;
+        conn.pragma_update(None, "foreign_keys", "ON")
+            .map_err(store_error)?;
+        let m = migrations();
+        for (version, fixture) in FIXTURES.iter().enumerate().take(17) {
+            m.to_version(&mut conn, version + 1)
+                .map_err(|e| StoreError(e.to_string()))?;
+            conn.execute_batch(fixture).map_err(store_error)?;
+        }
+        // Fiche 30 : nom à nettoyer, clé stockée de son adresse forgée ; sa
+        // clé recalculée est celle que porte déjà la fiche 31.
+        // Fiche 32 : à nettoyer, saine par ailleurs.
+        conn.execute_batch(
+            "INSERT INTO contacts (id, display_name, sort_key, search_text) VALUES \
+             (30, 'Bo\u{2800}b', 'x', 'x'), \
+             (31, 'Autre', 'autre', 'autre'), \
+             (32, 'Ca\u{200B}rol', 'x', 'x'); \
+             INSERT INTO contact_emails (contact_id, position, address, address_key, label, \
+             preferred) VALUES \
+             (30, 0, 'bob@x.example', 'zzz@x.example', NULL, 1), \
+             (31, 0, 'other@y.example', 'bob@x.example', NULL, 1), \
+             (32, 0, 'carol@x.example', 'carol@x.example', NULL, 1);",
+        )
+        .map_err(store_error)?;
+        m.to_version(&mut conn, 18)
+            .map_err(|e| StoreError(e.to_string()))?;
+        let fiche = |id: i64| -> Result<(String, String), StoreError> {
+            conn.query_row(
+                "SELECT c.display_name, e.address_key FROM contacts c \
+                 JOIN contact_emails e ON e.contact_id = c.id WHERE c.id = ?1",
+                [id],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .map_err(store_error)
+        };
+        assert_eq!(
+            fiche(30)?,
+            ("Bo\u{2800}b".to_owned(), "zzz@x.example".to_owned()),
+            "fiche en collision modifiée"
+        );
+        assert_eq!(fiche(31)?, ("Autre".to_owned(), "bob@x.example".to_owned()));
+        assert_eq!(
+            fiche(32)?,
+            ("Carol".to_owned(), "carol@x.example".to_owned())
+        );
+        Ok(())
+    }
+
     /// Montée de version depuis chaque version précédente, données
     /// conservées.
     #[test]

@@ -176,9 +176,13 @@ const CLEANUP_BATCH: i64 = 500;
 /// caractères invisibles que la saisie refuse désormais, selon
 /// [`clean_invisible`] (fiche réécrite, ou retirée sans adresse
 /// restante). Une fiche illisible (type ou encodage d'une colonne) est
-/// laissée telle quelle : elle ne doit pas empêcher d'ouvrir la base.
+/// laissée telle quelle : elle ne doit pas empêcher d'ouvrir la base. De
+/// même pour une fiche dont la réécriture heurterait l'unicité des clés
+/// d'adresse (clé stockée modifiée à la main, clé recalculée déjà portée
+/// par une autre fiche).
 pub(crate) fn clean_invisible_contacts(tx: &Transaction<'_>) -> Result<(), StoreError> {
     let (mut rewritten, mut removed, mut unreadable) = (0_usize, 0_usize, 0_usize);
+    let mut colliding = 0_usize;
     let mut after = 0_i64;
     loop {
         let ids: Vec<i64> = tx
@@ -220,6 +224,12 @@ pub(crate) fn clean_invisible_contacts(tx: &Transaction<'_>) -> Result<(), Store
             match clean_invisible(input) {
                 InvisibleCleanup::Keep => {}
                 InvisibleCleanup::Rewrite(draft) => {
+                    // Les adresses de la fiche sont remplacées par `write` :
+                    // seule une clé portée par une autre fiche heurterait.
+                    if taken_except(tx, &draft, Some(id))?.is_some() {
+                        colliding += 1;
+                        continue;
+                    }
                     write(tx, id, &draft)?;
                     rewritten += 1;
                 }
@@ -236,6 +246,7 @@ pub(crate) fn clean_invisible_contacts(tx: &Transaction<'_>) -> Result<(), Store
         rewritten,
         removed,
         unreadable,
+        colliding,
         "carnet : caractères invisibles retirés"
     );
     Ok(())
@@ -468,6 +479,16 @@ fn taken(
     draft: &ContactDraft,
     except: Option<ContactId>,
 ) -> Result<Option<EmailAddress>, StoreError> {
+    taken_except(tx, draft, except.map(ContactId::get))
+}
+
+/// Comme [`taken`], la fiche `except` désignée par son identifiant brut
+/// (fiche enregistrée, relue sans validation).
+fn taken_except(
+    tx: &Transaction<'_>,
+    draft: &ContactDraft,
+    except: Option<i64>,
+) -> Result<Option<EmailAddress>, StoreError> {
     let mut stmt = tx
         .prepare_cached(
             "SELECT 1 FROM contact_emails WHERE address_key = ?1 \
@@ -476,7 +497,7 @@ fn taken(
         .map_err(store_error)?;
     for email in draft.emails() {
         let found = stmt
-            .exists(params![email.key().as_str(), except.map(ContactId::get)])
+            .exists(params![email.key().as_str(), except])
             .map_err(store_error)?;
         if found {
             return Ok(Some(email.address().clone()));

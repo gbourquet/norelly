@@ -146,19 +146,16 @@ impl<O: OAuthClient, K: SecretStore> TokenBroker<O, K> {
             .is_some_and(|(pending, _)| pending.usable_for(provider, address, (self.clock)()))
     }
 
-    /// Connexion gardée pour ajouter `address` chez `provider`, si elle
-    /// peut resservir. Elle est oubliée dans tous les cas.
-    pub fn take_pending(
-        &self,
-        provider: OAuthProvider,
-        address: &EmailAddress,
-    ) -> Option<OAuthGrant> {
+    /// Connexion gardée pour ajouter `address` chez son fournisseur, si
+    /// elle peut resservir. Elle est oubliée dans tous les cas.
+    pub fn take_pending(&self, address: &EmailAddress) -> Option<OAuthGrant> {
         let kept = self
             .pending
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .take()?;
         let (pending, grant) = kept;
+        let provider = OAuthProvider::for_address(address)?;
         pending
             .usable_for(provider, address, (self.clock)())
             .then_some(grant)

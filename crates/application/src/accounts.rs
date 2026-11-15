@@ -226,12 +226,12 @@ where
     }
 }
 
-/// Demande d'ajout d'un compte connecté par OAuth.
+/// Demande d'ajout d'un compte connecté par OAuth, chez le fournisseur de
+/// l'adresse.
 #[derive(Debug, Clone)]
 pub struct AddOAuthAccountRequest {
     pub address: EmailAddress,
     pub display_name: Option<DisplayName>,
-    pub provider: OAuthProvider,
 }
 
 /// Étape d'un ajout par « Se connecter avec … », annoncée à l'interface.
@@ -277,23 +277,22 @@ where
         // fournisseur (serveur muet) : elle resservira, une seule fois, sans
         // navigateur. Prise d'abord : elle est oubliée quelle que soit
         // l'issue de cet essai.
-        let kept = self.broker.take_pending(request.provider, &request.address);
-        if !request.provider.serves(&request.address) {
-            return AddAccountOutcome::Invalid(format!(
-                "fournisseur {} étranger à l'adresse",
-                request.provider
-            ));
-        }
+        let kept = self.broker.take_pending(&request.address);
+        // Le fournisseur est celui de l'adresse : il ne vient pas de
+        // l'interface.
+        let Some(provider) = OAuthProvider::for_address(&request.address) else {
+            return AddAccountOutcome::Invalid("adresse sans fournisseur OAuth".to_owned());
+        };
         match self.accounts.find_by_address(&request.address).await {
             Ok(Some(_)) => return AddAccountOutcome::AlreadyExists,
             Ok(None) => {}
             Err(e) => return AddAccountOutcome::StorageFailed(e.to_string()),
         }
-        let (imap, smtp) = match oauth_servers(request.provider, &request.address) {
+        let (imap, smtp) = match oauth_servers(provider, &request.address) {
             Ok(servers) => servers,
             Err(e) => return AddAccountOutcome::Invalid(e),
         };
-        if !self.broker.is_usable(request.provider) {
+        if !self.broker.is_usable(provider) {
             return AddAccountOutcome::OAuthFailed(TokenError::ProviderNotConfigured);
         }
         let (grant, fresh_since) = match kept {
@@ -302,7 +301,7 @@ where
                 // Annoncé quand Norelly passe par le navigateur (pas pour
                 // une connexion gardée) ; un échec de son ouverture suit.
                 progress(OAuthSignInStep::BrowserOpened);
-                let config = self.broker.config(request.provider);
+                let config = self.broker.config(provider);
                 let authorize = self.broker.client().authorize(&config, &request.address);
                 // Annulé : le futur abandonné ferme l'écoute du retour, un
                 // onglet terminé plus tard ne livre plus rien.
@@ -318,8 +317,7 @@ where
                     Ok(grant) => (grant, Some(self.broker.now())),
                     Err(e) => {
                         return AddAccountOutcome::OAuthFailed(add_account_sign_in_error(
-                            request.provider,
-                            e,
+                            provider, e,
                         ));
                     }
                 }
@@ -327,8 +325,8 @@ where
         };
         progress(OAuthSignInStep::SignedIn);
         if let Err(e) = verify_sign_in(
-            request.provider,
-            &self.broker.config(request.provider),
+            provider,
+            &self.broker.config(provider),
             &request.address,
             grant.identity.as_ref(),
         ) {
@@ -338,8 +336,8 @@ where
             return AddAccountOutcome::OAuthFailed(e);
         }
         if let Err(e) = require_mail_access(
-            request.provider,
-            &self.broker.config(request.provider),
+            provider,
+            &self.broker.config(provider),
             grant.granted_scopes.as_deref(),
         ) {
             return AddAccountOutcome::OAuthFailed(e);
@@ -354,7 +352,7 @@ where
             smtp,
             &PlaintextPolicy::deny_all(),
         ) {
-            Ok(draft) => draft.with_oauth(request.provider),
+            Ok(draft) => draft.with_oauth(provider),
             Err(e) => return AddAccountOutcome::Invalid(e.to_string()),
         };
         let mut send_unchecked = false;
@@ -363,7 +361,7 @@ where
             let credentials = match Credentials::oauth2(
                 server.username.clone(),
                 grant.access_token.clone(),
-                request.provider,
+                provider,
             ) {
                 Ok(c) => c,
                 Err(e) => return AddAccountOutcome::Invalid(e.to_string()),
@@ -407,7 +405,7 @@ where
                     && worth_retrying(&outcome)
                 {
                     self.broker.keep_pending(
-                        request.provider,
+                        provider,
                         draft.address(),
                         grant,
                         obtained_at,
@@ -434,7 +432,7 @@ where
             Err(e) => return AddAccountOutcome::StorageFailed(e.to_string()),
         };
         let source = OAuthSource {
-            provider: request.provider,
+            provider,
             refresh_key: account.secret_key(Protocol::Imap),
         };
         if let Err(e) = self.broker.store_grant(&source, grant).await {

@@ -435,9 +435,7 @@ describe("se connecter avec Google", () => {
     const f = gmail(api);
     await f.detectProvider();
     await f.signInWithProvider();
-    expect(oauthCalls).toEqual([
-      { address: "alice@gmail.com", display_name: null, provider: "google" },
-    ]);
+    expect(oauthCalls).toEqual([{ address: "alice@gmail.com", display_name: null }]);
     expect(f.step).toBe("done");
   });
 
@@ -543,9 +541,7 @@ describe("se connecter avec Microsoft", () => {
     await f.detectProvider();
     f.displayName = " Alice ";
     await f.signInWithProvider();
-    expect(oauthCalls).toEqual([
-      { address: "alice@outlook.com", display_name: "Alice", provider: "microsoft" },
-    ]);
+    expect(oauthCalls).toEqual([{ address: "alice@outlook.com", display_name: "Alice" }]);
     expect(api.discoverSettings).not.toHaveBeenCalled();
     expect(api.addAccount).not.toHaveBeenCalled();
     expect(f.step).toBe("done");

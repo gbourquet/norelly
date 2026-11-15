@@ -255,7 +255,6 @@ export class AddAccountFlow {
         {
           address: this.address.trim(),
           display_name: this.displayName.trim() || null,
-          provider,
         },
         // Rust annonce le navigateur seulement quand il l'ouvre vraiment.
         (step) => {

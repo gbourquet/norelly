@@ -1806,6 +1806,76 @@ mod oauth {
         );
     }
 
+    /// Dépôt qui rend `then` à partir de la seconde lecture (compte remplacé
+    /// pendant la connexion dans le navigateur).
+    struct Replaced<'a> {
+        inner: &'a InMemoryAccountRepository,
+        then: Account,
+        reads: Mutex<usize>,
+    }
+
+    impl AccountRepository for Replaced<'_> {
+        async fn list(&self) -> Result<Vec<Account>, AccountStoreError> {
+            self.inner.list().await
+        }
+        async fn get(&self, id: AccountId) -> Result<Option<Account>, AccountStoreError> {
+            let first = self.reads.lock().map(|mut n| {
+                *n += 1;
+                *n == 1
+            });
+            if first.unwrap_or(false) {
+                self.inner.get(id).await
+            } else {
+                Ok(Some(self.then.clone()))
+            }
+        }
+        async fn find_by_address(
+            &self,
+            address: &EmailAddress,
+        ) -> Result<Option<Account>, AccountStoreError> {
+            self.inner.find_by_address(address).await
+        }
+        async fn insert(&self, draft: &AccountDraft) -> Result<Account, AccountStoreError> {
+            self.inner.insert(draft).await
+        }
+        async fn delete(&self, id: AccountId) -> Result<bool, AccountStoreError> {
+            self.inner.delete(id).await
+        }
+    }
+
+    /// Le compte relu au retour du navigateur n'est plus celui dont
+    /// l'identité a été vérifiée : rien n'est rangé.
+    #[tokio::test]
+    async fn reconnection_of_a_replaced_account_keeps_nothing() {
+        let w = World::new();
+        let b = broker(grant());
+        let AddAccountOutcome::Added(account) = add(&w, &b).await else {
+            panic!("compte non ajouté");
+        };
+        let other = w
+            .accounts
+            .insert(&sample_account("bob@outlook.com", false).with_oauth(OAuthProvider::Microsoft))
+            .await
+            .unwrap_or_else(|e| panic!("compte : {e}"));
+        let replaced = Replaced {
+            inner: &w.accounts,
+            then: other.clone(),
+            reads: Mutex::new(0),
+        };
+        let reconnected =
+            reconnect_oauth_account(&b, &replaced, &AccountLocks::default(), account.id()).await;
+        assert_eq!(
+            reconnected.map(|r| r.account.id()),
+            Err(ReconnectError::NotFound)
+        );
+        assert_eq!(
+            b.secrets()
+                .get_sync(other.secret_key(Protocol::Imap).as_str()),
+            None,
+            "jeton d'alice rangé sous le compte de bob"
+        );
+    }
+
     /// Une suppression demandée après la reconnexion attend que l'appelant
     /// ait relancé la synchronisation (garde lâchée).
     #[tokio::test]

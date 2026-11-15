@@ -567,11 +567,20 @@ pub async fn reconnect_oauth_account<O: OAuthClient, K: SecretStore, D: AccountR
     // Une suppression en cours s'achève avant ; une suppression demandée
     // ensuite attend que la synchronisation soit relancée.
     let held = locks.lock(id).await;
-    let account = accounts
+    // Relu : supprimé, ou devenu un autre compte que celui dont l'identité
+    // vient d'être vérifiée, rien n'est rangé.
+    let current = accounts
         .get(id)
         .await
-        .map_err(|e| ReconnectError::Storage(e.to_string()))?
-        .ok_or(ReconnectError::NotFound)?;
+        .map_err(|e| ReconnectError::Storage(e.to_string()))?;
+    let unchanged = current.is_some_and(|c| {
+        c.id() == account.id()
+            && c.address() == account.address()
+            && c.oauth_provider() == Some(provider)
+    });
+    if !unchanged {
+        return Err(ReconnectError::NotFound);
+    }
     let source = OAuthSource {
         provider,
         refresh_key: account.secret_key(Protocol::Imap),
@@ -748,8 +757,11 @@ where
 }
 
 /// Verrous par compte : sérialisent les opérations qui touchent au compte
-/// et à ses secrets (changement de mot de passe, suppression), pour
-/// qu'aucune ne réécrive les secrets d'un compte que l'autre supprime.
+/// et à ses secrets (changement de mot de passe, fin d'une reconnexion
+/// OAuth et relance de sa synchronisation, suppression), pour qu'aucune ne
+/// réécrive les secrets d'un compte que l'autre supprime. Ordre : ce verrou
+/// d'abord, puis ceux des services de synchronisation ; jamais tenu pendant
+/// une attente de l'utilisateur (navigateur).
 #[derive(Debug, Default)]
 pub struct AccountLocks {
     locks: std::sync::Mutex<

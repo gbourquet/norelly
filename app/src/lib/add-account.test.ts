@@ -547,6 +547,22 @@ describe("se connecter avec Microsoft", () => {
     expect(f.step).toBe("done");
   });
 
+  it("adresse changée pendant la détection : rien n'est envoyé à Rust", async () => {
+    const { api } = fakeApi(found, []);
+    const f = outlook(api);
+    await f.detectProvider();
+    expect(f.signInProvider).toBe("microsoft");
+    // La détection lancée par le clic répond pendant que l'adresse change
+    // vers une adresse Google : sa réponse est périmée.
+    vi.mocked(api.oauthProviderFor).mockImplementationOnce(async () => {
+      f.address = "alice@gmail.com";
+      return "microsoft";
+    });
+    await f.signInWithProvider();
+    expect(api.addOAuthAccount).not.toHaveBeenCalled();
+    expect(f.step).toBe("form");
+  });
+
   it("connexion annulée : retour au formulaire avec une explication", async () => {
     const { api } = fakeApi(found, [
       { kind: "failed", protocol: null, failure: "oauth_cancelled", detail: null },

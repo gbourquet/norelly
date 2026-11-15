@@ -501,9 +501,12 @@ pub struct OAuthIdentity {
 /// Émetteurs de l'`id_token` de Google.
 const GOOGLE_ISSUERS: [&str; 2] = ["https://accounts.google.com", "accounts.google.com"];
 
-/// Émetteur de l'`id_token` de Microsoft pour le locataire `tenant`.
-fn microsoft_issuer(tenant: &str) -> String {
-    format!("https://login.microsoftonline.com/{tenant}/v2.0")
+/// Locataire nommé par un émetteur d'`id_token` de Microsoft
+/// (`https://login.microsoftonline.com/<locataire>/v2.0`).
+fn microsoft_issuer_tenant(issuer: &str) -> Option<&str> {
+    issuer
+        .strip_prefix("https://login.microsoftonline.com/")?
+        .strip_suffix("/v2.0")
 }
 
 /// Revendications de l'`id_token` propres au fournisseur (OpenID Connect
@@ -521,7 +524,7 @@ pub fn check_identity_claims(
         OAuthProvider::Google => issuer.is_some_and(|iss| GOOGLE_ISSUERS.contains(&iss)),
         OAuthProvider::Microsoft => config.tenant.is_some_and(|tenant| {
             identity.tenant.as_deref() == Some(tenant)
-                && issuer == Some(microsoft_issuer(tenant).as_str())
+                && issuer.and_then(microsoft_issuer_tenant) == Some(tenant)
         }),
     };
     let audience_ok =

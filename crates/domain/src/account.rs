@@ -83,10 +83,11 @@ impl DisplayName {
         Ok(name)
     }
 
-    /// Nom relu depuis le stockage : mêmes règles que [`Self::parse`], sauf
-    /// l'imitation d'une adresse. Un compte enregistré avant cette règle
-    /// garde son nom et s'ouvre normalement ; ce nom reste écarté à l'envoi
-    /// (le message part avec l'adresse seule), comme il l'a toujours été.
+    /// Nom relu par un adaptateur de stockage, et seulement pour cela (toute
+    /// saisie passe par [`Self::parse`]) : mêmes règles que `parse`, sauf
+    /// l'imitation d'une adresse. Un compte enregistré avec un tel nom
+    /// s'ouvre donc normalement ; ce nom reste écarté à l'envoi, et le
+    /// message part avec l'adresse seule.
     pub fn from_stored(raw: &str) -> Result<Self, AccountError> {
         let name = raw.trim();
         if name.is_empty() {
@@ -105,7 +106,8 @@ impl DisplayName {
     }
 
     /// Nom par défaut : la partie locale de l'adresse, sans les caractères
-    /// qui imitent une adresse ; le domaine s'il n'en reste rien.
+    /// qui imitent une adresse ; s'il n'en reste rien, le domaine, borné à
+    /// la longueur d'un nom.
     #[must_use]
     pub fn from_address(address: &EmailAddress) -> Self {
         let local: String = address
@@ -113,7 +115,18 @@ impl DisplayName {
             .chars()
             .filter(|&c| !is_address_look_alike(c))
             .collect();
-        Self::parse(&local).unwrap_or_else(|_| Self(address.domain().to_string()))
+        Self::parse(&local).unwrap_or_else(|_| {
+            // Nom d'hôte ASCII (lettres, chiffres, « - », « . », « _ ») :
+            // jamais vide, sans caractère interdit ni sosie d'adresse.
+            Self(
+                address
+                    .domain()
+                    .as_str()
+                    .chars()
+                    .take(MAX_DISPLAY_NAME_CHARS)
+                    .collect(),
+            )
+        })
     }
 
     #[must_use]
@@ -392,6 +405,12 @@ mod tests {
             DisplayName::from_address(&parse("\u{FF1C}\u{FF1E}@example.com")).as_str(),
             "example.com"
         );
+        // Domaine plus long qu'un nom : tronqué, toujours relisible.
+        let long = format!("\u{FF1C}@{}.{}.com", "a".repeat(63), "b".repeat(63));
+        let name = DisplayName::from_address(&parse(&long));
+        assert_eq!(name.as_str().chars().count(), MAX_DISPLAY_NAME_CHARS);
+        assert_eq!(DisplayName::parse(name.as_str()), Ok(name.clone()));
+        assert_eq!(DisplayName::from_stored(name.as_str()), Ok(name));
     }
 
     #[test]

@@ -524,6 +524,23 @@ mod tests {
         Ok(())
     }
 
+    /// Le constat sur le nom ne change jamais la décision : refusé sans
+    /// exception, avec la même raison ; accepté par l'exception de ce
+    /// certificat pour cet hôte.
+    #[tokio::test]
+    async fn name_mismatch_never_changes_the_decision() -> TestResult {
+        let (_, factory) = setup()?;
+        let cert = TestCert::self_signed(&["wrong.example"])?;
+        let r = rejection(attempt(&factory, &cert, "localhost", &[]).await?);
+        assert_eq!(r.issue, CertificateIssue::UnknownIssuer);
+        let exception = CertificateException {
+            host: host("localhost"),
+            fingerprint: fingerprint(cert.leaf()),
+        };
+        attempt(&factory, &cert, "localhost", &[exception]).await??;
+        Ok(())
+    }
+
     #[tokio::test]
     async fn right_name_or_name_as_main_issue_is_not_noted_twice() -> TestResult {
         let (ca, factory) = setup()?;

@@ -946,8 +946,8 @@ mod tests {
         Ok(())
     }
 
-    /// Compte enregistré avant le refus des noms qui imitent une adresse :
-    /// il s'ouvre toujours, avec son nom tel quel.
+    /// Compte enregistré avec un nom qui imite une adresse : il s'ouvre,
+    /// avec son nom tel quel.
     #[tokio::test]
     async fn stored_display_name_imitating_an_address_still_loads() -> Result<(), AccountStoreError>
     {

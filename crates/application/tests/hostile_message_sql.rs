@@ -6,7 +6,9 @@
 //! réelle : faux serveur IMAP, `mail-parser`, domaine, SQLite sur disque,
 //! fichiers ; puis dans tous les champs d'une fiche du carnet, comme filtre
 //! et comme saisie d'un destinataire, et dans un fichier de contacts
-//! importé (lecture, plan, import en une transaction, complément). Elles doivent être stockées comme de
+//! importé (lecture, plan, import en une transaction, complément), dont les
+//! étiquettes d'adresse et de téléphone d'un export Google et des adresses
+//! dont la partie locale contient `'`. Elles doivent être stockées comme de
 //! simples données : schéma inchangé, base intègre, aucune autre ligne touchée, valeurs relues à
 //! l'identique (une fois assainies pour l'affichage).
 //!
@@ -790,6 +792,225 @@ async fn trapped_import_cannot_alter_the_database() -> Result<(), Box<dyn std::e
             .unwrap_or_else(|| panic!("fiche {} relue", item.id));
         assert_eq!(contact.draft().emails().len(), 2);
     }
+
+    assert_eq!(accounts.list().await?, accounts_before, "comptes modifiés");
+    assert_eq!(l.db.integrity_problems().await?, Vec::<String>::new());
+    assert_eq!(l.db.schema().await?, schema_before, "schéma modifié");
+    Ok(())
+}
+
+/// Charge tronquée à la longueur d'une étiquette ou d'un numéro, sans
+/// espace de bord (que le domaine retire).
+fn short_payload(i: usize) -> String {
+    let cut: String = PAYLOADS[i % PAYLOADS.len()].chars().take(64).collect();
+    cut.trim().to_owned()
+}
+
+/// Adresses piégées de la fiche `n` : parties locales contenant `'`
+/// (valides en RFC 5322), dont une qui commence par `'`. Les deux du
+/// milieu partagent une cellule Google (« ::: ») et son étiquette ; la
+/// dernière n'est que dans le complément.
+fn apostrophe_addresses(n: usize) -> [String; 4] {
+    [
+        format!("o'brien'--{n}@example.org"),
+        format!("'{n}'or'1'='1@example.com"),
+        format!("d'artagnan'or''='{n}@example.fr"),
+        format!("x'||'{n}'='{n}'--@example.net"),
+    ]
+}
+
+/// (adresse, étiquette, préférée) attendues de la fiche `n`, complétée
+/// ou non.
+fn expected_google_emails(n: usize, completed: bool) -> Vec<(String, Option<String>, bool)> {
+    let [first, second, second_bis, third] = apostrophe_addresses(n);
+    let mut emails = vec![
+        (first, Some(short_payload(n + 1)), true),
+        (second, Some(short_payload(n + 2)), false),
+        (second_bis, Some(short_payload(n + 2)), false),
+    ];
+    if completed {
+        emails.push((third, Some(short_payload(n + 3)), false));
+    }
+    emails
+}
+
+/// Export CSV de Google Contacts dont les étiquettes d'adresse et de
+/// téléphone portent une charge, avec des adresses à apostrophes ;
+/// `extra` : dernière adresse de chaque fiche (complément).
+fn trapped_google_csv(extra: bool) -> Vec<u8> {
+    let mut out = String::from(
+        "Name,E-mail 1 - Label,E-mail 1 - Value,E-mail 2 - Label,E-mail 2 - Value,\
+         E-mail 3 - Label,E-mail 3 - Value,Phone 1 - Label,Phone 1 - Value\r\n",
+    );
+    for (n, payload) in PAYLOADS.iter().enumerate() {
+        let [first, second, second_bis, third] = apostrophe_addresses(n);
+        let (third_label, third) = if extra {
+            (csv_cell(&short_payload(n + 3)), csv_cell(&third))
+        } else {
+            (String::new(), String::new())
+        };
+        let row = [
+            csv_cell(&format!("{n} {payload}")),
+            // « * » : adresse principale chez Google.
+            csv_cell(&format!("* {}", short_payload(n + 1))),
+            csv_cell(&first),
+            csv_cell(&short_payload(n + 2)),
+            csv_cell(&format!("{second} ::: {second_bis}")),
+            third_label,
+            third,
+            csv_cell(&short_payload(n + 4)),
+            csv_cell(&short_payload(n + 5)),
+        ];
+        out.push_str(&row.join(","));
+        out.push_str("\r\n");
+    }
+    out.into_bytes()
+}
+
+#[tokio::test]
+async fn trapped_google_labels_and_apostrophes_cannot_alter_the_database()
+-> Result<(), Box<dyn std::error::Error>> {
+    use norelly_application::contact_import::{ApplyContactImport, PreviewContactImport};
+    use norelly_application::contacts::SuggestRecipients;
+    use norelly_contacts_io::{ContactsIo, IcuNfc};
+    use norelly_domain::contact_import::DuplicatePolicy;
+    use norelly_domain::contacts::{Contact, ContactFilter};
+    use norelly_domain::ports::ContactDirectory;
+    use norelly_sqlite::contacts::SqliteContactBook;
+
+    let l = local("sql-injection-import-google").await;
+    let schema_before = l.db.schema().await?;
+    let accounts = SqliteAccountRepository::new(l.db.clone());
+    let accounts_before = accounts.list().await?;
+    let book = SqliteContactBook::new(l.db.clone());
+
+    // Fiche n° `n` retrouvée par sa première adresse (le nom piégé qui
+    // imite une adresse est retiré à l'import), relue entière.
+    let card = |n: usize| {
+        let book = &book;
+        async move {
+            let [first, ..] = apostrophe_addresses(n);
+            let page = book
+                .page(&ContactFilter::new(&first, false), None, 50)
+                .await?;
+            let [item] = &page.items[..] else {
+                panic!("{first:?} : {} fiches", page.items.len());
+            };
+            let contact: Contact = book
+                .get(item.id)
+                .await?
+                .unwrap_or_else(|| panic!("fiche {} relue", item.id));
+            Ok::<_, Box<dyn std::error::Error>>(contact)
+        }
+    };
+    // (adresse, étiquette, préférée) de chaque adresse d'une fiche.
+    let emails = |c: &Contact| {
+        c.draft()
+            .emails()
+            .iter()
+            .map(|e| {
+                (
+                    e.address().to_string(),
+                    e.label().map(str::to_owned),
+                    e.preferred(),
+                )
+            })
+            .collect::<Vec<_>>()
+    };
+    // Seul téléphone de la fiche n° `n`, étiquette piégée comprise.
+    let assert_phone = |c: &Contact, n: usize| {
+        let [phone] = c.draft().phones() else {
+            panic!("{:?}", c.draft().phones());
+        };
+        assert_eq!(
+            (phone.number(), phone.label()),
+            (
+                short_payload(n + 5).as_str(),
+                Some(short_payload(n + 4).as_str())
+            )
+        );
+    };
+
+    // Fichier piégé lu, chiffré puis importé : étiquettes et adresses, de
+    // simples données relues à l'identique.
+    let preview = PreviewContactImport {
+        codec: &ContactsIo,
+        directory: &book,
+        normalizer: &IcuNfc,
+    }
+    .execute(&trapped_google_csv(false))
+    .await?;
+    assert!(
+        preview.skip.rejected.is_empty(),
+        "{:?}",
+        preview.skip.rejected
+    );
+    assert_eq!(preview.skip.create.len(), PAYLOADS.len());
+    let apply = ApplyContactImport {
+        book: &book,
+        normalizer: &IcuNfc,
+    };
+    let outcome = apply.execute(&preview.cards, DuplicatePolicy::Skip).await?;
+    assert_eq!(outcome.created, PAYLOADS.len());
+    let suggest = SuggestRecipients {
+        collected: &*l.store,
+        directory: &book,
+    };
+    for n in 0..PAYLOADS.len() {
+        let contact = card(n).await?;
+        let [first, second, second_bis, _] = apostrophe_addresses(n);
+        assert_eq!(emails(&contact), expected_google_emails(n, false));
+        assert_phone(&contact, n);
+        // Chaque adresse à apostrophes, comme filtre et comme saisie d'un
+        // destinataire, retrouve sa fiche et seulement elle.
+        for address in [&first, &second, &second_bis] {
+            let found = book
+                .page(&ContactFilter::new(address, false), None, 50)
+                .await?;
+            assert_eq!(
+                found.items.iter().map(|i| i.id).collect::<Vec<_>>(),
+                [contact.id()],
+                "{address:?}"
+            );
+            let suggested = suggest.execute(l.account, address, 20).await?;
+            assert!(
+                suggested.iter().any(|s| &s.address == address),
+                "{address:?} : suggestion absente ({suggested:?})"
+            );
+        }
+    }
+
+    // Second import piégé : les mêmes fiches complétées d'une adresse à
+    // apostrophes et de son étiquette piégée ; le reste de la fiche, relu
+    // puis réécrit, ne change pas.
+    let preview = PreviewContactImport {
+        codec: &ContactsIo,
+        directory: &book,
+        normalizer: &IcuNfc,
+    }
+    .execute(&trapped_google_csv(true))
+    .await?;
+    assert!(
+        preview.complete.rejected.is_empty(),
+        "{:?}",
+        preview.complete.rejected
+    );
+    let outcome = apply
+        .execute(&preview.cards, DuplicatePolicy::Complete)
+        .await?;
+    assert_eq!((outcome.created, outcome.completed), (0, PAYLOADS.len()));
+    for n in 0..PAYLOADS.len() {
+        let contact = card(n).await?;
+        assert_eq!(emails(&contact), expected_google_emails(n, true));
+        assert_phone(&contact, n);
+    }
+    assert_eq!(
+        book.page(&ContactFilter::default(), None, 50)
+            .await?
+            .items
+            .len(),
+        PAYLOADS.len()
+    );
 
     assert_eq!(accounts.list().await?, accounts_before, "comptes modifiés");
     assert_eq!(l.db.integrity_problems().await?, Vec::<String>::new());

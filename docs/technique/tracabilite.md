@@ -549,7 +549,10 @@ Fiche : [contacts.md](../fonctionnel/contacts.md). Décision : ADR-012.
   `.vcf` puis CSV Gmail choisis dans le sélecteur natif, doublons
   reconnus, fiche sans adresse rejetée avec sa raison.
 - Charges d'injection SQL dans tous les champs d'une fiche, comme filtre
-  et comme saisie d'un destinataire
+  et comme saisie d'un destinataire, et dans un fichier importé (export
+  Thunderbird ; export Google dont les étiquettes d'adresse et de
+  téléphone portent une charge, avec des adresses dont la partie locale
+  contient `'`), relu, importé puis complété
   (`crates/application/tests/hostile_message_sql.rs`).
 - Commandes IPC sur l'application factice : aller-retour complet et
   entrées refusées (`app/src-tauri/src/command_tests.rs`).

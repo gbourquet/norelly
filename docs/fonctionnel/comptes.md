@@ -189,8 +189,9 @@ acceptés) sont supprimées. **Rien n'est supprimé sur le serveur.**
   enregistré n'envoie plus rien à Google : il affiche que cette version ne
   peut pas se connecter à ce fournisseur, sans nouveaux essais ni
   reconnexion.
-- Adresse modifiée juste avant « Se connecter avec … » : Norelly vérifie le
-  fournisseur de l'adresse finale avant d'ouvrir le navigateur.
+- Adresse modifiée juste avant « Se connecter avec … » : Norelly se
+  connecte chez le fournisseur de l'adresse finale, vérifié avant d'ouvrir
+  le navigateur.
 - Connexion chez Microsoft refusée ou abandonnée dans le navigateur : retour
   au formulaire, avec une explication ; rien n'est enregistré.
 - Compte choisi dans la page de Microsoft différent de l'adresse saisie
@@ -198,6 +199,12 @@ acceptés) sont supprimées. **Rien n'est supprimé sur le serveur.**
   programme) : refusé, à l'ajout comme à la reconnexion. Rien n'est
   enregistré, l'autorisation précédente d'un compte reconnecté reste en
   place, et l'écran demande de choisir le compte de l'adresse.
+- Connexion chez Microsoft qui n'a pas été faite pour Norelly, ou qui
+  concerne un compte professionnel ou scolaire plutôt qu'un compte
+  personnel : refusée, rien n'est enregistré.
+- Compte supprimé pendant que sa reconnexion attend dans le navigateur :
+  la suppression n'attend pas le navigateur. Une connexion terminée
+  ensuite n'enregistre rien et ne relance pas le compte supprimé.
 - Autorisation de rester connecté refusée dans la page de Microsoft : le
   compte cesserait de fonctionner au bout d'une heure. Il n'est pas
   ajouté (ni reconnecté), et l'écran demande d'accepter toutes les
@@ -249,8 +256,10 @@ acceptés) sont supprimées. **Rien n'est supprimé sur le serveur.**
   l'autorisation : le compte indique que la connexion au fournisseur est
   impossible, et non des identifiants refusés ; Norelly réessaie plus tard,
   et le renouvellement ne dure jamais plus d'une demi-minute.
-- Compte supprimé : les autorisations gardées en mémoire sont oubliées
-  avec lui ; elles ne servent plus et ne sont plus enregistrées.
+- Compte supprimé : toutes ses autorisations sont effacées, celles du
+  trousseau comme celles gardées en mémoire ; elles ne servent plus et ne
+  sont plus enregistrées. Si la suppression échoue, le compte reste et
+  peut être reconnecté.
 - Trousseau qui refuse d'enregistrer l'autorisation renouvelée : le compte
   continue de fonctionner tant que Norelly est ouvert, et l'enregistrement
   est retenté au renouvellement suivant.

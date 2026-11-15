@@ -188,14 +188,6 @@ impl OAuthProvider {
         }
     }
 
-    /// Vrai si ce fournisseur est celui de l'adresse. Un ajout de compte
-    /// par un autre fournisseur que celui de l'adresse est refusé : la
-    /// demande de l'interface peut dater d'une adresse en cours de saisie.
-    #[must_use]
-    pub fn serves(self, address: &EmailAddress) -> bool {
-        Self::for_address(address) == Some(self)
-    }
-
     /// Fournisseur proposé pour l'adresse avec la configuration compilée
     /// (voir [`offered_provider`]).
     #[must_use]

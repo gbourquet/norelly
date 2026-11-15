@@ -98,7 +98,15 @@ n'est pas chiffrée (ADR-003) : on s'appuie sur le chiffrement du disque.
   code d'un autre compte injecté dans la redirection locale est ainsi
   refusé. Google : `iss` de Google (`https://accounts.google.com` ou
   `accounts.google.com`), `aud` égal à l'identifiant client et
-  `email_verified` exigés (`check_identity_claims`) ; Microsoft : à venir.
+  `email_verified` exigés (`check_identity_claims`) ; Microsoft : `aud`
+  égal à l'identifiant client, `tid` égal au locataire des comptes
+  personnels (`OAuthConfig::tenant`, `MICROSOFT_CONSUMERS_TENANT`) et
+  `iss` émis par ce locataire
+  (`https://login.microsoftonline.com/<tid>/v2.0`), comme le demande
+  OpenID Connect Core (section 3.1.3.7). La suite de contrat du client
+  OAuth (`oauth_client_contract`) exige qu'une connexion interactive
+  rapporte une identité acceptée par `verify_sign_in`, contre le faux et
+  contre l'adaptateur réel.
   Connexion Google sans le scope de messagerie (consentement granulaire) :
   refusée (`require_mail_access`). Version compilée sans les identifiants
   d'un fournisseur : rien ne lui est envoyé, ni jeton de rafraîchissement
@@ -107,10 +115,18 @@ n'est pas chiffrée (ADR-003) : on s'appuie sur le chiffrement du disque.
   rafraîchissement redemande les seuls scopes de messagerie chez
   Microsoft ; Google garde les scopes accordés (`openid email` compris),
   le jeton ne partant de toute façon que vers les serveurs de Gmail.
-- Ajout d'un compte OAuth : le fournisseur demandé par l'interface doit
-  être celui de l'adresse (`OAuthProvider::serves`), sinon la demande est
-  refusée avant toute connexion (réponse d'interface périmée, adresse
-  changée pendant la saisie).
+- Ajout d'un compte OAuth : l'interface n'envoie pas le fournisseur ; le
+  cas d'usage le déduit de l'adresse (`OAuthProvider::for_address`), et
+  une adresse sans fournisseur est refusée avant toute connexion.
+- Compte supprimé pendant une reconnexion OAuth : la reconnexion ne tient
+  le compte (`AccountLocks`, partagé avec `remove_account`) qu'au retour
+  du navigateur, le relit, et ne range le jeton qu'ensuite ; supprimé
+  entre-temps, elle rapporte `NotFound`, sans écriture au trousseau ni
+  relance de la synchronisation. La garde (`Reconnected::held`) couvre
+  la relance de la synchronisation ; une suppression demandée ensuite
+  l'attend puis l'arrête. Un emplacement de jetons oublié
+  (`TokenCache::discard`) reste marqué, sans jeton : défense en
+  profondeur contre une écriture tardive.
 - Identifiant client public embarqué (application de bureau). Microsoft :
   sans secret. Google : identifiant et `client_secret` du client
   « application de bureau » fournis à la compilation (secrets de la CI,

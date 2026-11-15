@@ -60,20 +60,6 @@ fn gmail_addresses_sign_in_with_google() {
 }
 
 #[test]
-fn a_provider_serves_only_its_own_addresses() {
-    assert!(OAuthProvider::Google.serves(&address("alice@GMAIL.com")));
-    assert!(OAuthProvider::Microsoft.serves(&address("alice@outlook.com")));
-    for (provider, raw) in [
-        (OAuthProvider::Google, "alice@societe.fr"),
-        (OAuthProvider::Google, "alice@outlook.com"),
-        (OAuthProvider::Microsoft, "alice@gmail.com"),
-        (OAuthProvider::Microsoft, "alice@example.com"),
-    ] {
-        assert!(!provider.serves(&address(raw)), "{provider} {raw}");
-    }
-}
-
-#[test]
 fn google_config_uses_google_endpoints_and_full_mail_scope() {
     let c = OAuthProvider::Google.config();
     assert_eq!(

@@ -372,6 +372,42 @@ pub struct FakeOAuthClient {
     pub abandoned: std::sync::atomic::AtomicUsize,
 }
 
+impl FakeOAuthClient {
+    /// Client dont la connexion interactive réussit pour le compte
+    /// Microsoft `login`.
+    #[must_use]
+    pub fn signing_in_as(login: &str) -> Self {
+        let client = Self::default();
+        if let Ok(mut grant) = client.grant.lock() {
+            *grant = Some(norelly_domain::ports::OAuthGrant {
+                access_token: Secret::new("acc".to_owned()),
+                expires_in: 3_600,
+                refresh_token: Some(Secret::new("r1".to_owned())),
+                identity: Some(microsoft_identity(login)),
+                granted_scopes: None,
+            });
+        }
+        client
+    }
+}
+
+/// Identité qu'un compte Microsoft personnel `login` rapporte à Norelly :
+/// émise par le locataire des comptes personnels, pour l'identifiant client
+/// de Norelly.
+#[must_use]
+pub fn microsoft_identity(login: &str) -> norelly_domain::oauth::OAuthIdentity {
+    use norelly_domain::oauth::{MICROSOFT_CONSUMERS_TENANT, OAuthIdentity, OAuthProvider};
+    OAuthIdentity {
+        preferred_username: Some(login.to_owned()),
+        issuer: Some(format!(
+            "https://login.microsoftonline.com/{MICROSOFT_CONSUMERS_TENANT}/v2.0"
+        )),
+        audience: vec![OAuthProvider::Microsoft.config().client_id.to_owned()],
+        tenant: Some(MICROSOFT_CONSUMERS_TENANT.to_owned()),
+        ..OAuthIdentity::default()
+    }
+}
+
 /// Compte une connexion interactive abandonnée (futur détruit avant la fin).
 struct AbandonGuard<'a> {
     abandoned: &'a std::sync::atomic::AtomicUsize,
@@ -430,11 +466,44 @@ impl norelly_domain::ports::OAuthClient for FakeOAuthClient {
     }
 }
 
-/// Contrat du rafraîchissement : « r1 » donne un jeton d'accès et un
-/// nouveau jeton de rafraîchissement ; un jeton révoqué impose une
+/// Contrat du client OAuth. `client` est réglé pour qu'une connexion
+/// interactive de `alice@outlook.com` chez Microsoft réussisse : elle
+/// rapporte les jetons et l'identité du compte connecté, que le domaine
+/// accepte (sans identité, aucun compte ne pourrait être ajouté).
+/// Rafraîchissement : « r1 » donne un jeton d'accès et un nouveau jeton de
+/// rafraîchissement, sans identité exigée ; un jeton révoqué impose une
 /// reconnexion.
 pub async fn oauth_client_contract<C: norelly_domain::ports::OAuthClient>(client: &C) {
-    use norelly_domain::oauth::{OAuthProvider, TokenError};
+    use norelly_domain::oauth::{OAuthProvider, TokenError, verify_sign_in};
+    let microsoft = OAuthProvider::Microsoft;
+    let Ok(alice) = EmailAddress::parse("alice@outlook.com") else {
+        panic!("adresse valide refusée");
+    };
+    let signed_in = client.authorize(microsoft.config(), &alice).await;
+    let Ok(signed_in) = signed_in else {
+        panic!("connexion interactive refusée : {signed_in:?}");
+    };
+    assert!(!signed_in.access_token.is_empty());
+    assert!(signed_in.expires_in > 0);
+    assert!(
+        signed_in.refresh_token.is_some(),
+        "accès hors ligne attendu"
+    );
+    assert!(
+        signed_in.identity.is_some(),
+        "identité du compte connecté absente"
+    );
+    assert_eq!(
+        verify_sign_in(
+            microsoft,
+            microsoft.config(),
+            &alice,
+            signed_in.identity.as_ref()
+        ),
+        Ok(()),
+        "identité refusée par le domaine : {:?}",
+        signed_in.identity
+    );
     let grant = client
         .refresh(
             OAuthProvider::Microsoft.config(),
@@ -458,5 +527,5 @@ pub async fn oauth_client_contract<C: norelly_domain::ports::OAuthClient>(client
 
 #[tokio::test]
 async fn fake_oauth_client_passes_contract() {
-    oauth_client_contract(&FakeOAuthClient::default()).await;
+    oauth_client_contract(&FakeOAuthClient::signing_in_as("alice@outlook.com")).await;
 }

@@ -839,7 +839,7 @@ mod oauth {
 
     use norelly_domain::oauth::{OAuthConfig, OAuthIdentity, OAuthProvider, TokenError};
     use norelly_domain::ports::OAuthGrant;
-    use norelly_test_support::contracts::FakeOAuthClient;
+    use norelly_test_support::contracts::{FakeOAuthClient, microsoft_identity};
 
     use super::*;
     use crate::oauth::TokenBroker;
@@ -883,11 +883,7 @@ mod oauth {
             access_token: Secret::new("acc".to_owned()),
             expires_in: 3_600,
             refresh_token: Some(Secret::new("r1".to_owned())),
-            identity: Some(OAuthIdentity {
-                preferred_username: Some(login.to_owned()),
-                email: None,
-                ..OAuthIdentity::default()
-            }),
+            identity: Some(microsoft_identity(login)),
             granted_scopes: None,
         })
     }
@@ -1243,16 +1239,7 @@ mod oauth {
     #[tokio::test]
     async fn adds_google_account_on_gmail_servers() {
         let w = World::new();
-        let b = broker(Some(OAuthGrant {
-            identity: Some(OAuthIdentity {
-                preferred_username: None,
-                email: Some("alice@gmail.com".to_owned()),
-                issuer: Some("https://accounts.google.com".to_owned()),
-                audience: vec![GOOGLE_TEST_CLIENT.to_owned()],
-                email_verified: Some(true),
-            }),
-            ..grant().unwrap_or_else(|| panic!())
-        }));
+        let b = broker(gmail_grant(None));
         let AddAccountOutcome::Added(account) = add_gmail(&w, &b).await else {
             panic!("compte non ajouté");
         };
@@ -1304,6 +1291,7 @@ mod oauth {
                 issuer: Some("https://accounts.google.com".to_owned()),
                 audience: vec![GOOGLE_TEST_CLIENT.to_owned()],
                 email_verified: Some(true),
+                tenant: None,
             }),
             granted_scopes: granted_scopes.map(str::to_owned),
             ..grant().unwrap_or_else(|| panic!())

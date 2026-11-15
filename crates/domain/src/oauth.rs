@@ -46,6 +46,9 @@ pub struct OAuthConfig {
     /// Scopes OpenID demandés à la seule connexion interactive : l'identité
     /// du compte choisi dans le navigateur revient dans l'`id_token`.
     pub identity_scopes: &'static [&'static str],
+    /// Locataire attendu dans l'`id_token` (`tid`) : celui des comptes
+    /// personnels chez Microsoft. `None` chez Google, qui n'en a pas.
+    pub tenant: Option<&'static str>,
     pub imap_host: &'static str,
     pub smtp_host: &'static str,
 }
@@ -85,6 +88,10 @@ impl fmt::Debug for OAuthConfig {
     }
 }
 
+/// Locataire Microsoft des comptes personnels (Outlook.com, Hotmail, Live),
+/// seul servi par le point d'accès `consumers`.
+pub const MICROSOFT_CONSUMERS_TENANT: &str = "9188040d-6c67-4c5b-b112-36a304b66dad";
+
 const MICROSOFT: OAuthConfig = OAuthConfig {
     authorize_url: "https://login.microsoftonline.com/consumers/oauth2/v2.0/authorize",
     token_url: "https://login.microsoftonline.com/consumers/oauth2/v2.0/token",
@@ -98,6 +105,7 @@ const MICROSOFT: OAuthConfig = OAuthConfig {
         "offline_access",
     ],
     identity_scopes: &["openid", "email", "profile"],
+    tenant: Some(MICROSOFT_CONSUMERS_TENANT),
     imap_host: "outlook.office365.com",
     smtp_host: "smtp-mail.outlook.com",
 };
@@ -127,6 +135,7 @@ const GOOGLE: OAuthConfig = OAuthConfig {
     refresh_with_scopes: false,
     scopes: &["https://mail.google.com/"],
     identity_scopes: &["openid", "email"],
+    tenant: None,
     imap_host: "imap.gmail.com",
     smtp_host: "smtp.gmail.com",
 };
@@ -493,27 +502,36 @@ pub struct OAuthIdentity {
     pub audience: Vec<String>,
     /// Adresse `email` vérifiée par le fournisseur (`email_verified`).
     pub email_verified: Option<bool>,
+    /// Locataire du compte (`tid`, Microsoft).
+    pub tenant: Option<String>,
 }
 
 /// Émetteurs de l'`id_token` de Google.
 const GOOGLE_ISSUERS: [&str; 2] = ["https://accounts.google.com", "accounts.google.com"];
 
-/// Revendications de l'`id_token` propres au fournisseur. Google : émis
-/// par Google, pour l'identifiant client de `config`, adresse vérifiée
-/// (sinon le compte n'a pas prouvé qu'il la possède). Microsoft : non
-/// vérifiées ici.
+/// Émetteur de l'`id_token` de Microsoft pour le locataire `tenant`.
+fn microsoft_issuer(tenant: &str) -> String {
+    format!("https://login.microsoftonline.com/{tenant}/v2.0")
+}
+
+/// Revendications de l'`id_token` propres au fournisseur (OpenID Connect
+/// Core, section 3.1.3.7) : émis par le fournisseur, pour l'identifiant
+/// client de `config`. Google : adresse vérifiée en plus (sinon le compte
+/// n'a pas prouvé qu'il la possède). Microsoft : compte du locataire de
+/// `config` (comptes personnels), émis par ce même locataire.
 pub fn check_identity_claims(
     provider: OAuthProvider,
     config: &OAuthConfig,
     identity: &OAuthIdentity,
 ) -> Result<(), TokenError> {
-    if provider != OAuthProvider::Google {
-        return Ok(());
-    }
-    let issuer_ok = identity
-        .issuer
-        .as_deref()
-        .is_some_and(|iss| GOOGLE_ISSUERS.contains(&iss));
+    let issuer = identity.issuer.as_deref();
+    let issuer_ok = match provider {
+        OAuthProvider::Google => issuer.is_some_and(|iss| GOOGLE_ISSUERS.contains(&iss)),
+        OAuthProvider::Microsoft => config.tenant.is_some_and(|tenant| {
+            identity.tenant.as_deref() == Some(tenant)
+                && issuer == Some(microsoft_issuer(tenant).as_str())
+        }),
+    };
     let audience_ok =
         !config.client_id.is_empty() && identity.audience.iter().any(|a| a == config.client_id);
     if !(issuer_ok && audience_ok) {
@@ -521,10 +539,11 @@ pub fn check_identity_claims(
             "identité émise pour une autre application".to_owned(),
         ));
     }
-    if identity.email_verified == Some(true) {
-        Ok(())
-    } else {
-        Err(TokenError::WrongAccount)
+    match provider {
+        OAuthProvider::Google if identity.email_verified != Some(true) => {
+            Err(TokenError::WrongAccount)
+        }
+        _ => Ok(()),
     }
 }
 

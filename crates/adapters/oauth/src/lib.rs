@@ -474,6 +474,8 @@ struct IdTokenClaims {
     aud: Option<serde_json::Value>,
     /// Booléen, ou chaîne `"true"`/`"false"` (déjà vu chez Google).
     email_verified: Option<serde_json::Value>,
+    /// Locataire du compte (Microsoft).
+    tid: Option<String>,
 }
 
 /// Identité portée par un `id_token` (JWT `en-tête.contenu.signature`).
@@ -506,6 +508,7 @@ fn identity_of(id_token: &str) -> Option<OAuthIdentity> {
             Some(serde_json::Value::String(v)) if v == "false" => Some(false),
             _ => None,
         },
+        tenant: claims.tid,
     })
 }
 

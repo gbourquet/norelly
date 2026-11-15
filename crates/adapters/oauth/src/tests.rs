@@ -8,7 +8,7 @@ use wiremock::matchers::{body_string_contains, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 use super::*;
-use norelly_domain::oauth::OAuthProvider;
+use norelly_domain::oauth::{MICROSOFT_CONSUMERS_TENANT, OAuthProvider};
 
 /// Visite du faux navigateur : port de la redirection et `state` reçus.
 type Visit = Arc<dyn Fn(u16, String) + Send + Sync>;
@@ -120,6 +120,15 @@ fn id_token(claims: &str) -> String {
     )
 }
 
+/// Revendications de l'`id_token` d'`alice@outlook.com`, comme les émet
+/// Microsoft pour un compte personnel.
+fn microsoft_claims() -> String {
+    format!(
+        r#"{{"iss":"https://login.microsoftonline.com/{MICROSOFT_CONSUMERS_TENANT}/v2.0","aud":"{}","tid":"{MICROSOFT_CONSUMERS_TENANT}","preferred_username":"alice@outlook.com","email":"alice@outlook.com","sub":"x"}}"#,
+        OAuthProvider::Microsoft.config().client_id
+    )
+}
+
 /// Vrai si le `code_verifier` du formulaire est celui dont le haché a été
 /// envoyé dans l'URL ouverte par `browser` (PKCE, RFC 7636).
 fn pkce_matches(browser: &Browser, request: &wiremock::Request) -> bool {
@@ -140,9 +149,7 @@ async fn token_server(browser: &Browser) -> MockServer {
     let seen = browser.clone();
     let body = format!(
         r#"{{"access_token":"acc","expires_in":3599,"refresh_token":"r1","token_type":"Bearer","id_token":"{}"}}"#,
-        id_token(
-            r#"{"preferred_username":"alice@outlook.com","email":"alice@outlook.com","sub":"x"}"#
-        )
+        id_token(&microsoft_claims())
     );
     Mock::given(method("POST"))
         .and(path("/token"))
@@ -221,9 +228,8 @@ async fn authorize_opens_browser_and_exchanges_code() {
     assert_eq!(
         grant.identity,
         Some(OAuthIdentity {
-            preferred_username: Some("alice@outlook.com".to_owned()),
             email: Some("alice@outlook.com".to_owned()),
-            ..OAuthIdentity::default()
+            ..norelly_test_support::contracts::microsoft_identity("alice@outlook.com")
         })
     );
     let url = browser.url();
@@ -633,7 +639,8 @@ async fn refresh_uses_the_configuration_it_is_given() {
 
 #[tokio::test]
 async fn passes_oauth_client_contract() {
-    let browser = Browser::new(vec![]);
+    // Connexion réussie dans le navigateur : le contrat l'exige.
+    let browser = Browser::new(vec!["/?code=le-code&state={state}"]);
     let server = token_server(&browser).await;
     oauth_client_contract(&client(&server, browser)).await;
 }
@@ -678,6 +685,20 @@ fn id_token_gives_the_signed_in_identity() {
         Ok(Some(OAuthIdentity {
             preferred_username: Some("+33600000000".to_owned()),
             email: Some("Bob@Live.fr".to_owned()),
+            ..OAuthIdentity::default()
+        }))
+    );
+    // Microsoft : émetteur, destinataire et locataire du compte.
+    let microsoft = identity(&id_token(
+        r#"{"iss":"https://login.microsoftonline.com/t/v2.0","aud":"client","tid":"t","preferred_username":"a@outlook.com"}"#,
+    ));
+    assert_eq!(
+        microsoft,
+        Ok(Some(OAuthIdentity {
+            preferred_username: Some("a@outlook.com".to_owned()),
+            issuer: Some("https://login.microsoftonline.com/t/v2.0".to_owned()),
+            audience: vec!["client".to_owned()],
+            tenant: Some("t".to_owned()),
             ..OAuthIdentity::default()
         }))
     );

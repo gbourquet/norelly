@@ -482,6 +482,7 @@
   "err_contact_repeated_address": "Cette adresse figure deux fois dans la fiche.",
   "err_contact_duplicate_address": "Cette adresse appartient déjà à un autre contact.",
   "err_contact_not_found": "Ce contact n'existe plus.",
+  "err_contact_selection_too_many": "Vous pouvez sélectionner au plus {max} contacts à la fois.",
   "contacts_favorite": "Ajouter aux favoris",
   "contacts_unfavorite": "Retirer des favoris",
   "group_contacts": "Contacts",

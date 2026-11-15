@@ -5,6 +5,7 @@ import {
   CONTACT_PAGE,
   ContactFormState,
   ContactsState,
+  MAX_MARKED_CONTACTS,
   DeleteContactsState,
   emptyFields,
   type ContactsApi,
@@ -176,6 +177,38 @@ describe("fiche et sélection", () => {
     expect(s.targets()).toEqual([2]);
   });
 
+  it("refuse de cocher au-delà de la borne de Rust, et l'explique", () => {
+    const s = new ContactsState(fakeApi());
+    expect(MAX_MARKED_CONTACTS).toBe(1000);
+    for (let id = 1; id <= MAX_MARKED_CONTACTS; id++) expect(s.toggleMark(id)).toBe(true);
+    expect(s.markLimitReached).toBe(false);
+    expect(s.toggleMark(MAX_MARKED_CONTACTS + 1)).toBe(false);
+    expect(s.marked).toHaveLength(MAX_MARKED_CONTACTS);
+    expect(s.marked).not.toContain(MAX_MARKED_CONTACTS + 1);
+    expect(s.markLimitReached).toBe(true);
+    // Décocher reste possible, et lève l'avertissement.
+    expect(s.toggleMark(1)).toBe(true);
+    expect(s.markLimitReached).toBe(false);
+    expect(s.toggleMark(MAX_MARKED_CONTACTS + 1)).toBe(true);
+    expect(s.marked).toHaveLength(MAX_MARKED_CONTACTS);
+  });
+
+  it("tout décocher lève l'avertissement de la borne", () => {
+    const s = new ContactsState(fakeApi());
+    for (let id = 1; id <= MAX_MARKED_CONTACTS + 1; id++) s.toggleMark(id);
+    expect(s.markLimitReached).toBe(true);
+    s.clearMarks();
+    expect(s.markLimitReached).toBe(false);
+    expect(s.marked).toEqual([]);
+  });
+
+  it("une suppression lève l'avertissement de la borne", async () => {
+    const s = new ContactsState(fakeApi());
+    for (let id = 1; id <= MAX_MARKED_CONTACTS + 1; id++) s.toggleMark(id);
+    await s.removed([1]);
+    expect(s.markLimitReached).toBe(false);
+  });
+
   it("bascule le favori de la fiche ouverte et relit la liste", async () => {
     const api = fakeApi([contact(1, "Alice")]);
     const s = new ContactsState(api);
@@ -233,6 +266,29 @@ describe("écrire à des contacts", () => {
     expect(await s.recipients([3])).toEqual([{ name: "", address: "x@example.com" }]);
     await s.load();
     expect(await s.recipients([3])).toEqual([{ name: "", address: "x@example.com" }]);
+  });
+
+  it("relit en parallèle les fiches hors de la liste, dans l'ordre visé", async () => {
+    const api = fakeApi([contact(1, "Alice"), contact(2, "Bob"), contact(3, "Carl")]);
+    const read = api.getContact.getMockImplementation();
+    const pending: (() => void)[] = [];
+    api.getContact.mockImplementation(
+      (id: number) =>
+        new Promise<ContactDto>((resolve, reject) => {
+          pending.push(() => void read?.(id).then(resolve, reject));
+        }),
+    );
+    const s = new ContactsState(api);
+    const result = s.recipients([3, 2, 1]);
+    await Promise.resolve();
+    // Les trois lectures partent sans attendre la précédente.
+    expect(api.getContact).toHaveBeenCalledTimes(3);
+    pending.reverse().forEach((go) => go());
+    expect(await result).toEqual([
+      { name: "Carl", address: "carl@example.com" },
+      { name: "Bob", address: "bob@example.com" },
+      { name: "Alice", address: "alice@example.com" },
+    ]);
   });
 
   it("ignore un contact disparu entre-temps", async () => {

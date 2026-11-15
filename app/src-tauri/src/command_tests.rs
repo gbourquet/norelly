@@ -1067,7 +1067,7 @@ async fn contact_inputs_are_revalidated() {
     );
     assert_eq!(
         code(delete_contacts(t.state(), (1..=1001).collect()).await),
-        (ErrorCodeDto::InvalidInput, Some(FieldDto::Contact))
+        (ErrorCodeDto::ContactSelectionTooMany, None)
     );
     let cursor = ContactCursorDto {
         sort_key: "a".repeat(100_000),
@@ -1286,6 +1286,10 @@ async fn contact_lists_are_managed_suggested_and_expanded() {
     assert_eq!(
         code(add_to_contact_list(t.state(), club.id, vec![0]).await),
         (ErrorCodeDto::InvalidInput, Some(FieldDto::Contact))
+    );
+    assert_eq!(
+        code(add_to_contact_list(t.state(), club.id, (1..=1001).collect()).await),
+        (ErrorCodeDto::ContactSelectionTooMany, None)
     );
 
     // Liste, suggestions (listes vides écartées), expansion en Cci.

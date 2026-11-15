@@ -56,6 +56,9 @@ describe("traduction des erreurs IPC", () => {
       "Cette adresse appartient déjà à un autre contact. (« bob@example.com »)",
     );
     expect(errorText(new IpcFailure("contact_not_found"))).toBe("Ce contact n'existe plus.");
+    expect(errorText(new IpcFailure("contact_selection_too_many"))).toBe(
+      `Vous pouvez sélectionner au plus ${new Intl.NumberFormat("fr").format(1000)} contacts à la fois.`,
+    );
   });
 
   it("explique les refus des listes de diffusion", () => {
@@ -155,6 +158,7 @@ describe("traduction des erreurs IPC", () => {
       contact_repeated_address: true,
       contact_duplicate_address: true,
       contact_not_found: true,
+      contact_selection_too_many: true,
       contact_list_no_name: true,
       contact_list_invalid: true,
       contact_list_too_long: true,

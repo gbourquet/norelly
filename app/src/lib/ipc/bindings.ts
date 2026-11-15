@@ -320,6 +320,9 @@ export const events = {
 	updateEventDto: makeEvent<UpdateEventDto, UpdateEventDto>("update-event-dto"),
 };
 
+/* Constants */
+export const MAX_CONTACT_SELECTION = 1000 as const;
+
 /* Types */
 /**  Compte enregistré. */
 export type AccountDto = AccountDto_Serialize | AccountDto_Deserialize;
@@ -1098,6 +1101,11 @@ export type ErrorCodeDto =
 "contact_duplicate_address" | 
 /**  Contact introuvable (supprimé entre-temps). */
 "contact_not_found" | 
+/**
+ *  Trop de contacts visés en une fois (suppression, ajout à une
+ *  liste, export d'une sélection) : au plus `MAX_CONTACT_SELECTION`.
+ */
+"contact_selection_too_many" | 
 /**  Liste de diffusion sans nom. */
 "contact_list_no_name" | 
 /**  Champ d'une liste refusé (`field`). */

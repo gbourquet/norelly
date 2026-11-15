@@ -482,6 +482,7 @@
   "err_contact_repeated_address": "This address appears twice on the card.",
   "err_contact_duplicate_address": "This address already belongs to another contact.",
   "err_contact_not_found": "This contact no longer exists.",
+  "err_contact_selection_too_many": "You can select at most {max} contacts at a time.",
   "contacts_favorite": "Add to favorites",
   "contacts_unfavorite": "Remove from favorites",
   "group_contacts": "Contacts",

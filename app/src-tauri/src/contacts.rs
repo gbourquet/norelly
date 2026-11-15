@@ -10,8 +10,8 @@ use norelly_application::contacts::{
     ContactFailure, CreateContact, DeleteContacts, GetContact, ListContacts, UpdateContact,
 };
 use norelly_domain::contacts::{
-    Contact, ContactError, ContactField, ContactId, ContactInput, EmailInput, MAX_CONTACT_EMAILS,
-    PhoneInput, contact_selection,
+    Contact, ContactError, ContactField, ContactId, ContactInput, ContactSelectionError,
+    EmailInput, MAX_CONTACT_EMAILS, PhoneInput, contact_selection,
 };
 use norelly_domain::ports::{ContactCursor, ContactListItem, ContactStoreError, PageSize};
 use tauri::State;
@@ -21,6 +21,15 @@ use crate::ipc::{
     ContactPageDto, ContactPhoneDto, ErrorCodeDto, FieldDto, IpcError, id32,
 };
 use crate::state::AppState;
+
+/// Sélection de fiches refusée, en code : trop de fiches visées a son
+/// propre code, que l'interface explique.
+pub(crate) fn selection_error(e: ContactSelectionError) -> IpcError {
+    match e {
+        ContactSelectionError::InvalidId => IpcError::invalid(FieldDto::Contact),
+        ContactSelectionError::TooMany => IpcError::new(ErrorCodeDto::ContactSelectionTooMany),
+    }
+}
 
 fn field_dto(field: ContactField) -> FieldDto {
     match field {
@@ -272,7 +281,7 @@ pub async fn update_contact(
 #[tauri::command]
 #[specta::specta]
 pub async fn delete_contacts(state: State<'_, AppState>, ids: Vec<u32>) -> Result<u32, IpcError> {
-    let ids = contact_selection(&ids).map_err(|_| IpcError::invalid(FieldDto::Contact))?;
+    let ids = contact_selection(&ids).map_err(selection_error)?;
     let deleted = DeleteContacts {
         book: &state.contacts,
     }

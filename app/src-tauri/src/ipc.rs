@@ -130,6 +130,9 @@ pub enum ErrorCodeDto {
     ContactDuplicateAddress,
     /// Contact introuvable (supprimé entre-temps).
     ContactNotFound,
+    /// Trop de contacts visés en une fois (suppression, ajout à une
+    /// liste, export d'une sélection) : au plus `MAX_CONTACT_SELECTION`.
+    ContactSelectionTooMany,
     /// Liste de diffusion sans nom.
     ContactListNoName,
     /// Champ d'une liste refusé (`field`).

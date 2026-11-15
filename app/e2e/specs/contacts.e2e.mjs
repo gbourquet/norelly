@@ -7,10 +7,13 @@
 // - « Écrire au contact » ouvre la rédaction avec l'adresse préférée ;
 // - un texte saisi qui ressemble à du HTML est affiché comme du texte ;
 // - le nom du carnet remplace celui de l'en-tête dans la liste et le
-//   message ; un nom d'en-tête qui imite une adresse n'est pas affiché ;
+//   message ; un nom d'en-tête qui imite une adresse (même en toutes
+//   lettres, « (at) ») n'est pas affiché ; un nom en forme de domaine
+//   s'affiche avec l'adresse réelle ;
 //   « Voir le contact » depuis le nom de l'expéditeur ;
 // - « Ajouter au carnet d'adresses » depuis le clic droit sur une
-//   conversation, fiche pré-remplie ;
+//   conversation, fiche pré-remplie, sans le nom d'en-tête qui imite une
+//   adresse ;
 // - pendant la saisie d'un destinataire, le contact est proposé d'abord,
 //   sous le nom du carnet et signalé, une seule fois même si son adresse
 //   figure aussi dans le courrier ; un destinataire collé dont le nom
@@ -65,6 +68,8 @@ describe("carnet d'adresses", () => {
       mail("Z. M. <Zoe@norelly.test>", "Réunion du carnet", "carnet-zoe"),
       mail("Hugo Petit <hugo@norelly.test>", "Prêt du carnet de chant", "carnet-hugo"),
       mail('"service@banque.test" <pirate@norelly.test>', "Votre carnet bancaire", "carnet-faux"),
+      mail("support(at)banque.test <pirate2@norelly.test>", "Carnet de chèques", "carnet-at"),
+      mail("Banque.test <pirate3@norelly.test>", "Carnet d'épargne", "carnet-domaine"),
     ]);
     await addTestAccount();
   });
@@ -159,6 +164,17 @@ describe("carnet d'adresses", () => {
     await expect(
       fake.$('.//*[contains(normalize-space(), "service@banque.test")]'),
     ).not.toBeExisting();
+    // « @ » écrit en toutes lettres : seule l'adresse réelle aussi.
+    const textual = row("Carnet de chèques");
+    await expect(textual.$('.//*[normalize-space()="pirate2@norelly.test"]')).toBeDisplayed();
+    await expect(textual.$('.//*[contains(normalize-space(), "(at)")]')).not.toBeExisting();
+    // Nom en forme de domaine : l'adresse réelle d'abord, puis le nom.
+    const domain = row("Carnet d'épargne");
+    await expect(
+      domain.$(
+        './/*[contains(@class, "senders")][contains(., "pirate3@norelly.test")][contains(substring-after(., "pirate3@norelly.test"), "(")][contains(., "Banque.test")]',
+      ),
+    ).toBeDisplayed();
 
     await $("span=Réunion du carnet").click();
     await openMenu(button("Actions pour Zoé Martin (Dans vos contacts)"));
@@ -191,6 +207,18 @@ describe("carnet d'adresses", () => {
     await confirm.waitForDisplayed();
     await confirm.$("button=Supprimer").click();
     await confirm.waitForDisplayed({ reverse: true, timeout: 10000 });
+  });
+
+  it("ne pré-remplit pas un nom d'en-tête qui imite une adresse", async () => {
+    await inbox();
+    await openContextMenu(row("Carnet de chèques"));
+    await menuItem("Ajouter au carnet d'adresses").click();
+    const form = dialog("Nouveau contact");
+    await form.waitForDisplayed();
+    await expect(field("Nom affiché")).toHaveValue("");
+    await expect($('[aria-label="Adresse électronique 1"]')).toHaveValue("pirate2@norelly.test");
+    await button("Annuler").click();
+    await form.waitForDisplayed({ reverse: true, timeout: 10000 });
   });
 
   it("propose d'abord le contact du carnet pendant la saisie d'un destinataire", async () => {

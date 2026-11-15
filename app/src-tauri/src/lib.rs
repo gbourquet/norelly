@@ -41,6 +41,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::list_accounts,
             commands::discover_settings,
             commands::add_account,
+            commands::check_display_name,
             commands::oauth_provider_for,
             commands::cancel_oauth_sign_in,
             commands::add_oauth_account,

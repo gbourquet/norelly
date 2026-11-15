@@ -29,6 +29,9 @@ use specta::Type;
 pub enum ErrorCodeDto {
     /// Donnée reçue de l'interface refusée par le domaine (`field`).
     InvalidInput,
+    /// Nom d'affichage d'un compte qui imite une adresse (« @ », « < »,
+    /// « > » ou un caractère qui leur ressemble).
+    DisplayNameLooksLikeAddress,
     /// Élément introuvable (`field` : message, partie, certificat…).
     NotFound,
     /// Expéditeur sans adresse valide : autorisation impossible.
@@ -600,6 +603,9 @@ pub struct CertificateProblemDto {
     pub issue: CertificateIssueDto,
     /// L'empreinte diffère d'une exception enregistrée (attaque possible).
     pub fingerprint_changed: bool,
+    /// Le certificat ne correspond pas non plus au nom du serveur, en plus
+    /// de `issue`.
+    pub name_mismatch: bool,
     /// Une exception est possible (pas pour un certificat révoqué).
     pub can_trust: bool,
 }
@@ -874,6 +880,7 @@ fn connection_failure(
                 fingerprint: r.fingerprint.to_string(),
                 issue: (&r.issue).into(),
                 fingerprint_changed: r.fingerprint_changed,
+                name_mismatch: r.name_mismatch,
                 can_trust: r.can_be_excepted(),
             },
         },
@@ -1466,6 +1473,34 @@ mod error_tests {
         assert_eq!(detail, None);
         let (kind, _) = connection_failure_of(&ConnectionError::Tls("handshake".into()));
         assert_eq!(kind, FailureKindDto::Security);
+    }
+
+    #[test]
+    fn certificate_problem_reports_wrong_name_besides_the_issue() {
+        use norelly_application::accounts::AddAccountOutcome;
+        use norelly_application::test_connection::TestConnectionOutcome;
+        use norelly_domain::security::{CertificateFingerprint, CertificateRejection};
+        let problem = |name_mismatch: bool| {
+            let rejection = CertificateRejection {
+                host: norelly_domain::endpoint::Host::parse("imap.example.com")
+                    .unwrap_or_else(|_| panic!("hôte")),
+                fingerprint: CertificateFingerprint::from_bytes([0xAA; 32]),
+                issue: CertificateIssue::UnknownIssuer,
+                fingerprint_changed: false,
+                name_mismatch,
+            };
+            let outcome = AddAccountOutcome::ConnectionFailed {
+                protocol: Protocol::Imap,
+                outcome: TestConnectionOutcome::Certificate(rejection),
+                advice: None,
+            };
+            serde_json::to_value(AddAccountResultDto::from_outcome(&outcome)).unwrap_or_default()
+        };
+        let both = problem(true);
+        assert_eq!(both["kind"], "certificate", "{both}");
+        assert_eq!(both["problem"]["issue"], "unknown_issuer", "{both}");
+        assert_eq!(both["problem"]["name_mismatch"], true, "{both}");
+        assert_eq!(problem(false)["problem"]["name_mismatch"], false);
     }
 
     #[test]

@@ -7,6 +7,7 @@ const APP_COMMANDS: &[&str] = &[
     "list_accounts",
     "discover_settings",
     "add_account",
+    "check_display_name",
     "oauth_provider_for",
     "cancel_oauth_sign_in",
     "add_oauth_account",

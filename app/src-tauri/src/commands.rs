@@ -10,7 +10,7 @@ use norelly_application::accounts::{
     Reconnected, reconnect_oauth_account,
 };
 use norelly_application::test_connection::TestConnectionOutcome;
-use norelly_domain::account::{AccountId, DisplayName, ServerSettings};
+use norelly_domain::account::{AccountError, AccountId, DisplayName, ServerSettings};
 use norelly_domain::address::EmailAddress;
 use norelly_domain::credentials::{Secret, Username};
 use norelly_domain::endpoint::{Host, Protocol, ServerEndpoint};
@@ -76,12 +76,7 @@ fn server_settings(protocol: Protocol, dto: &ServerDto) -> Result<ServerSettings
 fn add_request(input: AddAccountInput) -> Result<AddAccountRequest, IpcError> {
     let address =
         EmailAddress::parse(&input.address).map_err(|_| IpcError::invalid(FieldDto::Address))?;
-    let display_name = match input.display_name.as_deref().map(str::trim) {
-        None | Some("") => None,
-        Some(name) => {
-            Some(DisplayName::parse(name).map_err(|_| IpcError::invalid(FieldDto::DisplayName))?)
-        }
-    };
+    let display_name = display_name(input.display_name.as_deref())?;
     let servers = match (&input.imap, &input.smtp) {
         (Some(imap), Some(smtp)) => Some((
             server_settings(Protocol::Imap, imap)?,
@@ -158,6 +153,29 @@ pub async fn add_account(
     Ok(AddAccountResultDto::from_outcome(&outcome))
 }
 
+/// Vérifie le nom d'affichage saisi pour un compte, pendant la saisie :
+/// mêmes règles et mêmes codes que l'ajout. Vide : nom par défaut.
+#[tauri::command]
+#[specta::specta]
+pub fn check_display_name(name: String) -> Result<(), IpcError> {
+    display_name(Some(&name)).map(|_| ())
+}
+
+/// Nom d'affichage facultatif d'un compte, revalidé par le domaine ; vide :
+/// nom par défaut. Un nom qui imite une adresse a son propre code.
+fn display_name(raw: Option<&str>) -> Result<Option<DisplayName>, IpcError> {
+    match raw.map(str::trim) {
+        None | Some("") => Ok(None),
+        Some(name) => DisplayName::parse(name).map(Some).map_err(|e| match e {
+            AccountError::DisplayNameLooksLikeAddress => IpcError {
+                field: Some(FieldDto::DisplayName),
+                ..IpcError::new(ErrorCodeDto::DisplayNameLooksLikeAddress)
+            },
+            _ => IpcError::invalid(FieldDto::DisplayName),
+        }),
+    }
+}
+
 /// Fournisseur OAuth d'une adresse (décidé par le domaine) : l'interface
 /// propose alors « Se connecter avec … ».
 #[tauri::command]
@@ -208,12 +226,7 @@ pub async fn add_oauth_account(
 ) -> Result<AddAccountResultDto, IpcError> {
     let address =
         EmailAddress::parse(&input.address).map_err(|_| IpcError::invalid(FieldDto::Address))?;
-    let display_name = match input.display_name.as_deref().map(str::trim) {
-        None | Some("") => None,
-        Some(name) => {
-            Some(DisplayName::parse(name).map_err(|_| IpcError::invalid(FieldDto::DisplayName))?)
-        }
-    };
+    let display_name = display_name(input.display_name.as_deref())?;
     oauth_sign_in_offered(&address)?;
     if !state.secrets.usable().await {
         return Ok(AddAccountResultDto::SecretStorageConsentRequired {
@@ -471,6 +484,36 @@ mod tests {
         assert_eq!(
             oauth_sign_in_offered(&gmail).is_ok(),
             OAuthProvider::Google.config().is_usable()
+        );
+    }
+
+    #[test]
+    fn display_name_imitating_an_address_has_its_own_code() {
+        let refused = Some((
+            ErrorCodeDto::DisplayNameLooksLikeAddress,
+            Some(FieldDto::DisplayName),
+        ));
+        let named = AddAccountInput {
+            display_name: Some("ceo@banque.fr".into()),
+            ..input()
+        };
+        assert_eq!(add_request(named).err().map(|e| (e.code, e.field)), refused);
+        assert_eq!(
+            check_display_name("Alice <alice@example.com>".into())
+                .err()
+                .map(|e| (e.code, e.field)),
+            refused
+        );
+        assert_eq!(
+            check_display_name("a\u{0}b".into())
+                .err()
+                .map(|e| (e.code, e.field)),
+            Some((ErrorCodeDto::InvalidInput, Some(FieldDto::DisplayName)))
+        );
+        assert!(check_display_name("Alice Martin".into()).is_ok());
+        assert!(
+            check_display_name("  ".into()).is_ok(),
+            "vide : nom par défaut"
         );
     }
 

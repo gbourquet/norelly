@@ -9,6 +9,7 @@ permissions = [
   "allow-list-accounts",
   "allow-discover-settings",
   "allow-add-account",
+  "allow-check-display-name",
   "allow-oauth-provider-for",
   "allow-cancel-oauth-sign-in",
   "allow-add-oauth-account",

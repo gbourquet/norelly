@@ -22,7 +22,9 @@ adresse pour une association).
    premier compte, sinon sur le bouton **+** en haut du panneau de gauche.
 2. Tapez votre **adresse électronique** et votre **mot de passe**. Le
    **nom affiché** est facultatif : c'est le nom que vos correspondants
-   verront à côté de votre adresse (par exemple « Marie Durand »).
+   verront à côté de votre adresse (par exemple « Marie Durand »). Il ne
+   peut pas contenir « @ », « < » ni « > » : Norelly vous le signale
+   sous le champ dès la saisie.
 
    ![La fenêtre « Ajouter un compte », avec l'adresse, le mot de passe et le nom affiché remplis](captures/add-account.png)
 

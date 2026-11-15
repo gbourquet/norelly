@@ -20,7 +20,8 @@ several (for example a personal address and one for a club).
    account, otherwise on the **+** button at the top of the left panel.
 2. Type your **email address** and your **password**. The **display name**
    is optional: it is the name your contacts will see next to your address
-   (for example "Mary Smith").
+   (for example "Mary Smith"). It cannot contain "@", "<" or ">":
+   Norelly tells you so under the field as you type.
 
    ![The "Add an account" window, with the address, password and display name filled in](captures/add-account.png)
 

@@ -64,6 +64,12 @@ en tête et à chaque table.
   l'écriture du message (déclencheurs) ; les messages ne sont jamais
   remplacés par `INSERT OR REPLACE`.
 - Suppression d'un compte : cascade sur toutes ses données.
+- Nom affiché d'un compte (`accounts.display_name`) : relu par
+  `DisplayName::from_stored`, avec les mêmes règles qu'à la saisie sauf le
+  refus des noms qui imitent une adresse. Un compte enregistré avant ce
+  refus avec un nom contenant « @ », « < » ou « > » s'ouvre donc tel
+  quel, sans migration ni réécriture ; ce nom reste écarté à l'envoi
+  (`Recipient::new`), comme avant.
 - Carnet d'adresses : une adresse (à la casse près) n'appartient qu'à un
   contact (`contact_emails.address_key UNIQUE`) ; ordre et filtre de la
   liste comparent `sort_key` et `search_text` octet par octet, sans le

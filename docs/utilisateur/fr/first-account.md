@@ -223,8 +223,9 @@ repasse par le navigateur.
 
 Sur certains comptes Outlook.com, Microsoft désactive l'envoi de messages
 depuis les programmes de messagerie, alors que la réception fonctionne.
-Norelly vous le dit à l'ajout du compte : activez l'envoi dans les réglages
-de votre compte Outlook.com, puis réessayez.
+Norelly vous le dit à l'ajout du compte. Aucun réglage d'un compte
+personnel ne permet de réactiver cet envoi : envoyez vos messages depuis
+le site outlook.com, ou contactez le support Microsoft.
 
 ## Retirer un compte
 

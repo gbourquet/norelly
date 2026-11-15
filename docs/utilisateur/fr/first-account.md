@@ -45,7 +45,8 @@ Votre mot de passe est rangé dans le **trousseau** de votre système (le
 coffre-fort à mots de passe de Windows ou de Linux). Seule exception : sous
 Linux, si aucun trousseau ne répond, Norelly peut vous proposer de
 l'enregistrer dans un fichier **non chiffré** ; il ne le fait que si vous
-l'acceptez (voir [les messages d'erreur](errors.md#autres-messages)).
+l'acceptez (voir [les messages d'erreur](errors.md#autres-messages)). Une fois ce
+fichier accepté, la fenêtre d'ajout le rappelle sous le mot de passe.
 
 ### Si Norelly vous montre les réglages des serveurs
 

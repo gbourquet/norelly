@@ -153,9 +153,17 @@ acceptés) sont supprimées. **Rien n'est supprimé sur le serveur.**
   journaux.
 - **Sans trousseau** : les mots de passe peuvent être gardés dans un fichier
   non chiffré, lisible par le seul utilisateur, et seulement après son
-  consentement. Le trousseau reste prioritaire. Dans ce cas, la mention
-  « conservé dans le trousseau du système » n'apparaît pas à l'ajout :
-  l'écran n'annonce que des garanties vraies.
+  consentement. Le trousseau reste prioritaire. L'écran d'ajout ne
+  sollicite pas le trousseau à son ouverture (aucune demande de
+  déverrouillage ne surgit) : il n'est interrogé qu'à l'enregistrement du
+  compte, et c'est alors, s'il ne répond pas, que le fichier est proposé.
+  L'écran n'annonce que des garanties vraies : la mention « conservé dans
+  le trousseau du système, jamais dans les fichiers de Norelly sans votre
+  accord » n'apparaît que si le trousseau a répondu au démarrage ; si le
+  fichier a déjà été accepté et qu'aucun trousseau ne répond, l'écran dit
+  que le mot de passe (ou l'autorisation de connexion d'un compte
+  Microsoft ou Google) sera conservé dans ce fichier, sans chiffrement.
+  Dans le doute (trousseau revenu depuis l'accord), rien n'est annoncé.
 
 ## Cas limites
 

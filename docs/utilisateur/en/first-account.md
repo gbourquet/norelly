@@ -41,7 +41,8 @@ several (for example a personal address and one for a club).
 Your password is stored in your system's **keyring** (the password safe of
 Windows or Linux). The only exception: on Linux, if no keyring responds,
 Norelly may offer to store it in an **unencrypted** file; it only does so
-if you accept (see [error messages](errors.md#other-messages)).
+if you accept (see [error messages](errors.md#other-messages)). Once this
+file is accepted, the add window reminds you of it below the password.
 
 ### If Norelly shows you the server settings
 

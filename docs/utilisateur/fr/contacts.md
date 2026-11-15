@@ -38,6 +38,11 @@ le plus courant : l'adresse appartient déjà à un autre contact. Une
 adresse ne peut appartenir qu'à un seul contact ; modifiez plutôt celui
 qui l'a déjà.
 
+Un nom ne peut pas ressembler à une adresse électronique : « @ », « < »
+et « > » y sont refusés, pour qu'un message ne puisse pas se faire passer
+pour quelqu'un d'autre. L'explication s'affiche sous le champ concerné ;
+saisissez un nom, par exemple « Alice Martin ».
+
 ## Modifier, mettre en favori, écrire
 
 Sur la fiche d'un contact :

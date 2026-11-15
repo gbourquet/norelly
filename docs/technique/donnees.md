@@ -55,6 +55,7 @@ système.
 | 16 | `0016_outbox_unresponsive.sql` | `outbox.failure` accepte aussi `unresponsive` (serveur joint puis muet, ou connexion coupée, une fois le chiffrement en place) et `microsoft_smtp_disabled` (refus `535 5.7.139`) : table `outbox` reconstruite comme en version 15 (lignes, numérotation et index conservés) |
 | 17 | `0017_oauth_subject.sql` | `accounts.oauth_subject` : identifiant stable du compte chez son fournisseur OAuth (`oid` de Microsoft), qui le reconnaît aux reconnexions même si son adresse principale change ; `NULL` pour un compte à mot de passe ou Google, ou un compte Microsoft qui n'en a pas encore (enregistré à sa première reconnexion réussie, jamais remplacé ensuite) ; `CHECK` : compte Microsoft seulement, 1 à 128 caractères ASCII visibles, comme le domaine ; ce n'est pas un secret |
 | 18 | `0018_contacts_invisible.sql` | schéma inchangé ; étape Rust jouée dans la même transaction (`M::up_with_hook`, `clean_invisible_contacts`) : les caractères invisibles désormais refusés à la saisie sont retirés des textes des fiches existantes selon la règle du domaine (`clean_invisible`), qui sinon deviendraient illisibles (séparateur de ligne remplacé par une espace, ou un saut de ligne dans les notes) ; champ vidé : `NULL`, téléphone sans numéro supprimé ; une adresse qui en contient est supprimée, jamais transformée (ce serait une autre boîte ; les clés `address_key` restantes sont inchangées), la première restante devient préférée ; fiche sans adresse restante supprimée (et retirée de ses listes) ; `sort_key` et `search_text` recalculés ; une fiche invalide pour une autre raison, ou illisible (type ou encodage d'une colonne), est laissée telle quelle sans bloquer l'ouverture ; journal : nombres de fiches réécrites, supprimées et illisibles seulement ; écritures en paramètres liés |
+| 19 | `0019_contact_names.sql` | schéma inchangé ; étape Rust jouée dans la même transaction (`M::up_with_hook`, `drop_names_imitating_address`), sur le modèle de la version 18 : le nom affiché, le prénom, le nom ou le surnom d'une fiche qui imite une adresse, désormais refusé à la saisie, est retiré selon la règle du domaine (`clean_names_imitating_address`) ; `sort_key` et `search_text` recalculés ; une fiche qui contient aussi des caractères invisibles (laissée telle quelle en version 18, car validée avec ce nom) en est nettoyée du même coup, selon `clean_invisible` ; une fiche invalide pour une autre raison, ou illisible (type ou encodage d'une colonne), est laissée telle quelle sans bloquer l'ouverture ; journal : nombres seulement ; écritures en paramètres liés |
 
 Le schéma courant complet est la somme de ces fichiers ; ils sont commentés
 en tête et à chaque table.
@@ -74,6 +75,11 @@ en tête et à chaque table.
   refus avec un nom contenant « @ », « < » ou « > » s'ouvre donc tel
   quel, sans migration ni réécriture ; ce nom reste écarté à l'envoi
   (`Recipient::new`), comme avant.
+- Noms d'une fiche contact : relus par `ContactDraft::from_stored`, avec
+  les mêmes règles qu'à la saisie, sauf qu'un nom qui imite une adresse est
+  retiré au lieu d'être refusé. La migration 19 a retiré ces noms des
+  fiches enregistrées ; la relecture tolérante garde lisibles les fiches
+  qu'une règle élargie plus tard viendrait à viser.
 - Carnet d'adresses : une adresse (à la casse près) n'appartient qu'à un
   contact (`contact_emails.address_key UNIQUE`) ; ordre et filtre de la
   liste comparent `sort_key` et `search_text` octet par octet, sans le

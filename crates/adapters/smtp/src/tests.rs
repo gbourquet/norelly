@@ -414,7 +414,11 @@ async fn trickled_banner_is_bounded_by_the_total_opening_delay() -> TestResult {
             password_auth: Duration::from_millis(300),
             open_total: Duration::from_secs(1),
             response: Duration::from_secs(10),
-        });
+        })
+        // Adresse IPv4 explicite : sous Windows, « localhost » essaie
+        // d'abord `::1`, où le faux serveur n'écoute pas, et ce refus prend
+        // environ une seconde, soit toute la durée totale d'ouverture.
+        .connecting_to(std::net::SocketAddr::from(([127, 0, 0, 1], server.port())));
     let started = tokio::time::Instant::now();
     let result = sender
         .verify(&request(

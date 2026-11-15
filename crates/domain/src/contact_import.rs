@@ -12,10 +12,9 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::address::EmailAddressError;
-use crate::connection::is_format_char;
 use crate::contacts::{
     AddressKey, Contact, ContactDraft, ContactError, ContactField, ContactId, ContactInput,
-    EmailInput, MAX_CONTACT_EMAILS, MAX_CONTACT_PHONES, PhoneInput,
+    EmailInput, MAX_CONTACT_EMAILS, MAX_CONTACT_PHONES, PhoneInput, is_invisible,
 };
 use crate::ports::{ContactStoreError, TextNormalizer};
 use crate::sender::imitates_address;
@@ -246,7 +245,7 @@ pub fn plan_import(
         if let Some(index) = input
             .emails
             .iter()
-            .position(|e| e.address.chars().any(invisible))
+            .position(|e| e.address.chars().any(is_invisible))
         {
             plan.rejected.push(reject(
                 hint(&input),
@@ -388,51 +387,10 @@ fn prepare(input: &ContactInput, normalizer: &impl TextNormalizer) -> (ContactIn
     (prepared, renamed)
 }
 
-/// Caractères invisibles ou trompeurs refusés dans une fiche importée, en
-/// plus de ceux que refuse [`ContactDraft::new`] : catégorie Unicode Cf
-/// (format), séparateurs de ligne et de paragraphe, sélecteurs de
-/// variante, remplisseurs Hangul et blanc braille, joints de graphèmes.
-/// Une fiche saisie à la main n'est pas concernée (les fiches existantes
-/// resteraient sinon illisibles).
-const INVISIBLE: [(char, char); 26] = [
-    ('\u{00AD}', '\u{00AD}'),
-    ('\u{034F}', '\u{034F}'),
-    ('\u{0600}', '\u{0605}'),
-    ('\u{061C}', '\u{061C}'),
-    ('\u{06DD}', '\u{06DD}'),
-    ('\u{070F}', '\u{070F}'),
-    ('\u{0890}', '\u{0891}'),
-    ('\u{08E2}', '\u{08E2}'),
-    ('\u{115F}', '\u{1160}'),
-    ('\u{180B}', '\u{180F}'),
-    ('\u{200B}', '\u{200F}'),
-    ('\u{2028}', '\u{202E}'),
-    ('\u{2060}', '\u{206F}'),
-    ('\u{2800}', '\u{2800}'),
-    ('\u{3164}', '\u{3164}'),
-    ('\u{FE00}', '\u{FE0F}'),
-    ('\u{FEFF}', '\u{FEFF}'),
-    ('\u{FFA0}', '\u{FFA0}'),
-    ('\u{FFF9}', '\u{FFFB}'),
-    ('\u{110BD}', '\u{110BD}'),
-    ('\u{110CD}', '\u{110CD}'),
-    ('\u{13430}', '\u{1343F}'),
-    ('\u{1BCA0}', '\u{1BCA3}'),
-    ('\u{1D173}', '\u{1D17A}'),
-    ('\u{E0001}', '\u{E007F}'),
-    ('\u{E0100}', '\u{E01EF}'),
-];
-
-fn invisible(c: char) -> bool {
-    INVISIBLE
-        .iter()
-        .any(|&(low, high)| (low..=high).contains(&c))
-}
-
 /// Premier champ d'une fiche importée qui contient un caractère
-/// [`INVISIBLE`].
+/// invisible ([`is_invisible`]), espaces de bord compris.
 fn invisible_field(input: &ContactInput) -> Option<ContactField> {
-    let has = |text: &str| text.chars().any(invisible);
+    let has = |text: &str| text.chars().any(is_invisible);
     let names = [
         (&input.display_name, ContactField::DisplayName),
         (&input.given_name, ContactField::GivenName),
@@ -479,7 +437,7 @@ fn hint(input: &ContactInput) -> String {
     .find(|text| !text.is_empty())
     .unwrap_or_default();
     raw.chars()
-        .filter(|&c| !c.is_control() && !is_format_char(c) && !invisible(c))
+        .filter(|&c| !c.is_control() && !is_invisible(c))
         .take(MAX_IMPORT_HINT_CHARS)
         .collect::<String>()
         .trim()

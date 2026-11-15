@@ -7,7 +7,7 @@ use norelly_application::accounts::{
 };
 use norelly_application::accounts::{
     AddOAuthAccount, AddOAuthAccountRequest, ChangePassword, ChangePasswordError, ReconnectError,
-    reconnect_oauth_account,
+    Reconnected, reconnect_oauth_account,
 };
 use norelly_application::test_connection::TestConnectionOutcome;
 use norelly_domain::account::{AccountId, DisplayName, ServerSettings};
@@ -258,8 +258,17 @@ pub async fn reconnect_account(
 ) -> Result<AddAccountResultDto, IpcError> {
     let id =
         AccountId::new(i64::from(account)).map_err(|_| IpcError::invalid(FieldDto::Account))?;
-    match reconnect_oauth_account(state.tokens.as_ref(), &state.accounts, id).await {
-        Ok(account) => {
+    let reconnected = reconnect_oauth_account(
+        state.tokens.as_ref(),
+        &state.accounts,
+        &state.account_locks,
+        id,
+    )
+    .await;
+    match reconnected {
+        Ok(Reconnected { account, held }) => {
+            // Compte tenu pendant la relance : une suppression demandée
+            // entre-temps attend, puis arrête la synchronisation relancée.
             if let Err(e) = state
                 .mail
                 .start(&app, &account, &state.secrets, &state.exceptions)
@@ -267,6 +276,7 @@ pub async fn reconnect_account(
             {
                 tracing::warn!(error = %e, "synchronisation non relancée");
             }
+            drop(held);
             Ok(AddAccountResultDto::from_outcome(
                 &AddAccountOutcome::Added(account),
             ))

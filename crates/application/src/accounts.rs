@@ -518,13 +518,27 @@ pub enum ReconnectError {
     Storage(String),
 }
 
+/// Reconnexion aboutie : le compte, tenu ([`AccountLocks`]) jusqu'à la fin
+/// de vie de `held`. L'appelant relance sa synchronisation avant de lâcher
+/// la garde : une suppression attend, et l'arrête ensuite.
+#[derive(Debug)]
+pub struct Reconnected {
+    pub account: Account,
+    pub held: tokio::sync::OwnedMutexGuard<()>,
+}
+
 /// Cas d'usage : se reconnecter chez le fournisseur quand le jeton ne peut
 /// plus être rafraîchi (« Reconnexion nécessaire »).
+///
+/// Le compte n'est tenu qu'au retour du navigateur (une suppression n'attend
+/// pas l'utilisateur), puis relu : supprimé entre-temps, rien n'est rangé
+/// et la reconnexion rapporte [`ReconnectError::NotFound`].
 pub async fn reconnect_oauth_account<O: OAuthClient, K: SecretStore, D: AccountRepository>(
     broker: &TokenBroker<O, K>,
     accounts: &D,
+    locks: &AccountLocks,
     id: AccountId,
-) -> Result<Account, ReconnectError> {
+) -> Result<Reconnected, ReconnectError> {
     let account = accounts
         .get(id)
         .await
@@ -550,6 +564,14 @@ pub async fn reconnect_oauth_account<O: OAuthClient, K: SecretStore, D: AccountR
         &broker.config(provider),
         grant.granted_scopes.as_deref(),
     )?;
+    // Une suppression en cours s'achève avant ; une suppression demandée
+    // ensuite attend que la synchronisation soit relancée.
+    let held = locks.lock(id).await;
+    let account = accounts
+        .get(id)
+        .await
+        .map_err(|e| ReconnectError::Storage(e.to_string()))?
+        .ok_or(ReconnectError::NotFound)?;
     let source = OAuthSource {
         provider,
         refresh_key: account.secret_key(Protocol::Imap),
@@ -558,7 +580,7 @@ pub async fn reconnect_oauth_account<O: OAuthClient, K: SecretStore, D: AccountR
         .store_grant(&source, grant)
         .await
         .map_err(|e| ReconnectError::SecretStore(e.to_string()))?;
-    Ok(account)
+    Ok(Reconnected { account, held })
 }
 
 /// Conseil pour un compte enregistré dont la synchronisation échoue
@@ -803,6 +825,14 @@ where
         Ok(())
     }
 
+    /// Compte gardé après un échec : ses jetons redeviennent utilisables (il
+    /// pourra être reconnecté) ; ceux gardés en mémoire sont perdus.
+    async fn restore_tokens(&self, account: &Account) {
+        for protocol in [Protocol::Imap, Protocol::Smtp] {
+            self.tokens.restore(&account.secret_key(protocol)).await;
+        }
+    }
+
     /// Ordre : jetons gardés en mémoire (un rafraîchissement en cours
     /// s'achève avant, et ne peut donc pas réécrire le trousseau après son
     /// effacement), puis secrets (un échec laisse le compte intact, l'action
@@ -818,17 +848,13 @@ where
             self.tokens.discard(&account.secret_key(protocol)).await;
         }
         if let Err(e) = self.delete_secrets(&account).await {
-            // Compte gardé : ses jetons redeviennent utilisables (il pourra
-            // être reconnecté) ; ceux gardés en mémoire sont perdus.
-            for protocol in [Protocol::Imap, Protocol::Smtp] {
-                self.tokens.restore(&account.secret_key(protocol)).await;
-            }
+            self.restore_tokens(&account).await;
             return Err(e);
         }
-        self.accounts
-            .delete(id)
-            .await
-            .map_err(|e| RemoveAccountError::Storage(e.to_string()))?;
+        if let Err(e) = self.accounts.delete(id).await {
+            self.restore_tokens(&account).await;
+            return Err(RemoveAccountError::Storage(e.to_string()));
+        }
         self.local_data
             .purge(id)
             .await

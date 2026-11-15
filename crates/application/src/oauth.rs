@@ -182,6 +182,12 @@ impl<O: OAuthClient, K: SecretStore> TokenBroker<O, K> {
         &self.client
     }
 
+    /// Trousseau des jetons de rafraîchissement.
+    #[cfg(test)]
+    pub(crate) fn secrets(&self) -> &K {
+        &self.secrets
+    }
+
     fn slot(&self, key: &SecretKey) -> Arc<Mutex<Slot>> {
         let mut slots = self.slots.lock().unwrap_or_else(PoisonError::into_inner);
         Arc::clone(slots.entry(key.clone()).or_default())

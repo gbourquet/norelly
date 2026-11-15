@@ -629,6 +629,63 @@ async fn remove_keeps_the_account_if_the_keyring_fails() {
     assert!(!w.tokens.restored().is_empty());
 }
 
+/// Dépôt dont la suppression échoue (base verrouillée, disque plein).
+struct UndeletableAccounts<'a>(&'a InMemoryAccountRepository);
+
+impl AccountRepository for UndeletableAccounts<'_> {
+    async fn list(&self) -> Result<Vec<Account>, AccountStoreError> {
+        self.0.list().await
+    }
+    async fn get(&self, id: AccountId) -> Result<Option<Account>, AccountStoreError> {
+        self.0.get(id).await
+    }
+    async fn find_by_address(
+        &self,
+        address: &EmailAddress,
+    ) -> Result<Option<Account>, AccountStoreError> {
+        self.0.find_by_address(address).await
+    }
+    async fn insert(&self, draft: &AccountDraft) -> Result<Account, AccountStoreError> {
+        self.0.insert(draft).await
+    }
+    async fn delete(&self, _: AccountId) -> Result<bool, AccountStoreError> {
+        Err(AccountStoreError::Store(norelly_domain::ports::StoreError(
+            "base verrouillée".into(),
+        )))
+    }
+}
+
+/// La base refuse la suppression après l'effacement des secrets : le compte
+/// reste, et ses jetons redeviennent utilisables pour qu'une reconnexion
+/// puisse les ranger.
+#[tokio::test]
+async fn remove_keeps_tokens_usable_if_the_database_fails() {
+    let w = World::new();
+    let draft = sample_account("alice@example.com", false);
+    let AddAccountOutcome::Added(account) = w.add(request(Some(servers_of(&draft)))).await else {
+        panic!("ajout");
+    };
+    let removed = RemoveAccount {
+        secrets: &w.keyring,
+        accounts: &UndeletableAccounts(&w.accounts),
+        local_data: &w.data,
+        tokens: &w.tokens,
+    }
+    .execute(account.id())
+    .await;
+    assert!(
+        matches!(removed, Err(RemoveAccountError::Storage(_))),
+        "{removed:?}"
+    );
+    assert_eq!(w.accounts.list().await.map(|l| l.len()), Ok(1));
+    assert!(w.data.purged().is_empty());
+    assert_eq!(
+        w.tokens.restored(),
+        w.tokens.discarded(),
+        "compte gardé : jetons de nouveau utilisables"
+    );
+}
+
 /// Deux adresses (alias) avec le même identifiant sur le même serveur : un
 /// secret chacune, et supprimer l'une ne touche pas l'autre.
 #[tokio::test]
@@ -1310,7 +1367,7 @@ mod oauth {
             *g = gmail_grant(Some("openid email"));
         }
         assert_eq!(
-            reconnect_oauth_account(&b, &w.accounts, account.id())
+            reconnect_oauth_account(&b, &w.accounts, &AccountLocks::default(), account.id())
                 .await
                 .map(|_| ()),
             Err(ReconnectError::OAuth(TokenError::MailAccessRefused))
@@ -1362,7 +1419,7 @@ mod oauth {
             OAuthProvider::Microsoft => p.config().clone(),
         });
         assert_eq!(
-            reconnect_oauth_account(&b, &w.accounts, account.id())
+            reconnect_oauth_account(&b, &w.accounts, &AccountLocks::default(), account.id())
                 .await
                 .map(|_| ()),
             Err(ReconnectError::OAuth(TokenError::ProviderNotConfigured))
@@ -1626,8 +1683,9 @@ mod oauth {
                 granted_scopes: None,
             });
         }
-        let reconnected = reconnect_oauth_account(&b, &w.accounts, account.id()).await;
-        assert_eq!(reconnected.map(|a| a.id()), Ok(account.id()));
+        let reconnected =
+            reconnect_oauth_account(&b, &w.accounts, &AccountLocks::default(), account.id()).await;
+        assert_eq!(reconnected.map(|r| r.account.id()), Ok(account.id()));
         let source = OAuthSource {
             provider: OAuthProvider::Microsoft,
             refresh_key: account.secret_key(Protocol::Imap),
@@ -1643,7 +1701,7 @@ mod oauth {
             });
         }
         assert_eq!(
-            reconnect_oauth_account(&b, &w.accounts, account.id())
+            reconnect_oauth_account(&b, &w.accounts, &AccountLocks::default(), account.id())
                 .await
                 .map(|_| ()),
             Err(ReconnectError::OAuth(TokenError::OfflineAccessRefused))
@@ -1652,7 +1710,7 @@ mod oauth {
             panic!()
         };
         assert_eq!(
-            reconnect_oauth_account(&b, &w.accounts, missing)
+            reconnect_oauth_account(&b, &w.accounts, &AccountLocks::default(), missing)
                 .await
                 .map(|_| ()),
             Err(ReconnectError::NotFound)
@@ -1683,6 +1741,100 @@ mod oauth {
         assert!(w.accounts.list().await.is_ok_and(|l| l.is_empty()));
     }
 
+    /// L'utilisateur clique « Se reconnecter », supprime le compte pendant
+    /// que le navigateur est ouvert, puis termine la connexion : rien n'est
+    /// rangé, et la reconnexion rapporte un compte introuvable (la
+    /// synchronisation n'est pas relancée).
+    #[tokio::test]
+    async fn account_removed_during_a_reconnection_keeps_nothing() {
+        let w = World::new();
+        let b = broker(grant());
+        let AddAccountOutcome::Added(account) = add(&w, &b).await else {
+            panic!("compte non ajouté");
+        };
+        if let Ok(mut g) = b.client().grant.lock() {
+            *g = Some(OAuthGrant {
+                access_token: Secret::new("neuf".to_owned()),
+                refresh_token: Some(Secret::new("r-neuf".to_owned())),
+                ..grant().unwrap_or_else(|| panic!())
+            });
+        }
+        let hold = hold_browser(&b);
+        let locks = AccountLocks::default();
+        let remove = async {
+            // Navigateur ouvert une seconde fois : celui de la reconnexion.
+            browser_opened(&b, 2).await;
+            // Comme la commande : le compte est tenu pendant la suppression,
+            // sans attendre le navigateur de la reconnexion.
+            let _held = locks.lock(account.id()).await;
+            let removed = RemoveAccount {
+                secrets: b.secrets(),
+                accounts: &w.accounts,
+                local_data: &w.data,
+                tokens: &b,
+            }
+            .execute(account.id())
+            .await;
+            hold.notify_one();
+            removed
+        };
+        let (reconnected, removed) = within_seconds(async {
+            tokio::join!(
+                reconnect_oauth_account(&b, &w.accounts, &locks, account.id()),
+                remove
+            )
+        })
+        .await
+        .unwrap_or_else(|_| panic!("suppression bloquée par la reconnexion"));
+        assert_eq!(removed, Ok(()));
+        assert_eq!(
+            reconnected.map(|r| r.account.id()),
+            Err(ReconnectError::NotFound),
+            "reconnexion d'un compte supprimé"
+        );
+        let key = account.secret_key(Protocol::Imap);
+        assert_eq!(b.secrets().get_sync(key.as_str()), None, "jeton rangé");
+        assert_eq!(
+            b.access_token(&OAuthSource {
+                provider: OAuthProvider::Microsoft,
+                refresh_key: key,
+            })
+            .await
+            .map(|_| ()),
+            Err(AuthError::ReauthRequired),
+            "jeton gardé en mémoire"
+        );
+    }
+
+    /// Une suppression demandée après la reconnexion attend que l'appelant
+    /// ait relancé la synchronisation (garde lâchée).
+    #[tokio::test]
+    async fn reconnected_account_stays_held_until_released() {
+        let w = World::new();
+        let b = broker(grant());
+        let AddAccountOutcome::Added(account) = add(&w, &b).await else {
+            panic!("compte non ajouté");
+        };
+        let locks = AccountLocks::default();
+        let Ok(reconnected) = reconnect_oauth_account(&b, &w.accounts, &locks, account.id()).await
+        else {
+            panic!("reconnexion refusée");
+        };
+        let short = std::time::Duration::from_millis(50);
+        assert!(
+            tokio::time::timeout(short, locks.lock(account.id()))
+                .await
+                .is_err(),
+            "suppression possible avant la relance de la synchronisation"
+        );
+        drop(reconnected);
+        assert!(
+            tokio::time::timeout(short, locks.lock(account.id()))
+                .await
+                .is_ok()
+        );
+    }
+
     #[tokio::test]
     async fn reconnect_with_another_account_keeps_the_old_token() {
         let w = World::new();
@@ -1697,9 +1849,9 @@ mod oauth {
             });
         }
         assert_eq!(
-            reconnect_oauth_account(&b, &w.accounts, account.id())
+            reconnect_oauth_account(&b, &w.accounts, &AccountLocks::default(), account.id())
                 .await
-                .map(|a| a.id()),
+                .map(|r| r.account.id()),
             Err(ReconnectError::OAuth(TokenError::WrongAccount))
         );
         let source = OAuthSource {

@@ -346,7 +346,54 @@ fn restoring_removes_the_apostrophe_of_other_spreadsheets() {
     assert_eq!(restore_csv_cell("'"), "'");
 }
 
+#[test]
+fn export_temporaries_of_the_target_are_recognized() {
+    for name in [
+        ".contacts.vcf.1234-0.tmp",
+        ".contacts.vcf.1-99.tmp",
+        ".contacts.vcf.4294967295-0.tmp",
+    ] {
+        assert!(is_export_temporary_of("contacts.vcf", name), "{name:?}");
+    }
+    assert!(is_export_temporary_of("a b.csv", ".a b.csv.7-3.tmp"));
+}
+
+#[test]
+fn other_names_are_not_export_temporaries() {
+    for name in [
+        "contacts.vcf",
+        ".contacts.vcf",
+        "contacts.vcf.1234-0.tmp",
+        ".contacts.vcf.1234-0.tmp.bak",
+        ".contacts.vcf.1234-0",
+        ".contacts.vcf.1234.tmp",
+        ".contacts.vcf.-0.tmp",
+        ".contacts.vcf.1234-.tmp",
+        ".contacts.vcf.12a4-0.tmp",
+        ".contacts.vcf.+1-0.tmp",
+        ".contacts.vcf.1-2-3.tmp",
+        ".contacts.vcf..1-0.tmp",
+        ".contacts.vcf.1-0.tmp.2-0.tmp",
+        ".autre.vcf.1234-0.tmp",
+        ".contacts.vcf2.1234-0.tmp",
+        ".Contacts.vcf.1234-0.tmp",
+        ".contacts.vcf.12345678901-0.tmp",
+        ".contacts.vcf.1-12345678901.tmp",
+        ".contacts.vcf.\u{661}-0.tmp",
+    ] {
+        assert!(!is_export_temporary_of("contacts.vcf", name), "{name:?}");
+    }
+    // Sans nom de cible, rien n'est un temporaire.
+    assert!(!is_export_temporary_of("", "..1-0.tmp"));
+}
+
 proptest! {
+    #[test]
+    fn written_temporaries_are_recognized(target in "[^/\\\\\\x00]{1,12}", pid: u32, n in 0_u32..100) {
+        let name = format!(".{target}.{pid}-{n}.tmp");
+        prop_assert!(is_export_temporary_of(&target, &name));
+    }
+
     #[test]
     fn restore_undoes_neutralize(cell in "['=+@\t\r a-z-]{0,8}") {
         let written = neutralize_csv_cell(&cell);

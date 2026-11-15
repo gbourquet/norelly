@@ -256,5 +256,24 @@ pub fn restore_csv_cell(cell: &str) -> &str {
     }
 }
 
+/// `candidate` est-il le nom d'un fichier temporaire laissé par l'écriture
+/// d'un export dans `target` (même dossier) ? Seule la forme exacte
+/// `.<target>.<chiffres>-<chiffres>.tmp` est reconnue, chaque nombre ayant
+/// de 1 à 10 chiffres ASCII (ceux d'un `u32`).
+#[must_use]
+pub fn is_export_temporary_of(target: &str, candidate: &str) -> bool {
+    let number = |s: &str| (1..=10).contains(&s.len()) && s.bytes().all(|b| b.is_ascii_digit());
+    if target.is_empty() {
+        return false;
+    }
+    candidate
+        .strip_prefix('.')
+        .and_then(|rest| rest.strip_prefix(target))
+        .and_then(|rest| rest.strip_prefix('.'))
+        .and_then(|rest| rest.strip_suffix(".tmp"))
+        .and_then(|rest| rest.split_once('-'))
+        .is_some_and(|(pid, n)| number(pid) && number(n))
+}
+
 #[cfg(test)]
 mod tests;

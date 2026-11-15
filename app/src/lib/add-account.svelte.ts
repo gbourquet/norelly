@@ -198,6 +198,7 @@ export class AddAccountFlow {
     this.#manual = false;
     this.#oauth = false;
     this.#consents = [];
+    this.nameInManual = false;
   }
 
   /** Hôtes à confirmer encore présents dans les champs et non confirmés. */
@@ -217,32 +218,71 @@ export class AddAccountFlow {
   /** Nom affiché refusé par Rust, montré sous le champ ; `null` : accepté
    *  ou vide (nom par défaut). */
   displayNameError = $state<string | null>(null);
+  /** Le nom a été refusé pendant la saisie manuelle : son champ y est
+   *  affiché, pour le corriger sans perdre les serveurs saisis. */
+  nameInManual = $state(false);
+  /** Une validation (Continuer, Tester et ajouter) est en cours : un
+   *  second clic est ignoré. */
+  #submitting = false;
 
-  /** Fait vérifier par Rust le nom affiché saisi ; vrai s'il est accepté
-   *  (ou vide). Une réponse périmée (nom changé pendant l'appel) ne touche
-   *  pas au message. */
-  async checkDisplayName(): Promise<boolean> {
-    const name = this.displayName.trim();
-    let error: string | null = null;
-    if (name) {
-      try {
-        await this.#api.checkDisplayName(name);
-      } catch (e) {
-        error = errorText(e);
-      }
+  /** Message du refus de `name` par Rust, ou `null`. Seul un refus du nom
+   *  compte : une autre erreur (vérification impossible) ne bloque rien,
+   *  Rust revalidant le nom à l'ajout. */
+  async #nameError(name: string): Promise<string | null> {
+    if (!name) return null;
+    try {
+      await this.#api.checkDisplayName(name);
+      return null;
+    } catch (e) {
+      return e instanceof IpcFailure && e.field === "display_name" ? errorText(e) : null;
     }
-    if (this.displayName.trim() === name) this.displayNameError = error;
-    return error === null;
   }
 
-  /** Nom affiché refusé à l'ajout : retour au formulaire, où le champ et
-   *  son message sont visibles. */
+  /** Vérification pendant la saisie : une réponse périmée (nom changé
+   *  pendant l'appel) ne touche pas au message. */
+  async checkDisplayName(): Promise<void> {
+    const name = this.displayName.trim();
+    const error = await this.#nameError(name);
+    if (this.displayName.trim() === name) this.displayNameError = error;
+  }
+
+  /** Vérification avant de poursuivre : vrai si le nom affiché à la fin
+   *  de la vérification est accepté (revérifié s'il a changé entre-temps). */
+  async #nameAccepted(): Promise<boolean> {
+    for (;;) {
+      const name = this.displayName.trim();
+      const error = await this.#nameError(name);
+      if (this.displayName.trim() === name) {
+        this.displayNameError = error;
+        return error === null;
+      }
+    }
+  }
+
+  /** Nom affiché refusé à l'ajout : retour à la saisie, où le champ et son
+   *  message sont visibles (saisie manuelle : serveurs gardés). */
   #nameRefused(e: unknown): boolean {
     if (!(e instanceof IpcFailure && e.code === "display_name_looks_like_address")) return false;
-    this.step = "form";
+    if (this.#oauth) {
+      this.step = "form";
+    } else {
+      this.step = "manual";
+      this.nameInManual = true;
+    }
     this.message = null;
     this.displayNameError = errorText(e);
     return true;
+  }
+
+  /** Exécute `run` sauf si une validation est déjà en cours. */
+  async #once(run: () => Promise<void>): Promise<void> {
+    if (this.#submitting) return;
+    this.#submitting = true;
+    try {
+      await run();
+    } finally {
+      this.#submitting = false;
+    }
   }
 
   /** Demande à Rust si l'adresse relève d'un fournisseur OAuth. */
@@ -284,7 +324,7 @@ export class AddAccountFlow {
       return;
     }
     if (
-      !(await this.checkDisplayName()) ||
+      !(await this.#nameAccepted()) ||
       attempt !== this.#attempt ||
       this.address.trim() !== address
     ) {
@@ -382,7 +422,11 @@ export class AddAccountFlow {
   }
 
   /** Étape 1 : découverte, puis test et ajout si tout est trouvé. */
-  async submit(): Promise<void> {
+  submit(): Promise<void> {
+    return this.#once(() => this.#submit());
+  }
+
+  async #submit(): Promise<void> {
     this.message = null;
     this.appPasswordHelp = false;
     this.#manual = false;
@@ -390,7 +434,7 @@ export class AddAccountFlow {
       this.message = m.add_msg_missing_fields();
       return;
     }
-    if (!(await this.checkDisplayName())) return;
+    if (!(await this.#nameAccepted())) return;
     this.step = "discovering";
     this.progress = [];
     let discovery: Discovery;
@@ -426,13 +470,21 @@ export class AddAccountFlow {
   }
 
   /** Saisie manuelle validée. */
-  async submitManual(): Promise<void> {
+  submitManual(): Promise<void> {
+    return this.#once(() => this.#submitManual());
+  }
+
+  async #submitManual(): Promise<void> {
     this.message = null;
     this.appPasswordHelp = false;
     this.#manual = true;
     const pending = this.pendingConfirmations;
     if (pending.length > 0) {
       this.message = m.add_msg_confirm_first({ hosts: pending.join(", ") });
+      return;
+    }
+    if (!(await this.#nameAccepted())) {
+      this.nameInManual = true;
       return;
     }
     await this.connect();

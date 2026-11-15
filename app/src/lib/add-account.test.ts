@@ -878,18 +878,79 @@ describe("nom affiché qui imite une adresse", () => {
     expect(api.addOAuthAccount).not.toHaveBeenCalled();
   });
 
-  it("refusé à l'ajout (saisie manuelle) : retour au formulaire, message sous le champ", async () => {
+  it("refusé en saisie manuelle : le champ du nom y apparaît, serveurs gardés", async () => {
+    const { api, calls } = fakeApi(found, [{ kind: "added", account, send_unchecked: false }]);
+    const f = flow(api);
+    f.displayName = "ceo@banque.fr";
+    f.step = "manual";
+    f.imap = { ...imap, host: "imap.perso.fr", port: 31993 };
+    await f.submitManual();
+    expect(f.step).toBe("manual");
+    expect(f.nameInManual).toBe(true);
+    expect(f.displayNameError).toBe(refused());
+    expect(api.addAccount).not.toHaveBeenCalled();
+    f.displayName = "Alice";
+    await f.submitManual();
+    expect(f.step).toBe("done");
+    expect(calls[0]).toMatchObject({ display_name: "Alice", imap: { host: "imap.perso.fr" } });
+  });
+
+  it("refusé par l'ajout lui-même : retour à l'étape en cours, message sous le champ", async () => {
     const { api } = fakeApi(found, []);
     api.addAccount = vi.fn(async () => {
       throw new IpcFailure("display_name_looks_like_address", "display_name");
     });
     const f = flow(api);
-    f.displayName = "ceo@banque.fr";
+    f.displayName = "Alice";
     f.step = "manual";
     await f.submitManual();
-    expect(f.step).toBe("form");
+    expect(f.step).toBe("manual");
+    expect(f.nameInManual).toBe(true);
     expect(f.displayNameError).toBe(refused());
     expect(f.message).toBeNull();
+  });
+
+  it("vérification impossible (autre erreur) : pas de message sous le champ, Rust revalide à l'ajout", async () => {
+    const { api } = fakeApi(found, [{ kind: "added", account, send_unchecked: false }]);
+    api.checkDisplayName = vi.fn(async () => {
+      throw new IpcFailure("internal");
+    });
+    const f = flow(api);
+    f.displayName = "Alice";
+    await f.checkDisplayName();
+    expect(f.displayNameError).toBeNull();
+    await f.submit();
+    expect(f.step).toBe("done");
+  });
+
+  it("double clic sur Continuer : une seule recherche", async () => {
+    const { api } = fakeApi(found, [{ kind: "added", account, send_unchecked: false }]);
+    const f = flow(api);
+    f.displayName = "Alice";
+    await Promise.all([f.submit(), f.submit()]);
+    expect(api.discoverSettings).toHaveBeenCalledTimes(1);
+    expect(f.step).toBe("done");
+  });
+
+  it("nom corrigé pendant la vérification de Continuer : c'est le nouveau nom qui compte", async () => {
+    const { api } = fakeApi(found, [{ kind: "added", account, send_unchecked: false }]);
+    const f = flow(api);
+    f.displayName = "a@b";
+    const pending = f.submit();
+    f.displayName = "ab";
+    await pending;
+    expect(f.displayNameError).toBeNull();
+    expect(f.step).toBe("done");
+
+    const second = fakeApi(found, []);
+    const g = flow(second.api);
+    g.displayName = "ab";
+    const started = g.submit();
+    g.displayName = "a@b";
+    await started;
+    expect(g.step).toBe("form");
+    expect(g.displayNameError).toBe(refused());
+    expect(second.api.discoverSettings).not.toHaveBeenCalled();
   });
 
   it("nom corrigé : l'ajout reprend", async () => {

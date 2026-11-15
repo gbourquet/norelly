@@ -94,7 +94,7 @@ describe("fenêtre d'ajout de compte", () => {
     // Découverte complète : la connexion est tentée aussitôt.
     await fireEvent.click(screen.getByRole("button", { name: "Continuer" }));
     expect(await screen.findByText(/AA:BB/)).toBeInTheDocument();
-    expect(screen.queryByText(/ne correspond pas non plus au nom du serveur/)).toBeNull();
+    expect(screen.queryByText(/ne mentionne pas non plus le nom du serveur/)).toBeNull();
     await fireEvent.click(screen.getByRole("button", { name: "Faire confiance à ce serveur" }));
     await waitFor(() => expect(onAdded).toHaveBeenCalledWith(account, null));
     expect(api.trustCertificate).toHaveBeenCalledWith("imap.example.com", "AA:BB");
@@ -285,7 +285,42 @@ describe("fenêtre d'ajout de compte", () => {
     expect(await screen.findByText(/AA:BB/)).toBeInTheDocument();
     expect(screen.getByText(/autorité|autosigné/i)).toBeInTheDocument();
     expect(
-      screen.getByText("Ce certificat ne correspond pas non plus au nom du serveur."),
+      screen.getByText("Ce certificat ne mentionne pas non plus le nom du serveur."),
     ).toBeInTheDocument();
+  });
+
+  it("nom refusé en saisie manuelle : le champ du nom y apparaît avec son message", async () => {
+    const api = fakeApi([{ kind: "added", account, send_unchecked: false }]);
+    const onAdded = vi.fn();
+    render(AddAccountDialog, { open: true, api, onClose: vi.fn(), onAdded });
+    await fireEvent.input(document.querySelector("#account-address") as HTMLInputElement, {
+      target: { value: "alice@example.com" },
+    });
+    await fireEvent.input(document.querySelector("#account-password") as HTMLInputElement, {
+      target: { value: "secret" },
+    });
+    await fireEvent.input(document.querySelector("#account-name") as HTMLInputElement, {
+      target: { value: "ceo@banque.fr" },
+    });
+    await fireEvent.click(screen.getByRole("button", { name: "Saisie manuelle" }));
+    for (const [id, value] of [
+      ["#imap-host", "imap.example.com"],
+      ["#imap-username", "alice"],
+      ["#smtp-host", "smtp.example.com"],
+      ["#smtp-username", "alice"],
+    ]) {
+      await fireEvent.input(document.querySelector(id) as HTMLInputElement, {
+        target: { value },
+      });
+    }
+    await fireEvent.click(screen.getByRole("button", { name: "Tester et ajouter" }));
+    const name = (await screen.findByLabelText("Nom affiché (facultatif)")) as HTMLInputElement;
+    expect(name.id).toBe("manual-name");
+    expect(name).toHaveAttribute("aria-invalid", "true");
+    expect(screen.getByText(/ne peut pas contenir « @ »/)).toBeInTheDocument();
+    expect(api.addAccount).not.toHaveBeenCalled();
+    await fireEvent.input(name, { target: { value: "Alice" } });
+    await fireEvent.click(screen.getByRole("button", { name: "Tester et ajouter" }));
+    await waitFor(() => expect(onAdded).toHaveBeenCalled());
   });
 });

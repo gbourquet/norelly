@@ -28,7 +28,7 @@ navigation, ou depuis l'accueil quand il n'y a aucun compte.
    STARTTLS, aucune) et utilisateur, pour la réception et pour l'envoi.
 5. Le test peut s'arrêter sur un écran de décision :
    - **certificat non reconnu** : raison, serveur, empreinte du
-     certificat ; si le certificat ne correspond pas non plus au nom du
+     certificat ; si le certificat ne mentionne pas non plus le nom du
      serveur, c'est dit en plus de la raison ; « Faire confiance à ce
      serveur » si le problème le permet ;
    - **connexion non chiffrée** : consentement explicite pour ce serveur et
@@ -315,8 +315,8 @@ acceptés) sont supprimées. **Rien n'est supprimé sur le serveur.**
 | Test de connexion | Test de la connexion à {imap} et {smtp}… |
 | Serveurs trouvés en partie | Les serveurs n'ont pas tous été trouvés automatiquement : vérifiez ou complétez les paramètres. |
 | Serveur hors du domaine | Serveur trouvé par le DNS en dehors du domaine de votre adresse : {hosts}. … |
-| Certificat refusé | Certificat non reconnu, avec la raison : autorité inconnue, expiré, pas encore valide, nom différent, révoqué, signature invalide, illisible, autre ; un certificat autosigné, cas courant d'un serveur personnel, est toujours présenté comme « autorité inconnue » ; s'il ne correspond pas non plus au nom du serveur : « Ce certificat ne correspond pas non plus au nom du serveur. » |
-| Nom affiché refusé | Le nom affiché ne peut pas contenir « @ », « < » ni « > » : il serait pris pour une adresse. Saisissez un nom, par exemple « Alice Martin ». |
+| Certificat refusé | Certificat non reconnu, avec la raison : autorité inconnue, expiré, pas encore valide, nom différent, révoqué, signature invalide, illisible, autre ; un certificat autosigné, cas courant d'un serveur personnel, est toujours présenté comme « autorité inconnue » ; s'il ne correspond pas non plus au nom du serveur : « Ce certificat ne mentionne pas non plus le nom du serveur. » |
+| Nom affiché refusé | Le nom affiché ne peut pas contenir « @ », « < », « > » ni un caractère qui leur ressemble : il serait pris pour une adresse. Saisissez un nom, par exemple « Alice Martin ». |
 | Certificat changé | ce serveur présente un certificat différent de celui que vous aviez accepté. … |
 | Connexion non chiffrée | La connexion à {host}:{port} ne serait pas chiffrée : … |
 | Aucun trousseau | Aucun trousseau du système … ne répond. … fichier non chiffré … |

@@ -210,6 +210,21 @@
           required
         />
       {/if}
+      {#if flow.nameInManual}
+        <label for="manual-name">{m.add_display_name()}</label>
+        <input
+          id="manual-name"
+          class="input"
+          bind:value={flow.displayName}
+          oninput={() => void flow.checkDisplayName()}
+          autocomplete="name"
+          aria-invalid={flow.displayNameError ? "true" : undefined}
+          aria-describedby={flow.displayNameError ? "manual-name-error" : undefined}
+        />
+        {#if flow.displayNameError}
+          <p id="manual-name-error" class="field-error">{flow.displayNameError}</p>
+        {/if}
+      {/if}
       {#each flow.unconfirmed as item (item.host)}
         {#if [flow.imap.host.trim(), flow.smtp.host.trim()].includes(item.host)}
           <div

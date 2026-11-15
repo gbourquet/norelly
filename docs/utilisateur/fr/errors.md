@@ -10,7 +10,7 @@ souvent, quoi faire. Voici les plus fréquents, expliqués plus en détail.
 **Ce que vous voyez** : une fenêtre **Certificat non reconnu**, avec le nom
 d'un serveur, une raison (par exemple « Le certificat a expiré. ») et une
 longue suite de chiffres et de lettres appelée **empreinte**. Si le
-certificat ne correspond pas non plus au nom du serveur, la fenêtre le dit
+certificat ne mentionne pas non plus le nom du serveur, la fenêtre le dit
 aussi.
 
 ![L'avertissement « Certificat non reconnu »](captures/certificate.png)

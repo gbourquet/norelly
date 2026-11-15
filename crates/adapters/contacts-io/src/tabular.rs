@@ -352,13 +352,13 @@ mod tests {
     fn cells_neutralized_against_formulas_are_restored() {
         let d = decoded(
             "Name,E-mail 1 - Label,E-mail 1 - Value,Phone 1 - Label,Phone 1 - Value,Notes\n\
-             '=Anne,'-x,anne@example.com,Mobile,'+33 6 12,''=garde une apostrophe\n",
+             '=Anne,'\u{2212}x,anne@example.com,Mobile,'+33 6 12,''=garde une apostrophe\n",
         );
         let [ImportedCard::Contact(c)] = &d.cards[..] else {
             panic!("{:?}", d.cards)
         };
         assert_eq!(c.display_name, "=Anne");
-        assert_eq!(c.emails[0].label, "-x");
+        assert_eq!(c.emails[0].label, "\u{2212}x");
         assert_eq!(c.phones[0].number, "+33 6 12");
         assert_eq!(c.notes, "'=garde une apostrophe");
     }

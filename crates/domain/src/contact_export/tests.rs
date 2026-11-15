@@ -315,6 +315,13 @@ fn csv_cells_that_look_like_formulas_are_neutralized() {
         ("＋33", "'＋33"),
         ("－x", "'－x"),
         ("＠x", "'＠x"),
+        // Petites formes et signe moins, neutralisés à titre préventif.
+        ("\u{FE62}1", "'\u{FE62}1"),
+        ("\u{FE63}x", "'\u{FE63}x"),
+        ("\u{FE66}1", "'\u{FE66}1"),
+        ("\u{FE6B}x", "'\u{FE6B}x"),
+        ("\u{2212}1", "'\u{2212}1"),
+        ("'\u{2212}1", "''\u{2212}1"),
         // Une apostrophe déjà là serait retirée à la relecture : doublée.
         ("'=x", "''=x"),
         ("''+x", "'''+x"),
@@ -330,6 +337,7 @@ fn csv_cells_that_look_like_formulas_are_neutralized() {
         "06 12",
         "''",
         "x@example.com",
+        "1\u{2212}2",
     ] {
         assert!(
             matches!(neutralize_csv_cell(plain), Cow::Borrowed(_)),
@@ -427,6 +435,14 @@ fn other_names_are_not_export_temporaries() {
     assert!(!temporary_of("", "..1-0.tmp"));
 }
 
+/// Débuts qu'aucune cellule CSV exportée ne présente : signes de formule,
+/// leurs formes pleine chasse et petites, signe moins, tabulation, retour
+/// chariot.
+const FORMULA_LIKE: [char; 15] = [
+    '=', '+', '-', '@', '\t', '\r', '\u{FF1D}', '\u{FF0B}', '\u{FF0D}', '\u{FF20}', '\u{FE62}',
+    '\u{FE63}', '\u{FE66}', '\u{FE6B}', '\u{2212}',
+];
+
 proptest! {
     #[test]
     fn written_temporaries_are_recognized(target in "[^/\\\\\\x00]{1,12}", pid: u32, n in 0_u32..100) {
@@ -435,14 +451,18 @@ proptest! {
     }
 
     #[test]
-    fn restore_undoes_neutralize(cell in "['=+@\t\r a-z-]{0,8}") {
+    fn restore_undoes_neutralize(
+        cell in "['=+@\t\r a-z\u{FF1D}\u{FF0B}\u{FF0D}\u{FF20}\u{FE62}\u{FE63}\u{FE66}\u{FE6B}\u{2212}-]{0,8}"
+    ) {
         let written = neutralize_csv_cell(&cell);
         prop_assert_eq!(restore_csv_cell(&written), cell.as_str());
     }
 
     #[test]
-    fn neutralized_cells_never_start_with_a_formula(cell in "\\PC{0,8}") {
+    fn neutralized_cells_never_start_with_a_formula(
+        cell in "['=+@\u{FF1D}\u{FF0B}\u{FF0D}\u{FF20}\u{FE62}\u{FE63}\u{FE66}\u{FE6B}\u{2212}-]?\\PC{0,7}"
+    ) {
         let out = neutralize_csv_cell(&cell);
-        prop_assert!(!out.starts_with(['=', '+', '-', '@', '\t', '\r']));
+        prop_assert!(!out.starts_with(FORMULA_LIKE));
     }
 }

@@ -23,6 +23,21 @@ describe("compte de messagerie", () => {
     await $("main").$("button=Ajouter un compte").click();
     await $("#account-address").setValue(address);
     await $("#account-password").setValue(password);
+
+    // Nom affiché qui imite une adresse : refusé par Rust dès la saisie,
+    // message sous le champ, et la recherche des serveurs ne démarre pas.
+    const name = $("#account-name");
+    await name.setValue("support@banque.fr");
+    const nameError = $("#account-name-error");
+    await expect(nameError).toHaveText(expect.stringContaining("ne peut pas contenir « @ »"), {
+      wait: 10000,
+    });
+    await expect(name).toHaveAttribute("aria-invalid", "true");
+    await $("button=Continuer").click();
+    await expect($("#imap-host")).not.toBeDisplayed();
+    await expect(nameError).toBeDisplayed();
+    await name.setValue("Norelly Test");
+    await nameError.waitForDisplayed({ reverse: true, timeout: 10000 });
     await $("button=Continuer").click();
 
     // Aucune source automatique ne connaît norelly.test : saisie manuelle

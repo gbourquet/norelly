@@ -23,6 +23,8 @@ several (for example a personal address and one for a club).
    (for example "Mary Smith"). It cannot contain "@", "<" or ">":
    Norelly tells you so under the field as you type.
 
+   ![The message "The display name can’t contain “@”…" under the name field](captures/display-name-refused.png)
+
    ![The "Add an account" window, with the address, password and display name filled in](captures/add-account.png)
 
 3. Click **Continue**. Norelly looks up your provider's settings by itself:

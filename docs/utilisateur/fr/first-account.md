@@ -26,6 +26,8 @@ adresse pour une association).
    peut pas contenir « @ », « < » ni « > » : Norelly vous le signale
    sous le champ dès la saisie.
 
+   ![Le message « Le nom affiché ne peut pas contenir « @ »… » sous le champ du nom](captures/display-name-refused.png)
+
    ![La fenêtre « Ajouter un compte », avec l'adresse, le mot de passe et le nom affiché remplis](captures/add-account.png)
 
 3. Cliquez sur **Continuer**. Norelly cherche tout seul les réglages de

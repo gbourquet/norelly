@@ -25,6 +25,10 @@ export function failureLabel(failure: SendFailureDto): string {
       return m.send_failure_encryption_interrupted();
     case "authentication_interrupted":
       return m.send_failure_authentication_interrupted();
+    case "unresponsive":
+      return m.send_failure_unresponsive();
+    case "microsoft_smtp_disabled":
+      return m.send_failure_microsoft_smtp_disabled();
   }
 }
 

@@ -1534,7 +1534,11 @@ export type SendFailureDto = "unreachable" | "temporary" | "rejected" | "authent
  *  Connexion coupée pendant la vérification des identifiants : ils ne
  *  sont pas renvoyés automatiquement.
  */
-"authentication_interrupted";
+"authentication_interrupted" | 
+/**  Serveur joint puis muet, ou connexion coupée, à plusieurs reprises. */
+"unresponsive" | 
+/**  Microsoft refuse l'envoi depuis les applications pour ce compte. */
+"microsoft_smtp_disabled";
 
 /**  Serveur (affichage et saisie). */
 export type ServerDto = {

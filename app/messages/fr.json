@@ -406,6 +406,8 @@
   "send_failure_too_many_attempts": "trop d'essais",
   "send_failure_encryption_interrupted": "connexion coupée avant le chiffrement, peut-être par le réseau utilisé",
   "send_failure_authentication_interrupted": "connexion coupée pendant la vérification des identifiants",
+  "send_failure_unresponsive": "le serveur ne répond pas",
+  "send_failure_microsoft_smtp_disabled": "Microsoft n'autorise pas l'envoi depuis les applications pour ce compte. Envoyez depuis outlook.com, ou contactez le support Microsoft.",
   "notify_new_one": "Nouveau message",
   "notify_new_many": "{count} nouveaux messages",
   "notify_latest": "Dernier : {from} — {subject}",

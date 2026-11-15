@@ -1137,6 +1137,10 @@ pub enum SendFailureDto {
     /// Connexion coupée pendant la vérification des identifiants : ils ne
     /// sont pas renvoyés automatiquement.
     AuthenticationInterrupted,
+    /// Serveur joint puis muet, ou connexion coupée, à plusieurs reprises.
+    Unresponsive,
+    /// Microsoft refuse l'envoi depuis les applications pour ce compte.
+    MicrosoftSmtpDisabled,
 }
 
 /// État d'un message de la file d'envoi.

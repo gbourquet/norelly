@@ -76,6 +76,9 @@ pub(crate) fn contact_error(e: ContactFailure, typed: &[String]) -> IpcError {
             ContactError::InvalidCharacter(field) => {
                 invalid_field(ErrorCodeDto::ContactInvalid, field_dto(field))
             }
+            ContactError::NameLooksLikeAddress(field) => {
+                invalid_field(ErrorCodeDto::ContactNameLooksLikeAddress, field_dto(field))
+            }
         },
         ContactFailure::Store(e) => match e {
             ContactStoreError::DuplicateAddress(address) => {

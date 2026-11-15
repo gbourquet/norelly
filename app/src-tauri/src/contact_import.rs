@@ -103,9 +103,9 @@ fn reason_dto(reason: &RejectReason) -> ImportRejectReasonDto {
             | ContactError::DuplicateAddress { .. }
             | ContactError::SeveralPreferred => ImportRejectReasonDto::InvalidAddress,
             ContactError::TooLong(_) => ImportRejectReasonDto::TooLong,
-            ContactError::InvalidCharacter(_) | ContactError::EmptyPhone { .. } => {
-                ImportRejectReasonDto::InvalidField
-            }
+            ContactError::InvalidCharacter(_)
+            | ContactError::NameLooksLikeAddress(_)
+            | ContactError::EmptyPhone { .. } => ImportRejectReasonDto::InvalidField,
             ContactError::TooManyAddresses | ContactError::TooManyPhones => {
                 ImportRejectReasonDto::TooManyValues
             }

@@ -123,6 +123,10 @@ pub enum ErrorCodeDto {
     ContactInvalid,
     /// Champ d'une fiche contact trop long (`field`).
     ContactTooLong,
+    /// Nom d'une fiche contact (`field` : nom affiché, prénom, nom ou
+    /// surnom) qui imite une adresse (« @ », « < », « > » ou un caractère
+    /// qui leur ressemble).
+    ContactNameLooksLikeAddress,
     /// Même adresse deux fois dans la fiche (`detail` : l'adresse).
     ContactRepeatedAddress,
     /// Adresse déjà portée par un autre contact du carnet (`detail` :

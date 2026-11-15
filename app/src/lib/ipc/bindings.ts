@@ -1092,6 +1092,12 @@ export type ErrorCodeDto =
 "contact_invalid" | 
 /**  Champ d'une fiche contact trop long (`field`). */
 "contact_too_long" | 
+/**
+ *  Nom d'une fiche contact (`field` : nom affiché, prénom, nom ou
+ *  surnom) qui imite une adresse (« @ », « < », « > » ou un caractère
+ *  qui leur ressemble).
+ */
+"contact_name_looks_like_address" | 
 /**  Même adresse deux fois dans la fiche (`detail` : l'adresse). */
 "contact_repeated_address" | 
 /**

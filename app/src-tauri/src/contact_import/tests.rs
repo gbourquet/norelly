@@ -70,6 +70,10 @@ fn preview_counts_both_policies_and_lists_reasons() -> Result<(), IpcError> {
             ImportRejectReasonDto::InvalidField,
         ),
         (
+            invalid(ContactError::NameLooksLikeAddress(ContactField::Nickname)),
+            ImportRejectReasonDto::InvalidField,
+        ),
+        (
             invalid(ContactError::EmptyPhone { index: 0 }),
             ImportRejectReasonDto::InvalidField,
         ),
@@ -108,7 +112,7 @@ fn preview_counts_both_policies_and_lists_reasons() -> Result<(), IpcError> {
         }
     );
     assert_eq!(dto.renamed, 1);
-    assert_eq!(dto.rejected_total, 10);
+    assert_eq!(dto.rejected_total, 11);
     let got: Vec<_> = dto.rejected.iter().map(|r| (r.card, r.reason)).collect();
     let expected: Vec<_> = (1..).zip(reasons.iter().map(|(_, d)| *d)).collect();
     assert_eq!(got, expected);

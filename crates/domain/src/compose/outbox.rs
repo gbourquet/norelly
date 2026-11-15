@@ -10,12 +10,18 @@
 //!
 //! - Hors ligne (serveur injoignable), l'essai n'est pas compté : l'envoi
 //!   est simplement différé jusqu'au retour du réseau.
-//! - Un échec temporaire (réponse SMTP 4xx, coupure en cours d'envoi) est
+//! - Un échec temporaire (réponse SMTP 4xx, réponse invalide) est
 //!   retenté avec une attente croissante, au plus [`MAX_SEND_ATTEMPTS`]
 //!   fois. Une connexion coupée ou bloquée avant la mise en place du
 //!   chiffrement l'est de même, mais son échec définitif le dit
 //!   ([`SendFailure::EncryptionInterrupted`]) : répétée, elle peut venir du
-//!   réseau utilisé.
+//!   réseau utilisé. Un serveur joint puis muet, ou qui coupe la connexion
+//!   une fois le chiffrement en place, l'est aussi, et son échec définitif
+//!   dit qu'il ne répond pas ([`SendFailure::Unresponsive`]).
+//! - Dans un même essai, un échec passager de la connexion (réseau
+//!   instable, serveur muet) est suivi de deux nouvelles connexions
+//!   rapprochées ([`next_send_connection`]), avant toute transmission et
+//!   jamais après un refus ou une interruption des identifiants.
 //! - Un envoi interrompu par l'arrêt de l'application (`Sending` au
 //!   démarrage) a peut-être abouti : il devient un échec
 //!   [`SendFailure::Uncertain`], jamais renvoyé automatiquement (pas de
@@ -26,6 +32,7 @@
 use crate::auth::AuthError;
 use crate::capabilities::ServerCapabilities;
 use crate::connection::{ConnectionError, TimeoutStage};
+use crate::oauth::{OAuthProvider, is_smtp_oauth_disabled};
 use crate::ports::SendError;
 
 /// Essais comptés avant l'échec définitif.
@@ -40,7 +47,8 @@ pub const RETRY_MAX_SECS: i64 = 3600;
 pub enum SendFailure {
     /// Serveur injoignable (hors ligne, DNS, connexion refusée).
     Unreachable,
-    /// Échec temporaire : réponse 4xx, coupure pendant l'envoi.
+    /// Échec temporaire : réponse 4xx, réponse invalide, trousseau ou
+    /// fournisseur OAuth momentanément indisponible.
     Temporary,
     /// Refus définitif du serveur (5xx : destinataire refusé, message
     /// trop gros…).
@@ -64,6 +72,72 @@ pub enum SendFailure {
     /// automatiquement (un serveur peut bloquer le compte après quelques
     /// échecs) ; l'utilisateur relance.
     AuthenticationInterrupted,
+    /// Serveur joint, chiffrement en place, puis silence ou connexion
+    /// coupée avant la transmission du message : rien n'est parti.
+    /// Réessayé comme un échec temporaire, puis échec définitif sous ce nom.
+    Unresponsive,
+    /// Microsoft refuse l'envoi depuis les applications pour ce compte
+    /// (`535 5.7.139`) : échec définitif, à régler hors de l'application.
+    MicrosoftSmtpDisabled,
+}
+
+/// Attentes entre les connexions d'un même essai d'envoi dont l'échec est
+/// passager ([`ConnectionError::is_transient`]) : trois connexions au plus,
+/// la deuxième 2 s après la première, la troisième 3 s après la deuxième.
+/// L'essai ne compte qu'une fois ([`MAX_SEND_ATTEMPTS`]).
+pub const SEND_CONNECTION_WAITS: [std::time::Duration; 2] = [
+    std::time::Duration::from_secs(2),
+    std::time::Duration::from_secs(3),
+];
+
+/// Attente avant la connexion suivante d'un même essai d'envoi, après
+/// `made` connexions dont la dernière a échoué sur `error`. `None` : l'essai
+/// s'arrête et son échec est classé.
+#[must_use]
+pub fn next_send_connection(made: usize, error: &SendError) -> Option<std::time::Duration> {
+    // Seule une connexion qui n'a pas abouti est refaite : jamais une
+    // transmission commencée (peut-être partie), ni des identifiants
+    // refusés ou restés sans réponse (le compte pourrait être bloqué).
+    let passing = matches!(error, SendError::Connection(e) if e.is_transient());
+    if !passing {
+        return None;
+    }
+    made.checked_sub(1)
+        .and_then(|i| SEND_CONNECTION_WAITS.get(i))
+        .copied()
+}
+
+impl SendFailure {
+    /// Cause d'échec d'un essai d'envoi fait de `errors` (une erreur par
+    /// connexion, dans l'ordre), pour un compte OAuth de `provider`
+    /// éventuel. `None` : aucune connexion.
+    ///
+    /// - Serveur joint à l'une des connexions : la dernière cause autre que
+    ///   « injoignable » l'emporte, l'essai compte (un serveur qui alterne
+    ///   coupure et refus de connexion ne réessaie pas sans fin).
+    /// - Refus `5.7.139` d'un compte Microsoft seulement : ailleurs (mot de
+    ///   passe, serveur saisi à la main, autre fournisseur), le même texte
+    ///   reste un refus des identifiants, sans renvoyer vers Microsoft.
+    #[must_use]
+    pub fn of_attempt(errors: &[SendError], provider: Option<OAuthProvider>) -> Option<Self> {
+        let last = errors.last()?;
+        let telling = errors
+            .iter()
+            .rev()
+            .find(|e| Self::of(e) != Self::Unreachable)
+            .unwrap_or(last);
+        let microsoft_disabled = provider == Some(OAuthProvider::Microsoft)
+            && matches!(
+                telling,
+                SendError::Connection(ConnectionError::Authentication(AuthError::Rejected { message }))
+                    if is_smtp_oauth_disabled(message)
+            );
+        Some(if microsoft_disabled {
+            Self::MicrosoftSmtpDisabled
+        } else {
+            Self::of(telling)
+        })
+    }
 }
 
 /// Faut-il déposer une copie du message envoyé dans « Envoyés » ? Non
@@ -96,9 +170,11 @@ impl SendFailure {
                 ConnectionError::Authentication(AuthError::Interrupted) => {
                     Self::AuthenticationInterrupted
                 }
+                // Serveur joint, canal chiffré, puis silence ou coupure
+                // avant la transmission : rien n'est parti.
                 ConnectionError::Timeout(TimeoutStage::Response | TimeoutStage::Write)
-                | ConnectionError::Closed
-                | ConnectionError::Protocol(_)
+                | ConnectionError::Closed => Self::Unresponsive,
+                ConnectionError::Protocol(_)
                 // Trousseau verrouillé, fournisseur OAuth en panne : rien
                 // n'est parti.
                 | ConnectionError::Authentication(
@@ -226,7 +302,9 @@ impl OutboxEntry {
         Ok(match failure {
             // Hors ligne : l'essai ne compte pas.
             SendFailure::Unreachable => queued(self.attempts.saturating_sub(1), RETRY_BASE_SECS),
-            SendFailure::Temporary | SendFailure::EncryptionInterrupted
+            SendFailure::Temporary
+            | SendFailure::EncryptionInterrupted
+            | SendFailure::Unresponsive
                 if self.attempts < MAX_SEND_ATTEMPTS =>
             {
                 queued(self.attempts, retry_delay(self.attempts))
@@ -282,7 +360,9 @@ pub fn credentials_hold<'a>(
         .any(|f| {
             matches!(
                 f,
-                SendFailure::Authentication | SendFailure::AuthenticationInterrupted
+                SendFailure::Authentication
+                    | SendFailure::AuthenticationInterrupted
+                    | SendFailure::MicrosoftSmtpDisabled
             )
         })
         .then(|| now.saturating_add(CREDENTIALS_HOLD_SECS))
@@ -567,10 +647,14 @@ mod tests {
         );
         assert_eq!(
             conn(ConnectionError::Timeout(TimeoutStage::Response)),
-            SendFailure::Temporary,
-            "coupure pendant l'envoi : compté"
+            SendFailure::Unresponsive,
+            "serveur joint puis muet : il ne répond pas"
         );
-        assert_eq!(conn(ConnectionError::Closed), SendFailure::Temporary);
+        assert_eq!(
+            conn(ConnectionError::Timeout(TimeoutStage::Write)),
+            SendFailure::Unresponsive
+        );
+        assert_eq!(conn(ConnectionError::Closed), SendFailure::Unresponsive);
         assert_eq!(
             conn(ConnectionError::Protocol("x".into())),
             SendFailure::Temporary
@@ -617,6 +701,158 @@ mod tests {
             ConnectionError::PlaintextInjection,
         ] {
             assert_eq!(conn(security), SendFailure::Security);
+        }
+    }
+
+    #[test]
+    fn a_silent_server_is_retried_then_named() {
+        let mut e = OutboxEntry::queued(NOW);
+        for n in 1..MAX_SEND_ATTEMPTS {
+            e = e
+                .start()
+                .and_then(|e| e.failed(SendFailure::Unresponsive, NOW))
+                .unwrap_or_else(|e| panic!("{e}"));
+            assert_eq!(
+                e.state,
+                OutboxState::Queued {
+                    not_before: NOW + retry_delay(n)
+                },
+                "essai {n} compté, comme un échec temporaire"
+            );
+        }
+        let e = e
+            .start()
+            .and_then(|e| e.failed(SendFailure::Unresponsive, NOW))
+            .unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(
+            e.state,
+            OutboxState::Failed(SendFailure::Unresponsive),
+            "l'échec définitif dit que le serveur ne répond pas"
+        );
+    }
+
+    #[test]
+    fn microsoft_refusing_app_sending_is_named_and_final() {
+        use crate::auth::AuthError;
+        use crate::oauth::OAuthProvider;
+        const DISABLED: &str = "535 5.7.139 Authentication unsuccessful, SmtpClientAuthentication is disabled for the Mailbox";
+        let refused = |message: &str, provider| {
+            SendFailure::of_attempt(
+                &[SendError::Connection(ConnectionError::Authentication(
+                    AuthError::Rejected {
+                        message: message.into(),
+                    },
+                ))],
+                provider,
+            )
+        };
+        assert_eq!(
+            refused(DISABLED, Some(OAuthProvider::Microsoft)),
+            Some(SendFailure::MicrosoftSmtpDisabled)
+        );
+        assert_eq!(
+            refused(
+                "535 5.7.3 Authentication unsuccessful",
+                Some(OAuthProvider::Microsoft)
+            ),
+            Some(SendFailure::Authentication)
+        );
+        // Ailleurs qu'un compte Microsoft (mot de passe, serveur saisi,
+        // Google) : le même texte ne renvoie pas vers Microsoft.
+        for provider in [None, Some(OAuthProvider::Google)] {
+            assert_eq!(
+                refused(DISABLED, provider),
+                Some(SendFailure::Authentication),
+                "{provider:?}"
+            );
+        }
+        let e = sending()
+            .failed(SendFailure::MicrosoftSmtpDisabled, NOW)
+            .unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(
+            e.state,
+            OutboxState::Failed(SendFailure::MicrosoftSmtpDisabled)
+        );
+        assert_eq!(
+            credentials_hold(&[SendFailure::MicrosoftSmtpDisabled], NOW),
+            Some(NOW + CREDENTIALS_HOLD_SECS),
+            "les messages suivants seraient refusés de même"
+        );
+    }
+
+    #[test]
+    fn an_attempt_is_classified_by_its_most_telling_connection() {
+        let conn = SendError::Connection;
+        let offline = || conn(ConnectionError::Network("hors ligne".into()));
+        // Serveur joint au moins une fois : l'essai compte, même si la
+        // dernière connexion n'a pas abouti au serveur.
+        assert_eq!(
+            SendFailure::of_attempt(&[conn(ConnectionError::Closed), offline()], None),
+            Some(SendFailure::Unresponsive)
+        );
+        assert_eq!(
+            SendFailure::of_attempt(&[offline(), conn(ConnectionError::Closed), offline()], None),
+            Some(SendFailure::Unresponsive)
+        );
+        assert_eq!(
+            SendFailure::of_attempt(&[offline(), offline()], None),
+            Some(SendFailure::Unreachable),
+            "hors ligne de bout en bout : non compté"
+        );
+        assert_eq!(
+            SendFailure::of_attempt(&[offline(), conn(ConnectionError::Closed)], None),
+            Some(SendFailure::Unresponsive)
+        );
+        assert_eq!(SendFailure::of_attempt(&[], None), None);
+    }
+
+    #[test]
+    fn a_passing_failure_gets_two_more_connections_in_the_same_attempt() {
+        use crate::auth::AuthError;
+        use std::time::Duration;
+        let conn = SendError::Connection;
+        for passing in [
+            conn(ConnectionError::Network("réinitialisée".into())),
+            conn(ConnectionError::Timeout(TimeoutStage::Connect)),
+            conn(ConnectionError::Timeout(TimeoutStage::TlsHandshake)),
+            conn(ConnectionError::Timeout(TimeoutStage::Response)),
+            conn(ConnectionError::Closed),
+            conn(ConnectionError::ClosedBeforeEncryption),
+        ] {
+            assert_eq!(
+                next_send_connection(1, &passing),
+                Some(Duration::from_secs(2)),
+                "{passing:?}"
+            );
+            assert_eq!(
+                next_send_connection(2, &passing),
+                Some(Duration::from_secs(3)),
+                "{passing:?}"
+            );
+            assert_eq!(
+                next_send_connection(3, &passing),
+                None,
+                "trois connexions au plus : {passing:?}"
+            );
+        }
+        for final_error in [
+            // Transmission commencée : peut-être parti, jamais renvoyé.
+            SendError::Interrupted("coupé pendant DATA".into()),
+            SendError::Deferred("451".into()),
+            SendError::Rejected("550".into()),
+            // Identifiants jamais rejoués.
+            conn(ConnectionError::Authentication(AuthError::Interrupted)),
+            conn(ConnectionError::Authentication(AuthError::Rejected {
+                message: "535".into(),
+            })),
+            conn(ConnectionError::StartTlsUnavailable),
+            conn(ConnectionError::Protocol("x".into())),
+        ] {
+            assert_eq!(
+                next_send_connection(1, &final_error),
+                None,
+                "{final_error:?}"
+            );
         }
     }
 

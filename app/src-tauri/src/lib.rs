@@ -186,7 +186,13 @@ pub fn run() {
                         for account in &accounts {
                             if let Err(e) = state
                                 .mail
-                                .start(&handle, account, &state.secrets, &state.exceptions)
+                                .start(
+                                    &handle,
+                                    account,
+                                    &state.secrets,
+                                    &state.exceptions,
+                                    &state.contacts,
+                                )
                                 .await
                             {
                                 tracing::warn!(error = %e, "synchronisation non démarrée");

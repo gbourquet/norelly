@@ -145,7 +145,13 @@ pub async fn add_account(
     if let Some(account) = outcome.added_account()
         && let Err(e) = state
             .mail
-            .start(&app, account, &state.secrets, &state.exceptions)
+            .start(
+                &app,
+                account,
+                &state.secrets,
+                &state.exceptions,
+                &state.contacts,
+            )
             .await
     {
         tracing::warn!(error = %e, "synchronisation non démarrée");
@@ -252,7 +258,13 @@ pub async fn add_oauth_account(
     if let Some(account) = outcome.added_account()
         && let Err(e) = state
             .mail
-            .start(&app, account, &state.secrets, &state.exceptions)
+            .start(
+                &app,
+                account,
+                &state.secrets,
+                &state.exceptions,
+                &state.contacts,
+            )
             .await
     {
         tracing::warn!(error = %e, "synchronisation non démarrée");
@@ -284,7 +296,13 @@ pub async fn reconnect_account(
             // entre-temps attend, puis arrête la synchronisation relancée.
             if let Err(e) = state
                 .mail
-                .start(&app, &account, &state.secrets, &state.exceptions)
+                .start(
+                    &app,
+                    &account,
+                    &state.secrets,
+                    &state.exceptions,
+                    &state.contacts,
+                )
                 .await
             {
                 tracing::warn!(error = %e, "synchronisation non relancée");
@@ -373,7 +391,13 @@ pub async fn change_password(
         state.mail.stop(account.id()).await;
         if let Err(e) = state
             .mail
-            .start(&app, account, &state.secrets, &state.exceptions)
+            .start(
+                &app,
+                account,
+                &state.secrets,
+                &state.exceptions,
+                &state.contacts,
+            )
             .await
         {
             tracing::warn!(error = %e, "synchronisation non relancée");

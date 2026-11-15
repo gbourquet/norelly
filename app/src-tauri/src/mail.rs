@@ -29,6 +29,7 @@ use norelly_keyring::SystemSecretStore;
 use norelly_render::compose::MimeComposer;
 use norelly_render::{PartContent, Protocols, RenderNotice, RenderRequest, Rendered, Source};
 use norelly_sqlite::compose::SqliteComposeStore;
+use norelly_sqlite::contacts::SqliteContactBook;
 use norelly_sqlite::mail::SqliteMailStore;
 use norelly_sqlite::preferences::{SqliteReadingPreferences, SqliteSettingsStore};
 use norelly_sqlite::{Database, SqliteCertificateExceptionStore};
@@ -130,6 +131,7 @@ impl MailServices {
         account: &Account,
         secrets: &AppSecretStore<SystemSecretStore>,
         exceptions: &SqliteCertificateExceptionStore,
+        contacts: &SqliteContactBook,
     ) -> Result<(), String> {
         let mut actors = self.actors.lock().await;
         if actors.contains_key(&account.id()) {
@@ -157,6 +159,7 @@ impl MailServices {
         let settings_store = self.settings.clone();
         let advised = account.clone();
         let exception_store = exceptions.clone();
+        let contacts = contacts.clone();
         tauri::async_runtime::spawn(async move {
             loop {
                 match events.recv().await {
@@ -170,7 +173,9 @@ impl MailServices {
                                 ..norelly_domain::settings::Settings::default()
                             },
                         );
-                        if let Some(dto) = crate::settings::new_mail_event(account, mail, &current)
+                        if let Some(dto) =
+                            crate::settings::new_mail_event(account, mail, &current, &contacts)
+                                .await
                         {
                             let _ = dto.emit(&relay);
                         }

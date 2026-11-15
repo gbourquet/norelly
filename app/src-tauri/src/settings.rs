@@ -5,15 +5,18 @@
 //! - Une arrivée de messages n'est relayée à l'interface que si les
 //!   notifications sont activées, sans expéditeur ni sujet avec l'option
 //!   de confidentialité : la décision est prise ici, en Rust.
+//! - L'expéditeur annoncé est nommé d'après le carnet, comme dans la liste
+//!   des messages.
 //! - Le texte de la notification est composé par l'interface dans la
 //!   langue de l'utilisateur (ADR-011), puis revalidé ici (contrôles et
 //!   caractères de mise en forme retirés, longueurs bornées) avant d'être
 //!   affiché par le système.
 
+use norelly_application::contacts::NameSenders;
 use norelly_domain::account::AccountId;
 use norelly_domain::mailbox::header_text;
 use norelly_domain::notify::NewMail;
-use norelly_domain::ports::SettingsStore;
+use norelly_domain::ports::{ContactDirectory, SettingsStore};
 use norelly_domain::settings::{Language, Settings, UpdateCheck};
 
 use tauri::State;
@@ -29,21 +32,25 @@ pub const MAX_NOTIFICATION_TITLE: usize = 120;
 pub const MAX_NOTIFICATION_BODY: usize = 300;
 
 /// Événement à relayer pour des arrivées, selon les paramètres.
-#[must_use]
-pub fn new_mail_event(
+/// L'expéditeur est nommé comme dans la liste des messages : d'après le
+/// carnet (`directory`) quand son adresse y figure, sinon par le nom de
+/// l'en-tête, écarté s'il imite une adresse. Un carnet illisible ne
+/// retient pas la notification. Sans contenu (confidentialité), le carnet
+/// n'est pas interrogé.
+pub async fn new_mail_event<D: ContactDirectory>(
     account: AccountId,
     mail: NewMail,
     settings: &Settings,
+    directory: &D,
 ) -> Option<SyncEventDto> {
     let mail = settings.notification(mail)?;
     let latest = mail.latest;
+    let sender = latest.as_ref().and_then(|l| l.from.as_ref());
+    let names = NameSenders { directory }.execute(sender).await;
     Some(SyncEventDto::NewMail {
         account: u32::try_from(account.get()).ok()?,
         count: mail.count,
-        from: latest
-            .as_ref()
-            .and_then(|l| l.from.as_ref())
-            .map(CorrespondentDto::from),
+        from: sender.map(|f| CorrespondentDto::named(&names, f)),
         subject: latest.map(|l| l.subject),
     })
 }
@@ -181,6 +188,8 @@ fn escape_markup(text: &str) -> String {
 mod tests {
     use norelly_domain::mailbox::Correspondent;
     use norelly_domain::notify::Arrival;
+    use norelly_domain::ports::{ContactBook, StoreError};
+    use norelly_test_support::contacts_contracts::{InMemoryContactBook, sample_contact};
 
     use super::*;
 
@@ -199,17 +208,18 @@ mod tests {
         }
     }
 
-    #[test]
-    fn arrivals_follow_the_notification_settings() {
+    #[tokio::test]
+    async fn arrivals_follow_the_notification_settings() {
+        let book = InMemoryContactBook::default();
         let mut settings = Settings::default();
         assert!(matches!(
-            new_mail_event(account(), mail(), &settings),
+            new_mail_event(account(), mail(), &settings, &book).await,
             Some(SyncEventDto::NewMail { account: 3, count: 2, from: Some(CorrespondentDto { ref address, .. }), subject: Some(ref s) })
                 if address == "bob@example.com" && s == "Devis"
         ));
         settings.notification_privacy = true;
         assert!(matches!(
-            new_mail_event(account(), mail(), &settings),
+            new_mail_event(account(), mail(), &settings, &book).await,
             Some(SyncEventDto::NewMail {
                 count: 2,
                 from: None,
@@ -218,7 +228,115 @@ mod tests {
             })
         ));
         settings.notifications = false;
-        assert!(new_mail_event(account(), mail(), &settings).is_none());
+        assert!(
+            new_mail_event(account(), mail(), &settings, &book)
+                .await
+                .is_none()
+        );
+    }
+
+    /// L'expéditeur est nommé comme dans la liste des messages : d'après
+    /// le carnet quand son adresse y figure.
+    #[tokio::test]
+    async fn the_sender_is_named_from_the_address_book() {
+        let book = InMemoryContactBook::default();
+        let bob = book
+            .create(&sample_contact("Robert Durand", &["BOB@example.com"]))
+            .await
+            .unwrap_or_else(|e| panic!("fiche : {e}"));
+        let event = new_mail_event(account(), mail(), &Settings::default(), &book).await;
+        let Some(SyncEventDto::NewMail {
+            from: Some(from), ..
+        }) = event
+        else {
+            panic!("notification attendue : {event:?}");
+        };
+        assert_eq!(from.name, "Robert Durand");
+        assert_eq!(from.address, "bob@example.com");
+        assert_eq!(
+            from.contact,
+            u32::try_from(bob.id().get()).ok(),
+            "fiche du carnet"
+        );
+    }
+
+    /// Hors du carnet, le nom de l'en-tête reste, écarté s'il imite une
+    /// adresse.
+    #[tokio::test]
+    async fn outside_the_book_the_filtered_header_name_stays() {
+        let book = InMemoryContactBook::default();
+        let spoofed = NewMail {
+            count: 1,
+            latest: Some(Arrival {
+                from: Some(Correspondent::new(
+                    "banque@example.org",
+                    "pirate@example.net",
+                )),
+                subject: "Urgent".into(),
+                date: 1,
+            }),
+        };
+        let event = new_mail_event(account(), spoofed, &Settings::default(), &book).await;
+        let Some(SyncEventDto::NewMail {
+            from: Some(from), ..
+        }) = event
+        else {
+            panic!("notification attendue : {event:?}");
+        };
+        assert_eq!(from.name, "");
+        assert_eq!(from.address, "pirate@example.net");
+        assert_eq!(from.contact, None);
+    }
+
+    /// Carnet dont toute lecture échoue.
+    struct BrokenDirectory;
+
+    impl ContactDirectory for BrokenDirectory {
+        async fn page(
+            &self,
+            _: &norelly_domain::contacts::ContactFilter,
+            _: Option<norelly_domain::ports::ContactCursor>,
+            _: u32,
+        ) -> Result<norelly_domain::ports::ContactPage, StoreError> {
+            Err(StoreError("carnet illisible".into()))
+        }
+
+        async fn get(
+            &self,
+            _: norelly_domain::contacts::ContactId,
+        ) -> Result<Option<norelly_domain::contacts::Contact>, StoreError> {
+            Err(StoreError("carnet illisible".into()))
+        }
+
+        async fn by_addresses(
+            &self,
+            _: &[norelly_domain::contacts::AddressKey],
+        ) -> Result<Vec<norelly_domain::contacts::Contact>, StoreError> {
+            Err(StoreError("carnet illisible".into()))
+        }
+
+        async fn contacts(
+            &self,
+            _: &norelly_domain::contact_export::ContactSelection,
+            _: usize,
+        ) -> Result<Vec<norelly_domain::contacts::Contact>, StoreError> {
+            Err(StoreError("carnet illisible".into()))
+        }
+    }
+
+    /// Un carnet illisible n'empêche pas la notification : le nom de
+    /// l'en-tête est gardé.
+    #[tokio::test]
+    async fn an_unreadable_book_keeps_the_notification() {
+        let event = new_mail_event(account(), mail(), &Settings::default(), &BrokenDirectory).await;
+        let Some(SyncEventDto::NewMail {
+            from: Some(from), ..
+        }) = event
+        else {
+            panic!("notification attendue : {event:?}");
+        };
+        assert_eq!(from.name, "Bob");
+        assert_eq!(from.contact, None);
     }
 
     /// Le serveur de notifications

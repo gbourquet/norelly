@@ -654,6 +654,13 @@ impl AccountRepository for UndeletableAccounts<'_> {
             "base verrouillée".into(),
         )))
     }
+    async fn record_oauth_subject(
+        &self,
+        id: AccountId,
+        subject: &norelly_domain::oauth::OAuthSubject,
+    ) -> Result<bool, AccountStoreError> {
+        self.0.record_oauth_subject(id, subject).await
+    }
 }
 
 /// La base refuse la suppression après l'effacement des secrets : le compte
@@ -780,6 +787,13 @@ impl AccountRepository for RacingRepository {
     }
     async fn delete(&self, id: AccountId) -> Result<bool, AccountStoreError> {
         self.0.delete(id).await
+    }
+    async fn record_oauth_subject(
+        &self,
+        id: AccountId,
+        subject: &norelly_domain::oauth::OAuthSubject,
+    ) -> Result<bool, AccountStoreError> {
+        self.0.record_oauth_subject(id, subject).await
     }
 }
 
@@ -1390,6 +1404,7 @@ mod oauth {
                 audience: vec![GOOGLE_TEST_CLIENT.to_owned()],
                 email_verified: Some(true),
                 tenant: None,
+                subject: None,
             }),
             granted_scopes: granted_scopes.map(str::to_owned),
             ..grant().unwrap_or_else(|| panic!())
@@ -1914,6 +1929,13 @@ mod oauth {
         async fn delete(&self, id: AccountId) -> Result<bool, AccountStoreError> {
             self.inner.delete(id).await
         }
+        async fn record_oauth_subject(
+            &self,
+            id: AccountId,
+            subject: &norelly_domain::oauth::OAuthSubject,
+        ) -> Result<bool, AccountStoreError> {
+            self.inner.record_oauth_subject(id, subject).await
+        }
     }
 
     /// Le compte relu au retour du navigateur n'est plus celui dont
@@ -2019,6 +2041,219 @@ mod oauth {
             b.access_token(&source).await.map(|t| t.expose().to_owned()),
             Ok("acc".to_owned())
         );
+    }
+
+    fn oid(raw: &str) -> norelly_domain::oauth::OAuthSubject {
+        norelly_domain::oauth::OAuthSubject::parse(raw)
+            .unwrap_or_else(|| panic!("identifiant valide refusé : {raw}"))
+    }
+
+    /// Jetons du compte d'identifiant stable `subject`, connecté sous
+    /// l'identifiant `login`.
+    fn grant_with(login: &str, subject: Option<&str>) -> Option<OAuthGrant> {
+        grant_of(login).map(|g| OAuthGrant {
+            refresh_token: Some(Secret::new("r-neuf".to_owned())),
+            identity: g.identity.map(|i| OAuthIdentity {
+                subject: subject.map(oid),
+                ..i
+            }),
+            ..g
+        })
+    }
+
+    fn refresh_token_of(
+        b: &TokenBroker<FakeOAuthClient, Keyring>,
+        account: &Account,
+    ) -> Option<String> {
+        b.secrets()
+            .get_sync(account.secret_key(Protocol::Imap).as_str())
+    }
+
+    #[tokio::test]
+    async fn added_microsoft_account_keeps_its_stable_subject() {
+        let w = World::new();
+        let b = broker(grant());
+        let AddAccountOutcome::Added(account) = add(&w, &b).await else {
+            panic!("compte non ajouté");
+        };
+        assert_eq!(account.oauth_subject(), Some(&oid("oid-alice@outlook.com")));
+        assert_eq!(
+            w.accounts
+                .get(account.id())
+                .await
+                .ok()
+                .flatten()
+                .and_then(|a| a.oauth_subject().cloned()),
+            Some(oid("oid-alice@outlook.com")),
+            "identifiant non enregistré"
+        );
+    }
+
+    /// Compte reconnu à son identifiant stable : l'adresse principale a pu
+    /// changer chez Microsoft ; un autre compte qui annonce l'adresse est
+    /// refusé.
+    #[tokio::test]
+    async fn reconnection_requires_the_recorded_subject() {
+        let w = World::new();
+        let b = broker(grant());
+        let AddAccountOutcome::Added(account) = add(&w, &b).await else {
+            panic!("compte non ajouté");
+        };
+        if let Ok(mut g) = b.client().grant.lock() {
+            *g = grant_with("alice@outlook.com", Some("oid-mallory"));
+        }
+        assert_eq!(
+            reconnect_oauth_account(&b, &w.accounts, &AccountLocks::default(), account.id())
+                .await
+                .map(|r| r.account.id()),
+            Err(ReconnectError::OAuth(TokenError::WrongAccount))
+        );
+        assert_eq!(refresh_token_of(&b, &account).as_deref(), Some("r1"));
+        if let Ok(mut g) = b.client().grant.lock() {
+            *g = grant_with("alice.nouvelle@outlook.com", Some("oid-alice@outlook.com"));
+        }
+        assert_eq!(
+            reconnect_oauth_account(&b, &w.accounts, &AccountLocks::default(), account.id())
+                .await
+                .map(|r| r.account.id()),
+            Ok(account.id())
+        );
+        assert_eq!(refresh_token_of(&b, &account).as_deref(), Some("r-neuf"));
+    }
+
+    /// Compte ajouté avant que Norelly n'enregistre l'identifiant stable :
+    /// la reconnexion compare l'adresse, puis enregistre l'identifiant.
+    #[tokio::test]
+    async fn reconnection_of_an_account_without_subject_checks_the_address_and_records_it() {
+        let w = World::new();
+        let b = broker(grant_with("alice@outlook.com", None));
+        let AddAccountOutcome::Added(account) = add(&w, &b).await else {
+            panic!("compte non ajouté");
+        };
+        assert_eq!(account.oauth_subject(), None);
+        let recorded = || async {
+            w.accounts
+                .get(account.id())
+                .await
+                .ok()
+                .flatten()
+                .and_then(|a| a.oauth_subject().cloned())
+        };
+        if let Ok(mut g) = b.client().grant.lock() {
+            *g = grant_with("mallory@outlook.com", Some("oid-mallory"));
+        }
+        assert_eq!(
+            reconnect_oauth_account(&b, &w.accounts, &AccountLocks::default(), account.id())
+                .await
+                .map(|r| r.account.id()),
+            Err(ReconnectError::OAuth(TokenError::WrongAccount))
+        );
+        assert_eq!(
+            recorded().await,
+            None,
+            "identifiant d'un autre compte enregistré"
+        );
+        if let Ok(mut g) = b.client().grant.lock() {
+            *g = grant_with("alice@outlook.com", Some("oid-alice"));
+        }
+        let reconnected =
+            reconnect_oauth_account(&b, &w.accounts, &AccountLocks::default(), account.id()).await;
+        assert_eq!(
+            reconnected.map(|r| r.account.oauth_subject().cloned()),
+            Ok(Some(oid("oid-alice")))
+        );
+        assert_eq!(recorded().await, Some(oid("oid-alice")));
+        // Dès lors, seul ce compte est reconnu, même sous l'adresse.
+        if let Ok(mut g) = b.client().grant.lock() {
+            *g = grant_with("alice@outlook.com", Some("oid-autre"));
+        }
+        assert_eq!(
+            reconnect_oauth_account(&b, &w.accounts, &AccountLocks::default(), account.id())
+                .await
+                .map(|r| r.account.id()),
+            Err(ReconnectError::OAuth(TokenError::WrongAccount))
+        );
+    }
+
+    /// Dépôt qui refuse d'enregistrer l'identifiant stable : en erreur
+    /// (`failing`), ou parce qu'il en tient déjà un.
+    struct Unrecordable<'a>(&'a InMemoryAccountRepository, bool);
+
+    impl AccountRepository for Unrecordable<'_> {
+        async fn list(&self) -> Result<Vec<Account>, AccountStoreError> {
+            self.0.list().await
+        }
+        async fn get(&self, id: AccountId) -> Result<Option<Account>, AccountStoreError> {
+            self.0.get(id).await
+        }
+        async fn find_by_address(
+            &self,
+            address: &EmailAddress,
+        ) -> Result<Option<Account>, AccountStoreError> {
+            self.0.find_by_address(address).await
+        }
+        async fn insert(&self, draft: &AccountDraft) -> Result<Account, AccountStoreError> {
+            self.0.insert(draft).await
+        }
+        async fn delete(&self, id: AccountId) -> Result<bool, AccountStoreError> {
+            self.0.delete(id).await
+        }
+        async fn record_oauth_subject(
+            &self,
+            _: AccountId,
+            _: &norelly_domain::oauth::OAuthSubject,
+        ) -> Result<bool, AccountStoreError> {
+            if self.1 {
+                Err(AccountStoreError::Store(norelly_domain::ports::StoreError(
+                    "base verrouillée".into(),
+                )))
+            } else {
+                Ok(false)
+            }
+        }
+    }
+
+    /// L'identifiant stable ne peut pas être enregistré : la reconnexion
+    /// échoue sans ranger les nouveaux jetons (elle pourra être refaite).
+    #[tokio::test]
+    async fn reconnection_whose_subject_cannot_be_recorded_keeps_the_old_token() {
+        let w = World::new();
+        let b = broker(grant().map(|g| OAuthGrant {
+            identity: g.identity.map(|i| OAuthIdentity { subject: None, ..i }),
+            ..g
+        }));
+        let AddAccountOutcome::Added(account) = add(&w, &b).await else {
+            panic!("compte non ajouté");
+        };
+        assert_eq!(refresh_token_of(&b, &account).as_deref(), Some("r1"));
+        if let Ok(mut g) = b.client().grant.lock() {
+            *g = grant_with("alice@outlook.com", Some("oid-alice"));
+        }
+        assert!(matches!(
+            reconnect_oauth_account(
+                &b,
+                &Unrecordable(&w.accounts, true),
+                &AccountLocks::default(),
+                account.id()
+            )
+            .await,
+            Err(ReconnectError::Storage(_))
+        ));
+        assert_eq!(refresh_token_of(&b, &account).as_deref(), Some("r1"));
+        // Identifiant enregistré entre-temps par ailleurs : ce n'est plus
+        // le compte vérifié, rien n'est rangé.
+        assert_eq!(
+            reconnect_oauth_account(
+                &b,
+                &Unrecordable(&w.accounts, false),
+                &AccountLocks::default(),
+                account.id()
+            )
+            .await
+            .map(|r| r.account.id()),
+            Err(ReconnectError::NotFound)
+        );
+        assert_eq!(refresh_token_of(&b, &account).as_deref(), Some("r1"));
     }
 }
 
@@ -2249,6 +2484,13 @@ mod change_password_safety {
         }
         async fn delete(&self, id: AccountId) -> Result<bool, AccountStoreError> {
             self.inner.delete(id).await
+        }
+        async fn record_oauth_subject(
+            &self,
+            id: AccountId,
+            subject: &norelly_domain::oauth::OAuthSubject,
+        ) -> Result<bool, AccountStoreError> {
+            self.inner.record_oauth_subject(id, subject).await
         }
     }
 

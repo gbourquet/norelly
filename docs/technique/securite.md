@@ -130,6 +130,25 @@ n'est pas chiffrée (ADR-003) : on s'appuie sur le chiffrement du disque.
   OAuth (`oauth_client_contract`) exige qu'une connexion interactive
   rapporte une identité acceptée par `verify_sign_in`, contre le faux et
   contre l'adaptateur réel.
+- Compte Microsoft reconnu à son identifiant stable : `oid` de l'`id_token`
+  (`OAuthSubject`, ASCII visible, 128 caractères au plus ; illisible =
+  absent), et non `sub`, propre à chaque identifiant client chez
+  Microsoft. Enregistré à l'ajout, ou à la première reconnexion réussie
+  d'un compte qui n'en a pas, seulement si `preferred_username` est
+  l'adresse (`subject_to_record`) : l'`email` seul, plus facile à
+  modifier, ne lie pas le compte pour toujours. Ensuite, la reconnexion
+  exige ce même `oid` (`verify_reconnection`), sans comparer l'adresse, que
+  l'utilisateur peut changer chez Microsoft ; `oid` absent : refus
+  (`TokenError::Protocol`). Un identifiant enregistré n'est jamais
+  remplacé (`record_oauth_subject`, mise à jour conditionnelle, faite avant
+  le rangement des jetons). Limites connues : l'`oid` n'est unique qu'à
+  l'intérieur d'un locataire et il est stocké sans `tid` ; c'est sûr tant
+  que `check_identity_claims` impose le seul locataire des comptes
+  personnels, et à revoir si Norelly s'ouvre aux comptes professionnels.
+  Un ajout Microsoft sans `oid` reste accepté et le compte reste reconnu à
+  son adresse (pas de blocage si Microsoft omettait la revendication).
+  Google n'est pas concerné (`OAuthProvider::has_stable_subject`) : son
+  adresse est vérifiée (`email_verified`) et ne change pas.
   Connexion Google sans le scope de messagerie (consentement granulaire) :
   refusée (`require_mail_access`). Version compilée sans les identifiants
   d'un fournisseur : rien ne lui est envoyé, ni jeton de rafraîchissement

@@ -18,8 +18,8 @@ use std::time::Duration;
 use norelly_domain::address::EmailAddress;
 use norelly_domain::credentials::{Secret, SecretBytes};
 use norelly_domain::oauth::{
-    AuthorizationRequest, CallbackError, OAuthConfig, OAuthIdentity, TokenError, authorization_url,
-    classify_token_error, code_exchange_form, parse_callback, refresh_form,
+    AuthorizationRequest, CallbackError, OAuthConfig, OAuthIdentity, OAuthSubject, TokenError,
+    authorization_url, classify_token_error, code_exchange_form, parse_callback, refresh_form,
 };
 use norelly_domain::ports::{OAuthClient, OAuthGrant};
 use norelly_tls::TlsClientFactory;
@@ -476,6 +476,9 @@ struct IdTokenClaims {
     email_verified: Option<serde_json::Value>,
     /// Locataire du compte (Microsoft).
     tid: Option<String>,
+    /// Identifiant stable du compte (Microsoft) ; valeur quelconque lue
+    /// sans faire échouer le reste de l'identité.
+    oid: Option<serde_json::Value>,
 }
 
 /// Identité portée par un `id_token` (JWT `en-tête.contenu.signature`).
@@ -509,6 +512,10 @@ fn identity_of(id_token: &str) -> Option<OAuthIdentity> {
             _ => None,
         },
         tenant: claims.tid,
+        subject: match claims.oid {
+            Some(serde_json::Value::String(oid)) => OAuthSubject::parse(&oid),
+            _ => None,
+        },
     })
 }
 

@@ -885,3 +885,213 @@ fn provider_texts_are_bounded_and_filtered() {
     };
     assert!(code.chars().count() <= 201, "texte non borné");
 }
+
+fn subject(raw: &str) -> OAuthSubject {
+    let Some(s) = OAuthSubject::parse(raw) else {
+        panic!("identifiant valide refusé : {raw}");
+    };
+    s
+}
+
+#[test]
+fn stable_subject_is_visible_ascii_of_bounded_length() {
+    let oid = "00000000-0000-0000-66f3-3332eca7ea81";
+    assert_eq!(
+        OAuthSubject::parse(oid).map(|s| s.as_str().to_owned()),
+        Some(oid.to_owned())
+    );
+    assert!(OAuthSubject::parse(&"a".repeat(128)).is_some());
+    for refused in ["", " ", "a b", "a\nb", "é", "a\u{0}", &"a".repeat(129)] {
+        assert_eq!(OAuthSubject::parse(refused), None, "{refused:?}");
+    }
+}
+
+/// Identité Microsoft valable pour Norelly, d'identifiant de connexion
+/// `login` et d'identifiant stable `oid`.
+fn microsoft_sign_in(login: &str, oid: Option<&str>) -> OAuthIdentity {
+    let config = OAuthProvider::Microsoft.config();
+    let tenant = config.tenant.unwrap_or_default();
+    OAuthIdentity {
+        subject: oid.map(subject),
+        ..microsoft_identity(
+            Some(&format!("https://login.microsoftonline.com/{tenant}/v2.0")),
+            &[config.client_id],
+            Some(tenant),
+        )
+    }
+    .with_login(login)
+}
+
+impl OAuthIdentity {
+    fn with_login(self, login: &str) -> Self {
+        Self {
+            preferred_username: Some(login.to_owned()),
+            ..self
+        }
+    }
+}
+
+#[test]
+fn reconnection_without_known_subject_checks_the_address_and_records_the_subject() {
+    let microsoft = OAuthProvider::Microsoft;
+    let config = microsoft.config();
+    let alice = address("alice@outlook.com");
+    assert_eq!(
+        verify_reconnection(
+            microsoft,
+            config,
+            &alice,
+            None,
+            Some(&microsoft_sign_in("alice@outlook.com", Some("oid-a")))
+        ),
+        Ok(Some(subject("oid-a")))
+    );
+    // Sans identifiant fourni : rien à enregistrer.
+    assert_eq!(
+        verify_reconnection(
+            microsoft,
+            config,
+            &alice,
+            None,
+            Some(&microsoft_sign_in("alice@outlook.com", None))
+        ),
+        Ok(None)
+    );
+    assert_eq!(
+        verify_reconnection(
+            microsoft,
+            config,
+            &alice,
+            None,
+            Some(&microsoft_sign_in("mallory@outlook.com", Some("oid-m")))
+        ),
+        Err(TokenError::WrongAccount)
+    );
+    assert!(matches!(
+        verify_reconnection(microsoft, config, &alice, None, None),
+        Err(TokenError::Protocol(_))
+    ));
+}
+
+#[test]
+fn reconnection_with_known_subject_requires_the_same_subject() {
+    let microsoft = OAuthProvider::Microsoft;
+    let config = microsoft.config();
+    let alice = address("alice@outlook.com");
+    let known = subject("oid-a");
+    // Même compte, adresse principale changée chez Microsoft : accepté,
+    // rien de nouveau à enregistrer.
+    assert_eq!(
+        verify_reconnection(
+            microsoft,
+            config,
+            &alice,
+            Some(&known),
+            Some(&microsoft_sign_in(
+                "alice.nouvelle@outlook.com",
+                Some("oid-a")
+            ))
+        ),
+        Ok(None)
+    );
+    // Autre compte, même s'il annonce l'adresse.
+    assert_eq!(
+        verify_reconnection(
+            microsoft,
+            config,
+            &alice,
+            Some(&known),
+            Some(&microsoft_sign_in("alice@outlook.com", Some("oid-m")))
+        ),
+        Err(TokenError::WrongAccount)
+    );
+    // Identifiant absent de l'identité : rien ne prouve le compte, sans
+    // pour autant accuser l'utilisateur d'avoir choisi le mauvais.
+    assert!(matches!(
+        verify_reconnection(
+            microsoft,
+            config,
+            &alice,
+            Some(&known),
+            Some(&microsoft_sign_in("alice@outlook.com", None))
+        ),
+        Err(TokenError::Protocol(_))
+    ));
+    assert!(matches!(
+        verify_reconnection(microsoft, config, &alice, Some(&known), None),
+        Err(TokenError::Protocol(_))
+    ));
+    // Revendications du fournisseur toujours vérifiées.
+    let other_app = OAuthIdentity {
+        audience: vec!["autre-application".to_owned()],
+        ..microsoft_sign_in("alice@outlook.com", Some("oid-a"))
+    };
+    assert!(matches!(
+        verify_reconnection(microsoft, config, &alice, Some(&known), Some(&other_app)),
+        Err(TokenError::Protocol(_))
+    ));
+}
+
+#[test]
+fn google_identity_carries_no_stable_subject_to_record() {
+    let google = OAuthProvider::Google;
+    let config = google_with("id.apps.googleusercontent.com", "GOCSPX-s");
+    let identity = OAuthIdentity {
+        subject: Some(subject("oid-g")),
+        ..google_identity(
+            Some("accounts.google.com"),
+            &["id.apps.googleusercontent.com"],
+            Some(true),
+        )
+    };
+    assert_eq!(
+        verify_reconnection(
+            google,
+            &config,
+            &address("alice@gmail.com"),
+            None,
+            Some(&identity)
+        ),
+        Ok(None)
+    );
+    assert_eq!(identity.stable_subject(google), None);
+    assert_eq!(
+        identity.stable_subject(OAuthProvider::Microsoft),
+        Some(&subject("oid-g"))
+    );
+}
+
+/// Le premier identifiant enregistré lie le compte pour toujours : il ne
+/// l'est que si l'identifiant de connexion est l'adresse (l'adresse
+/// `email` seule, modifiable, ne suffit pas).
+#[test]
+fn first_subject_is_recorded_only_when_the_sign_in_name_is_the_address() {
+    let microsoft = OAuthProvider::Microsoft;
+    let alice = address("alice@outlook.com");
+    let by_phone = OAuthIdentity {
+        email: Some("alice@outlook.com".to_owned()),
+        ..microsoft_sign_in("+33600000000", Some("oid-a"))
+    };
+    assert_eq!(subject_to_record(microsoft, &alice, &by_phone), None);
+    assert_eq!(
+        verify_reconnection(microsoft, microsoft.config(), &alice, None, Some(&by_phone)),
+        Ok(None),
+        "connexion acceptée à l'adresse, identifiant non enregistré"
+    );
+    assert_eq!(
+        subject_to_record(
+            microsoft,
+            &alice,
+            &microsoft_sign_in("Alice@Outlook.com", Some("oid-a"))
+        ),
+        Some(subject("oid-a"))
+    );
+    assert_eq!(
+        subject_to_record(
+            OAuthProvider::Google,
+            &alice,
+            &microsoft_sign_in("alice@outlook.com", Some("oid-a"))
+        ),
+        None
+    );
+}

@@ -644,6 +644,15 @@ pub trait AccountRepository: Send + Sync {
     /// pas.
     fn delete(&self, id: AccountId)
     -> impl Future<Output = Result<bool, AccountStoreError>> + Send;
+
+    /// Enregistre l'identifiant stable du compte `id` chez son fournisseur
+    /// OAuth, s'il n'en a pas encore ; `false` si le compte est absent ou en
+    /// a déjà un (gardé tel quel).
+    fn record_oauth_subject(
+        &self,
+        id: AccountId,
+        subject: &crate::oauth::OAuthSubject,
+    ) -> impl Future<Output = Result<bool, AccountStoreError>> + Send;
 }
 
 /// Données locales d'un compte hors base (messages bruts, caches).

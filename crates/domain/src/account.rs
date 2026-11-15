@@ -9,7 +9,7 @@ use std::fmt;
 use crate::address::EmailAddress;
 use crate::credentials::Username;
 use crate::endpoint::{Protocol, Security, ServerEndpoint};
-use crate::oauth::OAuthProvider;
+use crate::oauth::{OAuthProvider, OAuthSubject};
 use crate::ports::SecretKey;
 use crate::security::{PlaintextConsent, PlaintextPolicy};
 use crate::sender::{imitates_address, is_address_look_alike};
@@ -63,6 +63,8 @@ pub enum AccountError {
     WrongProtocol(Protocol, Protocol),
     #[error("connexion en clair vers {0} sans consentement explicite")]
     PlaintextWithoutConsent(ServerEndpoint),
+    #[error("identifiant stable sans fournisseur qui en délivre un")]
+    OAuthSubjectNotSupported,
 }
 
 /// Nom affiché à côté de l'adresse (« Alice Martin »). Sans caractère de
@@ -161,6 +163,7 @@ pub struct AccountDraft {
     imap: ServerSettings,
     smtp: ServerSettings,
     oauth: Option<OAuthProvider>,
+    oauth_subject: Option<OAuthSubject>,
 }
 
 impl AccountDraft {
@@ -190,6 +193,7 @@ impl AccountDraft {
             imap,
             smtp,
             oauth: None,
+            oauth_subject: None,
         })
     }
 
@@ -213,6 +217,28 @@ impl AccountDraft {
             oauth: Some(provider),
             ..self
         }
+    }
+
+    /// Identifiant stable du compte chez son fournisseur OAuth, qui le
+    /// reconnaîtra aux reconnexions. Refusé si le fournisseur du compte n'en
+    /// délivre pas ([`OAuthProvider::has_stable_subject`]), ou sans
+    /// fournisseur.
+    pub fn with_oauth_subject(self, subject: OAuthSubject) -> Result<Self, AccountError> {
+        if !self.oauth.is_some_and(OAuthProvider::has_stable_subject) {
+            return Err(AccountError::OAuthSubjectNotSupported);
+        }
+        Ok(Self {
+            oauth_subject: Some(subject),
+            ..self
+        })
+    }
+
+    /// Identifiant stable du compte chez son fournisseur OAuth, `None` tant
+    /// qu'aucun n'est enregistré (compte à mot de passe ou Google, compte
+    /// Microsoft avant sa première reconnexion qui en enregistre un).
+    #[must_use]
+    pub fn oauth_subject(&self) -> Option<&OAuthSubject> {
+        self.oauth_subject.as_ref()
     }
 
     /// Fournisseur OAuth du compte, `None` pour un compte à mot de passe.
@@ -497,5 +523,38 @@ mod tests {
             account.secret_key(Protocol::Smtp).as_str(),
             "account:7:smtp"
         );
+    }
+
+    #[test]
+    fn oauth_subject_is_kept_by_the_draft() {
+        let imap = settings(Protocol::Imap, "mail.example.com", 993, Security::Tls);
+        let smtp = settings(Protocol::Smtp, "mail.example.com", 465, Security::Tls);
+        let Ok(draft) = AccountDraft::restore(name(), address(), imap, smtp) else {
+            panic!("compte valide refusé");
+        };
+        assert_eq!(draft.oauth_subject(), None);
+        let Some(oid) = OAuthSubject::parse("oid-a") else {
+            panic!("identifiant valide refusé");
+        };
+        // Compte à mot de passe ou Google : aucun identifiant stable.
+        for refused in [
+            draft.clone(),
+            draft.clone().with_oauth(OAuthProvider::Google),
+        ] {
+            assert_eq!(
+                refused
+                    .with_oauth_subject(oid.clone())
+                    .map(|d| d.oauth_subject().cloned()),
+                Err(AccountError::OAuthSubjectNotSupported)
+            );
+        }
+        let Ok(draft) = draft
+            .with_oauth(OAuthProvider::Microsoft)
+            .with_oauth_subject(oid.clone())
+        else {
+            panic!("identifiant refusé sur un compte Microsoft");
+        };
+        assert_eq!(draft.oauth_subject(), Some(&oid));
+        assert_eq!(draft.oauth_provider(), Some(OAuthProvider::Microsoft));
     }
 }

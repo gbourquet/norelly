@@ -216,6 +216,12 @@ acceptés) sont supprimées. **Rien n'est supprimé sur le serveur.**
   programme) : refusé, à l'ajout comme à la reconnexion. Rien n'est
   enregistré, l'autorisation précédente d'un compte reconnecté reste en
   place, et l'écran demande de choisir le compte de l'adresse.
+- Compte Microsoft dont l'adresse principale a changé chez Microsoft :
+  Norelly le reconnaît quand même à la reconnexion, car il retient le
+  compte choisi à son ajout, pas seulement son adresse. Un autre compte
+  qui annonce la même adresse est refusé. Un compte ajouté avec une
+  version précédente de Norelly est reconnu à son adresse à sa première
+  reconnexion, puis retenu de la même façon.
 - Connexion chez Microsoft qui n'a pas été faite pour Norelly, ou qui
   concerne un compte professionnel ou scolaire plutôt qu'un compte
   personnel : refusée, rien n'est enregistré.

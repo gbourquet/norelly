@@ -8,7 +8,7 @@ use wiremock::matchers::{body_string_contains, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 use super::*;
-use norelly_domain::oauth::{MICROSOFT_CONSUMERS_TENANT, OAuthProvider};
+use norelly_domain::oauth::{MICROSOFT_CONSUMERS_TENANT, OAuthProvider, OAuthSubject};
 
 /// Visite du faux navigateur : port de la redirection et `state` reçus.
 type Visit = Arc<dyn Fn(u16, String) + Send + Sync>;
@@ -124,7 +124,7 @@ fn id_token(claims: &str) -> String {
 /// Microsoft pour un compte personnel.
 fn microsoft_claims() -> String {
     format!(
-        r#"{{"iss":"https://login.microsoftonline.com/{MICROSOFT_CONSUMERS_TENANT}/v2.0","aud":"{}","tid":"{MICROSOFT_CONSUMERS_TENANT}","preferred_username":"alice@outlook.com","email":"alice@outlook.com","sub":"x"}}"#,
+        r#"{{"iss":"https://login.microsoftonline.com/{MICROSOFT_CONSUMERS_TENANT}/v2.0","aud":"{}","tid":"{MICROSOFT_CONSUMERS_TENANT}","preferred_username":"alice@outlook.com","email":"alice@outlook.com","oid":"00000000-0000-0000-66f3-3332eca7ea81","sub":"x"}}"#,
         OAuthProvider::Microsoft.config().client_id
     )
 }
@@ -229,6 +229,7 @@ async fn authorize_opens_browser_and_exchanges_code() {
         grant.identity,
         Some(OAuthIdentity {
             email: Some("alice@outlook.com".to_owned()),
+            subject: OAuthSubject::parse("00000000-0000-0000-66f3-3332eca7ea81"),
             ..norelly_test_support::contracts::microsoft_identity("alice@outlook.com")
         })
     );
@@ -690,8 +691,14 @@ fn id_token_gives_the_signed_in_identity() {
     );
     // Microsoft : émetteur, destinataire et locataire du compte.
     let microsoft = identity(&id_token(
-        r#"{"iss":"https://login.microsoftonline.com/t/v2.0","aud":"client","tid":"t","preferred_username":"a@outlook.com"}"#,
+        r#"{"iss":"https://login.microsoftonline.com/t/v2.0","aud":"client","tid":"t","preferred_username":"a@outlook.com","oid":"00000000-0000-0000-66f3-3332eca7ea81","sub":"pairwise"}"#,
     ));
+    assert!(
+        microsoft
+            .as_ref()
+            .is_ok_and(|i| i.as_ref().is_some_and(|i| i.subject.is_some())),
+        "identifiant stable du compte non lu"
+    );
     assert_eq!(
         microsoft,
         Ok(Some(OAuthIdentity {
@@ -699,9 +706,21 @@ fn id_token_gives_the_signed_in_identity() {
             issuer: Some("https://login.microsoftonline.com/t/v2.0".to_owned()),
             audience: vec!["client".to_owned()],
             tenant: Some("t".to_owned()),
+            subject: OAuthSubject::parse("00000000-0000-0000-66f3-3332eca7ea81"),
             ..OAuthIdentity::default()
         }))
     );
+    // Identifiant stable illisible : ignoré, comme s'il manquait.
+    for oid in [r#""""#, r#""a b""#, "42", "null"] {
+        assert_eq!(
+            identity(&id_token(&format!(r#"{{"oid":{oid}}}"#)))
+                .ok()
+                .flatten()
+                .map(|i| i.subject),
+            Some(None),
+            "{oid}"
+        );
+    }
     // Google : émetteur, destinataire (chaîne ou liste) et adresse vérifiée
     // (booléen, ou chaîne que Google a déjà renvoyée).
     let google = |claims: &str| identity(&id_token(claims)).ok().flatten();

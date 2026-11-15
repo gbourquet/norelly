@@ -9,7 +9,7 @@ use norelly_domain::contact_import::{
 use norelly_domain::contacts::{
     AddressKey, ContactDraft, ContactFilter, ContactId, ContactInput, EmailInput,
 };
-use norelly_domain::ports::{ContactCursor, ContactPage, MAX_CONTACT_LOOKUP};
+use norelly_domain::ports::{ContactCursor, ContactPage, MAX_CONTACT_LOOKUP, PageSize};
 use norelly_test_support::contact_import_contracts::{FakeContactCodec, FakeNfc};
 use norelly_test_support::contacts_contracts::{InMemoryContactBook, sample_contact};
 
@@ -40,7 +40,9 @@ fn codec(cards: Vec<ImportedCard>) -> FakeContactCodec {
 }
 
 async fn names(book: &InMemoryContactBook) -> Result<Vec<String>, StoreError> {
-    let page = book.page(&ContactFilter::default(), None, 100).await?;
+    let page = book
+        .page(&ContactFilter::default(), None, PageSize::new(100))
+        .await?;
     Ok(page.items.into_iter().map(|i| i.name).collect())
 }
 
@@ -188,7 +190,7 @@ impl ContactDirectory for EditedMeanwhile {
         &self,
         filter: &ContactFilter,
         cursor: Option<ContactCursor>,
-        limit: u32,
+        limit: PageSize,
     ) -> Result<ContactPage, StoreError> {
         self.inner.page(filter, cursor, limit).await
     }

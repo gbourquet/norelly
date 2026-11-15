@@ -16,7 +16,7 @@ use norelly_domain::contacts::{
 use norelly_domain::mailbox::Correspondent;
 use norelly_domain::ports::{
     ContactBook, ContactCursor, ContactDirectory, ContactPage, ContactQuery, ContactStoreError,
-    MAX_CONTACT_SUGGESTIONS, StoreError,
+    MAX_CONTACT_SUGGESTIONS, PageSize, StoreError,
 };
 use norelly_domain::sender::{SenderNames, sender_keys};
 use norelly_domain::suggestions::{RecipientSuggestion, recipient_suggestions};
@@ -94,7 +94,7 @@ impl<D: ContactDirectory> ListContacts<'_, D> {
         text: &str,
         favorites_only: bool,
         cursor: Option<ContactCursor>,
-        limit: u32,
+        limit: PageSize,
     ) -> Result<ContactPage, ContactFailure> {
         let filter = ContactFilter::new(text, favorites_only);
         Ok(self.directory.page(&filter, cursor, limit).await?)
@@ -195,7 +195,7 @@ impl<Q: ContactQuery, D: ContactDirectory> SuggestRecipients<'_, Q, D> {
         filter: &ContactFilter,
         limit: usize,
     ) -> Result<Vec<Contact>, StoreError> {
-        let limit = u32::try_from(limit).unwrap_or(u32::MAX);
+        let limit = PageSize::new(u32::try_from(limit).unwrap_or(u32::MAX));
         let favorites = ContactFilter::new(filter.text(), true);
         let mut ids = Vec::new();
         for f in [&favorites, filter] {

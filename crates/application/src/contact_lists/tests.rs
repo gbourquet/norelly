@@ -53,7 +53,7 @@ async fn invalid_input_writes_nothing() -> Result<(), ContactListFailure> {
     );
     assert_eq!(
         ListContactLists { directory: &book }
-            .execute("", None, 10)
+            .execute("", None, PageSize::new(10))
             .await?,
         ContactListPage::default()
     );
@@ -95,7 +95,7 @@ async fn list_filters_on_the_name_and_delete_keeps_contacts() -> Result<(), Cont
         .await?;
     create.execute(input("Club", &[], false)).await?;
     let page = ListContactLists { directory: &book }
-        .execute(" FAM ", None, 10)
+        .execute(" FAM ", None, PageSize::new(10))
         .await?;
     assert_eq!(page.items, vec![ContactListSummary::from(&a)]);
     assert_eq!(

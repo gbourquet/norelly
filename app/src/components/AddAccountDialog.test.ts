@@ -303,12 +303,13 @@ describe("fenêtre d'ajout de compte", () => {
       target: { value: "ceo@banque.fr" },
     });
     await fireEvent.click(screen.getByRole("button", { name: "Saisie manuelle" }));
-    for (const [id, value] of [
+    const servers: [string, string][] = [
       ["#imap-host", "imap.example.com"],
       ["#imap-username", "alice"],
       ["#smtp-host", "smtp.example.com"],
       ["#smtp-username", "alice"],
-    ]) {
+    ];
+    for (const [id, value] of servers) {
       await fireEvent.input(document.querySelector(id) as HTMLInputElement, {
         target: { value },
       });

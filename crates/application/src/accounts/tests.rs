@@ -1030,6 +1030,50 @@ mod oauth {
         );
     }
 
+    /// Trousseau qui refuse le jeton, puis base qui refuse de retirer le
+    /// compte : le compte reste, et une reconnexion peut ranger son jeton.
+    #[tokio::test]
+    async fn account_kept_after_a_failed_oauth_add_can_be_reconnected() {
+        let w = World::new();
+        let b = broker(grant());
+        if let Ok(mut f) = b.secrets().fail_set_after.lock() {
+            *f = Some(0);
+        }
+        let test = TestConnection::new(w.servers.clone(), w.servers.clone(), &w.exceptions);
+        let outcome = AddOAuthAccount {
+            test: &test,
+            broker: &b,
+            accounts: &UndeletableAccounts(&w.accounts),
+        }
+        .execute(
+            AddOAuthAccountRequest {
+                address: outlook(),
+                display_name: None,
+            },
+            |_| {},
+        )
+        .await;
+        assert!(
+            matches!(outcome, AddAccountOutcome::SecretStoreFailed(_)),
+            "{outcome:?}"
+        );
+        let Ok(Some(account)) = w.accounts.find_by_address(&outlook()).await else {
+            panic!("compte retiré malgré le refus de la base");
+        };
+        if let Ok(mut f) = b.secrets().fail_set_after.lock() {
+            *f = None;
+        }
+        let reconnected =
+            reconnect_oauth_account(&b, &w.accounts, &AccountLocks::default(), account.id()).await;
+        assert_eq!(reconnected.map(|r| r.account.id()), Ok(account.id()));
+        assert_eq!(
+            b.secrets()
+                .get_sync(account.secret_key(Protocol::Imap).as_str())
+                .as_deref(),
+            Some("r1")
+        );
+    }
+
     #[tokio::test]
     async fn refused_sign_in_adds_nothing() {
         let w = World::new();
@@ -1857,23 +1901,37 @@ mod oauth {
             .insert(&sample_account("bob@outlook.com", false).with_oauth(OAuthProvider::Microsoft))
             .await
             .unwrap_or_else(|e| panic!("compte : {e}"));
-        let replaced = Replaced {
-            inner: &w.accounts,
-            then: other.clone(),
-            reads: Mutex::new(0),
-        };
-        let reconnected =
-            reconnect_oauth_account(&b, &replaced, &AccountLocks::default(), account.id()).await;
-        assert_eq!(
-            reconnected.map(|r| r.account.id()),
-            Err(ReconnectError::NotFound)
-        );
-        assert_eq!(
-            b.secrets()
-                .get_sync(other.secret_key(Protocol::Imap).as_str()),
-            None,
-            "jeton d'alice rangé sous le compte de bob"
-        );
+        if let Ok(mut g) = b.client().grant.lock() {
+            *g = Some(OAuthGrant {
+                refresh_token: Some(Secret::new("r-neuf".to_owned())),
+                ..grant().unwrap_or_else(|| panic!())
+            });
+        }
+        // Même identifiant relu, mais autre adresse ; puis autre compte.
+        let same_id_other_address = sample_account("bob@outlook.com", false)
+            .with_oauth(OAuthProvider::Microsoft)
+            .with_id(account.id());
+        for then in [same_id_other_address, other] {
+            let replaced = Replaced {
+                inner: &w.accounts,
+                then,
+                reads: Mutex::new(0),
+            };
+            let reconnected =
+                reconnect_oauth_account(&b, &replaced, &AccountLocks::default(), account.id())
+                    .await;
+            assert_eq!(
+                reconnected.map(|r| r.account.id()),
+                Err(ReconnectError::NotFound)
+            );
+            assert_eq!(
+                b.secrets()
+                    .get_sync(account.secret_key(Protocol::Imap).as_str())
+                    .as_deref(),
+                Some("r1"),
+                "nouveau jeton rangé"
+            );
+        }
     }
 
     /// Une suppression demandée après la reconnexion attend que l'appelant

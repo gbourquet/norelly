@@ -439,7 +439,12 @@ where
             // Une écriture abandonnée (délai dépassé) pourrait aboutir plus
             // tard : effacée, pour ne pas laisser de jeton sans compte.
             self.broker.abandon(&source.refresh_key).await;
-            let _ = self.accounts.delete(account.id()).await;
+            if let Err(e) = self.accounts.delete(account.id()).await {
+                // Compte resté : ses jetons redeviennent utilisables, pour
+                // qu'une reconnexion puisse les ranger.
+                tracing::warn!(error = %e, "compte d'un ajout échoué non retiré");
+                self.broker.restore(&source.refresh_key).await;
+            }
             return AddAccountOutcome::SecretStoreFailed(e.to_string());
         }
         if send_unchecked {

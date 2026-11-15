@@ -19,6 +19,7 @@ mod session;
 mod utf7;
 
 use std::collections::BTreeSet;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use imap_next::imap_types::flag::Flag;
@@ -28,7 +29,7 @@ use norelly_domain::auth::{AuthMethod, authenticator_for, select_imap_auth_metho
 use norelly_domain::capabilities::ServerCapabilities;
 use norelly_domain::compose::draft::RemoteCopy;
 use norelly_domain::connection::{
-    ConnectionError, PASSWORD_AUTH_TIMEOUT, TimeoutStage, authentication_timeout,
+    ConnectionError, ConnectionPhase, PASSWORD_AUTH_TIMEOUT, TimeoutStage, authentication_timeout,
 };
 use norelly_domain::endpoint::{Security, ServerEndpoint};
 use norelly_domain::fetch_policy::BodyFetch;
@@ -205,31 +206,33 @@ impl ImapConnector {
             return Ok((conn, caps, preauth));
         }
 
+        // Échange en clair : avant le chiffrement si STARTTLS est exigé.
+        let plaintext = |e| ConnectionPhase::plaintext_opening(endpoint.security()).classify(e);
         let mut conn = Connection::new(
             Transport::Plain(tcp),
             true,
             timeout,
             PRE_TLS_MAX_RESPONSE_SIZE,
         );
-        let greeting = conn.read_greeting().await?;
+        let greeting = conn.read_greeting().await.map_err(plaintext)?;
         if greeting.kind == GreetingKind::PreAuth {
             // Session déjà authentifiée en clair : STARTTLS n'est plus
             // possible (RFC 3501, 6.2.1). Refus sauf clair consenti.
             if endpoint.security() == Security::StartTls {
                 return Err(ConnectionError::StartTlsUnavailable);
             }
-            let caps = conn.capability().await?;
+            let caps = conn.capability().await.map_err(plaintext)?;
             return Ok((conn, caps, true));
         }
         // Capacités en clair : uniquement pour décider de STARTTLS.
         let plain_caps = match greeting_capabilities(&greeting) {
             Some(caps) => caps,
-            None => conn.capability().await?,
+            None => conn.capability().await.map_err(plaintext)?,
         };
         match decide_starttls(endpoint.security(), plain_caps.starttls())? {
             StartTlsDecision::Upgrade => {
                 tracing::debug!(endpoint = %endpoint, "passage en TLS par STARTTLS");
-                let tcp = conn.starttls().await?;
+                let tcp = conn.starttls().await.map_err(plaintext)?;
                 let tls = self.tls.connect(tcp, endpoint.host(), exceptions).await?;
                 let mut conn = Connection::new(
                     Transport::Tls(Box::new(tls)),
@@ -258,15 +261,33 @@ impl RemoteMailboxConnector for ImapConnector {
         request.plaintext.authorize(&request.endpoint)?;
         request.authorize_credentials()?;
         tracing::debug!(endpoint = %request.endpoint, "connexion IMAP");
-        tokio::time::timeout(self.timeouts.open_total, self.open_session(request))
-            .await
-            .map_err(|_| ConnectionError::Timeout(TimeoutStage::Response))?
+        // Durée totale atteinte pendant l'authentification : elle est
+        // interrompue ([`ConnectionPhase::Authentication`]).
+        let authenticating = AtomicBool::new(false);
+        tokio::time::timeout(
+            self.timeouts.open_total,
+            self.open_session(request, &authenticating),
+        )
+        .await
+        .map_err(|_| {
+            let phase = if authenticating.load(Ordering::Relaxed) {
+                ConnectionPhase::Authentication
+            } else {
+                ConnectionPhase::BeforeAuthentication
+            };
+            phase.classify(ConnectionError::Timeout(TimeoutStage::Response))
+        })?
     }
 }
 
 impl ImapConnector {
     /// Ouverture complète : connexion, authentification, capacités.
-    async fn open_session(&self, request: &ConnectRequest) -> Result<ImapSession, ConnectionError> {
+    /// `authenticating` : vrai de l'envoi des identifiants à la réponse.
+    async fn open_session(
+        &self,
+        request: &ConnectRequest,
+        authenticating: &AtomicBool,
+    ) -> Result<ImapSession, ConnectionError> {
         let (mut conn, caps, preauth) = self.open(request).await?;
         if !preauth {
             let credentials = &request.credentials;
@@ -275,10 +296,15 @@ impl ImapConnector {
                 self.timeouts.open,
                 self.timeouts.password_auth,
             ));
-            match select_imap_auth_method(&caps, credentials.kind())? {
+            // Coupure, `BYE` ou silence une fois les identifiants envoyés :
+            // authentification interrompue, jamais rejouée.
+            let during_auth = |e| ConnectionPhase::Authentication.classify(e);
+            let method = select_imap_auth_method(&caps, credentials.kind())?;
+            authenticating.store(true, Ordering::Relaxed);
+            match method {
                 AuthMethod::ImapLogin => {
                     tracing::debug!(user = %credentials.username(), "authentification par LOGIN");
-                    conn.login(credentials).await?;
+                    conn.login(credentials).await.map_err(during_auth)?;
                 }
                 AuthMethod::Sasl(mechanism) => {
                     tracing::debug!(
@@ -292,9 +318,11 @@ impl ImapConnector {
                         credentials,
                         caps.sasl_initial_response(),
                     )
-                    .await?;
+                    .await
+                    .map_err(during_auth)?;
                 }
             }
+            authenticating.store(false, Ordering::Relaxed);
             conn.set_timeout(self.timeouts.open);
         }
         conn.mark_authenticated();

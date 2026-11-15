@@ -337,7 +337,7 @@ const SLOW_SERVER: Duration = Duration::from_secs(9);
 const ABANDONED_WITHIN: Duration = Duration::from_secs(6);
 
 /// Serveur muet après `AUTH` : abandon au délai d'ouverture, pas au délai
-/// de transmission.
+/// de transmission ; authentification interrompue, jamais rejouée.
 #[tokio::test]
 async fn server_silent_after_auth_is_abandoned_at_the_opening_delay() -> TestResult {
     let ca = TestCa::new()?;
@@ -355,14 +355,9 @@ async fn server_silent_after_auth_is_abandoned_at_the_opening_delay() -> TestRes
             PlaintextPolicy::deny_all(),
         ))
         .await;
-    assert!(
-        matches!(
-            result,
-            Err(ConnectionError::Timeout(
-                norelly_domain::connection::TimeoutStage::Response
-            ))
-        ),
-        "{result:?}"
+    assert_eq!(
+        result.err(),
+        Some(ConnectionError::Authentication(AuthError::Interrupted))
     );
     // Pas avant le plancher de l'authentification par mot de passe.
     assert!(
@@ -639,7 +634,7 @@ async fn malformed_replies_do_not_panic() -> TestResult {
         assert!(
             matches!(
                 result,
-                Err(ConnectionError::Protocol(_) | ConnectionError::Closed)
+                Err(ConnectionError::Protocol(_) | ConnectionError::ClosedBeforeEncryption)
             ),
             "{:?} → {result:?}",
             String::from_utf8_lossy(greeting)
@@ -678,9 +673,9 @@ async fn reset_after_starttls_is_a_closed_connection() -> TestResult {
 }
 
 /// Connexion réinitialisée pendant l'échange en clair, avant STARTTLS :
-/// même classement qu'une fermeture.
+/// coupure avant le chiffrement.
 #[tokio::test]
-async fn reset_before_starttls_is_a_closed_connection() -> TestResult {
+async fn reset_before_starttls_is_a_cut_before_encryption() -> TestResult {
     let ca = TestCa::new()?;
     let script = Script::new().send(smtp::greeting()).expect("EHLO").reset();
     let server = ScriptedServer::start(script, None).await?;
@@ -691,7 +686,10 @@ async fn reset_before_starttls_is_a_closed_connection() -> TestResult {
             PlaintextPolicy::deny_all(),
         ))
         .await;
-    assert!(matches!(result, Err(ConnectionError::Closed)), "{result:?}");
+    assert!(
+        matches!(result, Err(ConnectionError::ClosedBeforeEncryption)),
+        "{result:?}"
+    );
     let _ = server.finish().await;
     Ok(())
 }
@@ -859,7 +857,7 @@ async fn xoauth2_unexpected_intermediate_reply_is_a_protocol_error() -> TestResu
 }
 
 /// Serveur muet après le défi : tout l'échange est borné par le délai de
-/// réponse, et le jeton n'est pas renvoyé.
+/// réponse, et le jeton n'est pas renvoyé : authentification interrompue.
 #[tokio::test]
 async fn xoauth2_silent_server_after_challenge_times_out() -> TestResult {
     let ca = TestCa::new()?;
@@ -879,14 +877,9 @@ async fn xoauth2_silent_server_after_challenge_times_out() -> TestResult {
         })
         .verify(&oauth_request(server.port()))
         .await;
-    assert!(
-        matches!(
-            result,
-            Err(ConnectionError::Timeout(
-                norelly_domain::connection::TimeoutStage::Response
-            ))
-        ),
-        "{result:?}"
+    assert_eq!(
+        result.err(),
+        Some(ConnectionError::Authentication(AuthError::Interrupted))
     );
     let outcome = server.finish().await;
     let text = outcome.transcript.text();
@@ -923,5 +916,203 @@ async fn oauth_account_sends_nothing_without_xoauth2() -> TestResult {
             outcome.transcript.text()
         );
     }
+    Ok(())
+}
+
+/// Serveur qui coupe la connexion (fermeture ou réinitialisation) juste
+/// après avoir reçu `AUTH` : certains serveurs répondent ainsi à un mot de
+/// passe faux. Échec d'authentification interrompue, jamais pris pour une
+/// coupure passagère (qui ferait renvoyer le mot de passe).
+#[tokio::test]
+async fn cut_during_auth_is_an_interrupted_authentication() -> TestResult {
+    let ca = TestCa::new()?;
+    let cert = ca.issue(&["localhost"])?;
+    for cut in [Script::close, Script::reset] {
+        let script = cut(
+            ehlo_once(Script::new().send(smtp::greeting()), &["AUTH PLAIN"])
+                .expect(format!("AUTH PLAIN {PLAIN_B64}")),
+        );
+        let server = ScriptedServer::start_tls(script, cert.server_config()?).await?;
+        let result = sender(&ca)
+            .verify(&request(
+                server.port(),
+                Security::Tls,
+                PlaintextPolicy::deny_all(),
+            ))
+            .await;
+        assert_eq!(
+            result.err(),
+            Some(ConnectionError::Authentication(AuthError::Interrupted))
+        );
+        let _ = server.finish().await;
+    }
+    Ok(())
+}
+
+/// Serveur en clair consenti : une fermeture propre pendant `AUTH` a le
+/// même classement qu'une réinitialisation, jamais une « réponse
+/// incomplète » prise pour un serveur non conforme.
+#[tokio::test]
+async fn clean_close_during_auth_on_a_consented_plaintext_server_is_an_interruption() -> TestResult
+{
+    let ca = TestCa::new()?;
+    for cut in [Script::close, Script::reset] {
+        let script = Script::new()
+            .send(smtp::greeting())
+            .expect("EHLO")
+            .send(smtp::ehlo(&["AUTH PLAIN"]));
+        let script =
+            cut(ehlo_once(script, &["AUTH PLAIN"]).expect(format!("AUTH PLAIN {PLAIN_B64}")));
+        let server = ScriptedServer::start(script, None).await?;
+        let port = server.port();
+        let consent = PlaintextPolicy::deny_all().with_consent(PlaintextConsent {
+            host: Host::parse("localhost")?,
+            port,
+        });
+        let result = sender(&ca)
+            .verify(&request(port, Security::Plain, consent))
+            .await;
+        assert_eq!(
+            result.err(),
+            Some(ConnectionError::Authentication(AuthError::Interrupted))
+        );
+        let _ = server.finish().await;
+    }
+    Ok(())
+}
+
+/// Serveur en clair consenti : fermeture propre ou réinitialisation avant
+/// l'authentification, même classement (`Closed`).
+#[tokio::test]
+async fn close_or_reset_before_auth_is_a_closed_connection() -> TestResult {
+    let ca = TestCa::new()?;
+    for cut in [Script::close, Script::reset] {
+        let script = Script::new()
+            .send(smtp::greeting())
+            .expect("EHLO")
+            .send(smtp::ehlo(&["AUTH PLAIN"]));
+        let script = cut(script.expect("EHLO [127.0.0.1]"));
+        let server = ScriptedServer::start(script, None).await?;
+        let port = server.port();
+        let consent = PlaintextPolicy::deny_all().with_consent(PlaintextConsent {
+            host: Host::parse("localhost")?,
+            port,
+        });
+        let result = sender(&ca)
+            .verify(&request(port, Security::Plain, consent))
+            .await;
+        assert_eq!(result.err(), Some(ConnectionError::Closed));
+        let _ = server.finish().await;
+    }
+    Ok(())
+}
+
+/// Coupure (fermeture ou réinitialisation) avant la fin de la mise en
+/// place du chiffrement : pendant l'échange en clair, ou juste après
+/// l'acceptation de STARTTLS (poignée de main) ; nommée comme telle.
+#[tokio::test]
+async fn cut_before_encryption_is_named_as_such() -> TestResult {
+    let ca = TestCa::new()?;
+    let cert = ca.issue(&["localhost"])?;
+    let before_starttls = Script::new().send(smtp::greeting()).expect("EHLO");
+    let during_handshake = Script::new()
+        .send(smtp::greeting())
+        .expect("EHLO")
+        .send(smtp::ehlo(&["STARTTLS"]))
+        .expect("STARTTLS")
+        .send("220 2.0.0 Pret\r\n")
+        .expect_data();
+    for script in [before_starttls, during_handshake] {
+        for cut in [Script::close, Script::reset] {
+            let server =
+                ScriptedServer::start(cut(script.clone()), Some(cert.server_config()?)).await?;
+            let result = sender(&ca)
+                .verify(&request(
+                    server.port(),
+                    Security::StartTls,
+                    PlaintextPolicy::deny_all(),
+                ))
+                .await;
+            assert_eq!(result.err(), Some(ConnectionError::ClosedBeforeEncryption));
+            let outcome = server.finish().await;
+            assert_no_auth_sent(&outcome);
+        }
+    }
+    Ok(())
+}
+
+/// TLS implicite : coupure pendant la poignée de main.
+#[tokio::test]
+async fn cut_during_implicit_tls_handshake_is_named_as_such() -> TestResult {
+    let ca = TestCa::new()?;
+    for cut in [Script::close, Script::reset] {
+        let server = ScriptedServer::start(cut(Script::new().expect_data()), None).await?;
+        let result = sender(&ca)
+            .verify(&request(
+                server.port(),
+                Security::Tls,
+                PlaintextPolicy::deny_all(),
+            ))
+            .await;
+        assert_eq!(result.err(), Some(ConnectionError::ClosedBeforeEncryption));
+        let _ = server.finish().await;
+    }
+    Ok(())
+}
+
+/// Coupure pendant l'échange XOAUTH2 : authentification interrompue, le
+/// jeton n'a été présenté qu'une fois.
+#[tokio::test]
+async fn cut_during_xoauth2_is_an_interrupted_authentication() -> TestResult {
+    let ca = TestCa::new()?;
+    for cut in [Script::close, Script::reset] {
+        let script = cut(
+            ehlo_once(Script::new().send(smtp::greeting()), &["AUTH XOAUTH2"])
+                .expect(format!("AUTH XOAUTH2 {XOAUTH2_B64}")),
+        );
+        let server = oauth_server(&ca, script).await?;
+        let result = oauth_sender(&ca, &server)
+            .verify(&oauth_request(server.port()))
+            .await;
+        assert_eq!(
+            result.err(),
+            Some(ConnectionError::Authentication(AuthError::Interrupted))
+        );
+        let outcome = server.finish().await;
+        assert_eq!(outcome.transcript.text().matches(XOAUTH2_B64).count(), 1);
+    }
+    Ok(())
+}
+
+/// Durée totale d'ouverture écoulée pendant l'authentification :
+/// authentification interrompue, pas délai passager.
+#[tokio::test]
+async fn total_opening_delay_reached_during_auth_is_an_interruption() -> TestResult {
+    let ca = TestCa::new()?;
+    let cert = ca.issue(&["localhost"])?;
+    let script = ehlo_once(Script::new().send(smtp::greeting()), &["AUTH PLAIN"])
+        .expect(format!("AUTH PLAIN {PLAIN_B64}"))
+        .wait(SLOW_SERVER);
+    let server = ScriptedServer::start_tls(script, cert.server_config()?).await?;
+    let tls = TlsClientFactory::new(TrustRoots::Custom(vec![ca.root()]))
+        .with_handshake_timeout(Duration::from_secs(5));
+    let result = SmtpSender::new(tls)
+        .with_timeouts(Timeouts {
+            connect: Duration::from_secs(5),
+            open: Duration::from_secs(5),
+            password_auth: SLOW_SERVER,
+            open_total: Duration::from_secs(3),
+            response: Duration::from_secs(5),
+        })
+        .verify(&request(
+            server.port(),
+            Security::Tls,
+            PlaintextPolicy::deny_all(),
+        ))
+        .await;
+    assert_eq!(
+        result.err(),
+        Some(ConnectionError::Authentication(AuthError::Interrupted))
+    );
     Ok(())
 }

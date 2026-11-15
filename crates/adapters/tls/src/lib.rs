@@ -18,7 +18,7 @@
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
-use norelly_domain::connection::{ConnectionError, TimeoutStage};
+use norelly_domain::connection::{ConnectionError, ConnectionPhase, TimeoutStage};
 use norelly_domain::endpoint::Host;
 use norelly_domain::security::{
     CertificateException, CertificateFingerprint, CertificateIssue, CertificateRejection,
@@ -352,7 +352,7 @@ impl TlsClientFactory {
             {
                 return ConnectionError::Certificate(rejection);
             }
-            handshake_error(&e)
+            ConnectionPhase::BeforeEncryption.classify(handshake_error(&e))
         })
     }
 }
@@ -619,9 +619,40 @@ mod tests {
         let tcp = TcpStream::connect(("127.0.0.1", port)).await?;
         let err = factory.connect(tcp, &host("localhost"), &[]).await;
         assert!(
-            matches!(err, Err(ConnectionError::Tls(_) | ConnectionError::Closed)),
+            matches!(
+                err,
+                Err(ConnectionError::Tls(_) | ConnectionError::ClosedBeforeEncryption)
+            ),
             "{err:?}"
         );
+        Ok(())
+    }
+
+    /// Serveur qui ferme ou réinitialise la connexion pendant la poignée de
+    /// main : coupure avant le chiffrement, quelle que soit la manière.
+    #[tokio::test]
+    async fn cut_during_handshake_is_a_cut_before_encryption() -> TestResult {
+        let (_, factory) = setup()?;
+        for reset in [false, true] {
+            let listener = TcpListener::bind("127.0.0.1:0").await?;
+            let port = listener.local_addr()?.port();
+            tokio::spawn(async move {
+                if let Ok((mut tcp, _)) = listener.accept().await {
+                    let mut hello = [0u8; 16];
+                    let _ = tcp.read(&mut hello).await;
+                    if reset {
+                        let _ = tcp.set_zero_linger();
+                    }
+                }
+            });
+            let tcp = TcpStream::connect(("127.0.0.1", port)).await?;
+            let err = factory.connect(tcp, &host("localhost"), &[]).await;
+            assert_eq!(
+                err.err(),
+                Some(ConnectionError::ClosedBeforeEncryption),
+                "réinitialisée : {reset}"
+            );
+        }
         Ok(())
     }
 

@@ -62,9 +62,10 @@ export const commands = {
 	 */
 	allowFileSecrets: () => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("allow_file_secrets")),
 	/**
-	 *  Où les mots de passe seront conservés. Décidé ici, pas deviné par
-	 *  l'interface : elle n'annonce le trousseau du système que s'il est
-	 *  vraiment utilisé (sinon la garantie serait fausse avec le fichier).
+	 *  Où l'écran d'ajout annonce que les mots de passe seront conservés.
+	 *  Décidé par le domaine sans lire le trousseau (pas d'invite de
+	 *  déverrouillage à l'ouverture de l'écran) : l'interface n'annonce le
+	 *  trousseau du système que sur cette réponse.
 	 */
 	secretsBackend: () => typedError<SecretsBackendDto, IpcError_Serialize>(__TAURI_INVOKE("secrets_backend")),
 	/**  Supprime un compte, ses mots de passe et ses données locales. */
@@ -1492,19 +1493,24 @@ export type SearchPageDto_Serialize = {
 export type SearchScopeDto = { kind: "all" } | { kind: "account"; id: number } | { kind: "mailbox"; id: number };
 
 /**
- *  Où les mots de passe seront conservés : le trousseau du système, ou le
- *  fichier non chiffré accepté par l'utilisateur à défaut de trousseau.
- *  Décidé par Rust : l'interface n'annonce la garantie du trousseau que
- *  sur cette réponse.
+ *  Où l'écran d'ajout annonce que les mots de passe seront conservés
+ *  ([`SecretDestination`]). Décidé par Rust : l'interface n'annonce la
+ *  garantie du trousseau que sur cette réponse.
  */
 export type SecretsBackendDto = 
 /**
  *  Trousseau du système (Gestionnaire d'identification, Secret
- *  Service…).
+ *  Service…) ; s'il ne répond pas à l'enregistrement, le fichier non
+ *  chiffré est proposé avec consentement.
  */
 "system_keyring" | 
-/**  Fichier non chiffré, lisible par le seul utilisateur. */
-"file";
+/**
+ *  Fichier non chiffré déjà accepté, lisible par le seul utilisateur,
+ *  aucun trousseau ouvert.
+ */
+"file" | 
+/**  Rien à annoncer : rangement inconnu sans lire le trousseau. */
+"undecided";
 
 export type SecurityDto = "tls" | "starttls" | "plain";
 

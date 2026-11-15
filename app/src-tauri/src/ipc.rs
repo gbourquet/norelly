@@ -13,6 +13,7 @@ use norelly_application::test_connection::TestConnectionOutcome;
 use norelly_domain::account::{Account, ServerSettings};
 use norelly_domain::auth::AuthError;
 use norelly_domain::connection::{ConnectionError, FailureCategory};
+use norelly_domain::credentials::SecretDestination;
 use norelly_domain::discovery::{
     AuthenticationAdvice, DiscoveredServer, Discovery, DiscoverySource,
 };
@@ -750,18 +751,31 @@ fn auth_detail(a: &AuthError) -> Option<String> {
     }
 }
 
-/// Où les mots de passe seront conservés : le trousseau du système, ou le
-/// fichier non chiffré accepté par l'utilisateur à défaut de trousseau.
-/// Décidé par Rust : l'interface n'annonce la garantie du trousseau que
-/// sur cette réponse.
+/// Où l'écran d'ajout annonce que les mots de passe seront conservés
+/// ([`SecretDestination`]). Décidé par Rust : l'interface n'annonce la
+/// garantie du trousseau que sur cette réponse.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Type)]
 #[serde(rename_all = "snake_case")]
 pub enum SecretsBackendDto {
     /// Trousseau du système (Gestionnaire d'identification, Secret
-    /// Service…).
+    /// Service…) ; s'il ne répond pas à l'enregistrement, le fichier non
+    /// chiffré est proposé avec consentement.
     SystemKeyring,
-    /// Fichier non chiffré, lisible par le seul utilisateur.
+    /// Fichier non chiffré déjà accepté, lisible par le seul utilisateur,
+    /// aucun trousseau ouvert.
     File,
+    /// Rien à annoncer : rangement inconnu sans lire le trousseau.
+    Undecided,
+}
+
+impl From<SecretDestination> for SecretsBackendDto {
+    fn from(destination: SecretDestination) -> Self {
+        match destination {
+            SecretDestination::SystemKeyring => Self::SystemKeyring,
+            SecretDestination::File => Self::File,
+            SecretDestination::Undecided => Self::Undecided,
+        }
+    }
 }
 
 /// Résultat d'un ajout de compte.

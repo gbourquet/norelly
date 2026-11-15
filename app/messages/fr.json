@@ -740,7 +740,7 @@
   "failure_oauth_wrong_account": "autre compte choisi dans le navigateur",
   "failure_oauth_offline_access": "autorisation de rester connecté refusée",
   "failure_oauth": "connexion au fournisseur impossible",
-  "add_fail_microsoft_smtp_disabled": "{prefix}l'envoi de messages est désactivé sur ce compte Microsoft. Activez-le dans les réglages de votre compte Outlook.com, puis réessayez.",
+  "add_fail_microsoft_smtp_disabled": "{prefix}Microsoft n'autorise pas l'envoi depuis les applications pour ce compte. Envoyez depuis outlook.com, ou contactez le support Microsoft.",
   "add_fail_reauth_required": "La connexion a expiré : reconnectez-vous.",
   "add_fail_oauth_cancelled": "La connexion a été annulée dans le navigateur.",
   "add_fail_oauth_wrong_account": "Le compte choisi dans le navigateur n'est pas celui de cette adresse. Réessayez en choisissant le compte de {address}.",

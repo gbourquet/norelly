@@ -609,7 +609,7 @@ describe("se connecter avec Microsoft", () => {
     );
   });
 
-  it("envoi désactivé sur la boîte : message clair", async () => {
+  it("envoi désactivé sur la boîte : solutions possibles, sans promettre de réglage", async () => {
     const { api } = fakeApi(found, [
       { kind: "failed", protocol: "smtp", failure: "microsoft_smtp_disabled", detail: null },
     ]);
@@ -617,7 +617,10 @@ describe("se connecter avec Microsoft", () => {
     await f.detectProvider();
     await f.signInWithProvider();
     expect(f.step).toBe("form");
-    expect(f.message).toContain("Outlook.com");
+    expect(f.message).toBe(
+      "Serveur d'envoi (SMTP) : Microsoft n'autorise pas l'envoi depuis les applications pour ce compte. Envoyez depuis outlook.com, ou contactez le support Microsoft.",
+    );
+    expect(f.message).not.toMatch(/réglage|paramètre|activez/i);
   });
 
   it("boîte inaccessible en IMAP : conseil de vérifier l'accès IMAP", async () => {

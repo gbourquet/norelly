@@ -56,6 +56,7 @@ fn migrations() -> Migrations<'static> {
         M::up(include_str!("../migrations/0013_oauth_accounts.sql")),
         M::up(include_str!("../migrations/0014_oauth_google.sql")),
         M::up(include_str!("../migrations/0015_outbox_interruptions.sql")),
+        M::up(include_str!("../migrations/0016_outbox_unresponsive.sql")),
     ])
 }
 
@@ -630,6 +631,11 @@ mod tests {
          state, failure, attempts, queued_at) \
          VALUES (1, 'v15@example.com', '[]', x'00', x'00', 'v15', 'failed', \
          'encryption_interrupted', 8, 80);",
+        // v16 : un message en échec, serveur muet.
+        "INSERT INTO outbox (account_id, envelope_from, recipients, raw, sent_copy, subject, \
+         state, failure, attempts, queued_at) \
+         VALUES (1, 'v16@example.com', '[]', x'00', x'00', 'v16', 'failed', \
+         'unresponsive', 8, 90);",
     ];
 
     /// Montée de version depuis chaque version précédente, données
@@ -781,6 +787,84 @@ mod tests {
             )
             .unwrap_or_else(|e| panic!("{e}"));
         assert_eq!(next, 3, "numéro d'un message supprimé réutilisé");
+        let indexed: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' \
+                 AND name = 'outbox_by_account'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(indexed, 1);
+    }
+
+    /// Base de version 15 : à la montée en version 16, la file d'envoi est
+    /// conservée à l'identique (numérotation comprise) et les causes « le
+    /// serveur ne répond pas » et « envoi refusé par Microsoft » deviennent
+    /// acceptées.
+    #[test]
+    fn upgrading_to_v16_keeps_the_outbox_and_accepts_the_new_causes() {
+        let mut conn = Connection::open_in_memory().unwrap_or_else(|e| panic!("{e}"));
+        conn.pragma_update(None, "foreign_keys", "ON")
+            .unwrap_or_else(|e| panic!("{e}"));
+        let m = migrations();
+        for (version, fixture) in FIXTURES.iter().enumerate().take(15) {
+            m.to_version(&mut conn, version + 1)
+                .unwrap_or_else(|e| panic!("vers v{} : {e}", version + 1));
+            conn.execute_batch(fixture)
+                .unwrap_or_else(|e| panic!("fixture v{} : {e}", version + 1));
+        }
+        conn.execute_batch(
+            "INSERT INTO outbox (account_id, envelope_from, recipients, raw, sent_copy, subject, \
+             state, failure, attempts, queued_at) \
+             VALUES (1, 'b@example.com', '[]', x'01', x'02', 'b', 'failed', 'security', 3, 90); \
+             DELETE FROM outbox WHERE subject = 'b';",
+        )
+        .unwrap_or_else(|e| panic!("{e}"));
+        let rows = |conn: &Connection| -> Vec<(i64, String, Option<String>, i64)> {
+            let mut stmt = conn
+                .prepare("SELECT id, state, failure, queued_at FROM outbox ORDER BY id")
+                .unwrap_or_else(|e| panic!("{e}"));
+            stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))
+                .unwrap_or_else(|e| panic!("{e}"))
+                .collect::<Result<_, _>>()
+                .unwrap_or_else(|e| panic!("{e}"))
+        };
+        let before = rows(&conn);
+        let seq: i64 = conn
+            .query_row(
+                "SELECT seq FROM sqlite_sequence WHERE name = 'outbox'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap_or_else(|e| panic!("{e}"));
+        m.to_version(&mut conn, 16)
+            .unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(rows(&conn), before);
+        for cause in ["unresponsive", "microsoft_smtp_disabled"] {
+            conn.execute(
+                "UPDATE outbox SET state = 'failed', not_before = NULL, failure = ?1 \
+                 WHERE id = 1",
+                [cause],
+            )
+            .unwrap_or_else(|e| panic!("cause {cause} refusée : {e}"));
+        }
+        assert!(
+            conn.execute("UPDATE outbox SET failure = 'inconnue' WHERE id = 1", [])
+                .is_err(),
+            "cause inconnue acceptée"
+        );
+        let next: i64 = conn
+            .query_row(
+                "INSERT INTO outbox (account_id, envelope_from, recipients, raw, sent_copy, \
+                 subject, state, not_before, attempts, queued_at) \
+                 VALUES (1, 'c@example.com', '[]', x'00', x'00', 'c', 'queued', 0, 0, 100) \
+                 RETURNING id",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(next, seq + 1, "numéro d'un message supprimé réutilisé");
         let indexed: i64 = conn
             .query_row(
                 "SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' \

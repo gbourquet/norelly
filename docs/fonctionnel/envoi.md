@@ -35,8 +35,19 @@ En attente ──▶ Envoi en cours ──▶ Envoyé
 
 - **Serveur injoignable** : l'envoi attend le retour du réseau, sans que
   l'essai compte.
-- **Refus temporaire** du serveur ou coupure : nouvel essai, avec une
-  attente croissante (30 secondes à 1 heure), **8 essais** au plus.
+- **Plusieurs connexions par essai** : quand la connexion échoue pour une
+  raison passagère (réseau instable, serveur joint puis muet, connexion
+  coupée avant l'envoi du message), l'application se reconnecte aussitôt,
+  à quelques secondes d'intervalle, avant de reporter l'essai : un réseau
+  instable ne retarde pas le message d'un passage à l'autre. Jamais une
+  fois le message transmis, ni après des identifiants refusés ou restés
+  sans réponse. Quand le serveur reste injoignable ou muet, les autres
+  messages du compte attendent le passage suivant.
+- **Refus temporaire** du serveur : nouvel essai, avec une attente
+  croissante (30 secondes à 1 heure), **8 essais** au plus.
+- **Le serveur ne répond pas** (joint, puis muet ou connexion coupée,
+  avant l'envoi du message) : rien n'est parti ; nouveaux essais comme
+  pour un refus temporaire, puis un échec qui le dit.
 - **Connexion coupée ou bloquée avant d'être chiffrée** : rien n'est parti ;
   nouveaux essais comme pour un refus temporaire, puis un échec qui le dit
   et signale que le réseau utilisé peut en être la cause.
@@ -48,6 +59,12 @@ En attente ──▶ Envoi en cours ──▶ Envoyé
   clique sur « Réessayer ».
 - **Refus définitif**, identifiants refusés, connexion non sûre : échec
   immédiat.
+- **Envoi refusé par Microsoft pour les applications** (compte connecté
+  avec Microsoft qui n'autorise pas l'envoi depuis un logiciel de
+  messagerie) : échec
+  immédiat, avec le conseil d'envoyer depuis le site de Microsoft ou de
+  contacter son support. Les autres messages du compte attendent comme
+  après des identifiants refusés.
 - **Envoi incertain** : si l'application s'arrête pendant un envoi, ou si
   la connexion se coupe avant la réponse du serveur, le message est peut-être
   parti. Il n'est **jamais renvoyé automatiquement** : l'utilisateur décide.
@@ -74,7 +91,7 @@ En attente ──▶ Envoi en cours ──▶ Envoyé
 | États | En attente, Envoi en cours, Envoyé |
 | Envoi programmé | Programmé pour le {date} |
 | Échec | Envoi impossible : « {subject} » ({reason}). |
-| Raison de l'échec | serveur injoignable, refus temporaire, refusé par le serveur, identifiants refusés, connexion non sûre, envoi interrompu, peut-être parti, trop d'essais, connexion coupée avant le chiffrement, peut-être par le réseau utilisé, connexion coupée pendant la vérification des identifiants |
+| Raison de l'échec | serveur injoignable, refus temporaire, refusé par le serveur, identifiants refusés, connexion non sûre, envoi interrompu, peut-être parti, trop d'essais, connexion coupée avant le chiffrement, peut-être par le réseau utilisé, connexion coupée pendant la vérification des identifiants, le serveur ne répond pas, Microsoft n'autorise pas l'envoi depuis les applications pour ce compte. Envoyez depuis outlook.com, ou contactez le support Microsoft. |
 | Boutons | Réessayer, Annuler l'envoi, Modifier |
 | Envoi différé | Envoyer plus tard, Programmer, Envoi programmé. |
 | Date trop lointaine | L'envoi ne peut pas être programmé à plus d'un an. |

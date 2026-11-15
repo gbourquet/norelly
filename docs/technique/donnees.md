@@ -52,6 +52,7 @@ système.
 | 13 | `0013_oauth_accounts.sql` | `accounts.oauth_provider` (`microsoft`, ou `NULL` pour un compte à mot de passe) : compte connecté par OAuth ; le jeton de rafraîchissement reste dans le trousseau, sous la clé IMAP du compte |
 | 14 | `0014_oauth_google.sql` | `accounts.oauth_provider` accepte aussi `google` : la colonne est remplacée par une colonne de même nom à la nouvelle contrainte `CHECK` (ajout, recopie, `DROP COLUMN`, `RENAME COLUMN`), sans reconstruire `accounts` ni toucher à ses dépendances en cascade |
 | 15 | `0015_outbox_interruptions.sql` | `outbox.failure` accepte aussi `encryption_interrupted` (connexion coupée ou bloquée avant le chiffrement, à plusieurs reprises) et `authentication_interrupted` (connexion coupée pendant l'authentification) : une contrainte de table cite la colonne, la table `outbox` est donc reconstruite (copie des lignes, numérotation `sqlite_sequence` conservée, index `outbox_by_account` recréé) ; aucune table ne la référence |
+| 16 | `0016_outbox_unresponsive.sql` | `outbox.failure` accepte aussi `unresponsive` (serveur joint puis muet, ou connexion coupée, une fois le chiffrement en place) et `microsoft_smtp_disabled` (refus `535 5.7.139`) : table `outbox` reconstruite comme en version 15 (lignes, numérotation et index conservés) |
 
 Le schéma courant complet est la somme de ces fichiers ; ils sont commentés
 en tête et à chaque table.

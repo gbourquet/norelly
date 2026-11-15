@@ -27,5 +27,12 @@ for dep in $forbidden; do
   fi
 done
 
+# Relecture tolérante réservée aux adaptateurs de stockage : une saisie
+# (commande Tauri, cas d'usage) passe par le constructeur qui refuse.
+if grep -rn --include='*.rs' 'ContactDraft::from_stored' app/src-tauri/src crates/application/src; then
+  echo "ERREUR : ContactDraft::from_stored hors d'un adaptateur de stockage (ContactDraft::new pour une saisie)" >&2
+  status=1
+fi
+
 [ "$status" -eq 0 ] && echo "norelly-domain : règle de dépendance respectée"
 exit "$status"

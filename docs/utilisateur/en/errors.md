@@ -183,7 +183,7 @@ single wrong letter is enough to prevent the connection.
 ## The server is not responding
 
 **What you see**: "the server is not responding. Check your internet
-connection, then try again."
+connection, then try again."; in the outbox: "server not responding".
 
 Norelly found the server, but it did not answer in time or cut the
 connection. Norelly has already tried again several times before showing
@@ -215,6 +215,12 @@ If the reason is "interrupted, may have been sent", Norelly was closed or
 the connection cut at the very moment of sending. The message may have
 arrived: look in the **Sent** folder on your provider's website, or ask the
 recipient, before clicking **Retry**, so as not to send it twice.
+
+If the reason is "Microsoft does not allow sending from apps for this
+account", Microsoft refuses to let this account send messages from a
+program such as Norelly. Send the message from the outlook.com website, or
+contact Microsoft support. Retrying from Norelly changes nothing as long as
+Microsoft refuses.
 
 ## Other messages
 

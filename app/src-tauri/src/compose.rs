@@ -139,6 +139,8 @@ const fn failure_dto(f: SendFailure) -> SendFailureDto {
         SendFailure::TooManyAttempts => SendFailureDto::TooManyAttempts,
         SendFailure::EncryptionInterrupted => SendFailureDto::EncryptionInterrupted,
         SendFailure::AuthenticationInterrupted => SendFailureDto::AuthenticationInterrupted,
+        SendFailure::Unresponsive => SendFailureDto::Unresponsive,
+        SendFailure::MicrosoftSmtpDisabled => SendFailureDto::MicrosoftSmtpDisabled,
     }
 }
 
@@ -933,5 +935,16 @@ mod tests {
                 failure: SendFailureDto::AuthenticationInterrupted
             }
         );
+        for (failure, dto) in [
+            (SendFailure::Unresponsive, SendFailureDto::Unresponsive),
+            (
+                SendFailure::MicrosoftSmtpDisabled,
+                SendFailureDto::MicrosoftSmtpDisabled,
+            ),
+        ] {
+            let item =
+                outbox_dto(&item(OutboxState::Failed(failure))).unwrap_or_else(|e| panic!("{e:?}"));
+            assert_eq!(item.state, OutboxStateDto::Failed { failure: dto });
+        }
     }
 }

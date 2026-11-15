@@ -20,6 +20,8 @@ describe("libellés de la file d'envoi", () => {
       "too_many_attempts",
       "encryption_interrupted",
       "authentication_interrupted",
+      "unresponsive",
+      "microsoft_smtp_disabled",
     ];
     const labels = failures.map(failureLabel);
     expect(new Set(labels).size).toBe(failures.length);
@@ -29,6 +31,18 @@ describe("libellés de la file d'envoi", () => {
   it("coupure répétée avant le chiffrement : le réseau utilisé peut en être la cause", () => {
     expect(failureLabel("encryption_interrupted")).toBe(
       "connexion coupée avant le chiffrement, peut-être par le réseau utilisé",
+    );
+  });
+});
+
+describe("serveur muet et envoi refusé par Microsoft", () => {
+  it("serveur joint puis muet : il ne répond pas", () => {
+    expect(failureLabel("unresponsive")).toBe("le serveur ne répond pas");
+  });
+
+  it("refus 5.7.139 : conseil sans chemin de réglages", () => {
+    expect(failureLabel("microsoft_smtp_disabled")).toBe(
+      "Microsoft n'autorise pas l'envoi depuis les applications pour ce compte. Envoyez depuis outlook.com, ou contactez le support Microsoft.",
     );
   });
 });

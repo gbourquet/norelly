@@ -384,12 +384,38 @@ pub async fn start_mailpit_tls(
     cert: &TestCert,
     mode: MailpitTls,
 ) -> Result<RunningServer, ContainerError> {
+    let container = mailpit_tls_image(cert, mode).start().await?;
+    let host = container.get_host().await?.to_string();
+    Ok(RunningServer { container, host })
+}
+
+/// Démarre Mailpit comme [`start_mailpit_tls`], sur le réseau Docker
+/// `network` sous le nom `name` (joignable par Toxiproxy).
+pub async fn start_mailpit_tls_on(
+    cert: &TestCert,
+    mode: MailpitTls,
+    network: &str,
+    name: &str,
+) -> Result<RunningServer, ContainerError> {
+    let container = mailpit_tls_image(cert, mode)
+        .with_network(network)
+        .with_container_name(name)
+        .start()
+        .await?;
+    let host = container.get_host().await?.to_string();
+    Ok(RunningServer { container, host })
+}
+
+fn mailpit_tls_image(
+    cert: &TestCert,
+    mode: MailpitTls,
+) -> testcontainers::core::ContainerRequest<GenericImage> {
     let (name, tag) = MAILPIT_IMAGE;
     let require = match mode {
         MailpitTls::Implicit => "MP_SMTP_REQUIRE_TLS",
         MailpitTls::StartTls => "MP_SMTP_REQUIRE_STARTTLS",
     };
-    let container = GenericImage::new(name, tag)
+    GenericImage::new(name, tag)
         .with_exposed_port(MAILPIT_SMTP_PORT.tcp())
         .with_exposed_port(MAILPIT_HTTP_PORT.tcp())
         .with_wait_for(WaitFor::message_on_either_std("[http] starting"))
@@ -403,10 +429,6 @@ pub async fn start_mailpit_tls(
         .with_env_var("MP_SMTP_TLS_KEY", "/certs/tls.key")
         .with_env_var("MP_SMTP_AUTH_FILE", "/certs/auth")
         .with_env_var(require, "true")
-        .start()
-        .await?;
-    let host = container.get_host().await?.to_string();
-    Ok(RunningServer { container, host })
 }
 
 /// Attend qu'un port TCP accepte les connexions.

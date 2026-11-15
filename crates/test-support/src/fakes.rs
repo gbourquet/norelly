@@ -443,9 +443,16 @@ impl PortProber for FakeProber {
 pub struct FakeSmtp {
     replies: Arc<Mutex<std::collections::VecDeque<Result<(), SendError>>>>,
     accepted: Arc<Mutex<Vec<OutgoingMessage>>>,
+    connections: Arc<Mutex<Vec<tokio::time::Instant>>>,
 }
 
 impl FakeSmtp {
+    /// Instants des envois demandés (une connexion chacun), dans l'ordre.
+    #[must_use]
+    pub fn connections(&self) -> Vec<tokio::time::Instant> {
+        lock(&self.connections).clone()
+    }
+
     /// Programme la réponse aux prochains envois, dans l'ordre.
     pub fn reply(&self, result: Result<(), SendError>) {
         lock(&self.replies).push_back(result);
@@ -464,6 +471,7 @@ impl MailSender for FakeSmtp {
     }
 
     async fn send(&self, _: &ConnectRequest, message: &OutgoingMessage) -> Result<(), SendError> {
+        lock(&self.connections).push(tokio::time::Instant::now());
         let reply = lock(&self.replies).pop_front().unwrap_or(Ok(()));
         if reply.is_ok() {
             lock(&self.accepted).push(message.clone());

@@ -52,6 +52,19 @@ fn request() -> ConnectRequest {
     }
 }
 
+/// Requête d'un compte Microsoft connecté par OAuth.
+fn microsoft_request() -> ConnectRequest {
+    ConnectRequest {
+        credentials: Credentials::oauth2(
+            Username::parse("moi@outlook.com").unwrap_or_else(|_| panic!("utilisateur")),
+            Secret::new("jeton".into()),
+            norelly_domain::oauth::OAuthProvider::Microsoft,
+        )
+        .unwrap_or_else(|_| panic!("identifiants")),
+        ..request()
+    }
+}
+
 /// Message reçu, avec `Reply-To`.
 const RECEIVED: &[u8] = b"From: Alice <alice@example.com>\r\n\
 Reply-To: Liste <liste@example.org>\r\n\
@@ -500,7 +513,7 @@ async fn delivery_sends_due_messages_and_retries_temporary_failures() {
     );
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn delivery_stops_at_the_first_unreachable_server_without_counting() {
     let w = world(true).await;
     for to in ["a@example.com", "b@example.com"] {
@@ -509,20 +522,139 @@ async fn delivery_stops_at_the_first_unreachable_server_without_counting() {
             .await
             .unwrap_or_else(|e| panic!("{e}"));
     }
-    w.smtp
-        .reply(Err(SendError::Connection(ConnectionError::Network(
-            "hors ligne".into(),
-        ))));
+    for _ in 0..3 {
+        w.smtp
+            .reply(Err(SendError::Connection(ConnectionError::Network(
+                "hors ligne".into(),
+            ))));
+    }
     let report = w
         .deliver()
         .execute(&request(), NOW)
         .await
         .unwrap_or_else(|e| panic!("{e}"));
     assert_eq!(report.failed.len(), 1, "le second n'est pas tenté");
+    assert_eq!(w.smtp.connections().len(), 3, "trois connexions, un essai");
     assert!(w.smtp.accepted().is_empty());
     let entries = w.entries().await;
     assert_eq!(entries[0].attempts, 0, "hors ligne : non compté");
     assert_eq!(entries[1], OutboxEntry::queued(NOW));
+}
+
+/// Écarts entre les connexions successives faites par le faux serveur.
+fn gaps(w: &World) -> Vec<std::time::Duration> {
+    w.smtp
+        .connections()
+        .windows(2)
+        .map(|p| p[1].duration_since(p[0]))
+        .collect()
+}
+
+/// Réseau instable : la deuxième connexion 2 s après la première, la
+/// troisième 3 s après la deuxième, dans le même essai.
+#[tokio::test(start_paused = true)]
+async fn a_passing_failure_is_retried_twice_within_the_same_attempt() {
+    use std::time::Duration;
+    let w = world(true).await;
+    let id = w
+        .queue()
+        .execute(None, &draft_to("a@example.com"), &me(), NOW)
+        .await
+        .unwrap_or_else(|e| panic!("{e}"));
+    w.smtp
+        .reply(Err(SendError::Connection(ConnectionError::Timeout(
+            norelly_domain::connection::TimeoutStage::TlsHandshake,
+        ))));
+    w.smtp
+        .reply(Err(SendError::Connection(ConnectionError::Closed)));
+    let report = w
+        .deliver()
+        .execute(&request(), NOW)
+        .await
+        .unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(report.sent, [id], "parti à la troisième connexion");
+    assert!(report.failed.is_empty());
+    assert_eq!(gaps(&w), [Duration::from_secs(2), Duration::from_secs(3)]);
+    assert_eq!(
+        w.entries().await,
+        [OutboxEntry {
+            state: OutboxState::Sent,
+            attempts: 1
+        }],
+        "un seul essai compté"
+    );
+}
+
+/// Trois connexions sans réponse : l'essai est reporté au passage suivant.
+#[tokio::test(start_paused = true)]
+async fn a_silent_server_is_postponed_after_three_connections() {
+    let w = world(true).await;
+    let id = w
+        .queue()
+        .execute(None, &draft_to("a@example.com"), &me(), NOW)
+        .await
+        .unwrap_or_else(|e| panic!("{e}"));
+    w.queue()
+        .execute(None, &draft_to("b@example.com"), &me(), NOW)
+        .await
+        .unwrap_or_else(|e| panic!("{e}"));
+    for _ in 0..3 {
+        w.smtp
+            .reply(Err(SendError::Connection(ConnectionError::Closed)));
+    }
+    let report = w
+        .deliver()
+        .execute(&request(), NOW)
+        .await
+        .unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(report.failed, [(id, SendFailure::Unresponsive)]);
+    assert_eq!(
+        w.smtp.connections().len(),
+        3,
+        "même serveur pour le second : pas tenté"
+    );
+    // Échéance comptée depuis la fin de l'essai (5 s d'attentes), pas
+    // depuis le début du passage.
+    assert_eq!(
+        w.entries().await,
+        [
+            OutboxEntry {
+                state: OutboxState::Queued {
+                    not_before: NOW + 5 + RETRY_BASE_SECS
+                },
+                attempts: 1
+            },
+            OutboxEntry::queued(NOW)
+        ]
+    );
+}
+
+/// Transmission commencée, identifiants refusés ou restés sans réponse,
+/// refus du serveur : une seule connexion, jamais de renvoi ni de rejeu.
+#[tokio::test(start_paused = true)]
+async fn no_new_connection_after_transmission_or_credentials() {
+    use norelly_domain::auth::AuthError;
+    for error in [
+        SendError::Interrupted("coupé pendant DATA".into()),
+        SendError::Connection(ConnectionError::Authentication(AuthError::Interrupted)),
+        SendError::Connection(ConnectionError::Authentication(AuthError::Rejected {
+            message: "535 5.7.139".into(),
+        })),
+        SendError::Deferred("451".into()),
+    ] {
+        let w = world(true).await;
+        w.queue()
+            .execute(None, &draft_to("a@example.com"), &me(), NOW)
+            .await
+            .unwrap_or_else(|e| panic!("{e}"));
+        w.smtp.reply(Err(error.clone()));
+        w.deliver()
+            .execute(&request(), NOW)
+            .await
+            .unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(w.smtp.connections().len(), 1, "{error:?}");
+        assert!(w.smtp.accepted().is_empty(), "{error:?}");
+    }
 }
 
 #[tokio::test]
@@ -1117,20 +1249,35 @@ async fn a_refused_draft_does_not_block_the_others() {
 #[tokio::test]
 async fn delivery_stops_on_authentication_or_security_failure() {
     use norelly_domain::auth::AuthError;
-    for (error, failure) in [
+    let disabled = || {
+        ConnectionError::Authentication(AuthError::Rejected {
+            message: "535 5.7.139 SmtpClientAuthentication is disabled".into(),
+        })
+    };
+    for (error, failure, request) in [
         (
             ConnectionError::Authentication(AuthError::Rejected {
                 message: "535".into(),
             }),
             SendFailure::Authentication,
+            request(),
         ),
         (
             ConnectionError::Authentication(AuthError::Interrupted),
             SendFailure::AuthenticationInterrupted,
+            request(),
         ),
+        (
+            disabled(),
+            SendFailure::MicrosoftSmtpDisabled,
+            microsoft_request(),
+        ),
+        // Même texte, compte à mot de passe : refus des identifiants.
+        (disabled(), SendFailure::Authentication, request()),
         (
             ConnectionError::Tls("certificat".into()),
             SendFailure::Security,
+            request(),
         ),
     ] {
         let w = world(true).await;
@@ -1143,7 +1290,7 @@ async fn delivery_stops_on_authentication_or_security_failure() {
         w.smtp.reply(Err(SendError::Connection(error)));
         let report = w
             .deliver()
-            .execute(&request(), NOW)
+            .execute(&request, NOW)
             .await
             .unwrap_or_else(|e| panic!("{e}"));
         assert_eq!(

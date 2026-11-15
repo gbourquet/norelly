@@ -204,7 +204,8 @@ suffit à empêcher la connexion.
 ## Le serveur ne répond pas
 
 **Ce que vous voyez** : « le serveur ne répond pas. Vérifiez votre
-connexion à Internet, puis réessayez. »
+connexion à Internet, puis réessayez. » ; dans la boîte d'envoi : « le
+serveur ne répond pas ».
 
 Norelly a bien trouvé le serveur, mais celui-ci n'a pas répondu à temps
 ou a coupé la connexion. Norelly a déjà réessayé plusieurs fois avant
@@ -236,6 +237,12 @@ fermé ou la connexion coupée au moment précis de l'envoi. Le message est
 peut-être arrivé : regardez dans le dossier **Envoyés** du site de votre
 fournisseur, ou demandez au destinataire, avant de cliquer sur
 **Réessayer** pour ne pas l'envoyer deux fois.
+
+Si la raison est « Microsoft n'autorise pas l'envoi depuis les
+applications pour ce compte », Microsoft refuse que ce compte envoie des
+messages depuis un logiciel comme Norelly. Envoyez le message depuis le
+site outlook.com, ou contactez le support Microsoft. Réessayer depuis
+Norelly ne change rien tant que Microsoft refuse.
 
 ## Autres messages
 

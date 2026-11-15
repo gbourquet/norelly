@@ -214,9 +214,10 @@ impl ContactPhone {
 /// enregistrée).
 ///
 /// Invariants : au moins une adresse, au plus [`MAX_CONTACT_EMAILS`],
-/// distinctes à la casse près, exactement une préférée ; textes sans
-/// espaces de bord, bornés, sans caractère de contrôle ni de mise en forme
-/// invisible (les notes admettent sauts de ligne et tabulations).
+/// distinctes à la casse près, exactement une préférée ; textes et parties
+/// locales d'adresse sans caractère invisible ([`INVISIBLE`]) ; textes sans
+/// espaces de bord, bornés, sans caractère de contrôle (les notes
+/// admettent sauts de ligne et tabulations).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ContactDraft {
     display_name: Option<String>,
@@ -258,6 +259,13 @@ impl ContactDraft {
         for (index, e) in input.emails.iter().enumerate() {
             let address = EmailAddress::parse(&e.address)
                 .map_err(|error| ContactError::InvalidAddress { index, error })?;
+            // Le domaine est ASCII ; la partie locale peut être en UTF-8.
+            if address.local_part().chars().any(is_invisible) {
+                return Err(ContactError::InvalidAddress {
+                    index,
+                    error: EmailAddressError::InvalidLocalCharacter,
+                });
+            }
             let key = AddressKey::of(&address);
             if emails.iter().any(|known| known.key == key) {
                 return Err(ContactError::DuplicateAddress { index });
@@ -481,9 +489,54 @@ pub fn display_label(
     nickname.map_or_else(|| address.to_string(), str::to_owned)
 }
 
+/// Caractères invisibles ou trompeurs, refusés dans une fiche (saisie ou
+/// importée) en plus des caractères de contrôle : catégorie Unicode Cf
+/// (format), séparateurs de ligne et de paragraphe, sélecteurs de
+/// variante, étiquettes, remplisseurs Hangul et blanc braille, joints de
+/// graphèmes ; toute la propriété Unicode Default_Ignorable_Code_Point,
+/// points réservés compris (ils pourront être attribués). Ils permettent de faire passer un nom ou une adresse pour un
+/// autre à l'écran.
+const INVISIBLE: [(char, char); 26] = [
+    ('\u{00AD}', '\u{00AD}'),
+    ('\u{034F}', '\u{034F}'),
+    ('\u{0600}', '\u{0605}'),
+    ('\u{061C}', '\u{061C}'),
+    ('\u{06DD}', '\u{06DD}'),
+    ('\u{070F}', '\u{070F}'),
+    ('\u{0890}', '\u{0891}'),
+    ('\u{08E2}', '\u{08E2}'),
+    ('\u{115F}', '\u{1160}'),
+    ('\u{17B4}', '\u{17B5}'),
+    ('\u{180B}', '\u{180F}'),
+    ('\u{200B}', '\u{200F}'),
+    ('\u{2028}', '\u{202E}'),
+    ('\u{2060}', '\u{206F}'),
+    ('\u{2800}', '\u{2800}'),
+    ('\u{3164}', '\u{3164}'),
+    ('\u{FE00}', '\u{FE0F}'),
+    ('\u{FEFF}', '\u{FEFF}'),
+    ('\u{FFA0}', '\u{FFA0}'),
+    ('\u{FFF0}', '\u{FFFB}'),
+    ('\u{110BD}', '\u{110BD}'),
+    ('\u{110CD}', '\u{110CD}'),
+    ('\u{13430}', '\u{1343F}'),
+    ('\u{1BCA0}', '\u{1BCA3}'),
+    ('\u{1D173}', '\u{1D17A}'),
+    ('\u{E0000}', '\u{E0FFF}'),
+];
+
+/// Caractère invisible d'une fiche ([`INVISIBLE`], qui couvre aussi les
+/// caractères de mise en forme refusés partout ailleurs).
+pub(crate) fn is_invisible(c: char) -> bool {
+    is_format_char(c)
+        || INVISIBLE
+            .iter()
+            .any(|&(low, high)| (low..=high).contains(&c))
+}
+
 /// Caractère interdit dans un champ d'une ligne.
 fn forbidden(c: char) -> bool {
-    c.is_control() || is_format_char(c)
+    c.is_control() || is_invisible(c)
 }
 
 /// Champ d'une ligne : sans espaces de bord, borné, sans caractère de
@@ -514,6 +567,102 @@ fn notes(raw: &str) -> Result<Option<String>, ContactError> {
         return Err(ContactError::TooLong(ContactField::Notes));
     }
     Ok((!value.is_empty()).then(|| value.to_owned()))
+}
+
+/// Sort d'une fiche enregistrée avant que les caractères [`INVISIBLE`]
+/// ne soient refusés à la saisie ([`clean_invisible`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum InvisibleCleanup {
+    /// Rien à changer : la fiche n'en contient pas, ou elle est invalide
+    /// pour une autre raison (laissée telle quelle).
+    Keep,
+    /// Fiche nettoyée, à réécrire.
+    Rewrite(ContactDraft),
+    /// Plus aucune adresse utilisable : la fiche est retirée.
+    Remove,
+}
+
+/// Nettoie une fiche enregistrée qui contient des caractères invisibles :
+/// ils sont retirés des textes (séparateur de ligne remplacé), un champ
+/// ainsi vidé devient absent, un téléphone sans numéro disparaît. Une
+/// adresse qui en contient est écartée, jamais transformée (ce serait une
+/// autre boîte) ; si c'était la préférée, la première restante le devient ;
+/// sans adresse restante, la fiche est retirée.
+#[must_use]
+pub fn clean_invisible(input: ContactInput) -> InvisibleCleanup {
+    let dirty = |text: &str| text.chars().any(is_invisible);
+    let has_invisible = [
+        &input.display_name,
+        &input.given_name,
+        &input.family_name,
+        &input.nickname,
+        &input.organization,
+        &input.notes,
+    ]
+    .into_iter()
+    .any(|t| dirty(t))
+        || input
+            .emails
+            .iter()
+            .any(|e| dirty(&e.address) || dirty(&e.label))
+        || input
+            .phones
+            .iter()
+            .any(|p| dirty(&p.number) || dirty(&p.label));
+    if !has_invisible {
+        return InvisibleCleanup::Keep;
+    }
+    // Séparateur de ligne ou de paragraphe : remplacé (espace, ou saut de
+    // ligne dans les notes) pour ne pas coller les mots ; les autres
+    // caractères invisibles sont retirés.
+    let replace = |text: &str, separator: char| {
+        text.chars()
+            .filter_map(|c| match c {
+                '\u{2028}' | '\u{2029}' => Some(separator),
+                c if is_invisible(c) => None,
+                c => Some(c),
+            })
+            .collect::<String>()
+    };
+    let strip = |text: &str| replace(text, ' ');
+    // Les adresses gardées sont inchangées : leurs clés, uniques dans le
+    // carnet, le restent.
+    let emails: Vec<EmailInput> = input
+        .emails
+        .iter()
+        .filter(|e| !dirty(&e.address))
+        .map(|e| EmailInput {
+            address: e.address.clone(),
+            label: strip(&e.label),
+            preferred: e.preferred,
+        })
+        .collect();
+    if emails.is_empty() {
+        return InvisibleCleanup::Remove;
+    }
+    let phones = input
+        .phones
+        .iter()
+        .map(|p| PhoneInput {
+            number: strip(&p.number),
+            label: strip(&p.label),
+        })
+        .filter(|p| !p.number.trim().is_empty())
+        .collect();
+    let cleaned = ContactInput {
+        display_name: strip(&input.display_name),
+        given_name: strip(&input.given_name),
+        family_name: strip(&input.family_name),
+        nickname: strip(&input.nickname),
+        organization: strip(&input.organization),
+        notes: replace(&input.notes, '\n'),
+        emails,
+        phones,
+        favorite: input.favorite,
+    };
+    // Retirer des caractères ne rend invalide aucune fiche qui suivait les
+    // règles d'avant : un refus vient d'un autre défaut de la ligne.
+    ContactDraft::new(cleaned).map_or(InvisibleCleanup::Keep, InvisibleCleanup::Rewrite)
 }
 
 /// Filtre de la liste des contacts.
@@ -920,6 +1069,165 @@ mod tests {
                 "{bad:?}"
             );
         }
+    }
+
+    /// Caractères invisibles refusés à l'import, refusés aussi à la saisie.
+    const INVISIBLES: [char; 22] = [
+        '\u{FFF0}',
+        '\u{E0000}',
+        '\u{E0080}',
+        '\u{E0FFF}',
+        '\u{17B4}',
+        '\u{17B5}',
+        '\u{2028}',
+        '\u{2029}',
+        '\u{206A}',
+        '\u{206F}',
+        '\u{FFF9}',
+        '\u{FFFB}',
+        '\u{E0001}',
+        '\u{E0041}',
+        '\u{E007F}',
+        '\u{FE00}',
+        '\u{FE0F}',
+        '\u{E0100}',
+        '\u{115F}',
+        '\u{3164}',
+        '\u{FFA0}',
+        '\u{2800}',
+    ];
+
+    #[test]
+    fn invisible_characters_are_refused_at_entry() {
+        for c in INVISIBLES {
+            let bad = format!("a{c}b");
+            let mut i = input(&["a@example.com"]);
+            i.display_name.clone_from(&bad);
+            assert_eq!(
+                ContactDraft::new(i),
+                Err(ContactError::InvalidCharacter(ContactField::DisplayName)),
+                "{c:?}"
+            );
+            let mut i = input(&["a@example.com"]);
+            i.phones = vec![PhoneInput {
+                number: bad.clone(),
+                label: String::new(),
+            }];
+            assert_eq!(
+                ContactDraft::new(i),
+                Err(ContactError::InvalidCharacter(ContactField::Phone(0))),
+                "{c:?}"
+            );
+            let mut i = input(&["a@example.com"]);
+            i.notes = format!("ligne\n{bad}");
+            assert_eq!(
+                ContactDraft::new(i),
+                Err(ContactError::InvalidCharacter(ContactField::Notes)),
+                "{c:?}"
+            );
+            assert_eq!(
+                ContactDraft::new(input(&["a@example.com", &format!("{bad}@example.com")])),
+                Err(ContactError::InvalidAddress {
+                    index: 1,
+                    error: EmailAddressError::InvalidLocalCharacter,
+                }),
+                "{c:?}"
+            );
+        }
+    }
+
+    fn cleanup(input: ContactInput) -> InvisibleCleanup {
+        clean_invisible(input)
+    }
+
+    fn rewritten(input: ContactInput) -> ContactDraft {
+        match cleanup(input) {
+            InvisibleCleanup::Rewrite(draft) => draft,
+            other => panic!("fiche non réécrite : {other:?}"),
+        }
+    }
+
+    #[test]
+    fn clean_contact_is_kept() {
+        let mut i = input(&["alice@example.com"]);
+        i.display_name = "Alice\u{00E9}".into();
+        i.notes = "a\nb\tc".into();
+        assert_eq!(cleanup(i), InvisibleCleanup::Keep);
+    }
+
+    #[test]
+    fn cleanup_strips_invisible_characters_from_texts() {
+        let mut i = input(&["alice@example.com"]);
+        i.display_name = "Ali\u{2800}ce".into();
+        i.given_name = "\u{3164}".into();
+        i.family_name = "Mar\u{E0041}tin".into();
+        i.nickname = "Lili\u{FE0F}".into();
+        i.organization = "\u{2028}Acme\u{2029}".into();
+        i.notes = "a\n\u{FFF9}b\tc".into();
+        i.emails[0].label = "tra\u{206A}vail".into();
+        i.phones = vec![
+            PhoneInput {
+                number: "01\u{115F} 02".into(),
+                label: "mai\u{FFA0}son".into(),
+            },
+            PhoneInput {
+                number: "\u{3164}".into(),
+                label: "vide".into(),
+            },
+        ];
+        let d = rewritten(i);
+        assert_eq!(d.display_name_field(), Some("Alice"));
+        assert_eq!(d.given_name(), None);
+        assert_eq!(d.family_name(), Some("Martin"));
+        assert_eq!(d.nickname(), Some("Lili"));
+        assert_eq!(d.organization(), Some("Acme"));
+        assert_eq!(d.notes(), Some("a\nb\tc"));
+        assert_eq!(d.emails()[0].label(), Some("travail"));
+        // Un téléphone sans numéro une fois nettoyé disparaît.
+        assert_eq!(d.phones().len(), 1);
+        assert_eq!(d.phones()[0].number(), "01 02");
+        assert_eq!(d.phones()[0].label(), Some("maison"));
+    }
+
+    /// Une adresse n'est jamais transformée (ce serait une autre boîte) :
+    /// celle qui contient un caractère invisible est écartée.
+    #[test]
+    fn cleanup_drops_addresses_with_invisible_characters() {
+        let mut i = input(&[
+            "ali\u{FE0F}ce@example.com",
+            "bob@example.com",
+            "carol@example.com",
+        ]);
+        i.emails[0].preferred = true;
+        let d = rewritten(i);
+        let keys: Vec<&str> = d.emails().iter().map(|e| e.key().as_str()).collect();
+        assert_eq!(keys, ["bob@example.com", "carol@example.com"]);
+        // L'adresse préférée écartée : la première restante le devient.
+        assert!(d.emails()[0].preferred());
+    }
+
+    #[test]
+    fn cleanup_removes_a_contact_left_without_address() {
+        let mut i = input(&["ali\u{2800}ce@example.com"]);
+        i.display_name = "Alice".into();
+        assert_eq!(cleanup(i), InvisibleCleanup::Remove);
+    }
+
+    #[test]
+    fn cleanup_turns_line_separators_into_spaces_or_line_breaks() {
+        let mut i = input(&["alice@example.com"]);
+        i.display_name = "Jean\u{2029}Dupont".into();
+        i.notes = "Appeler\u{2028}lundi".into();
+        let d = rewritten(i);
+        assert_eq!(d.display_name_field(), Some("Jean Dupont"));
+        assert_eq!(d.notes(), Some("Appeler\nlundi"));
+    }
+
+    #[test]
+    fn cleanup_keeps_a_contact_invalid_for_another_reason() {
+        let mut i = input(&["alice@example.com"]);
+        i.display_name = "Ali\u{2800}ce\u{0}".into();
+        assert_eq!(cleanup(i), InvisibleCleanup::Keep);
     }
 
     #[test]

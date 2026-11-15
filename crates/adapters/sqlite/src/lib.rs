@@ -58,6 +58,13 @@ fn migrations() -> Migrations<'static> {
         M::up(include_str!("../migrations/0015_outbox_interruptions.sql")),
         M::up(include_str!("../migrations/0016_outbox_unresponsive.sql")),
         M::up(include_str!("../migrations/0017_oauth_subject.sql")),
+        M::up_with_hook(
+            include_str!("../migrations/0018_contacts_invisible.sql"),
+            |tx: &rusqlite::Transaction<'_>| {
+                contacts::clean_invisible_contacts(tx)
+                    .map_err(|e| rusqlite_migration::HookError::Hook(e.0))
+            },
+        ),
     ])
 }
 
@@ -670,7 +677,121 @@ mod tests {
          'unresponsive', 8, 90);",
         // v17 : identifiant stable du compte Microsoft.
         "UPDATE accounts SET oauth_subject = 'oid-v17' WHERE id = 1;",
+        // v18 : schéma inchangé (fiches nettoyées), un contact de plus.
+        "INSERT INTO contacts (given_name, sort_key, search_text) \
+         VALUES ('V18', 'v18', 'v18\nv18@example.com'); \
+         INSERT INTO contact_emails (contact_id, position, address, address_key, label, preferred) \
+         VALUES (2, 0, 'v18@example.com', 'v18@example.com', NULL, 1);",
     ];
+
+    /// Base de version 17 : à la montée en version 18, les caractères
+    /// invisibles sont retirés des fiches, qui redeviennent lisibles ; une
+    /// adresse qui en contient est écartée, une fiche sans adresse restante
+    /// retirée (et de ses listes) ; une fiche illisible n'empêche pas
+    /// l'ouverture de la base.
+    #[tokio::test]
+    async fn upgrading_to_v18_cleans_invisible_characters_from_contacts() -> Result<(), StoreError>
+    {
+        use norelly_domain::contacts::ContactId;
+        use norelly_domain::ports::ContactDirectory;
+        let mut conn = Connection::open_in_memory().map_err(store_error)?;
+        conn.pragma_update(None, "foreign_keys", "ON")
+            .map_err(store_error)?;
+        let m = migrations();
+        for (version, fixture) in FIXTURES.iter().enumerate().take(17) {
+            m.to_version(&mut conn, version + 1)
+                .map_err(|e| StoreError(e.to_string()))?;
+            conn.execute_batch(fixture).map_err(store_error)?;
+        }
+        // Fiche 2 : nom, notes, adresse, étiquette et téléphones à nettoyer.
+        // Fiche 3 : seule adresse à écarter, membre d'une liste.
+        // Fiche 4 : adresse qui imite celle de la fiche 1, à écarter.
+        // Fiches 5 et 6 : illisibles (BLOB, UTF-8 invalide), dans le même lot.
+        conn.execute_batch(
+            "INSERT INTO contacts (id, display_name, notes, sort_key, search_text) VALUES \
+             (2, 'Ali\u{2800}ce', 'a\n\u{2028}b', 'x', 'x'), \
+             (3, 'Vide', NULL, 'x', 'x'), \
+             (4, 'Dé\u{FE0F}', NULL, 'x', 'x'), \
+             (5, X'41', NULL, 'x', 'x'), \
+             (6, CAST(X'FF' AS TEXT), NULL, 'x', 'x'); \
+             INSERT INTO contact_emails (contact_id, position, address, address_key, label, \
+             preferred) VALUES \
+             (2, 0, 'ali\u{3164}ce@example.com', 'ali\u{3164}ce@example.com', NULL, 1), \
+             (2, 1, 'alice@example.com', 'alice@example.com', 'tra\u{E0041}vail', 0), \
+             (3, 0, '\u{2800}@example.com', '\u{2800}@example.com', NULL, 1), \
+             (4, 0, 'V11\u{2800}@example.com', 'v11\u{2800}@example.com', NULL, 1), \
+             (4, 1, 'd@example.com', 'd@example.com', NULL, 0), \
+             (5, 0, 'e@example.com', 'e@example.com', NULL, 1), \
+             (6, 0, 'f@example.com', 'f@example.com', NULL, 1); \
+             INSERT INTO contact_phones (contact_id, position, number, label) VALUES \
+             (2, 0, '\u{FE0F}', NULL), (2, 1, '01\u{206A}02', NULL); \
+             INSERT INTO contact_list_members (list_id, position, contact_id) VALUES (1, 1, 3);",
+        )
+        .map_err(store_error)?;
+        let db = Database::init(conn).map_err(|e| StoreError(e.to_string()))?;
+        let book = contacts::SqliteContactBook::new(db);
+        let id = |raw| ContactId::new(raw).ok_or_else(|| StoreError("id".into()));
+
+        let alice = book
+            .get(id(2)?)
+            .await?
+            .ok_or_else(|| StoreError("2".into()))?;
+        let alice = alice.draft();
+        assert_eq!(alice.display_name_field(), Some("Alice"));
+        // Séparateur de ligne remplacé par un saut de ligne.
+        assert_eq!(alice.notes(), Some("a\n\nb"));
+        let keys: Vec<&str> = alice.emails().iter().map(|e| e.key().as_str()).collect();
+        assert_eq!(keys, ["alice@example.com"]);
+        assert!(alice.emails()[0].preferred());
+        assert_eq!(alice.emails()[0].label(), Some("travail"));
+        let numbers: Vec<&str> = alice.phones().iter().map(|p| p.number()).collect();
+        assert_eq!(numbers, ["0102"]);
+        assert_eq!(alice.sort_key(), "alice");
+
+        assert_eq!(book.get(id(3)?).await?, None, "fiche sans adresse gardée");
+        let d = book
+            .get(id(4)?)
+            .await?
+            .ok_or_else(|| StoreError("4".into()))?;
+        let keys: Vec<&str> = d
+            .draft()
+            .emails()
+            .iter()
+            .map(|e| e.key().as_str())
+            .collect();
+        assert_eq!(keys, ["d@example.com"]);
+        assert!(d.draft().emails()[0].preferred());
+        // Les fiches saines sont intactes, la liste garde son membre.
+        let v11 = book
+            .get(id(1)?)
+            .await?
+            .ok_or_else(|| StoreError("1".into()))?;
+        assert_eq!(
+            v11.draft().emails()[0].address().to_string(),
+            "V11@example.com"
+        );
+        let members: i64 = book
+            .db
+            .read_for_tests(|c| {
+                c.query_row("SELECT COUNT(*) FROM contact_list_members", [], |r| {
+                    r.get(0)
+                })
+                .map_err(store_error)
+            })
+            .await?;
+        assert_eq!(members, 1);
+        // Les fiches illisibles sont laissées en place, intactes.
+        let left: Vec<i64> = book
+            .db
+            .read_for_tests(|c| {
+                c.prepare("SELECT id FROM contacts ORDER BY id")
+                    .and_then(|mut s| s.query_map([], |r| r.get(0))?.collect())
+                    .map_err(store_error)
+            })
+            .await?;
+        assert_eq!(left, [1, 2, 4, 5, 6]);
+        Ok(())
+    }
 
     /// Montée de version depuis chaque version précédente, données
     /// conservées.

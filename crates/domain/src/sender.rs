@@ -7,7 +7,7 @@
 
 use std::collections::HashMap;
 
-use crate::contacts::{AddressKey, Contact, ContactId};
+use crate::contacts::{AddressKey, Contact, ContactId, is_invisible};
 use crate::mailbox::Correspondent;
 use crate::ports::MAX_CONTACT_LOOKUP;
 
@@ -49,7 +49,7 @@ pub fn is_address_look_alike(c: char) -> bool {
 
 /// Nom affiché d'un correspondant : celui de `contact` s'il porte
 /// exactement l'adresse de l'en-tête (même clé), sinon le nom de
-/// l'en-tête, vide s'il imite une adresse. Un contact sans nom (ni nom
+/// l'en-tête sans caractère invisible, vide s'il imite une adresse. Un contact sans nom (ni nom
 /// affiché, ni prénom, ni nom, ni surnom) laisse l'adresse seule.
 #[must_use]
 pub fn sender_label(header: &Correspondent, contact: Option<&Contact>) -> SenderLabel {
@@ -58,8 +58,17 @@ pub fn sender_label(header: &Correspondent, contact: Option<&Contact>) -> Sender
     });
     let name = match known {
         Some(c) => contact_name(c).unwrap_or_default(),
-        None if imitates_address(&header.name) => String::new(),
-        None => header.name.clone(),
+        None => {
+            // Sans caractère invisible : ce nom préremplit une nouvelle
+            // fiche, qui les refuse.
+            let name: String = header.name.chars().filter(|&c| !is_invisible(c)).collect();
+            let name = name.trim();
+            if imitates_address(name) {
+                String::new()
+            } else {
+                name.to_owned()
+            }
+        }
     };
     SenderLabel {
         name,
@@ -212,6 +221,16 @@ mod tests {
                 contact: None,
             }
         );
+    }
+
+    /// Le nom de l'en-tête sert à préremplir une nouvelle fiche : il en
+    /// respecte les règles, sans caractère invisible.
+    #[test]
+    fn header_name_loses_invisible_characters() {
+        let label = sender_label(&header("Bou\u{FE0F}tique\u{2800}", "b@example.com"), None);
+        assert_eq!(label.name, "Boutique");
+        let blank = sender_label(&header("\u{2800}\u{3164}", "b@example.com"), None);
+        assert_eq!(blank.name, "");
     }
 
     #[test]

@@ -1,0 +1,11 @@
+-- Version 18 : caractères invisibles retirés des fiches du carnet.
+--
+-- Les caractères invisibles ou trompeurs (séparateurs de ligne, sélecteurs
+-- de variante, étiquettes, remplisseurs Hangul, blanc braille…) sont
+-- désormais refusés à la saisie d'une fiche comme à l'import. Les fiches
+-- enregistrées avant cette règle sont nettoyées par une étape Rust jouée
+-- dans la même transaction que cette migration
+-- (norelly_sqlite::contacts::clean_invisible_contacts, règle :
+-- norelly_domain::contacts::clean_invisible) : sans elle, elles
+-- deviendraient illisibles à la relecture. Le schéma ne change pas.
+SELECT 1;

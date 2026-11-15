@@ -600,7 +600,11 @@ est majoritairement écrit par Claude et relu par le mainteneur.
     (nom composé à défaut de nom affiché, vide sans nom ou trop long :
     règle validée **après coup**). Le favori n'est pas exporté.
     Toute cellule CSV qui commence par `=`, `+`, `-`, `@`, tabulation ou
-    CR, téléphones compris, est préfixée d'une apostrophe, et l'import
+    CR, téléphones compris, est préfixée d'une apostrophe ; de même, à
+    titre préventif (décision du mainteneur), pour le signe moins `−` et
+    les caractères que la normalisation de compatibilité ramène à l'un de
+    ces signes (formes pleine chasse, petites, exposants, indices, plus
+    hébreu), qu'aucun tableur courant n'évalue. L'import
     retire cette apostrophe (aller-retour exact dans Norelly ; Gmail ou
     Outlook montrent « '+33… »). Les bornes de l'export sont celles de
     l'import (25 000 fiches, 20 Mio) : tout export se réimporte.

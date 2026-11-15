@@ -146,9 +146,9 @@ impl ContactRow {
         let derived = self.derived.clone();
         let (input, keys) = self.into_input();
         // Nom imitant une adresse, retiré à la relecture : tri et filtre
-        // stockés ont été calculés avec lui, ils ne peuvent pas être ceux
-        // de la fiche relue (la fiche reste valide).
-        let names_dropped = input.has_names_imitating_address();
+        // stockés ont pu être calculés avec lui (fiche écrite avant la
+        // règle) ; ce sont alors ceux de la fiche telle qu'enregistrée.
+        let as_stored = ContactDraft::keys_as_stored(&input);
         let draft = ContactDraft::from_stored(input).map_err(|e| corrupted(raw, &e.to_string()))?;
         // La contrainte d'unicité et la recherche par adresse portent sur
         // la clé stockée : elle doit être celle que calcule le domaine.
@@ -157,8 +157,12 @@ impl ContactRow {
             return Err(corrupted(raw, "clé d'adresse"));
         }
         // L'ordre de la liste et le filtre portent sur les colonnes
-        // stockées : elles doivent être celles que calcule le domaine.
-        if !names_dropped && derived != (draft.sort_key(), draft.search_text()) {
+        // stockées : elles doivent être celles que calcule le domaine, pour
+        // la fiche relue ou, avec un nom retiré, pour la fiche telle
+        // qu'enregistrée ; jamais d'autres.
+        if derived != (draft.sort_key(), draft.search_text())
+            && as_stored.as_ref() != Some(&derived)
+        {
             return Err(corrupted(raw, "clé de tri ou texte cherché"));
         }
         Ok(draft.with_id(id))
@@ -773,7 +777,7 @@ impl ContactDirectory for SqliteContactBook {
             return Ok(ContactPage::default());
         }
         let filter = filter.clone();
-        let (contacts, skipped, more) = self
+        let (contacts, skipped, next) = self
             .db
             .read(move |c| {
                 // Une fiche valide de plus : savoir s'il existe une suite.
@@ -821,15 +825,26 @@ impl ContactDirectory for SqliteContactBook {
                     last_row = ids.last().copied();
                 }
                 contacts.truncate(limit as usize);
-                Ok((contacts, skipped, more))
+                // Suite : après la clé de tri stockée de la dernière fiche,
+                // celle selon laquelle SQL ordonne la liste (celle de la
+                // fiche relue peut différer : nom retiré à la relecture).
+                let next = match contacts.last().filter(|_| more) {
+                    Some(last) => {
+                        let sort_key: String = tx
+                            .prepare_cached("SELECT sort_key FROM contacts WHERE id = ?1")
+                            .and_then(|mut s| s.query_row(params![last.id().get()], |r| r.get(0)))
+                            .map_err(store_error)?;
+                        Some(ContactCursor {
+                            sort_key,
+                            id: last.id(),
+                        })
+                    }
+                    None => None,
+                };
+                Ok((contacts, skipped, next))
             })
             .await?;
         self.report(&skipped);
-        let next = if more {
-            contacts.last().map(ContactCursor::of)
-        } else {
-            None
-        };
         Ok(ContactPage {
             items: contacts.iter().map(ContactListItem::from).collect(),
             next,
@@ -1027,7 +1042,11 @@ mod tests {
             .create(&sample_contact("Alice", &["a@example.com"]))
             .await?;
         book.db
-            .write_for_tests("UPDATE contacts SET display_name = 'ceo@bank.example';")
+            .write_for_tests(
+                "UPDATE contacts SET display_name = 'ceo@bank.example', \
+                 sort_key = 'ceo@bank.example', \
+                 search_text = 'ceo@bank.example' || char(10) || 'a@example.com';",
+            )
             .await?;
         let read = book
             .get(a.id())
@@ -1060,7 +1079,10 @@ mod tests {
         book.db
             .run(move |c| {
                 c.execute(
-                    "UPDATE contacts SET display_name = 'ceo@bank.example' WHERE id = ?1",
+                    "UPDATE contacts SET display_name = 'ceo@bank.example', \
+                     sort_key = 'ceo@bank.example', \
+                     search_text = 'ceo@bank.example' || char(10) || 'alice@example.com' \
+                     WHERE id = ?1",
                     params![alice_id],
                 )
                 .map_err(store_error)?;
@@ -1076,13 +1098,98 @@ mod tests {
             .page(&ContactFilter::default(), None, PageSize::new(10))
             .await?;
         let ids: Vec<ContactId> = page.items.iter().map(|i| i.id).collect();
-        assert_eq!(ids, vec![alice.id(), carole.id()]);
+        // Rangée sous son nom enregistré (« ceo@bank.example »).
+        assert_eq!(ids, vec![carole.id(), alice.id()]);
         let read = book
             .get(alice.id())
             .await?
             .unwrap_or_else(|| panic!("fiche absente"));
         assert_eq!(read.draft().display_name_field(), None);
         assert!(book.get(bob.id()).await.is_err(), "fiche invalide relue");
+        Ok(())
+    }
+
+    /// Un nom imitant une adresse ne dispense pas du contrôle des colonnes
+    /// de tri et de recherche : forgées, elles rendent la fiche invalide
+    /// (écartée seule), même si la fiche porte un tel nom.
+    #[tokio::test]
+    async fn a_name_imitating_an_address_does_not_excuse_forged_sort_or_search_columns()
+    -> Result<(), ContactStoreError> {
+        let book = book();
+        let alice = book
+            .create(&sample_contact("Alice", &["alice@example.com"]))
+            .await?;
+        let zed = book
+            .create(&sample_contact("Zed", &["zed@example.com"]))
+            .await?;
+        let zed_id = zed.id().get();
+        book.db
+            .run(move |c| {
+                c.execute(
+                    "UPDATE contacts SET display_name = 'x@y', sort_key = '', \
+                     search_text = 'patron' WHERE id = ?1",
+                    params![zed_id],
+                )
+                .map_err(store_error)
+            })
+            .await?;
+        let page = book
+            .page(&ContactFilter::default(), None, PageSize::new(10))
+            .await?;
+        let ids: Vec<ContactId> = page.items.iter().map(|i| i.id).collect();
+        assert_eq!(ids, vec![alice.id()]);
+        assert!(book.get(zed.id()).await.is_err(), "fiche forgée relue");
+        let found = book
+            .page(
+                &ContactFilter::new("patron", false),
+                None,
+                PageSize::new(10),
+            )
+            .await?;
+        assert!(found.items.is_empty(), "{:?}", found.items);
+        Ok(())
+    }
+
+    /// Fiche relue sans son nom imitant une adresse : sa clé de tri stockée
+    /// (calculée avec ce nom) n'est pas celle de la fiche relue. La liste,
+    /// lue page à page, n'en saute ni n'en répète aucune.
+    #[tokio::test]
+    async fn pages_neither_skip_nor_repeat_around_a_card_read_without_its_name()
+    -> Result<(), ContactStoreError> {
+        let book = book();
+        let mut ids = Vec::new();
+        for name in ["Alice", "Bob", "Carole", "Zed"] {
+            let address = format!("{}@example.com", name.to_lowercase());
+            ids.push(book.create(&sample_contact(name, &[&address])).await?.id());
+        }
+        // Alice, rangée sous « ceo@bank.example » (entre Carole et Zed) ;
+        // relue, sa clé serait « alice@example.com ».
+        let alice_id = ids[0].get();
+        book.db
+            .run(move |c| {
+                c.execute(
+                    "UPDATE contacts SET display_name = 'ceo@bank.example', \
+                     sort_key = 'ceo@bank.example', \
+                     search_text = 'ceo@bank.example' || char(10) || 'alice@example.com' \
+                     WHERE id = ?1",
+                    params![alice_id],
+                )
+                .map_err(store_error)
+            })
+            .await?;
+        let mut seen = Vec::new();
+        let mut cursor = None;
+        for _ in 0..10 {
+            let page = book
+                .page(&ContactFilter::default(), cursor, PageSize::new(1))
+                .await?;
+            seen.extend(page.items.iter().map(|i| i.id));
+            cursor = page.next;
+            if cursor.is_none() {
+                break;
+            }
+        }
+        assert_eq!(seen, vec![ids[1], ids[2], ids[0], ids[3]]);
         Ok(())
     }
 

@@ -250,6 +250,16 @@ impl ContactPhone {
     }
 }
 
+/// Sort d'un nom qui imite une adresse lors de la validation d'une fiche.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum NameRule {
+    /// Refusé : toute fiche saisie, importée ou relue.
+    RefuseImitations,
+    /// Gardé : seulement pour recalculer les clés d'une fiche telle
+    /// qu'enregistrée ([`ContactDraft::keys_as_stored`]), jamais rendue.
+    KeepImitations,
+}
+
 /// Fiche valide, pas encore enregistrée (ou contenu d'une fiche
 /// enregistrée).
 ///
@@ -283,8 +293,28 @@ impl ContactDraft {
         Self::new(input)
     }
 
+    /// Clés de tri et de recherche d'une fiche enregistrée qui porte un nom
+    /// imitant une adresse, calculées avec ce nom : celles que le stockage a
+    /// écrites avant que la règle ne l'écarte. `None` si aucun nom n'imite
+    /// une adresse, ou si la fiche est invalide pour une autre raison.
+    /// [`Self::from_stored`] rend, elle, les clés de la fiche sans ce nom.
+    #[must_use]
+    pub fn keys_as_stored(input: &ContactInput) -> Option<(String, String)> {
+        if !input.has_names_imitating_address() {
+            return None;
+        }
+        let stored = Self::validate(input.clone(), NameRule::KeepImitations).ok()?;
+        Some((stored.sort_key(), stored.search_text()))
+    }
+
     /// Valide une fiche. Sans adresse marquée préférée, la première l'est.
     pub fn new(input: ContactInput) -> Result<Self, ContactError> {
+        Self::validate(input, NameRule::RefuseImitations)
+    }
+
+    /// Règles de [`Self::new`] ; `rule` dit seulement si un nom imitant une
+    /// adresse est refusé (toujours, hors calcul de [`Self::keys_as_stored`]).
+    fn validate(input: ContactInput, rule: NameRule) -> Result<Self, ContactError> {
         if input.emails.is_empty() {
             return Err(ContactError::NoAddress);
         }
@@ -299,7 +329,8 @@ impl ContactDraft {
         // affichée comme nom du correspondant).
         let name = |raw: &str, field| {
             let value = text(raw, field, MAX_CONTACT_NAME_CHARS)?;
-            if value.as_deref().is_some_and(imitates_address) {
+            if rule == NameRule::RefuseImitations && value.as_deref().is_some_and(imitates_address)
+            {
                 return Err(ContactError::NameLooksLikeAddress(field));
             }
             Ok(value)
@@ -1446,6 +1477,32 @@ mod tests {
         let mut i = input(&["\u{2800}@example.com"]);
         i.nickname = "<x>".into();
         assert_eq!(clean_names_imitating_address(i), InvisibleCleanup::Remove);
+    }
+
+    #[test]
+    fn keys_as_stored_are_computed_with_the_name_imitating_an_address() {
+        let mut i = input(&["alice@example.com"]);
+        i.display_name = "CEO@Bank.example".into();
+        i.organization = "ACME".into();
+        assert_eq!(
+            ContactDraft::keys_as_stored(&i),
+            Some((
+                "ceo@bank.example".to_owned(),
+                "ceo@bank.example\nacme\nalice@example.com".to_owned()
+            ))
+        );
+        // Relue, la fiche n'a plus ce nom : d'autres clés.
+        let read = ContactDraft::from_stored(i).unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(read.sort_key(), "alice@example.com");
+        // Sans nom imitant une adresse : rien de tel.
+        let mut i = input(&["alice@example.com"]);
+        i.display_name = "Alice".into();
+        assert_eq!(ContactDraft::keys_as_stored(&i), None);
+        // Invalide pour une autre raison : rien non plus.
+        let mut i = input(&["alice@example.com"]);
+        i.display_name = "x@y".into();
+        i.notes = "a\0b".into();
+        assert_eq!(ContactDraft::keys_as_stored(&i), None);
     }
 
     #[test]

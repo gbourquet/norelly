@@ -8,7 +8,7 @@
 //! - rapatriement : seuil au-delà duquel les pièces jointes ne sont pas
 //!   téléchargées pendant la synchronisation ;
 //! - lecture : délai au bout duquel une conversation non lue restée
-//!   ouverte est marquée comme lue.
+//!   ouverte est marquée comme lue, ou jamais de marquage automatique.
 
 use crate::fetch_policy::{DEFAULT_ATTACHMENT_THRESHOLD, FetchPolicy};
 use crate::notify::NewMail;
@@ -22,6 +22,32 @@ pub const MAX_ATTACHMENT_THRESHOLD: u32 = 64 * 1024 * 1024;
 pub const DEFAULT_MARK_SEEN_DELAY_SECS: u32 = 5;
 /// Délai maximal du marquage comme lu à l'ouverture (secondes).
 pub const MAX_MARK_SEEN_DELAY_SECS: u32 = 60;
+/// Code stocké du réglage « jamais » du marquage comme lu ; un délai est
+/// stocké en secondes décimales.
+pub const MARK_SEEN_NEVER_CODE: &str = "never";
+
+/// Code stocké d'un délai du marquage comme lu (`None` : jamais).
+#[must_use]
+pub fn mark_seen_delay_code(delay: Option<u32>) -> String {
+    match delay {
+        None => MARK_SEEN_NEVER_CODE.to_owned(),
+        Some(secs) => secs.to_string(),
+    }
+}
+
+/// Délai du marquage comme lu relu de son code stocké : « jamais », ou
+/// des secondes (valeurs enregistrées avant l'option « jamais » comprises) ;
+/// `None` si le code est illisible.
+#[must_use]
+pub fn parse_mark_seen_delay(code: &str) -> Option<Option<u32>> {
+    if code == MARK_SEEN_NEVER_CODE {
+        return Some(None);
+    }
+    if code.is_empty() || !code.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    code.parse().ok().map(Some)
+}
 
 /// Langue de l'interface.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -83,8 +109,9 @@ pub struct Settings {
     pub notification_privacy: bool,
     pub attachment_threshold: u32,
     /// Délai au bout duquel une conversation non lue restée ouverte est
-    /// marquée comme lue (secondes ; 0 : à l'ouverture).
-    pub mark_seen_delay_secs: u32,
+    /// marquée comme lue (secondes ; 0 : à l'ouverture ; `None` : jamais,
+    /// seul le marquage demandé par l'utilisateur s'applique).
+    pub mark_seen_delay_secs: Option<u32>,
 }
 
 impl Default for Settings {
@@ -95,7 +122,7 @@ impl Default for Settings {
             notifications: true,
             notification_privacy: false,
             attachment_threshold: DEFAULT_ATTACHMENT_THRESHOLD,
-            mark_seen_delay_secs: DEFAULT_MARK_SEEN_DELAY_SECS,
+            mark_seen_delay_secs: Some(DEFAULT_MARK_SEEN_DELAY_SECS),
         }
     }
 }
@@ -153,8 +180,8 @@ impl Settings {
     /// # Errors
     /// [`SettingsError::AttachmentThreshold`] hors de
     /// [`MIN_ATTACHMENT_THRESHOLD`]..=[`MAX_ATTACHMENT_THRESHOLD`] ;
-    /// [`SettingsError::MarkSeenDelay`] au-delà de
-    /// [`MAX_MARK_SEEN_DELAY_SECS`].
+    /// [`SettingsError::MarkSeenDelay`] pour un délai au-delà de
+    /// [`MAX_MARK_SEEN_DELAY_SECS`] (« jamais » est permis).
     pub fn validate(&self) -> Result<(), SettingsError> {
         if !self.threshold_ok() {
             return Err(SettingsError::AttachmentThreshold);
@@ -170,7 +197,10 @@ impl Settings {
     }
 
     const fn mark_seen_delay_ok(&self) -> bool {
-        self.mark_seen_delay_secs <= MAX_MARK_SEEN_DELAY_SECS
+        match self.mark_seen_delay_secs {
+            None => true,
+            Some(secs) => secs <= MAX_MARK_SEEN_DELAY_SECS,
+        }
     }
 
     /// Chaque réglage hors bornes remplacé par sa valeur par défaut, les
@@ -309,14 +339,44 @@ mod tests {
     #[test]
     fn mark_seen_delay_defaults_to_five_seconds_and_is_bounded() {
         let mut s = Settings::default();
-        assert_eq!(s.mark_seen_delay_secs, DEFAULT_MARK_SEEN_DELAY_SECS);
+        assert_eq!(s.mark_seen_delay_secs, Some(DEFAULT_MARK_SEEN_DELAY_SECS));
         assert_eq!(DEFAULT_MARK_SEEN_DELAY_SECS, 5);
-        s.mark_seen_delay_secs = 0;
+        s.mark_seen_delay_secs = Some(0);
         assert_eq!(s.validate(), Ok(()), "immédiat");
-        s.mark_seen_delay_secs = MAX_MARK_SEEN_DELAY_SECS;
+        s.mark_seen_delay_secs = Some(MAX_MARK_SEEN_DELAY_SECS);
         assert_eq!(s.validate(), Ok(()));
-        s.mark_seen_delay_secs = MAX_MARK_SEEN_DELAY_SECS + 1;
+        s.mark_seen_delay_secs = Some(MAX_MARK_SEEN_DELAY_SECS + 1);
         assert_eq!(s.validate(), Err(SettingsError::MarkSeenDelay));
+    }
+
+    #[test]
+    fn mark_seen_can_be_turned_off() {
+        let never = Settings {
+            mark_seen_delay_secs: None,
+            ..Settings::default()
+        };
+        assert_eq!(never.validate(), Ok(()), "jamais : permis");
+        assert_eq!(never.sanitized(), never, "jamais : gardé à la relecture");
+    }
+
+    #[test]
+    fn mark_seen_delay_codes_round_trip_and_read_older_values() {
+        for delay in [None, Some(0), Some(5), Some(MAX_MARK_SEEN_DELAY_SECS)] {
+            assert_eq!(
+                parse_mark_seen_delay(&mark_seen_delay_code(delay)),
+                Some(delay)
+            );
+        }
+        assert_eq!(mark_seen_delay_code(None), "never");
+        assert_eq!(mark_seen_delay_code(Some(12)), "12");
+        assert_eq!(
+            parse_mark_seen_delay("12"),
+            Some(Some(12)),
+            "valeur enregistrée avant l'option « jamais »"
+        );
+        for unreadable in ["", "jamais", "-1", "+5", " 5", "5s", "99999999999"] {
+            assert_eq!(parse_mark_seen_delay(unreadable), None, "{unreadable:?}");
+        }
     }
 
     #[test]
@@ -324,13 +384,13 @@ mod tests {
         let chosen = Settings {
             notifications: false,
             attachment_threshold: 8 * 1024 * 1024,
-            mark_seen_delay_secs: 12,
+            mark_seen_delay_secs: Some(12),
             ..Settings::default()
         };
         assert_eq!(chosen.sanitized(), chosen, "valide : inchangé");
         let all_wrong = Settings {
             attachment_threshold: 1,
-            mark_seen_delay_secs: MAX_MARK_SEEN_DELAY_SECS + 1,
+            mark_seen_delay_secs: Some(MAX_MARK_SEEN_DELAY_SECS + 1),
             ..chosen
         };
         let fixed = all_wrong.sanitized();
@@ -339,7 +399,7 @@ mod tests {
             fixed,
             Settings {
                 attachment_threshold: DEFAULT_ATTACHMENT_THRESHOLD,
-                mark_seen_delay_secs: DEFAULT_MARK_SEEN_DELAY_SECS,
+                mark_seen_delay_secs: Some(DEFAULT_MARK_SEEN_DELAY_SECS),
                 ..chosen
             },
             "les autres réglages sont gardés"

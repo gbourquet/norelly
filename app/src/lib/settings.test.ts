@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import type { SettingsDto } from "./ipc/api";
-import { SettingsState, type SettingsApi } from "./settings.svelte";
+import {
+  SettingsState,
+  markSeenChoices,
+  markSeenDelayMs,
+  type SettingsApi,
+} from "./settings.svelte";
 import { IpcFailure } from "./errors";
 
 const defaults: SettingsDto = {
@@ -59,5 +64,18 @@ describe("paramètres", () => {
     expect(settings.askUpdate).toBe(false);
     expect(api.saveSettings).not.toHaveBeenCalled();
     expect(settings.current?.update_check).toBe("not_asked");
+  });
+
+  it("donne le délai du marquage comme lu en millisecondes, aucun pour « jamais »", () => {
+    expect(markSeenDelayMs(null)).toBeNull();
+    expect(markSeenDelayMs(defaults)).toBe(5000);
+    expect(markSeenDelayMs({ ...defaults, mark_seen_delay_secs: 0 })).toBe(0);
+    expect(markSeenDelayMs({ ...defaults, mark_seen_delay_secs: null })).toBeNull();
+  });
+
+  it("propose les délais usuels et « jamais », plus un délai enregistré hors liste", () => {
+    expect(markSeenChoices(5)).toEqual([0, 2, 5, 10, 30, null]);
+    expect(markSeenChoices(null)).toEqual([0, 2, 5, 10, 30, null]);
+    expect(markSeenChoices(12)).toEqual([0, 2, 5, 10, 12, 30, null]);
   });
 });

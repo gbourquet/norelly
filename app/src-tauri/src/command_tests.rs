@@ -533,14 +533,14 @@ async fn settings_round_trip_and_are_revalidated() {
         "question pas encore posée"
     );
     assert!(first.notifications && !first.notification_privacy);
-    assert_eq!(first.mark_seen_delay_secs, 5);
+    assert_eq!(first.mark_seen_delay_secs, Some(5));
     let chosen = SettingsDto {
         language: LanguageDto::En,
         update_check: UpdateCheckDto::Enabled,
         notifications: true,
         notification_privacy: true,
         attachment_threshold: 4 * 1024 * 1024,
-        mark_seen_delay_secs: 20,
+        mark_seen_delay_secs: Some(20),
     };
     save_settings(t.state(), chosen)
         .await
@@ -559,8 +559,23 @@ async fn settings_round_trip_and_are_revalidated() {
         code(save_settings(t.state(), invalid).await),
         (ErrorCodeDto::InvalidInput, Some(FieldDto::Settings))
     );
+    let never = SettingsDto {
+        mark_seen_delay_secs: None,
+        ..chosen
+    };
+    save_settings(t.state(), never)
+        .await
+        .unwrap_or_else(|e| panic!("{e:?}"));
+    assert_eq!(
+        get_settings(t.state())
+            .await
+            .unwrap_or_else(|e| panic!("{e:?}"))
+            .mark_seen_delay_secs,
+        None,
+        "jamais de marquage automatique"
+    );
     let invalid = SettingsDto {
-        mark_seen_delay_secs: 61,
+        mark_seen_delay_secs: Some(61),
         ..chosen
     };
     assert_eq!(

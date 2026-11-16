@@ -933,6 +933,7 @@ impl ConversationQuery for InMemoryMailStore {
                 uid: meta.uid,
                 date: meta.sort_date(),
                 from: meta.headers.from.first().cloned(),
+                sender_auth: meta.headers.sender_auth,
                 to: meta.headers.to.clone(),
                 cc: meta.headers.cc.clone(),
                 subject: meta.headers.subject.clone(),

@@ -72,6 +72,7 @@ fn migrations() -> Migrations<'static> {
                     .map_err(|e| rusqlite_migration::HookError::Hook(e.0))
             },
         ),
+        M::up(include_str!("../migrations/0020_sender_auth.sql")),
     ])
 }
 

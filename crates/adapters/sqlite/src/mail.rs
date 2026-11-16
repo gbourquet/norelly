@@ -172,9 +172,10 @@ fn insert_message(
         .prepare_cached(
             "INSERT INTO messages (mailbox_id, uid, modseq, flags, keywords, internal_date, \
              sort_date, size, subject, from_name, from_address, to_json, cc_json, message_id, \
-             in_reply_to, refs, header_date, has_attachments, structure, conversation_id) \
+             in_reply_to, refs, header_date, has_attachments, structure, conversation_id, \
+             sender_auth) \
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, \
-             ?17, ?18, ?19, ?20)",
+             ?17, ?18, ?19, ?20, ?21)",
         )
         .map_err(store_error)?;
     stmt.execute(params![
@@ -198,6 +199,7 @@ fn insert_message(
         meta.has_attachments(),
         structure,
         conversation,
+        h.sender_auth.code(),
     ])
     .map_err(store_error)?;
     let id = tx.last_insert_rowid();

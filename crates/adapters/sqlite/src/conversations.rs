@@ -18,6 +18,7 @@ use norelly_domain::ports::{
     ConversationPage, ConversationQuery, MAX_CONVERSATION_MESSAGES, MAX_LISTED_SENDERS,
     MAX_PAGE_SIZE, MessageId, MessageLocation, MessageLocator, StoreError, StoredBody, same_sender,
 };
+use norelly_domain::sender_auth::SenderAuth;
 use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, params};
 
 use crate::mail::{SqliteMailStore, corrupted, flags_from, mailbox_id, uid_of};
@@ -358,6 +359,7 @@ type MessageRow = (
     String,
     bool,
     Option<String>,
+    String,
 );
 
 fn messages_query(
@@ -368,7 +370,7 @@ fn messages_query(
         .prepare_cached(
             "SELECT m.id, b.account_id, m.mailbox_id, m.uid, m.sort_date, m.from_name, \
              m.from_address, m.to_json, m.cc_json, m.subject, m.flags, m.keywords, \
-             m.has_attachments, m.message_id \
+             m.has_attachments, m.message_id, m.sender_auth \
              FROM messages m JOIN mailboxes b ON b.id = m.mailbox_id \
              WHERE m.conversation_id = ?1 AND m.hidden = 0 AND (m.flags & 8) = 0 \
              ORDER BY m.sort_date DESC, m.id DESC LIMIT ?2",
@@ -393,6 +395,7 @@ fn messages_query(
                 r.get(11)?,
                 r.get(12)?,
                 r.get(13)?,
+                r.get(14)?,
             ))
         })
         .map_err(store_error)?
@@ -416,6 +419,7 @@ fn messages_query(
             keywords,
             attachments,
             message_id,
+            sender_auth,
         ) = row;
         if let Some(mid) = message_id
             && !seen.insert(mid)
@@ -430,6 +434,8 @@ fn messages_query(
             date,
             from: (!from_name.is_empty() || !from_address.is_empty())
                 .then(|| Correspondent::new(&from_name, &from_address)),
+            sender_auth: SenderAuth::from_code(&sender_auth)
+                .ok_or_else(|| corrupted("authentification de l'expéditeur"))?,
             to: people(&to),
             cc: people(&cc),
             subject: header_text(&subject, MAX_SUBJECT_CHARS),

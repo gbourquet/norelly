@@ -408,6 +408,13 @@ fn folder_label_rejects_names_interpreted_by_servers() {
         " .. ",
         "a/..",
         "./a",
+        "a/ ..",
+        "a/.. ",
+        "a/ ~root",
+        "a\\..",
+        "a\\~b",
+        "x\\#y",
+        "a/\u{a0}#b",
         "~a/b",
         "a/#b",
         "Notes{3}",
@@ -456,21 +463,28 @@ fn new_and_renamed_folders_reject_reserved_names_without_delimiter() {
 #[test]
 fn moved_folder_rejects_a_reserved_kept_name() {
     // Le nom conservé vient du serveur (dossier créé par un autre client).
-    for leaf in ["~alice", "#news", "..", ".", "Notes{3}"] {
+    for leaf in ["~alice", "#news", "..", ".", " ..", "Notes{3}"] {
         let folder = format!("Projets/{leaf}");
         let mut existing = plain_account();
         existing.push(remote(&folder, Some('/')));
         assert_eq!(
             moved_folder_name(&name(&folder), None, &existing),
-            Err(FolderChangeError::Name(NewFolderError::Reserved)),
+            Err(FolderChangeError::ReservedName),
+            "{leaf}"
+        );
+        // Déjà à cet endroit : rien n'est envoyé, rien à refuser.
+        assert_eq!(
+            moved_folder_name(&name(&folder), Some(&name("Projets")), &existing),
+            Ok(name(&folder)),
             "{leaf}"
         );
     }
-    // Serveur sans séparateur : le nom entier est conservé.
+    // Serveur sans séparateur : le nom entier est conservé, et il est déjà
+    // au premier niveau.
     let flat = vec![remote("INBOX", None), remote("Notes{3}", None)];
     assert_eq!(
         moved_folder_name(&name("Notes{3}"), None, &flat),
-        Err(FolderChangeError::Name(NewFolderError::Reserved))
+        Ok(name("Notes{3}"))
     );
 }
 

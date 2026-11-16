@@ -153,6 +153,7 @@ describe("traduction des erreurs IPC", () => {
       folder_protected: true,
       folder_has_subfolders: true,
       folder_into_itself: true,
+      folder_reserved_name: true,
       folder_rename_failed: true,
       folder_move_failed: true,
       folder_delete_failed: true,

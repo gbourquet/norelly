@@ -670,16 +670,18 @@ pub fn folder_label(label: &str) -> Result<&str, NewFolderError> {
 }
 
 /// Vrai si le nom d'un dossier (dernier niveau) serait interprété par
-/// certains serveurs au lieu d'être pris tel quel : un segment (entre `/`,
-/// séparateur des chemins de fichiers, que le serveur annonce ou non un
-/// séparateur) qui commence par `~` (répertoire personnel) ou `#` (espace
-/// de noms), ou qui vaut `.` ou `..` (chemin relatif) ; ou une accolade
-/// finale, que le serveur cite en fin de ligne d'état et qu'un client
-/// prendrait pour l'annonce d'un littéral IMAP (`{3}`).
+/// certains serveurs au lieu d'être pris tel quel : un segment (entre `/`
+/// ou `\`, séparateurs des chemins de fichiers, que le serveur annonce ou
+/// non un séparateur) qui commence par `~` (répertoire personnel) ou `#`
+/// (espace de noms), ou qui vaut `.` ou `..` (chemin relatif), espaces de
+/// bord compris ; ou une accolade finale, que le serveur cite en fin de
+/// ligne d'état et qu'un client prendrait pour l'annonce d'un littéral
+/// IMAP (`{3}`).
 fn is_reserved_folder_name(name: &str) -> bool {
-    name.ends_with('}')
+    name.trim_end().ends_with('}')
         || name
-            .split('/')
+            .split(['/', '\\'])
+            .map(str::trim)
             .any(|segment| segment == "." || segment == ".." || segment.starts_with(['~', '#']))
 }
 
@@ -694,6 +696,8 @@ pub enum FolderChangeError {
     HasSubfolders,
     #[error("un dossier ne peut pas aller dans lui-même ni dans un de ses sous-dossiers")]
     IntoItself,
+    #[error("dossier dont le nom serait interprété par certains serveurs")]
+    ReservedName,
     #[error(transparent)]
     Name(#[from] NewFolderError),
 }
@@ -743,8 +747,8 @@ pub fn renamed_folder_name(
 /// au premier niveau s'il y a lieu). Un dossier ne va ni dans lui-même ni
 /// dans un de ses sous-dossiers ; un dossier du même nom à l'arrivée, à la
 /// casse près, est refusé, comme un nom conservé qu'un serveur
-/// interpréterait (voir [`folder_label`]) : il vient du serveur, qui a pu
-/// le recevoir d'un autre client. Déjà à cet endroit : son nom est renvoyé tel
+/// interpréterait (voir [`folder_label`], `ReservedName`) : il vient du
+/// serveur, qui a pu le recevoir d'un autre client. Déjà à cet endroit : son nom est renvoyé tel
 /// quel. Les dossiers protégés (voir [`renamed_folder_name`]) ne se
 /// déplacent pas.
 pub fn moved_folder_name(
@@ -760,15 +764,15 @@ pub fn moved_folder_name(
     }
     let (prefix, delimiter) = destination(parent, existing)?;
     let leaf = folder.leaf(mailbox.delimiter);
-    if is_reserved_folder_name(leaf) {
-        return Err(NewFolderError::Reserved.into());
-    }
     if let Some(d) = delimiter
         && leaf.contains(d)
     {
         return Err(NewFolderError::ContainsDelimiter(d).into());
     }
     let moved = MailboxName::parse(&format!("{prefix}{leaf}")).map_err(NewFolderError::from)?;
+    if moved != *folder && is_reserved_folder_name(leaf) {
+        return Err(FolderChangeError::ReservedName);
+    }
     let wanted = moved.as_str().to_lowercase();
     if existing
         .iter()

@@ -258,6 +258,7 @@
   "err_folder_protected": "The inbox and special folders (sent, drafts, trash…) cannot be renamed, moved or deleted.",
   "err_folder_has_subfolders": "This folder contains subfolders: delete them first.",
   "err_folder_into_itself": "A folder cannot be placed inside itself or one of its subfolders.",
+  "err_folder_reserved_name": "Some servers would interpret this folder's name (it starts with “~” or “#”, is “.” or “..”, or ends with “}”): rename it first, then move it.",
   "err_folder_rename_failed": "The folder could not be renamed on the server.",
   "err_folder_move_failed": "The folder could not be moved on the server.",
   "err_folder_delete_failed": "The folder could not be deleted on the server.",

@@ -46,6 +46,7 @@ impl From<FolderChangeError> for IpcError {
             FolderChangeError::Protected => Self::new(ErrorCodeDto::FolderProtected),
             FolderChangeError::HasSubfolders => Self::new(ErrorCodeDto::FolderHasSubfolders),
             FolderChangeError::IntoItself => Self::new(ErrorCodeDto::FolderIntoItself),
+            FolderChangeError::ReservedName => Self::new(ErrorCodeDto::FolderReservedName),
             FolderChangeError::Name(e) => e.into(),
         }
     }
@@ -280,6 +281,10 @@ mod tests {
         assert_eq!(
             change(FolderChangeError::IntoItself),
             (ErrorCodeDto::FolderIntoItself, None)
+        );
+        assert_eq!(
+            change(FolderChangeError::ReservedName),
+            (ErrorCodeDto::FolderReservedName, None)
         );
         assert_eq!(
             change(FolderChangeError::UnknownFolder).0,

@@ -1061,6 +1061,11 @@ export type ErrorCodeDto =
  */
 "folder_name_reserved" | 
 /**
+ *  Dossier à déplacer dont le nom, venu du serveur, serait interprété
+ *  par certains serveurs : le renommer d'abord.
+ */
+"folder_reserved_name" | 
+/**
  *  Nom de dossier avec le séparateur de hiérarchie du serveur
  *  (`detail` : le séparateur).
  */

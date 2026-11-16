@@ -479,7 +479,7 @@ async fn undo_during_replay_is_refused() {
     let report = w.act(&[m1], MessageAction::Delete).await;
     // Le rejeu a réservé l'opération (commandes en cours d'envoi).
     w.store
-        .claim(report.recorded[0])
+        .claim(account(), report.recorded[0])
         .await
         .unwrap_or_else(|e| panic!("{e}"));
     let undone = UndoActions { store: &w.store }
@@ -496,7 +496,7 @@ async fn undo_during_replay_is_refused() {
     let m2 = w.id_of("INBOX", 2).await;
     let flag = w.act(&[m2], MessageAction::MarkFlagged(true)).await;
     w.store
-        .claim(flag.recorded[0])
+        .claim(account(), flag.recorded[0])
         .await
         .unwrap_or_else(|e| panic!("{e}"));
     let back = w.act(&[m2], MessageAction::MarkFlagged(false)).await;

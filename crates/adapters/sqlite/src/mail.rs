@@ -333,6 +333,81 @@ fn replace(
     Ok(out)
 }
 
+/// Renomme localement le dossier `from` du compte en `to`, avec ses
+/// sous-dossiers et les opérations en attente qui les visent, en une seule
+/// transaction (`MailStore::rename_mailboxes`).
+fn rename(
+    conn: &mut Connection,
+    account: AccountId,
+    from: &MailboxName,
+    to: &MailboxName,
+) -> Result<usize, StoreError> {
+    let tx = conn
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(store_error)?;
+    let delimiter = tx
+        .query_row(
+            "SELECT delimiter FROM mailboxes WHERE account_id = ?1 AND name = ?2",
+            params![account.get(), from.as_str()],
+            |r| r.get::<_, Option<String>>(0),
+        )
+        .optional()
+        .map_err(store_error)?
+        .and_then(delimiter_of);
+    let existing: Vec<(i64, String)> = {
+        let mut stmt = tx
+            .prepare_cached("SELECT id, name FROM mailboxes WHERE account_id = ?1")
+            .map_err(store_error)?;
+        let rows = stmt
+            .query_map([account.get()], |r| Ok((r.get(0)?, r.get(1)?)))
+            .map_err(store_error)?;
+        rows.collect::<Result<_, _>>().map_err(store_error)?
+    };
+    // Nouveaux noms calculés par le domaine ; un nom illisible en base
+    // n'est pas concerné.
+    let renamed: Vec<(i64, MailboxName)> = existing
+        .iter()
+        .filter_map(|(id, name)| {
+            MailboxName::parse(name)
+                .ok()?
+                .relocated(from, to, delimiter)
+                .map(|n| (*id, n))
+        })
+        .collect();
+    // D'abord un nom provisoire, impossible pour une vraie boîte
+    // (caractère de contrôle) : aucun conflit d'unicité entre les boîtes
+    // renommées pendant l'opération.
+    for (id, _) in &renamed {
+        tx.execute(
+            "UPDATE mailboxes SET name = ?2 WHERE id = ?1",
+            params![id, format!("\u{0}{id}")],
+        )
+        .map_err(store_error)?;
+    }
+    // Boîtes qui portaient déjà un des nouveaux noms : périmées (le serveur
+    // vient de l'attribuer). Les opérations qui les visent sont abandonnées
+    // (effet local inversé) avant qu'elles ne semblent viser la boîte
+    // renommée, puis les boîtes sont supprimées avec leurs messages, comme
+    // par `replace_mailboxes`.
+    let new_names: Vec<&MailboxName> = renamed.iter().map(|(_, n)| n).collect();
+    crate::actions::revert_ops_on(&tx, account, &new_names)?;
+    for (id, name) in &renamed {
+        tx.execute(
+            "DELETE FROM mailboxes WHERE account_id = ?1 AND name = ?2",
+            params![account.get(), name.as_str()],
+        )
+        .map_err(store_error)?;
+        tx.execute(
+            "UPDATE mailboxes SET name = ?2 WHERE id = ?1",
+            params![id, name.as_str()],
+        )
+        .map_err(store_error)?;
+    }
+    crate::actions::follow_renamed(&tx, account, from, to, delimiter)?;
+    tx.commit().map_err(store_error)?;
+    Ok(renamed.len())
+}
+
 fn local(conn: &Connection, mailbox: MailboxId) -> Result<LocalMailbox, StoreError> {
     let state = conn
         .query_row(
@@ -368,6 +443,16 @@ fn local(conn: &Connection, mailbox: MailboxId) -> Result<LocalMailbox, StoreErr
 }
 
 impl MailStore for SqliteMailStore {
+    async fn rename_mailboxes(
+        &self,
+        account: AccountId,
+        from: &MailboxName,
+        to: &MailboxName,
+    ) -> Result<usize, StoreError> {
+        let (from, to) = (from.clone(), to.clone());
+        self.db.run(move |c| rename(c, account, &from, &to)).await
+    }
+
     async fn replace_mailboxes(
         &self,
         account: AccountId,

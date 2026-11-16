@@ -234,45 +234,23 @@ where
     ));
     assert!(store.pending(other).await?.is_empty());
 
-    // --- Dossiers renommés pendant l'attente : source et destination
-    // réécrites (destination ignorée pour une opération sans destination) ---
-    let (boite, archives) = (mailbox_name("Boîte"), mailbox_name("Archives/Corbeille"));
-    assert!(store.relocate(id2, &boite, Some(&archives)).await?);
-    assert!(store.relocate(id1, &boite, Some(&archives)).await?);
-    let pending = store.pending(account).await?;
+    // --- Écritures du rejeu au nom d'un autre compte : sans effet ---
+    let before = store.pending(account).await?;
     assert_eq!(
-        pending
-            .get(1)
-            .map(|(_, op)| (op.mailbox.as_str(), &op.kind)),
-        Some((
-            "Boîte",
-            &OpKind::Move {
-                to: archives.clone()
-            }
-        ))
+        store.claim(other, id2).await?,
+        None,
+        "autre compte : pas de réservation"
     );
-    assert_eq!(
-        pending
-            .first()
-            .map(|(_, op)| (op.mailbox.as_str(), &op.kind)),
-        Some(("Boîte", &op1.kind)),
-        "drapeau : source seulement"
+    assert!(
+        !store.revert(other, id2).await?,
+        "autre compte : pas d'abandon"
     );
-    let missing = norelly_domain::ports::PendingOpId::new(999_999).ok_or_else(|| fail("id"))?;
-    assert!(!store.relocate(missing, &boite, None).await?);
-    // Retour aux noms d'origine pour la suite du contrat.
-    let corbeille = mailbox_name("Corbeille");
-    assert!(store.relocate(id1, &op1.mailbox, None).await?);
-    assert!(store.relocate(id2, &op2.mailbox, Some(&corbeille)).await?);
-    assert_eq!(
-        store
-            .pending(account)
-            .await?
-            .into_iter()
-            .map(|(_, op)| op)
-            .collect::<Vec<_>>(),
-        [op1.clone(), op2.clone()]
+    assert!(
+        !store.complete(other, id1).await?,
+        "autre compte : pas de retrait"
     );
+    assert_eq!(store.pending(account).await?, before, "file intacte");
+    assert_eq!(visible_ids(store, inbox).await?, [m1], "effet local intact");
 
     // --- La synchronisation rapporte l'état du serveur, puis réapplication ---
     store
@@ -325,8 +303,12 @@ where
     assert_eq!(visible_ids(store, inbox).await?, [m1], "toujours masqué");
 
     // --- Réservation par le rejeu : plus annulable par l'utilisateur ---
-    assert_eq!(store.claim(id2).await?, Some(1));
-    assert_eq!(store.claim(id2).await?, Some(2), "chaque essai compté");
+    assert_eq!(store.claim(account, id2).await?, Some(1));
+    assert_eq!(
+        store.claim(account, id2).await?,
+        Some(2),
+        "chaque essai compté"
+    );
     assert!(
         !store.cancel(id2).await?,
         "réservée : trop tard pour annuler"
@@ -334,14 +316,17 @@ where
     assert_eq!(visible_ids(store, inbox).await?, [m1], "toujours masqué");
     assert_eq!(
         store
-            .claim(norelly_domain::ports::PendingOpId::new(999_999).ok_or_else(|| fail("id"))?)
+            .claim(
+                account,
+                norelly_domain::ports::PendingOpId::new(999_999).ok_or_else(|| fail("id"))?
+            )
             .await?,
         None
     );
 
     // --- Abandon par le rejeu : effet inversé, même réservée ---
-    assert!(store.revert(id2).await?);
-    assert!(!store.revert(id2).await?, "déjà retirée");
+    assert!(store.revert(account, id2).await?);
+    assert!(!store.revert(account, id2).await?, "déjà retirée");
     assert_eq!(
         visible_ids(store, inbox).await?,
         [m2, m1],
@@ -360,7 +345,7 @@ where
         0,
         "opération en file"
     );
-    assert!(store.complete(id3).await?);
+    assert!(store.complete(account, id3).await?);
     assert_eq!(
         visible_ids(store, trash).await?.len(),
         1,
@@ -405,8 +390,8 @@ where
         .await?;
 
     // --- Rejeu réussi : retirée, effet conservé ---
-    assert!(store.complete(id1).await?);
-    assert!(!store.complete(id1).await?);
+    assert!(store.complete(account, id1).await?);
+    assert!(!store.complete(account, id1).await?);
     assert!(store.pending(account).await?.is_empty());
     assert!(flags_of(store, inbox, m1).await?.seen);
 
@@ -500,13 +485,13 @@ where
         visible_ids(store, inbox).await?.is_empty(),
         "déplacement appliqué"
     );
-    assert!(store.revert(id_c).await?);
+    assert!(store.revert(account, id_c).await?);
     assert!(flags_of(store, inbox, m1).await?.seen, "fusion : annulée");
     // Opération réservée par le rejeu : trop tard, la nouvelle est enfilée.
     let op_d =
         PendingOp::new(&unseen, &target(store, m1).await?, 100).ok_or_else(|| fail("opération"))?;
     let id_d = record_one(store, &op_d).await?;
-    assert_eq!(store.claim(id_d).await?, Some(1));
+    assert_eq!(store.claim(account, id_d).await?, Some(1));
     let op_e =
         PendingOp::new(&seen, &target(store, m1).await?, 100).ok_or_else(|| fail("opération"))?;
     let ids = store
@@ -524,8 +509,186 @@ where
     );
     assert!(flags_of(store, inbox, m1).await?.seen);
     assert!(store.record_all(&[]).await?.is_empty());
-    assert!(store.revert(id_e).await? && store.revert(id_d).await?);
+    assert!(store.revert(account, id_e).await? && store.revert(account, id_d).await?);
     assert!(store.pending(account).await?.is_empty());
+
+    // --- Dossier renommé sur le serveur : boîtes et file suivent d'un bloc ---
+    let renamed = store
+        .replace_mailboxes(
+            account,
+            &[
+                mailbox("INBOX", MailboxRole::Inbox, true),
+                mailbox("Corbeille", MailboxRole::Trash, true),
+                mailbox("Projets", MailboxRole::Normal, true),
+                mailbox("Projets/Sous", MailboxRole::Normal, true),
+                // Périmée : le serveur va attribuer ce nom à « Projets ».
+                mailbox("Chantiers", MailboxRole::Normal, true),
+            ],
+        )
+        .await?;
+    let sous = renamed
+        .iter()
+        .find(|m| m.mailbox.name.as_str() == "Projets/Sous")
+        .map(|m| m.id)
+        .ok_or_else(|| fail("Projets/Sous"))?;
+    let folders = store.action_folders(account).await?;
+    let to_sous = Effect::MoveTo(
+        folders
+            .iter()
+            .find(|f| f.id == sous)
+            .cloned()
+            .ok_or_else(|| fail("dossier Projets/Sous"))?,
+    );
+    let in_projets = *visible_ids(store, projets)
+        .await?
+        .first()
+        .ok_or_else(|| fail("message de Projets"))?;
+    let to_trash = Effect::MoveTo(
+        folders
+            .iter()
+            .find(|f| f.id == trash)
+            .cloned()
+            .ok_or_else(|| fail("dossier Corbeille"))?,
+    );
+    // Second compte : un dossier homonyme et une opération qui le vise.
+    let other_boxes = store
+        .replace_mailboxes(other, &[mailbox("Projets", MailboxRole::Normal, true)])
+        .await?;
+    let other_projets = other_boxes
+        .first()
+        .map(|m| m.id)
+        .ok_or_else(|| fail("Projets de l'autre compte"))?;
+    store
+        .apply_sync(
+            other_projets,
+            &SyncBatch {
+                new: vec![sample_message(1, 1_000, false)],
+                state: state(3, 2, 2),
+                ..SyncBatch::default()
+            },
+        )
+        .await?;
+    let foreign = *visible_ids(store, other_projets)
+        .await?
+        .first()
+        .ok_or_else(|| fail("message de l'autre compte"))?;
+    let op_foreign = PendingOp::new(&seen, &target(store, foreign).await?, 100)
+        .ok_or_else(|| fail("opération"))?;
+    let id_foreign = record_one(store, &op_foreign).await?;
+    // Fusion avec l'opération d'un autre compte : refusée, la nouvelle est
+    // enfilée et l'autre compte n'est pas touché.
+    let op_unseen = PendingOp::new(&unseen, &target(store, in_projets).await?, 100)
+        .ok_or_else(|| fail("opération"))?;
+    let merged = store
+        .record_all(&[QueueChange::CancelOrPush {
+            existing: id_foreign,
+            op: op_unseen,
+        }])
+        .await?;
+    let [id_unseen] = merged[..] else {
+        return Err(fail("autre compte : la nouvelle opération est enfilée"));
+    };
+    assert_eq!(
+        store.pending(other).await?,
+        vec![(id_foreign, op_foreign.clone())],
+        "opération de l'autre compte non annulée"
+    );
+    assert!(store.revert(account, id_unseen).await?);
+
+    // Destination renommée (depuis INBOX), et source renommée (vers la
+    // Corbeille, destination inchangée).
+    let op_into = PendingOp::new(&to_sous, &target(store, m1).await?, 100)
+        .ok_or_else(|| fail("opération"))?;
+    let op_out = PendingOp::new(&to_trash, &target(store, in_projets).await?, 100)
+        .ok_or_else(|| fail("opération"))?;
+    let id_into = record_one(store, &op_into).await?;
+    let id_out = record_one(store, &op_out).await?;
+    // Action sur un message de la boîte périmée : abandonnée au renommage,
+    // elle ne vise pas la boîte qui prend ce nom.
+    let stale = renamed
+        .iter()
+        .find(|m| m.mailbox.name.as_str() == "Chantiers")
+        .map(|m| m.id)
+        .ok_or_else(|| fail("Chantiers"))?;
+    store
+        .apply_sync(
+            stale,
+            &SyncBatch {
+                new: vec![sample_message(1, 1_000, false)],
+                state: state(77, 2, 2),
+                ..SyncBatch::default()
+            },
+        )
+        .await?;
+    let in_stale = *visible_ids(store, stale)
+        .await?
+        .first()
+        .ok_or_else(|| fail("message périmé"))?;
+    let op_stale = PendingOp::new(&seen, &target(store, in_stale).await?, 100)
+        .ok_or_else(|| fail("opération"))?;
+    record_one(store, &op_stale).await?;
+    assert_eq!(
+        store
+            .rename_mailboxes(
+                account,
+                &mailbox_name("Projets"),
+                &mailbox_name("Chantiers")
+            )
+            .await?,
+        2
+    );
+    assert_eq!(
+        store
+            .pending(account)
+            .await?
+            .iter()
+            .map(|(id, op)| (*id, op.mailbox.as_str(), op.kind.clone()))
+            .collect::<Vec<_>>(),
+        [
+            (
+                id_into,
+                "INBOX",
+                OpKind::Move {
+                    to: mailbox_name("Chantiers/Sous")
+                }
+            ),
+            (
+                id_out,
+                "Chantiers",
+                OpKind::Move {
+                    to: mailbox_name("Corbeille")
+                }
+            ),
+        ],
+        "source et destination suivent le nouveau nom, et seulement elles"
+    );
+    assert_eq!(
+        store.pending(other).await?,
+        vec![(id_foreign, op_foreign)],
+        "file de l'autre compte intacte"
+    );
+    assert_eq!(
+        visible_ids(store, sous).await?.len(),
+        1,
+        "copie provisoire toujours visible dans la destination renommée"
+    );
+    assert!(
+        store
+            .action_folders(account)
+            .await?
+            .iter()
+            .any(|f| f.id == projets && f.name.as_str() == "Chantiers"),
+        "une nouvelle action vise le nouveau nom"
+    );
+    for id in [id_out, id_into] {
+        assert!(store.revert(account, id).await?);
+    }
+    assert!(store.revert(other, id_foreign).await?);
+    assert_eq!(
+        target(store, in_projets).await?.mailbox.name.as_str(),
+        "Chantiers",
+        "message de nouveau visible, sous le nouveau nom"
+    );
 
     // --- Dossier de repli d'« archiver » ---
     assert_eq!(store.archive_fallback(account).await?, None);

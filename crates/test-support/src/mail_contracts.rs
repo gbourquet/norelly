@@ -464,6 +464,184 @@ where
         Some(9_000),
         "ancien message 1 remplacé"
     );
+
+    rename_contract(store, account, other).await
+}
+
+/// Renommage local d'un dossier et de ses sous-dossiers
+/// ([`MailStore::rename_mailboxes`]).
+async fn rename_contract<S>(
+    store: &S,
+    account: AccountId,
+    other: AccountId,
+) -> Result<(), StoreError>
+where
+    S: MailStore + FolderTreeQuery + MessageListQuery,
+{
+    let name = |raw: &str| MailboxName::parse(raw).unwrap_or_else(|e| panic!("{raw} : {e}"));
+    let flat = |raw: &str| RemoteMailbox {
+        delimiter: None,
+        ..mailbox(raw, MailboxRole::Normal, true)
+    };
+    let boxes = store
+        .replace_mailboxes(
+            account,
+            &[
+                mailbox("INBOX", MailboxRole::Inbox, true),
+                mailbox("Projets", MailboxRole::Normal, true),
+                mailbox("Projets/2026", MailboxRole::Normal, true),
+                mailbox("Projets/2026/T1", MailboxRole::Normal, true),
+                mailbox("ProjetsBis", MailboxRole::Normal, true),
+                // Périmée : le serveur vient d'attribuer ce nom.
+                mailbox("Chantiers/2026", MailboxRole::Normal, true),
+                flat("Plat"),
+                flat("Plat/x"),
+            ],
+        )
+        .await?;
+    let id_of = |raw: &str| {
+        boxes
+            .iter()
+            .find(|m| m.mailbox.name.as_str() == raw)
+            .map(|m| m.id)
+            .unwrap_or_else(|| panic!("boîte {raw} absente"))
+    };
+    let (projets, annee, t1, bis, stale) = (
+        id_of("Projets"),
+        id_of("Projets/2026"),
+        id_of("Projets/2026/T1"),
+        id_of("ProjetsBis"),
+        id_of("Chantiers/2026"),
+    );
+    let other_boxes = store
+        .replace_mailboxes(
+            other,
+            &[
+                mailbox("INBOX", MailboxRole::Inbox, true),
+                mailbox("Projets", MailboxRole::Normal, true),
+            ],
+        )
+        .await?;
+    let other_projets = other_boxes
+        .iter()
+        .find(|m| m.mailbox.name.as_str() == "Projets")
+        .map(|m| m.id)
+        .unwrap_or_else(|| panic!("Projets de l'autre compte"));
+    let batch = SyncBatch {
+        new: vec![
+            sample_message(1, 1_000, false),
+            sample_message(2, 2_000, true),
+        ],
+        state: state(31, 7, 3),
+        ..SyncBatch::default()
+    };
+    store.apply_sync(annee, &batch).await?;
+    store
+        .apply_sync(
+            stale,
+            &SyncBatch {
+                new: vec![sample_message(9, 9_000, false)],
+                state: state(5, 1, 10),
+                ..SyncBatch::default()
+            },
+        )
+        .await?;
+    let before = store.local_mailbox(annee).await?;
+    let listed = store.page(annee, None, 10).await?.items;
+
+    assert_eq!(
+        store
+            .rename_mailboxes(account, &name("Projets"), &name("Chantiers"))
+            .await?,
+        3,
+        "le dossier et ses deux sous-dossiers"
+    );
+    let tree: Vec<(MailboxId, String)> = store
+        .tree(account)
+        .await?
+        .into_iter()
+        .map(|n| (n.id, n.name.to_string()))
+        .collect();
+    let named = |raw: &str| tree.iter().find(|(_, n)| n == raw).map(|(id, _)| *id);
+    assert_eq!(named("Chantiers"), Some(projets), "même identifiant");
+    assert_eq!(named("Chantiers/2026"), Some(annee));
+    assert_eq!(named("Chantiers/2026/T1"), Some(t1));
+    assert_eq!(named("ProjetsBis"), Some(bis), "simple préfixe : inchangé");
+    assert_eq!(named("Projets"), None, "ancien nom libéré");
+    assert!(
+        tree.iter().all(|(id, _)| *id != stale),
+        "boîte périmée supprimée : {tree:?}"
+    );
+    assert!(
+        store.local_mailbox(stale).await?.messages.is_empty(),
+        "avec ses messages"
+    );
+    assert_eq!(
+        store.local_mailbox(annee).await?,
+        before,
+        "état de synchronisation et messages gardés"
+    );
+    assert_eq!(
+        store.page(annee, None, 10).await?.items,
+        listed,
+        "mêmes messages locaux"
+    );
+    assert_eq!(
+        store
+            .tree(other)
+            .await?
+            .iter()
+            .find(|n| n.id == other_projets)
+            .map(|n| n.name.to_string()),
+        Some("Projets".to_owned()),
+        "autre compte intact"
+    );
+    // La relecture de la liste du serveur garde les identifiants.
+    let reread = store
+        .replace_mailboxes(
+            account,
+            &[
+                mailbox("INBOX", MailboxRole::Inbox, true),
+                mailbox("Chantiers", MailboxRole::Normal, true),
+                mailbox("Chantiers/2026", MailboxRole::Normal, true),
+                mailbox("Chantiers/2026/T1", MailboxRole::Normal, true),
+                mailbox("ProjetsBis", MailboxRole::Normal, true),
+                flat("Plat"),
+                flat("Plat/x"),
+            ],
+        )
+        .await?;
+    assert!(
+        reread
+            .iter()
+            .any(|m| m.mailbox.name.as_str() == "Chantiers/2026" && m.id == annee)
+    );
+    assert_eq!(store.local_mailbox(annee).await?, before);
+
+    // Sans séparateur : la boîte seule.
+    assert_eq!(
+        store
+            .rename_mailboxes(account, &name("Plat"), &name("Uni"))
+            .await?,
+        1
+    );
+    let names: BTreeSet<String> = store
+        .tree(account)
+        .await?
+        .into_iter()
+        .map(|n| n.name.to_string())
+        .collect();
+    assert!(
+        names.contains("Uni") && names.contains("Plat/x"),
+        "{names:?}"
+    );
+    // Dossier inconnu : rien à renommer.
+    assert_eq!(
+        store
+            .rename_mailboxes(account, &name("Absent"), &name("Ailleurs"))
+            .await?,
+        0
+    );
     Ok(())
 }
 
@@ -507,6 +685,73 @@ pub struct InMemoryMailStore {
 }
 
 impl MailStore for InMemoryMailStore {
+    async fn rename_mailboxes(
+        &self,
+        account: AccountId,
+        from: &MailboxName,
+        to: &MailboxName,
+    ) -> Result<usize, StoreError> {
+        let mut s = lock(&self.state);
+        let delimiter = s
+            .mailboxes
+            .iter()
+            .find(|(a, m, _)| *a == account && m.mailbox.name == *from)
+            .and_then(|(_, m, _)| m.mailbox.delimiter);
+        let renamed: BTreeMap<MailboxId, MailboxName> = s
+            .mailboxes
+            .iter()
+            .filter(|(a, _, _)| *a == account)
+            .filter_map(|(_, m, _)| {
+                m.mailbox
+                    .name
+                    .relocated(from, to, delimiter)
+                    .map(|name| (m.id, name))
+            })
+            .collect();
+        // Boîtes qui portent déjà un des nouveaux noms : périmées.
+        let taken: BTreeSet<&MailboxName> = renamed.values().collect();
+        let stale: Vec<MailboxId> = s
+            .mailboxes
+            .iter()
+            .filter(|(a, m, _)| {
+                *a == account && !renamed.contains_key(&m.id) && taken.contains(&m.mailbox.name)
+            })
+            .map(|(_, m, _)| m.id)
+            .collect();
+        let dropped: Vec<PendingOpId> = s
+            .ops
+            .iter()
+            .filter(|(_, op)| {
+                op.account == account
+                    && (taken.contains(&op.mailbox)
+                        || matches!(&op.kind, OpKind::Move { to } if taken.contains(to)))
+            })
+            .map(|(id, _)| *id)
+            .collect();
+        for id in dropped {
+            s.claimed.remove(&id);
+            if let Some(op) = s.ops.remove(&id) {
+                s.apply(revert_effect(&op));
+                s.remove_placeholders(id);
+            }
+        }
+        s.mailboxes.retain(|(_, m, _)| !stale.contains(&m.id));
+        for id in stale {
+            s.messages.remove(&id);
+        }
+        for (_, m, _) in &mut s.mailboxes {
+            if let Some(name) = renamed.get(&m.id) {
+                m.mailbox.name = name.clone();
+            }
+        }
+        for op in s.ops.values_mut().filter(|op| op.account == account) {
+            if let Some(moved) = op.follow_folder(from, to, delimiter) {
+                *op = moved;
+            }
+        }
+        Ok(renamed.len())
+    }
+
     async fn replace_mailboxes(
         &self,
         account: AccountId,
@@ -950,6 +1195,11 @@ impl ConversationQuery for InMemoryMailStore {
 }
 
 impl MemState {
+    /// L'opération `id` existe et appartient au compte `account`.
+    fn owns(&self, account: AccountId, id: PendingOpId) -> bool {
+        self.ops.get(&id).is_some_and(|op| op.account == account)
+    }
+
     fn message_mut(&mut self, id: MessageId) -> Option<&mut MemMessage> {
         self.messages
             .values_mut()
@@ -1094,6 +1344,7 @@ impl PendingOpStore for InMemoryMailStore {
                 QueueChange::Push(op) => op,
                 QueueChange::CancelOrPush { existing, op } => {
                     if !s.claimed.contains_key(existing)
+                        && s.owns(op.account, *existing)
                         && let Some(old) = s.ops.remove(existing)
                     {
                         s.apply(revert_effect(&old));
@@ -1151,31 +1402,20 @@ impl PendingOpStore for InMemoryMailStore {
             .collect())
     }
 
-    async fn relocate(
-        &self,
-        id: PendingOpId,
-        mailbox: &MailboxName,
-        target: Option<&MailboxName>,
-    ) -> Result<bool, StoreError> {
+    async fn complete(&self, account: AccountId, id: PendingOpId) -> Result<bool, StoreError> {
         let mut s = lock(&self.state);
-        let Some(op) = s.ops.get_mut(&id) else {
+        if !s.owns(account, id) {
             return Ok(false);
-        };
-        op.mailbox = mailbox.clone();
-        if let (OpKind::Move { to }, Some(target)) = (&mut op.kind, target) {
-            *to = target.clone();
         }
-        Ok(true)
-    }
-
-    async fn complete(&self, id: PendingOpId) -> Result<bool, StoreError> {
-        let mut s = lock(&self.state);
         s.claimed.remove(&id);
         Ok(s.ops.remove(&id).is_some())
     }
 
-    async fn revert(&self, id: PendingOpId) -> Result<bool, StoreError> {
+    async fn revert(&self, account: AccountId, id: PendingOpId) -> Result<bool, StoreError> {
         let mut s = lock(&self.state);
+        if !s.owns(account, id) {
+            return Ok(false);
+        }
         s.claimed.remove(&id);
         let Some(op) = s.ops.remove(&id) else {
             return Ok(false);
@@ -1198,9 +1438,9 @@ impl PendingOpStore for InMemoryMailStore {
         Ok(true)
     }
 
-    async fn claim(&self, id: PendingOpId) -> Result<Option<u32>, StoreError> {
+    async fn claim(&self, account: AccountId, id: PendingOpId) -> Result<Option<u32>, StoreError> {
         let mut s = lock(&self.state);
-        if !s.ops.contains_key(&id) {
+        if !s.owns(account, id) {
             return Ok(None);
         }
         let attempts = s.claimed.entry(id).or_insert(0);

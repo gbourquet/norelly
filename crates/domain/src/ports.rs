@@ -787,6 +787,31 @@ pub trait MailStore: Send + Sync {
         mailboxes: &[RemoteMailbox],
     ) -> impl Future<Output = Result<Vec<StoredMailbox>, StoreError>> + Send;
 
+    /// Le dossier `from` du compte vient d'être renommé (ou déplacé) en `to`
+    /// sur le serveur. En une seule transaction :
+    ///
+    /// - la boîte locale et ses sous-boîtes (selon le séparateur enregistré
+    ///   pour `from`, [`crate::mailbox::MailboxName::relocated`]) prennent
+    ///   leur nouveau nom, en gardant identifiant, état de synchronisation
+    ///   et messages : la synchronisation suivante vérifie l'UIDVALIDITY au
+    ///   lieu de tout télécharger à nouveau ;
+    /// - une boîte locale qui portait déjà un des nouveaux noms (périmée :
+    ///   le serveur vient de l'attribuer) est supprimée avec ses messages,
+    ///   et les opérations en attente qui la visent, en source ou en
+    ///   destination, sont abandonnées comme par [`PendingOpStore::revert`] ;
+    /// - les opérations en attente du compte qui visent les boîtes
+    ///   renommées, en source ou en destination, suivent le nouveau nom
+    ///   ([`crate::actions::PendingOp::follow_folder`]).
+    ///
+    /// Rien n'est touché dans les autres comptes. Renvoie le nombre de
+    /// boîtes renommées (0 si `from` est inconnu localement).
+    fn rename_mailboxes(
+        &self,
+        account: AccountId,
+        from: &MailboxName,
+        to: &MailboxName,
+    ) -> impl Future<Output = Result<usize, StoreError>> + Send;
+
     /// État et messages connus d'une boîte.
     fn local_mailbox(
         &self,
@@ -1153,29 +1178,31 @@ pub trait PendingOpStore: Send + Sync {
 
     /// Opération rejouée avec succès : retirée de la file (l'état local
     /// reflète déjà l'action). `false` si elle n'existait plus.
-    fn complete(&self, id: PendingOpId) -> impl Future<Output = Result<bool, StoreError>> + Send;
+    ///
+    /// Comme pour [`PendingOpStore::revert`] et [`PendingOpStore::claim`]
+    /// (écritures du rejeu, propres à un compte), seule une opération du compte `account` est touchée
+    /// (`false` ou `None` sinon).
+    fn complete(
+        &self,
+        account: AccountId,
+        id: PendingOpId,
+    ) -> impl Future<Output = Result<bool, StoreError>> + Send;
 
     /// Opération abandonnée par le rejeu (conflit, refus, trop d'essais) :
     /// retirée de la file et effet local inversé
     /// ([`crate::actions::revert_effect`]), qu'elle soit réservée ou non.
     /// `false` si elle n'existait plus.
-    fn revert(&self, id: PendingOpId) -> impl Future<Output = Result<bool, StoreError>> + Send;
-
-    /// Opération dont le dossier source ou la destination a été renommé (ou
-    /// déplacé) sur le serveur ([`crate::actions::PendingOp::follow_folder`]) :
-    /// nouveau dossier source `mailbox`, et nouvelle destination `target`
-    /// pour un déplacement (ignorée sinon ; `None` : inchangée). `false` si
-    /// elle n'existait plus.
-    fn relocate(
+    fn revert(
         &self,
+        account: AccountId,
         id: PendingOpId,
-        mailbox: &MailboxName,
-        target: Option<&MailboxName>,
     ) -> impl Future<Output = Result<bool, StoreError>> + Send;
 
     /// Annulation par l'utilisateur (ou fusion) : comme
     /// [`PendingOpStore::revert`], mais seulement si l'opération n'est pas
-    /// réservée par le rejeu (`false` sinon : trop tard).
+    /// réservée par le rejeu (`false` sinon : trop tard). Sans compte :
+    /// l'annulation vient de l'interface, qui ne connaît que les
+    /// identifiants rendus par l'action.
     fn cancel(&self, id: PendingOpId) -> impl Future<Output = Result<bool, StoreError>> + Send;
 
     /// Réserve l'opération pour le rejeu, avant tout envoi au serveur, et
@@ -1183,6 +1210,7 @@ pub trait PendingOpStore: Send + Sync {
     /// `None` si l'opération n'existe plus.
     fn claim(
         &self,
+        account: AccountId,
         id: PendingOpId,
     ) -> impl Future<Output = Result<Option<u32>, StoreError>> + Send;
 

@@ -691,7 +691,7 @@ describe("App", () => {
         address: "bob@example.com",
         contact: null,
         show_address: false,
-        auth: "unknown",
+        auth: "unknown" as const,
         contact_badge: false,
       },
       subject: [

@@ -6,7 +6,7 @@ const bob = {
   address: "bob@example.com",
   contact: null,
   show_address: false,
-  auth: "unknown",
+  auth: "unknown" as const,
   contact_badge: false,
 };
 
@@ -29,7 +29,7 @@ describe("texte des notifications", () => {
             address: "x@y.z",
             contact: null,
             show_address: false,
-            auth: "unknown",
+            auth: "unknown" as const,
             contact_badge: false,
           },
           "",
@@ -48,7 +48,7 @@ describe("texte des notifications", () => {
       address: "pirate@exemple.net",
       contact: null,
       show_address: true,
-      auth: "unknown",
+      auth: "unknown" as const,
       contact_badge: false,
     };
     expect(notificationText(event(1, fake, "Alerte"), "moi@example.com").title).toBe(

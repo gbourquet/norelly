@@ -25,7 +25,7 @@ function conversation(id: number, account = 1): ConversationDto {
         address: "alice@example.com",
         contact: null,
         show_address: false,
-        auth: "unknown",
+        auth: "unknown" as const,
         contact_badge: false,
       },
     ],
@@ -595,7 +595,7 @@ describe("expéditeur visé par le menu d'une ligne", () => {
       address: "bob@example.com",
       contact: null,
       show_address: false,
-      auth: "unknown",
+      auth: "unknown" as const,
       contact_badge: false,
     };
     const zoe = {
@@ -603,7 +603,7 @@ describe("expéditeur visé par le menu d'une ligne", () => {
       address: "zoe@example.com",
       contact: 3,
       show_address: false,
-      auth: "unknown",
+      auth: "unknown" as const,
       contact_badge: false,
     };
     mail.conversations = [

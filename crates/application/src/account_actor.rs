@@ -26,7 +26,7 @@ use std::time::Duration;
 use norelly_domain::account::AccountId;
 use norelly_domain::connection::{ConnectionError, TimeoutStage};
 use norelly_domain::fetch_policy::{BodyFetch, FetchPolicy};
-use norelly_domain::mailbox::{MailboxName, MailboxRole, RemoteMailbox, Uid};
+use norelly_domain::mailbox::{MailboxName, MailboxRole, RemoteMailbox, Uid, relocation_confirmed};
 use norelly_domain::ports::{
     BlobStore, ConnectRequest, FetchedBody, IdleOutcome, MailStore, PendingOpStore,
     RemoteMailboxConnector, RemoteMailboxSession, SearchTextExtractor, StoredMailbox,
@@ -901,9 +901,8 @@ where
             return Ok(());
         }
         let listed = session.list_mailboxes().await?;
-        let exists = |name: &MailboxName| listed.iter().any(|m| m.name == *name);
         for r in &pending {
-            if exists(&r.to) && !exists(&r.from) {
+            if relocation_confirmed(&r.from, &r.to, &listed) {
                 tracing::info!(account = %self.account, "dossier renommé malgré la coupure");
                 self.rename_locally(&r.from, &r.to).await;
             }

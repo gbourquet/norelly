@@ -110,30 +110,48 @@ async fn connection_loss_is_reported() {
 
 #[tokio::test]
 async fn change_abandoned_before_it_is_sent_changes_nothing() {
-    // L'appelant a renoncé pendant la lecture de la liste : la commande
-    // qui modifie le dossier ne part pas.
+    // L'appelant a renoncé pendant les lectures : la commande qui modifie
+    // le dossier ne part pas. Le point de non-retour vient après toutes
+    // les lectures et contrôles (pour une suppression : la liste, puis les
+    // sous-dossiers relus), juste avant cette commande.
     let imap = FakeImap::new();
     imap.create_mailbox("Projets", &[]);
     let projets = name("Projets");
     let changes = [
-        FolderChange::Create {
-            label: "Factures".into(),
-            parent: None,
-        },
-        FolderChange::Rename {
-            folder: projets.clone(),
-            label: "Chantiers".into(),
-        },
-        FolderChange::Move {
-            folder: projets.clone(),
-            parent: Some(name("Bla")),
-        },
-        FolderChange::Delete { folder: projets },
+        (
+            FolderChange::Create {
+                label: "Factures".into(),
+                parent: None,
+            },
+            1,
+        ),
+        (
+            FolderChange::Rename {
+                folder: projets.clone(),
+                label: "Chantiers".into(),
+            },
+            1,
+        ),
+        (
+            FolderChange::Move {
+                folder: projets.clone(),
+                parent: Some(name("Bla")),
+            },
+            1,
+        ),
+        (FolderChange::Delete { folder: projets }, 2),
     ];
     imap.create_mailbox("Bla", &[]);
-    for change in changes {
+    for (change, reads) in changes {
         let mut session = imap.session().unwrap_or_else(|e| panic!("{e}"));
-        let result = change.execute_if(&mut session, || false).await;
+        let before = imap.operations();
+        let served = imap.clone();
+        let label = format!("{change:?}");
+        let proceed = move || {
+            assert_eq!(served.operations(), before + reads, "lectures : {label}");
+            false
+        };
+        let result = change.execute_if(&mut session, proceed).await;
         assert_eq!(result, Err(FolderFailure::Abandoned), "{change:?}");
         assert_eq!(
             names(&imap).await,

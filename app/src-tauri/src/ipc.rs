@@ -1186,10 +1186,18 @@ pub struct OutboxItemDto {
 pub struct FolderDto {
     pub id: u32,
     pub name: String,
-    /// Dernier segment du nom (affichage).
+    /// Dernier segment du nom.
     pub leaf: String,
-    /// Profondeur dans la hiérarchie (0 : premier niveau).
+    /// Profondeur du nom dans la hiérarchie du serveur (0 : premier
+    /// niveau), d'après ses séparateurs.
     pub depth: u32,
+    /// Retrait affiché dans l'arbre (0 : premier niveau), décidé par le
+    /// domaine : un dossier spécial remonté en tête n'en a pas, un dossier
+    /// dont le parent n'est pas listé est placé sous son ancêtre listé.
+    pub indent: u32,
+    /// Libellé affiché d'un dossier ordinaire : dernier segment, ou chemin
+    /// depuis l'ancêtre listé quand le parent n'est pas listé.
+    pub label: String,
     pub role: String,
     pub selectable: bool,
     pub total: u32,

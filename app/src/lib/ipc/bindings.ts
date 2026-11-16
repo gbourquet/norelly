@@ -1294,10 +1294,24 @@ export type FieldDto = "address" | "display_name" | "host" | "port" | "username"
 export type FolderDto = {
 	id: number,
 	name: string,
-	/**  Dernier segment du nom (affichage). */
+	/**  Dernier segment du nom. */
 	leaf: string,
-	/**  Profondeur dans la hiérarchie (0 : premier niveau). */
+	/**
+	 *  Profondeur du nom dans la hiérarchie du serveur (0 : premier
+	 *  niveau), d'après ses séparateurs.
+	 */
 	depth: number,
+	/**
+	 *  Retrait affiché dans l'arbre (0 : premier niveau), décidé par le
+	 *  domaine : un dossier spécial remonté en tête n'en a pas, un dossier
+	 *  dont le parent n'est pas listé est placé sous son ancêtre listé.
+	 */
+	indent: number,
+	/**
+	 *  Libellé affiché d'un dossier ordinaire : dernier segment, ou chemin
+	 *  depuis l'ancêtre listé quand le parent n'est pas listé.
+	 */
+	label: string,
 	role: string,
 	selectable: boolean,
 	total: number,

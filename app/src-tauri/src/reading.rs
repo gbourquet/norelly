@@ -15,7 +15,7 @@ use norelly_domain::account::AccountId;
 use norelly_domain::connection::server_text;
 use norelly_domain::conversation::ConversationScope;
 use norelly_domain::fetch_policy::PartPath;
-use norelly_domain::mailbox::{MailboxId, MailboxRole};
+use norelly_domain::mailbox::{MailboxId, MailboxRole, place_in_display_tree};
 use norelly_domain::ports::{
     ConversationCursor, ConversationId, ConversationQuery, FolderTreeQuery, MessageId,
     ReadingPreferences,
@@ -70,8 +70,11 @@ pub async fn list_folders(
         .tree(account)
         .await
         .map_err(IpcError::storage)?;
-    tree.iter()
-        .map(|f| {
+    // Retrait et libellé affichés : décidés par le domaine, d'après l'arbre.
+    place_in_display_tree(tree)
+        .into_iter()
+        .map(|shown| {
+            let f = &shown.folder;
             let depth = f
                 .delimiter
                 .map_or(0, |d| f.name.as_str().matches(d).count());
@@ -80,6 +83,8 @@ pub async fn list_folders(
                 name: f.name.to_string(),
                 leaf: f.name.leaf(f.delimiter).to_owned(),
                 depth: u32::try_from(depth).unwrap_or(u32::MAX),
+                indent: u32::try_from(shown.indent).unwrap_or(u32::MAX),
+                label: shown.label,
                 role: f.role.as_str().to_owned(),
                 selectable: f.selectable,
                 total: f.total,

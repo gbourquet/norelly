@@ -212,20 +212,28 @@ fn load(c: &Connection, ids: &[i64]) -> Result<Vec<ContactList>, StoreError> {
         .collect())
 }
 
-/// Libère la clé de nom de la liste écartée `id` : seule colonne
-/// réécrite, le reste de la ligne (nom, description, Cci, membres) est
-/// intact, et la liste reste écartée (sa clé n'est plus celle de son nom,
-/// qui permet de la recalculer). La clé libre choisie commence par un
+/// Clés libres essayées au plus pour une liste : une seule suffit hors
+/// base piégée (identifiants jamais réutilisés).
+const MAX_RELEASE_ATTEMPTS: usize = 32;
+
+/// Libère la clé de nom de la liste écartée `id`, définitivement : seule
+/// colonne réécrite, le reste de la ligne (nom, description, Cci, membres)
+/// est intact, et la liste reste écartée (sa clé n'est plus celle de son
+/// nom, qui permet de la recalculer). La clé libre choisie commence par un
 /// caractère de contrôle, refusé dans un nom : jamais celle d'une liste
-/// lisible ; une ligne abîmée qui la porterait déjà est contournée.
+/// lisible ; une ligne abîmée qui la porterait déjà est contournée, au plus
+/// [`MAX_RELEASE_ATTEMPTS`] fois. Journalisée par son identifiant seul.
 fn release_name(tx: &Transaction<'_>, id: i64) -> Result<(), StoreError> {
     let mut key = format!("\u{1}{id}");
     let mut taken = tx
         .prepare_cached("SELECT 1 FROM contact_lists WHERE name_key = ?1")
         .map_err(store_error)?;
-    // Chaque essai est une clé nouvelle : la boucle s'arrête au plus
-    // après autant d'essais que de lignes.
+    let mut attempts = 1;
     while taken.exists(params![key]).map_err(store_error)? {
+        if attempts == MAX_RELEASE_ATTEMPTS {
+            return Err(StoreError(format!("aucune clé libre pour la liste {id}")));
+        }
+        attempts += 1;
         key.push('\u{1}');
     }
     tx.execute(
@@ -233,6 +241,7 @@ fn release_name(tx: &Transaction<'_>, id: i64) -> Result<(), StoreError> {
         params![id, key],
     )
     .map_err(store_error)?;
+    tracing::warn!(list_id = id, "nom d'une liste écartée libéré");
     Ok(())
 }
 
@@ -741,6 +750,41 @@ mod tests {
         let created = created?;
         assert_eq!(book.get_list(created.id()).await?, Some(created));
         assert_eq!(book.get_list(list.id()).await?, None);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn releasing_a_name_gives_up_after_bounded_attempts() -> Result<(), ContactListStoreError>
+    {
+        let book = book();
+        with_list(&book).await?;
+        // Base piégée : chaque clé libre essayée est déjà portée.
+        assert_eq!(MAX_RELEASE_ATTEMPTS, 32, "jeu de test à ajuster");
+        book.db
+            .write_for_tests(
+                "UPDATE contact_lists SET name = '' WHERE id = 1; \
+                 WITH RECURSIVE n(i, k) AS (SELECT 1, char(1) || '1' \
+                     UNION ALL SELECT i + 1, k || char(1) FROM n WHERE i < 32) \
+                 INSERT INTO contact_lists (name, name_key) SELECT '', k FROM n;",
+            )
+            .await?;
+        assert!(
+            matches!(
+                book.create_list(&sample_list("L", &[], false)).await,
+                Err(ContactListStoreError::Store(_))
+            ),
+            "essais non bornés"
+        );
+        let key: String = book
+            .db
+            .read_for_tests(|c| {
+                c.query_row("SELECT name_key FROM contact_lists WHERE id = 1", [], |r| {
+                    r.get(0)
+                })
+                .map_err(store_error)
+            })
+            .await?;
+        assert_eq!(key, "l", "clé libérée malgré l'échec");
         Ok(())
     }
 

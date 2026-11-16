@@ -148,42 +148,6 @@ pub struct ReplayActions<'a, S> {
     pub store: &'a S,
 }
 
-/// Cas d'usage : le dossier `from` a été renommé (ou déplacé) en `to` sur
-/// le serveur ; les opérations en attente qui le visent, en source ou en
-/// destination, lui ou un de ses sous-dossiers, suivent le nouveau nom
-/// ([`PendingOp::follow_folder`]). Sans cela, le rejeu ne trouverait plus
-/// leur dossier et les abandonnerait. Renvoie le nombre d'opérations
-/// réécrites.
-#[derive(Debug)]
-pub struct FollowFolder<'a, S> {
-    pub account: AccountId,
-    pub store: &'a S,
-}
-
-impl<S: PendingOpStore> FollowFolder<'_, S> {
-    pub async fn execute(
-        &self,
-        from: &MailboxName,
-        to: &MailboxName,
-        delimiter: Option<char>,
-    ) -> Result<usize, StoreError> {
-        let mut followed = 0;
-        for (id, op) in self.store.pending(self.account).await? {
-            let Some(moved) = op.follow_folder(from, to, delimiter) else {
-                continue;
-            };
-            let target = match &moved.kind {
-                OpKind::Move { to } => Some(to),
-                _ => None,
-            };
-            if self.store.relocate(id, &moved.mailbox, target).await? {
-                followed += 1;
-            }
-        }
-        Ok(followed)
-    }
-}
-
 /// Résultat de l'exécution d'une opération.
 enum Executed {
     /// Exécutée ; nombre de messages supprimés en trop par l'`EXPUNGE`.
@@ -206,12 +170,12 @@ impl<S: PendingOpStore> ReplayActions<'_, S> {
             // Réservée avant tout envoi : l'utilisateur ne peut plus
             // l'annuler, et chaque essai est compté (même si la session
             // tombe pendant l'envoi).
-            let Some(attempts) = self.store.claim(id).await? else {
+            let Some(attempts) = self.store.claim(self.account, id).await? else {
                 continue;
             };
             if attempts > MAX_REPLAY_ATTEMPTS {
                 tracing::warn!(account = %self.account, attempts, "opération abandonnée après trop d'essais");
-                self.store.revert(id).await?;
+                self.store.revert(self.account, id).await?;
                 report.touched.insert(op.mailbox.clone());
                 report.dropped.push((id, Some(Conflict::TooManyAttempts)));
                 continue;
@@ -236,13 +200,13 @@ impl<S: PendingOpStore> ReplayActions<'_, S> {
             }
             match outcome {
                 Executed::Done(foreign) => {
-                    self.store.complete(id).await?;
+                    self.store.complete(self.account, id).await?;
                     report.applied += 1;
                     report.foreign_expunges = report.foreign_expunges.saturating_add(foreign);
                 }
                 Executed::Dropped(conflict) => {
                     tracing::info!(account = %self.account, ?conflict, "opération abandonnée");
-                    self.store.revert(id).await?;
+                    self.store.revert(self.account, id).await?;
                     report.dropped.push((id, conflict));
                 }
             }

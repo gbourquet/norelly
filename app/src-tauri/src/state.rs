@@ -1,6 +1,7 @@
 //! Point d'assemblage (ADR-008) : adaptateurs réels branchés sur les cas
 //! d'usage.
 
+use std::collections::VecDeque;
 use std::path::Path;
 use std::sync::{Arc, Mutex, PoisonError};
 
@@ -18,7 +19,7 @@ use norelly_domain::oauth::{OAuthConfig, TokenError};
 use norelly_domain::ports::{
     DiscoveryError, SecretKey, SecretStore, SecretStoreError, SrvResolver,
 };
-use norelly_domain::ports::{OAuthClient, OAuthGrant};
+use norelly_domain::ports::{OAuthClient, OAuthGrant, PendingOpId};
 use norelly_domain::security::CertificateRejection;
 use norelly_imap::ImapConnector;
 use norelly_keyring::{FileSecretStore, SystemSecretStore};
@@ -285,6 +286,10 @@ pub struct AppState {
     /// hors du domaine de l'adresse) : aucune connexion tant que
     /// l'utilisateur ne les a pas confirmés explicitement.
     unconfirmed_hosts: Mutex<Vec<String>>,
+    /// Opérations rendues à l'interface par les dernières actions : seules
+    /// celles-là peuvent être annulées (l'interface ne peut pas annuler une
+    /// opération qu'elle n'a pas reçue, d'un autre compte par exemple).
+    undoable_ops: Mutex<VecDeque<PendingOpId>>,
 }
 
 /// Crée le répertoire de données, accessible au seul utilisateur sous Unix
@@ -326,6 +331,10 @@ fn connection_test(
 
 /// Nombre maximal de refus mémorisés.
 const MAX_PENDING_REJECTIONS: usize = 16;
+
+/// Nombre maximal d'opérations annulables mémorisées : les deux dernières
+/// actions au plus grand nombre de messages.
+const MAX_UNDOABLE_OPS: usize = 2 * norelly_domain::actions::MAX_ACTION_TARGETS;
 
 impl AppState {
     /// Assemble l'application à partir du répertoire de données
@@ -393,6 +402,7 @@ impl AppState {
             discover: DiscoverSettings::new(autoconfig, srv, TcpPortProber::default()),
             pending_rejections: Mutex::new(Vec::new()),
             unconfirmed_hosts: Mutex::new(Vec::new()),
+            undoable_ops: Mutex::new(VecDeque::new()),
         })
     }
 
@@ -450,6 +460,34 @@ impl AppState {
             pending.retain(|p| !hosts.iter().any(|h| &h.to_string() == p));
         }
         missing
+    }
+
+    /// Mémorise les opérations rendues à l'interface par une action.
+    pub fn remember_undoable(&self, ops: &[PendingOpId]) {
+        let mut known = self
+            .undoable_ops
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        known.extend(ops.iter().copied());
+        let excess = known.len().saturating_sub(MAX_UNDOABLE_OPS);
+        known.drain(..excess);
+    }
+
+    /// Retire et renvoie, parmi `ops`, celles qui ont bien été rendues à
+    /// l'interface (chacune une seule fois).
+    pub fn take_undoable(&self, ops: &[PendingOpId]) -> Vec<PendingOpId> {
+        let mut known = self
+            .undoable_ops
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let mut taken = Vec::new();
+        for op in ops {
+            if let Some(i) = known.iter().position(|k| k == op) {
+                known.remove(i);
+                taken.push(*op);
+            }
+        }
+        taken
     }
 
     /// Retire et renvoie le refus correspondant, s'il a bien été présenté.
@@ -715,6 +753,25 @@ mod tests {
         // Consommée une seule fois.
         assert_eq!(s.take_rejection("imap.example.com", &fp), Some(r));
         assert!(s.take_rejection("imap.example.com", &fp).is_none());
+    }
+
+    fn op(raw: i64) -> PendingOpId {
+        PendingOpId::new(raw).unwrap_or_else(|| panic!("opération"))
+    }
+
+    #[test]
+    fn only_returned_ops_can_be_undone_once() {
+        let s = state();
+        assert!(s.take_undoable(&[op(1)]).is_empty(), "jamais rendue");
+        s.remember_undoable(&[op(1), op(2)]);
+        assert_eq!(s.take_undoable(&[op(3), op(2), op(2)]), [op(2)]);
+        assert!(s.take_undoable(&[op(2)]).is_empty(), "une seule fois");
+        assert_eq!(s.take_undoable(&[op(1)]), [op(1)]);
+        // Mémoire bornée : les plus anciennes sont oubliées.
+        let many: Vec<PendingOpId> = (10..10 + MAX_UNDOABLE_OPS as i64 + 1).map(op).collect();
+        s.remember_undoable(&many);
+        assert!(s.take_undoable(&[op(10)]).is_empty());
+        assert_eq!(s.take_undoable(&[op(11)]), [op(11)]);
     }
 
     #[test]

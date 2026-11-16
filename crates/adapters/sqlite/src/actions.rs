@@ -67,11 +67,19 @@ fn apply_effect(c: &Connection, effect: LocalEffect) -> Result<(), StoreError> {
 }
 
 /// Retire l'opération `id` et inverse son effet local, seulement si le
-/// rejeu ne l'a pas réservée. `false` si elle est réservée ou absente.
-fn cancel_unclaimed(c: &Connection, id: PendingOpId) -> Result<bool, StoreError> {
+/// rejeu ne l'a pas réservée et, si `account` est donné, si elle est de ce
+/// compte. `false` si elle est réservée, absente ou d'un autre compte.
+fn cancel_unclaimed(
+    c: &Connection,
+    account: Option<AccountId>,
+    id: PendingOpId,
+) -> Result<bool, StoreError> {
     let Some(op) = read_op(c, id)? else {
         return Ok(false);
     };
+    if account.is_some_and(|a| a != op.account) {
+        return Ok(false);
+    }
     let n = c
         .execute(
             "DELETE FROM pending_ops WHERE id = ?1 AND claimed = 0",
@@ -313,6 +321,94 @@ fn pending_ops(
     rows.into_iter().map(op_of).collect()
 }
 
+/// Opérations en attente du compte, revalidées une à une : une ligne
+/// illisible est ignorée (elle ne bloque pas un renommage local).
+fn readable_ops(
+    c: &Connection,
+    account: AccountId,
+) -> Result<Vec<(PendingOpId, PendingOp)>, StoreError> {
+    // sql-const : seule la constante OP_COLUMNS est interpolée.
+    let mut stmt = c
+        .prepare_cached(&format!(
+            "SELECT {OP_COLUMNS} FROM pending_ops WHERE account_id = ?1 ORDER BY id"
+        ))
+        .map_err(store_error)?;
+    let rows: Vec<OpRow> = stmt
+        .query_map([account.get()], read_op_row)
+        .map_err(store_error)?
+        .collect::<Result<_, _>>()
+        .map_err(store_error)?;
+    Ok(rows.into_iter().filter_map(|row| op_of(row).ok()).collect())
+}
+
+/// Opérations en attente du compte qui visent le dossier `from` renommé
+/// en `to` (ou un de ses sous-dossiers), en source ou en destination :
+/// réécrites d'après le domaine ([`PendingOp::follow_folder`]), dans la
+/// transaction de l'appelant.
+pub(crate) fn follow_renamed(
+    c: &Connection,
+    account: AccountId,
+    from: &MailboxName,
+    to: &MailboxName,
+    delimiter: Option<char>,
+) -> Result<(), StoreError> {
+    for (id, op) in readable_ops(c, account)? {
+        let Some(moved) = op.follow_folder(from, to, delimiter) else {
+            continue;
+        };
+        // Même genre d'opération : `target` reste non nul pour un
+        // déplacement seulement.
+        let target = match &moved.kind {
+            OpKind::Move { to } => Some(to.as_str()),
+            _ => None,
+        };
+        c.prepare_cached(
+            "UPDATE pending_ops SET mailbox = ?3, target = ?4 \
+             WHERE id = ?1 AND account_id = ?2",
+        )
+        .and_then(|mut stmt| {
+            stmt.execute(params![
+                id.get(),
+                account.get(),
+                moved.mailbox.as_str(),
+                target
+            ])
+        })
+        .map_err(store_error)?;
+    }
+    Ok(())
+}
+
+/// Abandonne, comme `revert`, les opérations en attente du compte dont la
+/// source ou la destination est une des boîtes `names`, dans la
+/// transaction de l'appelant.
+pub(crate) fn revert_ops_on(
+    c: &Connection,
+    account: AccountId,
+    names: &[&MailboxName],
+) -> Result<(), StoreError> {
+    for (id, op) in readable_ops(c, account)? {
+        let target = match &op.kind {
+            OpKind::Move { to } => Some(to),
+            _ => None,
+        };
+        if !names
+            .iter()
+            .any(|n| **n == op.mailbox || target == Some(*n))
+        {
+            continue;
+        }
+        c.execute(
+            "DELETE FROM pending_ops WHERE id = ?1 AND account_id = ?2",
+            [id.get(), account.get()],
+        )
+        .map_err(store_error)?;
+        apply_effect(c, revert_effect(&op))?;
+        remove_placeholders(c, id.get())?;
+    }
+    Ok(())
+}
+
 /// Opérations en attente du compte sur des messages de `mailbox`.
 fn pending_ops_in(
     c: &Connection,
@@ -486,7 +582,7 @@ impl PendingOpStore for SqliteMailStore {
                     let op = match change {
                         QueueChange::Push(op) => op,
                         QueueChange::CancelOrPush { existing, op } => {
-                            if cancel_unclaimed(&tx, *existing)? {
+                            if cancel_unclaimed(&tx, Some(op.account), *existing)? {
                                 continue;
                             }
                             op
@@ -514,25 +610,13 @@ impl PendingOpStore for SqliteMailStore {
         self.db().run(move |c| pending_ops(c, account)).await
     }
 
-    async fn relocate(
-        &self,
-        id: PendingOpId,
-        mailbox: &MailboxName,
-        target: Option<&MailboxName>,
-    ) -> Result<bool, StoreError> {
-        let mailbox = mailbox.as_str().to_owned();
-        let target = target.map(|t| t.as_str().to_owned());
+    async fn complete(&self, account: AccountId, id: PendingOpId) -> Result<bool, StoreError> {
         self.db()
             .run(move |c| {
-                // Destination réécrite pour un déplacement seulement
-                // (contrainte `kind = 'move'` ⇔ `target` non nul).
                 let n = c
                     .execute(
-                        "UPDATE pending_ops SET mailbox = ?2, \
-                         target = CASE WHEN kind = 'move' THEN COALESCE(?3, target) \
-                         ELSE target END \
-                         WHERE id = ?1",
-                        rusqlite::params![id.get(), mailbox, target],
+                        "DELETE FROM pending_ops WHERE id = ?1 AND account_id = ?2",
+                        [id.get(), account.get()],
                     )
                     .map_err(store_error)?;
                 Ok(n > 0)
@@ -540,28 +624,20 @@ impl PendingOpStore for SqliteMailStore {
             .await
     }
 
-    async fn complete(&self, id: PendingOpId) -> Result<bool, StoreError> {
-        self.db()
-            .run(move |c| {
-                let n = c
-                    .execute("DELETE FROM pending_ops WHERE id = ?1", [id.get()])
-                    .map_err(store_error)?;
-                Ok(n > 0)
-            })
-            .await
-    }
-
-    async fn revert(&self, id: PendingOpId) -> Result<bool, StoreError> {
+    async fn revert(&self, account: AccountId, id: PendingOpId) -> Result<bool, StoreError> {
         self.db()
             .run(move |c| {
                 let tx = c
                     .transaction_with_behavior(TransactionBehavior::Immediate)
                     .map_err(store_error)?;
-                let Some(op) = read_op(&tx, id)? else {
+                let Some(op) = read_op(&tx, id)?.filter(|op| op.account == account) else {
                     return Ok(false);
                 };
-                tx.execute("DELETE FROM pending_ops WHERE id = ?1", [id.get()])
-                    .map_err(store_error)?;
+                tx.execute(
+                    "DELETE FROM pending_ops WHERE id = ?1 AND account_id = ?2",
+                    [id.get(), account.get()],
+                )
+                .map_err(store_error)?;
                 apply_effect(&tx, revert_effect(&op))?;
                 remove_placeholders(&tx, id.get())?;
                 tx.commit().map_err(store_error)?;
@@ -576,21 +652,21 @@ impl PendingOpStore for SqliteMailStore {
                 let tx = c
                     .transaction_with_behavior(TransactionBehavior::Immediate)
                     .map_err(store_error)?;
-                let cancelled = cancel_unclaimed(&tx, id)?;
+                let cancelled = cancel_unclaimed(&tx, None, id)?;
                 tx.commit().map_err(store_error)?;
                 Ok(cancelled)
             })
             .await
     }
 
-    async fn claim(&self, id: PendingOpId) -> Result<Option<u32>, StoreError> {
+    async fn claim(&self, account: AccountId, id: PendingOpId) -> Result<Option<u32>, StoreError> {
         self.db()
             .run(move |c| {
                 let attempts: Option<i64> = c
                     .query_row(
                         "UPDATE pending_ops SET claimed = 1, attempts = attempts + 1 \
-                         WHERE id = ?1 RETURNING attempts",
-                        [id.get()],
+                         WHERE id = ?1 AND account_id = ?2 RETURNING attempts",
+                        [id.get(), account.get()],
                         |r| r.get(0),
                     )
                     .optional()

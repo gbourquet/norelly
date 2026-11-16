@@ -1011,3 +1011,21 @@ fn received_headers_carry_the_sender_authentication() {
         MessageHeaders::sanitize(&pass)
     );
 }
+
+#[test]
+fn a_relocated_name_never_becomes_the_inbox() {
+    // Séparateur hostile « b » : « Pbox » sous « P » deviendrait « Inbox »,
+    // c'est-à-dire INBOX, si « P » était renommé en « In ».
+    assert_eq!(
+        name("Pbox").relocated(&name("P"), &name("In"), Some('b')),
+        None
+    );
+    assert_eq!(
+        name("P").relocated(&name("P"), &name("INBOX"), Some('/')),
+        None
+    );
+    assert_eq!(
+        name("P/x").relocated(&name("P"), &name("Q"), Some('/')),
+        Some(name("Q/x"))
+    );
+}

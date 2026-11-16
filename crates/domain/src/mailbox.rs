@@ -297,15 +297,19 @@ impl MailboxName {
 
     /// Ce nom après le renommage du dossier `from` en `to` : `to` s'il est
     /// `from`, `to` suivi du reste s'il est un de ses sous-dossiers (selon
-    /// `delimiter`) ; `None` s'il n'est pas concerné.
+    /// `delimiter`) ; `None` s'il n'est pas concerné. Jamais `INBOX` : un
+    /// séparateur hostile pourrait sinon faire passer une sous-boîte pour
+    /// la boîte de réception (« Pbox » sous « P » renommé en « In »).
     #[must_use]
     pub fn relocated(&self, from: &Self, to: &Self, delimiter: Option<char>) -> Option<Self> {
-        if self == from {
-            return Some(to.clone());
-        }
-        let d = delimiter?;
-        let rest = self.0.strip_prefix(from.as_str())?.strip_prefix(d)?;
-        Self::parse(&format!("{}{d}{rest}", to.as_str())).ok()
+        let moved = if self == from {
+            to.clone()
+        } else {
+            let d = delimiter?;
+            let rest = self.0.strip_prefix(from.as_str())?.strip_prefix(d)?;
+            Self::parse(&format!("{}{d}{rest}", to.as_str())).ok()?
+        };
+        (!moved.is_inbox()).then_some(moved)
     }
 
     #[must_use]

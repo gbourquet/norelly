@@ -81,6 +81,7 @@ async fn apply(
     for account in &report.accounts {
         state.mail.replay_soon(*account).await;
     }
+    state.remember_undoable(&report.recorded);
     Ok(ActionResultDto {
         ops: report
             .recorded
@@ -137,6 +138,8 @@ pub async fn undo_actions(state: State<'_, AppState>, ops: Vec<u32>) -> Result<u
             PendingOpId::new(i64::from(raw)).ok_or_else(|| IpcError::invalid(FieldDto::Message))
         })
         .collect::<Result<Vec<_>, _>>()?;
+    // Seules les opérations rendues par une action récente sont annulables.
+    let ids = state.take_undoable(&ids);
     let undone = UndoActions {
         store: &*state.mail.store,
     }

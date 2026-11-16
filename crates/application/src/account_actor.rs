@@ -35,7 +35,7 @@ use norelly_domain::sync::{Backoff, IDLE_RENEWAL_SECS, SelectRequest, SyncExtens
 use tokio::sync::{broadcast, mpsc, oneshot, watch};
 use tokio::task::JoinHandle;
 
-use crate::actions::{FollowFolder, ReplayActions, ReplayFailure};
+use crate::actions::{ReplayActions, ReplayFailure};
 use crate::folders::{FolderChange, FolderFailure};
 use crate::sync::{SyncAccount, SyncEvent, SyncFailure, SyncStep};
 
@@ -710,9 +710,9 @@ where
                     _ = stop.changed() => return None,
                     r = self.change_folder(session, known, &change) => r,
                 };
-                // Dossier renommé ou déplacé : relu aussitôt sous son
-                // nouveau nom, avec ses sous-dossiers (le cache local de
-                // l'ancien nom est oublié avec la liste).
+                // Dossier renommé ou déplacé : resynchronisé aussitôt sous
+                // son nouveau nom, avec ses sous-dossiers (cache local
+                // renommé, vérifié par l'UIDVALIDITY).
                 if let (FolderChange::Rename { .. } | FolderChange::Move { .. }, Ok(renamed)) =
                     (&change, &result)
                 {
@@ -787,23 +787,26 @@ where
             Err(e) => return (Err(e), None),
         };
         tracing::info!(account = %self.account, "{}", change.kind());
-        // Dossier renommé ou déplacé : les actions en attente qui le visent
-        // suivent son nouveau nom (séparateur de la liste d'avant).
-        if let FolderChange::Rename { folder, .. } | FolderChange::Move { folder, .. } = change {
-            let delimiter = known
-                .iter()
-                .find(|m| m.mailbox.name == *folder)
-                .and_then(|m| m.mailbox.delimiter);
-            let follow = FollowFolder {
-                account: self.account,
-                store: &*self.store,
-            };
-            if let Err(e) = follow.execute(folder, &changed, delimiter).await {
-                // Le dossier est bien changé sur le serveur : l'échec du
-                // stockage est journalisé, les actions concernées seront
-                // abandonnées au rejeu (état local rétabli).
-                tracing::error!(account = %self.account, error = %e, "actions en attente non suivies");
-            }
+        // Dossier renommé ou déplacé : la boîte locale, ses sous-boîtes et
+        // les actions en attente qui les visent prennent le nouveau nom en
+        // une seule transaction, avant la relecture de la liste. Le cache
+        // est gardé (la synchronisation vérifie l'UIDVALIDITY) et une action
+        // enregistrée ensuite vise le nouveau nom. Le renommage local suit
+        // la réponse du serveur sans autre attente et, une fois lancé, va au
+        // bout de sa transaction : l'arrêt du compte ne le coupe pas en deux
+        // (seul un arrêt pendant l'échange avec le serveur laisse l'issue
+        // inconnue).
+        if let FolderChange::Rename { folder, .. } | FolderChange::Move { folder, .. } = change
+            && let Err(e) = self
+                .store
+                .rename_mailboxes(self.account, folder, &changed)
+                .await
+        {
+            // Le dossier est bien changé sur le serveur : l'échec du
+            // stockage est journalisé ; la relecture de la liste oublie
+            // l'ancien nom et les actions qui le visent seront abandonnées
+            // au rejeu (état local rétabli).
+            tracing::error!(account = %self.account, error = %e, "dossier non renommé localement");
         }
         let failure = match self.use_case().sync_folders(session).await {
             Ok(mailboxes) => {

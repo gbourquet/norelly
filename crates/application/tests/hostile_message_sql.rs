@@ -27,7 +27,7 @@ use norelly_domain::compose::draft::{Draft, Recipient, RemoteCopy};
 use norelly_domain::conversation::ConversationScope;
 use norelly_domain::fetch_policy::FetchPolicy;
 use norelly_domain::mailbox::{Flags, Keyword, header_text};
-use norelly_domain::mailbox::{MailboxName, Uid, UidValidity};
+use norelly_domain::mailbox::{MailboxName, MailboxRole, RemoteMailbox, Uid, UidValidity};
 use norelly_domain::ports::{
     AccountRepository, BlobStore, ConversationQuery, DraftStore, FolderTreeQuery, MailStore,
     MessageListQuery, OutboxStore, OutgoingMessage, PageSize, PendingOpStore, ReadingPreferences,
@@ -288,6 +288,52 @@ async fn trapped_messages_cannot_alter_the_database() -> Result<(), Box<dyn std:
         l.store.archive_fallback(l.account).await?,
         Some(trapped_box.id)
     );
+    // Boîte piégée renommée sur le serveur en un autre nom piégé, avec une
+    // boîte locale périmée à ce nom : boîtes et file renommées par des
+    // requêtes paramétrées, noms relus à l'identique.
+    let renamed_name = "Renommée\"); DELETE FROM pending_ops; --";
+    let remote =
+        |name: &str, role: MailboxRole| -> Result<RemoteMailbox, Box<dyn std::error::Error>> {
+            Ok(RemoteMailbox {
+                name: MailboxName::parse(name)?,
+                delimiter: Some('/'),
+                role,
+                selectable: true,
+            })
+        };
+    l.store
+        .replace_mailboxes(
+            l.account,
+            &[
+                remote("INBOX", MailboxRole::Inbox)?,
+                remote(box_name, MailboxRole::Normal)?,
+                remote(renamed_name, MailboxRole::Normal)?,
+            ],
+        )
+        .await?;
+    let (old, new) = (
+        MailboxName::parse(box_name)?,
+        MailboxName::parse(renamed_name)?,
+    );
+    imap.session()?.rename_mailbox(&old, &new).await?;
+    assert_eq!(l.store.rename_mailboxes(l.account, &old, &new).await?, 1);
+    assert_eq!(l.db.integrity_problems().await?, Vec::<String>::new());
+    assert_eq!(l.db.schema().await?, schema_before, "schéma modifié");
+    let tree = l.store.tree(l.account).await?;
+    assert_eq!(tree.len(), 2, "boîte périmée remplacée, rien d'autre");
+    assert!(
+        tree.iter()
+            .any(|n| n.id == trapped_box.id && n.name.as_str() == renamed_name),
+        "même boîte, nom relu à l'identique : {tree:?}"
+    );
+    let pending = l.store.pending(l.account).await?;
+    assert_eq!(pending.len(), 2 * PAYLOADS.len(), "file intacte");
+    for (_, op) in &pending {
+        if let OpKind::Move { to } = &op.kind {
+            assert_eq!(to.as_str(), renamed_name, "destination renommée");
+        }
+    }
+
     let mut session = imap.session()?;
     let replayed = ReplayActions {
         account: l.account,
@@ -301,7 +347,7 @@ async fn trapped_messages_cannot_alter_the_database() -> Result<(), Box<dyn std:
     // Sur le serveur : tout est dans la boîte piégée, suivi, mots-clés
     // intacts.
     assert!(imap.flags_of("INBOX").is_empty());
-    let on_server = imap.flags_of(box_name);
+    let on_server = imap.flags_of(renamed_name);
     assert_eq!(on_server.len(), 2 * PAYLOADS.len());
     assert_eq!(
         on_server
@@ -322,7 +368,7 @@ async fn trapped_messages_cannot_alter_the_database() -> Result<(), Box<dyn std:
             .sum::<u32>()
     };
     assert_eq!(total(&|n| n == "INBOX"), 0);
-    assert_eq!(total(&|n| n == box_name) as usize, 2 * PAYLOADS.len());
+    assert_eq!(total(&|n| n == renamed_name) as usize, 2 * PAYLOADS.len());
 
     // Rédaction : brouillon et file d'envoi aux champs piégés,
     // relus à l'identique, sans effet sur la base.
@@ -424,7 +470,7 @@ async fn trapped_messages_cannot_alter_the_database() -> Result<(), Box<dyn std:
         PAYLOADS[3].replace('"', "'"),
     );
     imap.append(
-        box_name,
+        renamed_name,
         with_attachment.as_bytes(),
         Flags::default(),
         1_700_000_000,

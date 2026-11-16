@@ -304,3 +304,125 @@ pub async fn actions(kind: ImapServerKind, tag: &str, hidden: &[&str]) -> TestRe
     l.assert_converged(&direct, &req, trash).await;
     Ok(())
 }
+
+/// Dossier renommé par l'acteur pendant que des actions attendent leur
+/// rejeu : le cache local suit le nouveau nom (mêmes boîte et messages,
+/// rien n'est téléchargé à nouveau) et les actions, enregistrées avant le
+/// renommage, sont rejouées sous le nouveau nom.
+pub async fn renamed_folder_keeps_its_cache_and_pending_actions(
+    kind: ImapServerKind,
+) -> TestResult {
+    use norelly_domain::actions::OpKind;
+    use norelly_domain::mailbox::MailboxName;
+
+    let s = start(kind).await?;
+    s.control.create("Projets").await?;
+    for n in 1..=3 {
+        s.control.append("Projets", &raw_message(n), false).await?;
+    }
+    s.control.append("INBOX", &raw_message(10), false).await?;
+    let l = local("renommage").await;
+    let conn = Arc::new(connector(&s.ca, FAST));
+    let req = request(&s.host, s.port);
+    let handle = spawn(
+        l.account,
+        req.clone(),
+        Arc::clone(&conn),
+        Arc::clone(&l.store),
+        Arc::clone(&l.blobs),
+        Arc::new(norelly_render::search_text::MimeTextExtractor),
+        ActorConfig {
+            backoff: Backoff::new(100, 1_000),
+            ..ActorConfig::default()
+        },
+    );
+    let mut events = handle.subscribe();
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
+    loop {
+        match tokio::time::timeout_at(deadline, events.recv()).await?? {
+            SyncEvent::Online { .. } => break,
+            SyncEvent::Offline { failure, .. } => panic!("hors ligne : {failure}"),
+            _ => {}
+        }
+    }
+    let page_of = |name: &'static str| {
+        let l = &l;
+        async move {
+            let id = l.id(name).await.ok_or(name)?;
+            let page = l.store.page(id, None, 100).await?;
+            Ok::<_, Box<dyn std::error::Error>>((
+                id,
+                page.items.iter().map(|i| i.id).collect::<Vec<_>>(),
+            ))
+        }
+    };
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
+    while l.messages("Projets").await.len() != 3 || l.messages("INBOX").await.len() != 1 {
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "synchronisation initiale"
+        );
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    let (projets, cached) = page_of("Projets").await?;
+    let (_, inbox) = page_of("INBOX").await?;
+    // Actions dans la fenêtre d'annulation : elles attendent leur rejeu
+    // pendant le renommage.
+    let first = *cached.first().ok_or("message de Projets")?;
+    PerformAction { store: &*l.store }
+        .execute(&[first], MessageAction::MarkSeen(true), unix_now())
+        .await?;
+    PerformAction { store: &*l.store }
+        .execute(&inbox, MessageAction::Move(projets), unix_now())
+        .await?;
+
+    let renamed = tokio::time::timeout(
+        Duration::from_secs(20),
+        handle
+            .client()
+            .rename_folder(MailboxName::parse("Projets")?, "Chantiers".into()),
+    )
+    .await?;
+    assert_eq!(renamed, Ok(MailboxName::parse("Chantiers")?));
+    assert_eq!(l.id("Projets").await, None, "ancien nom libéré");
+    let (chantiers, kept) = page_of("Chantiers").await?;
+    assert_eq!(chantiers, projets, "même boîte locale");
+    assert!(
+        cached.iter().all(|id| kept.contains(id)),
+        "messages locaux gardés : {cached:?} / {kept:?}"
+    );
+    let queue = l.store.pending(l.account).await?;
+    assert_eq!(queue.len(), 2, "{queue:?}");
+    assert!(
+        queue
+            .iter()
+            .all(|(_, op)| op.mailbox.as_str() == "Chantiers"
+                || matches!(&op.kind, OpKind::Move { to } if to.as_str() == "Chantiers")),
+        "actions en attente sous le nouveau nom : {queue:?}"
+    );
+
+    // Rejeu après la fenêtre d'annulation : sous le nouveau nom.
+    let direct = connector(&s.ca, FAST);
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
+    loop {
+        handle.replay_soon();
+        let server = server_flags(&direct, &req, "Chantiers").await;
+        if server.len() == 4 && server.values().filter(|f| f.seen).count() == 1 {
+            break;
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "actions rejouées sous le nouveau nom : {server:?}"
+        );
+        tokio::time::sleep(Duration::from_millis(500)).await;
+    }
+    assert!(server_flags(&direct, &req, "INBOX").await.is_empty());
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
+    while !l.store.pending(l.account).await?.is_empty() {
+        assert!(tokio::time::Instant::now() < deadline, "file vidée");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert_eq!(page_of("Chantiers").await?.0, projets);
+    handle.shutdown().await;
+    Ok(())
+}

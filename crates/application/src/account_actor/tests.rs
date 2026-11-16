@@ -2,8 +2,8 @@ use std::time::Duration;
 
 use norelly_domain::credentials::{Credentials, Secret, Username};
 use norelly_domain::endpoint::{Host, Security, ServerEndpoint};
-use norelly_domain::mailbox::{Flags, FolderChangeError};
-use norelly_domain::ports::{FolderTreeQuery, MailStore};
+use norelly_domain::mailbox::{Flags, FolderChangeError, MailboxId};
+use norelly_domain::ports::{FolderTreeQuery, MailStore, MessageId};
 use norelly_domain::security::PlaintextPolicy;
 use norelly_test_support::fake_imap::FakeImap;
 use norelly_test_support::fakes::FakeMailServers;
@@ -776,6 +776,40 @@ async fn abandoned_folder_request_is_not_sent() {
     r.handle.shutdown().await;
 }
 
+/// Identifiant local du dossier `raw` et de ses messages, une fois ses
+/// `total` messages synchronisés.
+async fn local_cache(r: &Running, raw: &str, total: u32) -> (MailboxId, Vec<MessageId>) {
+    use norelly_domain::ports::MessageListQuery;
+
+    let deadline = tokio::time::Instant::now() + WAIT;
+    loop {
+        let node = r
+            .store
+            .tree(account())
+            .await
+            .unwrap_or_else(|e| panic!("{e}"))
+            .into_iter()
+            .find(|n| n.name.as_str() == raw && n.total == total);
+        if let Some(node) = node {
+            let ids = r
+                .store
+                .page(node.id, None, 100)
+                .await
+                .unwrap_or_else(|e| panic!("{e}"))
+                .items
+                .into_iter()
+                .map(|i| i.id)
+                .collect();
+            return (node.id, ids);
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "dossier {raw} synchronisé"
+        );
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+}
+
 /// Total local du dossier `raw`, s'il est connu.
 async fn local_total(r: &Running, raw: &str) -> Option<u32> {
     r.store
@@ -803,6 +837,8 @@ async fn renamed_folder_is_listed_and_synchronised_at_once() {
     );
     let mut r = start(&imap);
     wait_for(&mut r.events, WAIT, online).await;
+    let projets = local_cache(&r, "Projets", 1).await;
+    let annee = local_cache(&r, "Projets/2026", 1).await;
     let client = r.handle.client();
     let renamed = tokio::time::timeout(
         WAIT,
@@ -828,7 +864,11 @@ async fn renamed_folder_is_listed_and_synchronised_at_once() {
         assert!(tokio::time::Instant::now() < deadline, "dossiers relus");
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
-    assert_eq!(local_total(&r, "Projets").await, None, "ancien nom oublié");
+    assert_eq!(local_total(&r, "Projets").await, None, "ancien nom libéré");
+    // Cache local gardé sous le nouveau nom : mêmes boîtes, mêmes
+    // messages, rien n'est téléchargé à nouveau.
+    assert_eq!(local_cache(&r, "Chantiers", 1).await, projets);
+    assert_eq!(local_cache(&r, "Chantiers/2026", 1).await, annee);
 
     // Refus du domaine : l'acteur reste en ligne et sert la suite.
     let inbox = client
@@ -851,6 +891,8 @@ async fn moved_folder_is_listed_and_synchronised_at_once() {
     imap.append("Bli/2026", b"Subject: deux\r\n\r\ny", Flags::default(), 2);
     let mut r = start(&imap);
     wait_for(&mut r.events, WAIT, online).await;
+    let bli = local_cache(&r, "Bli", 1).await;
+    let annee = local_cache(&r, "Bli/2026", 1).await;
     let name = |raw: &str| MailboxName::parse(raw).unwrap_or_else(|e| panic!("{e}"));
     let moved = tokio::time::timeout(
         WAIT,
@@ -871,7 +913,13 @@ async fn moved_folder_is_listed_and_synchronised_at_once() {
         assert!(tokio::time::Instant::now() < deadline, "dossiers relus");
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
-    assert_eq!(local_total(&r, "Bli").await, None, "ancien nom oublié");
+    assert_eq!(local_total(&r, "Bli").await, None, "ancien nom libéré");
+    assert_eq!(
+        local_cache(&r, "Bla/Bli", 1).await,
+        bli,
+        "cache local gardé"
+    );
+    assert_eq!(local_cache(&r, "Bla/Bli/2026", 1).await, annee);
     r.handle.shutdown().await;
 }
 

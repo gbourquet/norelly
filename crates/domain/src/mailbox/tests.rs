@@ -873,6 +873,7 @@ fn received_headers_carry_the_sender_authentication() {
     let trust = AuthServTrust::for_imap_host(&host);
     let raw = |results: Vec<&'static str>| RawHeaders {
         from: vec![("Banque", "contact@banque.fr")],
+        from_fields: 1,
         authentication_results: results,
         ..RawHeaders::default()
     };
@@ -889,6 +890,16 @@ fn received_headers_carry_the_sender_authentication() {
     let foreign = raw(vec!["mx.pirate.net; dmarc=pass header.from=banque.fr"]);
     assert_eq!(
         MessageHeaders::sanitize_received(&foreign, &trust).sender_auth,
+        SenderAuth::Unknown
+    );
+    // Plusieurs champs `From` : celui qui s'affiche n'est peut-être pas
+    // celui qui a été vérifié.
+    let two_from = RawHeaders {
+        from_fields: 2,
+        ..raw(vec!["mx.exemple.fr; dmarc=pass header.from=banque.fr"])
+    };
+    assert_eq!(
+        MessageHeaders::sanitize_received(&two_from, &trust).sender_auth,
         SenderAuth::Unknown
     );
     // Sans confiance (rédaction, en-têtes locaux) : aucun verdict.

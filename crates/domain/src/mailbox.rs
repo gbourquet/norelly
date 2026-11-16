@@ -976,6 +976,8 @@ pub struct RawHeaders<'a> {
     /// Valeurs brutes des en-têtes `Authentication-Results`, dans l'ordre
     /// du message.
     pub authentication_results: Vec<&'a str>,
+    /// Nombre de champs `From` du message.
+    pub from_fields: usize,
 }
 
 impl MessageHeaders {
@@ -1013,11 +1015,17 @@ impl MessageHeaders {
     #[must_use]
     pub fn sanitize_received(raw: &RawHeaders<'_>, trust: &AuthServTrust) -> Self {
         let headers = Self::sanitize(raw);
-        let sender_auth = SenderAuth::evaluate(
-            trust,
-            raw.authentication_results.iter().copied(),
-            &headers.from,
-        );
+        // Plusieurs champs `From` : celui qui s'affiche n'est peut-être pas
+        // celui qu'a vérifié le serveur.
+        let sender_auth = if raw.from_fields > 1 {
+            SenderAuth::Unknown
+        } else {
+            SenderAuth::evaluate(
+                trust,
+                raw.authentication_results.iter().copied(),
+                &headers.from,
+            )
+        };
         Self {
             sender_auth,
             ..headers

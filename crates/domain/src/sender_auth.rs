@@ -58,10 +58,12 @@ impl SenderAuth {
     /// `headers` (valeurs brutes, dans l'ordre du message, du plus récent
     /// au plus ancien) et d'expéditeurs `from`.
     ///
-    /// Seul le premier en-tête posé par un serveur de confiance (`trust`)
-    /// compte : c'est le dernier ajouté, par le serveur qui a reçu le
-    /// message ; ceux qui le suivent ont pu être écrits par l'expéditeur.
-    /// Sans `From` unique et valide : [`SenderAuth::Unknown`].
+    /// Seul le premier en-tête du message compte : c'est le dernier ajouté,
+    /// par le serveur qui a remis le message ; ceux qui le suivent ont pu
+    /// être écrits par l'expéditeur. Il doit avoir été posé par un serveur
+    /// de confiance (`trust`), sinon : [`SenderAuth::Unknown`], même si un
+    /// en-tête plus bas se réclame d'un serveur de confiance. Sans `From`
+    /// unique et valide : [`SenderAuth::Unknown`].
     #[must_use]
     pub fn evaluate<'a>(
         trust: &AuthServTrust,
@@ -76,13 +78,45 @@ impl SenderAuth {
         };
         headers
             .into_iter()
-            .take(MAX_EXAMINED_HEADERS)
-            .filter_map(AuthenticationResults::parse)
-            .find(|results| trust.trusts(&results.authserv_id))
+            .next()
+            .and_then(AuthenticationResults::parse)
+            .filter(|results| trust.trusts(&results.authserv_id))
             .map_or(Self::Unknown, |results| {
                 results.verdict(address.domain().as_str())
             })
     }
+}
+
+/// Champs d'en-tête utiles à la vérification de l'expéditeur, relevés
+/// dans un bloc d'en-têtes reçu.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ReceivedFields {
+    /// Valeurs des `Authentication-Results`, dans l'ordre du message (au
+    /// plus [`MAX_EXAMINED_HEADERS`]) ; un octet qui n'est pas de l'UTF-8
+    /// est remplacé, jamais l'en-tête écarté (il resterait alors à un
+    /// en-tête plus bas de décider).
+    pub authentication_results: Vec<String>,
+    /// Nombre de champs `From`.
+    pub from_fields: usize,
+}
+
+/// Relève les [`ReceivedFields`] de champs `(nom, octets de la valeur)`
+/// donnés dans l'ordre du message (noms sans tenir compte de la casse).
+pub fn received_fields<'a>(
+    fields: impl IntoIterator<Item = (&'a str, &'a [u8])>,
+) -> ReceivedFields {
+    let mut out = ReceivedFields::default();
+    for (name, value) in fields {
+        if name.eq_ignore_ascii_case("Authentication-Results") {
+            if out.authentication_results.len() < MAX_EXAMINED_HEADERS {
+                out.authentication_results
+                    .push(String::from_utf8_lossy(value).into_owned());
+            }
+        } else if name.eq_ignore_ascii_case("From") {
+            out.from_fields = out.from_fields.saturating_add(1);
+        }
+    }
+    out
 }
 
 /// Nombre maximal d'en-têtes `Authentication-Results` examinés par
@@ -110,9 +144,12 @@ pub const PROVIDER_ALIASES: [(&str, &[&str]); 3] = [
 
 /// Deuxièmes niveaux d'usage courant sous un domaine de pays
 /// (`co.uk`, `com.au`) : `exemple.co.uk` est un domaine complet, pas un
-/// sous-domaine de `co.uk`.
-const SECOND_LEVELS: [&str; 10] = [
-    "co", "com", "org", "net", "gov", "gouv", "ac", "edu", "ne", "or",
+/// sous-domaine de `co.uk`. Tout deuxième niveau de trois lettres au plus
+/// sous un domaine de pays (`qc.ca`, `nhs.uk`) est traité de même
+/// ([`is_country_second_level`]).
+const SECOND_LEVELS: [&str; 14] = [
+    "co", "com", "org", "net", "gov", "gouv", "ac", "edu", "ne", "or", "asso", "nom", "presse",
+    "tm",
 ];
 
 /// `authserv-id` de confiance pour un compte.
@@ -170,13 +207,27 @@ impl AuthServTrust {
 fn imap_domain(host: &str) -> String {
     let labels: Vec<&str> = host.split('.').collect();
     let rest = labels.get(1..).unwrap_or_default();
-    let country_second_level = rest.len() == 2
-        && rest.first().is_some_and(|l| SECOND_LEVELS.contains(l))
-        && rest.get(1).is_some_and(|tld| tld.len() == 2);
-    if labels.len() >= 3 && !country_second_level {
+    if labels.len() >= 3 && !is_country_second_level(rest) {
         rest.join(".")
     } else {
         host.to_owned()
+    }
+}
+
+/// Vrai si `labels` forment un deuxième niveau sous un domaine de pays,
+/// que personne ne possède en propre (`co.uk`, `com.au`, `qc.ca`) : une
+/// étiquette de [`SECOND_LEVELS`] ou de trois lettres au plus, puis deux
+/// lettres. Prudent par construction : `imap.ovh.fr` garde alors son
+/// nom complet comme domaine (moins d'`authserv-id` de confiance, jamais
+/// davantage).
+fn is_country_second_level(labels: &[&str]) -> bool {
+    match labels {
+        [second, tld] => {
+            tld.len() == 2
+                && tld.bytes().all(|b| b.is_ascii_alphabetic())
+                && (SECOND_LEVELS.contains(second) || second.chars().count() <= 3)
+        }
+        _ => false,
     }
 }
 
@@ -227,17 +278,33 @@ impl AuthenticationResults {
         }
         let tokens = tokens(value);
         let mut segments = tokens.split(|t| *t == Token::Semicolon);
-        let authserv_id = match segments.next()?.first()? {
+        let head = segments.next()?;
+        // Sans `authserv-id` (`spf=pass …`, forme de Microsoft 365) : le
+        // premier mot est une méthode, pas un serveur.
+        if head.contains(&Token::Equals) {
+            return None;
+        }
+        let authserv_id = match head.first()? {
             Token::Word(id) => id.trim_end_matches('.').to_ascii_lowercase(),
             _ => return None,
         };
         if authserv_id.is_empty() {
             return None;
         }
-        let results = segments
-            .filter_map(method_result)
-            .take(MAX_RESULTS)
-            .collect();
+        // Plafond sur le nombre de résultats, sauf pour DMARC : l'expéditeur
+        // choisit le nombre de signatures (donc de résultats DKIM) et ne
+        // doit pas pouvoir repousser le verdict DMARC au-delà. Le nombre de
+        // résultats DMARC reste borné par la longueur de l'en-tête.
+        let mut results = Vec::new();
+        let mut others = 0_usize;
+        for result in segments.filter_map(method_result) {
+            if result.method == "dmarc" {
+                results.push(result);
+            } else if others < MAX_RESULTS {
+                others += 1;
+                results.push(result);
+            }
+        }
         Some(Self {
             authserv_id,
             results,
@@ -245,36 +312,40 @@ impl AuthenticationResults {
     }
 
     /// Verdict de cet en-tête pour un `From` du domaine `from_domain` :
-    /// un résultat DMARC sur ce domaine fait foi (réussi ou échoué) ;
-    /// sinon une signature DKIM valide d'un domaine aligné atteste
-    /// l'expéditeur, et à défaut une signature alignée invalide le met en
-    /// échec.
+    /// avec un résultat DMARC, lui seul fait foi (un échec sur ce domaine
+    /// l'emporte ; un succès ne compte que s'il est l'unique résultat DMARC
+    /// et nomme ce domaine par `header.from`) ; sans résultat DMARC, une
+    /// signature DKIM valide d'un domaine aligné atteste l'expéditeur. Une signature invalide n'est pas un
+    /// échec de l'expéditeur (liste de diffusion, transfert).
     fn verdict(&self, from_domain: &str) -> SenderAuth {
-        let dmarc = self
+        let dmarc: Vec<&MethodResult> = self
             .results
             .iter()
             .filter(|r| r.method == "dmarc")
-            .find(|r| {
-                r.property("header.from")
-                    .is_none_or(|d| d.eq_ignore_ascii_case(from_domain))
-                    && matches!(r.result.as_str(), "pass" | "fail")
-            });
-        match dmarc.map(|r| r.result.as_str()) {
-            Some("pass") => return SenderAuth::Pass,
-            Some("fail") => return SenderAuth::Fail,
-            _ => {}
-        }
-        let aligned: Vec<&str> = self
-            .results
-            .iter()
-            .filter(|r| r.method == "dkim")
-            .filter(|r| dkim_domain(r).is_some_and(|d| aligned(&d, from_domain)))
-            .map(|r| r.result.as_str())
             .collect();
-        if aligned.contains(&"pass") {
+        if !dmarc.is_empty() {
+            let about_from = |r: &&&MethodResult| {
+                r.property("header.from")
+                    .is_some_and(|d| d.trim_end_matches('.').eq_ignore_ascii_case(from_domain))
+            };
+            // Un échec l'emporte ; un succès ne vaut que seul : plusieurs
+            // résultats DMARC trahissent un en-tête ambigu, peut-être
+            // complété par l'expéditeur (donnée recopiée sans échappement).
+            if dmarc.iter().filter(about_from).any(|r| r.result == "fail") {
+                return SenderAuth::Fail;
+            }
+            return match dmarc.as_slice() {
+                [only] if about_from(&only) && only.result == "pass" => SenderAuth::Pass,
+                _ => SenderAuth::Unknown,
+            };
+        }
+        let signed = self.results.iter().any(|r| {
+            r.method == "dkim"
+                && r.result == "pass"
+                && dkim_domain(r).is_some_and(|d| aligned(&d, from_domain))
+        });
+        if signed {
             SenderAuth::Pass
-        } else if aligned.contains(&"fail") {
-            SenderAuth::Fail
         } else {
             SenderAuth::Unknown
         }
@@ -298,9 +369,12 @@ fn dkim_domain(result: &MethodResult) -> Option<String> {
 /// Vrai si le domaine signataire `signer` est aligné sur `from_domain`
 /// (alignement relâché) : le même domaine, ou un domaine parent du `From`
 /// (`banque.fr` pour `news.banque.fr`), jamais un domaine de premier
-/// niveau seul.
+/// niveau seul ni un deuxième niveau de pays (`co.uk`).
 fn aligned(signer: &str, from_domain: &str) -> bool {
-    signer.contains('.') && within(&from_domain.to_ascii_lowercase(), signer)
+    let labels: Vec<&str> = signer.split('.').collect();
+    labels.len() >= 2
+        && !is_country_second_level(&labels)
+        && within(&from_domain.to_ascii_lowercase(), signer)
 }
 
 /// Résultat d'un segment (`méthode=résultat propriété=valeur…`) ; `None`
@@ -465,6 +539,16 @@ mod tests {
         let t = trust("imap.exemple.co.uk");
         assert!(t.trusts("mx.exemple.co.uk"));
         assert!(!t.trusts("pirate.co.uk"));
+        // Deuxième niveau court sous un domaine de pays, même inconnu de
+        // la liste : jamais pris pour le domaine du compte.
+        for host in ["exemple.qc.ca", "exemple.gc.ca", "exemple.nhs.uk"] {
+            let t = trust(host);
+            assert!(t.trusts(&format!("mx.{host}")), "{host}");
+            let suffix = host.split_once('.').map_or("", |(_, s)| s);
+            assert!(!t.trusts(&format!("pirate.{suffix}")), "{host}");
+        }
+        assert!(trust("imap.exemple.qc.ca").trusts("mx.exemple.qc.ca"));
+        assert!(!trust("imap.exemple.qc.ca").trusts("pirate.qc.ca"));
     }
 
     #[test]
@@ -571,14 +655,15 @@ mod tests {
             ),
             SenderAuth::Pass
         );
-        // `header.from` absent : le verdict porte sur le `From` du message.
+        // `header.from` absent : rien ne dit quel `From` a été vérifié (un
+        // message peut en porter plusieurs).
         assert_eq!(
             verdict(
                 "imap.exemple.fr",
                 &["mx.exemple.fr; dmarc=pass"],
                 "a@banque.fr"
             ),
-            SenderAuth::Pass
+            SenderAuth::Unknown
         );
     }
 
@@ -653,9 +738,27 @@ mod tests {
             ),
             SenderAuth::Unknown
         );
+        // Une signature cassée (liste de diffusion, transfert) n'est pas un
+        // échec de l'expéditeur : seul DMARC le constate.
         assert_eq!(
             at("mx.exemple.fr; dkim=fail header.d=banque.fr", "a@banque.fr"),
-            SenderAuth::Fail
+            SenderAuth::Unknown
+        );
+        // Un deuxième niveau de pays n'atteste aucun domaine.
+        assert_eq!(
+            at("mx.exemple.fr; dkim=pass header.d=co.uk", "a@banque.co.uk"),
+            SenderAuth::Unknown
+        );
+        assert_eq!(
+            at("mx.exemple.fr; dkim=pass header.d=qc.ca", "a@banque.qc.ca"),
+            SenderAuth::Unknown
+        );
+        assert_eq!(
+            at(
+                "mx.exemple.fr; dkim=pass header.d=banque.co.uk",
+                "a@banque.co.uk"
+            ),
+            SenderAuth::Pass
         );
         assert_eq!(
             at(
@@ -698,17 +801,127 @@ mod tests {
             ),
             SenderAuth::Unknown
         );
+        // Seul l'en-tête du dessus, posé en dernier, compte : un en-tête de
+        // confiance plus bas a pu être écrit par l'expéditeur.
         assert_eq!(
             verdict(
                 "imap.gmail.com",
                 &[
-                    "mx.pirate.net; dmarc=pass",
-                    "mx.google.com; dmarc=fail header.from=banque.fr"
+                    "mx.pirate.net; dmarc=fail header.from=banque.fr",
+                    "mx.google.com; dmarc=pass header.from=banque.fr"
                 ],
                 "a@banque.fr"
             ),
+            SenderAuth::Unknown
+        );
+    }
+
+    #[test]
+    fn a_header_without_authserv_id_is_rejected_and_hides_those_below() {
+        // Forme de Microsoft 365 : pas d'`authserv-id`.
+        let microsoft = "spf=pass (sender IP is 192.0.2.1) smtp.mailfrom=banque.fr; \
+                         dkim=pass header.d=banque.fr; dmarc=fail action=none header.from=banque.fr";
+        assert_eq!(AuthenticationResults::parse(microsoft), None);
+        assert_eq!(AuthenticationResults::parse("dmarc=pass"), None);
+        assert_eq!(
+            AuthenticationResults::parse("mx = exemple.fr; dmarc=pass"),
+            None
+        );
+        assert_eq!(
+            verdict(
+                "outlook.office365.com",
+                &[
+                    microsoft,
+                    "x.protection.outlook.com; dmarc=pass header.from=banque.fr"
+                ],
+                "a@banque.fr"
+            ),
+            SenderAuth::Unknown
+        );
+    }
+
+    /// Un serveur qui recopie mal une donnée de l'expéditeur (adresse de
+    /// `MAIL FROM` dans un commentaire) peut y laisser injecter un
+    /// résultat : un échec DMARC l'emporte, et plusieurs résultats DMARC
+    /// sans échec ne valent rien.
+    #[test]
+    fn injected_dmarc_results_never_vouch_for_the_sender() {
+        let at = |header: &str| verdict("imap.exemple.fr", &[header], "a@banque.fr");
+        assert_eq!(
+            at(
+                "mx.exemple.fr; spf=pass (domain of \"x);dmarc=pass header.from=banque.fr;(\"@pirate.net designates 192.0.2.1) smtp.mailfrom=pirate.net; dmarc=fail header.from=banque.fr"
+            ),
             SenderAuth::Fail
         );
+        assert_eq!(
+            at("mx.exemple.fr; dmarc=pass header.from=banque.fr; dmarc=fail header.from=banque.fr"),
+            SenderAuth::Fail
+        );
+        assert_eq!(
+            at("mx.exemple.fr; dmarc=pass header.from=banque.fr; dmarc=none header.from=banque.fr"),
+            SenderAuth::Unknown
+        );
+        assert_eq!(
+            at("mx.exemple.fr; dmarc=pass header.from=banque.fr; dmarc=pass header.from=banque.fr"),
+            SenderAuth::Unknown
+        );
+        // Un résultat DMARC présent, même neutre, écarte DKIM.
+        assert_eq!(
+            at("mx.exemple.fr; dkim=pass header.d=banque.fr; dmarc=none header.from=banque.fr"),
+            SenderAuth::Unknown
+        );
+    }
+
+    /// L'expéditeur choisit le nombre de signatures, donc de résultats :
+    /// le résultat DMARC reste lu au-delà du plafond.
+    #[test]
+    fn the_dmarc_result_survives_many_dkim_results() {
+        let header = format!(
+            "mx.exemple.fr{}; dmarc=fail header.from=banque.fr",
+            "; dkim=fail header.d=banque.fr".repeat(MAX_RESULTS + 6)
+        );
+        assert_eq!(
+            verdict("imap.exemple.fr", &[&header], "a@banque.fr"),
+            SenderAuth::Fail
+        );
+    }
+
+    #[test]
+    fn known_french_second_levels_are_not_trusted_domains() {
+        for host in ["monasso.asso.fr", "exemple.gouv.fr", "dupont.nom.fr"] {
+            let t = trust(host);
+            assert!(t.trusts(&format!("mx.{host}")), "{host}");
+            let suffix = host.split_once('.').map_or("", |(_, s)| s);
+            assert!(!t.trusts(&format!("pirate.{suffix}")), "{host}");
+        }
+    }
+
+    #[test]
+    fn received_fields_keep_authentication_results_in_order_and_count_from() {
+        let fields = received_fields([
+            ("Received", &b"from x"[..]),
+            ("authentication-results", b"mx.exemple.fr; dmarc=pass"),
+            ("From", b"a@banque.fr"),
+            (
+                "AUTHENTICATION-RESULTS",
+                b"mx.autre.fr; spf=pass smtp.mailfrom=\xff@x",
+            ),
+            ("from", b"b@banque.fr"),
+            ("Subject", b"s"),
+        ]);
+        assert_eq!(
+            fields.authentication_results,
+            [
+                "mx.exemple.fr; dmarc=pass",
+                "mx.autre.fr; spf=pass smtp.mailfrom=\u{FFFD}@x"
+            ]
+        );
+        assert_eq!(fields.from_fields, 2);
+        let many = received_fields(std::iter::repeat_n(
+            ("Authentication-Results", &b"mx.exemple.fr; none"[..]),
+            1000,
+        ));
+        assert_eq!(many.authentication_results.len(), MAX_EXAMINED_HEADERS);
     }
 
     #[test]

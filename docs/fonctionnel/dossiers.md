@@ -128,7 +128,7 @@ déplacer « Bli » dans « Bla » en fait un sous-dossier de « Bla ».
   s'il contient `*`, `%` ou un caractère invisible.
 - Le nom est aussi refusé s'il serait interprété par certains serveurs au
   lieu d'être pris tel quel : s'il commence par `~` ou `#`, s'il vaut `.`
-  ou `..` (y compris entre deux `/`), ou s'il finit par `}`.
+  ou `..` (y compris entre deux `/` ou `\`), ou s'il finit par `}`.
 - Un nom ne crée qu'**un seul niveau** : le caractère qui sépare les
   niveaux sur le serveur (souvent `/` ou `.`) est refusé dans le nom ; pour
   un sous-dossier, choisir l'emplacement.
@@ -205,6 +205,7 @@ déplacer « Bli » dans « Bla » en fait un sous-dossier de « Bla ».
 | Fenêtre de déplacement | Déplacer le dossier ; « Où ranger le dossier « {folder} » ? Ses sous-dossiers et ses messages le suivent. » ; Nouvel emplacement, Au premier niveau, Déplacer, Déplacement…, Annuler |
 | Dossier déplacé | Dossier « {folder} » déplacé. |
 | Dans lui-même | Un dossier ne peut pas être rangé dans lui-même ni dans un de ses sous-dossiers. |
+| Nom du dossier déplacé interprété par certains serveurs | Certains serveurs interpréteraient le nom de ce dossier (il commence par « ~ » ou « # », vaut « . » ou « .. », ou finit par « } ») : renommez-le d'abord, puis déplacez-le. |
 | Refus, hors ligne (déplacement) | Le dossier n'a pas pu être déplacé sur le serveur. (« réponse du serveur ») |
 | Fenêtre de suppression | Supprimer le dossier ; « Le dossier « {folder} » et tous les messages qu'il contient seront supprimés définitivement du serveur, sans passer par la corbeille. » ; « Cette action ne peut pas être annulée. » ; Supprimer le dossier, Suppression…, Annuler |
 | Dossier supprimé | Dossier « {folder} » supprimé. |

@@ -128,8 +128,20 @@ l'ordinateur** : rien n'est envoyé à un serveur.
   que soit le nom choisi par l'expéditeur. L'adresse est reconnue sans
   tenir compte des majuscules ; une autre adresse de la même fiche nomme
   aussi le contact. Une fiche sans nom laisse l'adresse affichée.
-- Dans un message ouvert, une petite **pastille** à côté du nom signale
-  une personne du carnet (« Dans vos contacts » au survol).
+- Dans un message ouvert, une petite **pastille** à côté du nom de
+  l'expéditeur signale une personne du carnet (« Dans vos contacts » au
+  survol), **seulement si le serveur de messagerie du compte a confirmé
+  que le message vient bien de son adresse**. L'adresse d'un expéditeur
+  peut être imitée : sans cette confirmation, le nom du carnet s'affiche
+  quand même, mais sans pastille. Les destinataires n'en portent pas.
+- Quand le serveur du compte indique au contraire que le message ne vient
+  pas de l'adresse affichée, la mention **« Expéditeur non vérifié »**
+  apparaît à côté du nom de l'expéditeur, avec une explication au survol.
+- Seules comptent les vérifications faites par le serveur du compte (ou,
+  pour les grands fournisseurs, par ses serveurs de réception) : celles
+  qu'un message annonce de lui-même, ou qu'un autre serveur a ajoutées,
+  sont ignorées. Les messages reçus avant cette vérification n'ont ni
+  pastille ni avertissement.
 - Une personne absente du carnet garde le nom donné par le message, sauf
   si ce nom ressemble à une adresse (il contient « @ », « < » ou « > »,
   un caractère qui leur ressemble, ou un « @ » écrit en toutes lettres

@@ -176,9 +176,13 @@ const CLEANUP_BATCH: i64 = 500;
 /// caractères invisibles que la saisie refuse désormais, selon
 /// [`clean_invisible`] (fiche réécrite, ou retirée sans adresse
 /// restante). Une fiche illisible (type ou encodage d'une colonne) est
-/// laissée telle quelle : elle ne doit pas empêcher d'ouvrir la base.
+/// laissée telle quelle : elle ne doit pas empêcher d'ouvrir la base. De
+/// même, comme à la migration 19, pour une fiche dont une adresse gardée
+/// n'a pas pour clé stockée celle que calcule le domaine (clé modifiée à
+/// la main) : la réécrire pourrait heurter l'unicité des clés.
 pub(crate) fn clean_invisible_contacts(tx: &Transaction<'_>) -> Result<(), StoreError> {
     let (mut rewritten, mut removed, mut unreadable) = (0_usize, 0_usize, 0_usize);
+    let mut invalid = 0_usize;
     let mut after = 0_i64;
     loop {
         let ids: Vec<i64> = tx
@@ -216,10 +220,21 @@ pub(crate) fn clean_invisible_contacts(tx: &Transaction<'_>) -> Result<(), Store
                 unreadable += 1;
                 continue;
             }
-            let (input, _) = row.into_input();
+            let (input, keys) = row.into_input();
             match clean_invisible(input) {
                 InvisibleCleanup::Keep => {}
                 InvisibleCleanup::Rewrite(draft) => {
+                    // Les clés stockées sont uniques dans le carnet : une clé
+                    // recalculée déjà portée par cette fiche ne peut heurter
+                    // aucune autre fiche, quel que soit l'ordre de passage.
+                    let owned = draft
+                        .emails()
+                        .iter()
+                        .all(|e| keys.iter().any(|k| k == e.key().as_str()));
+                    if !owned {
+                        invalid += 1;
+                        continue;
+                    }
                     write(tx, id, &draft)?;
                     rewritten += 1;
                 }
@@ -236,6 +251,7 @@ pub(crate) fn clean_invisible_contacts(tx: &Transaction<'_>) -> Result<(), Store
         rewritten,
         removed,
         unreadable,
+        invalid,
         "carnet : caractères invisibles retirés"
     );
     Ok(())

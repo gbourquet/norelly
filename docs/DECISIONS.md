@@ -187,6 +187,17 @@ est majoritairement écrit par Claude et relu par le mainteneur.
   pagination par décalage plafonnée à 1 000 résultats. Mesure (bench,
   50k messages avec leur texte) : 0,4 à 43 ms selon la requête.
 
+- **Dérogation validée par le mainteneur (2026-11-16)** : une migration
+  publiée n'est jamais modifiée, sauf l'étape Rust de la migration 18
+  (`clean_invisible_contacts`), corrigée après publication. Une fiche
+  dont la clé d'adresse stockée avait été modifiée à la main pouvait,
+  réécrite, heurter l'unicité des clés : la migration échouait, et la
+  base ne s'ouvrait plus. Comme à la migration 19, une fiche dont une
+  adresse gardée n'a pas pour clé stockée celle que calcule le domaine
+  est désormais laissée telle quelle, quel que soit l'ordre des fiches. Le fichier
+  `0018_contacts_invisible.sql` ne change pas ; une base déjà en version
+  18 n'est pas concernée (la migration ne s'y rejoue pas).
+
 ## ADR-004 : rendu sécurisé du HTML des mails (« A+ »)
 
 - **Statut** : Acceptée (2026-11-01)

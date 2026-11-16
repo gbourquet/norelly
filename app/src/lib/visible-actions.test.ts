@@ -36,6 +36,7 @@ describe("actions visibles", () => {
       "action.flag",
       "action.move",
       "reading.plain-text",
+      "reading.print",
       "conversation.previous",
       "conversation.next",
     ]);
@@ -45,7 +46,7 @@ describe("actions visibles", () => {
 
   it("menu « Plus… » en groupes : état, affichage, navigation", () => {
     const sections = readerActions(null).more.map((a) => a.section);
-    expect(sections).toEqual([1, 1, 1, 2, 3, 3]);
+    expect(sections).toEqual([1, 1, 1, 2, 2, 3, 3]);
     // Les actions principales repliées dans « Plus… » forment le premier groupe.
     expect(readerActions(null).primary.every((a) => (a.section ?? 0) === 0)).toBe(true);
   });

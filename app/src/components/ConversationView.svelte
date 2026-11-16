@@ -49,7 +49,8 @@
   }
 </script>
 
-<article class="conversation" aria-label={m.conversation_label()}>
+<!-- data-print-root : seule partie de la fenêtre imprimée (tokens.css). -->
+<article class="conversation" aria-label={m.conversation_label()} data-print-root>
   <header>
     <button
       class="btn btn-ghost icon"
@@ -236,5 +237,44 @@
     align-items: baseline;
     gap: 0 var(--space-1);
     margin: 0 0 var(--space-2);
+  }
+
+  /* Papier : l'objet et les messages dépliés, sans les commandes. En
+     blocs : les moteurs coupent mal une colonne flexible entre deux pages. */
+  @media print {
+    .conversation,
+    .messages {
+      display: block;
+    }
+
+    .message + .message {
+      margin-top: var(--space-4);
+    }
+
+    header {
+      border-bottom: none;
+      padding: 0 0 var(--space-3);
+    }
+
+    header > :not(h1) {
+      display: none;
+    }
+
+    .messages {
+      padding: 0;
+    }
+
+    .message:not(.open) {
+      display: none;
+    }
+
+    .message {
+      border: none;
+      padding: 0;
+    }
+
+    .toggle {
+      display: none;
+    }
   }
 </style>

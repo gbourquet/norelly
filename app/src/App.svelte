@@ -21,6 +21,7 @@
   import MoveFolderDialog from "./components/MoveFolderDialog.svelte";
   import { DeleteFolderState, MoveFolderState, RenameFolderState } from "./lib/folder-edit.svelte";
   import { folderFailureText } from "./lib/folder-failure";
+  import { relayFrameCommand } from "./lib/agent";
   import { DragMove, edgeScroll, openedPayload, type DropTarget } from "./lib/drag-move.svelte";
   import ActionNotice from "./components/ActionNotice.svelte";
   import ActionBar from "./components/ActionBar.svelte";
@@ -255,7 +256,8 @@
   function onFrameKey(shortcut: Shortcut): void {
     if (app.dialog !== null) return;
     const command = registry.resolve(shortcut, app.context(), false);
-    if (command !== undefined) void registry.execute(command.id, app.context());
+    if (command !== undefined && relayFrameCommand(command.id))
+      void registry.execute(command.id, app.context());
   }
 
   function isEditable(target: EventTarget | null): boolean {

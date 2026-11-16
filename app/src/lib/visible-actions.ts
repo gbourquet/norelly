@@ -14,6 +14,7 @@ import ReplyIcon from "@lucide/svelte/icons/reply";
 import ReplyAllIcon from "@lucide/svelte/icons/reply-all";
 import ForwardIcon from "@lucide/svelte/icons/forward";
 import FileTextIcon from "@lucide/svelte/icons/file-text";
+import PrinterIcon from "@lucide/svelte/icons/printer";
 import ChevronUpIcon from "@lucide/svelte/icons/chevron-up";
 import ChevronDownIcon from "@lucide/svelte/icons/chevron-down";
 import EyeIcon from "@lucide/svelte/icons/eye";
@@ -113,6 +114,7 @@ export function readerActions(
       { ...flagToggle(subject), section: 1 },
       { ...move, section: 1 },
       { command: "reading.plain-text", icon: FileTextIcon, section: 2 },
+      { command: "reading.print", icon: PrinterIcon, section: 2 },
       { command: "conversation.previous", icon: ChevronUpIcon, section: 3 },
       { command: "conversation.next", icon: ChevronDownIcon, section: 3 },
       ...personSection(person, 4),

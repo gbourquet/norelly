@@ -1,6 +1,7 @@
 // État de l'interface (runes Svelte 5) et registre de commandes de
 // l'application.
 
+import { tick } from "svelte";
 import { CommandRegistry } from "./commands/registry";
 import {
   api,
@@ -626,6 +627,22 @@ export function registerAppCommands(): () => void {
         const prefs = await api.readingPreferences();
         await api.setPreferPlainText(!prefs.prefer_plain_text);
         if (mail.opened !== null) await mail.open();
+      },
+    }),
+    registry.register({
+      id: "reading.print",
+      title: m.cmd_print(),
+      group: m.group_reading(),
+      shortcut: "Ctrl+P",
+      keywords: words(m.cmd_print_keywords()),
+      when: (ctx) => ctx.reading,
+      run: async () => {
+        // Le menu qui a lancé la commande se ferme d'abord ; la feuille
+        // d'impression ne garde que la conversation ouverte
+        // (`data-print-root`). Le corps reste dans son cadre isolé : rien
+        // n'est rechargé ni relâché pour le papier.
+        await tick();
+        window.print();
       },
     }),
     registry.register({

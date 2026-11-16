@@ -366,6 +366,13 @@ export class MailState {
     return (this.opened ?? this.selected)?.senders[0] ?? null;
   }
 
+  /** Portée dans laquelle agir sur la conversation ouverte : celle du
+   * résultat de recherche d'où elle vient, sinon celle affichée ; `null`
+   * sans conversation ouverte. */
+  openedScope(): ScopeDto | null {
+    return this.opened === null ? null : (this.#openedScope ?? this.scope);
+  }
+
   /** Conversations visées : cochées, sinon ouverte, sinon sélectionnée. */
   targets(): ConversationDto[] {
     if (this.marked.length > 0) {
@@ -377,21 +384,31 @@ export class MailState {
 
   /**
    * Applique une action aux conversations visées, ou aux conversations
-   * `ids` de la liste affichée (glisser-déposer). `done` : texte affiché
+   * `ids` de la liste affichée (glisser-déposer) ; avec `from`, les
+   * conversations `ids` du compte et de la portée de `from`, affichées ou
+   * non (résultat de recherche, message ouvert). `done` : texte affiché
    * en cas de succès. L'effet local est immédiat ; l'envoi au serveur
    * attend la fenêtre d'annulation.
    */
-  async act(action: ActionDto, done: string, ids?: number[]): Promise<void> {
-    const targets =
-      ids === undefined ? this.targets() : this.conversations.filter((c) => ids.includes(c.id));
+  async act(
+    action: ActionDto,
+    done: string,
+    ids?: number[],
+    from?: { account: number; scope: ScopeDto },
+  ): Promise<void> {
+    let targets: Pick<ConversationDto, "id" | "account">[];
+    if (ids === undefined) targets = this.targets();
+    else if (from === undefined) targets = this.conversations.filter((c) => ids.includes(c.id));
+    else targets = ids.map((id) => ({ id, account: from.account }));
     if (targets.length === 0) return;
     if (targets.some((t) => t.id === this.opened?.id)) this.#cancelAutoSeen();
     await this.#autoSeenInFlight;
     try {
       const scope =
-        ids === undefined && this.marked.length === 0
+        from?.scope ??
+        (ids === undefined && this.marked.length === 0
           ? (this.#openedScope ?? this.scope)
-          : this.scope;
+          : this.scope);
       const result = await this.#api.performAction(
         targets.map((c) => c.id),
         scope,

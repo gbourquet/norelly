@@ -659,6 +659,7 @@ impl MessageComposer for MimeComposer {
             in_reply_to: in_reply_to.iter().map(String::as_str).collect(),
             references: references.iter().map(String::as_str).collect(),
             authentication_results: Vec::new(),
+            from_fields: 0,
         });
         let reply_to = people(message.reply_to())
             .iter()

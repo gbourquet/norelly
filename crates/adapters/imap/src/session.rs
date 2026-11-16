@@ -37,7 +37,7 @@ use norelly_domain::mailbox::{
     UidValidity,
 };
 use norelly_domain::ports::{FetchedBody, IdleOutcome, MAX_FETCH_BATCH};
-use norelly_domain::sender_auth::AuthServTrust;
+use norelly_domain::sender_auth::{AuthServTrust, received_fields};
 use norelly_domain::sync::{
     FlagUpdate, SelectRequest, SelectedMailbox, ServerQuery, SyncExtensions, UidRanges,
 };
@@ -263,11 +263,13 @@ pub(crate) fn parse_headers(raw: &[u8], trust: &AuthServTrust) -> MessageHeaders
     let Some(message) = MessageParser::new().parse_headers(raw) else {
         return MessageHeaders::default();
     };
-    let authentication_results: Vec<&str> = message
-        .headers_raw()
-        .filter(|(name, _)| name.eq_ignore_ascii_case("Authentication-Results"))
-        .map(|(_, value)| value)
-        .collect();
+    // Valeurs prises dans le bloc brut : `headers_raw` sauterait celles
+    // qui ne sont pas de l'UTF-8.
+    let received = received_fields(message.headers().iter().map(|h| {
+        let start = usize::try_from(h.offset_start).unwrap_or(usize::MAX);
+        let end = usize::try_from(h.offset_end).unwrap_or(usize::MAX);
+        (h.name.as_str(), raw.get(start..end).unwrap_or_default())
+    }));
     let in_reply_to = id_list(message.in_reply_to());
     let references = id_list(message.references());
     MessageHeaders::sanitize_received(
@@ -280,7 +282,12 @@ pub(crate) fn parse_headers(raw: &[u8], trust: &AuthServTrust) -> MessageHeaders
             message_id: message.message_id(),
             in_reply_to: in_reply_to.iter().map(String::as_str).collect(),
             references: references.iter().map(String::as_str).collect(),
-            authentication_results,
+            authentication_results: received
+                .authentication_results
+                .iter()
+                .map(String::as_str)
+                .collect(),
+            from_fields: received.from_fields,
         },
         trust,
     )
@@ -1095,22 +1102,49 @@ References: <r1@example.com> <id0@example.com>\r\n\r\n";
         AuthServTrust::for_imap_host(&host)
     }
 
-    /// Seul le premier `Authentication-Results` posé par le serveur du
-    /// compte compte, quelle que soit la casse du nom d'en-tête et le
-    /// repliement de sa valeur.
+    /// Seul le premier `Authentication-Results` compte, s'il est posé par
+    /// le serveur du compte, quelle que soit la casse du nom d'en-tête et
+    /// le repliement de sa valeur.
     #[test]
     fn the_trusted_authentication_results_give_the_sender_verdict() {
-        let raw = b"Authentication-Results: mx.pirate.net; dmarc=fail\r\n\
-authentication-results: mx.exemple.fr;\r\n\
+        let raw = b"authentication-results: mx.exemple.fr;\r\n\
 \tdkim=pass header.d=banque.fr;\r\n\
 \tdmarc=pass (p=reject) header.from=banque.fr\r\n\
 Authentication-Results: mx.exemple.fr; dmarc=fail header.from=banque.fr\r\n\
 From: Banque <contact@banque.fr>\r\n\r\n";
         let verdict = |imap: &str| parse_headers(raw, &trust(imap)).sender_auth;
         assert_eq!(verdict("imap.exemple.fr"), SenderAuth::Pass);
-        // Autre compte : aucun en-tête de confiance.
+        // Autre compte : l'en-tête du dessus n'est pas de confiance.
         assert_eq!(verdict("imap.autre.fr"), SenderAuth::Unknown);
-        assert_eq!(verdict("imap.pirate.net"), SenderAuth::Fail);
+        // En-tête étranger au-dessus : celui de confiance, plus bas, a pu
+        // être écrit par l'expéditeur.
+        let forged = b"Authentication-Results: mx.pirate.net; none\r\n\
+Authentication-Results: mx.exemple.fr; dmarc=pass header.from=banque.fr\r\n\
+From: contact@banque.fr\r\n\r\n";
+        assert_eq!(
+            parse_headers(forged, &trust("imap.exemple.fr")).sender_auth,
+            SenderAuth::Unknown
+        );
+        // En-tête du dessus non UTF-8 : il reste celui du dessus, le faux
+        // en-tête plus bas ne le remplace pas.
+        let not_utf8 =
+            b"Authentication-Results: mx.exemple.fr; spf=pass smtp.mailfrom=\xff@pirate.net\r\n\
+Authentication-Results: mx.exemple.fr; dmarc=pass header.from=banque.fr\r\n\
+From: contact@banque.fr\r\n\r\n";
+        assert_eq!(
+            parse_headers(not_utf8, &trust("imap.exemple.fr")).sender_auth,
+            SenderAuth::Unknown
+        );
+        // Deux champs `From` : `mail-parser` affiche le dernier, le serveur
+        // a pu vérifier le premier.
+        let two_from =
+            b"Authentication-Results: mx.exemple.fr; dmarc=pass header.from=pirate.net\r\n\
+From: a@pirate.net\r\n\
+From: contact@pirate.net\r\n\r\n";
+        assert_eq!(
+            parse_headers(two_from, &trust("imap.exemple.fr")).sender_auth,
+            SenderAuth::Unknown
+        );
         let fail = b"Authentication-Results: mx.exemple.fr; dmarc=fail header.from=banque.fr\r\n\
 From: contact@banque.fr\r\n\r\n";
         assert_eq!(

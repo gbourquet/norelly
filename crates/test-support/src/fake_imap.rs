@@ -23,7 +23,7 @@ use norelly_domain::mailbox::{
     UidValidity,
 };
 use norelly_domain::ports::{FetchedBody, IdleOutcome, RemoteMailboxSession};
-use norelly_domain::sender_auth::AuthServTrust;
+use norelly_domain::sender_auth::{AuthServTrust, received_fields};
 use norelly_domain::sync::{
     FlagUpdate, SelectRequest, SelectedMailbox, ServerQuery, SyncExtensions, UidRanges,
 };
@@ -454,11 +454,13 @@ fn headers_of(raw: &[u8], trust: &AuthServTrust) -> MessageHeaders {
     let (irt, refs) = (ids(m.in_reply_to()), ids(m.references()));
     let pairs = |v: &[(String, String)]| -> Vec<(String, String)> { v.to_vec() };
     let (from, to, cc) = (pairs(&from), pairs(&to), pairs(&cc));
-    let authentication_results: Vec<&str> = m
-        .headers_raw()
-        .filter(|(name, _)| name.eq_ignore_ascii_case("Authentication-Results"))
-        .map(|(_, value)| value)
-        .collect();
+    // Valeurs prises dans le bloc brut : `headers_raw` sauterait celles
+    // qui ne sont pas de l'UTF-8.
+    let received = received_fields(m.headers().iter().map(|h| {
+        let start = usize::try_from(h.offset_start).unwrap_or(usize::MAX);
+        let end = usize::try_from(h.offset_end).unwrap_or(usize::MAX);
+        (h.name.as_str(), raw.get(start..end).unwrap_or_default())
+    }));
     MessageHeaders::sanitize_received(
         &RawHeaders {
             subject: m.subject().unwrap_or_default(),
@@ -469,7 +471,12 @@ fn headers_of(raw: &[u8], trust: &AuthServTrust) -> MessageHeaders {
             message_id: m.message_id(),
             in_reply_to: irt.iter().map(String::as_str).collect(),
             references: refs.iter().map(String::as_str).collect(),
-            authentication_results,
+            authentication_results: received
+                .authentication_results
+                .iter()
+                .map(String::as_str)
+                .collect(),
+            from_fields: received.from_fields,
         },
         trust,
     )

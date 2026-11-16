@@ -168,6 +168,34 @@ describe("état de la lecture", () => {
     expect(mail.folders[1]?.[0]?.unread).toBe(5);
   });
 
+  it("dossier affiché disparu de la liste relue : retour à la boîte de réception du compte", async () => {
+    const api = fakeApi(3);
+    const folder = (id: number, name: string, role = "normal") =>
+      ({ id, account: 1, name, role, unread: 0 }) as unknown as FolderDto;
+    api.listFolders = vi
+      .fn()
+      .mockImplementationOnce(async () => [folder(10, "INBOX", "inbox"), folder(11, "Projets")])
+      .mockImplementationOnce(async () => [folder(10, "INBOX", "inbox"), folder(12, "Chantiers")]);
+    const mail = new MailState(api, noAutoSeen);
+    await mail.loadFolders(1);
+    await mail.show({ kind: "mailbox", id: 11 });
+    // Renommé (ou supprimé) sans que l'interface ait eu la réponse.
+    await mail.onSyncEvent({ kind: "folders_changed", account: 1 });
+    expect(mail.scope).toEqual({ kind: "mailbox", id: 10 });
+  });
+
+  it("dossier affiché toujours présent : la portée ne change pas", async () => {
+    const api = fakeApi(3);
+    const folder = (id: number, name: string, role = "normal") =>
+      ({ id, account: 1, name, role, unread: 0 }) as unknown as FolderDto;
+    api.listFolders = vi.fn(async () => [folder(10, "INBOX", "inbox"), folder(11, "Projets")]);
+    const mail = new MailState(api, noAutoSeen);
+    await mail.loadFolders(1);
+    await mail.show({ kind: "mailbox", id: 11 });
+    await mail.onSyncEvent({ kind: "folders_changed", account: 1 });
+    expect(mail.scope).toEqual({ kind: "mailbox", id: 11 });
+  });
+
   it("synchronisation en cours : progression suivie, effacée à la fin ou à la coupure", async () => {
     const mail = new MailState(fakeApi(3), noAutoSeen);
     await mail.onSyncEvent({ kind: "sync_progress", account: 1, done: 0, total: 61 });

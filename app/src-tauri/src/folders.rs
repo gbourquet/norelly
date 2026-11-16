@@ -54,7 +54,8 @@ impl From<FolderChangeError> for IpcError {
 }
 
 /// Échec d'une modification de dossier ; refus du serveur ou connexion
-/// perdue : code `failed`, propre à l'opération.
+/// perdue avant l'envoi : code `failed`, propre à l'opération ; après
+/// l'envoi : résultat inconnu.
 fn folder_error(e: FolderFailure, failed: ErrorCodeDto) -> IpcError {
     match e {
         FolderFailure::Invalid(e) => e.into(),
@@ -65,6 +66,14 @@ fn folder_error(e: FolderFailure, failed: ErrorCodeDto) -> IpcError {
             IpcError::new(failed).with_detail(reason)
         }
         FolderFailure::Connection(e) => IpcError::new(failed).with_detail(e),
+        // Modification déjà partie : elle a pu aboutir, quelle que soit
+        // l'opération.
+        FolderFailure::OutcomeUnknown => IpcError::new(ErrorCodeDto::FolderOutcomeUnknown),
+        FolderFailure::Interrupted { cause, .. } => {
+            IpcError::new(ErrorCodeDto::FolderOutcomeUnknown).with_detail(cause)
+        }
+        // Rien n'a été envoyé (l'appelant avait renoncé).
+        FolderFailure::Abandoned => IpcError::new(failed),
     }
 }
 
@@ -315,5 +324,41 @@ mod tests {
                 (failed, Some("[NOPERM] interdit".to_owned()))
             );
         }
+    }
+
+    #[test]
+    fn late_folder_change_already_started_has_its_own_code() {
+        // Quelle que soit l'opération : la modification a pu aboutir.
+        for failed in [
+            ErrorCodeDto::FolderCreateFailed,
+            ErrorCodeDto::FolderRenameFailed,
+            ErrorCodeDto::FolderMoveFailed,
+            ErrorCodeDto::FolderDeleteFailed,
+        ] {
+            let e = folder_error(FolderFailure::OutcomeUnknown, failed);
+            assert_eq!(
+                (e.code, e.detail),
+                (ErrorCodeDto::FolderOutcomeUnknown, None)
+            );
+            // Connexion perdue sur la modification : cause citée.
+            let interrupted = FolderFailure::Interrupted {
+                cause: ConnectionError::Closed,
+                target: MailboxName::inbox(),
+            };
+            let e = folder_error(interrupted, failed);
+            assert_eq!(
+                (e.code, e.detail),
+                (
+                    ErrorCodeDto::FolderOutcomeUnknown,
+                    Some(ConnectionError::Closed.to_string())
+                )
+            );
+        }
+        // Délai dépassé avant la prise en charge : rien n'a été modifié.
+        let e = folder_error(
+            ConnectionError::Timeout(norelly_domain::connection::TimeoutStage::Response).into(),
+            ErrorCodeDto::FolderRenameFailed,
+        );
+        assert_eq!(e.code, ErrorCodeDto::FolderRenameFailed);
     }
 }

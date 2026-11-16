@@ -146,7 +146,20 @@ export class MailState {
     this.#folderReads[account] = read;
     try {
       const folders = await this.#api.listFolders(account);
-      if (this.#folderReads[account] === read) this.folders[account] = folders;
+      if (this.#folderReads[account] !== read) return;
+      const before = this.folders[account] ?? [];
+      this.folders[account] = folders;
+      // Dossier affiché disparu (renommé, déplacé ou supprimé, ici ou
+      // ailleurs) : retour à la boîte de réception du compte.
+      const scope = this.scope;
+      if (
+        scope.kind === "mailbox" &&
+        before.some((f) => f.id === scope.id) &&
+        !folders.some((f) => f.id === scope.id)
+      ) {
+        const inbox = folders.find((f) => f.role === "inbox");
+        await this.show(inbox ? { kind: "mailbox", id: inbox.id } : UNIFIED_INBOX);
+      }
     } catch (e) {
       this.error = errorText(e);
     }

@@ -119,6 +119,16 @@ pub enum FailureCategory {
 }
 
 impl ConnectionError {
+    /// Vrai si la commande qui a reçu cette erreur n'a certainement pas
+    /// été appliquée par le serveur : seul un refus (`NO`) le prouve. Une
+    /// coupure, un délai ou une réponse illisible (dont `BAD`, que
+    /// l'adaptateur ne distingue pas d'une réponse mal formée) peuvent
+    /// survenir après son application : son résultat est inconnu.
+    #[must_use]
+    pub fn leaves_command_unapplied(&self) -> bool {
+        matches!(self, Self::Rejected(_))
+    }
+
     /// Vrai si un nouvel essai ne peut pas aboutir avec cette version de
     /// l'application (fournisseur OAuth dont elle n'a pas les identifiants
     /// client) : la synchronisation s'arrête au lieu de réessayer.
@@ -380,6 +390,21 @@ pub fn next_test_attempt(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn only_a_refusal_proves_a_command_was_not_applied() {
+        assert!(ConnectionError::Rejected("NO".into()).leaves_command_unapplied());
+        // Coupure, délai, réponse illisible ou `BAD` : le serveur a pu
+        // appliquer la commande avant que la réponse se perde.
+        for e in [
+            ConnectionError::Closed,
+            ConnectionError::Timeout(TimeoutStage::Response),
+            ConnectionError::Network("x".into()),
+            ConnectionError::Protocol("x".into()),
+        ] {
+            assert!(!e.leaves_command_unapplied(), "{e:?}");
+        }
+    }
+
     #[test]
     fn retrying_is_useless_only_when_this_version_lacks_the_provider() {
         use crate::auth::AuthError;

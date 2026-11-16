@@ -2,7 +2,7 @@
 // choisis ici, nom complet décidé et revalidé par Rust.
 
 import type { Api, FolderDto } from "./ipc/api";
-import { errorText } from "./errors";
+import { folderFailureText, type ReloadFolders } from "./folder-failure";
 import { folderLabel } from "./folder-label";
 
 export type NewFolderApi = Pick<Api, "createFolder">;
@@ -48,6 +48,7 @@ export function parentChoices(folders: FolderDto[], topLevel: string): ParentCho
 
 export class NewFolderState {
   readonly #api: NewFolderApi;
+  readonly #reload: ReloadFolders | undefined;
   name = $state("");
   parent = $state<number | null>(null);
   busy = $state(false);
@@ -55,7 +56,8 @@ export class NewFolderState {
 
   readonly canSubmit = $derived(this.name.trim() !== "" && !this.busy);
 
-  constructor(api: NewFolderApi) {
+  constructor(api: NewFolderApi, reload?: ReloadFolders) {
+    this.#reload = reload;
     this.#api = api;
   }
 
@@ -77,7 +79,7 @@ export class NewFolderState {
       const id = await this.#api.createFolder(account, this.name, this.parent);
       return { id, name: this.name.trim() };
     } catch (e) {
-      this.error = errorText(e);
+      this.error = await folderFailureText(e, account, this.#reload);
       return null;
     } finally {
       this.busy = false;

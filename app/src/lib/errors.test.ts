@@ -158,6 +158,7 @@ describe("traduction des erreurs IPC", () => {
       folder_rename_failed: true,
       folder_move_failed: true,
       folder_delete_failed: true,
+      folder_outcome_unknown: true,
       update_failed: true,
       contact_no_address: true,
       contact_invalid: true,

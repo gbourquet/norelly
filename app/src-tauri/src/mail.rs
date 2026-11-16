@@ -331,6 +331,8 @@ impl MailServices {
     /// Crée, renomme, déplace ou supprime un dossier par la connexion de
     /// commandes du compte (au plus [`FOLDER_CHANGE_TIMEOUT`]) ; renvoie le
     /// nom du dossier créé, renommé ou déplacé (nouveau nom), ou supprimé.
+    /// Délai dépassé après la prise en charge : résultat inconnu
+    /// ([`FolderFailure::OutcomeUnknown`]).
     pub async fn change_folder(
         &self,
         account: AccountId,
@@ -343,11 +345,9 @@ impl MailServices {
             .get(&account)
             .cloned()
             .ok_or(FolderFailure::Connection(ConnectionError::Closed))?;
-        tokio::time::timeout(FOLDER_CHANGE_TIMEOUT, client.change_folder(change))
+        client
+            .change_folder_within(change, FOLDER_CHANGE_TIMEOUT)
             .await
-            .map_err(|_| {
-                FolderFailure::Connection(ConnectionError::Timeout(TimeoutStage::Response))
-            })?
     }
 
     /// Signale de nouvelles opérations dans la file d'un compte.

@@ -210,6 +210,10 @@ The inbox and special folders (Sent, Drafts, Trash…) cannot be renamed,
 moved or deleted. Neither can a folder that contains a special folder,
 since the special folder would move with it.
 
+If the server answers too slowly, a message may say that **the change may
+have been made**. The folder list is then refreshed: look at it before
+trying again.
+
 To act on **several messages at once**, tick the box at the start of each
 line you want. A bar appears above the list: it shows how many messages are
 selected and offers the actions, which apply to all of them. **Clear

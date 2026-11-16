@@ -215,6 +215,24 @@ déplacer « Bli » dans « Bla » en fait un sous-dossier de « Bla ».
   suppression attend la reconnexion au plus 30 secondes, puis échoue avec
   un message ; rien n'est mis en attente, et rien ne sera fait plus tard à
   l'insu de l'utilisateur.
+- **Serveur trop lent, ou connexion perdue, alors que l'opération est déjà
+  partie vers le serveur** : l'application ne peut pas savoir si elle a
+  abouti. Elle ne l'annonce donc ni comme faite ni comme impossible : le
+  message dit que la modification a peut-être été faite, et la liste des
+  dossiers est mise à jour dès que le serveur a répondu ou que la
+  connexion est revenue, pour montrer l'état réel. L'utilisateur vérifie
+  la liste avant de réessayer. Tant que l'opération n'est pas partie
+  (attente de la connexion, vérification du nom), le délai dépassé
+  l'annule : rien n'est fait.
+- Dossier renommé ou déplacé malgré une connexion perdue : au retour de
+  la connexion, il est traité comme un renommage confirmé. Ses messages
+  ne sont pas téléchargés à nouveau, et ceux rangés dans ce dossier en
+  attendant le serveur y arrivent bien, à sa nouvelle place. Si
+  l'application est fermée avant le retour de la connexion, ces messages
+  reviennent à leur place d'origine.
+- Dossier affiché qui disparaît de la liste (renommé, déplacé ou supprimé,
+  ici ou par une autre application) : la boîte de réception du compte
+  s'affiche à sa place.
 - **Serveur sans sous-dossiers** : un emplacement autre que le premier
   niveau est refusé.
 - **Refus du serveur** (droits, quota, nom interdit) : le message cite la
@@ -269,6 +287,7 @@ déplacer « Bli » dans « Bla » en fait un sous-dossier de « Bla ».
 | Contient un dossier spécial | Ce dossier contient un dossier spécial (envoyés, brouillons, corbeille…) : il ne peut être ni renommé ni déplacé. |
 | Refus, hors ligne (renommage) | Le dossier n'a pas pu être renommé sur le serveur. (« réponse du serveur ») |
 | Refus, hors ligne (suppression) | Le dossier n'a pas pu être supprimé sur le serveur. (« réponse du serveur ») |
+| Résultat inconnu (création, renommage, déplacement, suppression) | Le serveur n'a pas confirmé la modification : elle a peut-être été faite. La liste des dossiers va être mise à jour : vérifiez-la avant de réessayer. |
 
 ## Raccourcis
 

@@ -94,6 +94,9 @@ struct State {
     connect_error: Option<ConnectionError>,
     /// Ouvertures de session demandées.
     connect_attempts: usize,
+    /// Le prochain RENAME est appliqué, puis sa réponse se perd (session
+    /// coupée).
+    lose_next_rename_reply: bool,
 }
 
 impl State {
@@ -146,6 +149,7 @@ impl FakeImap {
             append_limit: None,
             connect_error: None,
             connect_attempts: 0,
+            lose_next_rename_reply: false,
         };
         Self {
             state: Arc::new(Mutex::new(state)),
@@ -195,6 +199,12 @@ impl FakeImap {
     /// (`None` : jamais).
     pub fn cut_after(&self, n: Option<usize>) {
         lock(&self.state).cut_after = n;
+    }
+
+    /// Le prochain RENAME est appliqué, puis la session est coupée avant
+    /// sa réponse (`Closed`) : résultat inconnu pour le client.
+    pub fn lose_next_rename_reply(&self) {
+        lock(&self.state).lose_next_rename_reply = true;
     }
 
     /// Chaque opération de session dure `delay` (serveur lent).
@@ -865,7 +875,7 @@ impl RemoteMailboxSession for FakeImapSession {
         to: &MailboxName,
     ) -> Result<(), ConnectionError> {
         self.throttle().await;
-        {
+        let lost = {
             let mut s = self.step()?;
             let (from, to) = (from.as_str(), to.as_str());
             if s.mailbox(from).is_none() {
@@ -887,8 +897,13 @@ impl RemoteMailboxSession for FakeImapSession {
                     *name = format!("{to}/{rest}");
                 }
             }
-        }
+            std::mem::take(&mut s.lose_next_rename_reply)
+        };
         self.server.changed.notify_waiters();
+        if lost {
+            self.broken = true;
+            return Err(ConnectionError::Closed);
+        }
         Ok(())
     }
 

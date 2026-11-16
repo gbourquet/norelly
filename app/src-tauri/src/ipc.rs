@@ -123,6 +123,11 @@ pub enum ErrorCodeDto {
     /// Suppression du dossier impossible : refus du serveur ou serveur
     /// injoignable (`detail` : réponse brute du serveur).
     FolderDeleteFailed,
+    /// Création, renommage, déplacement ou suppression d'un dossier déjà
+    /// envoyés au serveur sans réponse à temps (délai dépassé, connexion
+    /// perdue) : la modification a pu aboutir, la liste des dossiers est
+    /// relue (`detail` : cause brute, si connue).
+    FolderOutcomeUnknown,
     /// Téléchargement ou installation d'une mise à jour impossible
     /// (`detail` : erreur brute).
     UpdateFailed,

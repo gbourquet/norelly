@@ -29,6 +29,24 @@ pub enum FolderFailure {
     /// Refus du serveur (`NO`) ou connexion perdue.
     #[error(transparent)]
     Connection(#[from] ConnectionError),
+    /// Connexion perdue (ou délai du serveur dépassé) sur la commande qui
+    /// modifie le dossier : le serveur a pu l'appliquer. La connexion est
+    /// à rouvrir, puis la liste des dossiers est relue. `target` : nom du
+    /// dossier visé (créé, renommé ou déplacé, ou supprimé).
+    #[error("résultat inconnu : {cause}")]
+    Interrupted {
+        cause: ConnectionError,
+        target: MailboxName,
+    },
+    /// Délai dépassé alors que la modification était déjà en cours sur la
+    /// connexion de commandes : elle a pu aboutir. Elle se poursuit, et la
+    /// liste des dossiers est relue à son terme.
+    #[error("résultat inconnu : délai dépassé pendant la modification")]
+    OutcomeUnknown,
+    /// Demande abandonnée par l'appelant avant l'envoi de la commande qui
+    /// modifie le dossier : rien n'a été modifié.
+    #[error("demande abandonnée avant l'envoi")]
+    Abandoned,
 }
 
 impl From<FolderChangeError> for FolderFailure {
@@ -36,6 +54,34 @@ impl From<FolderChangeError> for FolderFailure {
         match e {
             FolderChangeError::Name(e) => Self::Invalid(e),
             e => Self::Change(e),
+        }
+    }
+}
+
+/// Échec de la commande qui modifie le dossier : refus (`NO`), dossier tel
+/// quel ; sinon, résultat inconnu
+/// ([`ConnectionError::leaves_command_unapplied`]) sur `target`.
+fn sent(target: &MailboxName) -> impl FnOnce(ConnectionError) -> FolderFailure + '_ {
+    move |cause| {
+        if cause.leaves_command_unapplied() {
+            FolderFailure::Connection(cause)
+        } else {
+            FolderFailure::Interrupted {
+                cause,
+                target: target.clone(),
+            }
+        }
+    }
+}
+
+impl FolderFailure {
+    /// Connexion perdue à rouvrir (refus du serveur exclu).
+    #[must_use]
+    pub fn lost_connection(&self) -> Option<&ConnectionError> {
+        match self {
+            Self::Connection(ConnectionError::Rejected(_)) => None,
+            Self::Connection(e) | Self::Interrupted { cause: e, .. } => Some(e),
+            Self::Invalid(_) | Self::Change(_) | Self::OutcomeUnknown | Self::Abandoned => None,
         }
     }
 }
@@ -49,15 +95,36 @@ pub struct CreateFolder<'a> {
     pub parent: Option<&'a MailboxName>,
 }
 
+/// Point de non-retour : `proceed` refuse, la demande est abandonnée avant
+/// l'envoi de la commande qui modifie le dossier.
+fn checkpoint(proceed: impl FnOnce() -> bool) -> Result<(), FolderFailure> {
+    if proceed() {
+        Ok(())
+    } else {
+        Err(FolderFailure::Abandoned)
+    }
+}
+
 impl CreateFolder<'_> {
     /// Renvoie le nom complet du dossier créé.
     pub async fn execute<S: RemoteMailboxSession>(
         &self,
         session: &mut S,
     ) -> Result<MailboxName, FolderFailure> {
+        self.execute_if(session, || true).await
+    }
+
+    /// Comme [`Self::execute`], si `proceed` l'autorise juste avant le
+    /// `CREATE`.
+    pub async fn execute_if<S: RemoteMailboxSession>(
+        &self,
+        session: &mut S,
+        proceed: impl FnOnce() -> bool + Send,
+    ) -> Result<MailboxName, FolderFailure> {
         let existing = classify_mailboxes(session.list_mailboxes().await?);
         let full = new_folder_name(self.label, self.parent, &existing)?;
-        session.create_mailbox(&full).await?;
+        checkpoint(proceed)?;
+        session.create_mailbox(&full).await.map_err(sent(&full))?;
         Ok(full)
     }
 }
@@ -76,10 +143,24 @@ impl RenameFolder<'_> {
         &self,
         session: &mut S,
     ) -> Result<MailboxName, FolderFailure> {
+        self.execute_if(session, || true).await
+    }
+
+    /// Comme [`Self::execute`], si `proceed` l'autorise juste avant le
+    /// `RENAME`.
+    pub async fn execute_if<S: RemoteMailboxSession>(
+        &self,
+        session: &mut S,
+        proceed: impl FnOnce() -> bool + Send,
+    ) -> Result<MailboxName, FolderFailure> {
         let existing = classify_mailboxes(session.list_mailboxes().await?);
         let renamed = renamed_folder_name(self.folder, self.label, &existing)?;
         if renamed != *self.folder {
-            session.rename_mailbox(self.folder, &renamed).await?;
+            checkpoint(proceed)?;
+            session
+                .rename_mailbox(self.folder, &renamed)
+                .await
+                .map_err(sent(&renamed))?;
         }
         Ok(renamed)
     }
@@ -100,10 +181,24 @@ impl MoveFolder<'_> {
         &self,
         session: &mut S,
     ) -> Result<MailboxName, FolderFailure> {
+        self.execute_if(session, || true).await
+    }
+
+    /// Comme [`Self::execute`], si `proceed` l'autorise juste avant le
+    /// `RENAME`.
+    pub async fn execute_if<S: RemoteMailboxSession>(
+        &self,
+        session: &mut S,
+        proceed: impl FnOnce() -> bool + Send,
+    ) -> Result<MailboxName, FolderFailure> {
         let existing = classify_mailboxes(session.list_mailboxes().await?);
         let moved = moved_folder_name(self.folder, self.parent, &existing)?;
         if moved != *self.folder {
-            session.rename_mailbox(self.folder, &moved).await?;
+            checkpoint(proceed)?;
+            session
+                .rename_mailbox(self.folder, &moved)
+                .await
+                .map_err(sent(&moved))?;
         }
         Ok(moved)
     }
@@ -120,11 +215,27 @@ impl DeleteFolder<'_> {
         &self,
         session: &mut S,
     ) -> Result<(), FolderFailure> {
+        self.execute_if(session, || true).await
+    }
+
+    /// Comme [`Self::execute`], si `proceed` l'autorise juste avant le
+    /// `DELETE`.
+    pub async fn execute_if<S: RemoteMailboxSession>(
+        &self,
+        session: &mut S,
+        proceed: impl FnOnce() -> bool + Send,
+    ) -> Result<(), FolderFailure> {
         let existing = classify_mailboxes(session.list_mailboxes().await?);
         if let Some(delimiter) = deletable_folder(self.folder, &existing)? {
             no_listed_subfolder(session.count_subfolders(self.folder, delimiter).await?)?;
         }
-        session.delete_mailbox(self.folder).await?;
+        // Après les contrôles (sous-dossiers relus compris) : dernier point
+        // d'abandon.
+        checkpoint(proceed)?;
+        session
+            .delete_mailbox(self.folder)
+            .await
+            .map_err(sent(self.folder))?;
         Ok(())
     }
 }
@@ -150,11 +261,12 @@ pub enum FolderChange {
 }
 
 impl FolderChange {
-    /// Applique la modification ; renvoie le nom du dossier créé, renommé
-    /// ou déplacé (nouveau nom), ou supprimé.
-    pub async fn execute<S: RemoteMailboxSession>(
+    /// Comme [`Self::execute`], si `proceed` l'autorise juste avant
+    /// l'envoi de la commande qui modifie le dossier.
+    pub async fn execute_if<S: RemoteMailboxSession>(
         &self,
         session: &mut S,
+        proceed: impl FnOnce() -> bool + Send,
     ) -> Result<MailboxName, FolderFailure> {
         match self {
             Self::Create { label, parent } => {
@@ -162,23 +274,36 @@ impl FolderChange {
                     label,
                     parent: parent.as_ref(),
                 }
-                .execute(session)
+                .execute_if(session, proceed)
                 .await
             }
-            Self::Rename { folder, label } => RenameFolder { folder, label }.execute(session).await,
+            Self::Rename { folder, label } => {
+                RenameFolder { folder, label }
+                    .execute_if(session, proceed)
+                    .await
+            }
             Self::Move { folder, parent } => {
                 MoveFolder {
                     folder,
                     parent: parent.as_ref(),
                 }
-                .execute(session)
+                .execute_if(session, proceed)
                 .await
             }
             Self::Delete { folder } => {
-                DeleteFolder { folder }.execute(session).await?;
+                DeleteFolder { folder }.execute_if(session, proceed).await?;
                 Ok(folder.clone())
             }
         }
+    }
+
+    /// Applique la modification ; renvoie le nom du dossier créé, renommé
+    /// ou déplacé (nouveau nom), ou supprimé.
+    pub async fn execute<S: RemoteMailboxSession>(
+        &self,
+        session: &mut S,
+    ) -> Result<MailboxName, FolderFailure> {
+        self.execute_if(session, || true).await
     }
 
     /// Nom de l'opération, pour les journaux.

@@ -644,6 +644,204 @@ async fn pending_move_follows_a_folder_moved_before_replay() {
     r.handle.shutdown().await;
 }
 
+/// Dossier renommé sur le serveur, mais réponse perdue (coupure) : à la
+/// reconnexion, la liste montre le nouveau nom, et l'action en attente qui
+/// visait l'ancien le suit au lieu d'être abandonnée.
+#[tokio::test]
+async fn pending_move_follows_a_folder_renamed_despite_a_lost_reply() {
+    use crate::actions::PerformAction;
+    use crate::folders::FolderFailure;
+    use norelly_domain::actions::MessageAction;
+    use norelly_domain::ports::MessageListQuery;
+
+    let imap = FakeImap::new();
+    imap.create_mailbox("Bli", &[]);
+    imap.append("INBOX", b"Subject: a\r\n\r\nx", Flags::default(), 1);
+    let mut r = start(&imap);
+    wait_for(&mut r.events, WAIT, online).await;
+    wait_inbox(&r, 1, WAIT).await;
+    let tree = r
+        .store
+        .tree(account())
+        .await
+        .unwrap_or_else(|e| panic!("{e}"));
+    let id_of = |name: &str| {
+        tree.iter()
+            .find(|n| n.name.as_str() == name)
+            .map(|n| n.id)
+            .unwrap_or_else(|| panic!("{name}"))
+    };
+    let (inbox, bli) = (id_of("INBOX"), id_of("Bli"));
+    let id = r
+        .store
+        .page(inbox, None, 10)
+        .await
+        .unwrap_or_else(|e| panic!("{e}"))
+        .items
+        .first()
+        .map(|i| i.id)
+        .unwrap_or_else(|| panic!("message"));
+    // Vers « Bli », rejoué dans deux secondes (fenêtre d'annulation).
+    let now = super::unix_now() - norelly_domain::actions::UNDO_WINDOW_SECS + 2;
+    PerformAction { store: &*r.store }
+        .execute(&[id], MessageAction::Move(bli), now)
+        .await
+        .unwrap_or_else(|e| panic!("{e}"));
+    let name = |raw: &str| MailboxName::parse(raw).unwrap_or_else(|e| panic!("{e}"));
+    imap.lose_next_rename_reply();
+    let renamed = tokio::time::timeout(
+        WAIT,
+        r.handle.client().rename_folder(name("Bli"), "Blo".into()),
+    )
+    .await
+    .unwrap_or_else(|_| panic!("délai"));
+    assert!(
+        matches!(renamed, Err(FolderFailure::Interrupted { .. })),
+        "{renamed:?}"
+    );
+    r.handle.replay_soon();
+    let imap = r.imap.clone();
+    eventually(Duration::from_secs(8), "message arrivé dans Blo", || {
+        imap.flags_of("Blo").len() == 1
+    })
+    .await;
+    assert!(r.imap.flags_of("INBOX").is_empty(), "plus dans INBOX");
+    // Boîte locale renommée, pas recréée : même identifiant (cache gardé).
+    let renamed_id = r
+        .store
+        .tree(account())
+        .await
+        .unwrap_or_else(|e| panic!("{e}"))
+        .into_iter()
+        .find(|n| n.name.as_str() == "Blo")
+        .map(|n| n.id);
+    assert_eq!(renamed_id, Some(bli), "boîte locale renommée");
+    r.handle.shutdown().await;
+}
+
+/// Compte avec un dossier « Bli » et un message de la boîte de réception
+/// à y déplacer dans deux secondes (fenêtre d'annulation) ; renvoie
+/// l'identifiant local de « Bli ».
+async fn pending_move_into_bli(imap: &FakeImap) -> (Running, MailboxId) {
+    use crate::actions::PerformAction;
+    use norelly_domain::actions::MessageAction;
+    use norelly_domain::ports::MessageListQuery;
+
+    imap.create_mailbox("Bli", &[]);
+    imap.append("INBOX", b"Subject: a\r\n\r\nx", Flags::default(), 1);
+    let mut r = start(imap);
+    wait_for(&mut r.events, WAIT, online).await;
+    wait_inbox(&r, 1, WAIT).await;
+    let tree = r
+        .store
+        .tree(account())
+        .await
+        .unwrap_or_else(|e| panic!("{e}"));
+    let id_of = |name: &str| {
+        tree.iter()
+            .find(|n| n.name.as_str() == name)
+            .map(|n| n.id)
+            .unwrap_or_else(|| panic!("{name}"))
+    };
+    let (inbox, bli) = (id_of("INBOX"), id_of("Bli"));
+    let id = r
+        .store
+        .page(inbox, None, 10)
+        .await
+        .unwrap_or_else(|e| panic!("{e}"))
+        .items
+        .first()
+        .map(|i| i.id)
+        .unwrap_or_else(|| panic!("message"));
+    let now = super::unix_now() - norelly_domain::actions::UNDO_WINDOW_SECS + 2;
+    PerformAction { store: &*r.store }
+        .execute(&[id], MessageAction::Move(bli), now)
+        .await
+        .unwrap_or_else(|e| panic!("{e}"));
+    (r, bli)
+}
+
+/// Identifiant local du dossier `raw`, s'il est connu.
+async fn local_id(r: &Running, raw: &str) -> Option<MailboxId> {
+    r.store
+        .tree(account())
+        .await
+        .unwrap_or_else(|e| panic!("{e}"))
+        .into_iter()
+        .find(|n| n.name.as_str() == raw)
+        .map(|n| n.id)
+}
+
+/// Renommage coupé avant d'atteindre le serveur (ancien nom toujours
+/// listé) : rien n'est renommé localement, l'action en attente arrive dans
+/// le dossier sous son ancien nom.
+#[tokio::test]
+async fn interrupted_rename_not_applied_leaves_the_local_folder_alone() {
+    use crate::folders::FolderFailure;
+
+    let imap = FakeImap::new();
+    let (mut r, bli) = pending_move_into_bli(&imap).await;
+    let name = |raw: &str| MailboxName::parse(raw).unwrap_or_else(|e| panic!("{e}"));
+    // La liste passe, le RENAME est coupé sans être appliqué.
+    imap.cut_after(Some(1));
+    let renamed = tokio::time::timeout(
+        WAIT,
+        r.handle.client().rename_folder(name("Bli"), "Blo".into()),
+    )
+    .await
+    .unwrap_or_else(|_| panic!("délai"));
+    assert!(
+        matches!(renamed, Err(FolderFailure::Interrupted { .. })),
+        "{renamed:?}"
+    );
+    imap.cut_after(None);
+    wait_for(&mut r.events, WAIT, online).await;
+    r.handle.replay_soon();
+    let server = r.imap.clone();
+    eventually(Duration::from_secs(8), "message arrivé dans Bli", || {
+        server.flags_of("Bli").len() == 1
+    })
+    .await;
+    assert_eq!(local_id(&r, "Bli").await, Some(bli), "boîte locale gardée");
+    assert_eq!(local_id(&r, "Blo").await, None, "rien de renommé");
+    r.handle.shutdown().await;
+}
+
+/// Ancien et nouveau noms listés tous les deux à la reconnexion (un autre
+/// client a créé le nouveau) : le renommage n'est pas confirmé, rien n'est
+/// renommé ni supprimé localement.
+#[tokio::test]
+async fn interrupted_rename_with_both_names_listed_is_not_confirmed() {
+    use crate::folders::FolderFailure;
+
+    let imap = FakeImap::new();
+    let (mut r, bli) = pending_move_into_bli(&imap).await;
+    let name = |raw: &str| MailboxName::parse(raw).unwrap_or_else(|e| panic!("{e}"));
+    imap.cut_after(Some(1));
+    let renamed = tokio::time::timeout(
+        WAIT,
+        r.handle.client().rename_folder(name("Bli"), "Blo".into()),
+    )
+    .await
+    .unwrap_or_else(|_| panic!("délai"));
+    assert!(
+        matches!(renamed, Err(FolderFailure::Interrupted { .. })),
+        "{renamed:?}"
+    );
+    imap.create_mailbox("Blo", &[]);
+    imap.cut_after(None);
+    wait_for(&mut r.events, WAIT, online).await;
+    r.handle.replay_soon();
+    let server = r.imap.clone();
+    eventually(Duration::from_secs(8), "message arrivé dans Bli", || {
+        server.flags_of("Bli").len() == 1
+    })
+    .await;
+    assert_eq!(local_id(&r, "Bli").await, Some(bli), "boîte locale gardée");
+    assert!(server.flags_of("Blo").is_empty(), "rien rangé dans Blo");
+    r.handle.shutdown().await;
+}
+
 /// Un message non lu arrivé par IDLE est signalé (notification),
 /// pas ceux de la première synchronisation.
 #[tokio::test]
@@ -808,6 +1006,163 @@ async fn local_cache(r: &Running, raw: &str, total: u32) -> (MailboxId, Vec<Mess
         );
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
+}
+
+/// Attend la mise en ligne, annoncée après la synchronisation complète
+/// initiale : la connexion de commandes est alors libre.
+async fn wait_idle(r: &mut Running) {
+    wait_for(&mut r.events, WAIT, online).await;
+}
+
+/// Noms des dossiers enregistrés localement.
+async fn local_names(r: &Running) -> Vec<String> {
+    r.store
+        .tree(account())
+        .await
+        .unwrap_or_else(|e| panic!("{e}"))
+        .into_iter()
+        .map(|n| n.name.as_str().to_owned())
+        .collect()
+}
+
+#[tokio::test]
+async fn late_folder_change_already_started_has_an_unknown_outcome() {
+    use crate::folders::FolderFailure;
+
+    let imap = FakeImap::new();
+    imap.create_mailbox("Projets", &[]);
+    let mut r = start(&imap);
+    wait_idle(&mut r).await;
+    // Serveur lent (200 ms par commande) : la liste est lue, le RENAME
+    // part à 200 ms et répond à 400 ms, après le délai de l'appelant.
+    imap.set_delay(Duration::from_millis(200));
+    let renamed = r
+        .handle
+        .client()
+        .change_folder_within(
+            FolderChange::Rename {
+                folder: MailboxName::parse("Projets").unwrap_or_else(|e| panic!("{e}")),
+                label: "Chantiers".into(),
+            },
+            Duration::from_millis(300),
+        )
+        .await;
+    assert_eq!(renamed, Err(FolderFailure::OutcomeUnknown));
+    imap.set_delay(Duration::ZERO);
+    // Le renommage se poursuit ; la liste relue montre le nouveau nom.
+    wait_for(&mut r.events, WAIT, |e| {
+        matches!(e, SyncEvent::FoldersChanged { .. })
+    })
+    .await;
+    let names = local_names(&r).await;
+    assert!(names.contains(&"Chantiers".to_owned()), "{names:?}");
+    assert!(!names.contains(&"Projets".to_owned()), "{names:?}");
+    r.handle.shutdown().await;
+}
+
+#[tokio::test]
+async fn folder_change_interrupted_reconnects_and_rereads_the_list() {
+    use crate::folders::FolderFailure;
+
+    let imap = FakeImap::new();
+    imap.create_mailbox("Projets", &[]);
+    let mut r = start(&imap);
+    wait_idle(&mut r).await;
+    // La liste passe, le renommage est coupé.
+    imap.cut_after(Some(1));
+    let renamed = tokio::time::timeout(
+        WAIT,
+        r.handle.client().rename_folder(
+            MailboxName::parse("Projets").unwrap_or_else(|e| panic!("{e}")),
+            "Chantiers".into(),
+        ),
+    )
+    .await
+    .unwrap_or_else(|_| panic!("délai"));
+    assert_eq!(
+        renamed,
+        Err(FolderFailure::Interrupted {
+            cause: ConnectionError::Closed,
+            target: MailboxName::parse("Chantiers").unwrap_or_else(|e| panic!("{e}")),
+        })
+    );
+    imap.cut_after(None);
+    // Connexion rouverte : la liste est relue sur le serveur.
+    wait_for(&mut r.events, WAIT, online).await;
+    r.handle.shutdown().await;
+}
+
+#[tokio::test]
+async fn folder_change_stopped_after_it_was_sent_has_an_unknown_outcome() {
+    use crate::folders::FolderFailure;
+
+    let imap = FakeImap::new();
+    imap.create_mailbox("Projets", &[]);
+    let mut r = start(&imap);
+    wait_idle(&mut r).await;
+    // Liste lue à 200 ms ; arrêt de l'acteur à 300 ms, pendant le RENAME.
+    imap.set_delay(Duration::from_millis(200));
+    let client = r.handle.client();
+    let pending = tokio::spawn(async move {
+        client
+            .rename_folder(
+                MailboxName::parse("Projets").unwrap_or_else(|e| panic!("{e}")),
+                "Chantiers".into(),
+            )
+            .await
+    });
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    r.handle.shutdown().await;
+    let renamed = tokio::time::timeout(WAIT, pending)
+        .await
+        .unwrap_or_else(|_| panic!("délai"))
+        .unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(renamed, Err(FolderFailure::OutcomeUnknown));
+}
+
+#[tokio::test]
+async fn late_folder_change_not_yet_sent_is_dropped_with_an_ordinary_error() {
+    use crate::folders::FolderFailure;
+    use norelly_domain::connection::TimeoutStage;
+
+    let imap = FakeImap::new();
+    let mut r = start(&imap);
+    wait_idle(&mut r).await;
+    // Serveur lent : le délai expire pendant la lecture de la liste, avant
+    // le CREATE.
+    imap.set_delay(Duration::from_millis(200));
+    let late = r
+        .handle
+        .client()
+        .change_folder_within(
+            FolderChange::Create {
+                label: "Factures".into(),
+                parent: None,
+            },
+            Duration::from_millis(100),
+        )
+        .await;
+    assert_eq!(
+        late,
+        Err(FolderFailure::Connection(ConnectionError::Timeout(
+            TimeoutStage::Response
+        )))
+    );
+    imap.set_delay(Duration::ZERO);
+    let next = tokio::time::timeout(WAIT, r.handle.client().create_folder("Notes".into(), None))
+        .await
+        .unwrap_or_else(|_| panic!("délai"));
+    assert!(next.is_ok(), "{next:?}");
+    let mut session = imap.session().unwrap_or_else(|e| panic!("{e}"));
+    let names: Vec<String> = session
+        .list_mailboxes()
+        .await
+        .unwrap_or_else(|e| panic!("{e}"))
+        .into_iter()
+        .map(|m| m.name.as_str().to_owned())
+        .collect();
+    assert!(!names.contains(&"Factures".to_owned()), "{names:?}");
+    r.handle.shutdown().await;
 }
 
 /// Total local du dossier `raw`, s'il est connu.

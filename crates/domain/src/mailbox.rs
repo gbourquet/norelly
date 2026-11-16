@@ -884,6 +884,28 @@ fn destination(
     }
 }
 
+/// Renommage (ou déplacement) de `from` en `to` dont la réponse s'est
+/// perdue : vrai si la liste relue sur le serveur montre qu'il a été
+/// appliqué, c'est-à-dire `to` présent et `from` absent. Un dossier
+/// `\NonExistent` compte comme absent ; un `\Noselect` (simple contenant
+/// de sous-dossiers) compte comme présent : son renommage emporte des
+/// sous-dossiers dont les actions doivent suivre. Un autre client qui
+/// aurait supprimé `from` et créé un `to` sans rapport pendant la coupure
+/// n'est pas distingué : la liste ne le permet pas.
+#[must_use]
+pub fn relocation_confirmed(
+    from: &MailboxName,
+    to: &MailboxName,
+    listed: &[ListedMailbox],
+) -> bool {
+    let present = |name: &MailboxName| {
+        listed
+            .iter()
+            .any(|m| m.name == *name && !m.has_attribute("\\NonExistent"))
+    };
+    present(to) && !present(from)
+}
+
 /// Vérifie que le dossier `folder` peut être supprimé : il existe, n'est
 /// ni la boîte de réception ni un dossier spécial, et n'a pas de
 /// sous-dossier, à la casse près (les serveurs traitent ce cas chacun à

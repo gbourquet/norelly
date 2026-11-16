@@ -1110,6 +1110,13 @@ export type ErrorCodeDto =
  */
 "folder_delete_failed" | 
 /**
+ *  Création, renommage, déplacement ou suppression d'un dossier déjà
+ *  envoyés au serveur sans réponse à temps (délai dépassé, connexion
+ *  perdue) : la modification a pu aboutir, la liste des dossiers est
+ *  relue (`detail` : cause brute, si connue).
+ */
+"folder_outcome_unknown" | 
+/**
  *  Téléchargement ou installation d'une mise à jour impossible
  *  (`detail` : erreur brute).
  */

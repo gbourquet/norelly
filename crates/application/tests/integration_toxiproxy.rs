@@ -516,3 +516,76 @@ async fn offline_actions_are_replayed_when_the_network_comes_back() -> TestResul
     handle.shutdown().await;
     Ok(())
 }
+
+#[tokio::test]
+async fn late_folder_rename_reports_an_unknown_outcome_then_the_list_shows_it() -> TestResult {
+    use norelly_application::folders::{FolderChange, FolderFailure};
+    use norelly_domain::mailbox::MailboxName;
+
+    let lab = lab("rename").await?;
+    lab.control.create("Projets").await?;
+    let l = local("toxi-rename").await;
+    let conn = Arc::new(lab.connector());
+    let handle = spawn(
+        l.account,
+        lab.proxied_request(),
+        Arc::clone(&conn),
+        Arc::clone(&l.store),
+        Arc::clone(&l.blobs),
+        Arc::new(norelly_render::search_text::MimeTextExtractor),
+        ActorConfig {
+            backoff: Backoff::new(200, 2_000),
+            ..ActorConfig::default()
+        },
+    );
+    let mut events = handle.subscribe();
+    wait_event(&mut events, Duration::from_secs(30), |e| {
+        matches!(e, SyncEvent::Online { .. })
+    })
+    .await;
+    assert!(l.id("Projets").await.is_some(), "dossier synchronisé");
+    // Acteur au repos (synchronisations déclenchées par la connexion IDLE
+    // terminées) : plus aucun événement pendant deux secondes.
+    while tokio::time::timeout(Duration::from_secs(2), events.recv())
+        .await
+        .is_ok()
+    {}
+
+    // Serveur lent (réponses retardées de 1,5 s) : la liste répond à
+    // 1,5 s, le RENAME part aussitôt et répond à 3 s, après le délai de
+    // 2,2 s.
+    lab.toxiproxy
+        .add_toxic(PROXY, "lent", "latency", "downstream", "{\"latency\":1500}")
+        .await?;
+    let renamed = handle
+        .client()
+        .change_folder_within(
+            FolderChange::Rename {
+                folder: MailboxName::parse("Projets")?,
+                label: "Chantiers".into(),
+            },
+            Duration::from_millis(2_200),
+        )
+        .await;
+    assert_eq!(renamed, Err(FolderFailure::OutcomeUnknown));
+    lab.toxiproxy.remove_toxic(PROXY, "lent").await?;
+
+    // La modification a abouti : la liste relue la montre.
+    wait_event(&mut events, Duration::from_secs(30), |e| {
+        matches!(e, SyncEvent::FoldersChanged { .. })
+    })
+    .await;
+    assert!(l.id("Chantiers").await.is_some(), "nouveau nom relu");
+    assert!(l.id("Projets").await.is_none(), "ancien nom oublié");
+    let mut session = conn.connect(&lab.direct_request()).await?;
+    let names: Vec<String> = session
+        .list_mailboxes()
+        .await?
+        .into_iter()
+        .map(|m| m.name.as_str().to_owned())
+        .collect();
+    let _ = session.logout().await;
+    assert!(names.contains(&"Chantiers".to_owned()), "{names:?}");
+    handle.shutdown().await;
+    Ok(())
+}

@@ -9,7 +9,7 @@ if (!application) throw new Error("NORELLY_APP_BINARY non défini (lancer via pn
 
 let tauriDriver;
 
-/** Attend que tauri-driver accepte les connexions. */
+/** Attend qu'un port local accepte les connexions. */
 async function waitForPort(port, timeoutMs) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
@@ -24,7 +24,7 @@ async function waitForPort(port, timeoutMs) {
     if (ok) return;
     await new Promise((r) => setTimeout(r, 200));
   }
-  throw new Error(`tauri-driver ne répond pas sur le port ${port}`);
+  throw new Error(`aucun pilote ne répond sur le port ${port}`);
 }
 
 export const config = {
@@ -46,6 +46,10 @@ export const config = {
   beforeSession: async () => {
     tauriDriver = spawn("tauri-driver", [], { stdio: ["ignore", "inherit", "inherit"] });
     await waitForPort(4444, 20000);
+    // tauri-driver écoute avant que son pilote natif (WebKitWebDriver, port
+    // 4445) soit prêt : une session ouverte trop tôt échoue sur « Connection
+    // refused ».
+    await waitForPort(4445, 20000);
   },
 
   // Profil neuf : la question des mises à jour du premier lancement est

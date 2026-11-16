@@ -127,6 +127,27 @@ describe("nouveau dossier", () => {
     expect(state.busy).toBe(false);
   });
 
+  it("résultat inconnu : relit la liste des dossiers et le dit", async () => {
+    const reload = vi.fn(async () => {});
+    const state = new NewFolderState(fakeApi(new IpcFailure("folder_outcome_unknown")), reload);
+    state.name = "Factures";
+    expect(await state.submit(7)).toBeNull();
+    expect(reload).toHaveBeenCalledWith(7);
+    expect(state.error).toBe(
+      "Le serveur n'a pas confirmé la modification : elle a peut-être été faite. " +
+        "La liste des dossiers va être mise à jour : vérifiez-la avant de réessayer.",
+    );
+    expect(state.busy).toBe(false);
+  });
+
+  it("refus ordinaire : la liste n'est pas relue", async () => {
+    const reload = vi.fn(async () => {});
+    const state = new NewFolderState(fakeApi(new IpcFailure("folder_create_failed")), reload);
+    state.name = "Factures";
+    await state.submit(7);
+    expect(reload).not.toHaveBeenCalled();
+  });
+
   it("repart d'un formulaire vide", () => {
     const state = new NewFolderState(fakeApi());
     state.name = "x";

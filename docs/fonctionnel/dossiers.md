@@ -189,17 +189,25 @@ déplacer « Bli » dans « Bla » en fait un sous-dossier de « Bla ».
   est accepté.
 - Un dossier déplacé suit les règles d'emplacement d'un nouveau dossier.
   Il ne peut aller ni dans lui-même ni dans un de ses sous-dossiers, et
-  pas là où un dossier porte déjà son nom (majuscules et minuscules
-  confondues). Un dossier dont le nom serait interprété par certains
-  serveurs (voir plus haut), créé par une autre application, ne se déplace
-  pas : le renommer d'abord.
+  pas là où un dossier porte déjà son nom ; dans les deux cas, majuscules
+  et minuscules sont confondues, certains serveurs ne les distinguant pas.
+  Un dossier dont le nom serait interprété par certains serveurs (voir
+  plus haut), créé par une autre application, ne se déplace pas : le
+  renommer d'abord.
 - La **boîte de réception** et les **dossiers spéciaux** (envoyés,
   brouillons, corbeille, indésirables, archives, dossiers virtuels) ne se
   renomment, ne se déplacent ni ne se suppriment : leur menu ne propose
   que **Nouveau sous-dossier…** (aucun menu pour les dossiers virtuels).
   Ils restent proposés comme emplacement, sauf les dossiers virtuels.
+- Un dossier qui contient un **dossier spécial**, à quelque profondeur que
+  ce soit (par exemple un dossier de fournisseur qui regroupe envoyés et
+  corbeille), ne se renomme ni ne se déplace : le dossier spécial le
+  suivrait.
 - Un dossier qui contient des **sous-dossiers** ne peut pas être supprimé :
-  il faut d'abord supprimer ses sous-dossiers.
+  il faut d'abord supprimer ses sous-dossiers. Juste avant la suppression,
+  ses sous-dossiers sont recherchés à nouveau sur le serveur, y compris
+  ceux que l'application n'affiche pas (nom illisible ou refusé, compte
+  aux très nombreux dossiers) : s'il en a un, rien n'est supprimé.
 
 ## Cas limites
 
@@ -258,6 +266,7 @@ déplacer « Bli » dans « Bla » en fait un sous-dossier de « Bla ».
 | Dossier supprimé | Dossier « {folder} » supprimé. |
 | Dossier protégé | La boîte de réception et les dossiers spéciaux (envoyés, brouillons, corbeille…) ne peuvent être ni renommés, ni déplacés, ni supprimés. |
 | Sous-dossiers | Ce dossier contient des sous-dossiers : supprimez-les d'abord. |
+| Contient un dossier spécial | Ce dossier contient un dossier spécial (envoyés, brouillons, corbeille…) : il ne peut être ni renommé ni déplacé. |
 | Refus, hors ligne (renommage) | Le dossier n'a pas pu être renommé sur le serveur. (« réponse du serveur ») |
 | Refus, hors ligne (suppression) | Le dossier n'a pas pu être supprimé sur le serveur. (« réponse du serveur ») |
 

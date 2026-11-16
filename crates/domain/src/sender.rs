@@ -3,13 +3,16 @@
 //! l'en-tête, écarté s'il imite une adresse.
 //!
 //! Le nom du carnet s'affiche aussi pour une adresse `From` falsifiée : il
-//! ne vaut pas preuve d'identité.
+//! ne vaut pas preuve d'identité. La pastille « Dans vos contacts », elle,
+//! n'est accordée qu'à un expéditeur authentifié par le serveur du compte
+//! ([`crate::sender_auth`]).
 
 use std::collections::HashMap;
 
 use crate::contacts::{AddressKey, Contact, ContactId, is_invisible};
 use crate::mailbox::Correspondent;
 use crate::ports::MAX_CONTACT_LOOKUP;
+use crate::sender_auth::SenderAuth;
 
 /// Correspondant tel qu'il s'affiche.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -23,6 +26,14 @@ pub struct SenderLabel {
     /// Afficher aussi l'adresse à côté du nom : le nom de l'en-tête
     /// contient un domaine et pourrait passer pour l'expéditeur réel.
     pub show_address: bool,
+    /// Authentification de l'expéditeur ([`SenderAuth::Unknown`] pour un
+    /// destinataire, ou un expéditeur sans verdict).
+    pub auth: SenderAuth,
+    /// Afficher la pastille « Dans vos contacts » : le contact du carnet
+    /// porte l'adresse et l'expéditeur est authentifié
+    /// ([`SenderAuth::Pass`]). Sans authentification, l'adresse seule ne
+    /// cautionne personne.
+    pub contact_badge: bool,
 }
 
 /// Caractères qui servent, ou ressemblent, à `@`, `<` et `>` (formes
@@ -298,8 +309,21 @@ pub fn is_address_look_alike(c: char) -> bool {
 /// accompagné de l'adresse s'il contient un domaine ([`names_a_domain`]).
 /// Un contact sans nom (ni nom affiché, ni prénom, ni nom, ni surnom)
 /// laisse l'adresse seule.
+/// Sans verdict d'authentification : jamais de pastille du carnet.
 #[must_use]
 pub fn sender_label(header: &Correspondent, contact: Option<&Contact>) -> SenderLabel {
+    sender_label_with_auth(header, contact, SenderAuth::Unknown)
+}
+
+/// [`sender_label`] d'un expéditeur dont l'authentification est `auth` :
+/// la pastille du carnet ([`SenderLabel::contact_badge`]) n'est accordée
+/// qu'à un expéditeur authentifié ([`SenderAuth::Pass`]).
+#[must_use]
+pub fn sender_label_with_auth(
+    header: &Correspondent,
+    contact: Option<&Contact>,
+    auth: SenderAuth,
+) -> SenderLabel {
     let known = contact.filter(|c| {
         AddressKey::parse(&header.address).is_ok_and(|key| c.draft().has_address(&key))
     });
@@ -323,6 +347,8 @@ pub fn sender_label(header: &Correspondent, contact: Option<&Contact>) -> Sender
         address: header.address.clone(),
         contact: known.map(Contact::id),
         show_address,
+        auth,
+        contact_badge: known.is_some() && auth == SenderAuth::Pass,
     }
 }
 
@@ -385,10 +411,18 @@ impl SenderNames {
         self.by_key.get(&key).and_then(|&i| self.contacts.get(i))
     }
 
-    /// Nom affiché de `header` ([`sender_label`]).
+    /// Nom affiché de `header` ([`sender_label`]), sans verdict
+    /// d'authentification (destinataire, listes).
     #[must_use]
     pub fn label(&self, header: &Correspondent) -> SenderLabel {
         sender_label(header, self.contact_for(header))
+    }
+
+    /// Nom affiché de l'expéditeur `header`, authentifié selon `auth`
+    /// ([`sender_label_with_auth`]).
+    #[must_use]
+    pub fn sender(&self, header: &Correspondent, auth: SenderAuth) -> SenderLabel {
+        sender_label_with_auth(header, self.contact_for(header), auth)
     }
 }
 
@@ -636,6 +670,43 @@ mod tests {
     }
 
     #[test]
+    fn the_contact_badge_needs_an_authenticated_sender() {
+        let alice = alice();
+        let shown =
+            |auth| sender_label_with_auth(&header("", "alice@example.com"), Some(&alice), auth);
+        let pass = shown(SenderAuth::Pass);
+        assert!(pass.contact_badge);
+        assert_eq!(pass.auth, SenderAuth::Pass);
+        for auth in [SenderAuth::Fail, SenderAuth::Unknown] {
+            let label = shown(auth);
+            assert!(!label.contact_badge, "{auth:?}");
+            assert_eq!(label.auth, auth);
+            // Le nom du carnet et le menu du contact restent.
+            assert_eq!(label.name, "Alice Martin");
+            assert_eq!(label.contact, id(7));
+        }
+        // Hors du carnet : jamais de pastille, le verdict est transmis.
+        let stranger =
+            sender_label_with_auth(&header("Bob", "bob@example.com"), None, SenderAuth::Pass);
+        assert!(!stranger.contact_badge);
+        assert_eq!(stranger.auth, SenderAuth::Pass);
+        // Sans verdict (destinataires, listes) : aucune pastille.
+        assert!(!sender_label(&header("", "alice@example.com"), Some(&alice)).contact_badge);
+        let names = SenderNames::new(vec![alice.clone()]);
+        assert!(
+            names
+                .sender(&header("", "alice@example.com"), SenderAuth::Pass)
+                .contact_badge
+        );
+        assert!(
+            !names
+                .sender(&header("", "alice@example.com"), SenderAuth::Fail)
+                .contact_badge
+        );
+        assert!(!names.label(&header("", "alice@example.com")).contact_badge);
+    }
+
+    #[test]
     fn without_contact_the_header_name_is_kept() {
         let label = sender_label(&header("Bob", "bob@example.com"), None);
         assert_eq!(
@@ -645,6 +716,8 @@ mod tests {
                 address: "bob@example.com".into(),
                 contact: None,
                 show_address: false,
+                auth: SenderAuth::Unknown,
+                contact_badge: false,
             }
         );
     }

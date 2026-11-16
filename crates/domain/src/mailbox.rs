@@ -15,6 +15,7 @@ use serde::{Deserialize, Serialize};
 use crate::connection::is_format_char;
 use crate::fetch_policy::MimePart;
 use crate::ports::FolderNode;
+use crate::sender_auth::{AuthServTrust, SenderAuth};
 
 // ---------------------------------------------------------------------------
 // Identifiants IMAP
@@ -954,6 +955,10 @@ pub struct MessageHeaders {
     pub message_id: Option<String>,
     pub in_reply_to: Vec<String>,
     pub references: Vec<String>,
+    /// Authentification de l'expéditeur par le serveur du compte
+    /// ([`MessageHeaders::sanitize_received`]) ; inconnue par défaut.
+    #[serde(default)]
+    pub sender_auth: SenderAuth,
 }
 
 /// En-têtes bruts (déjà décodés des mots encodés RFC 2047), avant
@@ -968,6 +973,9 @@ pub struct RawHeaders<'a> {
     pub message_id: Option<&'a str>,
     pub in_reply_to: Vec<&'a str>,
     pub references: Vec<&'a str>,
+    /// Valeurs brutes des en-têtes `Authentication-Results`, dans l'ordre
+    /// du message.
+    pub authentication_results: Vec<&'a str>,
 }
 
 impl MessageHeaders {
@@ -995,6 +1003,24 @@ impl MessageHeaders {
             message_id: raw.message_id.and_then(message_id),
             in_reply_to: ids(&raw.in_reply_to),
             references: ids(&raw.references),
+            sender_auth: SenderAuth::Unknown,
+        }
+    }
+
+    /// Assainit les en-têtes d'un message reçu sur un compte dont les
+    /// `authserv-id` de confiance sont `trust`, avec le verdict
+    /// d'authentification de l'expéditeur ([`SenderAuth::evaluate`]).
+    #[must_use]
+    pub fn sanitize_received(raw: &RawHeaders<'_>, trust: &AuthServTrust) -> Self {
+        let headers = Self::sanitize(raw);
+        let sender_auth = SenderAuth::evaluate(
+            trust,
+            raw.authentication_results.iter().copied(),
+            &headers.from,
+        );
+        Self {
+            sender_auth,
+            ..headers
         }
     }
 }

@@ -139,7 +139,8 @@ function rawMessages() {
     const date = new Date(base - i * 5 * 3600 * 1000).toUTCString().replace("GMT", "+0000");
     // Expéditeurs authentifiés par le serveur du compte (`authserv-id` du
     // domaine de l'hôte IMAP, imap.norelly.test).
-    return `Authentication-Results: mx.norelly.test; dmarc=pass
+    const domain = from.replace(/^.*@([^>]+)>?$/, "$1");
+    return `Authentication-Results: mx.norelly.test; dmarc=pass header.from=${domain}
 From: ${from}
 To: ${content.name} <${address}>
 Subject: ${subject}

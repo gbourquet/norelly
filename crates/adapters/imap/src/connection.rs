@@ -460,6 +460,9 @@ impl Connection {
         loop {
             let line = self.read_line(timeout, max - response.len()).await?;
             let literal = nesting.scan_line(&line);
+            // Un texte d'état n'annonce jamais de littéral : un `{3}` final y
+            // est le nom d'un dossier cité par le serveur.
+            let literal = literal.filter(|_| !(response.is_empty() && is_status_line(&line)));
             response.extend_from_slice(&line);
             let Some(size) = literal else {
                 break;
@@ -825,20 +828,41 @@ fn event_name(event: &Event) -> &'static str {
 /// écartée et la commande attendrait jusqu'au délai. Le texte d'état n'est
 /// qu'informatif ; les autres réponses (noms de `LIST`, contenus) ne sont
 /// pas touchées.
+///
+/// Une accolade finale (`… Notes{3}`) est remplacée de même : la grammaire
+/// ne prévoit pas de littéral dans un texte d'état, mais `imap-next` le
+/// prendrait pour l'annonce d'un littéral et attendrait la suite jusqu'au
+/// délai.
 fn ascii_status_text(line: &mut [u8]) {
-    let mut words = line.splitn(3, |&b| b == b' ');
-    let (Some(_tag), Some(kind)) = (words.next(), words.next()) else {
-        return;
-    };
-    let status = [&b"OK"[..], b"NO", b"BAD", b"BYE", b"PREAUTH"]
-        .iter()
-        .any(|k| kind.eq_ignore_ascii_case(k));
-    if !status {
+    if !is_status_line(line) {
         return;
     }
     for b in line.iter_mut().filter(|b| !b.is_ascii()) {
         *b = b'?';
     }
+    let text = line.len()
+        - line
+            .iter()
+            .rev()
+            .take_while(|&&b| b == b'\r' || b == b'\n')
+            .count();
+    if let Some(last) = text.checked_sub(1).and_then(|i| line.get_mut(i))
+        && *last == b'}'
+    {
+        *last = b'?';
+    }
+}
+
+/// Ligne d'état : `OK`, `NO`, `BAD`, `BYE` ou `PREAUTH` après l'étiquette
+/// (ou `*`), à la casse près.
+fn is_status_line(line: &[u8]) -> bool {
+    let mut words = line.splitn(3, |&b| b == b' ');
+    let (Some(_tag), Some(kind)) = (words.next(), words.next()) else {
+        return false;
+    };
+    [&b"OK"[..], b"NO", b"BAD", b"BYE", b"PREAUTH"]
+        .iter()
+        .any(|k| kind.eq_ignore_ascii_case(k))
 }
 
 #[cfg(test)]
@@ -862,11 +886,19 @@ mod tests {
             "* ok [ALERT] r??duit\r\n"
         );
         assert_eq!(cleaned("* BYE à bientôt\r\n"), "* BYE ?? bient??t\r\n");
+        // Accolade finale neutralisée : un nom cité en fin de texte d'état
+        // (`Notes{3}`) n'est pas l'annonce d'un littéral.
+        assert_eq!(
+            cleaned("N4 NO existe : Notes{3}\r\n"),
+            "N4 NO existe : Notes{3?\r\n"
+        );
+        assert_eq!(cleaned("* OK Notes{3+}\r\n"), "* OK Notes{3+?\r\n");
         // Données : noms de boîtes et contenus intacts.
         for line in [
             "* LIST () \"/\" Été\r\n",
             "* 3 FETCH (FLAGS (\\Seen))\r\n",
             "* NOTED Été\r\n",
+            "* LIST () \"/\" {3}\r\n",
             "Été\r\n",
         ] {
             assert_eq!(cleaned(line), line);

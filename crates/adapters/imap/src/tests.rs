@@ -1733,6 +1733,55 @@ async fn utf8_refusal_text_is_received_as_a_refusal() -> TestResult {
     Ok(())
 }
 
+/// Texte d'état qui cite un nom de dossier finissant par `{3}` (créé par un
+/// autre client) : ce n'est pas l'annonce d'un littéral, la grammaire n'en
+/// prévoit pas dans un texte d'état. Réponse reçue tout de suite, au lieu
+/// d'attendre trois octets jusqu'au délai.
+#[tokio::test]
+async fn status_text_ending_like_a_literal_is_not_a_literal() -> TestResult {
+    use norelly_domain::connection::ConnectionError;
+    use norelly_domain::mailbox::MailboxName;
+
+    let f = fixture()?;
+    let cert = f.ca.issue(&["localhost"])?;
+    let script = authenticated(
+        Script::new()
+            .expect("DELETE \"Notes{3}\"")
+            .send("{tag} NO [NONEXISTENT] Mailbox doesn't exist: Notes{3}\r\n")
+            .expect("CREATE Projets")
+            .send("* OK [ALERT] Quota atteint : Notes{3+}\r\n{tag} OK Created Notes{3}\r\n")
+            .expect("LOGOUT")
+            .send("* BYE au revoir\r\n{tag} OK LOGOUT termine\r\n")
+            .expect_eof(),
+    );
+    let server = ScriptedServer::start_tls(script, cert.server_config()?).await?;
+    let mut session = f
+        .connector
+        .connect(&request(
+            server.port(),
+            Security::Tls,
+            PlaintextPolicy::deny_all(),
+        ))
+        .await?;
+    let refused = tokio::time::timeout(
+        Duration::from_secs(5),
+        session.delete_mailbox(&MailboxName::parse("Notes{3}")?),
+    )
+    .await?;
+    let Err(ConnectionError::Rejected(text)) = refused else {
+        panic!("refus attendu : {refused:?}");
+    };
+    assert!(text.contains("Mailbox doesn't exist: Notes"), "{text}");
+    tokio::time::timeout(
+        Duration::from_secs(5),
+        session.create_mailbox(&MailboxName::parse("Projets")?),
+    )
+    .await??;
+    session.logout().await?;
+    server.finish().await.result?;
+    Ok(())
+}
+
 const TOKEN: &str = "tok-Abc.123";
 /// base64("user=alice@outlook.com\x01auth=Bearer tok-Abc.123\x01\x01").
 const XOAUTH2_B64: &str = "dXNlcj1hbGljZUBvdXRsb29rLmNvbQFhdXRoPUJlYXJlciB0b2stQWJjLjEyMwEB";

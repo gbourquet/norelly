@@ -1306,3 +1306,45 @@ fn a_relocated_name_never_becomes_the_inbox() {
         Some(name("Q/x"))
     );
 }
+
+#[test]
+fn interrupted_rename_is_confirmed_only_by_the_new_name_without_the_old() {
+    let (from, to) = (name("Bli"), name("Blo"));
+    let d = Some('/');
+    // Appliqué : nouveau nom listé, ancien absent.
+    assert!(relocation_confirmed(
+        &from,
+        &to,
+        &[listed("INBOX", d, &[]), listed("Blo", d, &[])]
+    ));
+    // Dossier qui ne sert qu'à en contenir d'autres : renommé aussi.
+    assert!(relocation_confirmed(
+        &from,
+        &to,
+        &[listed("Blo", d, &["\\Noselect"])]
+    ));
+    // Ancien nom seulement listé comme inexistant : il a bien disparu.
+    assert!(relocation_confirmed(
+        &from,
+        &to,
+        &[listed("Bli", d, &["\\NonExistent"]), listed("Blo", d, &[])]
+    ));
+    // Pas appliqué : ancien nom encore là, avec ou sans le nouveau.
+    assert!(!relocation_confirmed(&from, &to, &[listed("Bli", d, &[])]));
+    assert!(!relocation_confirmed(
+        &from,
+        &to,
+        &[listed("Bli", d, &[]), listed("Blo", d, &[])]
+    ));
+    // Nouveau nom absent, ou seulement inexistant.
+    assert!(!relocation_confirmed(
+        &from,
+        &to,
+        &[listed("INBOX", d, &[])]
+    ));
+    assert!(!relocation_confirmed(
+        &from,
+        &to,
+        &[listed("Blo", d, &["\\NonExistent"])]
+    ));
+}

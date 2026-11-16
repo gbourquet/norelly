@@ -78,8 +78,8 @@ supprimer, depuis l'application.
 
 - Chaque dossier du panneau de gauche a un menu, ouvert par le bouton
   **⋯** (qui apparaît au survol, et reste visible sur le dossier affiché)
-  ou par un **clic droit** sur le dossier : les deux proposent les mêmes
-  entrées.
+  ou par un **clic droit** sur le dossier (au doigt : un appui long sans
+  bouger) : les deux proposent les mêmes entrées.
 - Un dossier ordinaire propose **Nouveau sous-dossier…**, **Renommer le
   dossier…**, **Déplacer le dossier…** et **Supprimer le dossier…**.
 - La boîte de réception et les dossiers spéciaux ne proposent que

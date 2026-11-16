@@ -69,6 +69,8 @@ const content = {
     reply: "Avec plaisir, à dimanche ! Je prends les jus de fruits.",
     folder: "Jardin",
     renamed: "Potager",
+    subfolder: "Cuisine",
+    newFolder: "Santé",
     search: "tarte",
     suggest: "ler",
     contacts: [
@@ -113,6 +115,8 @@ const content = {
     reply: "Great, until Sunday! I can bring drinks.",
     folder: "Garden",
     renamed: "Vegetables",
+    subfolder: "Recipes",
+    newFolder: "Health",
     search: "pie",
     suggest: "lee",
     contacts: [
@@ -607,6 +611,82 @@ describe(`captures d'écran (${lang})`, () => {
     await remove.$(`button=${msg("delete_folder_confirm")}`).click();
     await remove.waitForDisplayed({ reverse: true, timeout: 30000 });
     await label(content.renamed).waitForDisplayed({ reverse: true, timeout: 30000 });
+  });
+
+  it("menu d'un dossier au clic droit, sous-dossier, nouveau dossier en déplaçant (à la souris)", async () => {
+    const folders = `//*[@aria-label="${msg("sidebar_folders_of", { address })}"]`;
+    const label = (name) => $(`${folders}//span[normalize-space()="${name}"]`);
+    const inbox = msg("mailbox_inbox");
+
+    // Clic droit sur la boîte de réception : seulement « Nouveau
+    // sous-dossier… », la boîte de réception déjà choisie comme emplacement.
+    await openContextMenu(label(inbox));
+    await menuItem(msg("cmd_new_subfolder")).waitForDisplayed({ timeout: 10000 });
+    await expect(menuItem(msg("cmd_rename_folder"))).not.toBeExisting();
+    await capture("folder-context-menu");
+    await menuItem(msg("cmd_new_subfolder")).click();
+    const sub = dialogTitled(msg("new_folder_title"));
+    await sub.waitForDisplayed({ timeout: 10000 });
+    await expect(sub.$("select option:checked")).toHaveText(expect.stringContaining(inbox));
+    await sub.$(`input[type="text"]`).setValue(content.subfolder);
+    await sub.$(`button=${msg("new_folder_create")}`).click();
+    await sub.waitForDisplayed({ reverse: true, timeout: 30000 });
+    await label(content.subfolder).waitForDisplayed({ timeout: 30000 });
+    // Rangé sous la boîte de réception : en retrait.
+    await browser.waitUntil(
+      async () =>
+        (await label(content.subfolder).parentElement().getAttribute("style"))?.includes(
+          "+ 12px)",
+        ) ?? false,
+      { timeout: 30000, timeoutMsg: "sous-dossier pas rangé sous la boîte de réception" },
+    );
+
+    // « Déplacer vers… » puis « Nouveau dossier… » : dossier créé et
+    // message déplacé dedans, en un geste ; puis annulé.
+    const subject = content.messages[3][1];
+    const row = () => $(`//*[@role="option"][.//span[normalize-space()="${subject}"]]`);
+    await $("nav")
+      .$(`button*=${msg("mailbox_unified_inbox")}`)
+      .click();
+    await row().click();
+    await expect($(`h1=${subject}`)).toBeDisplayed({ wait: 30000 });
+    await openMenu(button(msg("action_more")));
+    await menuItem(msg("cmd_move")).click();
+    const picker = $(`[placeholder="${msg("picker_placeholder")}"]`);
+    await picker.waitForDisplayed({ timeout: 10000 });
+    await picker.setValue(content.newFolder);
+    const create = $(`//*[@role="option"][normalize-space()="${msg("picker_new_folder")}"]`);
+    await create.waitForDisplayed({ timeout: 10000 });
+    await capture("move-new-folder");
+    await create.click();
+    const dialog = dialogTitled(msg("new_folder_title"));
+    await dialog.waitForDisplayed({ timeout: 10000 });
+    await expect(dialog.$(`input[type="text"]`)).toHaveValue(content.newFolder);
+    await dialog.$(`button=${msg("new_folder_create_and_move")}`).click();
+    await dialog.waitForDisplayed({ reverse: true, timeout: 30000 });
+    await expect($(".notice-region")).toHaveText(
+      expect.stringContaining(msg("action_moved", { folder: content.newFolder })),
+      { wait: 30000 },
+    );
+    await row().waitForDisplayed({ reverse: true, timeout: 10000 });
+    // Annulé (dans le délai) : le message revient dans la boîte de réception.
+    await $(`//button[starts-with(normalize-space(), "${msg("action_undo")}")]`).click();
+    await row().waitForDisplayed({ timeout: 30000 });
+    // Le dossier créé est affiché dans le panneau de gauche.
+    await label(content.newFolder).waitForDisplayed({ timeout: 30000 });
+
+    // Dossiers de la démonstration supprimés : les captures suivantes
+    // gardent le panneau de gauche d'origine.
+    for (const name of [content.newFolder, content.subfolder]) {
+      await openContextMenu(label(name));
+      await menuItem(msg("cmd_delete_folder")).waitForDisplayed({ timeout: 10000 });
+      await menuItem(msg("cmd_delete_folder")).click();
+      const remove = dialogTitled(msg("delete_folder_title"));
+      await remove.waitForDisplayed({ timeout: 10000 });
+      await remove.$(`button=${msg("delete_folder_confirm")}`).click();
+      await remove.waitForDisplayed({ reverse: true, timeout: 30000 });
+      await label(name).waitForDisplayed({ reverse: true, timeout: 30000 });
+    }
   });
 
   it("recherche", async () => {

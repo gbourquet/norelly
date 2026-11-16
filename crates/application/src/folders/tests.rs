@@ -90,9 +90,10 @@ async fn invalid_name_sends_nothing() {
 
 #[tokio::test]
 async fn connection_loss_is_reported() {
+    // Perdue pendant la lecture de la liste : rien n'est parti.
     let imap = FakeImap::new();
     let mut session = imap.session().unwrap_or_else(|e| panic!("{e}"));
-    imap.cut_after(Some(1));
+    imap.cut_after(Some(0));
     let created = CreateFolder {
         label: "Factures",
         parent: None,
@@ -105,6 +106,94 @@ async fn connection_loss_is_reported() {
     );
     imap.cut_after(None);
     assert_eq!(names(&imap).await, ["INBOX"]);
+}
+
+#[tokio::test]
+async fn change_abandoned_before_it_is_sent_changes_nothing() {
+    // L'appelant a renoncé pendant la lecture de la liste : la commande
+    // qui modifie le dossier ne part pas.
+    let imap = FakeImap::new();
+    imap.create_mailbox("Projets", &[]);
+    let projets = name("Projets");
+    let changes = [
+        FolderChange::Create {
+            label: "Factures".into(),
+            parent: None,
+        },
+        FolderChange::Rename {
+            folder: projets.clone(),
+            label: "Chantiers".into(),
+        },
+        FolderChange::Move {
+            folder: projets.clone(),
+            parent: Some(name("Bla")),
+        },
+        FolderChange::Delete { folder: projets },
+    ];
+    imap.create_mailbox("Bla", &[]);
+    for change in changes {
+        let mut session = imap.session().unwrap_or_else(|e| panic!("{e}"));
+        let result = change.execute_if(&mut session, || false).await;
+        assert_eq!(result, Err(FolderFailure::Abandoned), "{change:?}");
+        assert_eq!(
+            names(&imap).await,
+            ["INBOX", "Projets", "Bla"],
+            "{change:?}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn connection_lost_on_the_change_itself_leaves_the_outcome_unknown() {
+    // Perdue sur la commande qui modifie le dossier : le serveur a pu
+    // l'appliquer avant la coupure.
+    let imap = FakeImap::new();
+    imap.create_mailbox("Projets", &[]);
+    let projets = name("Projets");
+    let changes = [
+        (
+            FolderChange::Create {
+                label: "Factures".into(),
+                parent: None,
+            },
+            "Factures",
+            1,
+        ),
+        (
+            FolderChange::Rename {
+                folder: projets.clone(),
+                label: "Chantiers".into(),
+            },
+            "Chantiers",
+            1,
+        ),
+        (
+            FolderChange::Move {
+                folder: projets.clone(),
+                parent: Some(name("Bla")),
+            },
+            "Bla/Projets",
+            1,
+        ),
+        // Suppression : la liste puis les sous-dossiers relus passent.
+        (FolderChange::Delete { folder: projets }, "Projets", 2),
+    ];
+    imap.create_mailbox("Bla", &[]);
+    for (change, target, before) in changes {
+        let mut session = imap.session().unwrap_or_else(|e| panic!("{e}"));
+        // Les lectures passent, la modification est coupée.
+        imap.cut_after(Some(before));
+        let result = change.execute(&mut session).await;
+        imap.cut_after(None);
+        assert_eq!(
+            result,
+            Err(FolderFailure::Interrupted {
+                cause: ConnectionError::Closed,
+                target: name(target),
+            }),
+            "{change:?}"
+        );
+    }
 }
 
 #[tokio::test]

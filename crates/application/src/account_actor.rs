@@ -24,7 +24,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use norelly_domain::account::AccountId;
-use norelly_domain::connection::ConnectionError;
+use norelly_domain::connection::{ConnectionError, TimeoutStage};
 use norelly_domain::fetch_policy::{BodyFetch, FetchPolicy};
 use norelly_domain::mailbox::{MailboxName, MailboxRole, RemoteMailbox, Uid};
 use norelly_domain::ports::{
@@ -90,6 +90,10 @@ enum Command {
     /// Création, renommage ou suppression d'un dossier, à la demande.
     Folder {
         change: FolderChange,
+        /// Signalé juste avant l'envoi de la commande qui modifie le
+        /// dossier ; signal impossible : demande abandonnée, rien n'est
+        /// envoyé au serveur.
+        sent: oneshot::Sender<()>,
         reply: FolderReply,
     },
 }
@@ -252,14 +256,79 @@ impl ActorClient {
     /// Modifie un dossier par la connexion de commandes, puis relit la
     /// liste des dossiers (événement [`SyncEvent::FoldersChanged`]).
     /// Attend la reconnexion si elle est coupée ; à borner par l'appelant.
+    ///
+    /// Acteur arrêté avant de répondre : la commande qui modifie le
+    /// dossier était-elle partie ? Oui : [`FolderFailure::OutcomeUnknown`] ;
+    /// non : connexion coupée.
     pub async fn change_folder(&self, change: FolderChange) -> Result<MailboxName, FolderFailure> {
-        let closed = || FolderFailure::Connection(self.unreachable());
+        let (sent, mut taken) = oneshot::channel();
+        match self.request_folder_change(change, sent).await {
+            Ok(result) => result,
+            Err(Unanswered) => Err(undecided(&mut taken, self.closed())),
+        }
+    }
+
+    /// Comme [`Self::change_folder`], borné à `limit`. Délai dépassé :
+    /// - avant l'envoi de la commande qui modifie le dossier (demande en
+    ///   attente, reconnexion, lecture de la liste), la demande est annulée
+    ///   et rien n'est envoyé au serveur : erreur de délai ordinaire ;
+    /// - après, la modification se poursuit et peut aboutir :
+    ///   [`FolderFailure::OutcomeUnknown`] ; la liste des dossiers est
+    ///   relue à son terme ([`SyncEvent::FoldersChanged`]).
+    pub async fn change_folder_within(
+        &self,
+        change: FolderChange,
+        limit: Duration,
+    ) -> Result<MailboxName, FolderFailure> {
+        let (sent, mut taken) = oneshot::channel();
+        match tokio::time::timeout(limit, self.request_folder_change(change, sent)).await {
+            Ok(Ok(result)) => result,
+            Ok(Err(Unanswered)) => Err(undecided(&mut taken, self.closed())),
+            Err(_) => Err(undecided(
+                &mut taken,
+                FolderFailure::Connection(ConnectionError::Timeout(TimeoutStage::Response)),
+            )),
+        }
+    }
+
+    fn closed(&self) -> FolderFailure {
+        FolderFailure::Connection(self.unreachable())
+    }
+
+    /// Adresse la demande à l'acteur ; `sent` est signalé juste avant
+    /// l'envoi de la commande qui modifie le dossier.
+    async fn request_folder_change(
+        &self,
+        change: FolderChange,
+        sent: oneshot::Sender<()>,
+    ) -> Result<Result<MailboxName, FolderFailure>, Unanswered> {
         let (reply, answer) = oneshot::channel();
         self.commands
-            .send(Command::Folder { change, reply })
+            .send(Command::Folder {
+                change,
+                sent,
+                reply,
+            })
             .await
-            .map_err(|_| closed())?;
-        answer.await.map_err(|_| closed())?
+            .map_err(|_| Unanswered)?;
+        answer.await.map_err(|_| Unanswered)
+    }
+}
+
+/// Demande de modification de dossier restée sans réponse (acteur arrêté,
+/// ou appelant qui a renoncé).
+struct Unanswered;
+
+/// Issue d'une modification de dossier sans réponse : le canal `taken`
+/// est fermé avant d'être lu, si bien que l'acteur ne peut plus envoyer la
+/// commande après cette décision. Commande déjà partie : résultat inconnu ;
+/// sinon `otherwise` (rien n'a été modifié).
+fn undecided(taken: &mut oneshot::Receiver<()>, otherwise: FolderFailure) -> FolderFailure {
+    taken.close();
+    if taken.try_recv().is_ok() {
+        FolderFailure::OutcomeUnknown
+    } else {
+        otherwise
     }
 }
 
@@ -315,6 +384,19 @@ struct Shared<C, M, B> {
     config: ActorConfig,
     events: broadcast::Sender<SyncEvent>,
     halted: Halted,
+    /// Renommages ou déplacements de dossier interrompus (résultat
+    /// inconnu), résolus à la reconnexion d'après la liste du serveur
+    /// ([`Shared::resolve_relocations`]). En mémoire seulement : perdus si
+    /// l'application est fermée avant la reconnexion (le rejeu abandonne
+    /// alors l'action qui visait l'ancien nom et rétablit l'état local).
+    unresolved: std::sync::Mutex<Vec<Relocation>>,
+}
+
+/// Dossier peut-être renommé ou déplacé de `from` en `to`.
+#[derive(Debug, Clone)]
+struct Relocation {
+    from: MailboxName,
+    to: MailboxName,
 }
 
 /// Intervalle minimal entre deux signaux à l'interface pendant un tour
@@ -625,7 +707,15 @@ where
         // Interruptible : l'arrêt abandonne la synchronisation (la session
         // est alors inutilisable et seulement fermée).
         // Actions faites hors ligne : rejouées avant la synchronisation,
-        // qui verra donc leur résultat.
+        // qui verra donc leur résultat ; d'abord, celles qui visent un
+        // dossier renommé malgré une coupure suivent son nouveau nom.
+        let resolved = tokio::select! {
+            _ = stop.changed() => return None,
+            r = self.resolve_relocations(session) => r,
+        };
+        if let Err(e) = resolved {
+            return Some(e);
+        }
         let mut next_replay = tokio::select! {
             _ = stop.changed() => return None,
             r = self.replay(session, ext, known) => match r {
@@ -683,7 +773,11 @@ where
                         fetch,
                         reply,
                     } => fetches.push((mailbox, uid, fetch, reply)),
-                    Command::Folder { change, reply } => folders.push((change, reply)),
+                    Command::Folder {
+                        change,
+                        sent,
+                        reply,
+                    } => folders.push((change, sent, reply)),
                 }
             }
             for (mailbox, uid, fetch, reply) in fetches {
@@ -700,15 +794,21 @@ where
                     return Some(e.into());
                 }
             }
-            for (change, reply) in folders {
-                // Demande abandonnée (délai de l'interface dépassé) : rien
-                // n'est modifié, l'utilisateur a déjà vu l'échec.
+            for (change, sent, reply) in folders {
+                // Demande abandonnée (délai de l'interface dépassé) avant
+                // d'être servie : rien n'est modifié, l'utilisateur a déjà
+                // vu l'échec.
                 if reply.is_closed() {
                     continue;
                 }
+                // Dernier point d'abandon : juste avant la commande qui
+                // modifie le dossier. Une fois l'envoi signalé, la
+                // modification va à son terme même si l'appelant n'attend
+                // plus (résultat inconnu pour lui).
+                let proceed = move || sent.send(()).is_ok();
                 let (result, failure) = tokio::select! {
                     _ = stop.changed() => return None,
-                    r = self.change_folder(session, known, &change) => r,
+                    r = self.change_folder(session, known, &change, proceed) => r,
                 };
                 // Dossier renommé ou déplacé : resynchronisé aussitôt sous
                 // son nouveau nom, avec ses sous-dossiers (cache local
@@ -767,24 +867,94 @@ where
         }
     }
 
+    /// Dossier `from` renommé `to` sur le serveur : boîte locale, sous-boîtes
+    /// et actions en attente qui les visent renommées en une transaction
+    /// ([`MailStore::rename_mailboxes`] ; une boîte locale qui portait déjà
+    /// le nouveau nom est supprimée et ses actions abandonnées).
+    async fn rename_locally(&self, from: &MailboxName, to: &MailboxName) {
+        if let Err(e) = self.store.rename_mailboxes(self.account, from, to).await {
+            // Le dossier est bien changé sur le serveur : l'échec du
+            // stockage est journalisé ; la relecture de la liste oublie
+            // l'ancien nom et les actions qui le visent seront abandonnées
+            // au rejeu (état local rétabli).
+            tracing::error!(account = %self.account, error = %e, "dossier non renommé localement");
+        }
+    }
+
+    /// Renommages ou déplacements interrompus : appliqués d'après la liste
+    /// du serveur (nouveau nom présent, ancien absent), la boîte locale et
+    /// les actions en attente suivent le dossier comme après un renommage
+    /// confirmé ([`Self::rename_locally`]) ; sinon rien ne change. À faire
+    /// avant le rejeu, qui abandonnerait une action visant l'ancien nom, et
+    /// avant la synchronisation, qui oublierait le cache de l'ancien nom.
+    /// Connexion perdue : la résolution est reprise à la session suivante.
+    async fn resolve_relocations(&self, session: &mut C::Session) -> Result<(), SyncFailure> {
+        // Copie : la liste n'est vidée qu'une fois résolue, si bien qu'un
+        // arrêt ou une coupure pendant la résolution ne la perd pas (rien
+        // d'autre n'y ajoute tant qu'aucune commande n'est servie).
+        let pending = self
+            .unresolved
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone();
+        if pending.is_empty() {
+            return Ok(());
+        }
+        let listed = session.list_mailboxes().await?;
+        let exists = |name: &MailboxName| listed.iter().any(|m| m.name == *name);
+        for r in &pending {
+            if exists(&r.to) && !exists(&r.from) {
+                tracing::info!(account = %self.account, "dossier renommé malgré la coupure");
+                self.rename_locally(&r.from, &r.to).await;
+            }
+        }
+        self.unresolved
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clear();
+        Ok(())
+    }
+
     /// Modifie un dossier puis relit la liste des dossiers. Renvoie la
     /// réponse à transmettre et, si la connexion est perdue, l'échec qui
     /// impose de la rouvrir : un dossier modifié reste annoncé comme tel
     /// même si la relecture échoue. Une erreur de stockage pendant la
     /// relecture est seulement journalisée (la prochaine synchronisation
-    /// rattrapera la liste).
+    /// rattrapera la liste). `proceed` est consulté juste avant la commande
+    /// qui modifie le dossier ([`FolderChange::execute_if`]).
     async fn change_folder(
         &self,
         session: &mut C::Session,
         known: &mut Vec<StoredMailbox>,
         change: &FolderChange,
+        proceed: impl FnOnce() -> bool + Send,
     ) -> (Result<MailboxName, FolderFailure>, Option<SyncFailure>) {
-        let changed = match change.execute(session).await {
+        let changed = match change.execute_if(session, proceed).await {
             Ok(changed) => changed,
-            Err(FolderFailure::Connection(e)) if !matches!(e, ConnectionError::Rejected(_)) => {
-                return (Err(FolderFailure::Connection(e.clone())), Some(e.into()));
+            Err(e) => {
+                // Renommage ou déplacement peut-être appliqué : les actions
+                // en attente le suivront à la reconnexion, si la liste du
+                // serveur le confirme.
+                if let (
+                    FolderChange::Rename { folder, .. } | FolderChange::Move { folder, .. },
+                    FolderFailure::Interrupted { target, .. },
+                ) = (change, &e)
+                {
+                    let relocation = Relocation {
+                        from: folder.clone(),
+                        to: target.clone(),
+                    };
+                    self.unresolved
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner)
+                        .push(relocation);
+                }
+                // Connexion perdue : à rouvrir ; la synchronisation complète
+                // qui suit relit la liste (modification interrompue
+                // comprise).
+                let lost = e.lost_connection().cloned().map(SyncFailure::from);
+                return (Err(e), lost);
             }
-            Err(e) => return (Err(e), None),
         };
         tracing::info!(account = %self.account, "{}", change.kind());
         // Dossier renommé ou déplacé : la boîte locale, ses sous-boîtes et
@@ -796,17 +966,8 @@ where
         // bout de sa transaction : l'arrêt du compte ne le coupe pas en deux
         // (seul un arrêt pendant l'échange avec le serveur laisse l'issue
         // inconnue).
-        if let FolderChange::Rename { folder, .. } | FolderChange::Move { folder, .. } = change
-            && let Err(e) = self
-                .store
-                .rename_mailboxes(self.account, folder, &changed)
-                .await
-        {
-            // Le dossier est bien changé sur le serveur : l'échec du
-            // stockage est journalisé ; la relecture de la liste oublie
-            // l'ancien nom et les actions qui le visent seront abandonnées
-            // au rejeu (état local rétabli).
-            tracing::error!(account = %self.account, error = %e, "dossier non renommé localement");
+        if let FolderChange::Rename { folder, .. } | FolderChange::Move { folder, .. } = change {
+            self.rename_locally(folder, &changed).await;
         }
         let failure = match self.use_case().sync_folders(session).await {
             Ok(mailboxes) => {
@@ -988,6 +1149,7 @@ where
         config,
         events: events.clone(),
         halted: Arc::clone(&halted),
+        unresolved: std::sync::Mutex::default(),
     });
     let tasks = vec![
         tokio::spawn(Arc::clone(&shared).command_loop(commands_rx, stop_rx.clone())),

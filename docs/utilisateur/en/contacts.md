@@ -67,8 +67,9 @@ When someone in your address book writes to you, Norelly shows them under
 the name you gave them, in the message list as well as in the open
 message. A small badge next to their name reminds you that they are in
 your contacts, when your mail server has confirmed that the message really
-comes from their address. Without that confirmation, their name is shown,
-but without the badge.
+comes from their address. Without that confirmation (some mail services,
+including Microsoft's, do not provide it), their name is shown, but
+without the badge.
 
 If your mail server finds instead that the message does not come from the
 address shown, **Unverified sender** appears next to the name: be careful

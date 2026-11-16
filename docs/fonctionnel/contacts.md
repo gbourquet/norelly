@@ -141,7 +141,9 @@ l'ordinateur** : rien n'est envoyé à un serveur.
   pour les grands fournisseurs, par ses serveurs de réception) : celles
   qu'un message annonce de lui-même, ou qu'un autre serveur a ajoutées,
   sont ignorées. Les messages reçus avant cette vérification n'ont ni
-  pastille ni avertissement.
+  pastille ni avertissement. Avec certaines messageries, dont celles de
+  Microsoft, cette confirmation n'est pas disponible : les contacts s'y
+  affichent sans pastille et sans avertissement.
 - Une personne absente du carnet garde le nom donné par le message, sauf
   si ce nom ressemble à une adresse (il contient « @ », « < » ou « > »,
   un caractère qui leur ressemble, ou un « @ » écrit en toutes lettres

@@ -68,7 +68,8 @@ Quand une personne de votre carnet vous écrit, Norelly l'affiche sous le
 nom que vous lui avez donné, dans la liste des messages comme dans le
 message ouvert. Une petite pastille à côté de son nom rappelle qu'elle est
 dans vos contacts, quand le serveur de votre messagerie a confirmé que le
-message vient bien de son adresse. Sans cette confirmation, son nom
+message vient bien de son adresse. Sans cette confirmation (certaines
+messageries, dont celles de Microsoft, ne la donnent pas), son nom
 s'affiche, mais sans pastille.
 
 Si le serveur de votre messagerie constate au contraire que le message ne

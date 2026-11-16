@@ -17,9 +17,11 @@
     children: Snippet<[{ props: Record<string, unknown> }]>;
     /** Exécution d'une entrée ; par défaut, la commande dans `context`. */
     run?: (id: string) => void;
+    /** Menu ouvert ou fermé (un glisser en cours cède au menu). */
+    onOpenChange?: (open: boolean) => void;
   }
 
-  let { actions, registry, context, label, children, run }: Props = $props();
+  let { actions, registry, context, label, children, run, onOpenChange }: Props = $props();
 
   /** Attributs du déclencheur, sans ceux d'un bouton : l'élément (une
    * ligne de liste) ne devient ni focalisable ni « désactivé ». */
@@ -33,7 +35,7 @@
 {#if actions.length === 0}
   {@render children({ props: {} })}
 {:else}
-  <ContextMenu.Root>
+  <ContextMenu.Root {onOpenChange}>
     <ContextMenu.Trigger>
       {#snippet child({ props })}
         {@render children({ props: triggerProps(props) })}

@@ -455,6 +455,10 @@ describe("lecture", () => {
     );
     expect(await screen.findByText("Déplacé vers « Factures ».")).toBeInTheDocument();
     expect(screen.queryByRole("dialog", { name: "Nouveau dossier" })).toBeNull();
+    // Annulable comme tout déplacement (le dossier créé reste).
+    await fireEvent.click(screen.getByRole("button", { name: /^Annuler/ }));
+    await waitFor(() => expect(api.undoActions).toHaveBeenCalledWith([101]));
+    expect(await screen.findByText("Action annulée.")).toBeInTheDocument();
   });
 
   it("« Nouveau dossier… » ne reprend pas le nom d'un dossier existant cherché", async () => {
@@ -464,6 +468,8 @@ describe("lecture", () => {
         name: "INBOX",
         leaf: "INBOX",
         depth: 0,
+        indent: 0,
+        label: "INBOX",
         role: "inbox",
         selectable: true,
         total: 3,
@@ -474,6 +480,8 @@ describe("lecture", () => {
         name: "Projets",
         leaf: "Projets",
         depth: 0,
+        indent: 0,
+        label: "Projets",
         role: "normal",
         selectable: true,
         total: 0,

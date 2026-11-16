@@ -114,6 +114,8 @@ describe("menu d'un dossier", () => {
     name: "X",
     leaf: "X",
     depth: 0,
+    indent: 0,
+    label: "X",
     role,
     selectable: true,
     total: 0,

@@ -83,11 +83,13 @@
   }: Props = $props();
 
   /** Bouton de la souris enfoncé (ou doigt posé) sur un dossier : début
-   * possible d'un glisser (dossiers ordinaires seulement). */
+   * possible d'un glisser (dossiers ordinaires seulement). Au doigt, l'appui
+   * long ouvre aussi le menu du dossier, qui l'emporte si le doigt ne bouge
+   * pas. */
   function press(e: PointerEvent, account: number, folder: FolderDto): void {
     if (drag === undefined || e.button !== 0) return;
     const payload = folderPayload(account, folder);
-    if (payload !== null) drag.grab(payload, e);
+    if (payload !== null) drag.grab(payload, e, folderMenuActions(folder).length > 0);
   }
 
   function dragged(folder: FolderDto): boolean {
@@ -311,6 +313,7 @@
                 context={menuContext}
                 label={menuLabel}
                 run={(id) => void registry.execute(id, onFolder(account.id, f, true))}
+                onOpenChange={(open) => open && drag?.contextMenu()}
               >
                 {#snippet children({ props })}
                   <li

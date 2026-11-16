@@ -26,6 +26,7 @@ impl From<NewFolderError> for IpcError {
             NewFolderError::Empty => Self::new(ErrorCodeDto::FolderNameEmpty),
             NewFolderError::TooLong => Self::new(ErrorCodeDto::FolderNameTooLong),
             NewFolderError::InvalidCharacter => Self::new(ErrorCodeDto::FolderNameInvalid),
+            NewFolderError::Reserved => Self::new(ErrorCodeDto::FolderNameReserved),
             NewFolderError::ContainsDelimiter(d) => {
                 Self::new(ErrorCodeDto::FolderNameDelimiter).with_detail(d)
             }
@@ -45,6 +46,7 @@ impl From<FolderChangeError> for IpcError {
             FolderChangeError::Protected => Self::new(ErrorCodeDto::FolderProtected),
             FolderChangeError::HasSubfolders => Self::new(ErrorCodeDto::FolderHasSubfolders),
             FolderChangeError::IntoItself => Self::new(ErrorCodeDto::FolderIntoItself),
+            FolderChangeError::ReservedName => Self::new(ErrorCodeDto::FolderReservedName),
             FolderChangeError::Name(e) => e.into(),
         }
     }
@@ -236,6 +238,7 @@ mod tests {
                 NewFolderError::InvalidCharacter,
                 ErrorCodeDto::FolderNameInvalid,
             ),
+            (NewFolderError::Reserved, ErrorCodeDto::FolderNameReserved),
             (NewFolderError::AlreadyExists, ErrorCodeDto::FolderExists),
             (NewFolderError::NoHierarchy, ErrorCodeDto::NoSubfolders),
         ] {
@@ -278,6 +281,10 @@ mod tests {
         assert_eq!(
             change(FolderChangeError::IntoItself),
             (ErrorCodeDto::FolderIntoItself, None)
+        );
+        assert_eq!(
+            change(FolderChangeError::ReservedName),
+            (ErrorCodeDto::FolderReservedName, None)
         );
         assert_eq!(
             change(FolderChangeError::UnknownFolder).0,

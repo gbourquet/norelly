@@ -164,6 +164,8 @@ function codeText(code: ErrorCodeDto, field: FieldDto | null): string {
       return m.err_folder_name_too_long();
     case "folder_name_invalid":
       return m.err_folder_name_invalid();
+    case "folder_name_reserved":
+      return m.err_folder_name_reserved();
     case "folder_name_delimiter":
       return m.err_folder_name_delimiter();
     case "folder_exists":
@@ -178,6 +180,8 @@ function codeText(code: ErrorCodeDto, field: FieldDto | null): string {
       return m.err_folder_has_subfolders();
     case "folder_into_itself":
       return m.err_folder_into_itself();
+    case "folder_reserved_name":
+      return m.err_folder_reserved_name();
     case "folder_rename_failed":
       return m.err_folder_rename_failed();
     case "folder_move_failed":

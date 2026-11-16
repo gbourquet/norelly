@@ -458,7 +458,10 @@ impl Connection {
         let mut nesting = Nesting::default();
         let mut with_literal = false;
         loop {
-            let line = self.read_line(timeout, max - response.len()).await?;
+            let mut line = self.read_line(timeout, max - response.len()).await?;
+            if response.is_empty() {
+                defuse_text_literal(&mut line);
+            }
             let literal = nesting.scan_line(&line);
             response.extend_from_slice(&line);
             let Some(size) = literal else {
@@ -826,14 +829,7 @@ fn event_name(event: &Event) -> &'static str {
 /// qu'informatif ; les autres réponses (noms de `LIST`, contenus) ne sont
 /// pas touchées.
 fn ascii_status_text(line: &mut [u8]) {
-    let mut words = line.splitn(3, |&b| b == b' ');
-    let (Some(_tag), Some(kind)) = (words.next(), words.next()) else {
-        return;
-    };
-    let status = [&b"OK"[..], b"NO", b"BAD", b"BYE", b"PREAUTH"]
-        .iter()
-        .any(|k| kind.eq_ignore_ascii_case(k));
-    if !status {
+    if !is_status_line(line) {
         return;
     }
     for b in line.iter_mut().filter(|b| !b.is_ascii()) {
@@ -841,9 +837,95 @@ fn ascii_status_text(line: &mut [u8]) {
     }
 }
 
+/// Première ligne d'une réponse : texte libre d'une ligne d'état ou d'une
+/// demande de suite (`+`) qui finit par une accolade (`… Notes{3}`, nom de
+/// dossier cité par le serveur). La grammaire n'y prévoit pas de littéral,
+/// mais notre découpage comme celui d'`imap-next` le prendraient pour
+/// l'annonce d'un littéral et attendraient la suite jusqu'au délai. Une
+/// espace est ajoutée avant la fin de ligne : le texte reste lisible et
+/// n'annonce plus rien.
+///
+/// Un code de réponse entre crochets non refermé sur la ligne (seul endroit
+/// où un littéral est possible, `[BADCHARSET ({5}`) n'est pas touché.
+fn defuse_text_literal(line: &mut Vec<u8>) {
+    let end = line.len()
+        - line
+            .iter()
+            .rev()
+            .take_while(|&&b| b == b'\r' || b == b'\n')
+            .count();
+    if end == 0 || line.get(end - 1) != Some(&b'}') {
+        return;
+    }
+    let text = if line.starts_with(b"+") {
+        line.get(1..end)
+    } else if is_status_line(line) {
+        line.get(..end)
+            .and_then(|l| l.splitn(3, |&b| b == b' ').nth(2))
+    } else {
+        None
+    };
+    let Some(text) = text else {
+        return;
+    };
+    let text = text.trim_ascii_start();
+    if text.starts_with(b"[") && !text.contains(&b']') {
+        return;
+    }
+    line.insert(end, b' ');
+}
+
+/// Ligne d'état : `OK`, `NO`, `BAD`, `BYE` ou `PREAUTH` après l'étiquette
+/// (ou `*`), à la casse près.
+fn is_status_line(line: &[u8]) -> bool {
+    let mut words = line.splitn(3, |&b| b == b' ');
+    let (Some(_tag), Some(kind)) = (words.next(), words.next()) else {
+        return false;
+    };
+    [&b"OK"[..], b"NO", b"BAD", b"BYE", b"PREAUTH"]
+        .iter()
+        .any(|k| kind.eq_ignore_ascii_case(k))
+}
+
 #[cfg(test)]
 mod tests {
-    use super::ascii_status_text;
+    use super::{ascii_status_text, defuse_text_literal};
+
+    fn defused(line: &str) -> String {
+        let mut bytes = line.as_bytes().to_vec();
+        defuse_text_literal(&mut bytes);
+        String::from_utf8_lossy(&bytes).into_owned()
+    }
+
+    #[test]
+    fn status_and_continuation_text_never_announce_a_literal() {
+        for (line, expected) in [
+            (
+                "N4 NO existe : Notes{3}\r\n",
+                "N4 NO existe : Notes{3} \r\n",
+            ),
+            (
+                "N4 NO [ALREADYEXISTS] Notes{3+}\r\n",
+                "N4 NO [ALREADYEXISTS] Notes{3+} \r\n",
+            ),
+            ("* ok Notes{3}\r\n", "* ok Notes{3} \r\n"),
+            ("* BYE Notes{3}\n", "* BYE Notes{3} \n"),
+            ("+ Prêt : Notes{3}\r\n", "+ Prêt : Notes{3} \r\n"),
+        ] {
+            assert_eq!(defused(line), expected, "{line}");
+        }
+        // Littéraux réels, ou pas d'accolade finale : intacts.
+        for line in [
+            "N5 NO [BADCHARSET ({5}\r\n",
+            "* LIST () \"/\" {3}\r\n",
+            "* 1 FETCH (BODY[] {12}\r\n",
+            "N3 OK termine\r\n",
+            "+ \r\n",
+            "+\r\n",
+        ] {
+            assert_eq!(defused(line), line, "{line}");
+        }
+    }
 
     fn cleaned(line: &str) -> String {
         let mut bytes = line.as_bytes().to_vec();

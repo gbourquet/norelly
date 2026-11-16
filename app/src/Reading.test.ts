@@ -140,6 +140,7 @@ vi.mock("./lib/ipc/api", () => ({
     })),
     undoActions: vi.fn(async (ops: number[]) => ops.length),
     setArchiveFolder: vi.fn(async () => undefined),
+    createFolder: vi.fn(async () => 15),
     prepareCompose: vi.fn(async (account: number, kind: string) => ({
       id: null,
       account,
@@ -404,13 +405,22 @@ describe("lecture", () => {
     );
     await fireEvent.keyDown(window, { key: "v" });
     const reopened = await screen.findByRole("dialog", { name: "Déplacer vers…" });
-    // Saisie au clavier, flèche puis Entrée (le dossier où se trouve déjà
-    // la conversation est exclu).
+    // Saisie au clavier, flèches puis Entrée (le dossier où se trouve déjà
+    // la conversation est exclu ; « Nouveau dossier… » vient en dernier).
     expect(within(reopened).queryByText("INBOX")).toBeNull();
     const input = within(reopened).getByPlaceholderText("Rechercher un dossier…");
     await fireEvent.input(input, { target: { value: "proj" } });
     await within(reopened).findByText("Projets");
     await fireEvent.keyDown(input, { key: "ArrowDown" });
+    expect(within(reopened).getByRole("option", { name: "Nouveau dossier…" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    await fireEvent.keyDown(input, { key: "ArrowUp" });
+    expect(within(reopened).getByRole("option", { name: "Projets" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
     await fireEvent.keyDown(input, { key: "Enter" });
     await waitFor(() =>
       expect(api.performAction).toHaveBeenLastCalledWith([1], expect.anything(), {
@@ -419,6 +429,55 @@ describe("lecture", () => {
       }),
     );
     expect(await screen.findByText("Déplacé vers « Projets ».")).toBeInTheDocument();
+  });
+
+  it("« Déplacer vers… » crée un dossier et y déplace la conversation, en un geste", async () => {
+    render(App);
+    const list = await screen.findByRole("listbox", { name: "Conversations" });
+    await within(list).findByText("Sujet 1");
+    await fireEvent.keyDown(window, { key: "v" });
+    const picker = await screen.findByRole("dialog", { name: "Déplacer vers…" });
+    // Le nom cherché sans résultat devient le nom proposé.
+    await fireEvent.input(within(picker).getByPlaceholderText("Rechercher un dossier…"), {
+      target: { value: "Factures" },
+    });
+    await fireEvent.click(await within(picker).findByText("Nouveau dossier…"));
+    const dialog = await screen.findByRole("dialog", { name: "Nouveau dossier" });
+    expect(screen.queryByRole("dialog", { name: "Déplacer vers…" })).toBeNull();
+    expect(within(dialog).getByLabelText("Nom du dossier")).toHaveValue("Factures");
+    await fireEvent.click(within(dialog).getByRole("button", { name: "Créer et déplacer" }));
+    await waitFor(() => expect(api.createFolder).toHaveBeenCalledWith(1, "Factures", null));
+    await waitFor(() =>
+      expect(api.performAction).toHaveBeenLastCalledWith([1], expect.anything(), {
+        kind: "move",
+        mailbox: 15,
+      }),
+    );
+    expect(await screen.findByText("Déplacé vers « Factures ».")).toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "Nouveau dossier" })).toBeNull();
+  });
+
+  it("dossier créé mais pas encore relu : rien n'est déplacé, l'utilisateur est prévenu", async () => {
+    vi.mocked(api.createFolder).mockResolvedValueOnce(null);
+    render(App);
+    const list = await screen.findByRole("listbox", { name: "Conversations" });
+    await within(list).findByText("Sujet 1");
+    await fireEvent.keyDown(window, { key: "v" });
+    const picker = await screen.findByRole("dialog", { name: "Déplacer vers…" });
+    await fireEvent.click(await within(picker).findByText("Nouveau dossier…"));
+    const dialog = await screen.findByRole("dialog", { name: "Nouveau dossier" });
+    await fireEvent.input(within(dialog).getByLabelText("Nom du dossier"), {
+      target: { value: "Factures" },
+    });
+    await fireEvent.click(within(dialog).getByRole("button", { name: "Créer et déplacer" }));
+    expect(
+      await screen.findByText(
+        "Dossier « Factures » créé. Choisissez-le dans « Déplacer vers… » pour y déplacer les messages.",
+      ),
+    ).toBeInTheDocument();
+    expect(vi.mocked(api.performAction).mock.calls.some(([, , a]) => a.kind === "move")).toBe(
+      false,
+    );
   });
 
   it("actions à la souris : barre d'outils, boutons de ligne, menu contextuel", async () => {

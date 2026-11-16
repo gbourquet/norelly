@@ -28,7 +28,12 @@ import DownloadIcon from "@lucide/svelte/icons/download";
 import ImportIcon from "@lucide/svelte/icons/import";
 import PencilIcon from "@lucide/svelte/icons/pencil";
 import UsersIcon from "@lucide/svelte/icons/users";
+import FolderPlusIcon from "@lucide/svelte/icons/folder-plus";
+import FolderXIcon from "@lucide/svelte/icons/folder-x";
 import { m } from "./paraglide/messages.js";
+import type { FolderDto } from "./ipc/api";
+import { isEditableFolder } from "./folder-edit.svelte";
+import { canHoldFolders } from "./new-folder.svelte";
 
 export interface VisibleAction {
   /** Identifiant de la commande du registre. */
@@ -224,6 +229,22 @@ export function contactBulkActions(): { primary: VisibleAction[]; more: VisibleA
     ],
     more: [addToList],
   };
+}
+
+/** Menu d'un dossier (« ⋯ » et clic droit) : seulement ce qui a un sens
+ * pour lui. Un dossier spécial ne se renomme, ne se déplace ni ne se
+ * supprime ; rien ne se range dans un dossier virtuel (Rust refuse aussi). */
+export function folderMenuActions(folder: FolderDto): VisibleAction[] {
+  const subfolder: VisibleAction[] = canHoldFolders(folder)
+    ? [{ command: "folder.new-subfolder", icon: FolderPlusIcon, section: 0 }]
+    : [];
+  if (!isEditableFolder(folder)) return subfolder;
+  return [
+    ...subfolder,
+    { command: "folder.rename", icon: PencilIcon, section: 1 },
+    { command: "folder.move", icon: FolderInputIcon, section: 1 },
+    { command: "folder.delete", icon: FolderXIcon, section: 2 },
+  ];
 }
 
 /** Actions rapides au survol d'une ligne de la liste. */

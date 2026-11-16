@@ -12,6 +12,7 @@ import {
   type OutboxItemDto,
 } from "./ipc/api";
 import { isEditableFolder } from "./folder-edit.svelte";
+import { canHoldFolders, type CreatedFolder, type NewFolderPreset } from "./new-folder.svelte";
 import { ComposeState } from "./compose.svelte";
 import { MailState } from "./mail.svelte";
 import { ContactFormState, ContactsState, DeleteContactsState } from "./contacts.svelte";
@@ -136,6 +137,11 @@ class AppState {
   plainText = $state(false);
   /** Dossier dont le menu a été ouvert (sinon : le dossier affiché). */
   folderTarget = $state<FolderDto | null>(null);
+  /** Emplacement et nom proposés par la création de dossier ouverte. */
+  newFolderPreset = $state<NewFolderPreset>({});
+  /** La création de dossier ouverte vient de « Déplacer vers… » : les
+   * conversations visées y sont déplacées une fois le dossier créé. */
+  moveAfterCreate = $state(false);
   /** Échecs déjà signalés (identifiants dans la file). */
   #reported = new Set<number>();
 
@@ -284,9 +290,41 @@ class AppState {
     this.dialog = dialog;
   }
 
+  /** Ouvre la création d'un dossier, avec emplacement ou nom proposés ;
+   * `move` : les conversations visées y seront déplacées. */
+  openNewFolder(preset: NewFolderPreset, move = false): void {
+    this.newFolderPreset = preset;
+    this.moveAfterCreate = move;
+    this.dialog = "new-folder";
+  }
+
+  /** Dossier créé : liste des dossiers relue, puis, si la création vient
+   * de « Déplacer vers… », conversations visées déplacées dedans. */
+  async folderCreated(created: CreatedFolder): Promise<void> {
+    const move = this.moveAfterCreate;
+    const account = this.selectedAccountId;
+    this.close();
+    if (account !== null) await mail.loadFolders(account);
+    if (!move) {
+      mail.notice = { text: m.action_folder_created({ folder: created.name }), undoable: false };
+    } else if (created.id === null) {
+      mail.notice = {
+        text: m.action_folder_created_not_moved({ folder: created.name }),
+        undoable: false,
+      };
+    } else {
+      await mail.act(
+        { kind: "move", mailbox: created.id },
+        m.action_moved({ folder: created.name }),
+      );
+    }
+  }
+
   close(): void {
     this.dialog = null;
     this.folderTarget = null;
+    this.newFolderPreset = {};
+    this.moveAfterCreate = false;
     this.contactTarget = null;
     this.personTarget = null;
     this.listTarget = null;
@@ -737,7 +775,16 @@ export function registerAppCommands(): () => void {
       group: m.group_accounts(),
       keywords: words(m.cmd_new_folder_keywords()),
       when: (ctx) => ctx.selectedAccount !== null,
-      run: () => app.open("new-folder"),
+      run: () => app.openNewFolder({}),
+    }),
+    registry.register({
+      id: "folder.new-subfolder",
+      title: m.cmd_new_subfolder(),
+      group: m.group_accounts(),
+      keywords: words(m.cmd_new_subfolder_keywords()),
+      when: (ctx) =>
+        ctx.selectedAccount !== null && ctx.folder !== null && canHoldFolders(ctx.folder),
+      run: (ctx) => app.openNewFolder({ parent: ctx.folder?.id ?? null }),
     }),
     registry.register({
       id: "folder.rename",

@@ -8,6 +8,7 @@ import {
   contactListMenuActions,
   contactListToolbar,
   fitByPriority,
+  folderMenuActions,
   menuActions,
   personActions,
   readerActions,
@@ -104,6 +105,41 @@ describe("actions visibles", () => {
       "compose.forward",
       "compose.reply-all",
     ]);
+  });
+});
+
+describe("menu d'un dossier", () => {
+  const folder = (role: string) => ({
+    id: 1,
+    name: "X",
+    leaf: "X",
+    depth: 0,
+    role,
+    selectable: true,
+    total: 0,
+    unread: 0,
+  });
+
+  it("dossier ordinaire : nouveau sous-dossier, puis renommer, déplacer, puis supprimer", () => {
+    const actions = folderMenuActions(folder("normal"));
+    expect(ids(actions)).toEqual([
+      "folder.new-subfolder",
+      "folder.rename",
+      "folder.move",
+      "folder.delete",
+    ]);
+    expect(actions.map((a) => a.section ?? 0)).toEqual([0, 1, 1, 2]);
+  });
+
+  it("dossier spécial : seulement nouveau sous-dossier (ni renommé, ni déplacé, ni supprimé)", () => {
+    for (const role of ["inbox", "sent", "drafts", "trash", "junk", "archive"]) {
+      expect(ids(folderMenuActions(folder(role)))).toEqual(["folder.new-subfolder"]);
+    }
+  });
+
+  it("dossier virtuel du serveur : aucune entrée", () => {
+    expect(folderMenuActions(folder("all"))).toEqual([]);
+    expect(folderMenuActions(folder("flagged"))).toEqual([]);
   });
 });
 

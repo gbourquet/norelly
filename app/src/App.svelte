@@ -162,9 +162,13 @@
 
   const newFolder = new NewFolderState(api);
 
-  // Formulaire vide à chaque ouverture.
+  // Formulaire vide (ou prérempli : sous-dossier, nom cherché dans
+  // « Déplacer vers… ») à chaque ouverture.
   $effect(() => {
-    if (app.dialog === "new-folder") newFolder.reset();
+    if (app.dialog === "new-folder") {
+      const preset = app.newFolderPreset;
+      untrack(() => newFolder.reset(preset));
+    }
   });
 
   const renameFolder = new RenameFolderState(api);
@@ -570,6 +574,13 @@
   title={m.picker_move_title()}
   folders={moveFolders}
   onClose={() => app.close()}
+  onCreate={(name) => {
+    // Compte des conversations à déplacer : le dossier y est créé.
+    const account = moveAccount();
+    if (account === null) return;
+    app.selectedAccountId = account;
+    app.openNewFolder({ name }, true);
+  }}
   onChoose={(folder) => {
     app.close();
     void mail.act(
@@ -602,13 +613,9 @@
   account={app.selectedAccount}
   folders={archiveFolders}
   form={newFolder}
+  moving={app.moveAfterCreate}
   onClose={() => app.close()}
-  onCreated={(name) => {
-    app.close();
-    mail.notice = { text: m.action_folder_created({ folder: name }), undoable: false };
-    const account = app.selectedAccountId;
-    if (account !== null) void mail.loadFolders(account);
-  }}
+  onCreated={(created) => void app.folderCreated(created)}
 />
 <RenameFolderDialog
   open={app.dialog === "rename-folder"}

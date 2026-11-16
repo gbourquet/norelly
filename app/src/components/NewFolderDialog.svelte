@@ -4,18 +4,21 @@
   // dossier existant du compte). Le nom complet est décidé par Rust.
   import Modal from "./Modal.svelte";
   import type { AccountDto, FolderDto } from "../lib/ipc/api";
-  import { parentChoices, type NewFolderState } from "../lib/new-folder.svelte";
+  import { parentChoices, type CreatedFolder, type NewFolderState } from "../lib/new-folder.svelte";
 
   interface Props {
     open: boolean;
     account: AccountDto | null;
     folders: FolderDto[];
     form: NewFolderState;
-    onCreated: (name: string) => void;
+    /** Création demandée depuis « Déplacer vers… » : les messages visés
+     * seront déplacés dans le dossier créé. */
+    moving?: boolean;
+    onCreated: (created: CreatedFolder) => void;
     onClose: () => void;
   }
 
-  let { open, account, folders, form, onCreated, onClose }: Props = $props();
+  let { open, account, folders, form, moving = false, onCreated, onClose }: Props = $props();
 
   const choices = $derived(parentChoices(folders, m.new_folder_top_level()));
 
@@ -66,7 +69,11 @@
         >{m.common_cancel()}</button
       >
       <button class="btn btn-primary" type="submit" disabled={!form.canSubmit || account === null}>
-        {form.busy ? m.new_folder_creating() : m.new_folder_create()}
+        {form.busy
+          ? m.new_folder_creating()
+          : moving
+            ? m.new_folder_create_and_move()
+            : m.new_folder_create()}
       </button>
     </div>
   </form>

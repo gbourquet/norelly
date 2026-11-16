@@ -150,13 +150,17 @@ mod tests {
         let card = ExportCard {
             full_name: Some("=1+1".into()),
             organization: Some("@SUM(A1)".into()),
+            nickname: Some("\u{FE62}1".into()),
             notes: Some("-x".into()),
-            emails: vec![email("a@example.com", Some("=lab"), false)],
+            emails: vec![email("a@example.com", Some("\u{2212}lab"), false)],
             ..ExportCard::default()
         };
         let text = written(&[card]);
         let row = text.lines().nth(1).unwrap_or_default();
-        assert_eq!(row, "'=1+1,,,,'@SUM(A1),'-x,'=lab,a@example.com");
+        assert_eq!(
+            row,
+            "'=1+1,,,'\u{FE62}1,'@SUM(A1),'-x,'\u{2212}lab,a@example.com"
+        );
     }
 
     #[test]

@@ -73,7 +73,9 @@ fn book() -> Vec<ContactDraft> {
         draft(ContactInput {
             given_name: "Seán".into(),
             family_name: "O'Brien".into(),
+            nickname: "'\u{2212}Jo".into(),
             organization: "=Cie; \"Jo\" & fils, Lyon".into(),
+            notes: "\u{FE62}1 \u{FE63}x \u{FE66}y \u{FE6B}z \u{207A}1".into(),
             emails: vec![email("sean@example.ie", "", false)],
             ..ContactInput::default()
         }),
@@ -167,19 +169,19 @@ fn favorites_are_not_exported() {
 }
 
 /// Nom : lettres accentuées, ponctuation des syntaxes vCard, CSV et LDIF,
-/// débuts de formule, emoji (sans `@`, `<` ni `>`, qu'un nom ne garde
-/// pas à l'import).
+/// débuts de formule (petites formes et signe moins compris), emoji (sans
+/// `@`, `<` ni `>`, ni leurs variantes, qu'un nom ne garde pas à l'import).
 fn name_text() -> impl Strategy<Value = String> {
-    r#"[a-zA-Zéèçà ŒœÉ😀,;:\\"'=+*#.-]{0,30}"#
+    r#"[a-zA-Zéèçà ŒœÉ😀,;:\\"'=+*#.\u{FE62}\u{FE63}\u{FE66}\u{2212}\u{207A}\u{208A}\u{FB29}\u{207C}\u{208C}\u{207B}\u{208B}-]{0,30}"#
 }
 
 /// Texte d'une ligne quelconque (organisation).
 fn line_text() -> impl Strategy<Value = String> {
-    r#"[a-zA-Zéèçà ŒœÉ😀,;:\\"'=+@*#<>.-]{0,30}"#
+    r#"[a-zA-Zéèçà ŒœÉ😀,;:\\"'=+@*#<>.\u{FE62}\u{FE63}\u{FE66}\u{FE6B}\u{2212}\u{207A}\u{208A}\u{FB29}\u{207C}\u{208C}\u{207B}\u{208B}-]{0,30}"#
 }
 
 fn notes_text() -> impl Strategy<Value = String> {
-    "[a-zé ,;:\\\\\"'=+@\n\t😀-]{0,200}"
+    "[a-zé ,;:\\\\\"'=+@\n\t😀\u{FE62}\u{FE63}\u{FE66}\u{FE6B}\u{2212}\u{207A}\u{208A}\u{FB29}\u{207C}\u{208C}\u{207B}\u{208B}-]{0,200}"
 }
 
 fn address() -> impl Strategy<Value = String> {

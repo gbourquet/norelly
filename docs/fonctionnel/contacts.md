@@ -307,9 +307,11 @@ l'ordinateur** : rien n'est envoyé à un serveur.
   - dans tous les formats, l'adresse préférée est écrite en premier ; les
     favoris et les listes de diffusion ne sont pas exportés.
 - Dans le CSV, une valeur qui commence par `=`, `+`, `-` ou `@` (un
-  numéro « +33… » par exemple) est précédée d'une apostrophe, pour qu'un
-  tableur ne l'exécute pas comme une formule ; l'import de Norelly la
-  retire.
+  numéro « +33… » par exemple), ou par l'une de leurs variantes
+  typographiques (formes larges, petites, en exposant ou en indice, signe
+  moins « − »), est
+  précédée d'une apostrophe, pour qu'un tableur ne l'exécute pas comme une
+  formule ; l'import de Norelly la retire.
 - Exports refusés, avec un message clair : rien à exporter, ou plus de
   contacts (25 000) ou de données (20 Mo) qu'un import n'en accepte ; il
   faut alors en cocher une partie.

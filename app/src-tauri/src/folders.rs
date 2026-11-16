@@ -156,7 +156,7 @@ pub async fn rename_folder(
 
 /// Identifiant local du dossier `name` du compte, d'après la liste relue
 /// par l'acteur après la modification (`None` si elle ne l'est pas encore).
-async fn local_id(
+pub(crate) async fn local_id(
     state: &AppState,
     account: AccountId,
     name: &MailboxName,

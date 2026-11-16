@@ -224,10 +224,12 @@ déplacer « Bli » dans « Bla » en fait un sous-dossier de « Bla ».
   la liste avant de réessayer. Tant que l'opération n'est pas partie
   (attente de la connexion, vérification du nom), le délai dépassé
   l'annule : rien n'est fait.
-- Dossier renommé ou déplacé malgré une connexion perdue : les messages
-  rangés dans ce dossier en attendant le serveur y arrivent bien, à sa
-  nouvelle place. Si l'application est fermée avant le retour de la
-  connexion, ces messages reviennent à leur place d'origine.
+- Dossier renommé ou déplacé malgré une connexion perdue : au retour de
+  la connexion, il est traité comme un renommage confirmé. Ses messages
+  ne sont pas téléchargés à nouveau, et ceux rangés dans ce dossier en
+  attendant le serveur y arrivent bien, à sa nouvelle place. Si
+  l'application est fermée avant le retour de la connexion, ces messages
+  reviennent à leur place d'origine.
 - Dossier affiché qui disparaît de la liste (renommé, déplacé ou supprimé,
   ici ou par une autre application) : la boîte de réception du compte
   s'affiche à sa place.

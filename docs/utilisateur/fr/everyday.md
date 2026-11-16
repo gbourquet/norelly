@@ -175,9 +175,24 @@ son site et dans vos autres applications.
 
 ![La fenêtre « Nouveau dossier » : nom du dossier et emplacement](captures/new-folder.png)
 
+Pour créer un dossier **dans un autre**, faites un clic droit sur ce
+dossier (ou cliquez sur son **⋯**), puis sur **Nouveau sous-dossier…** :
+l'emplacement est déjà choisi. Cela marche aussi sur la boîte de réception
+et les dossiers spéciaux.
+
+![Le clic droit sur la boîte de réception : « Nouveau sous-dossier… »](captures/folder-context-menu.png)
+
+Vous pouvez aussi créer un dossier **en déplaçant** des messages : dans la
+liste **Déplacer vers…**, cliquez sur **Nouveau dossier…**, tapez son nom,
+puis cliquez sur **Créer et déplacer**. Le dossier est créé et les
+messages y sont rangés aussitôt.
+
+![La liste « Déplacer vers… », avec « Nouveau dossier… » en dernier](captures/move-new-folder.png)
+
 Pour **renommer**, **déplacer** ou **supprimer** un de vos dossiers,
 passez la souris sur son nom dans le panneau de gauche, cliquez sur le
-**⋯** qui apparaît à droite, puis sur **Renommer le dossier…**,
+**⋯** qui apparaît à droite (ou faites un clic droit sur le dossier), puis
+sur **Renommer le dossier…**,
 **Déplacer le dossier…** ou **Supprimer le dossier…**.
 
 ![Le menu d'un dossier : renommer, déplacer ou supprimer](captures/folder-menu.png)

@@ -161,9 +161,22 @@ other apps.
 
 ![The "New folder" window: folder name and location](captures/new-folder.png)
 
+To create a folder **inside another one**, right-click that folder (or
+click its **⋯**), then **New subfolder…**: the location is already chosen.
+This also works on the inbox and the special folders.
+
+![Right-clicking the inbox: "New subfolder…"](captures/folder-context-menu.png)
+
+You can also create a folder **while moving** messages: in the **Move
+to…** list, click **New folder…**, type its name, then click **Create and
+move**. The folder is created and the messages are filed in it straight
+away.
+
+![The "Move to…" list, with "New folder…" at the end](captures/move-new-folder.png)
+
 To **rename**, **move** or **delete** one of your folders, move the mouse
 over its name in the left panel, click the **⋯** that appears on the
-right, then **Rename folder…**, **Move folder…** or **Delete folder…**.
+right (or right-click the folder), then **Rename folder…**, **Move folder…** or **Delete folder…**.
 
 ![The menu of a folder: rename, move or delete](captures/folder-menu.png)
 

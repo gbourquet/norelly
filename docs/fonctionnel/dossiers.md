@@ -44,6 +44,10 @@ supprimer, depuis l'application.
   - menu **⋯** d'un compte, dans le panneau de gauche : **Nouveau
     dossier…** ;
   - palette de commandes (« Nouveau dossier… »).
+- Pour créer directement dans un dossier, **Nouveau sous-dossier…** dans
+  le menu de ce dossier (**⋯** ou clic droit, voir plus bas), ou dans la
+  palette de commandes pour le dossier affiché : le dossier est déjà
+  choisi comme emplacement.
 - Une fenêtre demande le **nom du dossier** et son **emplacement** : « Au
   premier niveau » (par défaut) ou dans l'un des dossiers du compte,
   présentés dans l'ordre et avec le retrait de l'arborescence.
@@ -54,6 +58,34 @@ supprimer, depuis l'application.
   dans le panneau de gauche et dans la liste « Déplacer vers… ».
 - En cas de refus, la fenêtre reste ouverte avec la saisie et l'explication,
   pour corriger et réessayer.
+
+### Créer un dossier en déplaçant des messages
+
+- Dans la liste **Déplacer vers…**, la dernière entrée, **Nouveau
+  dossier…**, est toujours proposée, même quand la recherche ne trouve
+  aucun dossier.
+- Elle ouvre la même fenêtre que la création d'un dossier, dans le compte
+  des messages à déplacer. Le nom déjà tapé dans la recherche est repris
+  comme nom du dossier, sauf s'il désigne un dossier déjà proposé. Le bouton devient **Créer et déplacer**.
+- Le dossier est créé, puis les messages visés y sont déplacés, en un seul
+  geste. Le déplacement s'annule comme tout autre déplacement ; le dossier
+  créé reste.
+- Si le dossier est créé mais que l'application ne le voit pas encore
+  (connexion perdue juste après), rien n'est déplacé et un message invite
+  à le choisir dans **Déplacer vers…**.
+
+### Menu d'un dossier
+
+- Chaque dossier du panneau de gauche a un menu, ouvert par le bouton
+  **⋯** (qui apparaît au survol, et reste visible sur le dossier affiché)
+  ou par un **clic droit** sur le dossier : les deux proposent les mêmes
+  entrées.
+- Un dossier ordinaire propose **Nouveau sous-dossier…**, **Renommer le
+  dossier…**, **Déplacer le dossier…** et **Supprimer le dossier…**.
+- La boîte de réception et les dossiers spéciaux ne proposent que
+  **Nouveau sous-dossier…**.
+- Les dossiers virtuels (tous les messages, messages suivis) n'ont pas de
+  menu : rien ne peut y être rangé.
 
 ### Renommer un dossier
 
@@ -100,7 +132,7 @@ déplacer « Bli » dans « Bla » en fait un sous-dossier de « Bla ».
 - saisir un dossier dans le panneau de gauche et le lâcher **sur un autre
   dossier** pour l'y ranger, ou **sur la ligne du compte** (nom et
   adresse) pour le remettre au premier niveau ;
-- seuls les dossiers qui ont un menu **⋯** se saisissent : ni la boîte de
+- seuls les dossiers ordinaires se saisissent : ni la boîte de
   réception, ni les dossiers spéciaux ;
 - le glisser ne commence qu'après un petit déplacement bouton enfoncé :
   un simple clic affiche toujours le dossier ; au doigt, après un appui
@@ -163,8 +195,9 @@ déplacer « Bli » dans « Bla » en fait un sous-dossier de « Bla ».
   pas : le renommer d'abord.
 - La **boîte de réception** et les **dossiers spéciaux** (envoyés,
   brouillons, corbeille, indésirables, archives, dossiers virtuels) ne se
-  renomment, ne se déplacent ni ne se suppriment : leur menu **⋯** n'est
-  pas proposé. Ils restent proposés comme emplacement.
+  renomment, ne se déplacent ni ne se suppriment : leur menu ne propose
+  que **Nouveau sous-dossier…** (aucun menu pour les dossiers virtuels).
+  Ils restent proposés comme emplacement, sauf les dossiers virtuels.
 - Un dossier qui contient des **sous-dossiers** ne peut pas être supprimé :
   il faut d'abord supprimer ses sous-dossiers.
 
@@ -199,7 +232,9 @@ déplacer « Bli » dans « Bla » en fait un sous-dossier de « Bla ».
 
 | Situation | Texte |
 |---|---|
-| Menu, palette | Nouveau dossier… |
+| Menu, palette | Nouveau dossier…, Nouveau sous-dossier… |
+| Déplacer vers… | Nouveau dossier… ; fenêtre : Créer et déplacer |
+| Dossier créé, messages non déplacés | Dossier « {folder} » créé. Choisissez-le dans « Déplacer vers… » pour y déplacer les messages. |
 | Fenêtre | Nouveau dossier, Nom du dossier, Emplacement, Au premier niveau, Créer, Création…, Annuler |
 | Dossier créé | Dossier « {folder} » créé. |
 | Nom vide | Donnez un nom au dossier. |
@@ -210,7 +245,7 @@ déplacer « Bli » dans « Bla » en fait un sous-dossier de « Bla ».
 | Nom déjà pris | Un dossier de ce nom existe déjà à cet endroit. |
 | Pas de sous-dossiers | Ce serveur n'accepte pas de sous-dossiers : choisissez « Au premier niveau ». |
 | Refus, hors ligne | Le dossier n'a pas pu être créé sur le serveur. (« réponse du serveur ») |
-| Menu d'un dossier | Actions du dossier {folder} : Renommer le dossier…, Déplacer le dossier…, Supprimer le dossier… |
+| Menu d'un dossier | Actions du dossier {folder} : Nouveau sous-dossier…, Renommer le dossier…, Déplacer le dossier…, Supprimer le dossier… |
 | Fenêtre de renommage | Renommer le dossier, Nouveau nom, Renommer, Renommage…, Annuler |
 | Dossier renommé | Dossier renommé en « {folder} ». |
 | Glisser un dossier | Nom du dossier |
@@ -231,6 +266,7 @@ déplacer « Bli » dans « Bla » en fait un sous-dossier de « Bla ».
 | Commande | Raccourci |
 |---|---|
 | Nouveau dossier… | palette |
+| Nouveau sous-dossier… | palette |
 | Renommer le dossier… | palette |
 | Déplacer le dossier… | palette |
 | Supprimer le dossier… | palette |

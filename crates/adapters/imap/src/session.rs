@@ -37,6 +37,7 @@ use norelly_domain::mailbox::{
     UidValidity,
 };
 use norelly_domain::ports::{FetchedBody, IdleOutcome, MAX_FETCH_BATCH};
+use norelly_domain::sender_auth::{AuthServTrust, received_fields};
 use norelly_domain::sync::{
     FlagUpdate, SelectRequest, SelectedMailbox, ServerQuery, SyncExtensions, UidRanges,
 };
@@ -255,23 +256,41 @@ fn id_list(value: &HeaderValue<'_>) -> Vec<String> {
 }
 
 /// En-têtes utiles d'un bloc d'en-têtes brut (mots encodés RFC 2047
-/// décodés par `mail-parser`), assainis par le domaine.
-pub(crate) fn parse_headers(raw: &[u8]) -> MessageHeaders {
+/// décodés par `mail-parser`), assainis par le domaine, avec le verdict
+/// du domaine sur l'expéditeur d'après les `Authentication-Results` des
+/// serveurs `trust`.
+pub(crate) fn parse_headers(raw: &[u8], trust: &AuthServTrust) -> MessageHeaders {
     let Some(message) = MessageParser::new().parse_headers(raw) else {
         return MessageHeaders::default();
     };
+    // Valeurs prises dans le bloc brut : `headers_raw` sauterait celles
+    // qui ne sont pas de l'UTF-8.
+    let received = received_fields(message.headers().iter().map(|h| {
+        let start = usize::try_from(h.offset_start).unwrap_or(usize::MAX);
+        let end = usize::try_from(h.offset_end).unwrap_or(usize::MAX);
+        (h.name.as_str(), raw.get(start..end).unwrap_or_default())
+    }));
     let in_reply_to = id_list(message.in_reply_to());
     let references = id_list(message.references());
-    MessageHeaders::sanitize(&RawHeaders {
-        subject: message.subject().unwrap_or_default(),
-        from: addresses(message.from()),
-        to: addresses(message.to()),
-        cc: addresses(message.cc()),
-        date: message.date().map(mail_parser::DateTime::to_timestamp),
-        message_id: message.message_id(),
-        in_reply_to: in_reply_to.iter().map(String::as_str).collect(),
-        references: references.iter().map(String::as_str).collect(),
-    })
+    MessageHeaders::sanitize_received(
+        &RawHeaders {
+            subject: message.subject().unwrap_or_default(),
+            from: addresses(message.from()),
+            to: addresses(message.to()),
+            cc: addresses(message.cc()),
+            date: message.date().map(mail_parser::DateTime::to_timestamp),
+            message_id: message.message_id(),
+            in_reply_to: in_reply_to.iter().map(String::as_str).collect(),
+            references: references.iter().map(String::as_str).collect(),
+            authentication_results: received
+                .authentication_results
+                .iter()
+                .map(String::as_str)
+                .collect(),
+            from_fields: received.from_fields,
+        },
+        trust,
+    )
 }
 
 fn nstring_bytes(data: &NString<'_>) -> Vec<u8> {
@@ -281,7 +300,7 @@ fn nstring_bytes(data: &NString<'_>) -> Vec<u8> {
         .unwrap_or_default()
 }
 
-fn meta_of(items: &Vec1<MessageDataItem<'_>>) -> Option<MessageMeta> {
+fn meta_of(items: &Vec1<MessageDataItem<'_>>, trust: &AuthServTrust) -> Option<MessageMeta> {
     let mut uid = None;
     let mut flags = Flags::default();
     let mut modseq = None;
@@ -304,7 +323,7 @@ fn meta_of(items: &Vec1<MessageDataItem<'_>>) -> Option<MessageMeta> {
                 section: Some(Section::Header(None)),
                 data,
                 ..
-            } => headers = parse_headers(&nstring_bytes(data)),
+            } => headers = parse_headers(&nstring_bytes(data), trust),
             _ => {}
         }
     }
@@ -567,6 +586,7 @@ impl Connection {
         &mut self,
         uids: &[Uid],
         condstore: bool,
+        trust: &AuthServTrust,
     ) -> Result<Vec<MessageMeta>, ConnectionError> {
         if uids.len() > MAX_FETCH_BATCH {
             return Err(protocol("lot de FETCH trop grand"));
@@ -577,7 +597,9 @@ impl Connection {
             let Some(set) = uid_set(missing.iter().copied()) else {
                 break;
             };
-            let (metas, skipped) = self.fetch_meta_tier(set, &missing, condstore, tier).await?;
+            let (metas, skipped) = self
+                .fetch_meta_tier(set, &missing, condstore, tier, trust)
+                .await?;
             for meta in metas {
                 if missing.remove(&meta.uid) {
                     out.push(meta);
@@ -603,6 +625,7 @@ impl Connection {
         wanted: &BTreeSet<Uid>,
         condstore: bool,
         tier: MetaTier,
+        trust: &AuthServTrust,
     ) -> Result<(Vec<MessageMeta>, usize), ConnectionError> {
         let mut names = vec![
             MessageDataItemName::Uid,
@@ -640,7 +663,7 @@ impl Connection {
             .data
             .iter()
             .filter_map(|d| match d {
-                Data::Fetch { items, .. } => meta_of(items),
+                Data::Fetch { items, .. } => meta_of(items, trust),
                 _ => None,
             })
             // Réponses non sollicitées ou hors demande ignorées.
@@ -1034,7 +1057,7 @@ Date: Mon, 2 Nov 2026 10:00:00 +0000\r\n\
 Message-ID: <id1@example.com>\r\n\
 In-Reply-To: <id0@example.com>\r\n\
 References: <r1@example.com> <id0@example.com>\r\n\r\n";
-        let h = parse_headers(raw);
+        let h = parse_headers(raw, &AuthServTrust::default());
         assert_eq!(h.subject, "Réunion");
         assert_eq!(
             h.from
@@ -1049,6 +1072,8 @@ References: <r1@example.com> <id0@example.com>\r\n\r\n";
         assert_eq!(h.references, ["r1@example.com", "id0@example.com"]);
     }
 
+    use norelly_domain::sender_auth::SenderAuth;
+
     #[test]
     fn hostile_headers_do_not_panic() {
         for raw in [
@@ -1059,9 +1084,72 @@ References: <r1@example.com> <id0@example.com>\r\n\r\n";
             b"Subject: =?UTF-8?B?????==?=\r\n\r\n",
             b"Date: 99 Foo 99999 99:99:99 +9999\r\n\r\n",
         ] {
-            let _ = parse_headers(raw);
+            let _ = parse_headers(raw, &trust("imap.exemple.fr"));
         }
         let long = format!("Subject: {}\r\n\r\n", "x".repeat(100_000));
-        assert!(parse_headers(long.as_bytes()).subject.chars().count() <= 998);
+        let h = parse_headers(long.as_bytes(), &AuthServTrust::default());
+        assert!(h.subject.chars().count() <= 998);
+        let long = format!(
+            "From: a@banque.fr\r\nAuthentication-Results: mx.exemple.fr; dmarc=pass{}\r\n\r\n",
+            " ".repeat(100_000)
+        );
+        let h = parse_headers(long.as_bytes(), &trust("imap.exemple.fr"));
+        assert_eq!(h.sender_auth, SenderAuth::Unknown);
+    }
+
+    fn trust(host: &str) -> AuthServTrust {
+        let host = norelly_domain::endpoint::Host::parse(host).unwrap_or_else(|e| panic!("{e}"));
+        AuthServTrust::for_imap_host(&host)
+    }
+
+    /// Seul le premier `Authentication-Results` compte, s'il est posé par
+    /// le serveur du compte, quelle que soit la casse du nom d'en-tête et
+    /// le repliement de sa valeur.
+    #[test]
+    fn the_trusted_authentication_results_give_the_sender_verdict() {
+        let raw = b"authentication-results: mx.exemple.fr;\r\n\
+\tdkim=pass header.d=banque.fr;\r\n\
+\tdmarc=pass (p=reject) header.from=banque.fr\r\n\
+Authentication-Results: mx.exemple.fr; dmarc=fail header.from=banque.fr\r\n\
+From: Banque <contact@banque.fr>\r\n\r\n";
+        let verdict = |imap: &str| parse_headers(raw, &trust(imap)).sender_auth;
+        assert_eq!(verdict("imap.exemple.fr"), SenderAuth::Pass);
+        // Autre compte : l'en-tête du dessus n'est pas de confiance.
+        assert_eq!(verdict("imap.autre.fr"), SenderAuth::Unknown);
+        // En-tête étranger au-dessus : celui de confiance, plus bas, a pu
+        // être écrit par l'expéditeur.
+        let forged = b"Authentication-Results: mx.pirate.net; none\r\n\
+Authentication-Results: mx.exemple.fr; dmarc=pass header.from=banque.fr\r\n\
+From: contact@banque.fr\r\n\r\n";
+        assert_eq!(
+            parse_headers(forged, &trust("imap.exemple.fr")).sender_auth,
+            SenderAuth::Unknown
+        );
+        // En-tête du dessus non UTF-8 : il reste celui du dessus, le faux
+        // en-tête plus bas ne le remplace pas.
+        let not_utf8 =
+            b"Authentication-Results: mx.exemple.fr; spf=pass smtp.mailfrom=\xff@pirate.net\r\n\
+Authentication-Results: mx.exemple.fr; dmarc=pass header.from=banque.fr\r\n\
+From: contact@banque.fr\r\n\r\n";
+        assert_eq!(
+            parse_headers(not_utf8, &trust("imap.exemple.fr")).sender_auth,
+            SenderAuth::Unknown
+        );
+        // Deux champs `From` : `mail-parser` affiche le dernier, le serveur
+        // a pu vérifier le premier.
+        let two_from =
+            b"Authentication-Results: mx.exemple.fr; dmarc=pass header.from=pirate.net\r\n\
+From: a@pirate.net\r\n\
+From: contact@pirate.net\r\n\r\n";
+        assert_eq!(
+            parse_headers(two_from, &trust("imap.exemple.fr")).sender_auth,
+            SenderAuth::Unknown
+        );
+        let fail = b"Authentication-Results: mx.exemple.fr; dmarc=fail header.from=banque.fr\r\n\
+From: contact@banque.fr\r\n\r\n";
+        assert_eq!(
+            parse_headers(fail, &trust("imap.exemple.fr")).sender_auth,
+            SenderAuth::Fail
+        );
     }
 }

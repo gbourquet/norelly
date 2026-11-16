@@ -217,6 +217,45 @@ du domaine de l'adresse soumis à confirmation ; XML hostile sans panique
   dossier choisi.
 - Interface : jamais de `{@html}`, d'`innerHTML` ni d'`eval`.
 
+### Expéditeur et carnet d'adresses
+
+L'adresse `From` est falsifiable : le nom du carnet s'affiche d'après elle,
+mais la pastille « Dans vos contacts » n'est accordée qu'à un expéditeur
+authentifié par le serveur du compte (`crates/domain/src/sender_auth.rs`,
+décision du mainteneur du 2026-11-16) :
+
+- seul le **premier** `Authentication-Results` du message compte (le
+  dernier posé, par le serveur de remise) ; il doit venir d'un
+  `authserv-id` du domaine de l'hôte IMAP du compte (sans sa première
+  étiquette, jamais un deuxième niveau de pays comme `co.uk` ou `asso.fr`),
+  ou d'un alias constant du fournisseur (`mx.google.com` pour Gmail). Un en-tête du
+  dessus étranger, sans `authserv-id` (forme de Microsoft 365), trop long ou
+  illisible ne laisse jamais décider un en-tête plus bas : verdict
+  `Unknown` ;
+- `Pass` : un unique résultat DMARC `pass` dont `header.from` est le domaine
+  du `From`, ou, sans résultat DMARC, une signature DKIM valide d'un
+  domaine aligné ; `Fail` : un DMARC `fail` sur ce domaine (il l'emporte
+  sur tout `pass` injecté) ; plusieurs champs `From`, `From` invalide ou
+  domaine internationalisé non convertible : `Unknown` ;
+- l'interface n'affiche que l'état reçu (`CorrespondentDto.contact_badge`,
+  `auth`) ; les messages enregistrés avant la migration 20 valent
+  `Unknown`.
+
+Risques résiduels, acceptés avec la décision du mainteneur :
+
+- un message qui n'est jamais passé par un serveur posant
+  `Authentication-Results` (ajouté par `APPEND` par un autre client ou un
+  outil d'import, hébergeur sans vérification DKIM ni DMARC, envoi interne
+  non vérifié) est jugé sur un en-tête que l'expéditeur a pu écrire avec
+  l'`authserv-id` attendu ; la RFC 8601 (§ 5) impose au serveur de retirer
+  ces en-têtes, ce que tous ne font pas ;
+- un serveur de confiance qui recopie sans échappement une donnée de
+  l'expéditeur dans son en-tête peut y laisser injecter un résultat ; un
+  `fail` l'emporte et plusieurs résultats DMARC ne valent rien, mais un
+  résultat DKIM injecté reste possible sans résultat DMARC ;
+- les comptes Microsoft 365 et Outlook.com, dont l'en-tête n'a pas
+  d'`authserv-id`, restent en `Unknown` (ni pastille, ni avertissement).
+
 ### Données
 
 - SQL : paramètres liés uniquement (`scripts/check-sql.sh`) ; requêtes de
@@ -267,7 +306,7 @@ reçus de l'interface ; types MIME recalculés.
 Signalés au mainteneur dans chaque PR qui les touche (ADR-008) :
 
 - `crates/domain/src/security.rs`, `discovery.rs`, `reading.rs`,
-  `credentials.rs`, `oauth.rs`, `auth.rs` ;
+  `credentials.rs`, `oauth.rs`, `auth.rs`, `sender_auth.rs` ;
 - `crates/adapters/oauth/src/lib.rs`, `crates/application/src/oauth.rs` ;
 - `crates/adapters/tls/src/lib.rs`, `crates/adapters/imap/src/connection.rs`,
   `crates/adapters/smtp/src/stream.rs` ;

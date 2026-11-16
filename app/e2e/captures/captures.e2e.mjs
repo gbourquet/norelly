@@ -137,7 +137,11 @@ function rawMessages() {
   const base = Date.UTC(2026, 10, 4, 9, 0, 0);
   return content.messages.map(([from, subject, body], i) => {
     const date = new Date(base - i * 5 * 3600 * 1000).toUTCString().replace("GMT", "+0000");
-    return `From: ${from}
+    // Expéditeurs authentifiés par le serveur du compte (`authserv-id` du
+    // domaine de l'hôte IMAP, imap.norelly.test).
+    const domain = from.replace(/^.*@([^>]+)>?$/, "$1");
+    return `Authentication-Results: mx.norelly.test; dmarc=pass header.from=${domain}
+From: ${from}
 To: ${content.name} <${address}>
 Subject: ${subject}
 Date: ${date}
@@ -747,6 +751,45 @@ describe(`captures d'écran (${lang})`, () => {
     await capture("compose-list-suggestion");
     await browser.keys("Escape");
     await dialog.waitForDisplayed({ reverse: true, timeout: 20000 });
+  });
+
+  it("expéditeur du carnet non vérifié : avertissement, sans pastille", async () => {
+    // Même adresse qu'un contact, mais le serveur du compte constate un
+    // échec : « Expéditeur non vérifié », jamais « Dans vos contacts ».
+    const [from] = content.messages[0];
+    const name = from.replace(/ <.*$/, "");
+    const subject = lang === "fr" ? "Facture à régler aujourd'hui" : "Invoice due today";
+    const date = new Date(Date.UTC(2026, 10, 5, 8, 0, 0)).toUTCString().replace("GMT", "+0000");
+    await appendMessages(
+      [
+        `Authentication-Results: mx.norelly.test; dkim=none; dmarc=fail header.from=norelly.test
+Authentication-Results: mx.norelly.test; dmarc=pass header.from=norelly.test
+From: ${from}
+To: ${content.name} <${address}>
+Subject: ${subject}
+Date: ${date}
+Message-ID: <capture-${lang}-non-verifie@norelly.test>
+MIME-Version: 1.0
+Content-Type: text/plain; charset=utf-8
+
+${lang === "fr" ? "Merci de régler la facture jointe." : "Please pay the attached invoice."}
+`,
+      ],
+      user,
+    );
+    await $("nav")
+      .$(`button*=${msg("mailbox_unified_inbox")}`)
+      .click();
+    const row = $(`span=${subject}`);
+    await row.waitForDisplayed({ timeout: 90000 });
+    await row.click();
+    await expect($(`h1=${subject}`)).toBeDisplayed({ wait: 30000 });
+    const unverified = button(`${msg("person_menu", { name })} (${msg("person_unverified")})`);
+    await unverified.waitForDisplayed({ timeout: 10000 });
+    await expect(unverified.$(`[title="${msg("person_in_contacts")}"]`)).not.toBeExisting();
+    await capture("sender-unverified");
+    await button(msg("conversation_back")).click();
+    await $(`h1=${subject}`).waitForDisplayed({ reverse: true, timeout: 10000 });
   });
 
   it("expéditeur au nom en forme de domaine : adresse réelle affichée", async () => {

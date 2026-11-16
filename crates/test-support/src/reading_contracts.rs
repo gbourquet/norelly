@@ -17,6 +17,7 @@ use norelly_domain::ports::{
     ReadingPreferences, SettingsStore, StoreError, StoredBody, StoredMailbox, StoredMessage,
     SyncBatch,
 };
+use norelly_domain::sender_auth::SenderAuth;
 use norelly_domain::sync::FlagUpdate;
 
 use crate::mail_contracts::{mailbox, state, uid};
@@ -53,6 +54,13 @@ fn threaded(
         },
         body: StoredBody::Missing,
     }
+}
+
+/// `message`, avec le verdict d'authentification `auth` sur son
+/// expéditeur.
+fn authenticated(mut message: StoredMessage, auth: SenderAuth) -> StoredMessage {
+    message.meta.headers.sender_auth = auth;
+    message
 }
 
 fn batch(new: Vec<StoredMessage>) -> SyncBatch {
@@ -132,7 +140,10 @@ where
         .apply_sync(
             inbox,
             &batch(vec![
-                threaded(1, 200, "p2@a", &["p1@a"], "Re: Projet X", "Bob", false),
+                authenticated(
+                    threaded(1, 200, "p2@a", &["p1@a"], "Re: Projet X", "Bob", false),
+                    SenderAuth::Pass,
+                ),
                 threaded(2, 150, "o1@a", &[], "Autre sujet", "Carol", true),
             ]),
         )
@@ -154,14 +165,17 @@ where
     store
         .apply_sync(
             sent,
-            &batch(vec![threaded(
-                1,
-                300,
-                "p3@a",
-                &["p1@a", "p2@a"],
-                "Re: Projet X",
-                "Moi",
-                true,
+            &batch(vec![authenticated(
+                threaded(
+                    1,
+                    300,
+                    "p3@a",
+                    &["p1@a", "p2@a"],
+                    "Re: Projet X",
+                    "Moi",
+                    true,
+                ),
+                SenderAuth::Fail,
             )]),
         )
         .await?;
@@ -256,6 +270,12 @@ where
             (200, inbox, "Bob"),
             (300, sent, "Moi")
         ]
+    );
+    // Verdict d'authentification enregistré avec chaque message.
+    let auth: Vec<SenderAuth> = messages.iter().map(|m| m.sender_auth).collect();
+    assert_eq!(
+        auth,
+        [SenderAuth::Unknown, SenderAuth::Pass, SenderAuth::Fail]
     );
     assert_eq!(
         store.conversation_messages(autre.id).await?.len(),

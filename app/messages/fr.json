@@ -502,6 +502,8 @@
   "cmd_person_show": "Voir le contact",
   "cmd_person_show_keywords": "voir ouvrir fiche contact carnet expéditeur destinataire",
   "person_in_contacts": "Dans vos contacts",
+  "person_unverified": "Expéditeur non vérifié",
+  "person_unverified_hint": "Le serveur de votre messagerie n'a pas pu confirmer que ce message vient bien de cette adresse. Méfiez-vous des liens et des pièces jointes.",
   "person_menu": "Actions pour {name}",
   "conversation_to_label": "À :",
   "cmd_contact_delete": "Supprimer le contact",

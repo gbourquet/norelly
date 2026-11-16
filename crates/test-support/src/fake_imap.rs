@@ -15,6 +15,7 @@ use norelly_domain::actions::{FlagChange, StoreOutcome};
 use norelly_domain::capabilities::ServerCapabilities;
 use norelly_domain::compose::draft::RemoteCopy;
 use norelly_domain::connection::ConnectionError;
+use norelly_domain::endpoint::Host;
 use norelly_domain::fetch_policy::BodyFetch;
 use norelly_domain::fetch_policy::PartPath;
 use norelly_domain::mailbox::{
@@ -22,10 +23,14 @@ use norelly_domain::mailbox::{
     UidValidity,
 };
 use norelly_domain::ports::{FetchedBody, IdleOutcome, RemoteMailboxSession};
+use norelly_domain::sender_auth::{AuthServTrust, received_fields};
 use norelly_domain::sync::{
     FlagUpdate, SelectRequest, SelectedMailbox, ServerQuery, SyncExtensions, UidRanges,
 };
 use tokio::sync::Notify;
+
+/// Hôte supposé d'une session ouverte par [`FakeImap::session`].
+pub const FAKE_IMAP_HOST: &str = "imap.example.com";
 
 #[derive(Debug, Clone)]
 struct Message {
@@ -371,8 +376,18 @@ impl FakeImap {
         ServerCapabilities::from_imap(tokens)
     }
 
-    /// Ouvre une session (sans authentification).
+    /// Ouvre une session (sans authentification) sur l'hôte
+    /// [`FAKE_IMAP_HOST`].
     pub fn session(&self) -> Result<FakeImapSession, ConnectionError> {
+        let host = Host::parse(FAKE_IMAP_HOST)
+            .map_err(|e| ConnectionError::Protocol(format!("hôte du faux serveur : {e}")))?;
+        self.session_on(&host)
+    }
+
+    /// Ouvre une session (sans authentification) comme si le serveur
+    /// était joint par `host` : les `Authentication-Results` de confiance
+    /// sont ceux de son domaine.
+    pub fn session_on(&self, host: &Host) -> Result<FakeImapSession, ConnectionError> {
         {
             let mut state = lock(&self.state);
             state.connect_attempts += 1;
@@ -389,6 +404,7 @@ impl FakeImap {
             selected: None,
             extensions: SyncExtensions::default(),
             broken: false,
+            trust: AuthServTrust::for_imap_host(host),
         })
     }
 }
@@ -402,11 +418,14 @@ pub struct FakeImapSession {
     selected: Option<(String, u64)>,
     extensions: SyncExtensions,
     broken: bool,
+    /// `authserv-id` de confiance (domaine de l'hôte de connexion).
+    trust: AuthServTrust,
 }
 
 /// En-têtes d'un message brut, décodés par `mail-parser` comme dans
-/// l'adaptateur réel.
-fn headers_of(raw: &[u8]) -> MessageHeaders {
+/// l'adaptateur réel, avec le verdict du domaine sur l'expéditeur d'après
+/// les `Authentication-Results` des serveurs `trust`.
+fn headers_of(raw: &[u8], trust: &AuthServTrust) -> MessageHeaders {
     use mail_parser::{Address, HeaderValue, MessageParser};
     let Some(m) = MessageParser::new().parse_headers(raw) else {
         return MessageHeaders::default();
@@ -435,16 +454,32 @@ fn headers_of(raw: &[u8]) -> MessageHeaders {
     let (irt, refs) = (ids(m.in_reply_to()), ids(m.references()));
     let pairs = |v: &[(String, String)]| -> Vec<(String, String)> { v.to_vec() };
     let (from, to, cc) = (pairs(&from), pairs(&to), pairs(&cc));
-    MessageHeaders::sanitize(&RawHeaders {
-        subject: m.subject().unwrap_or_default(),
-        from: from.iter().map(|(n, a)| (n.as_str(), a.as_str())).collect(),
-        to: to.iter().map(|(n, a)| (n.as_str(), a.as_str())).collect(),
-        cc: cc.iter().map(|(n, a)| (n.as_str(), a.as_str())).collect(),
-        date: m.date().map(mail_parser::DateTime::to_timestamp),
-        message_id: m.message_id(),
-        in_reply_to: irt.iter().map(String::as_str).collect(),
-        references: refs.iter().map(String::as_str).collect(),
-    })
+    // Valeurs prises dans le bloc brut : `headers_raw` sauterait celles
+    // qui ne sont pas de l'UTF-8.
+    let received = received_fields(m.headers().iter().map(|h| {
+        let start = usize::try_from(h.offset_start).unwrap_or(usize::MAX);
+        let end = usize::try_from(h.offset_end).unwrap_or(usize::MAX);
+        (h.name.as_str(), raw.get(start..end).unwrap_or_default())
+    }));
+    MessageHeaders::sanitize_received(
+        &RawHeaders {
+            subject: m.subject().unwrap_or_default(),
+            from: from.iter().map(|(n, a)| (n.as_str(), a.as_str())).collect(),
+            to: to.iter().map(|(n, a)| (n.as_str(), a.as_str())).collect(),
+            cc: cc.iter().map(|(n, a)| (n.as_str(), a.as_str())).collect(),
+            date: m.date().map(mail_parser::DateTime::to_timestamp),
+            message_id: m.message_id(),
+            in_reply_to: irt.iter().map(String::as_str).collect(),
+            references: refs.iter().map(String::as_str).collect(),
+            authentication_results: received
+                .authentication_results
+                .iter()
+                .map(String::as_str)
+                .collect(),
+            from_fields: received.from_fields,
+        },
+        trust,
+    )
 }
 
 impl FakeImapSession {
@@ -680,6 +715,7 @@ impl RemoteMailboxSession for FakeImapSession {
     async fn fetch_meta(&mut self, uids: &[Uid]) -> Result<Vec<MessageMeta>, ConnectionError> {
         let name = self.selected_name()?;
         let condstore = self.extensions.condstore;
+        let trust = self.trust.clone();
         self.throttle().await;
         let mut s = self.step()?;
         let m = s.mailbox(&name).ok_or(ConnectionError::Closed)?;
@@ -698,7 +734,7 @@ impl RemoteMailboxSession for FakeImapSession {
                     },
                     internal_date: msg.internal_date,
                     size: u32::try_from(msg.raw.len()).unwrap_or(u32::MAX),
-                    headers: headers_of(&msg.raw),
+                    headers: headers_of(&msg.raw, &trust),
                     structure: None,
                 })
             })

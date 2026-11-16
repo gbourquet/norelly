@@ -12,6 +12,7 @@ use norelly_domain::ports::{
     ConversationQuery, FolderTreeQuery, MailStore, MessageId, MessageListQuery, PendingOpStore,
     StoreError, SyncBatch,
 };
+use norelly_domain::sender_auth::SenderAuth;
 use norelly_domain::sync::FlagUpdate;
 
 use crate::mail_contracts::{mailbox, sample_message, state, uid};
@@ -102,10 +103,11 @@ where
         .apply_sync(
             inbox,
             &SyncBatch {
-                new: vec![
-                    sample_message(1, 1_000, false),
-                    sample_message(2, 2_000, false),
-                ],
+                new: vec![sample_message(1, 1_000, false), {
+                    let mut authenticated = sample_message(2, 2_000, false);
+                    authenticated.meta.headers.sender_auth = SenderAuth::Pass;
+                    authenticated
+                }],
                 state: state(7, 50, 3),
                 ..SyncBatch::default()
             },
@@ -185,6 +187,21 @@ where
         .first()
         .map(|i| i.id)
         .ok_or_else(|| fail("copie"))?;
+    // La copie garde le verdict d'authentification de son expéditeur.
+    let copied = store
+        .conversations(ConversationScope::Mailbox(trash), None, 10)
+        .await?
+        .items
+        .first()
+        .map(|c| c.id)
+        .ok_or_else(|| fail("conversation de la copie"))?;
+    let shown: Vec<SenderAuth> = store
+        .conversation_messages(copied)
+        .await?
+        .iter()
+        .map(|m| m.sender_auth)
+        .collect();
+    assert_eq!(shown, [SenderAuth::Pass], "verdict recopié");
     let trash_node = |nodes: Vec<norelly_domain::ports::FolderNode>| {
         nodes
             .iter()

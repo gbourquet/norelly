@@ -192,7 +192,10 @@ pub async fn conversation_messages(
                 account: id32(m.account.get())?,
                 mailbox: id32(m.mailbox.get())?,
                 date: date_dto(m.date),
-                from: m.from.as_ref().map(|f| CorrespondentDto::named(&names, f)),
+                from: m
+                    .from
+                    .as_ref()
+                    .map(|f| CorrespondentDto::sender(&names, f, m.sender_auth)),
                 to: named(&m.to),
                 cc: named(&m.cc),
                 subject: m.subject.clone(),

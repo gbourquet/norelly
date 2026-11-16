@@ -864,3 +864,55 @@ fn display_order_keeps_every_folder_once() {
     after("Perso€Banque", "Perso");
     after("inbox/x", "INBOX");
 }
+
+#[test]
+fn received_headers_carry_the_sender_authentication() {
+    use crate::endpoint::Host;
+    use crate::sender_auth::{AuthServTrust, SenderAuth};
+    let host = Host::parse("imap.exemple.fr").unwrap_or_else(|e| panic!("{e}"));
+    let trust = AuthServTrust::for_imap_host(&host);
+    let raw = |results: Vec<&'static str>| RawHeaders {
+        from: vec![("Banque", "contact@banque.fr")],
+        from_fields: 1,
+        authentication_results: results,
+        ..RawHeaders::default()
+    };
+    let pass = raw(vec!["mx.exemple.fr; dmarc=pass header.from=banque.fr"]);
+    assert_eq!(
+        MessageHeaders::sanitize_received(&pass, &trust).sender_auth,
+        SenderAuth::Pass
+    );
+    let fail = raw(vec!["mx.exemple.fr; dmarc=fail header.from=banque.fr"]);
+    assert_eq!(
+        MessageHeaders::sanitize_received(&fail, &trust).sender_auth,
+        SenderAuth::Fail
+    );
+    let foreign = raw(vec!["mx.pirate.net; dmarc=pass header.from=banque.fr"]);
+    assert_eq!(
+        MessageHeaders::sanitize_received(&foreign, &trust).sender_auth,
+        SenderAuth::Unknown
+    );
+    // Plusieurs champs `From` : celui qui s'affiche n'est peut-être pas
+    // celui qui a été vérifié.
+    let two_from = RawHeaders {
+        from_fields: 2,
+        ..raw(vec!["mx.exemple.fr; dmarc=pass header.from=banque.fr"])
+    };
+    assert_eq!(
+        MessageHeaders::sanitize_received(&two_from, &trust).sender_auth,
+        SenderAuth::Unknown
+    );
+    // Sans confiance (rédaction, en-têtes locaux) : aucun verdict.
+    assert_eq!(
+        MessageHeaders::sanitize(&pass).sender_auth,
+        SenderAuth::Unknown
+    );
+    let received = MessageHeaders::sanitize_received(&pass, &trust);
+    assert_eq!(
+        MessageHeaders {
+            sender_auth: SenderAuth::Unknown,
+            ..received
+        },
+        MessageHeaders::sanitize(&pass)
+    );
+}

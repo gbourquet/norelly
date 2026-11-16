@@ -125,10 +125,11 @@ fn create_placeholder(
             "INSERT INTO messages (mailbox_id, uid, flags, keywords, internal_date, sort_date, \
              size, subject, from_name, from_address, to_json, cc_json, message_id, in_reply_to, \
              refs, header_date, has_attachments, structure, body_state, body_blob, \
-             conversation_id, pending_op) \
+             conversation_id, pending_op, sender_auth) \
              SELECT ?1, ?2, flags & ~8, keywords, internal_date, sort_date, size, subject, \
              from_name, from_address, to_json, cc_json, message_id, in_reply_to, refs, \
-             header_date, has_attachments, structure, body_state, body_blob, conversation_id, ?3 \
+             header_date, has_attachments, structure, body_state, body_blob, conversation_id, ?3, \
+             sender_auth \
              FROM messages WHERE id = ?4",
             params![target, uid, op_id, op.message.get()],
         )

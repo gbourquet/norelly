@@ -72,6 +72,7 @@ fn migrations() -> Migrations<'static> {
                     .map_err(|e| rusqlite_migration::HookError::Hook(e.0))
             },
         ),
+        M::up(include_str!("../migrations/0020_sender_auth.sql")),
     ])
 }
 
@@ -692,7 +693,38 @@ mod tests {
         // v19 : schéma inchangé (noms imitant une adresse retirés) ; un
         // surnom au contact de la version 11.
         "UPDATE contacts SET nickname = 'V19' WHERE id = 1;",
+        // v20 : verdict d'authentification de l'expéditeur.
+        "UPDATE messages SET sender_auth = 'pass' WHERE id = 1;",
     ];
+
+    /// Base de version 19 : à la montée en version 20, les messages déjà
+    /// enregistrés valent `unknown` (sans pastille ni avertissement), et
+    /// une valeur hors de `pass`, `fail`, `unknown` est refusée.
+    #[test]
+    fn upgrading_to_v20_marks_stored_messages_unknown() -> Result<(), StoreError> {
+        let mut conn = Connection::open_in_memory().map_err(store_error)?;
+        conn.pragma_update(None, "foreign_keys", "ON")
+            .map_err(store_error)?;
+        let m = migrations();
+        for (version, fixture) in FIXTURES.iter().enumerate().take(19) {
+            m.to_version(&mut conn, version + 1)
+                .map_err(|e| StoreError(e.to_string()))?;
+            conn.execute_batch(fixture).map_err(store_error)?;
+        }
+        m.to_version(&mut conn, 20)
+            .map_err(|e| StoreError(e.to_string()))?;
+        let verdicts: Vec<String> = conn
+            .prepare("SELECT DISTINCT sender_auth FROM messages")
+            .and_then(|mut st| st.query_map([], |r| r.get(0))?.collect())
+            .map_err(store_error)?;
+        assert_eq!(verdicts, ["unknown"]);
+        assert!(
+            conn.execute("UPDATE messages SET sender_auth = 'verified'", [])
+                .is_err(),
+            "valeur hors liste refusée"
+        );
+        Ok(())
+    }
 
     /// Base de version 17 : à la montée en version 18, les caractères
     /// invisibles sont retirés des fiches, qui redeviennent lisibles ; une

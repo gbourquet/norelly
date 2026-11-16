@@ -304,7 +304,7 @@ impl RemoteMailboxConnector for FakeMailServers {
     async fn connect(&self, request: &ConnectRequest) -> Result<FakeSession, ConnectionError> {
         let fixed = lock(&self.results).contains_key(&request.endpoint.to_string());
         let capabilities = self.answer(Protocol::Imap, request)?;
-        let inner = self.imap.session()?;
+        let inner = self.imap.session_on(request.endpoint.host())?;
         let capabilities = if fixed {
             capabilities
         } else {

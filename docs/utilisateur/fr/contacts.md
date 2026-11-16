@@ -67,7 +67,17 @@ une ligne de la liste.
 Quand une personne de votre carnet vous écrit, Norelly l'affiche sous le
 nom que vous lui avez donné, dans la liste des messages comme dans le
 message ouvert. Une petite pastille à côté de son nom rappelle qu'elle est
-dans vos contacts.
+dans vos contacts, quand le serveur de votre messagerie a confirmé que le
+message vient bien de son adresse. Sans cette confirmation (certaines
+messageries, dont celles de Microsoft, ne la donnent pas), son nom
+s'affiche, mais sans pastille.
+
+Si le serveur de votre messagerie constate au contraire que le message ne
+vient pas de l'adresse affichée, la mention **Expéditeur non vérifié**
+apparaît à côté du nom : méfiez-vous des liens et des pièces jointes de ce
+message.
+
+![Un message signalé « Expéditeur non vérifié »](captures/sender-unverified.png)
 
 Pour ajouter quelqu'un qui vous a écrit :
 
@@ -90,9 +100,10 @@ Quand vous écrivez un message, tapez le début du nom d'un contact dans
 **À** : vos contacts sont proposés en premier, sous le nom de votre carnet.
 
 Attention : le nom de votre contact s'affiche d'après l'adresse indiquée
-par le message, qu'un fraudeur peut imiter. Il ne garantit pas que le
-message vient vraiment de cette personne : en cas de doute (demande
-d'argent, de mot de passe), vérifiez par un autre moyen.
+par le message, qu'un fraudeur peut imiter. Le nom seul ne garantit pas
+que le message vient vraiment de cette personne, et la pastille non plus
+n'est pas une preuve absolue : en cas de doute (demande d'argent, de mot
+de passe), vérifiez par un autre moyen.
 
 Quand l'expéditeur n'est pas dans vos contacts et que son nom ressemble à
 un site (« Banque.fr »), la liste des messages montre d'abord son adresse

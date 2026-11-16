@@ -38,6 +38,7 @@ use crate::mailbox::{
 };
 use crate::search::Query;
 use crate::security::{CertificateException, PlaintextPolicy};
+use crate::sender_auth::SenderAuth;
 use crate::settings::Settings;
 use crate::sync::{
     FlagUpdate, LocalMailbox, MailboxSyncState, SelectRequest, SelectedMailbox, ServerQuery,
@@ -1008,6 +1009,9 @@ pub struct ConversationMessage {
     pub uid: Uid,
     pub date: i64,
     pub from: Option<Correspondent>,
+    /// Authentification de l'expéditeur, telle qu'enregistrée à la
+    /// réception.
+    pub sender_auth: SenderAuth,
     pub to: Vec<Correspondent>,
     pub cc: Vec<Correspondent>,
     pub subject: String,

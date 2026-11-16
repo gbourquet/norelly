@@ -24,6 +24,7 @@
 //! - [`contact_lists`] : listes de diffusion (nom unique, expansion) ;
 //! - [`oauth`] : connexion OAuth (fournisseurs, PKCE, XOAUTH2) ;
 //! - [`sender`] : nom affiché d'un correspondant (carnet, en-tête) ;
+//! - [`sender_auth`] : authentification de l'expéditeur (`Authentication-Results`) ;
 //! - [`ports`] : traits implémentés par les adaptateurs.
 
 pub mod account;
@@ -51,6 +52,7 @@ pub mod reading;
 pub mod search;
 pub mod security;
 pub mod sender;
+pub mod sender_auth;
 pub mod settings;
 pub mod suggestions;
 pub mod sync;

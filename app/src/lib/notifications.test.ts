@@ -1,7 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { notificationText, type NewMailEvent } from "./notifications";
 
-const bob = { name: "Bob", address: "bob@example.com", contact: null, show_address: false };
+const bob = {
+  name: "Bob",
+  address: "bob@example.com",
+  contact: null,
+  show_address: false,
+  auth: "unknown" as const,
+  contact_badge: false,
+};
 
 function event(count: number, from: NewMailEvent["from"], subject: string | null): NewMailEvent {
   return { kind: "new_mail", account: 1, count, from, subject };
@@ -15,7 +22,18 @@ describe("texte des notifications", () => {
     });
     expect(
       notificationText(
-        event(1, { name: "", address: "x@y.z", contact: null, show_address: false }, ""),
+        event(
+          1,
+          {
+            name: "",
+            address: "x@y.z",
+            contact: null,
+            show_address: false,
+            auth: "unknown" as const,
+            contact_badge: false,
+          },
+          "",
+        ),
         "moi@example.com",
       ),
     ).toEqual({
@@ -30,6 +48,8 @@ describe("texte des notifications", () => {
       address: "pirate@exemple.net",
       contact: null,
       show_address: true,
+      auth: "unknown" as const,
+      contact_badge: false,
     };
     expect(notificationText(event(1, fake, "Alerte"), "moi@example.com").title).toBe(
       "pirate@exemple.net (Banque.fr)",

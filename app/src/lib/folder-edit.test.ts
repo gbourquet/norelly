@@ -133,6 +133,20 @@ describe("déplacer un dossier", () => {
     ]);
   });
 
+  it("écarte aussi les sous-dossiers écrits avec une autre casse", () => {
+    // Serveur insensible à la casse : « bli/Autre » est sous « Bli ».
+    const bli = folder(4, "Bli");
+    const mixed = [...tree, folder(9, "bli/Autre"), folder(10, "BLI")];
+    const ids = destinationChoices(mixed, bli, "Premier niveau").map((c) => c.id);
+    expect(ids).not.toContain(9);
+    expect(ids).not.toContain(10);
+    // Majuscule et minuscule de longueurs différentes, comme en Rust.
+    const upper = folder(11, "Ⱥ");
+    const lower = [...tree, upper, folder(12, "ⱥ/x")];
+    const choices = destinationChoices(lower, upper, "Premier niveau").map((c) => c.id);
+    expect(choices).not.toContain(12);
+  });
+
   it("part de l'emplacement actuel et n'envoie rien tant qu'il est inchangé", async () => {
     const api = fakeApi();
     const state = new MoveFolderState(api);

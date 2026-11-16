@@ -70,13 +70,19 @@ export function parentName(folder: FolderDto): string | null {
 }
 
 /** Vrai si `f` est `folder` ou l'un de ses sous-dossiers, d'après les noms
- * (un dossier spécial rangé dans `folder` n'est pas affiché à sa suite). */
+ * (un dossier spécial rangé dans `folder` n'est pas affiché à sa suite), à
+ * la casse près comme en Rust : certains serveurs ne la distinguent pas. */
 export function isSameOrUnder(f: FolderDto, folder: FolderDto): boolean {
   if (f.id === folder.id) return true;
-  if (f.depth <= folder.depth || !f.name.startsWith(folder.name)) return false;
-  // Séparateur du serveur : le caractère qui précède le dernier segment.
-  const delimiter = f.name.charAt(f.name.length - f.leaf.length - 1);
-  return f.name.charAt(folder.name.length) === delimiter;
+  const head = f.name.slice(0, folder.name.length);
+  if (head.toLowerCase() !== folder.name.toLowerCase()) return false;
+  if (f.name.length === folder.name.length) return true;
+  // Séparateur du serveur : le caractère qui précède le dernier segment,
+  // de `f` ou de `folder`.
+  const next = f.name.charAt(folder.name.length);
+  return [f, folder].some(
+    (g) => g.depth > 0 && g.name.charAt(g.name.length - g.leaf.length - 1) === next,
+  );
 }
 
 /** Dossier qui contient `folder` (`null` : premier niveau ; `undefined` :

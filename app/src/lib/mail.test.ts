@@ -19,7 +19,16 @@ function conversation(id: number, account = 1): ConversationDto {
     mailbox: 10,
     date: 1_700_000_000 - id,
     subject: `Sujet ${id}`,
-    senders: [{ name: "Alice", address: "alice@example.com", contact: null, show_address: false }],
+    senders: [
+      {
+        name: "Alice",
+        address: "alice@example.com",
+        contact: null,
+        show_address: false,
+        auth: "unknown",
+        contact_badge: false,
+      },
+    ],
     messages: 1,
     unread: 0,
     flagged: false,
@@ -581,8 +590,22 @@ describe("expéditeur visé par le menu d'une ligne", () => {
   it("dernier expéditeur de la conversation visée ; aucun si plusieurs sont cochées", async () => {
     const mail = new MailState(fakeApi(3), () => null);
     await mail.show(UNIFIED_INBOX);
-    const bob = { name: "Bob", address: "bob@example.com", contact: null, show_address: false };
-    const zoe = { name: "Zoé", address: "zoe@example.com", contact: 3, show_address: false };
+    const bob = {
+      name: "Bob",
+      address: "bob@example.com",
+      contact: null,
+      show_address: false,
+      auth: "unknown",
+      contact_badge: false,
+    };
+    const zoe = {
+      name: "Zoé",
+      address: "zoe@example.com",
+      contact: 3,
+      show_address: false,
+      auth: "unknown",
+      contact_badge: false,
+    };
     mail.conversations = [
       { ...conversation(1), senders: [bob, zoe] },
       { ...conversation(2), senders: [zoe] },

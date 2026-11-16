@@ -190,12 +190,16 @@ const bob: CorrespondentDto = {
   address: "bob@example.com",
   contact: null,
   show_address: false,
+  auth: "unknown",
+  contact_badge: false,
 };
 const alice: CorrespondentDto = {
   name: "Alice",
   address: "alice@example.com",
   contact: 4,
   show_address: false,
+  auth: "unknown",
+  contact_badge: false,
 };
 
 describe("personnes d'un message et carnet", () => {

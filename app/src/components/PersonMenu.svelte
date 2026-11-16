@@ -30,6 +30,9 @@
   const kind = $derived<PersonKind>(person.contact !== null ? "contact" : "stranger");
   const name = $derived(personName(person));
   const unverified = $derived(person.auth === "fail");
+  /** Explication de l'avertissement, lue par les lecteurs d'écran. */
+  const uid = $props.id();
+  const hintId = `${uid}-hint`;
   const label = $derived(
     person.contact_badge
       ? `${m.person_menu({ name })} (${m.person_in_contacts()})`
@@ -46,8 +49,9 @@
       class="person"
       class:strong
       type="button"
-      title={person.address}
+      title={unverified ? `${person.address} — ${m.person_unverified_hint()}` : person.address}
       aria-label={label}
+      aria-describedby={unverified ? hintId : undefined}
     >
       <span class="name">{name}</span>
       {#if person.contact_badge}
@@ -55,9 +59,10 @@
           <BookUserIcon size={12} aria-hidden="true" />
         </span>
       {:else if unverified}
-        <span class="unverified" title={m.person_unverified_hint()}>
+        <span class="unverified">
           <ShieldAlertIcon size={12} aria-hidden="true" />
           <span>{m.person_unverified()}</span>
+          <span id={hintId} class="visually-hidden">{m.person_unverified_hint()}</span>
         </span>
       {/if}
     </button>

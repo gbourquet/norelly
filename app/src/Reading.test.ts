@@ -648,6 +648,9 @@ describe("lecture", () => {
     });
     expect(within(unverified).queryByTitle("Dans vos contacts")).toBeNull();
     expect(within(unverified).getByText("Expéditeur non vérifié")).toBeVisible();
+    // Explication au survol de tout le nom, et pour les lecteurs d'écran.
+    expect(unverified).toHaveAttribute("title", expect.stringContaining("e2@example.com"));
+    expect(unverified).toHaveAccessibleDescription(/Méfiez-vous des liens/);
 
     // Sans verdict : ni pastille, ni avertissement.
     await fireEvent.click(within(list).getByText("Sujet 1"));

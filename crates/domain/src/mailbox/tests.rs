@@ -910,10 +910,12 @@ fn display_order_stays_fast_with_deep_hostile_names() {
             node(i, &raw, MailboxRole::Normal)
         })
         .collect();
+    // Chemin complet de la liste des dossiers : ordre (port de requête),
+    // puis placement.
     let started = std::time::Instant::now();
-    let order = folder_display_order(folders);
+    let tree = place_in_display_tree(folder_display_order(folders));
     let elapsed = started.elapsed();
-    assert_eq!(order.len(), MAX_MAILBOXES);
+    assert_eq!(tree.len(), MAX_MAILBOXES);
     assert!(
         elapsed < std::time::Duration::from_secs(2),
         "ordre trop lent : {elapsed:?}"
@@ -958,6 +960,129 @@ fn display_order_keeps_every_folder_once() {
     };
     after("Perso€Banque", "Perso");
     after("inbox/x", "INBOX");
+}
+
+fn display_tree(folders: Vec<FolderNode>) -> Vec<(String, usize, String)> {
+    place_in_display_tree(folder_display_order(folders))
+        .into_iter()
+        .map(|d| (d.folder.name.to_string(), d.indent, d.label))
+        .collect()
+}
+
+fn row(name: &str, depth: usize, label: &str) -> (String, usize, String) {
+    (name.to_owned(), depth, label.to_owned())
+}
+
+/// Le placement ne trie pas : il garde l'ordre reçu, même faux, sans
+/// perdre ni dupliquer de dossier.
+#[test]
+fn placing_keeps_every_folder_in_the_given_order() {
+    use MailboxRole::{Inbox, Normal, Trash};
+    let folders = vec![
+        node(1, "Projets/2026", Normal),
+        node(2, "INBOX", Inbox),
+        node(3, "Projets", Normal),
+        node(4, "Trash", Trash),
+        node(5, "/", Normal),
+        node(6, "//", Normal),
+    ];
+    let ids: Vec<i64> = place_in_display_tree(folders)
+        .iter()
+        .map(|d| d.folder.id.get())
+        .collect();
+    assert_eq!(ids, [1, 2, 3, 4, 5, 6]);
+}
+
+#[test]
+fn subfolders_are_indented_under_their_parent() {
+    use MailboxRole::{Inbox, Normal};
+    assert_eq!(
+        display_tree(vec![
+            node(1, "INBOX", Inbox),
+            node(2, "INBOX/Factures", Normal),
+            node(3, "INBOX/Factures/EDF", Normal),
+            node(4, "Projets", Normal),
+        ]),
+        [
+            row("INBOX", 0, "INBOX"),
+            row("INBOX/Factures", 1, "Factures"),
+            row("INBOX/Factures/EDF", 2, "EDF"),
+            row("Projets", 0, "Projets"),
+        ]
+    );
+}
+
+#[test]
+fn nested_special_folders_are_shown_at_the_first_level() {
+    use MailboxRole::{Inbox, Normal, Sent, Trash};
+    assert_eq!(
+        display_tree(vec![
+            node(1, "INBOX", Inbox),
+            node(2, "INBOX/Sent", Sent),
+            node(3, "INBOX/Sent/2025", Normal),
+            node(4, "[Gmail]", Normal),
+            node(5, "[Gmail]/Corbeille", Trash),
+            node(6, "[Gmail]/Important", Normal),
+        ]),
+        [
+            row("INBOX", 0, "INBOX"),
+            row("INBOX/Sent", 0, "Sent"),
+            row("INBOX/Sent/2025", 1, "2025"),
+            row("[Gmail]/Corbeille", 0, "Corbeille"),
+            row("[Gmail]", 0, "[Gmail]"),
+            row("[Gmail]/Important", 1, "Important"),
+        ]
+    );
+}
+
+#[test]
+fn orphan_folders_show_the_missing_path() {
+    use MailboxRole::{Inbox, Normal};
+    let mut dotted = node(5, "Perso.Voyages.Italie", Normal);
+    dotted.delimiter = Some('.');
+    let mut dotted_parent = node(6, "Perso", Normal);
+    dotted_parent.delimiter = Some('.');
+    assert_eq!(
+        display_tree(vec![
+            node(1, "INBOX", Inbox),
+            node(2, "INBOX/Perso/Banque", Normal),
+            node(3, "INBOX/Perso/Banque/2025", Normal),
+            node(4, "Zeta/x/y", Normal),
+            dotted,
+            dotted_parent,
+        ]),
+        [
+            row("INBOX", 0, "INBOX"),
+            row("INBOX/Perso/Banque", 1, "Perso/Banque"),
+            row("INBOX/Perso/Banque/2025", 2, "2025"),
+            row("Perso", 0, "Perso"),
+            row("Perso.Voyages.Italie", 1, "Voyages.Italie"),
+            row("Zeta/x/y", 0, "Zeta/x/y"),
+        ]
+    );
+}
+
+#[test]
+fn orphan_label_ignores_the_case_of_inbox() {
+    use MailboxRole::{Inbox, Normal};
+    let mut euro = node(3, "Perso€A€B", Normal);
+    euro.delimiter = Some('€');
+    let mut euro_parent = node(4, "Perso", Normal);
+    euro_parent.delimiter = Some('€');
+    assert_eq!(
+        display_tree(vec![
+            node(1, "INBOX", Inbox),
+            node(2, "inbox/a/b", Normal),
+            euro,
+            euro_parent,
+        ]),
+        [
+            row("INBOX", 0, "INBOX"),
+            row("inbox/a/b", 1, "a/b"),
+            row("Perso", 0, "Perso"),
+            row("Perso€A€B", 1, "A€B"),
+        ]
+    );
 }
 
 #[test]

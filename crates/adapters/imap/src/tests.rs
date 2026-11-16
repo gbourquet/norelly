@@ -1040,6 +1040,70 @@ async fn cancelled_idle_does_not_block_logout() -> TestResult {
     Ok(())
 }
 
+/// Sous-dossiers relus avant suppression : `LIST "" "<parent>/%"` en UTF-7
+/// modifié ; un nom illisible ou 8 bits compte, un nom sous le parent à la
+/// casse près (ASCII ou non, autre codage) compte, seul un voisin
+/// sûrement hors du parent, rapporté par un joker de son nom (« 50% »
+/// couvre « 50x »), ne compte pas.
+#[tokio::test]
+async fn subfolders_counted_under_the_parent_only() -> TestResult {
+    use norelly_domain::mailbox::MailboxName;
+
+    let f = fixture()?;
+    let cert = f.ca.issue(&["localhost"])?;
+    let script = authenticated(
+        Script::new()
+            .expect("LIST \"\" 50%/%")
+            .send(
+                "* LIST () \"/\" \"50%/a\"\r\n\
+                 * LIST (\\Noselect) \"/\" \"50%/&AGE-\"\r\n\
+                 * LIST () \"/\" \"50x/b\"\r\n\
+                 {tag} OK LIST termine\r\n",
+            )
+            .expect("LIST \"\" &AMk-t&AOk-/%")
+            .send(
+                "* LIST () \"/\" \"&AMk-t&AOk-/x\"\r\n\
+                 * LIST () \"/\" \"&AOk-t&AOk-/y\"\r\n\
+                 * LIST () \"/\" \"&AMk-&AHQ-&AOk-/w\"\r\n\
+                 * LIST () \"/\" {7}\r\n\u{c9}t\u{e9}/z\r\n\
+                 {tag} OK LIST termine\r\n",
+            )
+            .expect("LIST \"\" Projets/%")
+            .send("* LIST () \"/\" \"PROJETS/a\"\r\n{tag} OK LIST termine\r\n")
+            .expect("LOGOUT")
+            .send("* BYE au revoir\r\n{tag} OK termine\r\n")
+            .expect_eof(),
+    );
+    let server = ScriptedServer::start_tls(script, cert.server_config()?).await?;
+    let mut session = f
+        .connector
+        .connect(&request(
+            server.port(),
+            Security::Tls,
+            PlaintextPolicy::deny_all(),
+        ))
+        .await
+        .map_err(|e| format!("CONNECT : {e}"))?;
+    let count = session
+        .count_subfolders(&MailboxName::parse("50%")?, '/')
+        .await
+        .map_err(|e| format!("LIST : {e}"))?;
+    assert_eq!(count, 2, "nom illisible compté, voisin écarté");
+    let count = session
+        .count_subfolders(&MailboxName::parse("Été")?, '/')
+        .await
+        .map_err(|e| format!("LIST : {e}"))?;
+    assert_eq!(count, 4, "casse non ASCII, autre codage, nom 8 bits");
+    let count = session
+        .count_subfolders(&MailboxName::parse("Projets")?, '/')
+        .await
+        .map_err(|e| format!("LIST : {e}"))?;
+    assert_eq!(count, 1, "casse ASCII");
+    session.logout().await?;
+    server.finish().await.result?;
+    Ok(())
+}
+
 /// Réponses hostiles à LIST et EXAMINE : noms invalides ignorés, VANISHED
 /// démesuré borné, FETCH sans UID ignoré, codes lus.
 #[tokio::test]

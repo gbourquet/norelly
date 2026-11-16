@@ -633,9 +633,29 @@ where
         "{refused:?}"
     );
 
+    // --- Sous-dossiers relus avant suppression, noms refusés compris ---
+    if let Some(d) = delimiter {
+        let count = session.count_subfolders(&renamed, d).await.map_err(e)?;
+        assert_eq!(count, 1, "« Sous » compté sous {renamed_name}");
+        let hidden = format!("{renamed_name}{d}Caché\u{200B}");
+        control.create(&hidden).await?;
+        let listed = session.list_mailboxes().await.map_err(e)?;
+        assert!(
+            !listed.iter().any(|m| m.name.as_str().contains('\u{200B}')),
+            "nom refusé absent de LIST : {listed:?}"
+        );
+        let count = session.count_subfolders(&renamed, d).await.map_err(e)?;
+        assert_eq!(count, 2, "sous-dossier au nom refusé compté");
+        control.delete(&hidden).await?;
+    }
+
     // --- Suppression, dossier sélectionné ---
     if let Some(child) = &renamed_child {
         session.delete_mailbox(child).await.map_err(e)?;
+    }
+    if let Some(d) = delimiter {
+        let count = session.count_subfolders(&renamed, d).await.map_err(e)?;
+        assert_eq!(count, 0, "plus de sous-dossier sous {renamed_name}");
     }
     session.select_writable(&renamed).await.map_err(e)?;
     session.delete_mailbox(&renamed).await.map_err(e)?;

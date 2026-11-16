@@ -1087,6 +1087,11 @@ export type ErrorCodeDto =
 "folder_protected" | 
 /**  Dossier à vider de ses sous-dossiers avant de le supprimer. */
 "folder_has_subfolders" | 
+/**
+ *  Dossier qui contient un dossier spécial : ni renommable ni
+ *  déplaçable (le dossier spécial le suivrait).
+ */
+"folder_contains_special" | 
 /**  Dossier déplacé dans lui-même ou dans un de ses sous-dossiers. */
 "folder_into_itself" | 
 /**

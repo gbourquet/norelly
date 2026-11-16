@@ -109,6 +109,9 @@ pub enum ErrorCodeDto {
     FolderProtected,
     /// Dossier à vider de ses sous-dossiers avant de le supprimer.
     FolderHasSubfolders,
+    /// Dossier qui contient un dossier spécial : ni renommable ni
+    /// déplaçable (le dossier spécial le suivrait).
+    FolderContainsSpecial,
     /// Dossier déplacé dans lui-même ou dans un de ses sous-dossiers.
     FolderIntoItself,
     /// Renommage du dossier impossible : refus du serveur ou serveur

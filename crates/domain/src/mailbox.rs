@@ -300,6 +300,13 @@ impl MailboxName {
     /// `delimiter`) ; `None` s'il n'est pas concerné. Jamais `INBOX` : un
     /// séparateur hostile pourrait sinon faire passer une sous-boîte pour
     /// la boîte de réception (« Pbox » sous « P » renommé en « In »).
+    ///
+    /// Comparaison exacte, à la différence des contrôles avant
+    /// modification (casse ignorée) : ce nom réécrit la cible d'une action
+    /// en attente et le cache local, et sur un serveur sensible à la casse
+    /// une réécriture de trop enverrait l'action ou les messages d'un autre
+    /// dossier sous le nouveau nom ; un oubli fait seulement échouer
+    /// l'action au rejeu (dossier absent) ou retélécharger le dossier.
     #[must_use]
     pub fn relocated(&self, from: &Self, to: &Self, delimiter: Option<char>) -> Option<Self> {
         let moved = if self == from {
@@ -698,6 +705,8 @@ pub enum FolderChangeError {
     Protected,
     #[error("le dossier contient des sous-dossiers")]
     HasSubfolders,
+    #[error("le dossier contient un dossier spécial")]
+    ContainsSpecial,
     #[error("un dossier ne peut pas aller dans lui-même ni dans un de ses sous-dossiers")]
     IntoItself,
     #[error("dossier dont le nom serait interprété par certains serveurs")]
@@ -713,13 +722,14 @@ pub enum FolderChangeError {
 /// sans séparateur, nom libre à la casse près) ; seule la casse du dossier
 /// lui-même peut changer. La boîte de réception et les dossiers spéciaux
 /// (envoyés, brouillons, corbeille, indésirables, archives, dossiers
-/// virtuels) ne se renomment pas.
+/// virtuels) ne se renomment pas, ni un dossier qui en contient un, à
+/// quelque profondeur que ce soit : ses sous-dossiers le suivraient.
 pub fn renamed_folder_name(
     folder: &MailboxName,
     label: &str,
     existing: &[RemoteMailbox],
 ) -> Result<MailboxName, FolderChangeError> {
-    let mailbox = changeable(folder, existing)?;
+    let mailbox = relocatable(folder, existing)?;
     let label = folder_label(label)?;
     if let Some(d) = mailbox.delimiter
         && label.contains(d)
@@ -752,19 +762,27 @@ pub fn renamed_folder_name(
 /// dans un de ses sous-dossiers ; un dossier du même nom à l'arrivée, à la
 /// casse près, est refusé, comme un nom conservé qu'un serveur
 /// interpréterait (voir [`folder_label`], `ReservedName`) : il vient du
-/// serveur, qui a pu le recevoir d'un autre client. Déjà à cet endroit : son nom est renvoyé tel
-/// quel. Les dossiers protégés (voir [`renamed_folder_name`]) ne se
+/// serveur, qui a pu le recevoir d'un autre client. Déjà à cet endroit :
+/// son nom est renvoyé tel quel. Les dossiers protégés, et ceux qui
+/// contiennent un dossier spécial (voir [`renamed_folder_name`]), ne se
 /// déplacent pas.
+///
+/// « Sous-dossier » s'entend à la casse près, comme les doublons, et selon
+/// le séparateur du dossier comme celui du parent visé.
 pub fn moved_folder_name(
     folder: &MailboxName,
     parent: Option<&MailboxName>,
     existing: &[RemoteMailbox],
 ) -> Result<MailboxName, FolderChangeError> {
-    let mailbox = changeable(folder, existing)?;
-    if let Some(parent) = parent
-        && is_same_or_under(parent, folder, mailbox.delimiter)
-    {
-        return Err(FolderChangeError::IntoItself);
+    let mailbox = relocatable(folder, existing)?;
+    if let Some(parent) = parent {
+        let parent_delimiter = existing
+            .iter()
+            .find(|m| m.name == *parent)
+            .and_then(|m| m.delimiter);
+        if is_same_or_under(parent, folder, [mailbox.delimiter, parent_delimiter]) {
+            return Err(FolderChangeError::IntoItself);
+        }
     }
     let (prefix, delimiter) = destination(parent, existing)?;
     let leaf = folder.leaf(mailbox.delimiter);
@@ -787,14 +805,54 @@ pub fn moved_folder_name(
     Ok(moved)
 }
 
-/// Vrai si `name` est `folder` ou l'un de ses sous-dossiers.
-fn is_same_or_under(name: &MailboxName, folder: &MailboxName, delimiter: Option<char>) -> bool {
-    name == folder
-        || delimiter.is_some_and(|d| {
-            name.as_str()
-                .strip_prefix(folder.as_str())
-                .is_some_and(|rest| rest.starts_with(d))
-        })
+/// Vrai si `name` est `folder` ou l'un de ses sous-dossiers, à la casse
+/// près (certains serveurs ne la distinguent pas), selon l'un des
+/// séparateurs `delimiters`.
+fn is_same_or_under(
+    name: &MailboxName,
+    folder: &MailboxName,
+    delimiters: [Option<char>; 2],
+) -> bool {
+    match after_prefix(name, folder) {
+        Some(None) => true,
+        Some(Some(c)) => delimiters.into_iter().flatten().any(|d| d == c),
+        None => false,
+    }
+}
+
+/// Vrai si `name` est un sous-dossier de `folder` selon le séparateur
+/// `delimiter`, à quelque profondeur que ce soit et à la casse près ; un
+/// homonyme n'en est pas un. Sert à écarter, parmi les sous-dossiers
+/// relus sur le serveur, ceux qui ne sont sûrement pas sous `folder`.
+#[must_use]
+pub fn is_subfolder(name: &MailboxName, folder: &MailboxName, delimiter: char) -> bool {
+    is_under(name, folder, [Some(delimiter), None])
+}
+
+/// Vrai si `name` est un sous-dossier de `folder`, à quelque profondeur
+/// que ce soit (voir [`is_same_or_under`]) ; un homonyme à la casse près
+/// n'en est pas un.
+fn is_under(name: &MailboxName, folder: &MailboxName, delimiters: [Option<char>; 2]) -> bool {
+    after_prefix(name, folder)
+        .flatten()
+        .is_some_and(|c| delimiters.into_iter().flatten().any(|d| d == c))
+}
+
+/// Caractère de `name` qui suit `folder`, si `name` commence par `folder`
+/// (caractère par caractère, à la casse près) : `Some(None)` si les deux
+/// noms sont égaux, `None` si `name` ne commence pas par `folder`.
+///
+/// Limite : les pliages qui changent le nombre de caractères (« ß » et
+/// « SS ») ou dépendent du contexte (sigma final) ne sont pas reconnus.
+fn after_prefix(name: &MailboxName, folder: &MailboxName) -> Option<Option<char>> {
+    let mut rest = name.as_str().chars();
+    for f in folder.as_str().chars() {
+        let n = rest.next()?;
+        if n != f && !n.to_lowercase().eq(f.to_lowercase()) {
+            return None;
+        }
+    }
+    Some(rest.next())
 }
 
 /// Préfixe du nom complet d'un dossier rangé sous `parent` (ou au premier
@@ -828,22 +886,53 @@ fn destination(
 
 /// Vérifie que le dossier `folder` peut être supprimé : il existe, n'est
 /// ni la boîte de réception ni un dossier spécial, et n'a pas de
-/// sous-dossier (les serveurs traitent ce cas chacun à leur façon).
+/// sous-dossier, à la casse près (les serveurs traitent ce cas chacun à
+/// leur façon).
+///
+/// Renvoie le séparateur de hiérarchie du dossier : la liste du compte
+/// peut taire des sous-dossiers (nom illisible ou refusé, liste tronquée),
+/// ceux du serveur sont donc relus juste avant la suppression et passés à
+/// [`no_listed_subfolder`].
 pub fn deletable_folder(
     folder: &MailboxName,
     existing: &[RemoteMailbox],
-) -> Result<(), FolderChangeError> {
+) -> Result<Option<char>, FolderChangeError> {
     let mailbox = changeable(folder, existing)?;
-    if let Some(d) = mailbox.delimiter {
-        let prefix = format!("{}{d}", folder.as_str());
-        if existing
-            .iter()
-            .any(|m| m.name.as_str().starts_with(&prefix))
-        {
-            return Err(FolderChangeError::HasSubfolders);
-        }
+    if existing
+        .iter()
+        .any(|m| is_under(&m.name, folder, [mailbox.delimiter, m.delimiter]))
+    {
+        return Err(FolderChangeError::HasSubfolders);
+    }
+    Ok(mailbox.delimiter)
+}
+
+/// Refuse la suppression d'un dossier sous lequel le serveur liste
+/// `listed` boîtes, noms illisibles ou refusés compris : une seule suffit.
+pub fn no_listed_subfolder(listed: usize) -> Result<(), FolderChangeError> {
+    if listed > 0 {
+        return Err(FolderChangeError::HasSubfolders);
     }
     Ok(())
+}
+
+/// Boîte `folder` du compte, si elle peut être renommée ou déplacée :
+/// modifiable (voir [`changeable`]) et sans dossier spécial parmi ses
+/// sous-dossiers, quelle que soit leur profondeur. Seuls comptent les
+/// dossiers de la liste : un dossier que l'application ne connaît pas
+/// (nom refusé, liste tronquée) n'est pas non plus traité comme spécial
+/// par elle, le déplacer ne casse donc rien de son côté.
+fn relocatable<'a>(
+    folder: &MailboxName,
+    existing: &'a [RemoteMailbox],
+) -> Result<&'a RemoteMailbox, FolderChangeError> {
+    let mailbox = changeable(folder, existing)?;
+    if existing.iter().any(|m| {
+        m.role != MailboxRole::Normal && is_under(&m.name, folder, [mailbox.delimiter, m.delimiter])
+    }) {
+        return Err(FolderChangeError::ContainsSpecial);
+    }
+    Ok(mailbox)
 }
 
 /// Boîte `folder` du compte, si elle peut être renommée ou supprimée.

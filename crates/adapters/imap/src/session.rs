@@ -34,7 +34,7 @@ use norelly_domain::fetch_policy::{
 };
 use norelly_domain::mailbox::{
     Flags, ListedMailbox, MailboxName, MessageHeaders, MessageMeta, ModSeq, RawHeaders, Uid,
-    UidValidity,
+    UidValidity, is_subfolder,
 };
 use norelly_domain::ports::{FetchedBody, IdleOutcome, MAX_FETCH_BATCH};
 use norelly_domain::sender_auth::{AuthServTrust, received_fields};
@@ -453,6 +453,37 @@ impl Connection {
             }
         }
         Ok(out)
+    }
+
+    /// `LIST "" "<parent><délim>%"` : nombre de boîtes listées sous
+    /// `parent`. Un nom illisible ou refusé compte ; seule une réponse
+    /// sûrement hors de `parent` (joker `*` ou `%` dans son nom : « 50% »
+    /// couvre « 50x ») est écartée, d'après le nom décodé
+    /// ([`is_subfolder`], à la casse près) : dans le doute, la suppression
+    /// est refusée.
+    pub(crate) async fn count_children(
+        &mut self,
+        parent: &MailboxName,
+        delimiter: char,
+    ) -> Result<usize, ConnectionError> {
+        let prefix = utf7::encode(&format!("{parent}{delimiter}"));
+        let body = CommandBody::List {
+            reference: Mailbox::try_from("").map_err(|_| protocol("référence LIST"))?,
+            mailbox_wildcard: ListMailbox::try_from(format!("{prefix}%"))
+                .map_err(|_| protocol("motif LIST"))?,
+        };
+        let reply = self.execute_bulk(body).await?;
+        ensure_ok(&reply.status)?;
+        Ok(reply
+            .data
+            .iter()
+            .filter(|d| match d {
+                Data::List { mailbox, .. } => {
+                    mailbox_name(mailbox).is_none_or(|name| is_subfolder(&name, parent, delimiter))
+                }
+                _ => false,
+            })
+            .count())
     }
 
     pub(crate) async fn examine(

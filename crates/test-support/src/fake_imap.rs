@@ -621,17 +621,17 @@ impl RemoteMailboxSession for FakeImapSession {
     async fn list_mailboxes(&mut self) -> Result<Vec<ListedMailbox>, ConnectionError> {
         self.throttle().await;
         let s = self.step()?;
-        s.mailboxes
+        // Comme l'adaptateur réel : un nom refusé n'est pas listé.
+        Ok(s.mailboxes
             .iter()
-            .map(|(name, m)| {
-                Ok(ListedMailbox {
-                    name: MailboxName::parse(name)
-                        .map_err(|e| ConnectionError::Protocol(e.to_string()))?,
+            .filter_map(|(name, m)| {
+                Some(ListedMailbox {
+                    name: MailboxName::parse(name).ok()?,
                     delimiter: Some('/'),
                     attributes: m.attributes.clone(),
                 })
             })
-            .collect()
+            .collect())
     }
 
     async fn select(
@@ -890,6 +890,26 @@ impl RemoteMailboxSession for FakeImapSession {
         }
         self.server.changed.notify_waiters();
         Ok(())
+    }
+
+    async fn count_subfolders(
+        &mut self,
+        parent: &MailboxName,
+        delimiter: char,
+    ) -> Result<usize, ConnectionError> {
+        self.throttle().await;
+        let s = self.step()?;
+        // Comme `LIST "" "<parent><délim>%"` : un nom par niveau
+        // directement sous `parent`, noms refusés et niveaux intermédiaires
+        // compris.
+        let prefix = format!("{}{delimiter}", parent.as_str());
+        let children: BTreeSet<&str> = s
+            .mailboxes
+            .iter()
+            .filter_map(|(name, _)| name.strip_prefix(&prefix))
+            .filter_map(|rest| rest.split(delimiter).next())
+            .collect();
+        Ok(children.len())
     }
 
     async fn delete_mailbox(&mut self, mailbox: &MailboxName) -> Result<(), ConnectionError> {

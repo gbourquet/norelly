@@ -258,6 +258,7 @@
   "err_folder_create_failed": "Le dossier n'a pas pu être créé sur le serveur.",
   "err_folder_protected": "La boîte de réception et les dossiers spéciaux (envoyés, brouillons, corbeille…) ne peuvent être ni renommés, ni déplacés, ni supprimés.",
   "err_folder_has_subfolders": "Ce dossier contient des sous-dossiers : supprimez-les d'abord.",
+  "err_folder_contains_special": "Ce dossier contient un dossier spécial (envoyés, brouillons, corbeille…) : il ne peut être ni renommé ni déplacé.",
   "err_folder_into_itself": "Un dossier ne peut pas être rangé dans lui-même ni dans un de ses sous-dossiers.",
   "err_folder_reserved_name": "Certains serveurs interpréteraient le nom de ce dossier (il commence par « ~ » ou « # », vaut « . » ou « .. », ou finit par « } ») : renommez-le d'abord, puis déplacez-le.",
   "err_folder_rename_failed": "Le dossier n'a pas pu être renommé sur le serveur.",

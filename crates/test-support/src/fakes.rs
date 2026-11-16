@@ -256,6 +256,13 @@ impl RemoteMailboxSession for FakeSession {
     ) -> impl Future<Output = Result<(), ConnectionError>> + Send {
         self.inner.rename_mailbox(from, to)
     }
+    fn count_subfolders(
+        &mut self,
+        parent: &MailboxName,
+        delimiter: char,
+    ) -> impl Future<Output = Result<usize, ConnectionError>> + Send {
+        self.inner.count_subfolders(parent, delimiter)
+    }
     fn delete_mailbox(
         &mut self,
         mailbox: &MailboxName,

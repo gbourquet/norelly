@@ -617,10 +617,19 @@ fn special_folders_cannot_be_renamed_or_deleted() {
 #[test]
 fn folder_without_subfolders_can_be_deleted() {
     let existing = plain_account();
-    assert_eq!(deletable_folder(&name("Projets/2026"), &existing), Ok(()));
+    assert_eq!(
+        deletable_folder(&name("Projets/2026"), &existing),
+        Ok(Some('/'))
+    );
     let mut hidden = remote("Vieux", Some('/'));
     hidden.selectable = false;
-    assert_eq!(deletable_folder(&hidden.name.clone(), &[hidden]), Ok(()));
+    assert_eq!(
+        deletable_folder(&hidden.name.clone(), &[hidden]),
+        Ok(Some('/'))
+    );
+    // Serveur sans hiérarchie : aucun sous-dossier à relire.
+    let flat = remote("Vieux", None);
+    assert_eq!(deletable_folder(&flat.name.clone(), &[flat]), Ok(None));
 }
 
 #[test]
@@ -630,12 +639,58 @@ fn folder_with_subfolders_cannot_be_deleted() {
         deletable_folder(&name("Projets"), &existing),
         Err(FolderChangeError::HasSubfolders)
     );
+    // À la casse près, comme au déplacement ; un homonyme n'en est pas un.
+    let existing = vec![
+        remote("Projets", Some('/')),
+        remote("PROJETS", Some('/')),
+        remote("projets/2026", Some('/')),
+    ];
+    assert_eq!(
+        deletable_folder(&name("Projets"), &existing),
+        Err(FolderChangeError::HasSubfolders)
+    );
+    assert_eq!(
+        deletable_folder(&name("PROJETS"), &existing[..2]),
+        Ok(Some('/'))
+    );
     // Un nom qui commence pareil n'est pas un sous-dossier.
     let existing = vec![
         remote("Projets", Some('/')),
         remote("Projets 2026", Some('/')),
     ];
-    assert_eq!(deletable_folder(&name("Projets"), &existing), Ok(()));
+    assert_eq!(deletable_folder(&name("Projets"), &existing), Ok(Some('/')));
+}
+
+#[test]
+fn subfolder_whatever_the_case() {
+    for (child, parent) in [
+        ("Projets/a", "Projets"),
+        ("PROJETS/a/b", "Projets"),
+        ("été/x", "Été"),
+    ] {
+        assert!(is_subfolder(&name(child), &name(parent), '/'), "{child}");
+    }
+    for (other, parent) in [
+        ("Projets", "Projets"),
+        ("50x/b", "50%"),
+        ("Projets.a", "Projets"),
+    ] {
+        assert!(!is_subfolder(&name(other), &name(parent), '/'), "{other}");
+    }
+}
+
+#[test]
+fn folder_with_a_subfolder_listed_by_the_server_cannot_be_deleted() {
+    // Sous-dossiers relus juste avant la suppression, noms illisibles ou
+    // absents de la liste du compte compris.
+    assert_eq!(no_listed_subfolder(0), Ok(()));
+    for listed in [1, 2, MAX_MAILBOXES + 1] {
+        assert_eq!(
+            no_listed_subfolder(listed),
+            Err(FolderChangeError::HasSubfolders),
+            "{listed}"
+        );
+    }
 }
 
 #[test]
@@ -716,6 +771,103 @@ fn moved_folder_cannot_go_into_itself() {
     assert_eq!(
         moved_folder_name(&name("Projets"), Some(&name("Projets 2026")), &existing),
         Ok(name("Projets 2026/Projets"))
+    );
+}
+
+#[test]
+fn moved_folder_cannot_go_into_itself_whatever_the_case() {
+    // Serveur insensible à la casse : « projets/2026 » est sous « Projets ».
+    let existing = vec![
+        remote("INBOX", Some('/')),
+        remote("Projets", Some('/')),
+        remote("projets", Some('/')),
+        remote("projets/2026", Some('/')),
+        remote("INBOX/Projets", Some('/')),
+        remote("inbox/projets/Mars", Some('/')),
+        remote("Ⱥ", Some('/')),
+        remote("ⱥ/x", Some('/')),
+    ];
+    for (folder, parent) in [
+        ("Projets", "projets"),
+        ("Projets", "projets/2026"),
+        ("INBOX/Projets", "inbox/projets/Mars"),
+        // Majuscule et minuscule de longueurs différentes en UTF-8.
+        ("Ⱥ", "ⱥ/x"),
+    ] {
+        assert_eq!(
+            moved_folder_name(&name(folder), Some(&name(parent)), &existing),
+            Err(FolderChangeError::IntoItself),
+            "{folder} -> {parent}"
+        );
+    }
+}
+
+#[test]
+fn moved_folder_cannot_go_into_itself_with_the_parent_delimiter() {
+    // Séparateur annoncé différemment pour le dossier et pour le parent.
+    let existing = vec![
+        remote("INBOX", Some('.')),
+        remote("Projets", None),
+        remote("Projets.2026", Some('.')),
+        remote("Projets 2026", Some('.')),
+    ];
+    assert_eq!(
+        moved_folder_name(&name("Projets"), Some(&name("Projets.2026")), &existing),
+        Err(FolderChangeError::IntoItself)
+    );
+    assert_eq!(
+        moved_folder_name(&name("Projets"), Some(&name("Projets 2026")), &existing),
+        Ok(name("Projets 2026.Projets"))
+    );
+}
+
+#[test]
+fn folder_holding_a_special_folder_cannot_be_renamed_or_moved() {
+    let existing = vec![
+        remote("INBOX", Some('/')),
+        remote("Perso", Some('/')),
+        remote("Perso/Notes", Some('/')),
+        special("Perso/Envoyés", MailboxRole::Sent),
+        RemoteMailbox {
+            selectable: false,
+            ..remote("[Gmail]", Some('/'))
+        },
+        special("[Gmail]/Corbeille", MailboxRole::Trash),
+        remote("Classeur", Some('/')),
+        special("classeur/Profond/Archives", MailboxRole::Archive),
+        remote("Bla", Some('/')),
+    ];
+    for folder in ["Perso", "[Gmail]", "Classeur"] {
+        assert_eq!(
+            renamed_folder_name(&name(folder), "Autre", &existing),
+            Err(FolderChangeError::ContainsSpecial),
+            "{folder}"
+        );
+        assert_eq!(
+            moved_folder_name(&name(folder), Some(&name("Bla")), &existing),
+            Err(FolderChangeError::ContainsSpecial),
+            "{folder}"
+        );
+    }
+    // Un dossier spécial de même nom à la casse près n'est pas un
+    // sous-dossier (serveur sensible à la casse).
+    let siblings = vec![
+        remote("INBOX", Some('/')),
+        remote("Notes", Some('/')),
+        special("NOTES", MailboxRole::Archive),
+    ];
+    assert_eq!(
+        renamed_folder_name(&name("Notes"), "Idées", &siblings),
+        Ok(name("Idées"))
+    );
+    // Le sous-dossier ordinaire et le dossier voisin restent libres.
+    assert_eq!(
+        renamed_folder_name(&name("Perso/Notes"), "Idées", &existing),
+        Ok(name("Perso/Idées"))
+    );
+    assert_eq!(
+        moved_folder_name(&name("Bla"), Some(&name("Perso")), &existing),
+        Ok(name("Perso/Bla"))
     );
 }
 

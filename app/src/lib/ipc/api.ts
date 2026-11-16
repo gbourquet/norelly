@@ -294,9 +294,10 @@ export const api = {
   setArchiveFolder: (account: number, mailbox: number | null): Promise<void> =>
     unwrap(commands.setArchiveFolder(account, mailbox)).then(() => undefined),
 
-  /** Crée un dossier (sous `parent`, ou au premier niveau). */
-  createFolder: (account: number, name: string, parent: number | null): Promise<void> =>
-    unwrap(commands.createFolder(account, name, parent)).then(() => undefined),
+  /** Crée un dossier (sous `parent`, ou au premier niveau) ; renvoie son
+   * identifiant local (`null` si la liste n'est pas encore relue). */
+  createFolder: (account: number, name: string, parent: number | null): Promise<number | null> =>
+    unwrap(commands.createFolder(account, name, parent)),
 
   /** Renomme un dossier, à la même place ; renvoie son identifiant sous
    * son nouveau nom (`null` si la liste n'est pas encore relue). */

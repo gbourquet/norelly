@@ -115,6 +115,7 @@ la section **Listes** (ou celle dont le menu est ouvert par un clic droit).
 |---|---|
 | Ajouter un compte… | palette |
 | Nouveau dossier… | palette |
+| Nouveau sous-dossier… | palette |
 | Renommer le dossier… | palette |
 | Déplacer le dossier… | palette |
 | Supprimer le dossier… | palette |

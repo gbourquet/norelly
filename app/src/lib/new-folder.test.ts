@@ -1,7 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 import type { FolderDto } from "./ipc/api";
 import { IpcFailure } from "./errors";
-import { NewFolderState, parentChoices, type NewFolderApi } from "./new-folder.svelte";
+import {
+  canHoldFolders,
+  NewFolderState,
+  parentChoices,
+  type NewFolderApi,
+} from "./new-folder.svelte";
 
 function folder(
   id: number,
@@ -70,6 +75,14 @@ describe("emplacements d'un nouveau dossier", () => {
     ];
     expect(parentChoices(folders, "Premier niveau").map((c) => c.id)).toEqual([null]);
   });
+
+  it("un dossier virtuel ne peut pas contenir de dossier, les autres si", () => {
+    expect(canHoldFolders(folder(1, "[Gmail]/Tous", 1, "all"))).toBe(false);
+    expect(canHoldFolders(folder(2, "[Gmail]/Suivis", 1, "flagged"))).toBe(false);
+    expect(canHoldFolders(folder(3, "INBOX", 0, "inbox"))).toBe(true);
+    expect(canHoldFolders(folder(4, "Trash", 0, "trash"))).toBe(true);
+    expect(canHoldFolders(folder(5, "Projets", 0))).toBe(true);
+  });
 });
 
 describe("nouveau dossier", () => {
@@ -77,6 +90,7 @@ describe("nouveau dossier", () => {
     const api: NewFolderApi = {
       createFolder: vi.fn(async () => {
         if (fail) throw fail;
+        return 15;
       }),
     };
     return api;
@@ -89,7 +103,7 @@ describe("nouveau dossier", () => {
     state.name = "  Factures ";
     state.parent = 2;
     expect(state.canSubmit).toBe(true);
-    expect(await state.submit(7)).toBe("Factures");
+    expect(await state.submit(7)).toEqual({ id: 15, name: "Factures" });
     expect(api.createFolder).toHaveBeenCalledWith(7, "  Factures ", 2);
     expect(state.error).toBeNull();
     expect(state.busy).toBe(false);
@@ -120,5 +134,12 @@ describe("nouveau dossier", () => {
     state.error = "erreur";
     state.reset();
     expect([state.name, state.parent, state.error]).toEqual(["", null, null]);
+  });
+
+  it("part d'un emplacement et d'un nom proposés", () => {
+    const state = new NewFolderState(fakeApi());
+    state.error = "erreur";
+    state.reset({ parent: 3, name: "Factures" });
+    expect([state.name, state.parent, state.error]).toEqual(["Factures", 3, null]);
   });
 });

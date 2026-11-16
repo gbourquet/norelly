@@ -747,6 +747,76 @@ async fn only_drafts_folder_messages_can_be_resumed() {
 }
 
 #[tokio::test]
+async fn created_or_moved_folder_id_is_looked_up_in_its_own_account_only() {
+    use crate::folders::local_id;
+    use crate::reading::list_folders;
+    use norelly_domain::mailbox::{MailboxName, MailboxRole, RemoteMailbox};
+    use norelly_domain::ports::{AccountRepository, MailStore};
+
+    let t = test_app().await;
+    let account = t.account;
+    let inbox = list_folders(t.state(), id32(account.get()))
+        .await
+        .unwrap_or_else(fail)
+        .into_iter()
+        .find(|f| f.name == "INBOX")
+        .map(|f| f.id)
+        .unwrap_or_else(|| panic!("boîte de réception"));
+    let factures = MailboxName::parse("Factures").unwrap_or_else(|e| panic!("{e}"));
+    // « Factures » n'existe que dans le compte de Bob.
+    let other = t
+        .state()
+        .accounts
+        .insert(&norelly_test_support::contracts::sample_account(
+            "bob@example.com",
+            false,
+        ))
+        .await
+        .unwrap_or_else(|e| panic!("{e}"))
+        .id();
+    let bob = t
+        .state()
+        .mail
+        .store
+        .replace_mailboxes(
+            other,
+            &[RemoteMailbox {
+                name: factures.clone(),
+                delimiter: Some('/'),
+                role: MailboxRole::Normal,
+                selectable: true,
+            }],
+        )
+        .await
+        .unwrap_or_else(|e| panic!("{e}"));
+    let bob_factures = bob
+        .first()
+        .map(|m| id32(m.id.get()))
+        .unwrap_or_else(|| panic!("dossier de bob"));
+
+    // Dossier du compte : son identifiant local.
+    assert_eq!(
+        local_id(&t.state(), account, &MailboxName::inbox())
+            .await
+            .unwrap_or_else(fail),
+        Some(inbox)
+    );
+    // Même nom dans un autre compte : jamais renvoyé.
+    assert_eq!(
+        local_id(&t.state(), account, &factures)
+            .await
+            .unwrap_or_else(fail),
+        None
+    );
+    assert_eq!(
+        local_id(&t.state(), other, &factures)
+            .await
+            .unwrap_or_else(fail),
+        Some(bob_factures)
+    );
+}
+
+#[tokio::test]
 async fn folder_creation_revalidates_its_inputs() {
     use crate::folders::create_folder;
     use norelly_domain::ports::{AccountRepository, MailStore};

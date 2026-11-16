@@ -114,6 +114,7 @@ section (or to the list whose menu is open with a right-click).
 |---|---|
 | Add an account… | palette |
 | New folder… | palette |
+| New subfolder… | palette |
 | Rename folder… | palette |
 | Move folder… | palette |
 | Delete folder… | palette |

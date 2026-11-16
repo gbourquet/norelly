@@ -57,6 +57,13 @@ export interface Notice {
   undoable: boolean;
 }
 
+/** Conversations visées et portée de la liste, relevées au moment d'un
+ * choix pour une action faite plus tard (après une création de dossier). */
+export interface FrozenTargets {
+  targets: ConversationDto[];
+  scope: ScopeDto;
+}
+
 /** Actions qui retirent la conversation de la portée affichée. */
 function removesFromScope(action: ActionDto): boolean {
   return action.kind === "move" || action.kind === "delete" || action.kind === "archive";
@@ -382,6 +389,23 @@ export class MailState {
     return one === null ? [] : [one];
   }
 
+  /** Conversations visées et portée, relevées pour une action différée. */
+  captureTargets(): FrozenTargets {
+    return { targets: this.targets(), scope: this.#targetScope() };
+  }
+
+  /** Applique une action aux conversations relevées par `captureTargets`,
+   * quelles que soient la sélection et les cases cochées depuis. */
+  async actOn(frozen: FrozenTargets, action: ActionDto, done: string): Promise<void> {
+    await this.#perform(action, done, frozen.targets, frozen.scope, true);
+  }
+
+  /** Portée des conversations visées : celle de la conversation ouverte
+   * (résultat de recherche), sinon la liste affichée. */
+  #targetScope(): ScopeDto {
+    return this.marked.length === 0 ? (this.#openedScope ?? this.scope) : this.scope;
+  }
+
   /**
    * Applique une action aux conversations visées, ou aux conversations
    * `ids` de la liste affichée (glisser-déposer) ; avec `from`, les
@@ -396,26 +420,35 @@ export class MailState {
     ids?: number[],
     from?: { account: number; scope: ScopeDto },
   ): Promise<void> {
-    let targets: Pick<ConversationDto, "id" | "account">[];
-    if (ids === undefined) targets = this.targets();
-    else if (from === undefined) targets = this.conversations.filter((c) => ids.includes(c.id));
-    else targets = ids.map((id) => ({ id, account: from.account }));
+    if (ids === undefined) {
+      await this.#perform(action, done, this.targets(), this.#targetScope(), true);
+    } else if (from === undefined) {
+      const targets = this.conversations.filter((c) => ids.includes(c.id));
+      await this.#perform(action, done, targets, this.scope, true);
+    } else {
+      const targets = ids.map((id) => ({ id, account: from.account }));
+      // Les cochées ne sont pas visées par un glisser venu d'ailleurs.
+      await this.#perform(action, done, targets, from.scope, false);
+    }
+  }
+
+  async #perform(
+    action: ActionDto,
+    done: string,
+    targets: Pick<ConversationDto, "id" | "account">[],
+    scope: ScopeDto,
+    clearMarks: boolean,
+  ): Promise<void> {
     if (targets.length === 0) return;
     if (targets.some((t) => t.id === this.opened?.id)) this.#cancelAutoSeen();
     await this.#autoSeenInFlight;
     try {
-      const scope =
-        from?.scope ??
-        (ids === undefined && this.marked.length === 0
-          ? (this.#openedScope ?? this.scope)
-          : this.scope);
       const result = await this.#api.performAction(
         targets.map((c) => c.id),
         scope,
         action,
       );
-      // Les cochées ne sont pas visées par un glisser venu d'ailleurs.
-      if (from === undefined) this.marked = [];
+      if (clearMarks) this.marked = [];
       if (result.ops.length === 0) {
         this.notice = { text: m.action_nothing(), undoable: false };
       } else {

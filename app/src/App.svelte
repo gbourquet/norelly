@@ -161,10 +161,15 @@
   );
 
   const newFolder = new NewFolderState(api);
+  const newFolderAccount = $derived(app.dialog === "new-folder" ? app.newFolderAccountId() : null);
 
-  // Formulaire vide à chaque ouverture.
+  // Formulaire vide (ou prérempli : sous-dossier, nom cherché dans
+  // « Déplacer vers… ») à chaque ouverture.
   $effect(() => {
-    if (app.dialog === "new-folder") newFolder.reset();
+    if (app.dialog === "new-folder") {
+      const preset = app.newFolderPreset;
+      untrack(() => newFolder.reset(preset));
+    }
   });
 
   const renameFolder = new RenameFolderState(api);
@@ -570,6 +575,17 @@
   title={m.picker_move_title()}
   folders={moveFolders}
   onClose={() => app.close()}
+  onCreate={(name) => {
+    // Le dossier est créé dans le compte des conversations à déplacer.
+    if (moveAccount() === null) {
+      app.close();
+      mail.notice = { text: m.action_one_account(), undoable: false };
+      return;
+    }
+    // Conversations visées relevées maintenant : une liste relue pendant
+    // la création ne change pas ce qui sera déplacé.
+    app.openNewFolder({ name }, mail.captureTargets());
+  }}
   onChoose={(folder) => {
     app.close();
     void mail.act(
@@ -599,16 +615,12 @@
 />
 <NewFolderDialog
   open={app.dialog === "new-folder"}
-  account={app.selectedAccount}
-  folders={archiveFolders}
+  account={newFolderAccount === null ? null : app.accountById(newFolderAccount)}
+  folders={newFolderAccount === null ? [] : (mail.folders[newFolderAccount] ?? [])}
   form={newFolder}
+  moving={app.moveAfterCreate !== null}
   onClose={() => app.close()}
-  onCreated={(name) => {
-    app.close();
-    mail.notice = { text: m.action_folder_created({ folder: name }), undoable: false };
-    const account = app.selectedAccountId;
-    if (account !== null) void mail.loadFolders(account);
-  }}
+  onCreated={(created) => void app.folderCreated(created)}
 />
 <RenameFolderDialog
   open={app.dialog === "rename-folder"}

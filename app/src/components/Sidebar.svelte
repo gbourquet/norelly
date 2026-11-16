@@ -23,18 +23,15 @@
   import OutboxIcon from "@lucide/svelte/icons/send-horizontal";
   import EllipsisIcon from "@lucide/svelte/icons/ellipsis";
   import FolderPlusIcon from "@lucide/svelte/icons/folder-plus";
-  import PencilIcon from "@lucide/svelte/icons/pencil";
-  import FolderXIcon from "@lucide/svelte/icons/folder-x";
-  import FolderInputIcon from "@lucide/svelte/icons/folder-input";
   import ContactIcon from "@lucide/svelte/icons/book-user";
-  import { isEditableFolder } from "../lib/folder-edit.svelte";
   import { folderPayload, type DragMove } from "../lib/drag-move.svelte";
   import type { AccountDto, FolderDto, ScopeDto } from "../lib/ipc/api";
   import type { CommandRegistry } from "../lib/commands/registry";
   import { RegistryWatch } from "../lib/commands/watch.svelte";
   import { describeCommand } from "../lib/commands/describe";
-  import type { VisibleAction } from "../lib/visible-actions";
+  import { folderMenuActions, type VisibleAction } from "../lib/visible-actions";
   import CommandMenu from "./CommandMenu.svelte";
+  import CommandContextMenu from "./CommandContextMenu.svelte";
 
   interface Props {
     accounts: AccountDto[];
@@ -86,11 +83,13 @@
   }: Props = $props();
 
   /** Bouton de la souris enfoncé (ou doigt posé) sur un dossier : début
-   * possible d'un glisser (dossiers ordinaires seulement). */
+   * possible d'un glisser (dossiers ordinaires seulement). Au doigt, l'appui
+   * long ouvre aussi le menu du dossier, qui l'emporte si le doigt ne bouge
+   * pas. */
   function press(e: PointerEvent, account: number, folder: FolderDto): void {
     if (drag === undefined || e.button !== 0) return;
     const payload = folderPayload(account, folder);
-    if (payload !== null) drag.grab(payload, e);
+    if (payload !== null) drag.grab(payload, e, folderMenuActions(folder).length > 0);
   }
 
   function dragged(folder: FolderDto): boolean {
@@ -125,13 +124,6 @@
     { command: "account.new-folder", icon: FolderPlusIcon, section: 1 },
     { command: "account.archive-folder", icon: ArchiveIcon, section: 1 },
     { command: "account.remove", icon: TrashIcon, label: m.sidebar_remove, section: 2 },
-  ];
-
-  /** Menu d'un dossier ordinaire. */
-  const folderActions: VisibleAction[] = [
-    { command: "folder.rename", icon: PencilIcon, section: 0 },
-    { command: "folder.move", icon: FolderInputIcon, section: 0 },
-    { command: "folder.delete", icon: FolderXIcon, section: 1 },
   ];
 
   const ICONS = {
@@ -311,55 +303,71 @@
             {#each folders[account.id] ?? [] as f (f.id)}
               {@const Icon = icon(f.role)}
               {@const current = !contactsActive && scope.kind === "mailbox" && scope.id === f.id}
-              <li
-                class:selected={current}
-                class:editable={isEditableFolder(f)}
-                class:drop-over={drag?.over === f.id}
-                class:dragged={dragged(f)}
+              {@const menu = folderMenuActions(f)}
+              {@const menuLabel = m.sidebar_folder_menu({ folder: folderLabel(f) })}
+              {@const menuContext = menu.length > 0 ? onFolder(account.id, f, false) : context}
+              <!-- Clic droit sur le dossier : mêmes entrées que son « ⋯ ». -->
+              <CommandContextMenu
+                actions={menu}
+                {registry}
+                context={menuContext}
+                label={menuLabel}
+                run={(id) => void registry.execute(id, onFolder(account.id, f, true))}
+                onOpenChange={(open) => open && drag?.contextMenu()}
               >
-                <button
-                  class="folder"
-                  type="button"
-                  data-drop-folder={f.id}
-                  data-drop-account={account.id}
-                  disabled={!f.selectable}
-                  aria-current={current ? "true" : undefined}
-                  title={serverNameTitle(f)}
-                  style:padding-left="calc(var(--space-2) + {Math.min(f.indent, 6) * 12}px)"
-                  onpointerdown={(e) => press(e, account.id, f)}
-                  onclick={() => {
-                    // Clic qui termine un glisser : le dossier n'est pas affiché.
-                    if (drag?.suppressClick()) return;
-                    onScope({ kind: "mailbox", id: f.id }, account.id);
-                  }}
-                >
-                  <Icon size={16} aria-hidden="true" />
-                  <span class="label">{folderLabel(f)}</span>
-                  {#if f.unread > 0}<span class="unread">{f.unread}</span>{/if}
-                </button>
-                {#if isEditableFolder(f)}
-                  <CommandMenu
-                    actions={folderActions}
-                    {registry}
-                    context={onFolder(account.id, f, false)}
-                    label={m.sidebar_folder_menu({ folder: folderLabel(f) })}
-                    run={(id) => void registry.execute(id, onFolder(account.id, f, true))}
-                    align="start"
+                {#snippet children({ props })}
+                  <li
+                    {...props}
+                    class:selected={current}
+                    class:has-menu={menu.length > 0}
+                    class:drop-over={drag?.over === f.id}
+                    class:dragged={dragged(f)}
                   >
-                    {#snippet trigger({ props })}
-                      <button
-                        {...props}
-                        class="btn btn-ghost icon folder-menu"
-                        type="button"
-                        title={m.sidebar_folder_menu({ folder: folderLabel(f) })}
-                        aria-label={m.sidebar_folder_menu({ folder: folderLabel(f) })}
+                    <button
+                      class="folder"
+                      type="button"
+                      data-drop-folder={f.id}
+                      data-drop-account={account.id}
+                      disabled={!f.selectable}
+                      aria-current={current ? "true" : undefined}
+                      title={serverNameTitle(f)}
+                      style:padding-left="calc(var(--space-2) + {Math.min(f.indent, 6) * 12}px)"
+                      onpointerdown={(e) => press(e, account.id, f)}
+                      onclick={() => {
+                        // Clic qui termine un glisser : le dossier n'est pas affiché.
+                        if (drag?.suppressClick()) return;
+                        onScope({ kind: "mailbox", id: f.id }, account.id);
+                      }}
+                    >
+                      <Icon size={16} aria-hidden="true" />
+                      <span class="label">{folderLabel(f)}</span>
+                      {#if f.unread > 0}<span class="unread">{f.unread}</span>{/if}
+                    </button>
+                    {#if menu.length > 0}
+                      <CommandMenu
+                        actions={menu}
+                        {registry}
+                        context={menuContext}
+                        label={menuLabel}
+                        run={(id) => void registry.execute(id, onFolder(account.id, f, true))}
+                        align="start"
                       >
-                        <EllipsisIcon size={16} aria-hidden="true" />
-                      </button>
-                    {/snippet}
-                  </CommandMenu>
-                {/if}
-              </li>
+                        {#snippet trigger({ props })}
+                          <button
+                            {...props}
+                            class="btn btn-ghost icon folder-menu"
+                            type="button"
+                            title={menuLabel}
+                            aria-label={menuLabel}
+                          >
+                            <EllipsisIcon size={16} aria-hidden="true" />
+                          </button>
+                        {/snippet}
+                      </CommandMenu>
+                    {/if}
+                  </li>
+                {/snippet}
+              </CommandContextMenu>
             {/each}
           </ul>
         </li>
@@ -550,8 +558,8 @@
     border-radius: var(--radius);
   }
 
-  /* Dossier ordinaire : son menu « ⋯ » à droite du nom. */
-  .folders li.editable {
+  /* Dossier avec un menu : son « ⋯ » à droite du nom. */
+  .folders li.has-menu {
     display: flex;
     align-items: center;
   }
@@ -605,9 +613,12 @@
     cursor: pointer;
   }
 
+  /* Dossier non sélectionnable : le clic droit atteint sa ligne (un
+   * bouton désactivé ne reçoit aucun événement de la souris). */
   .folder:disabled {
     color: var(--color-text-muted);
     cursor: default;
+    pointer-events: none;
   }
 
   .label {

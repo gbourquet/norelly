@@ -130,7 +130,7 @@ vi.mock("./lib/ipc/api", () => ({
     retrySend: vi.fn(),
     cancelSend: vi.fn(),
     searchMessages: vi.fn(async () => ({ items: [], next: null })),
-    createFolder: vi.fn(async () => undefined),
+    createFolder: vi.fn(async () => 16),
     renameFolder: vi.fn(async () => 13),
     moveFolder: vi.fn(async () => 14),
     deleteFolder: vi.fn(async () => undefined),
@@ -389,14 +389,105 @@ describe("App", () => {
     vi.mocked(api.listFolders).mockResolvedValue([]);
   });
 
+  it("clic droit sur un dossier : même menu que « ⋯ »", async () => {
+    bobWithProjets();
+    render(App);
+    const projets = must((await screen.findByText("Projets")).closest("li"));
+    await fireEvent.contextMenu(projets);
+    const menu = await screen.findByRole("menu", { name: "Actions du dossier Projets" });
+    expect(
+      within(menu)
+        .getAllByRole("menuitem")
+        .map((i) => i.textContent?.trim()),
+    ).toEqual([
+      "Nouveau sous-dossier…",
+      "Renommer le dossier…",
+      "Déplacer le dossier…",
+      "Supprimer le dossier…",
+    ]);
+    await fireEvent.click(within(menu).getByRole("menuitem", { name: "Renommer le dossier…" }));
+    const dialog = await screen.findByRole("dialog", { name: "Renommer le dossier" });
+    expect(within(dialog).getByLabelText("Nouveau nom")).toHaveValue("Projets");
+    vi.mocked(api.listFolders).mockResolvedValue([]);
+  });
+
+  it("dossier spécial : menu réduit à « Nouveau sous-dossier… », emplacement présélectionné", async () => {
+    bobWithProjets();
+    render(App);
+    const menu = await openFolderMenu("Boîte de réception");
+    expect(
+      within(menu)
+        .getAllByRole("menuitem")
+        .map((i) => i.textContent?.trim()),
+    ).toEqual(["Nouveau sous-dossier…"]);
+    await fireEvent.click(within(menu).getByRole("menuitem", { name: "Nouveau sous-dossier…" }));
+    const dialog = await screen.findByRole("dialog", { name: "Nouveau dossier" });
+    expect(within(dialog).getByLabelText("Emplacement")).toHaveValue("11");
+    await fireEvent.input(within(dialog).getByLabelText("Nom du dossier"), {
+      target: { value: "Factures" },
+    });
+    await fireEvent.click(within(dialog).getByRole("button", { name: "Créer" }));
+    await waitFor(() => expect(api.createFolder).toHaveBeenCalledWith(3, "Factures", 11));
+    expect(await screen.findByText("Dossier « Factures » créé.")).toBeInTheDocument();
+    // Le menu du compte crée toujours au premier niveau.
+    await openAccountMenu("bob@example.org");
+    await fireEvent.click(await screen.findByRole("menuitem", { name: "Nouveau dossier…" }));
+    const next = await screen.findByRole("dialog", { name: "Nouveau dossier" });
+    expect(within(next).getByLabelText("Emplacement")).toHaveValue("");
+    expect(within(next).getByLabelText("Nom du dossier")).toHaveValue("");
+    vi.mocked(api.listFolders).mockResolvedValue([]);
+  });
+
+  it("« Nouveau dossier… » de « Déplacer vers… » : compte des messages, sélection du compte inchangée", async () => {
+    accounts.push({
+      id: 2,
+      address: "alice@example.com",
+      display_name: "Alice",
+      imap: server,
+      smtp: server,
+      oauth_provider: null,
+    });
+    bobWithProjets();
+    vi.mocked(api.listConversations).mockResolvedValue({
+      items: [
+        {
+          id: 21,
+          account: 3,
+          mailbox: 11,
+          date: 1_700_000_000,
+          subject: "Devis cuisine",
+          senders: [],
+          messages: 1,
+          unread: 0,
+          flagged: false,
+          has_attachments: false,
+        },
+      ],
+      next: null,
+    });
+    render(App);
+    await screen.findByText("Devis cuisine");
+    // Compte sélectionné : Alice ; la conversation est celle de Bob.
+    await screen.findByRole("button", { name: "Actions du compte alice@example.com" });
+    app.selectedAccountId = 2;
+    await fireEvent.keyDown(window, { key: "v" });
+    const picker = await screen.findByRole("dialog", { name: "Déplacer vers…" });
+    await fireEvent.click(await within(picker).findByText("Nouveau dossier…"));
+    const dialog = await screen.findByRole("dialog", { name: "Nouveau dossier" });
+    // Créé dans le compte des messages à déplacer.
+    expect(dialog).toHaveTextContent("bob@example.org");
+    await fireEvent.click(within(dialog).getByRole("button", { name: "Annuler" }));
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "Nouveau dossier" })).toBeNull(),
+    );
+    expect(app.selectedAccountId).toBe(2);
+    vi.mocked(api.listFolders).mockResolvedValue([]);
+    vi.mocked(api.listConversations).mockResolvedValue({ items: [], next: null });
+  });
+
   it("renomme un dossier depuis son menu", async () => {
     bobWithProjets();
     render(App);
-    // Boîte de réception : ni renommage ni suppression, donc pas de menu.
-    await screen.findByRole("button", { name: "Actions du dossier Projets" });
-    expect(
-      screen.queryByRole("button", { name: "Actions du dossier Boîte de réception" }),
-    ).toBeNull();
     const menu = await openFolderMenu("Projets");
     await fireEvent.click(within(menu).getByRole("menuitem", { name: "Renommer le dossier…" }));
     const dialog = await screen.findByRole("dialog", { name: "Renommer le dossier" });

@@ -1203,6 +1203,31 @@ pub struct ConversationCursorDto {
     pub id: u32,
 }
 
+/// Authentification de l'expéditeur d'un message (verdict du domaine).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum SenderAuthDto {
+    /// Attesté par le serveur du compte.
+    Pass,
+    /// Échec constaté par le serveur du compte : afficher « Expéditeur non
+    /// vérifié ».
+    Fail,
+    /// Aucun verdict (destinataire, ou expéditeur sans en-tête de
+    /// confiance) : rien à signaler.
+    Unknown,
+}
+
+impl From<norelly_domain::sender_auth::SenderAuth> for SenderAuthDto {
+    fn from(auth: norelly_domain::sender_auth::SenderAuth) -> Self {
+        use norelly_domain::sender_auth::SenderAuth;
+        match auth {
+            SenderAuth::Pass => Self::Pass,
+            SenderAuth::Fail => Self::Fail,
+            SenderAuth::Unknown => Self::Unknown,
+        }
+    }
+}
+
 /// Correspondant affiché : nom retenu par le domaine (celui du carnet si
 /// l'adresse y figure ; vide : afficher l'adresse) et contact du carnet.
 #[derive(Debug, Clone, Serialize, Type)]
@@ -1214,6 +1239,11 @@ pub struct CorrespondentDto {
     /// Afficher aussi l'adresse à côté du nom dans les listes (décision du
     /// domaine : le nom de l'en-tête contient un domaine).
     pub show_address: bool,
+    /// Authentification de l'expéditeur ; `unknown` pour un destinataire.
+    pub auth: SenderAuthDto,
+    /// Afficher la pastille « Dans vos contacts » (décision du domaine :
+    /// contact du carnet et expéditeur authentifié).
+    pub contact_badge: bool,
 }
 
 impl From<&norelly_domain::mailbox::Correspondent> for CorrespondentDto {
@@ -1225,6 +1255,8 @@ impl From<&norelly_domain::mailbox::Correspondent> for CorrespondentDto {
             address: label.address,
             contact: None,
             show_address: label.show_address,
+            auth: label.auth.into(),
+            contact_badge: label.contact_badge,
         }
     }
 }
@@ -1237,12 +1269,28 @@ impl CorrespondentDto {
         names: &norelly_domain::sender::SenderNames,
         c: &norelly_domain::mailbox::Correspondent,
     ) -> Self {
-        let label = names.label(c);
+        Self::of_label(names.label(c))
+    }
+
+    /// Expéditeur `c` d'un message, nommé d'après le carnet (`names`) et
+    /// authentifié selon `auth` : la pastille du carnet suit la décision
+    /// du domaine.
+    pub fn sender(
+        names: &norelly_domain::sender::SenderNames,
+        c: &norelly_domain::mailbox::Correspondent,
+        auth: norelly_domain::sender_auth::SenderAuth,
+    ) -> Self {
+        Self::of_label(names.sender(c, auth))
+    }
+
+    fn of_label(label: norelly_domain::sender::SenderLabel) -> Self {
         Self {
             name: label.name,
             address: label.address,
             contact: label.contact.and_then(|id| id32(id.get()).ok()),
             show_address: label.show_address,
+            auth: label.auth.into(),
+            contact_badge: label.contact_badge,
         }
     }
 }
@@ -1758,6 +1806,46 @@ mod reading_tests {
             CorrespondentDto::named(&SenderNames::default(), &header).name,
             ""
         );
+    }
+
+    #[test]
+    fn the_sender_carries_its_authentication_and_the_contact_badge() {
+        use norelly_domain::contacts::{ContactDraft, ContactId, ContactInput, EmailInput};
+        use norelly_domain::mailbox::Correspondent;
+        use norelly_domain::sender::SenderNames;
+        use norelly_domain::sender_auth::SenderAuth;
+        let alice = ContactDraft::new(ContactInput {
+            display_name: "Alice Martin".into(),
+            emails: vec![EmailInput {
+                address: "alice@example.com".into(),
+                ..EmailInput::default()
+            }],
+            ..ContactInput::default()
+        })
+        .unwrap_or_else(|e| panic!("{e}"))
+        .with_id(ContactId::new(7).unwrap_or_else(|| panic!("id")));
+        let names = SenderNames::new(vec![alice]);
+        let header = Correspondent::new("", "alice@example.com");
+        let pass = CorrespondentDto::sender(&names, &header, SenderAuth::Pass);
+        assert_eq!(
+            (pass.auth, pass.contact_badge, pass.contact),
+            (SenderAuthDto::Pass, true, Some(7))
+        );
+        let fail = CorrespondentDto::sender(&names, &header, SenderAuth::Fail);
+        assert_eq!(
+            (fail.auth, fail.contact_badge, fail.name.as_str()),
+            (SenderAuthDto::Fail, false, "Alice Martin")
+        );
+        let unknown = CorrespondentDto::sender(&names, &header, SenderAuth::Unknown);
+        assert_eq!(
+            (unknown.auth, unknown.contact_badge),
+            (SenderAuthDto::Unknown, false)
+        );
+        // Destinataire : aucun verdict, aucune pastille.
+        let to = CorrespondentDto::named(&names, &header);
+        assert_eq!((to.auth, to.contact_badge), (SenderAuthDto::Unknown, false));
+        let json = serde_json::to_value(&fail).unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(json["auth"], "fail");
     }
 
     #[test]

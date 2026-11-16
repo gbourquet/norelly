@@ -838,6 +838,13 @@ export type CorrespondentDto_Deserialize = {
 	 *  domaine : le nom de l'en-tête contient un domaine).
 	 */
 	show_address: boolean,
+	/**  Authentification de l'expéditeur ; `unknown` pour un destinataire. */
+	auth: SenderAuthDto,
+	/**
+	 *  Afficher la pastille « Dans vos contacts » (décision du domaine :
+	 *  contact du carnet et expéditeur authentifié).
+	 */
+	contact_badge: boolean,
 };
 
 /**
@@ -854,6 +861,13 @@ export type CorrespondentDto_Serialize = {
 	 *  domaine : le nom de l'en-tête contient un domaine).
 	 */
 	show_address: boolean,
+	/**  Authentification de l'expéditeur ; `unknown` pour un destinataire. */
+	auth: SenderAuthDto,
+	/**
+	 *  Afficher la pastille « Dans vos contacts » (décision du domaine :
+	 *  contact du carnet et expéditeur authentifié).
+	 */
+	contact_badge: boolean,
 };
 
 /**  Serveur découvert. */
@@ -1568,6 +1582,21 @@ export type SendFailureDto = "unreachable" | "temporary" | "rejected" | "authent
 "unresponsive" | 
 /**  Microsoft refuse l'envoi depuis les applications pour ce compte. */
 "microsoft_smtp_disabled";
+
+/**  Authentification de l'expéditeur d'un message (verdict du domaine). */
+export type SenderAuthDto = 
+/**  Attesté par le serveur du compte. */
+"pass" | 
+/**
+ *  Échec constaté par le serveur du compte : afficher « Expéditeur non
+ *  vérifié ».
+ */
+"fail" | 
+/**
+ *  Aucun verdict (destinataire, ou expéditeur sans en-tête de
+ *  confiance) : rien à signaler.
+ */
+"unknown";
 
 /**  Serveur (affichage et saisie). */
 export type ServerDto = {

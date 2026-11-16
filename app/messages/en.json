@@ -41,6 +41,7 @@
   "list_flagged": "Flagged",
   "conversation_label": "Conversation",
   "conversation_back": "Back to list",
+  "conversation_drag": "Drag onto a folder to move the conversation",
   "conversation_message_toggle": "Message from {name}, {date}",
   "message_unreadable": "Unreadable message: {error}",
   "message_link_failed": "Link not opened: {error}",

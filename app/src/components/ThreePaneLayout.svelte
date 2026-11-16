@@ -46,7 +46,10 @@
 </script>
 
 <div class="layout" style="--w-sidebar: {sizes.sidebar}px; --w-list: {sizes.list}px">
-  <nav class="pane sidebar" aria-label={m.layout_navigation()}>{@render sidebar()}</nav>
+  <!-- data-drop-scroll : panneau qui défile près de ses bords pendant un glisser. -->
+  <nav class="pane sidebar" aria-label={m.layout_navigation()} data-drop-scroll>
+    {@render sidebar()}
+  </nav>
   <Splitter
     label={m.layout_sidebar_width()}
     value={sizes.sidebar}

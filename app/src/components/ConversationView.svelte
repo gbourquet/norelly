@@ -5,6 +5,7 @@
   // déplient d'un clic.
   import type { Snippet } from "svelte";
   import ArrowLeftIcon from "@lucide/svelte/icons/arrow-left";
+  import GripVerticalIcon from "@lucide/svelte/icons/grip-vertical";
   import type { Api, ConversationDto, ConversationMessage, CorrespondentDto } from "../lib/ipc/api";
   import type { Shortcut } from "../lib/commands/shortcut";
   import MessageBody from "./MessageBody.svelte";
@@ -23,9 +24,14 @@
     /** Nom d'une personne (expéditeur en gras si non lu, destinataire),
      * avec son menu ; sinon, le nom seul. */
     person?: Snippet<[CorrespondentDto, boolean]>;
+    /** Bouton enfoncé (ou doigt posé) sur la poignée du titre : début
+     * possible d'un glisser de la conversation sur un dossier. Le corps des
+     * messages, affiché à part, ne transmet pas le pointeur. */
+    onGrab?: (e: PointerEvent) => void;
   }
 
-  let { conversation, messages, api, onBack, onKey, backTitle, toolbar, person }: Props = $props();
+  let { conversation, messages, api, onBack, onKey, backTitle, toolbar, person, onGrab }: Props =
+    $props();
 
   let expanded = $state<number[]>([]);
 
@@ -54,6 +60,13 @@
     >
       <ArrowLeftIcon size={16} aria-hidden="true" />
     </button>
+    {#if onGrab}
+      <!-- Poignée pour la souris et le doigt seulement : « Déplacer vers… »
+           de la barre d'actions fait la même chose, au clavier aussi. -->
+      <span class="grip" title={m.conversation_drag()} aria-hidden="true" onpointerdown={onGrab}>
+        <GripVerticalIcon size={16} />
+      </span>
+    {/if}
     <h1>{conversation.subject !== "" ? conversation.subject : m.common_no_subject()}</h1>
     {#if toolbar}
       <div class="toolbar">{@render toolbar()}</div>
@@ -131,6 +144,25 @@
     font-size: var(--font-size-lg);
     font-weight: var(--font-weight-medium);
     overflow-wrap: anywhere;
+  }
+
+  /* Poignée : la conversation se glisse sur un dossier. Pas de défilement
+     natif au doigt depuis la poignée. */
+  .grip {
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    padding: var(--space-1);
+    border-radius: var(--radius);
+    color: var(--color-text-muted);
+    cursor: grab;
+    touch-action: none;
+    user-select: none;
+  }
+
+  .grip:hover {
+    background: var(--color-hover);
+    color: var(--color-text);
   }
 
   .icon {

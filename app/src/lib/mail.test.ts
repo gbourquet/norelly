@@ -84,6 +84,7 @@ function fakeApi(total: number, unread: number[] = []): MailApi & { calls: Scope
         unread: unread.includes(id),
         flagged: false,
         has_attachments: false,
+        newest_copy: id * 10,
       },
     ]),
     listConversations: vi.fn(async (scope, cursor, limit) => {
@@ -453,7 +454,7 @@ describe("marquage comme lu à l'ouverture", () => {
     return vi.mocked(api.markOpenedSeen).mock.calls;
   }
 
-  function message(id: number, unread: boolean): ConversationMessage {
+  function message(id: number, unread: boolean, newestCopy = id): ConversationMessage {
     return {
       id,
       account: 1,
@@ -466,8 +467,35 @@ describe("marquage comme lu à l'ouverture", () => {
       unread,
       flagged: false,
       has_attachments: false,
+      newest_copy: newestCopy,
     };
   }
+
+  it("transmet le repère des exemplaires connus à l'ouverture", async () => {
+    vi.useFakeTimers();
+    try {
+      const api = fakeApi(3, [1]);
+      const mail = new MailState(api, () => DELAY_MS);
+      await mail.show(UNIFIED_INBOX);
+      // L'original (10) a un exemplaire plus récent (14) dans un autre
+      // dossier ; un message déjà lu (9) en a un plus récent encore (16).
+      vi.mocked(api.conversationMessages).mockResolvedValueOnce([
+        message(9, false, 16),
+        message(10, true, 14),
+      ]);
+      await mail.open();
+      // Un exemplaire arrivé ensuite (20) ne relève pas le repère.
+      vi.mocked(api.conversationMessages).mockResolvedValueOnce([
+        message(9, false, 16),
+        message(10, true, 20),
+      ]);
+      await mail.onSyncEvent({ kind: "folder_changed", account: 1, mailbox: 10 });
+      await vi.advanceTimersByTimeAsync(DELAY_MS);
+      expect(seenCalls(api)).toEqual([[1, [10], 16]]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 
   it("marque lus les messages affichés non lus restés ouverts, sans message ni annulation", async () => {
     vi.useFakeTimers();
@@ -479,7 +507,7 @@ describe("marquage comme lu à l'ouverture", () => {
       await vi.advanceTimersByTimeAsync(DELAY_MS - 1);
       expect(seenCalls(api)).toEqual([]);
       await vi.advanceTimersByTimeAsync(1);
-      expect(seenCalls(api)).toEqual([[1, [10]]]);
+      expect(seenCalls(api)).toEqual([[1, [10], 10]]);
       expect(api.performAction).not.toHaveBeenCalled();
       expect(mail.notice).toBeNull();
       expect(mail.lastAction).toBeNull();
@@ -509,7 +537,7 @@ describe("marquage comme lu à l'ouverture", () => {
       await mail.onSyncEvent({ kind: "folder_changed", account: 1, mailbox: 10 });
       expect(mail.messages.map((x) => x.id)).toEqual([11, 10, 9]);
       await vi.advanceTimersByTimeAsync(DELAY_MS);
-      expect(seenCalls(api)).toEqual([[1, [10]]]);
+      expect(seenCalls(api)).toEqual([[1, [10], 10]]);
     } finally {
       vi.useRealTimers();
     }
@@ -553,7 +581,7 @@ describe("marquage comme lu à l'ouverture", () => {
       release();
       await first;
       await vi.advanceTimersByTimeAsync(DELAY_MS);
-      expect(seenCalls(api)).toEqual([[2, [20]]]);
+      expect(seenCalls(api)).toEqual([[2, [20], 20]]);
     } finally {
       vi.useRealTimers();
     }
@@ -652,7 +680,7 @@ describe("marquage comme lu à l'ouverture", () => {
       await mail.show(UNIFIED_INBOX);
       await mail.openConversation({ ...conversation(42), unread: 1 }, { kind: "mailbox", id: 77 });
       await vi.advanceTimersByTimeAsync(DELAY_MS);
-      expect(seenCalls(api)).toEqual([[42, [420]]]);
+      expect(seenCalls(api)).toEqual([[42, [420], 420]]);
     } finally {
       vi.useRealTimers();
     }
@@ -765,7 +793,7 @@ describe("marquage comme lu à l'ouverture", () => {
         await vi.advanceTimersByTimeAsync(DELAY_MS - 2000 - 1);
         expect(seenCalls(api)).toEqual([]);
         await vi.advanceTimersByTimeAsync(1);
-        expect(seenCalls(api)).toEqual([[1, [10]]]);
+        expect(seenCalls(api)).toEqual([[1, [10], 10]]);
       } finally {
         vi.useRealTimers();
       }
@@ -785,7 +813,7 @@ describe("marquage comme lu à l'ouverture", () => {
         await vi.advanceTimersByTimeAsync(DELAY_MS - 1);
         expect(seenCalls(api)).toEqual([]);
         await vi.advanceTimersByTimeAsync(1);
-        expect(seenCalls(api)).toEqual([[1, [10]]]);
+        expect(seenCalls(api)).toEqual([[1, [10], 10]]);
       } finally {
         vi.useRealTimers();
       }
@@ -803,7 +831,7 @@ describe("marquage comme lu à l'ouverture", () => {
         expect(seenCalls(api)).toEqual([]);
         visibility.set(true);
         await vi.advanceTimersByTimeAsync(0);
-        expect(seenCalls(api)).toEqual([[1, [10]]]);
+        expect(seenCalls(api)).toEqual([[1, [10], 10]]);
       } finally {
         vi.useRealTimers();
       }
@@ -827,7 +855,7 @@ describe("marquage comme lu à l'ouverture", () => {
         await mail.open();
         expect(visibility.listeners()).toBe(1);
         await vi.advanceTimersByTimeAsync(DELAY_MS);
-        expect(seenCalls(api)).toEqual([[1, [10]]]);
+        expect(seenCalls(api)).toEqual([[1, [10], 10]]);
         expect(visibility.listeners()).toBe(0);
       } finally {
         vi.useRealTimers();

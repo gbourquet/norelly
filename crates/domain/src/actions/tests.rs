@@ -554,8 +554,42 @@ fn opened_seen_targets_are_the_unread_copies_of_the_shown_messages() {
         member(6, 1, false, None),
     ];
     assert_eq!(
-        opened_seen_targets(&members, &[id(1), id(4), id(5), id(99)]),
+        opened_seen_targets(&members, &[id(1), id(4), id(5), id(99)], id(6)),
         vec![id(1), id(2), id(5)]
     );
-    assert_eq!(opened_seen_targets(&members, &[]), Vec::<MessageId>::new());
+    assert_eq!(
+        opened_seen_targets(&members, &[], id(6)),
+        Vec::<MessageId>::new()
+    );
+}
+
+#[test]
+fn opened_seen_targets_ignore_copies_arrived_after_the_opening() {
+    let member = |id: i64, mailbox: i64, role: MailboxRole, message_id: &str| Member {
+        id: MessageId::new(id).unwrap_or_else(|| panic!("id")),
+        mailbox: mailbox_id(mailbox),
+        role,
+        flags: Flags::default(),
+        date: id,
+        message_id: Some(message_id.to_owned()),
+    };
+    let id = |n: i64| MessageId::new(n).unwrap_or_else(|| panic!("id"));
+    let members = vec![
+        // Affiché non lu à l'ouverture, et son exemplaire déjà présent.
+        member(1, 1, MailboxRole::Inbox, "a@x"),
+        member(2, 3, MailboxRole::Archive, "a@x"),
+        // Message forgé avec le même Message-ID, arrivé pendant le délai :
+        // il n'a pas été vu.
+        member(3, 1, MailboxRole::Inbox, "a@x"),
+        member(4, 5, MailboxRole::Junk, "a@x"),
+    ];
+    assert_eq!(
+        opened_seen_targets(&members, &[id(1)], id(2)),
+        vec![id(1), id(2)]
+    );
+    // Un identifiant affiché au-delà du repère n'est pas pris non plus.
+    assert_eq!(
+        opened_seen_targets(&members, &[id(3)], id(2)),
+        Vec::<MessageId>::new()
+    );
 }

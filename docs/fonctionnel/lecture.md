@@ -27,8 +27,10 @@ sur l'application ; ouvrir liens et pièces jointes sans danger.
   secondes** : la parcourir rapidement ne change rien. Seul compte le
   temps passé fenêtre visible : réduite ou masquée, l'attente est
   suspendue et reprend quand la fenêtre réapparaît. Seuls les messages
-  affichés à l'ouverture deviennent lus : une réponse arrivée pendant la
-  lecture reste non lue. Ce marquage ne
+  affichés à l'ouverture, et leurs exemplaires déjà présents dans d'autres
+  dossiers, deviennent lus : une réponse arrivée pendant la lecture reste
+  non lue, de même qu'un message arrivé entre-temps qui se fait passer pour
+  un message affiché. Ce marquage ne
   remplace pas le message de la dernière action ni sa possibilité
   d'annulation. Elle redevient non lue par le menu « Plus… » de la barre
   d'actions, le bouton au survol de la ligne ou `Maj+U`.

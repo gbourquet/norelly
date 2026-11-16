@@ -207,6 +207,7 @@ pub async fn conversation_messages(
                 unread: !m.flags.seen,
                 flagged: m.flags.flagged,
                 has_attachments: m.has_attachments,
+                newest_copy: id32(m.newest_copy.get())?,
             })
         })
         .collect()

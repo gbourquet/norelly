@@ -1427,6 +1427,10 @@ pub struct ConversationMessageDto {
     pub unread: bool,
     pub flagged: bool,
     pub has_attachments: bool,
+    /// Plus grand identifiant parmi les exemplaires de ce message présents
+    /// à la lecture : l'interface en garde le maximum comme repère de
+    /// l'ouverture (`mark_opened_seen`).
+    pub newest_copy: u32,
 }
 
 /// Pièce jointe d'un message ouvert.

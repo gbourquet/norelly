@@ -34,7 +34,11 @@ import {
 /** Message brut reçu de `from` (domaine norelly.test), authentifié par le
  * serveur du compte : `authserv-id` du domaine de l'hôte IMAP
  * (imap.norelly.test), condition de la pastille « Dans vos contacts ». */
-const mail = (from, subject, id) => `Authentication-Results: mx.norelly.test; dmarc=pass header.from=norelly.test
+const mail = (
+  from,
+  subject,
+  id,
+) => `Authentication-Results: mx.norelly.test; dmarc=pass header.from=norelly.test
 From: ${from}
 To: ${address}
 Subject: ${subject}

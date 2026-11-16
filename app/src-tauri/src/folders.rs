@@ -96,7 +96,8 @@ async fn folder_of(
 
 /// Crée le dossier `name` dans le compte `account`, sous `parent` ou au
 /// premier niveau ; la liste des dossiers est ensuite relue (événement
-/// `folders_changed`).
+/// `folders_changed`). Renvoie l'identifiant local du nouveau dossier
+/// (`null` si la liste n'a pas encore été relue).
 #[tauri::command]
 #[specta::specta]
 pub async fn create_folder(
@@ -104,7 +105,7 @@ pub async fn create_folder(
     account: u32,
     name: String,
     parent: Option<u32>,
-) -> Result<(), IpcError> {
+) -> Result<Option<u32>, IpcError> {
     let account = account_id(account)?;
     let parent = parent.map(mailbox_id).transpose()?;
     let label = folder_label(&name)?;
@@ -118,12 +119,12 @@ pub async fn create_folder(
         label: label.to_owned(),
         parent,
     };
-    state
+    let created = state
         .mail
         .change_folder(account, change)
         .await
         .map_err(|e| folder_error(e, ErrorCodeDto::FolderCreateFailed))?;
-    Ok(())
+    local_id(&state, account, &created).await
 }
 
 /// Renomme le dossier `mailbox` du compte `account` en `name`, à la même

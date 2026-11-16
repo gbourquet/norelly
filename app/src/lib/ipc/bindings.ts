@@ -133,9 +133,10 @@ export const commands = {
 	/**
 	 *  Crée le dossier `name` dans le compte `account`, sous `parent` ou au
 	 *  premier niveau ; la liste des dossiers est ensuite relue (événement
-	 *  `folders_changed`).
+	 *  `folders_changed`). Renvoie l'identifiant local du nouveau dossier
+	 *  (`null` si la liste n'a pas encore été relue).
 	 */
-	createFolder: (account: number, name: string, parent: number | null) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("create_folder", { account, name, parent })),
+	createFolder: (account: number, name: string, parent: number | null) => typedError<number | null, IpcError_Serialize>(__TAURI_INVOKE("create_folder", { account, name, parent })),
 	/**
 	 *  Renomme le dossier `mailbox` du compte `account` en `name`, à la même
 	 *  place ; renvoie l'identifiant local du dossier sous son nouveau nom

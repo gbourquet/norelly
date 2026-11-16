@@ -126,6 +126,9 @@ déplacer « Bli » dans « Bla » en fait un sous-dossier de « Bla ».
 - Les espaces au début et à la fin du nom sont retirés.
 - Le nom est refusé s'il est vide, s'il dépasse **100 caractères**, ou
   s'il contient `*`, `%` ou un caractère invisible.
+- Le nom est aussi refusé s'il serait interprété par certains serveurs au
+  lieu d'être pris tel quel : s'il commence par `~` ou `#`, s'il vaut `.`
+  ou `..` (y compris entre deux `/`), ou s'il finit par `}`.
 - Un nom ne crée qu'**un seul niveau** : le caractère qui sépare les
   niveaux sur le serveur (souvent `/` ou `.`) est refusé dans le nom ; pour
   un sous-dossier, choisir l'emplacement.
@@ -145,7 +148,9 @@ déplacer « Bli » dans « Bla » en fait un sous-dossier de « Bla ».
 - Un dossier déplacé suit les règles d'emplacement d'un nouveau dossier.
   Il ne peut aller ni dans lui-même ni dans un de ses sous-dossiers, et
   pas là où un dossier porte déjà son nom (majuscules et minuscules
-  confondues).
+  confondues). Un dossier dont le nom serait interprété par certains
+  serveurs (voir plus haut), créé par une autre application, ne se déplace
+  pas : le renommer d'abord.
 - La **boîte de réception** et les **dossiers spéciaux** (envoyés,
   brouillons, corbeille, indésirables, archives, dossiers virtuels) ne se
   renomment, ne se déplacent ni ne se suppriment : leur menu **⋯** n'est
@@ -188,6 +193,7 @@ déplacer « Bli » dans « Bla » en fait un sous-dossier de « Bla ».
 | Nom vide | Donnez un nom au dossier. |
 | Nom trop long | Ce nom de dossier est trop long. |
 | Caractère interdit | Le nom ne peut contenir ni « * », ni « % », ni caractère invisible. |
+| Nom interprété par certains serveurs | Le nom ne peut ni commencer par « ~ » ou « # », ni valoir « . » ou « .. », ni finir par « } » : certains serveurs l'interpréteraient. |
 | Séparateur dans le nom | Le nom ne peut pas contenir le séparateur de dossiers du serveur (« / ») |
 | Nom déjà pris | Un dossier de ce nom existe déjà à cet endroit. |
 | Pas de sous-dossiers | Ce serveur n'accepte pas de sous-dossiers : choisissez « Au premier niveau ». |

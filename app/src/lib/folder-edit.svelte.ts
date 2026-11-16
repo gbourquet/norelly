@@ -79,10 +79,12 @@ export function isSameOrUnder(f: FolderDto, folder: FolderDto): boolean {
   return f.name.charAt(folder.name.length) === delimiter;
 }
 
-/** Dossier qui contient `folder` (`null` : premier niveau). */
-function parentOf(folders: FolderDto[], folder: FolderDto): number | null {
+/** Dossier qui contient `folder` (`null` : premier niveau ; `undefined` :
+ * parent absent de la liste, aucun emplacement proposé n'est l'actuel). */
+function parentOf(folders: FolderDto[], folder: FolderDto): number | null | undefined {
   const name = parentName(folder);
-  return folders.find((f) => f.name === name)?.id ?? null;
+  if (name === null) return null;
+  return folders.find((f) => f.name === name)?.id;
 }
 
 /** Emplacements où déplacer `folder` : ceux d'un nouveau dossier, sauf le
@@ -101,7 +103,8 @@ export function destinationChoices(
 export class MoveFolderState {
   readonly #api: FolderEditApi;
   /** Emplacement actuel du dossier. */
-  #current = $state<number | null>(null);
+  /** `undefined` : parent non listé, tout choix est un déplacement. */
+  #current = $state<number | null | undefined>(null);
   parent = $state<number | null>(null);
   busy = $state(false);
   error = $state<string | null>(null);
@@ -115,7 +118,7 @@ export class MoveFolderState {
   /** Formulaire positionné sur l'emplacement actuel du dossier. */
   reset(folder: FolderDto, folders: FolderDto[]): void {
     this.#current = parentOf(folders, folder);
-    this.parent = this.#current;
+    this.parent = this.#current ?? null;
     this.error = null;
   }
 

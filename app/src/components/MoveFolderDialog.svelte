@@ -5,6 +5,7 @@
   // décidé par Rust.
   import Modal from "./Modal.svelte";
   import type { AccountDto, FolderDto } from "../lib/ipc/api";
+  import { folderLabel } from "../lib/folder-label";
   import {
     destinationChoices,
     type MoveFolderState,
@@ -54,7 +55,7 @@
     }}
   >
     {#if folder}
-      <p class="explanation">{m.move_folder_explanation({ folder: folder.leaf })}</p>
+      <p class="explanation">{m.move_folder_explanation({ folder: folderLabel(folder) })}</p>
     {/if}
     <label class="field">
       <span>{m.move_folder_parent()}</span>

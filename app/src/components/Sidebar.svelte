@@ -325,7 +325,7 @@
                   disabled={!f.selectable}
                   aria-current={current ? "true" : undefined}
                   title={serverNameTitle(f)}
-                  style:padding-left="calc(var(--space-2) + {Math.min(f.depth, 6) * 12}px)"
+                  style:padding-left="calc(var(--space-2) + {Math.min(f.indent, 6) * 12}px)"
                   onpointerdown={(e) => press(e, account.id, f)}
                   onclick={() => {
                     // Clic qui termine un glisser : le dossier n'est pas affiché.

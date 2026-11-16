@@ -236,6 +236,8 @@ function bobWithProjets(): void {
       name: "INBOX",
       leaf: "INBOX",
       depth: 0,
+      indent: 0,
+      label: "INBOX",
       role: "inbox",
       selectable: true,
       total: 0,
@@ -246,6 +248,8 @@ function bobWithProjets(): void {
       name: "Projets",
       leaf: "Projets",
       depth: 0,
+      indent: 0,
+      label: "Projets",
       role: "normal",
       selectable: true,
       total: 4,
@@ -307,6 +311,8 @@ describe("App", () => {
         name: "[Gmail]/Sent Mail",
         leaf: "Sent Mail",
         depth: 1,
+        indent: 0,
+        label: "Sent Mail",
         role: "sent",
         selectable: true,
         total: 0,
@@ -317,6 +323,8 @@ describe("App", () => {
     const sent = await screen.findByRole("button", { name: "Envoyés" });
     expect(sent).toHaveAttribute("title", "Nom sur le serveur : Sent Mail");
     expect(screen.queryByText("Sent Mail")).toBeNull();
+    // Remonté au premier niveau : aucun retrait, malgré son nom imbriqué.
+    expect(sent.style.paddingLeft).toBe("calc(var(--space-2) + 0px)");
     // Dossier ordinaire : son nom, sans info-bulle.
     expect(screen.getByRole("button", { name: "Projets" })).not.toHaveAttribute("title");
     await fireEvent.click(sent);
@@ -338,6 +346,8 @@ describe("App", () => {
         name: "INBOX",
         leaf: "INBOX",
         depth: 0,
+        indent: 0,
+        label: "INBOX",
         role: "inbox",
         selectable: true,
         total: 0,
@@ -348,6 +358,8 @@ describe("App", () => {
         name: "Projets",
         leaf: "Projets",
         depth: 0,
+        indent: 0,
+        label: "Projets",
         role: "normal",
         selectable: true,
         total: 0,
@@ -598,6 +610,8 @@ describe("App", () => {
       name,
       leaf: name.split("/").at(-1) ?? name,
       depth: name.split("/").length - 1,
+      indent: name.split("/").length - 1,
+      label: name.split("/").at(-1) ?? name,
       role: "normal",
       selectable: true,
       total: 0,

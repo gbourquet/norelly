@@ -16,6 +16,8 @@ function folder(id: number, name: string, role = "normal", total = 0): FolderDto
     name,
     leaf: name.split("/").at(-1) ?? name,
     depth: name.split("/").length - 1,
+    indent: name.split("/").length - 1,
+    label: name.split("/").at(-1) ?? name,
     role,
     selectable: true,
     total,
@@ -182,6 +184,23 @@ describe("déplacer un dossier", () => {
       3,
       4,
     ]);
+  });
+
+  it("parent non listé : chaque emplacement, premier niveau compris, est un déplacement", async () => {
+    // `INBOX/Perso` n'est pas annoncé : le dossier n'est ni au premier
+    // niveau, ni directement dans la boîte de réception où il est affiché.
+    const banque = folder(13, "INBOX/Perso/Banque");
+    const listed = [folder(1, "INBOX", "inbox"), banque];
+    const api = fakeApi();
+    const state = new MoveFolderState(api);
+    state.reset(banque, listed);
+    expect(state.parent).toBeNull();
+    expect(state.canSubmit).toBe(true);
+    expect(await state.submit(7, banque)).toEqual({ id: 43, name: "Banque" });
+    expect(api.moveFolder).toHaveBeenCalledWith(7, 13, null);
+    state.reset(banque, listed);
+    state.parent = 1;
+    expect(state.canSubmit).toBe(true);
   });
 
   it("affiche le refus et garde le choix", async () => {

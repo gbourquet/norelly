@@ -15,7 +15,7 @@ export interface ParentChoice {
 }
 
 /** Emplacements : le premier niveau, puis les dossiers du compte dans
- * l'ordre de l'arborescence. */
+ * l'ordre de l'arborescence, avec le retrait de l'arbre affiché. */
 export function parentChoices(folders: FolderDto[], topLevel: string): ParentChoice[] {
   return [
     { id: null, label: topLevel, depth: 0 },
@@ -25,7 +25,7 @@ export function parentChoices(folders: FolderDto[], topLevel: string): ParentCho
       .map((f) => ({
         id: f.id,
         label: folderLabel(f),
-        depth: f.depth + 1,
+        depth: f.indent + 1,
       })),
   ];
 }

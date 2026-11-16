@@ -21,3 +21,8 @@ async fn uidvalidity_change_resyncs_the_mailbox() -> TestResult {
 async fn idle_receives_appended_message_within_five_seconds() -> TestResult {
     scenarios::idle_receives_appended_message_within_five_seconds(Dovecot).await
 }
+
+#[tokio::test]
+async fn renamed_folder_keeps_its_cache_and_pending_actions() -> TestResult {
+    scenarios::renamed_folder_keeps_its_cache_and_pending_actions(Dovecot).await
+}

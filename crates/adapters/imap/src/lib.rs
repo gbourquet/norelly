@@ -38,6 +38,7 @@ use norelly_domain::ports::{
     ConnectRequest, FetchedBody, IdleOutcome, RemoteMailboxConnector, RemoteMailboxSession,
 };
 use norelly_domain::security::{StartTlsDecision, decide_starttls};
+use norelly_domain::sender_auth::AuthServTrust;
 use norelly_domain::sync::{
     FlagUpdate, SelectRequest, SelectedMailbox, ServerQuery, SyncExtensions,
 };
@@ -375,6 +376,7 @@ impl ImapConnector {
             extensions: SyncExtensions::default(),
             selected_condstore: false,
             selected: false,
+            trust: AuthServTrust::for_imap_host(request.endpoint.host()),
         })
     }
 }
@@ -390,6 +392,9 @@ pub struct ImapSession {
     /// Une boîte est sélectionnée par Norelly (à quitter avant de la
     /// renommer ou de la supprimer).
     selected: bool,
+    /// `authserv-id` de confiance : ceux du domaine de l'hôte IMAP
+    /// (décision du domaine).
+    trust: AuthServTrust,
 }
 
 impl ImapSession {
@@ -475,7 +480,9 @@ impl RemoteMailboxSession for ImapSession {
     }
 
     async fn fetch_meta(&mut self, uids: &[Uid]) -> Result<Vec<MessageMeta>, ConnectionError> {
-        self.conn.fetch_meta(uids, self.selected_condstore).await
+        self.conn
+            .fetch_meta(uids, self.selected_condstore, &self.trust)
+            .await
     }
 
     async fn fetch_body(

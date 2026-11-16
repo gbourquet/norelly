@@ -17,6 +17,7 @@ use norelly_test_support::containers::{
 use norelly_test_support::imap_control::ImapControl;
 use norelly_test_support::session_contract::{
     actions_session_contract, folders_session_contract, remote_session_contract,
+    sender_auth_session_contract,
 };
 use norelly_tls::{TlsClientFactory, TrustRoots};
 
@@ -57,6 +58,13 @@ async fn dovecot_passes_session_contract() -> TestResult {
     let bare = ImapConnector::new(tls()).hiding_capabilities(&["MOVE", "UIDPLUS"]);
     actions_session_contract(&bare, &request, &control, "ActionsSansUidplus").await?;
     folders_session_contract(&connector, &request, &control, "Nouveau").await?;
+    // Authentification de l'expéditeur : l'hôte doit être un nom (une
+    // adresse IP n'a pas de domaine de confiance).
+    let named = ConnectRequest {
+        endpoint: ServerEndpoint::new(Host::parse("localhost")?, port, Security::Tls)?,
+        ..request.clone()
+    };
+    sender_auth_session_contract(&connector, &named, &control, "Authentification").await?;
     Ok(())
 }
 

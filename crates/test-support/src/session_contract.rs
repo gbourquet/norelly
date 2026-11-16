@@ -11,6 +11,7 @@ use norelly_domain::mailbox::{MailboxName, MailboxRole, Uid, classify_mailboxes}
 use norelly_domain::ports::{
     ConnectRequest, FetchedBody, IdleOutcome, RemoteMailboxConnector, RemoteMailboxSession,
 };
+use norelly_domain::sender_auth::SenderAuth;
 use norelly_domain::sync::{QresyncParams, SelectRequest, ServerQuery, UidRanges};
 
 use crate::imap_control::MailboxControl;
@@ -726,6 +727,94 @@ async fn append_contract<S: RemoteMailboxSession>(
     Ok(())
 }
 
+/// Message reçu portant des `Authentication-Results` (`results`, dans
+/// l'ordre) et l'expéditeur `from`.
+#[must_use]
+pub fn authenticated_message(n: u32, from: &str, results: &[String]) -> Vec<u8> {
+    let headers: String = results
+        .iter()
+        .map(|r| format!("Authentication-Results: {r}\r\n"))
+        .collect();
+    format!(
+        "{headers}From: {from}\r\n\
+         To: dest@example.com\r\n\
+         Subject: Authentification {n}\r\n\
+         Date: Mon, 2 Nov 2026 10:00:00 +0000\r\n\
+         Message-ID: <auth-{n}@example.com>\r\n\
+         \r\n\
+         Corps.\r\n"
+    )
+    .into_bytes()
+}
+
+/// Contrat de l'authentification de l'expéditeur : un
+/// `Authentication-Results` posé par un serveur du domaine de l'hôte IMAP
+/// (`request`) donne le verdict de [`SenderAuth`] ; un `authserv-id`
+/// étranger est ignoré. `box_name` : boîte de travail (créée, puis
+/// supprimée).
+pub async fn sender_auth_session_contract<C, K>(
+    connector: &C,
+    request: &ConnectRequest,
+    control: &K,
+    box_name: &str,
+) -> Result<(), String>
+where
+    C: RemoteMailboxConnector,
+    K: MailboxControl,
+{
+    let trusted = format!("mx.{}", request.endpoint.host());
+    let cases = [
+        (
+            vec![format!(
+                "{trusted}; dkim=pass header.d=banque.fr; dmarc=pass header.from=banque.fr"
+            )],
+            SenderAuth::Pass,
+        ),
+        (
+            vec![format!("{trusted}; dmarc=fail header.from=banque.fr")],
+            SenderAuth::Fail,
+        ),
+        (
+            vec!["mx.pirate.invalid; dmarc=pass header.from=banque.fr".to_owned()],
+            SenderAuth::Unknown,
+        ),
+        (
+            vec![
+                format!("{trusted}; dmarc=fail header.from=banque.fr"),
+                format!("{trusted}; dmarc=pass header.from=banque.fr"),
+            ],
+            SenderAuth::Fail,
+        ),
+        (vec![], SenderAuth::Unknown),
+    ];
+    control.create(box_name).await?;
+    for (n, (results, _)) in (1..).zip(&cases) {
+        control
+            .append(
+                box_name,
+                &authenticated_message(n, "Banque <contact@banque.fr>", results),
+                false,
+            )
+            .await?;
+    }
+    let mut session = connector
+        .connect(request)
+        .await
+        .map_err(|e| e.to_string())?;
+    session
+        .select(&name(box_name), &SelectRequest::default())
+        .await
+        .map_err(|e| e.to_string())?;
+    let uids: Vec<Uid> = (1..=5).map(uid).collect();
+    let metas = session.fetch_meta(&uids).await.map_err(|e| e.to_string())?;
+    let verdicts: Vec<SenderAuth> = metas.iter().map(|m| m.headers.sender_auth).collect();
+    let expected: Vec<SenderAuth> = cases.iter().map(|(_, auth)| *auth).collect();
+    assert_eq!(verdicts, expected, "verdicts par message");
+    session.logout().await.map_err(|e| e.to_string())?;
+    control.delete(box_name).await?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use norelly_domain::credentials::{Credentials, Secret, Username};
@@ -781,6 +870,13 @@ mod tests {
             certificate_exceptions: vec![],
             plaintext: PlaintextPolicy::deny_all(),
         })
+    }
+
+    #[tokio::test]
+    async fn fake_server_passes_sender_auth_contract() -> Result<(), String> {
+        let imap = FakeImap::new();
+        let servers = FakeMailServers::with_imap(imap.clone());
+        sender_auth_session_contract(&servers, &fake_request()?, &imap, "Auth").await
     }
 
     #[tokio::test]

@@ -1,9 +1,10 @@
 <script lang="ts">
   // Paramètres : langue, mises à jour, notifications, affichage,
-  // rapatriement. Les valeurs sont revalidées par Rust à l'enregistrement.
+  // marquage comme lu, rapatriement. Les valeurs sont revalidées par Rust à l'enregistrement.
   import { m } from "../lib/paraglide/messages.js";
   import Modal from "./Modal.svelte";
   import type { SettingsDto } from "../lib/ipc/api";
+  import { markSeenChoices } from "../lib/settings.svelte";
 
   interface Props {
     open: boolean;
@@ -78,6 +79,22 @@
       <label class="check">
         <input type="checkbox" bind:checked={plain} />
         {m.settings_plain_text()}
+      </label>
+      <label class="row">
+        <span>{m.settings_mark_seen()}</span>
+        <select bind:value={draft.mark_seen_delay_secs}>
+          {#each markSeenChoices(settings?.mark_seen_delay_secs ?? null) as secs (secs)}
+            <option value={secs}>
+              {#if secs === null}
+                {m.settings_mark_seen_never()}
+              {:else if secs === 0}
+                {m.settings_mark_seen_now()}
+              {:else}
+                {m.settings_mark_seen_after({ secs })}
+              {/if}
+            </option>
+          {/each}
+        </select>
       </label>
       <label class="row">
         <span>{m.settings_threshold()}</span>

@@ -635,18 +635,15 @@ where
 
     // --- Sous-dossiers relus avant suppression, noms refusés compris ---
     if let Some(d) = delimiter {
-        let count = session.count_subfolders(&renamed, d).await.map_err(e)?;
-        assert_eq!(count, 1, "« Sous » compté sous {renamed_name}");
-        let hidden = format!("{renamed_name}{d}Caché\u{200B}");
-        control.create(&hidden).await?;
-        let listed = session.list_mailboxes().await.map_err(e)?;
-        assert!(
-            !listed.iter().any(|m| m.name.as_str().contains('\u{200B}')),
-            "nom refusé absent de LIST : {listed:?}"
-        );
-        let count = session.count_subfolders(&renamed, d).await.map_err(e)?;
-        assert_eq!(count, 2, "sous-dossier au nom refusé compté");
-        control.delete(&hidden).await?;
+        // Sur le tas : le futur du contrat dépasserait sinon la pile d'un
+        // fil de test (session IMAP réelle, build de débogage).
+        Box::pin(hidden_subfolder_contract(
+            &mut session,
+            control,
+            &renamed,
+            d,
+        ))
+        .await?;
     }
 
     // --- Suppression, dossier sélectionné ---
@@ -679,6 +676,30 @@ where
 }
 
 /// Partie APPEND du contrat des actions.
+/// Sous-dossiers de `parent` (qui en a un, « Sous ») comptés par
+/// `count_subfolders`, y compris un nom refusé par `MailboxName::parse`
+/// et donc absent de `LIST "" "*"`.
+async fn hidden_subfolder_contract<S: RemoteMailboxSession, K: MailboxControl>(
+    session: &mut S,
+    control: &K,
+    parent: &MailboxName,
+    d: char,
+) -> Result<(), String> {
+    let e = |e: norelly_domain::connection::ConnectionError| e.to_string();
+    let count = session.count_subfolders(parent, d).await.map_err(e)?;
+    assert_eq!(count, 1, "« Sous » compté sous {parent}");
+    let hidden = format!("{parent}{d}Caché\u{200B}");
+    control.create(&hidden).await?;
+    let listed = session.list_mailboxes().await.map_err(e)?;
+    assert!(
+        !listed.iter().any(|m| m.name.as_str().contains('\u{200B}')),
+        "nom refusé absent de LIST : {listed:?}"
+    );
+    let count = session.count_subfolders(parent, d).await.map_err(e)?;
+    assert_eq!(count, 2, "sous-dossier au nom refusé compté");
+    control.delete(&hidden).await
+}
+
 async fn append_contract<S: RemoteMailboxSession>(
     session: &mut S,
     dest: &MailboxName,

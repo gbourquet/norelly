@@ -39,6 +39,7 @@ for a moment.
 | Search messages | `/` |
 | Unified inbox | palette |
 | Prefer plain text (or HTML) | palette |
+| Print | `Ctrl+P` |
 
 In the search, `J` and `K` move from one result to the next and `Esc`
 closes the search.

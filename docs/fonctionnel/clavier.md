@@ -60,7 +60,7 @@ La liste est reprise, avec les mêmes libellés, dans
 | Groupe | Commandes (raccourci) |
 |---|---|
 | Général | Palette de commandes (`Ctrl+K`), Aide des raccourcis clavier (`?`), Paramètres… (`Ctrl+,`) |
-| Lecture | Conversation suivante (`j`), Conversation précédente (`k`), Ouvrir la conversation (`Entrée`), Retour à la liste (`Échap`), Rechercher dans les messages (`/`), Boîte de réception unifiée, Préférer le texte brut (ou le HTML) |
+| Lecture | Conversation suivante (`j`), Conversation précédente (`k`), Ouvrir la conversation (`Entrée`), Retour à la liste (`Échap`), Rechercher dans les messages (`/`), Boîte de réception unifiée, Préférer le texte brut (ou le HTML), Imprimer (`Ctrl+P`) |
 | Actions | Archiver (`e`), Supprimer (`#`), Suivre (ou ne plus suivre) (`s`), Marquer comme lu (`Maj+I`), Marquer comme non lu (`Maj+U`), Déplacer vers… (`v`), Sélectionner la conversation (`x`), Tout désélectionner, Annuler la dernière action (`z`) |
 | Rédaction | Nouveau message (`c`), Répondre (`r`), Répondre à tous (`a`), Transférer (`f`), Brouillons…, Boîte d'envoi |
 | Comptes | Ajouter un compte…, Choisir le dossier d'archives…, Synchroniser le compte sélectionné, Supprimer le compte sélectionné… |

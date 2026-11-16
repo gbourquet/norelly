@@ -267,6 +267,14 @@ est majoritairement écrit par Claude et relu par le mainteneur.
     et d'extraire une pièce jointe sans le message complet ; les parties
     différées sont téléchargées à la demande par la connexion de
     commandes de l'acteur du compte.
+  - Impression (2026-11-17) : `window.print()` de la fenêtre principale,
+    feuille `@media print` qui ne garde que la conversation ouverte ; le
+    cadre n'est pas modifié (pas d'`allow-modals`), l'agent ne reçoit
+    rien. Un webview dédié à l'impression (variante de C) et un message
+    d'impression de l'agent ont été écartés : ils relâchaient une barrière.
+    Le CSS d'un mail perd `@page` et `@custom-media`, ses requêtes de
+    média sont alignées sur l'écran et l'impression des fonds est fixée
+    par Norelly, pour que le papier montre ce que l'écran montre.
   - Résultats des tests end-to-end sous WebKitGTK :
     `app/e2e/specs/reading-security.e2e.mjs` (serveur canari
     `app/e2e/canary.mjs`) : A+ tient tel que décrit, sans repli vers A.

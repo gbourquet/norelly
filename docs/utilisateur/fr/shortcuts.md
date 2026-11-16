@@ -40,6 +40,7 @@ laissez la souris dessus un instant.
 | Rechercher dans les messages | `/` |
 | Boîte de réception unifiée | palette |
 | Préférer le texte brut (ou le HTML) | palette |
+| Imprimer | `Ctrl+P` |
 
 `Enter` est la touche **Entrée** (↵). Dans la recherche, `J` et `K`
 passent d'un résultat à l'autre et `Échap` ferme la recherche.

@@ -199,7 +199,13 @@ du domaine de l'adresse soumis à confirmation ; XML hostile sans panique
 ### Rendu des messages (ADR-004, « A+ »)
 
 - HTML assaini par liste blanche (`ammonia`), CSS assaini (échappements
-  résolus, `@import` et `url()` externes retirés) ; suite de 56 vecteurs
+  résolus, `@import`, `@custom-media`, `@page` et `url()` externes
+  retirés ; requêtes de média alignées sur l'écran : `print` et les
+  caractéristiques qui changent sur le papier (`update`, `device-*`,
+  résolution, couleurs, `prefers-color-scheme`) jamais vraies, `screen`
+  toujours vraie ; `print-color-adjust` imposé par Norelly, fonds imprimés
+  comme à l'écran : un mail ne peut rien montrer seulement à
+  l'impression) ; suite de 56 vecteurs
   hostiles (`crates/adapters/render/tests/hostile_html.rs`).
 - Cadre `sandbox="allow-scripts"` sans `allow-same-origin` (origine opaque),
   servi par `mailview://` avec une CSP stricte ; seul l'agent s'exécute
@@ -215,6 +221,13 @@ du domaine de l'adresse soumis à confirmation ; XML hostile sans panique
 - Pièces jointes : nom assaini par le domaine, ouverture directe réservée à
   une liste blanche d'extensions, écriture par création exclusive dans le
   dossier choisi.
+- Impression : `window.print()` de la fenêtre principale, lancé par
+  l'interface seulement (l'agent ne relaie aucune demande d'impression,
+  test `agent_cannot_print`) ; aucune commande IPC, aucune capability, cadre
+  inchangé (sans `allow-modals`), aucune requête de plus. La feuille
+  `@media print` masque tout sauf la conversation ouverte
+  (`data-print-root`), y compris les fenêtres, menus et notifications
+  affichés par-dessus.
 - Interface : jamais de `{@html}`, d'`innerHTML` ni d'`eval`.
 
 ### Expéditeur et carnet d'adresses

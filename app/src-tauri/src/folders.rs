@@ -26,6 +26,7 @@ impl From<NewFolderError> for IpcError {
             NewFolderError::Empty => Self::new(ErrorCodeDto::FolderNameEmpty),
             NewFolderError::TooLong => Self::new(ErrorCodeDto::FolderNameTooLong),
             NewFolderError::InvalidCharacter => Self::new(ErrorCodeDto::FolderNameInvalid),
+            NewFolderError::Reserved => Self::new(ErrorCodeDto::FolderNameReserved),
             NewFolderError::ContainsDelimiter(d) => {
                 Self::new(ErrorCodeDto::FolderNameDelimiter).with_detail(d)
             }
@@ -236,6 +237,7 @@ mod tests {
                 NewFolderError::InvalidCharacter,
                 ErrorCodeDto::FolderNameInvalid,
             ),
+            (NewFolderError::Reserved, ErrorCodeDto::FolderNameReserved),
             (NewFolderError::AlreadyExists, ErrorCodeDto::FolderExists),
             (NewFolderError::NoHierarchy, ErrorCodeDto::NoSubfolders),
         ] {

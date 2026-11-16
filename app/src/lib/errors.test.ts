@@ -145,6 +145,7 @@ describe("traduction des erreurs IPC", () => {
       folder_name_empty: true,
       folder_name_too_long: true,
       folder_name_invalid: true,
+      folder_name_reserved: true,
       folder_name_delimiter: true,
       folder_exists: true,
       no_subfolders: true,
@@ -245,7 +246,10 @@ describe("traduction des erreurs IPC", () => {
     const texts = (Object.keys(codes) as ErrorCodeDto[]).map((c) =>
       errorText(new IpcFailure(c, "address")),
     );
-    for (const t of texts) expect(t).not.toBe("Erreur inattendue.");
+    for (const t of texts) {
+      expect(t).toEqual(expect.any(String));
+      expect(t).not.toBe("Erreur inattendue.");
+    }
     expect(new Set(texts).size).toBe(texts.length);
     const labels = (Object.keys(fields) as FieldDto[]).map(fieldLabel);
     expect(new Set(labels).size).toBe(labels.length);

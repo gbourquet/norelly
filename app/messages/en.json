@@ -250,6 +250,7 @@
   "err_folder_name_empty": "Give the folder a name.",
   "err_folder_name_too_long": "This folder name is too long.",
   "err_folder_name_invalid": "The name cannot contain “*”, “%” or invisible characters.",
+  "err_folder_name_reserved": "The name cannot start with “~” or “#”, be “.” or “..”, or end with “}”: some servers would interpret it.",
   "err_folder_name_delimiter": "The name cannot contain the server's folder separator",
   "err_folder_exists": "A folder with this name already exists here.",
   "err_no_subfolders": "This server does not accept subfolders: choose “Top level”.",

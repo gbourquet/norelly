@@ -42,10 +42,16 @@
     onChoose(folder);
   }
 
+  /** Nouveau dossier, nommé d'après la recherche, sauf si elle désigne
+   * déjà un dossier proposé (le nom serait refusé comme doublon). */
   function create(create: (name: string) => void): void {
     const name = query.trim();
+    const lower = name.toLowerCase();
+    const existing = results.some(
+      (f) => f.leaf.toLowerCase() === lower || label(f).toLowerCase() === lower,
+    );
     query = "";
-    create(name);
+    create(existing ? "" : name);
   }
 </script>
 

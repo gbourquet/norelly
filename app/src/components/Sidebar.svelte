@@ -303,11 +303,12 @@
               {@const current = !contactsActive && scope.kind === "mailbox" && scope.id === f.id}
               {@const menu = folderMenuActions(f)}
               {@const menuLabel = m.sidebar_folder_menu({ folder: folderLabel(f) })}
+              {@const menuContext = menu.length > 0 ? onFolder(account.id, f, false) : context}
               <!-- Clic droit sur le dossier : mêmes entrées que son « ⋯ ». -->
               <CommandContextMenu
                 actions={menu}
                 {registry}
-                context={onFolder(account.id, f, false)}
+                context={menuContext}
                 label={menuLabel}
                 run={(id) => void registry.execute(id, onFolder(account.id, f, true))}
               >
@@ -343,7 +344,7 @@
                       <CommandMenu
                         actions={menu}
                         {registry}
-                        context={onFolder(account.id, f, false)}
+                        context={menuContext}
                         label={menuLabel}
                         run={(id) => void registry.execute(id, onFolder(account.id, f, true))}
                         align="start"
@@ -609,9 +610,12 @@
     cursor: pointer;
   }
 
+  /* Dossier non sélectionnable : le clic droit atteint sa ligne (un
+   * bouton désactivé ne reçoit aucun événement de la souris). */
   .folder:disabled {
     color: var(--color-text-muted);
     cursor: default;
+    pointer-events: none;
   }
 
   .label {

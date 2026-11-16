@@ -222,6 +222,28 @@ describe("état de la lecture", () => {
     expect(mail.notice).toEqual({ text: "Déplacé.", undoable: true });
   });
 
+  it("action différée : vise les conversations relevées, même si la sélection a changé", async () => {
+    const api = fakeApi(5);
+    const mail = new MailState(api, noAutoSeen);
+    await mail.show(UNIFIED_INBOX);
+    mail.select(1);
+    const frozen = mail.captureTargets();
+    // Entre-temps (création d'un dossier) : autre sélection, cases cochées.
+    mail.select(3);
+    mail.toggleMarkAt(4);
+    await mail.actOn(frozen, { kind: "move", mailbox: 15 }, "Déplacé.");
+    expect(api.performAction).toHaveBeenCalledWith([2], UNIFIED_INBOX, {
+      kind: "move",
+      mailbox: 15,
+    });
+    expect(mail.notice).toEqual({ text: "Déplacé.", undoable: true });
+    // Rien de relevé : rien n'est envoyé.
+    vi.mocked(api.performAction).mockClear();
+    mail.clearMarks();
+    await mail.actOn({ targets: [], scope: UNIFIED_INBOX }, { kind: "archive" }, "Archivé.");
+    expect(api.performAction).not.toHaveBeenCalled();
+  });
+
   it("sélection multiple avec x, puis action sur les conversations cochées", async () => {
     const api = fakeApi(5);
     const mail = new MailState(api, noAutoSeen);

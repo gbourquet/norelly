@@ -14,7 +14,7 @@ import {
 import { isEditableFolder } from "./folder-edit.svelte";
 import { canHoldFolders, type CreatedFolder, type NewFolderPreset } from "./new-folder.svelte";
 import { ComposeState } from "./compose.svelte";
-import { MailState } from "./mail.svelte";
+import { MailState, type FrozenTargets } from "./mail.svelte";
 import { ContactFormState, ContactsState, DeleteContactsState } from "./contacts.svelte";
 import { ContactExportState } from "./contact-export.svelte";
 import { ContactDuplicatesState } from "./contact-duplicates.svelte";
@@ -140,8 +140,9 @@ class AppState {
   /** Emplacement et nom proposés par la création de dossier ouverte. */
   newFolderPreset = $state<NewFolderPreset>({});
   /** La création de dossier ouverte vient de « Déplacer vers… » : les
-   * conversations visées y sont déplacées une fois le dossier créé. */
-  moveAfterCreate = $state(false);
+   * conversations visées au moment du choix, déplacées une fois le
+   * dossier créé (`null` : simple création). */
+  moveAfterCreate = $state<FrozenTargets | null>(null);
   /** Échecs déjà signalés (identifiants dans la file). */
   #reported = new Set<number>();
 
@@ -291,21 +292,27 @@ class AppState {
   }
 
   /** Ouvre la création d'un dossier, avec emplacement ou nom proposés ;
-   * `move` : les conversations visées y seront déplacées. */
-  openNewFolder(preset: NewFolderPreset, move = false): void {
+   * `move` : conversations relevées, à y déplacer. */
+  openNewFolder(preset: NewFolderPreset, move: FrozenTargets | null = null): void {
     this.newFolderPreset = preset;
     this.moveAfterCreate = move;
     this.dialog = "new-folder";
   }
 
-  /** Dossier créé : liste des dossiers relue, puis, si la création vient
-   * de « Déplacer vers… », conversations visées déplacées dedans. */
+  /** Compte où créer le dossier : celui des conversations à déplacer, sinon
+   * le compte sélectionné (qui ne change pas). */
+  newFolderAccountId(): number | null {
+    return this.moveAfterCreate?.targets[0]?.account ?? this.selectedAccountId;
+  }
+
+  /** Dossier créé : annoncé, ou conversations relevées déplacées dedans si
+   * la création vient de « Déplacer vers… » ; puis liste des dossiers
+   * relue. */
   async folderCreated(created: CreatedFolder): Promise<void> {
     const move = this.moveAfterCreate;
-    const account = this.selectedAccountId;
+    const account = this.newFolderAccountId();
     this.close();
-    if (account !== null) await mail.loadFolders(account);
-    if (!move) {
+    if (move === null) {
       mail.notice = { text: m.action_folder_created({ folder: created.name }), undoable: false };
     } else if (created.id === null) {
       mail.notice = {
@@ -313,18 +320,20 @@ class AppState {
         undoable: false,
       };
     } else {
-      await mail.act(
+      await mail.actOn(
+        move,
         { kind: "move", mailbox: created.id },
         m.action_moved({ folder: created.name }),
       );
     }
+    if (account !== null) await mail.loadFolders(account);
   }
 
   close(): void {
     this.dialog = null;
     this.folderTarget = null;
     this.newFolderPreset = {};
-    this.moveAfterCreate = false;
+    this.moveAfterCreate = null;
     this.contactTarget = null;
     this.personTarget = null;
     this.listTarget = null;

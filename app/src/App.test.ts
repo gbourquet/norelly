@@ -438,6 +438,53 @@ describe("App", () => {
     vi.mocked(api.listFolders).mockResolvedValue([]);
   });
 
+  it("« Nouveau dossier… » de « Déplacer vers… » : compte des messages, sélection du compte inchangée", async () => {
+    accounts.push({
+      id: 2,
+      address: "alice@example.com",
+      display_name: "Alice",
+      imap: server,
+      smtp: server,
+      oauth_provider: null,
+    });
+    bobWithProjets();
+    vi.mocked(api.listConversations).mockResolvedValue({
+      items: [
+        {
+          id: 21,
+          account: 3,
+          mailbox: 11,
+          date: 1_700_000_000,
+          subject: "Devis cuisine",
+          senders: [],
+          messages: 1,
+          unread: 0,
+          flagged: false,
+          has_attachments: false,
+        },
+      ],
+      next: null,
+    });
+    render(App);
+    await screen.findByText("Devis cuisine");
+    // Compte sélectionné : Alice ; la conversation est celle de Bob.
+    await screen.findByRole("button", { name: "Actions du compte alice@example.com" });
+    app.selectedAccountId = 2;
+    await fireEvent.keyDown(window, { key: "v" });
+    const picker = await screen.findByRole("dialog", { name: "Déplacer vers…" });
+    await fireEvent.click(await within(picker).findByText("Nouveau dossier…"));
+    const dialog = await screen.findByRole("dialog", { name: "Nouveau dossier" });
+    // Créé dans le compte des messages à déplacer.
+    expect(dialog).toHaveTextContent("bob@example.org");
+    await fireEvent.click(within(dialog).getByRole("button", { name: "Annuler" }));
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "Nouveau dossier" })).toBeNull(),
+    );
+    expect(app.selectedAccountId).toBe(2);
+    vi.mocked(api.listFolders).mockResolvedValue([]);
+    vi.mocked(api.listConversations).mockResolvedValue({ items: [], next: null });
+  });
+
   it("renomme un dossier depuis son menu", async () => {
     bobWithProjets();
     render(App);

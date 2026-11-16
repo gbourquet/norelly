@@ -457,6 +457,43 @@ describe("lecture", () => {
     expect(screen.queryByRole("dialog", { name: "Nouveau dossier" })).toBeNull();
   });
 
+  it("« Nouveau dossier… » ne reprend pas le nom d'un dossier existant cherché", async () => {
+    vi.mocked(api.listFolders).mockResolvedValue([
+      {
+        id: 5,
+        name: "INBOX",
+        leaf: "INBOX",
+        depth: 0,
+        role: "inbox",
+        selectable: true,
+        total: 3,
+        unread: 1,
+      },
+      {
+        id: 7,
+        name: "Projets",
+        leaf: "Projets",
+        depth: 0,
+        role: "normal",
+        selectable: true,
+        total: 0,
+        unread: 0,
+      },
+    ]);
+    render(App);
+    const list = await screen.findByRole("listbox", { name: "Conversations" });
+    await within(list).findByText("Sujet 1");
+    await fireEvent.keyDown(window, { key: "v" });
+    const picker = await screen.findByRole("dialog", { name: "Déplacer vers…" });
+    await fireEvent.input(within(picker).getByPlaceholderText("Rechercher un dossier…"), {
+      target: { value: "projets" },
+    });
+    await within(picker).findByText("Projets");
+    await fireEvent.click(within(picker).getByText("Nouveau dossier…"));
+    const dialog = await screen.findByRole("dialog", { name: "Nouveau dossier" });
+    expect(within(dialog).getByLabelText("Nom du dossier")).toHaveValue("");
+  });
+
   it("dossier créé mais pas encore relu : rien n'est déplacé, l'utilisateur est prévenu", async () => {
     vi.mocked(api.createFolder).mockResolvedValueOnce(null);
     render(App);

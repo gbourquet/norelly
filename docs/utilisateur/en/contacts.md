@@ -75,6 +75,8 @@ If your mail server finds instead that the message does not come from the
 address shown, **Unverified sender** appears next to the name: be careful
 with the links and attachments of that message.
 
+![A message marked “Unverified sender”](captures/sender-unverified.png)
+
 To add someone who wrote to you:
 
 1. Open their message and click their **name** (or **right-click** the

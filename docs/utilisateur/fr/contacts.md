@@ -77,6 +77,8 @@ vient pas de l'adresse affichée, la mention **Expéditeur non vérifié**
 apparaît à côté du nom : méfiez-vous des liens et des pièces jointes de ce
 message.
 
+![Un message signalé « Expéditeur non vérifié »](captures/sender-unverified.png)
+
 Pour ajouter quelqu'un qui vous a écrit :
 
 1. Ouvrez son message et cliquez sur son **nom** (ou faites un **clic

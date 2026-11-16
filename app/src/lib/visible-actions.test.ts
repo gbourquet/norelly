@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { LIST, SIDEBAR } from "../components/ThreePaneLayout.svelte";
 import {
   bulkActions,
   contactBulkActions,
@@ -285,5 +286,60 @@ describe("fitByPriority", () => {
 
   it("largeurs inconnues (pas encore mesurées) : tout est visible", () => {
     expect(fitByPriority(items, 0, 60, 10)).toEqual([true, true, true, true, true]);
+  });
+
+  it("sur deux rangées : la seconde accueille ce qui ne tient pas sur la première", () => {
+    // Rangée 1 : 3 boutons (320 px) ; rangée 2 : 2 boutons et « Plus… » (280 px).
+    expect(fitByPriority(items, 320, 60, 10, true, 2)).toEqual([true, true, true, true, true]);
+    // Au-delà de deux rangées, le moins prioritaire passe dans « Plus… ».
+    expect(fitByPriority(items, 280, 60, 10, true, 2)).toEqual([true, true, false, true, true]);
+  });
+
+  it("sur deux rangées, le retour à la ligne suit l'ordre de la barre", () => {
+    // 400 px par rangée. Le bouton large ne tient pas à côté du premier :
+    // 100 | 300 + 60, deux rangées. Le troisième n'a plus de place
+    // (100 | 300 | 100 + 60), bien que la somme des largeurs tienne.
+    const wide = [
+      { width: 100, priority: 1 },
+      { width: 300, priority: 2 },
+      { width: 100, priority: 3 },
+    ];
+    expect(fitByPriority(wide, 400, 60, 10, true, 2)).toEqual([true, true, false]);
+  });
+
+  it("une action absente (non affichée) ne prend aucune place", () => {
+    // Sans l'action absente : 100 | 100 + 60 sur deux rangées de 200 px.
+    const withAbsent = [
+      { width: 100, priority: 1 },
+      { width: 40, priority: 2, absent: true },
+      { width: 100, priority: 3 },
+    ];
+    expect(fitByPriority(withAbsent, 200, 60, 10, true, 2)).toEqual([true, false, true]);
+    expect(fitByPriority(withAbsent, 0, 60, 10, true, 2)).toEqual([true, false, true]);
+  });
+
+  it("volet de lecture à 1 280 px : les cinq boutons restent visibles", () => {
+    // Largeurs mesurées (police par défaut des captures) : Répondre,
+    // Répondre à tous, Transférer, Archiver, Supprimer, puis « Plus… » ;
+    // volet de lecture : fenêtre moins les panneaux par défaut et les deux
+    // séparateurs (--splitter-size, 5 px), moins ses marges (2 × --space-4).
+    const { primary, rows } = readerActions(null);
+    const available = 1280 - SIDEBAR.initial - LIST.initial - 2 * 5 - 2 * 16;
+    const fr = [119, 170, 125, 110, 125];
+    const en = [89, 114, 108, 103, 97];
+    for (const [widths, more] of [
+      [fr, 92],
+      [en, 101],
+    ] as const) {
+      const fitted = fitByPriority(
+        primary.map((a, i) => ({ width: widths[i] ?? 0, priority: a.priority ?? 0 })),
+        available,
+        more,
+        8,
+        true,
+        rows,
+      );
+      expect(fitted).toEqual([true, true, true, true, true]);
+    }
   });
 });

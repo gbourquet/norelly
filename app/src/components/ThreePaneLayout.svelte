@@ -1,3 +1,9 @@
+<script module lang="ts">
+  /** Largeurs des panneaux (px) : bornes et valeur par défaut. */
+  export const SIDEBAR = { min: 160, max: 420, initial: 240 };
+  export const LIST = { min: 240, max: 720, initial: 380 };
+</script>
+
 <script lang="ts">
   import { m } from "../lib/paraglide/messages.js";
   // Mise en page en 3 panneaux redimensionnables : navigation, liste, lecture.
@@ -14,8 +20,6 @@
   let { sidebar, list, reader }: Props = $props();
 
   const STORAGE_KEY = "norelly.layout.v1";
-  const SIDEBAR = { min: 160, max: 420, initial: 240 };
-  const LIST = { min: 240, max: 720, initial: 380 };
 
   function load(): { sidebar: number; list: number } {
     try {

@@ -308,15 +308,26 @@ export class MailState {
   }
 
   /** Marquage automatique : ni message de confirmation ni annulation,
-   * qui restent ceux de la dernière action de l'utilisateur. */
+   * qui restent ceux de la dernière action de l'utilisateur. La promesse
+   * rendue ne couvre que l'enregistrement du marquage : le rafraîchissement
+   * qui suit n'est pas attendu par une action de l'utilisateur. */
   async #markOpenedSeen(conversation: ConversationDto, shown: number[]): Promise<void> {
     try {
       await this.#api.markOpenedSeen(conversation.id, shown);
-      await this.refreshAfterAction([conversation.account]);
     } catch (e) {
       this.notice = { text: errorText(e), undoable: false };
+      return;
     } finally {
       this.#autoSeenInFlight = null;
+    }
+    void this.#refreshAfterAutoSeen(conversation.account);
+  }
+
+  async #refreshAfterAutoSeen(account: number): Promise<void> {
+    try {
+      await this.refreshAfterAction([account]);
+    } catch (e) {
+      this.notice = { text: errorText(e), undoable: false };
     }
   }
 

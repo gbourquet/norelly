@@ -10,6 +10,7 @@
 
 import type { ConversationDto, FolderDto, ScopeDto, SearchHit } from "./ipc/api";
 import { isEditableFolder, isSameOrUnder, parentName } from "./folder-edit.svelte";
+import { folderLabel } from "./folder-label";
 
 /** Distance (px) à parcourir bouton enfoncé avant que le glisser
  * commence : en deçà, c'est un clic. */
@@ -123,7 +124,7 @@ export function openedPayload(
  * (la boîte de réception et les dossiers spéciaux ne se déplacent pas). */
 export function folderPayload(account: number, folder: FolderDto): FolderPayload | null {
   if (!isEditableFolder(folder)) return null;
-  return { kind: "folder", account, folder, label: folder.leaf };
+  return { kind: "folder", account, folder, label: folderLabel(folder) };
 }
 
 /** La cible accepte ce qui est emporté (affichage seulement : Rust

@@ -2,7 +2,12 @@ import { afterEach, describe, expect, it } from "vitest";
 import { folderLabel, folderServerName } from "./folder-label";
 import { setLocale } from "./paraglide/runtime.js";
 
-const special = (role: string, leaf: string) => ({ role, leaf });
+const special = (role: string, leaf: string, label = leaf, name = leaf) => ({
+  role,
+  leaf,
+  label,
+  name,
+});
 
 describe("libellé d'un dossier", () => {
   afterEach(() => setLocale("fr", { reload: false }));
@@ -29,6 +34,16 @@ describe("libellé d'un dossier", () => {
     expect(folderLabel(special("normal", "Potager"))).toBe("Potager");
     expect(folderLabel(special("autre", "Potager"))).toBe("Potager");
     expect(folderLabel(special("constructor", "Potager"))).toBe("Potager");
+  });
+
+  it("montre le chemin décidé par Rust pour un dossier dont le parent manque", () => {
+    expect(folderLabel(special("normal", "Banque", "Perso/Banque"))).toBe("Perso/Banque");
+    // Nom complet du serveur en info-bulle : le libellé en montre une partie.
+    expect(
+      folderServerName(special("normal", "Banque", "Perso/Banque", "INBOX/Perso/Banque")),
+    ).toBe("INBOX/Perso/Banque");
+    // Sans ancêtre listé, le libellé est déjà le nom complet.
+    expect(folderServerName(special("normal", "y", "x/y", "x/y"))).toBeUndefined();
   });
 
   it("donne le nom du serveur en info-bulle quand il diffère du libellé", () => {

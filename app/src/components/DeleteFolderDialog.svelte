@@ -3,6 +3,7 @@
   // Confirmation de suppression d'un dossier et de ses messages.
   import Modal from "./Modal.svelte";
   import type { AccountDto, FolderDto } from "../lib/ipc/api";
+  import { folderLabel } from "../lib/folder-label";
   import type { DeleteFolderState } from "../lib/folder-edit.svelte";
 
   interface Props {
@@ -33,7 +34,7 @@
   {#if folder}
     <!-- Sans compte ni « vide » : le nombre connu localement peut être faux
          (dossier pas encore synchronisé). -->
-    <p>{m.delete_folder_explanation({ folder: folder.leaf })}</p>
+    <p>{m.delete_folder_explanation({ folder: folderLabel(folder) })}</p>
     <p>{m.delete_folder_irreversible()}</p>
   {/if}
   {#if form.error}

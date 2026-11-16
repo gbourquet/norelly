@@ -1124,18 +1124,13 @@ pub fn folder_display_order(folders: Vec<FolderNode>) -> Vec<FolderNode> {
     let keys: Vec<String> = folders.iter().map(hierarchy_key).collect();
     let mut sorted: Vec<usize> = (0..folders.len()).collect();
     sorted.sort_by(|a, b| keys[*a].cmp(&keys[*b]));
-    let is_ancestor = |ancestor: &str, key: &str| {
-        key.len() > ancestor.len()
-            && key.starts_with(ancestor)
-            && key.as_bytes()[ancestor.len()] == 0
-    };
 
     let mut roots = Vec::new();
     let mut children: Vec<Vec<usize>> = vec![Vec::new(); folders.len()];
     let mut ancestors: Vec<usize> = Vec::new();
     for i in sorted {
         while let Some(&top) = ancestors.last() {
-            if is_ancestor(&keys[top], &keys[i]) {
+            if is_key_ancestor(&keys[top], &keys[i]) {
                 break;
             }
             ancestors.pop();
@@ -1163,6 +1158,85 @@ pub fn folder_display_order(folders: Vec<FolderNode>) -> Vec<FolderNode> {
     }
     let mut slots: Vec<Option<FolderNode>> = folders.into_iter().map(Some).collect();
     order.into_iter().filter_map(|i| slots[i].take()).collect()
+}
+
+/// Vrai si la clé `ancestor` désigne un ancêtre de `key` (voir
+/// [`hierarchy_key`]).
+fn is_key_ancestor(ancestor: &str, key: &str) -> bool {
+    key.len() > ancestor.len() && key.starts_with(ancestor) && key.as_bytes()[ancestor.len()] == 0
+}
+
+/// Dossier placé dans l'arbre affiché.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DisplayedFolder {
+    pub folder: FolderNode,
+    /// Retrait affiché (0 : premier niveau) : il suit l'arbre affiché, pas
+    /// le nombre de séparateurs du nom.
+    pub indent: usize,
+    /// Libellé affiché : dernier segment du nom pour un sous-dossier rangé
+    /// sous son parent et pour un dossier spécial ; chemin depuis l'ancêtre
+    /// listé (nom complet, sans ancêtre listé) pour un dossier dont le
+    /// parent n'est pas listé.
+    pub label: String,
+}
+
+/// Place dans l'arbre affiché des dossiers déjà rangés par
+/// [`folder_display_order`] (ce que renvoie
+/// [`crate::ports::FolderTreeQuery::tree`]) : un seul passage, sans nouveau
+/// tri. Un dossier spécial remonté au premier niveau n'a pas de retrait ;
+/// un dossier dont le parent n'est pas listé est placé un cran sous son
+/// plus proche ancêtre listé et montre le chemin qui manque.
+///
+/// Dans cet ordre, le parent affiché d'un dossier ordinaire est le plus
+/// proche de ses ancêtres sur le chemin du dossier précédent : une pile
+/// suffit. Une entrée dans un autre ordre donne un placement faux, jamais
+/// de panique ni de dossier perdu.
+#[must_use]
+pub fn place_in_display_tree(ordered: Vec<FolderNode>) -> Vec<DisplayedFolder> {
+    /// Ancêtre affiché sur le chemin courant.
+    struct Ancestor {
+        key: String,
+        indent: usize,
+        segments: usize,
+    }
+    let mut path: Vec<Ancestor> = Vec::new();
+    let mut out = Vec::with_capacity(ordered.len());
+    for folder in ordered {
+        let key = hierarchy_key(&folder);
+        let segments = key.bytes().filter(|b| *b == 0).count().saturating_add(1);
+        if folder.role == MailboxRole::Normal {
+            while path.last().is_some_and(|a| !is_key_ancestor(&a.key, &key)) {
+                path.pop();
+            }
+        } else {
+            // Dossier spécial : toujours au premier niveau.
+            path.clear();
+        }
+        // Retrait, et segments du nom déjà montrés par l'ancêtre affiché.
+        let (indent, shown) = match path.last() {
+            Some(parent) => (parent.indent.saturating_add(1), parent.segments),
+            None if folder.role == MailboxRole::Normal => (0, 0),
+            None => (0, segments.saturating_sub(1)),
+        };
+        let mut label = folder.name.as_str();
+        if let Some(d) = folder.delimiter {
+            for _ in 0..shown {
+                label = label.split_once(d).map_or("", |(_, tail)| tail);
+            }
+        }
+        let label = label.to_owned();
+        path.push(Ancestor {
+            key,
+            indent,
+            segments,
+        });
+        out.push(DisplayedFolder {
+            folder,
+            indent,
+            label,
+        });
+    }
+    out
 }
 
 /// Clé de hiérarchie d'un dossier pour [`folder_display_order`].

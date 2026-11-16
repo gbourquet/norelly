@@ -280,7 +280,10 @@
   ): Promise<void> {
     try {
       const id = await api.moveFolder(account, folder.id, parent?.id ?? null);
-      mail.notice = { text: m.action_folder_moved({ folder: folder.leaf }), undoable: false };
+      mail.notice = {
+        text: m.action_folder_moved({ folder: folderLabel(folder) }),
+        undoable: false,
+      };
       await afterFolderChange(account, folder, id);
     } catch (e) {
       mail.notice = { text: errorText(e), undoable: false };
@@ -645,7 +648,10 @@
   onDeleted={(folder) => {
     const account = app.selectedAccountId;
     app.close();
-    mail.notice = { text: m.action_folder_deleted({ folder: folder.leaf }), undoable: false };
+    mail.notice = {
+      text: m.action_folder_deleted({ folder: folderLabel(folder) }),
+      undoable: false,
+    };
     if (account !== null) void afterFolderChange(account, folder, null);
   }}
 />

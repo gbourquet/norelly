@@ -76,7 +76,7 @@
               value={String(folder.id)}
               onSelect={() => choose(folder)}
             >
-              <span style:padding-left="{Math.min(folder.depth, 6) * 12}px">{label(folder)}</span>
+              <span>{label(folder)}</span>
             </Command.Item>
           {/each}
         </Command.List>

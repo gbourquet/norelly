@@ -813,6 +813,56 @@ async fn folder_creation_revalidates_its_inputs() {
 }
 
 #[tokio::test]
+async fn folders_carry_the_indent_and_label_decided_by_the_domain() {
+    use norelly_domain::mailbox::{MailboxName, MailboxRole, RemoteMailbox};
+    use norelly_domain::ports::MailStore;
+    let t = test_app().await;
+    let account = id32(t.account.get());
+    let mailbox = |name: &str, role| RemoteMailbox {
+        name: MailboxName::parse(name).unwrap_or_else(|e| panic!("{e}")),
+        delimiter: Some('/'),
+        role,
+        selectable: true,
+    };
+    t.state()
+        .mail
+        .store
+        .replace_mailboxes(
+            t.account,
+            &[
+                mailbox("INBOX", MailboxRole::Inbox),
+                mailbox("INBOX/Perso/Banque", MailboxRole::Normal),
+                mailbox("[Gmail]", MailboxRole::Normal),
+                mailbox("[Gmail]/Sent Mail", MailboxRole::Sent),
+            ],
+        )
+        .await
+        .unwrap_or_else(|e| panic!("{e}"));
+    let folders = list_folders(t.state(), account).await.unwrap_or_else(fail);
+    let shown: Vec<(&str, u32, u32, &str, &str)> = folders
+        .iter()
+        .map(|f| {
+            (
+                f.name.as_str(),
+                f.depth,
+                f.indent,
+                f.leaf.as_str(),
+                f.label.as_str(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        shown,
+        [
+            ("INBOX", 0, 0, "INBOX", "INBOX"),
+            ("INBOX/Perso/Banque", 2, 1, "Banque", "Perso/Banque"),
+            ("[Gmail]/Sent Mail", 1, 0, "Sent Mail", "Sent Mail"),
+            ("[Gmail]", 0, 0, "[Gmail]", "[Gmail]"),
+        ]
+    );
+}
+
+#[tokio::test]
 async fn folder_rename_and_delete_revalidate_their_inputs() {
     use crate::folders::{delete_folder, move_folder, rename_folder};
     use norelly_domain::mailbox::{MailboxName, MailboxRole, RemoteMailbox};

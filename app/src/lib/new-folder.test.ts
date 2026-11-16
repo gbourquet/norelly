@@ -3,12 +3,21 @@ import type { FolderDto } from "./ipc/api";
 import { IpcFailure } from "./errors";
 import { NewFolderState, parentChoices, type NewFolderApi } from "./new-folder.svelte";
 
-function folder(id: number, name: string, depth: number, role = "normal"): FolderDto {
+function folder(
+  id: number,
+  name: string,
+  depth: number,
+  role = "normal",
+  shown: Partial<Pick<FolderDto, "indent" | "label">> = {},
+): FolderDto {
+  const leaf = name.split("/").at(-1) ?? name;
   return {
     id,
     name,
-    leaf: name.split("/").at(-1) ?? name,
+    leaf,
     depth,
+    indent: shown.indent ?? depth,
+    label: shown.label ?? leaf,
     role,
     selectable: true,
     total: 0,
@@ -37,6 +46,20 @@ describe("emplacements d'un nouveau dossier", () => {
       { id: 1, label: "Boîte de réception", depth: 1 },
       { id: 2, label: "Projets", depth: 1 },
       { id: 3, label: "2026", depth: 2 },
+    ]);
+  });
+
+  it("suit le retrait et le libellé de l'arbre affiché", () => {
+    const folders = [
+      folder(1, "INBOX", 0, "inbox"),
+      folder(2, "INBOX/Perso/Banque", 2, "normal", { indent: 1, label: "Perso/Banque" }),
+      folder(3, "[Gmail]/Sent Mail", 1, "sent", { indent: 0 }),
+    ];
+    expect(parentChoices(folders, "Premier niveau")).toEqual([
+      { id: null, label: "Premier niveau", depth: 0 },
+      { id: 1, label: "Boîte de réception", depth: 1 },
+      { id: 2, label: "Perso/Banque", depth: 2 },
+      { id: 3, label: "Envoyés", depth: 1 },
     ]);
   });
 

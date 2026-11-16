@@ -46,6 +46,8 @@ function folder(id: number, selectable = true): FolderDto {
     name: `F${id}`,
     leaf: `F${id}`,
     depth: 0,
+    indent: 0,
+    label: `F${id}`,
     role: "normal",
     selectable,
     total: 0,
@@ -151,6 +153,8 @@ describe("glisser un dossier", () => {
       name,
       leaf: name.split("/").at(-1) ?? name,
       depth: name.split("/").length - 1,
+      indent: name.split("/").length - 1,
+      label: name.split("/").at(-1) ?? name,
       role,
     };
   }
@@ -172,6 +176,11 @@ describe("glisser un dossier", () => {
     });
     expect(folderPayload(1, inbox)).toBeNull();
     expect(folderPayload(1, named(9, "Envoyés", "sent"))).toBeNull();
+  });
+
+  it("porte le libellé affiché du dossier", () => {
+    const orphan = { ...named(10, "INBOX/Perso/Banque"), indent: 1, label: "Perso/Banque" };
+    expect(folderPayload(1, orphan)?.label).toBe("Perso/Banque");
   });
 
   it("se dépose dans un autre dossier du compte, même non sélectionnable", () => {

@@ -42,6 +42,51 @@ function fakeApi(fail?: IpcFailure) {
   return api;
 }
 
+describe("résultat inconnu", () => {
+  const unknown = () => new IpcFailure("folder_outcome_unknown", null, "délai");
+  const text =
+    "Le serveur n'a pas confirmé la modification : elle a peut-être été faite. " +
+    "La liste des dossiers va être mise à jour : vérifiez-la avant de réessayer. (« délai »)";
+
+  it("renommer : relit la liste des dossiers et le dit", async () => {
+    const reload = vi.fn(async () => {});
+    const state = new RenameFolderState(fakeApi(unknown()), reload);
+    const projets = folder(5, "Projets");
+    state.reset(projets);
+    state.name = "Chantiers";
+    expect(await state.submit(7, projets)).toBeNull();
+    expect(reload).toHaveBeenCalledWith(7);
+    expect(state.error).toBe(text);
+    expect(state.busy).toBe(false);
+  });
+
+  it("déplacer : relit la liste des dossiers", async () => {
+    const reload = vi.fn(async () => {});
+    const state = new MoveFolderState(fakeApi(unknown()), reload);
+    const bli = folder(4, "Bli");
+    state.reset(bli, [folder(2, "Bla"), bli]);
+    state.parent = 2;
+    expect(await state.submit(7, bli)).toBeNull();
+    expect(reload).toHaveBeenCalledWith(7);
+    expect(state.error).toBe(text);
+  });
+
+  it("supprimer : relit la liste des dossiers", async () => {
+    const reload = vi.fn(async () => {});
+    const state = new DeleteFolderState(fakeApi(unknown()), reload);
+    expect(await state.submit(7, folder(5, "Projets"))).toBe(false);
+    expect(reload).toHaveBeenCalledWith(7);
+    expect(state.error).toBe(text);
+  });
+
+  it("refus ordinaire : la liste n'est pas relue", async () => {
+    const reload = vi.fn(async () => {});
+    const state = new DeleteFolderState(fakeApi(new IpcFailure("folder_delete_failed")), reload);
+    await state.submit(7, folder(5, "Projets"));
+    expect(reload).not.toHaveBeenCalled();
+  });
+});
+
 describe("dossiers modifiables", () => {
   it("seuls les dossiers ordinaires se renomment ou se suppriment", () => {
     expect(isEditableFolder(folder(1, "Projets"))).toBe(true);

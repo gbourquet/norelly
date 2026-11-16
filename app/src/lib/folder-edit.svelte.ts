@@ -4,7 +4,7 @@
 
 import type { Api, FolderDto } from "./ipc/api";
 import { parentChoices, type ParentChoice } from "./new-folder.svelte";
-import { errorText } from "./errors";
+import { folderFailureText, type ReloadFolders } from "./folder-failure";
 
 export type FolderEditApi = Pick<Api, "renameFolder" | "deleteFolder" | "moveFolder">;
 
@@ -24,6 +24,7 @@ export interface RenamedFolder {
 
 export class RenameFolderState {
   readonly #api: FolderEditApi;
+  readonly #reload: ReloadFolders | undefined;
   /** Nom actuel du dossier (dernier segment). */
   #current = $state("");
   name = $state("");
@@ -34,7 +35,8 @@ export class RenameFolderState {
     this.name.trim() !== "" && this.name.trim() !== this.#current && !this.busy,
   );
 
-  constructor(api: FolderEditApi) {
+  constructor(api: FolderEditApi, reload?: ReloadFolders) {
+    this.#reload = reload;
     this.#api = api;
   }
 
@@ -54,7 +56,7 @@ export class RenameFolderState {
       const id = await this.#api.renameFolder(account, folder.id, this.name);
       return { id, name: this.name.trim() };
     } catch (e) {
-      this.error = errorText(e);
+      this.error = await folderFailureText(e, account, this.#reload);
       return null;
     } finally {
       this.busy = false;
@@ -108,6 +110,7 @@ export function destinationChoices(
 
 export class MoveFolderState {
   readonly #api: FolderEditApi;
+  readonly #reload: ReloadFolders | undefined;
   /** Emplacement actuel du dossier. */
   /** `undefined` : parent non listé, tout choix est un déplacement. */
   #current = $state<number | null | undefined>(null);
@@ -117,7 +120,8 @@ export class MoveFolderState {
 
   readonly canSubmit = $derived(this.parent !== this.#current && !this.busy);
 
-  constructor(api: FolderEditApi) {
+  constructor(api: FolderEditApi, reload?: ReloadFolders) {
+    this.#reload = reload;
     this.#api = api;
   }
 
@@ -137,7 +141,7 @@ export class MoveFolderState {
       const id = await this.#api.moveFolder(account, folder.id, this.parent);
       return { id, name: folder.leaf };
     } catch (e) {
-      this.error = errorText(e);
+      this.error = await folderFailureText(e, account, this.#reload);
       return null;
     } finally {
       this.busy = false;
@@ -147,10 +151,12 @@ export class MoveFolderState {
 
 export class DeleteFolderState {
   readonly #api: FolderEditApi;
+  readonly #reload: ReloadFolders | undefined;
   busy = $state(false);
   error = $state<string | null>(null);
 
-  constructor(api: FolderEditApi) {
+  constructor(api: FolderEditApi, reload?: ReloadFolders) {
+    this.#reload = reload;
     this.#api = api;
   }
 
@@ -167,7 +173,7 @@ export class DeleteFolderState {
       await this.#api.deleteFolder(account, folder.id);
       return true;
     } catch (e) {
-      this.error = errorText(e);
+      this.error = await folderFailureText(e, account, this.#reload);
       return false;
     } finally {
       this.busy = false;

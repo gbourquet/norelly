@@ -190,6 +190,8 @@ function codeText(code: ErrorCodeDto, field: FieldDto | null): string {
       return m.err_folder_move_failed();
     case "folder_delete_failed":
       return m.err_folder_delete_failed();
+    case "folder_outcome_unknown":
+      return m.err_folder_outcome_unknown();
     case "update_failed":
       return m.err_update_failed();
     case "contact_no_address":

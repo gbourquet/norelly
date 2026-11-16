@@ -20,6 +20,7 @@
   import DeleteFolderDialog from "./components/DeleteFolderDialog.svelte";
   import MoveFolderDialog from "./components/MoveFolderDialog.svelte";
   import { DeleteFolderState, MoveFolderState, RenameFolderState } from "./lib/folder-edit.svelte";
+  import { folderFailureText } from "./lib/folder-failure";
   import { DragMove, edgeScroll, openedPayload, type DropTarget } from "./lib/drag-move.svelte";
   import ActionNotice from "./components/ActionNotice.svelte";
   import ActionBar from "./components/ActionBar.svelte";
@@ -160,7 +161,9 @@
         : m.compose_title_reply(),
   );
 
-  const newFolder = new NewFolderState(api);
+  // Résultat inconnu d'une modification de dossier : liste relue.
+  const reloadFolders = (account: number): Promise<void> => mail.loadFolders(account);
+  const newFolder = new NewFolderState(api, reloadFolders);
   const newFolderAccount = $derived(app.dialog === "new-folder" ? app.newFolderAccountId() : null);
 
   // Formulaire vide (ou prérempli : sous-dossier, nom cherché dans
@@ -172,9 +175,9 @@
     }
   });
 
-  const renameFolder = new RenameFolderState(api);
-  const moveFolder = new MoveFolderState(api);
-  const deleteFolder = new DeleteFolderState(api);
+  const renameFolder = new RenameFolderState(api, reloadFolders);
+  const moveFolder = new MoveFolderState(api, reloadFolders);
+  const deleteFolder = new DeleteFolderState(api, reloadFolders);
   /** Dossier visé par le renommage, le déplacement ou la suppression
    * ouverts. */
   const editedFolder = $derived(
@@ -291,7 +294,10 @@
       };
       await afterFolderChange(account, folder, id);
     } catch (e) {
-      mail.notice = { text: errorText(e), undoable: false };
+      mail.notice = {
+        text: await folderFailureText(e, account, reloadFolders),
+        undoable: false,
+      };
     }
   }
 

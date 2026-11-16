@@ -414,7 +414,8 @@ export class MailState {
         scope,
         action,
       );
-      this.marked = [];
+      // Les cochées ne sont pas visées par un glisser venu d'ailleurs.
+      if (from === undefined) this.marked = [];
       if (result.ops.length === 0) {
         this.notice = { text: m.action_nothing(), undoable: false };
       } else {

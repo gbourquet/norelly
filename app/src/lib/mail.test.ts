@@ -352,6 +352,19 @@ describe("conversation ouverte depuis la recherche", () => {
     expect(acted).toHaveBeenCalledTimes(1);
   });
 
+  it("garde les conversations cochées quand le glisser vient d'ailleurs", async () => {
+    const api = fakeApi(3);
+    const mail = new MailState(api, noAutoSeen);
+    await mail.show(UNIFIED_INBOX);
+    mail.toggleMarkAt(0);
+    mail.toggleMarkAt(1);
+    await mail.act({ kind: "move", mailbox: 5 }, "Déplacé.", [42], {
+      account: 1,
+      scope: { kind: "mailbox", id: 77 },
+    });
+    expect(mail.marked).toEqual([1, 2]);
+  });
+
   it("ignore les conversations cochées dans la liste", async () => {
     const api = fakeApi(3);
     const mail = new MailState(api, noAutoSeen);

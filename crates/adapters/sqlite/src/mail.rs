@@ -379,8 +379,8 @@ fn rename(
     // renommées pendant l'opération.
     for (id, _) in &renamed {
         tx.execute(
-            "UPDATE mailboxes SET name = ?2 WHERE id = ?1",
-            params![id, format!("\u{0}{id}")],
+            "UPDATE mailboxes SET name = ?2 WHERE id = ?1 AND account_id = ?3",
+            params![id, format!("\u{0}{id}"), account.get()],
         )
         .map_err(store_error)?;
     }
@@ -398,8 +398,8 @@ fn rename(
         )
         .map_err(store_error)?;
         tx.execute(
-            "UPDATE mailboxes SET name = ?2 WHERE id = ?1",
-            params![id, name.as_str()],
+            "UPDATE mailboxes SET name = ?2 WHERE id = ?1 AND account_id = ?3",
+            params![id, name.as_str(), account.get()],
         )
         .map_err(store_error)?;
     }

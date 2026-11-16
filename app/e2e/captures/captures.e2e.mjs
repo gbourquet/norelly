@@ -446,6 +446,78 @@ describe(`captures d'écran (${lang})`, () => {
     await row().waitForDisplayed({ timeout: 10000 });
   });
 
+  it("glisser un résultat de recherche sur un dossier hors de vue, puis annuler", async () => {
+    const folders = `//*[@aria-label="${msg("sidebar_folders_of", { address })}"]`;
+    const target = $(`${folders}//span[normalize-space()="${content.folder}"]`);
+    await button(msg("search_label")).click();
+    const box = $('input[type="search"]');
+    await box.waitForDisplayed({ timeout: 10000 });
+    const results = $(`[role="listbox"][aria-label="${msg("search_results")}"]`);
+    const hit = results.$(`.//*[@role="option"][.//mark[normalize-space()="${content.search}"]]`);
+    await browser.waitUntil(
+      async () => {
+        await box.click();
+        await box.clearValue();
+        await box.setValue(content.search);
+        await browser.keys("Enter");
+        return hit.isDisplayed();
+      },
+      { timeout: 60000, interval: 1000, timeoutMsg: "mot recherché introuvable" },
+    );
+
+    // Panneau de gauche réduit : le dossier est sous le bord bas, hors de vue.
+    // Éléments résolus : `browser.execute` ne reçoit que des éléments trouvés.
+    const nav = await $("nav[data-drop-scroll]");
+    const folder = await target;
+    await browser.execute((el) => {
+      el.style.height = "200px";
+      el.style.alignSelf = "start";
+      el.scrollTop = 0;
+    }, nav);
+    const inView = () =>
+      browser.execute(
+        (el, t) => {
+          const pane = el.getBoundingClientRect();
+          const r = t.getBoundingClientRect();
+          return r.top >= pane.top && r.bottom <= pane.bottom - 60;
+        },
+        nav,
+        folder,
+      );
+    expect(await inView()).toBe(false);
+
+    // Bouton enfoncé, amené près du bord bas du panneau et tenu : le panneau
+    // défile jusqu'à montrer le dossier.
+    const { height } = await nav.getSize();
+    const mouse = () =>
+      browser.action("pointer", { id: "souris", parameters: { pointerType: "mouse" } });
+    await mouse()
+      .move({ origin: hit })
+      .down({ button: 0 })
+      .move({ origin: hit, x: 20, y: 10, duration: 100 })
+      .move({ origin: nav, x: 0, y: Math.floor(height / 2) - 4, duration: 300 })
+      .perform(true);
+    await $(".drag-ghost").waitForDisplayed({ timeout: 10000 });
+    await browser.waitUntil(inView, { timeout: 15000, timeoutMsg: "panneau pas défilé" });
+    await mouse().move({ origin: target, duration: 200 }).perform(true);
+    await expect(target.parentElement().parentElement()).toHaveElementClass("drop-over");
+    await mouse().move({ origin: target, duration: 50 }).up({ button: 0 }).perform();
+    await expect($(".notice-region")).toHaveText(
+      expect.stringContaining(msg("action_moved", { folder: content.folder })),
+      { wait: 10000 },
+    );
+    await browser.execute((el) => {
+      el.style.height = "";
+      el.style.alignSelf = "";
+    }, nav);
+    await $(`//button[starts-with(normalize-space(), "${msg("action_undo")}")]`).click();
+    await expect($(".notice-region")).toHaveText(expect.stringContaining(msg("action_undone")), {
+      wait: 10000,
+    });
+    await browser.keys("Escape");
+    await box.waitForDisplayed({ reverse: true, timeout: 10000 });
+  });
+
   it("renommer, déplacer (fenêtre puis glisser) et supprimer un dossier (à la souris)", async () => {
     const folders = `//*[@aria-label="${msg("sidebar_folders_of", { address })}"]`;
     const label = (name) => $(`${folders}//span[normalize-space()="${name}"]`);

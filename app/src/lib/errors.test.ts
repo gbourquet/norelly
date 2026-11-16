@@ -152,6 +152,7 @@ describe("traduction des erreurs IPC", () => {
       folder_create_failed: true,
       folder_protected: true,
       folder_has_subfolders: true,
+      folder_contains_special: true,
       folder_into_itself: true,
       folder_reserved_name: true,
       folder_rename_failed: true,

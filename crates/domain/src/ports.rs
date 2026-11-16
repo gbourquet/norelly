@@ -452,6 +452,17 @@ pub trait RemoteMailboxSession: Send {
         to: &MailboxName,
     ) -> impl Future<Output = Result<(), ConnectionError>> + Send;
 
+    /// Nombre de boîtes que le serveur liste directement sous `parent`
+    /// (`LIST "" "<parent><délim>%"`), noms illisibles ou refusés compris,
+    /// ainsi que les niveaux intermédiaires d'un sous-dossier plus profond :
+    /// zéro seulement si `parent` n'a aucun sous-dossier. Relu juste avant
+    /// une suppression, sans la borne de [`list_mailboxes`](Self::list_mailboxes).
+    fn count_subfolders(
+        &mut self,
+        parent: &MailboxName,
+        delimiter: char,
+    ) -> impl Future<Output = Result<usize, ConnectionError>> + Send;
+
     /// Supprime une boîte et ses messages (`DELETE`). Refus du serveur :
     /// [`ConnectionError::Rejected`].
     fn delete_mailbox(

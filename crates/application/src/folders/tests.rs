@@ -217,6 +217,23 @@ async fn folder_with_subfolders_is_not_deleted() {
 }
 
 #[tokio::test]
+async fn folder_with_a_hidden_subfolder_is_not_deleted() {
+    // Sous-dossier au nom refusé (caractère de mise en forme) : absent de
+    // la liste du compte, mais relu sur le serveur avant la suppression.
+    let imap = FakeImap::new();
+    imap.create_mailbox("Projets", &[]);
+    imap.create_mailbox("Projets/Caché\u{200B}", &[]);
+    let mut session = imap.session().unwrap_or_else(|e| panic!("{e}"));
+    let folder = name("Projets");
+    let deleted = DeleteFolder { folder: &folder }.execute(&mut session).await;
+    assert_eq!(
+        deleted,
+        Err(FolderFailure::Change(FolderChangeError::HasSubfolders))
+    );
+    assert_eq!(names(&imap).await, ["INBOX", "Projets"]);
+}
+
+#[tokio::test]
 async fn moves_the_folder_with_its_subfolders() {
     let imap = FakeImap::new();
     imap.create_mailbox("Bla", &[]);

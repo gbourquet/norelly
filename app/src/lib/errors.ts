@@ -178,6 +178,8 @@ function codeText(code: ErrorCodeDto, field: FieldDto | null): string {
       return m.err_folder_protected();
     case "folder_has_subfolders":
       return m.err_folder_has_subfolders();
+    case "folder_contains_special":
+      return m.err_folder_contains_special();
     case "folder_into_itself":
       return m.err_folder_into_itself();
     case "folder_reserved_name":

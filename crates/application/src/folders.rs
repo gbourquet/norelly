@@ -4,14 +4,15 @@
 //!
 //! Les règles (nom, préfixe, séparateur, doublons, dossiers protégés,
 //! sous-dossiers) sont dans `norelly_domain::mailbox` (`new_folder_name`,
-//! `renamed_folder_name`, `moved_folder_name`, `deletable_folder`) ; ce
-//! module ne fait qu'orchestrer la session, d'après la liste relue sur le
-//! serveur.
+//! `renamed_folder_name`, `moved_folder_name`, `deletable_folder`,
+//! `no_listed_subfolder`) ; ce module ne fait qu'orchestrer la session,
+//! d'après la liste relue sur le serveur (et, avant une suppression, les
+//! sous-dossiers relus sous le dossier).
 
 use norelly_domain::connection::ConnectionError;
 use norelly_domain::mailbox::{
     FolderChangeError, MailboxName, NewFolderError, classify_mailboxes, deletable_folder,
-    moved_folder_name, new_folder_name, renamed_folder_name,
+    moved_folder_name, new_folder_name, no_listed_subfolder, renamed_folder_name,
 };
 use norelly_domain::ports::RemoteMailboxSession;
 
@@ -120,7 +121,9 @@ impl DeleteFolder<'_> {
         session: &mut S,
     ) -> Result<(), FolderFailure> {
         let existing = classify_mailboxes(session.list_mailboxes().await?);
-        deletable_folder(self.folder, &existing)?;
+        if let Some(delimiter) = deletable_folder(self.folder, &existing)? {
+            no_listed_subfolder(session.count_subfolders(self.folder, delimiter).await?)?;
+        }
         session.delete_mailbox(self.folder).await?;
         Ok(())
     }

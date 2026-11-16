@@ -266,6 +266,15 @@ Risques résiduels, acceptés avec la décision du mainteneur :
 - Bornes partout : profondeur MIME, nombre de parties, tailles, nombre de
   clauses, de destinataires, de pièces jointes, d'opérations en attente,
   durée d'une recherche (2 s).
+- Suppression d'un dossier : refusée s'il a un sous-dossier, d'après la
+  liste du compte puis un `LIST "<parent><délim>%"` relu juste avant
+  `DELETE`, où tout nom illisible ou refusé compte
+  (`RemoteMailboxSession::count_subfolders`, `no_listed_subfolder`).
+  Limite propre à IMAP, sans commande atomique : un sous-dossier créé par
+  un autre client entre ce `LIST` et `DELETE` n'est pas vu.
+- Renommage et déplacement d'un dossier : refusés s'il contient un dossier
+  spécial ou s'il irait sous lui-même, à la casse près et selon le
+  séparateur de l'un ou de l'autre (`relocatable`, `is_same_or_under`).
 
 ### Rédaction
 

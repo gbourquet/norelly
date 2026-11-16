@@ -227,7 +227,9 @@ sur **Renommer le dossier…**,
 ![La confirmation avant de supprimer un dossier](captures/delete-folder.png)
 
 La boîte de réception et les dossiers spéciaux (Envoyés, Brouillons,
-Corbeille…) ne peuvent être ni renommés, ni déplacés, ni supprimés.
+Corbeille…) ne peuvent être ni renommés, ni déplacés, ni supprimés. Un
+dossier qui contient un dossier spécial ne peut pas non plus être renommé
+ni déplacé, puisque le dossier spécial le suivrait.
 
 Pour agir sur **plusieurs messages d'un coup**, cochez la case au début de
 chaque ligne voulue. Une barre apparaît au-dessus de la liste : elle

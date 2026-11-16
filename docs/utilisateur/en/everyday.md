@@ -207,7 +207,8 @@ right (or right-click the folder), then **Rename folder…**, **Move folder…**
 ![The confirmation before deleting a folder](captures/delete-folder.png)
 
 The inbox and special folders (Sent, Drafts, Trash…) cannot be renamed,
-moved or deleted.
+moved or deleted. Neither can a folder that contains a special folder,
+since the special folder would move with it.
 
 To act on **several messages at once**, tick the box at the start of each
 line you want. A bar appears above the list: it shows how many messages are

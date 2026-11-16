@@ -553,6 +553,14 @@ impl RemoteMailboxSession for ImapSession {
         self.conn.rename(from, to).await
     }
 
+    async fn count_subfolders(
+        &mut self,
+        parent: &MailboxName,
+        delimiter: char,
+    ) -> Result<usize, ConnectionError> {
+        self.conn.count_children(parent, delimiter).await
+    }
+
     async fn delete_mailbox(&mut self, mailbox: &MailboxName) -> Result<(), ConnectionError> {
         self.leave_selected().await?;
         self.conn.delete(mailbox).await

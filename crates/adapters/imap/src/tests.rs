@@ -323,6 +323,40 @@ async fn injection_after_starttls_is_rejected() -> TestResult {
     Ok(())
 }
 
+/// Injection cachée derrière un faux littéral : le OK de STARTTLS finit par
+/// `{5}`, mais un texte d'état n'annonce pas de littéral. Les cinq octets
+/// envoyés en clair restent des données injectées, refusées comme telles.
+#[tokio::test]
+async fn injection_behind_a_literal_like_starttls_reply_is_rejected() -> TestResult {
+    let f = fixture()?;
+    let cert = f.ca.issue(&["localhost"])?;
+    let server = ScriptedServer::start(
+        Script::new()
+            .send(imap::greeting("IMAP4rev1 STARTTLS LOGINDISABLED"))
+            .expect("STARTTLS")
+            .send("{tag} OK Debut TLS {5}\r\nXXXXX")
+            .expect_eof(),
+        Some(cert.server_config()?),
+    )
+    .await?;
+    let result = f
+        .connector
+        .connect(&request(
+            server.port(),
+            Security::StartTls,
+            PlaintextPolicy::deny_all(),
+        ))
+        .await;
+    assert!(
+        matches!(result, Err(ConnectionError::PlaintextInjection)),
+        "{result:?}"
+    );
+    let outcome = server.finish().await;
+    assert_no_credentials_sent(&outcome);
+    outcome.result?;
+    Ok(())
+}
+
 #[tokio::test]
 async fn logindisabled_without_mechanism_is_respected() -> TestResult {
     let f = fixture()?;
@@ -1771,7 +1805,7 @@ async fn status_text_ending_like_a_literal_is_not_a_literal() -> TestResult {
     let Err(ConnectionError::Rejected(text)) = refused else {
         panic!("refus attendu : {refused:?}");
     };
-    assert!(text.contains("Mailbox doesn't exist: Notes"), "{text}");
+    assert!(text.contains("Mailbox doesn't exist: Notes{3}"), "{text}");
     tokio::time::timeout(
         Duration::from_secs(5),
         session.create_mailbox(&MailboxName::parse("Projets")?),

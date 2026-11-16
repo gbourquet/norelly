@@ -25,7 +25,7 @@ pub(crate) struct Nesting {
 impl Nesting {
     /// Analyse une ligne (jusqu'à `\n` compris, hors littéral). Renvoie la
     /// taille du littéral annoncé en fin de ligne (`{n}` ou `{n+}` juste
-    /// avant CRLF), qui suit la ligne et ne doit pas être analysé.
+    /// avant CRLF ou LF), qui suit la ligne et ne doit pas être analysé.
     pub(crate) fn scan_line(&mut self, line: &[u8]) -> Option<u64> {
         for &b in line {
             if self.in_quote {
@@ -58,9 +58,13 @@ impl Nesting {
 }
 
 /// Taille d'un littéral annoncé en fin de ligne : `…{123}\r\n` ou
-/// `…{123+}\r\n` (et `~{123}` pour un littéral binaire).
+/// `…{123+}\r\n` (et `~{123}` pour un littéral binaire). Comme le découpage
+/// d'`imap-codec`, un LF seul termine aussi l'annonce : les deux découpages
+/// restent d'accord sur la fin de chaque réponse.
 fn literal_size(line: &[u8]) -> Option<u64> {
-    let body = line.strip_suffix(b"\r\n")?.strip_suffix(b"}")?;
+    let line = line.strip_suffix(b"\n")?;
+    let line = line.strip_suffix(b"\r").unwrap_or(line);
+    let body = line.strip_suffix(b"}")?;
     let body = body.strip_suffix(b"+").unwrap_or(body);
     let open = body.iter().rposition(|&b| b == b'{')?;
     let digits = body.get(open + 1..)?;
@@ -79,7 +83,10 @@ mod tests {
         assert_eq!(literal_size(b"* 1 FETCH (BODY[] {12}\r\n"), Some(12));
         assert_eq!(literal_size(b"A1 APPEND x {5+}\r\n"), Some(5));
         assert_eq!(literal_size(b"* 1 FETCH (BINARY[1] ~{3}\r\n"), Some(3));
-        assert_eq!(literal_size(b"* OK {12}\n"), None);
+        // LF seul : littéral aussi pour le découpage d'`imap-codec`, qui
+        // ne doit pas voir ses octets analysés comme d'autres réponses.
+        assert_eq!(literal_size(b"* 1 FETCH (BODY[] {12}\n"), Some(12));
+        assert_eq!(literal_size(b"* 1 FETCH (BODY[] {12}\n\r"), None);
         assert_eq!(literal_size(b"* OK {}\r\n"), None);
         assert_eq!(literal_size(b"* OK {1a}\r\n"), None);
         assert_eq!(literal_size(b"* OK texte}\r\n"), None);

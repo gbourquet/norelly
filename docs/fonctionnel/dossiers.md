@@ -21,7 +21,14 @@ supprimer, depuis l'application.
   corbeille…), puis les autres dossiers par nom.
 - Un dossier spécial que le fournisseur range dans un autre dossier (les
   messages envoyés de Gmail, par exemple) garde sa place parmi les
-  dossiers spéciaux.
+  dossiers spéciaux, sans retrait : il ne semble pas rangé sous le
+  dossier qui le précède.
+- Un dossier dont le dossier parent n'est pas annoncé par le fournisseur
+  s'affiche un cran sous son plus proche dossier parent présent (ou au
+  premier niveau s'il n'en a aucun), avec le chemin qui manque dans son
+  nom (« Perso/Banque » sous la boîte de réception, par exemple), dans le
+  panneau comme dans les emplacements proposés ; son nom complet chez le
+  fournisseur s'affiche en info-bulle.
 - Les dossiers spéciaux portent un nom dans la langue de l'application
   (Boîte de réception, Brouillons, Envoyés, Archives, Indésirables,
   Corbeille, Tous les messages, Messages suivis), quel que soit le nom

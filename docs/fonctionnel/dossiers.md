@@ -178,13 +178,15 @@ déplacer « Bli » dans « Bla » en fait un sous-dossier de « Bla ».
   supprimé, sous-dossier ajouté) : la vérification se fait d'après la liste
   présente sur le serveur, et l'opération est refusée si elle n'a plus de
   sens.
-- Les messages d'un dossier renommé ou déplacé sont téléchargés à nouveau
-  sous son nouveau nom.
+- Un dossier renommé ou déplacé garde ses messages déjà présents sur
+  l'ordinateur, sous-dossiers compris : rien n'est téléchargé à nouveau,
+  seuls les changements faits entre-temps sur le serveur sont récupérés.
 - Un message rangé dans un dossier (ou sorti d'un dossier) juste avant que
   ce dossier soit renommé ou déplacé, alors que l'action n'est pas encore
   faite sur le serveur (délai d'annulation, hors ligne), arrive bien dans
   le dossier à sa nouvelle place : l'action suit le dossier, ses
-  sous-dossiers compris.
+  sous-dossiers compris. Une action faite pendant le renommage ou le
+  déplacement suit aussi, y compris si le compte est arrêté juste après.
 
 ## Messages affichés
 

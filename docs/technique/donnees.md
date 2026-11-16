@@ -73,6 +73,20 @@ en tête et à chaque table.
   l'écriture du message (déclencheurs) ; les messages ne sont jamais
   remplacés par `INSERT OR REPLACE`.
 - Suppression d'un compte : cascade sur toutes ses données.
+- Dossier renommé ou déplacé sur le serveur (`MailStore::rename_mailboxes`) :
+  dans **une seule transaction**, la ligne de `mailboxes` et celles de ses
+  sous-dossiers changent de `name` (identifiant, état de synchronisation et
+  messages gardés ; nouveaux noms calculés par `MailboxName::relocated`),
+  une ligne périmée qui portait déjà un des nouveaux noms est supprimée
+  avec ses messages (les opérations en attente qui la visaient sont
+  abandonnées, effet local inversé), et les noms des opérations en attente
+  du compte (`pending_ops.mailbox`, `target`) suivent ; une ligne de
+  `pending_ops` illisible est laissée telle quelle. Les boîtes renommées passent d'abord par un nom provisoire
+  (caractère nul, impossible pour une vraie boîte) : aucun conflit
+  d'unicité `(account_id, name)` pendant l'opération. La synchronisation
+  suivante vérifie l'UIDVALIDITY au lieu de tout télécharger à nouveau.
+- Écritures du rejeu sur `pending_ops` (`complete`, `revert`, `claim`, et
+  la fusion de `record_all`) : filtrées par identifiant **et** par compte.
 - Nom affiché d'un compte (`accounts.display_name`) : relu par
   `DisplayName::from_stored`, avec les mêmes règles qu'à la saisie sauf le
   refus des noms qui imitent une adresse. Un compte enregistré avant ce

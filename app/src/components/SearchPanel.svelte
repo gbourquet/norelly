@@ -7,17 +7,20 @@
   import XIcon from "@lucide/svelte/icons/x";
   import PaperclipIcon from "@lucide/svelte/icons/paperclip";
   import FlagIcon from "@lucide/svelte/icons/flag";
-  import type { SegmentDto } from "../lib/ipc/api";
+  import type { SearchHit, SegmentDto } from "../lib/ipc/api";
   import type { SearchState } from "../lib/search.svelte";
   import { listedName, shortDate } from "../lib/format";
+  import { hitPayload, type DragMove } from "../lib/drag-move.svelte";
 
   interface Props {
     search: SearchState;
     /** Ouvre le résultat sélectionné. */
     onOpen: () => void;
+    /** Glisser-déposer d'un résultat sur un dossier du panneau de gauche. */
+    drag?: DragMove;
   }
 
-  let { search, onOpen }: Props = $props();
+  let { search, onOpen, drag }: Props = $props();
 
   let input: HTMLInputElement | null = $state(null);
   let results: HTMLElement | null = $state(null);
@@ -53,7 +56,29 @@
     if (el.scrollTop + el.clientHeight >= el.scrollHeight - 200) void search.loadMore();
   }
 
+  /** Bouton de la souris enfoncé (ou doigt posé) sur un résultat : début
+   * possible d'un glisser de sa conversation. */
+  function press(e: PointerEvent, hit: SearchHit): void {
+    if (drag === undefined || e.button !== 0) return;
+    const payload = hitPayload(hit);
+    if (payload !== null) drag.grab(payload, e);
+  }
+
+  /** Résultat emporté : sa conversation, dans le dossier du résultat
+   * (seuls ses messages de ce dossier sont déplacés). */
+  function dragged(hit: SearchHit): boolean {
+    const payload = drag?.payload;
+    return (
+      payload?.kind === "conversations" &&
+      hit.conversation !== null &&
+      payload.ids.includes(hit.conversation) &&
+      payload.mailboxes.includes(hit.mailbox)
+    );
+  }
+
   function choose(index: number): void {
+    // Clic qui termine un glisser : le résultat n'est pas ouvert.
+    if (drag?.suppressClick()) return;
     search.select(index);
     onOpen();
   }
@@ -107,9 +132,11 @@
         class="row"
         class:selected={index === search.selectedIndex}
         class:unread={h.unread}
+        class:dragged={dragged(h)}
         role="option"
         aria-selected={index === search.selectedIndex}
         tabindex="-1"
+        onpointerdown={(e) => press(e, h)}
         onclick={() => choose(index)}
         onkeydown={(e) => {
           if (e.key === " ") {
@@ -194,6 +221,11 @@
 
   .row.selected {
     background: var(--color-selected);
+  }
+
+  /* Résultat en cours de glisser. */
+  .row.dragged {
+    opacity: 0.5;
   }
 
   .line {

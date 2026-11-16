@@ -85,13 +85,12 @@
     contactsActive = false,
   }: Props = $props();
 
-  /** Bouton de la souris enfoncé sur un dossier : début possible d'un
-   * glisser (dossiers ordinaires seulement). */
+  /** Bouton de la souris enfoncé (ou doigt posé) sur un dossier : début
+   * possible d'un glisser (dossiers ordinaires seulement). */
   function press(e: PointerEvent, account: number, folder: FolderDto): void {
     if (drag === undefined || e.button !== 0) return;
-    if (e.pointerType !== "mouse" && e.pointerType !== "pen") return;
     const payload = folderPayload(account, folder);
-    if (payload !== null) drag.press(payload, e.clientX, e.clientY);
+    if (payload !== null) drag.grab(payload, e);
   }
 
   function dragged(folder: FolderDto): boolean {

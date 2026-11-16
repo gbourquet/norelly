@@ -504,6 +504,93 @@ describe("App", () => {
     vi.mocked(api.listConversations).mockResolvedValue({ items: [], next: null });
   });
 
+  it("glisse un résultat de recherche, puis la conversation ouverte, sur un dossier", async () => {
+    bobWithProjets();
+    vi.mocked(api.searchMessages).mockResolvedValue({
+      items: [
+        {
+          message: 5,
+          conversation: 41,
+          account: 3,
+          mailbox: 11,
+          date: 1_700_000_000,
+          from: null,
+          subject: [
+            { text: "Devis", hit: true },
+            { text: " toiture", hit: false },
+          ],
+          snippet: [],
+          unread: false,
+          flagged: false,
+          has_attachments: false,
+        },
+      ],
+      next: null,
+    });
+    render(App);
+    const projets = must((await screen.findByText("Projets")).closest("button"));
+    await fireEvent.keyDown(window, { key: "/" });
+    const box = await screen.findByRole("searchbox", { name: "Rechercher dans les messages" });
+    await fireEvent.input(box, { target: { value: "devis" } });
+    await fireEvent.keyDown(box, { key: "Enter" });
+    const results = await screen.findByRole("listbox", { name: "Résultats de la recherche" });
+    const hit = await within(results).findByRole("option");
+    let under: Element = hit;
+    document.elementFromPoint = vi.fn(() => under);
+
+    await fireEvent.pointerDown(hit, { button: 0, pointerType: "mouse", clientX: 10, clientY: 10 });
+    await fireEvent.pointerMove(window, { pointerType: "mouse", clientX: 60, clientY: 40 });
+    expect(document.querySelector(".drag-ghost")).toHaveTextContent("Devis toiture");
+    expect(hit).toHaveClass("dragged");
+    under = projets;
+    await fireEvent.pointerMove(window, { pointerType: "mouse", clientX: 20, clientY: 200 });
+    expect(projets.closest("li")).toHaveClass("drop-over");
+    await fireEvent.pointerUp(window, { pointerType: "mouse", clientX: 20, clientY: 200 });
+    // Agie dans le dossier du résultat, comme une fois ouverte.
+    await waitFor(() =>
+      expect(api.performAction).toHaveBeenCalledWith(
+        [41],
+        { kind: "mailbox", id: 11 },
+        { kind: "move", mailbox: 12 },
+      ),
+    );
+    expect(await screen.findByText("Déplacé vers « Projets ».")).toBeInTheDocument();
+
+    // Conversation ouverte depuis le résultat : saisie par la poignée du
+    // titre. (Le clic qui suivrait le relâchement n'est avalé qu'au tour
+    // même du relâchement.)
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await fireEvent.click(hit);
+    await waitFor(() => expect(api.conversationMessages).toHaveBeenCalledWith(41));
+    const grip = must(document.querySelector<HTMLElement>(".conversation .grip"));
+    expect(grip).toHaveAttribute("title", "Glisser sur un dossier pour y déplacer la conversation");
+    vi.mocked(api.performAction).mockClear();
+    under = grip;
+    await fireEvent.pointerDown(grip, {
+      button: 0,
+      pointerType: "mouse",
+      clientX: 10,
+      clientY: 10,
+    });
+    await fireEvent.pointerMove(window, { pointerType: "mouse", clientX: 60, clientY: 40 });
+    under = projets;
+    await fireEvent.pointerMove(window, { pointerType: "mouse", clientX: 20, clientY: 200 });
+    await fireEvent.pointerUp(window, { pointerType: "mouse", clientX: 20, clientY: 200 });
+    await waitFor(() =>
+      expect(api.performAction).toHaveBeenCalledWith(
+        [41],
+        { kind: "mailbox", id: 11 },
+        { kind: "move", mailbox: 12 },
+      ),
+    );
+    // Retour à la liste des conversations pour les scénarios suivants.
+    await fireEvent.keyDown(window, { key: "Escape" });
+    await fireEvent.keyDown(window, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("searchbox")).toBeNull());
+    vi.mocked(api.listFolders).mockResolvedValue([]);
+    vi.mocked(api.searchMessages).mockResolvedValue({ items: [], next: null });
+  });
+
   it("glisse un dossier dans un autre, puis au premier niveau", async () => {
     bobWithProjets();
     const extra = (id: number, name: string) => ({

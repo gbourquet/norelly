@@ -114,15 +114,16 @@
     return c.senders.map((s) => listedName(s, { abbreviate })).join(", ");
   }
 
-  /** Bouton de la souris enfoncé sur une ligne : début possible d'un
-   * glisser (pas depuis la case à cocher ni les boutons de la ligne). */
+  /** Bouton de la souris enfoncé (ou doigt posé) sur une ligne : début
+   * possible d'un glisser (pas depuis la case à cocher ni les boutons de la
+   * ligne). */
   function press(e: PointerEvent, index: number): void {
     const c = mail.conversations[index];
     if (drag === undefined || c === undefined || e.button !== 0) return;
-    if (e.pointerType !== "mouse" && e.pointerType !== "pen") return;
     if (e.target instanceof Element && e.target.closest("input, button") !== null) return;
     const payload = dragPayload(c, mail.marked, mail.conversations);
-    if (payload !== null) drag.press(payload, e.clientX, e.clientY);
+    // Le menu contextuel de la liste répond aussi à l'appui long.
+    if (payload !== null) drag.grab(payload, e, true);
   }
 
   function choose(index: number): void {
@@ -181,7 +182,9 @@
   {#if mail.conversations.length === 0}
     <p class="empty">{m.list_empty()}</p>
   {/if}
-  <ContextMenu.Root>
+  <!-- Menu ouvert par l'appui long, doigt immobile : il l'emporte sur le
+       glisser au toucher. -->
+  <ContextMenu.Root onOpenChange={(open) => open && drag?.contextMenu()}>
     <ContextMenu.Trigger>
       {#snippet child({ props })}
         <div

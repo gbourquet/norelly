@@ -20,7 +20,7 @@
   import DeleteFolderDialog from "./components/DeleteFolderDialog.svelte";
   import MoveFolderDialog from "./components/MoveFolderDialog.svelte";
   import { DeleteFolderState, MoveFolderState, RenameFolderState } from "./lib/folder-edit.svelte";
-  import { DragMove, type DropTarget } from "./lib/drag-move.svelte";
+  import { DragMove, edgeScroll, openedPayload, type DropTarget } from "./lib/drag-move.svelte";
   import ActionNotice from "./components/ActionNotice.svelte";
   import ActionBar from "./components/ActionBar.svelte";
   import ComposeDialog from "./components/ComposeDialog.svelte";
@@ -288,10 +288,16 @@
   }
 
   function onPointerMove(e: PointerEvent): void {
+    if (!drag.owns(e.pointerId)) return;
     drag.move(e.clientX, e.clientY, dropTargetAt(e.clientX, e.clientY));
   }
 
-  function onPointerUp(): void {
+  function onPointerCancel(e: PointerEvent): void {
+    if (drag.owns(e.pointerId)) drag.cancel();
+  }
+
+  function onPointerUp(e: PointerEvent): void {
+    if (!drag.owns(e.pointerId)) return;
     const drop = drag.release();
     if (drop === null) return;
     if (drop.payload.kind === "folder") {
@@ -299,11 +305,61 @@
       return;
     }
     if (drop.folder === null) return;
+    const scope = drop.payload.scope;
     void mail.act(
       { kind: "move", mailbox: drop.folder.id },
       m.action_moved({ folder: folderLabel(drop.folder) }),
       drop.payload.ids,
+      scope === undefined ? undefined : { account: drop.payload.account, scope },
     );
+  }
+
+  /** Titre de la conversation ouverte saisi : début possible d'un glisser. */
+  function grabOpened(e: PointerEvent): void {
+    const opened = mail.opened;
+    const scope = mail.openedScope();
+    if (opened === null || scope === null || e.button !== 0) return;
+    drag.grab(openedPayload(opened, scope), e);
+  }
+
+  // Pendant un glisser, une fois le pointeur éloigné du point de saisie, le
+  // panneau de gauche défile quand le pointeur approche de son bord : les
+  // dossiers hors de vue restent accessibles.
+  $effect(() => {
+    if (drag.payload === null || !drag.autoScroll) return;
+    const pane = document.querySelector<HTMLElement>("[data-drop-scroll]");
+    if (pane === null) return;
+    let frame = requestAnimationFrame(function tick() {
+      const step = edgeScroll(drag.x, drag.y, pane.getBoundingClientRect());
+      const before = pane.scrollTop;
+      if (step !== 0) pane.scrollTop += step;
+      // La cible a changé sous le pointeur immobile.
+      if (pane.scrollTop !== before) drag.move(drag.x, drag.y, dropTargetAt(drag.x, drag.y));
+      frame = requestAnimationFrame(tick);
+    });
+    return () => cancelAnimationFrame(frame);
+  });
+
+  // Doigt posé sur un élément saisissable : si le glisser commence, la page
+  // ne défile plus (le défilement natif l'annulerait). Écouteur non passif,
+  // posé seulement pendant cet appui, pour ne pas ralentir les autres
+  // défilements au doigt.
+  $effect(() => {
+    if (!drag.touching) return;
+    const hold = (e: TouchEvent): void => {
+      if (drag.payload !== null && e.cancelable) e.preventDefault();
+    };
+    window.addEventListener("touchmove", hold, { passive: false });
+    return () => window.removeEventListener("touchmove", hold);
+  });
+
+  /** Menu contextuel (clic droit, appui long) : retenu pendant un glisser
+   * engagé, sinon il l'emporte et l'appui en cours est abandonné. */
+  function onContextMenu(e: MouseEvent): void {
+    if (drag.contextMenu()) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
   }
 
   // Pendant un glisser : ni sélection de texte, curseur « saisi ».
@@ -331,7 +387,8 @@
   onkeydown={onKeyDown}
   onpointermove={onPointerMove}
   onpointerup={onPointerUp}
-  onpointercancel={() => drag.cancel()}
+  onpointercancel={onPointerCancel}
+  oncontextmenucapture={onContextMenu}
 />
 
 {#if drag.payload !== null}
@@ -343,7 +400,9 @@
   >
     {drag.payload.kind === "folder"
       ? drag.payload.label
-      : (drag.payload.label ?? m.drag_conversations({ count: drag.payload.ids.length }))}
+      : drag.payload.label === null
+        ? m.drag_conversations({ count: drag.payload.ids.length })
+        : drag.payload.label || m.common_no_subject()}
   </div>
 {/if}
 
@@ -389,7 +448,7 @@
         onPointList={(id) => (app.listTarget = id)}
       />
     {:else if search.active}
-      <SearchPanel {search} onOpen={() => void openSelectedHit()} />
+      <SearchPanel {search} onOpen={() => void openSelectedHit()} {drag} />
     {:else if app.accounts.length > 0}
       <ConversationList
         {mail}
@@ -436,6 +495,7 @@
           m.conversation_back(),
         )?.tooltip ?? m.conversation_back()}
         onKey={onFrameKey}
+        onGrab={grabOpened}
       >
         {#snippet person(p, strong)}
           <PersonMenu

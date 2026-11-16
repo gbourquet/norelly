@@ -321,6 +321,50 @@ describe("conversation ouverte depuis la recherche", () => {
     });
   });
 
+  it("donne la portée de la conversation ouverte, celle du résultat sinon celle affichée", async () => {
+    const api = fakeApi(3);
+    const mail = new MailState(api, noAutoSeen);
+    await mail.show(UNIFIED_INBOX);
+    mail.select(0);
+    await mail.open();
+    expect(mail.openedScope()).toEqual(UNIFIED_INBOX);
+    await mail.openConversation({ ...conversation(42), mailbox: 77 }, { kind: "mailbox", id: 77 });
+    expect(mail.openedScope()).toEqual({ kind: "mailbox", id: 77 });
+  });
+
+  it("déplace par glisser une conversation absente de la liste, dans sa portée", async () => {
+    const api = fakeApi(3);
+    const mail = new MailState(api, noAutoSeen);
+    await mail.show(UNIFIED_INBOX);
+    const acted = vi.fn();
+    mail.onActed = acted;
+    mail.select(0);
+    await mail.act({ kind: "move", mailbox: 5 }, "Déplacé.", [42], {
+      account: 2,
+      scope: { kind: "mailbox", id: 77 },
+    });
+    expect(api.performAction).toHaveBeenLastCalledWith(
+      [42],
+      { kind: "mailbox", id: 77 },
+      { kind: "move", mailbox: 5 },
+    );
+    expect(mail.notice).toEqual({ text: "Déplacé.", undoable: true });
+    expect(acted).toHaveBeenCalledTimes(1);
+  });
+
+  it("garde les conversations cochées quand le glisser vient d'ailleurs", async () => {
+    const api = fakeApi(3);
+    const mail = new MailState(api, noAutoSeen);
+    await mail.show(UNIFIED_INBOX);
+    mail.toggleMarkAt(0);
+    mail.toggleMarkAt(1);
+    await mail.act({ kind: "move", mailbox: 5 }, "Déplacé.", [42], {
+      account: 1,
+      scope: { kind: "mailbox", id: 77 },
+    });
+    expect(mail.marked).toEqual([1, 2]);
+  });
+
   it("ignore les conversations cochées dans la liste", async () => {
     const api = fakeApi(3);
     const mail = new MailState(api, noAutoSeen);

@@ -434,8 +434,12 @@ fn messages_query(
             date,
             from: (!from_name.is_empty() || !from_address.is_empty())
                 .then(|| Correspondent::new(&from_name, &from_address)),
-            sender_auth: SenderAuth::from_code(&sender_auth)
-                .ok_or_else(|| corrupted("authentification de l'expéditeur"))?,
+            // Valeur inattendue (base modifiée à la main) : aucun verdict,
+            // donc aucune pastille ; la conversation reste lisible.
+            sender_auth: SenderAuth::from_code(&sender_auth).unwrap_or_else(|| {
+                tracing::warn!(message = id, "authentification de l'expéditeur illisible");
+                SenderAuth::Unknown
+            }),
             to: people(&to),
             cc: people(&cc),
             subject: header_text(&subject, MAX_SUBJECT_CHARS),

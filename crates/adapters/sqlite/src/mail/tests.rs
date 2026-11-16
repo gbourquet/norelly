@@ -333,3 +333,63 @@ async fn folder_counts_use_a_covering_index() -> Result<(), StoreError> {
     assert!(plan.contains("COVERING INDEX"), "{plan}");
     Ok(())
 }
+
+/// Un verdict d'authentification modifié à la main (hors de `pass`,
+/// `fail`, `unknown`) se relit `Unknown` : jamais de pastille, et la
+/// conversation reste lisible.
+#[tokio::test]
+async fn a_hand_edited_sender_auth_reads_as_unknown() -> Result<(), StoreError> {
+    use norelly_domain::conversation::ConversationScope;
+    use norelly_domain::ports::ConversationQuery;
+    use norelly_domain::sender_auth::SenderAuth;
+    let db = Database::open_in_memory().map_err(|e| StoreError(e.to_string()))?;
+    let (a, _) = two_accounts(&db).await?;
+    let store = SqliteMailStore::new(db.clone());
+    let inbox = store
+        .replace_mailboxes(
+            a,
+            &[RemoteMailbox {
+                name: MailboxName::inbox(),
+                delimiter: None,
+                role: MailboxRole::Inbox,
+                selectable: true,
+            }],
+        )
+        .await?
+        .first()
+        .map(|m| m.id)
+        .ok_or_else(|| corrupted("boîte"))?;
+    let mut message = sample_message(1, 1, false);
+    message.meta.headers.sender_auth = SenderAuth::Pass;
+    store
+        .apply_sync(
+            inbox,
+            &SyncBatch {
+                new: vec![message],
+                ..SyncBatch::default()
+            },
+        )
+        .await?;
+    db.run(|c| {
+        c.execute("PRAGMA ignore_check_constraints = ON", [])
+            .and_then(|_| c.execute("UPDATE messages SET sender_auth = 'verified'", []))
+            .map(|_| ())
+            .map_err(store_error)
+    })
+    .await?;
+    let conversation = store
+        .conversations(ConversationScope::Mailbox(inbox), None, 10)
+        .await?
+        .items
+        .first()
+        .map(|c| c.id)
+        .ok_or_else(|| corrupted("conversation"))?;
+    let verdicts: Vec<SenderAuth> = store
+        .conversation_messages(conversation)
+        .await?
+        .iter()
+        .map(|m| m.sender_auth)
+        .collect();
+    assert_eq!(verdicts, [SenderAuth::Unknown]);
+    Ok(())
+}

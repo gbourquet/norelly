@@ -1257,12 +1257,33 @@ async fn opened_conversation_marks_only_the_shown_messages() {
         .unwrap_or_else(|e| panic!("{e:?}"));
     assert_eq!(result.messages, 1);
     assert_eq!(result.ops.len(), 1);
-    let after = list_conversations(t.state(), scope, None, 50)
+    let after = list_conversations(t.state(), scope.clone(), None, 50)
         .await
         .unwrap_or_else(|e| panic!("{e:?}"));
     let unread = |id| after.items.iter().find(|c| c.id == id).map(|c| c.unread);
     assert_eq!(unread(opened), Some(0));
     assert_eq!(unread(other), Some(1), "autre conversation intacte");
+
+    // « Jamais » : Rust refuse le marquage automatique, rien ne change.
+    let mut settings = crate::settings::get_settings(t.state())
+        .await
+        .unwrap_or_else(|e| panic!("{e:?}"));
+    settings.mark_seen_delay_secs = None;
+    crate::settings::save_settings(t.state(), settings)
+        .await
+        .unwrap_or_else(|e| panic!("{e:?}"));
+    let never = mark_opened_seen(t.state(), other, vec![foreign], known.max(foreign))
+        .await
+        .unwrap_or_else(|e| panic!("{e:?}"));
+    assert_eq!((never.messages, never.ops.len()), (0, 0));
+    let after = list_conversations(t.state(), scope, None, 50)
+        .await
+        .unwrap_or_else(|e| panic!("{e:?}"));
+    assert_eq!(
+        after.items.iter().find(|c| c.id == other).map(|c| c.unread),
+        Some(1),
+        "« jamais » : reste non lue"
+    );
 
     // Entrées refusées.
     assert_eq!(

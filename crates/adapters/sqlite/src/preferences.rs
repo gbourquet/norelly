@@ -117,7 +117,8 @@ const fn flag(value: bool) -> &'static str {
 }
 
 /// Paramètres relus : chaque valeur absente, illisible ou hors bornes
-/// reprend sa valeur par défaut (base modifiée à la main).
+/// reprend sa valeur par défaut (base modifiée à la main), sauf les options
+/// de vie privée illisibles, qui s'appliquent.
 fn settings_of(rows: &[(String, String)]) -> Settings {
     let defaults = Settings::default();
     let value = |key: &str| rows.iter().find(|(k, _)| k == key).map(|(_, v)| v.as_str());
@@ -143,9 +144,12 @@ fn settings_of(rows: &[(String, String)]) -> Settings {
         attachment_threshold: value(THRESHOLD_KEY)
             .and_then(|v| v.parse().ok())
             .unwrap_or(defaults.attachment_threshold),
-        mark_seen_delay_secs: value(MARK_SEEN_DELAY_KEY)
-            .and_then(parse_mark_seen_delay)
-            .unwrap_or(defaults.mark_seen_delay_secs),
+        // Présent mais illisible : aucun marquage automatique (échec fermé
+        // sur une option de vie privée) ; hors bornes : valeur par défaut.
+        mark_seen_delay_secs: match value(MARK_SEEN_DELAY_KEY) {
+            None => defaults.mark_seen_delay_secs,
+            Some(v) => parse_mark_seen_delay(v).unwrap_or(None),
+        },
     }
     .sanitized()
 }
@@ -278,7 +282,8 @@ mod tests {
     }
 
     /// Délai enregistré en secondes avant l'option « jamais » : relu tel
-    /// quel ; « jamais » est stocké sous un code lisible.
+    /// quel ; « jamais » est stocké sous un code lisible ; un code illisible
+    /// vaut « jamais ».
     #[tokio::test]
     async fn stored_mark_seen_delays_stay_readable() -> Result<(), StoreError> {
         let db = Database::open_in_memory().map_err(|e| StoreError(e.to_string()))?;
@@ -295,6 +300,16 @@ mod tests {
             ),
             (
                 "UPDATE settings SET value = 'never' WHERE key = 'app.mark_seen_delay'",
+                None,
+            ),
+            // Présente mais illisible : aucun marquage automatique (échec
+            // fermé sur une option de vie privée).
+            (
+                "UPDATE settings SET value = 'jamais' WHERE key = 'app.mark_seen_delay'",
+                None,
+            ),
+            (
+                "UPDATE settings SET value = '' WHERE key = 'app.mark_seen_delay'",
                 None,
             ),
         ] {

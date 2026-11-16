@@ -517,6 +517,22 @@ describe("marquage comme lu à l'ouverture", () => {
     }
   });
 
+  it("« jamais » choisi pendant le délai : rien n'est marqué", async () => {
+    vi.useFakeTimers();
+    try {
+      const api = fakeApi(3, [1]);
+      let delay: number | null = DELAY_MS;
+      const mail = new MailState(api, () => delay);
+      await mail.show({ kind: "mailbox", id: 10 });
+      await mail.open();
+      delay = null;
+      await vi.advanceTimersByTimeAsync(DELAY_MS);
+      expect(seenCalls(api)).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("une réponse arrivée pendant le délai n'est pas marquée", async () => {
     vi.useFakeTimers();
     try {

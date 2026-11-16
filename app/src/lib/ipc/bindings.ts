@@ -120,6 +120,7 @@ export const commands = {
 	 *  (`newest_copy` des messages lus). Le domaine (`opened_seen_targets`) y
 	 *  ajoute leurs exemplaires d'autres dossiers et écarte les messages
 	 *  arrivés depuis (au-delà du repère) ou étrangers à la conversation.
+	 *  Rien n'est marqué si les paramètres disent « jamais ».
 	 */
 	markOpenedSeen: (conversation: number, shown: number[], knownUntil: number) => typedError<ActionResultDto, IpcError_Serialize>(__TAURI_INVOKE("mark_opened_seen", { conversation, shown, knownUntil })),
 	/**
@@ -1671,9 +1672,11 @@ export type SettingsDto_Deserialize = {
 	attachment_threshold: number,
 	/**
 	 *  Secondes avant qu'une conversation non lue restée ouverte soit
-	 *  marquée comme lue (0 : à l'ouverture ; `null` : jamais).
+	 *  marquée comme lue (0 : à l'ouverture ; `null` : jamais). Obligatoire
+	 *  à l'enregistrement : un champ absent est refusé, il ne vaut pas
+	 *  « jamais ».
 	 */
-	mark_seen_delay_secs?: number | null,
+	mark_seen_delay_secs: number | null,
 };
 
 /**  Paramètres de l'application. */
@@ -1686,7 +1689,9 @@ export type SettingsDto_Serialize = {
 	attachment_threshold: number,
 	/**
 	 *  Secondes avant qu'une conversation non lue restée ouverte soit
-	 *  marquée comme lue (0 : à l'ouverture ; `null` : jamais).
+	 *  marquée comme lue (0 : à l'ouverture ; `null` : jamais). Obligatoire
+	 *  à l'enregistrement : un champ absent est refusé, il ne vaut pas
+	 *  « jamais ».
 	 */
 	mark_seen_delay_secs: number | null,
 };

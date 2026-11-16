@@ -223,6 +223,14 @@ impl Settings {
         }
     }
 
+    /// Le marquage automatique comme lu d'une conversation restée ouverte
+    /// est permis : faux pour « jamais », vérifié par Rust à chaque
+    /// demande (l'interface ne décide pas seule).
+    #[must_use]
+    pub const fn auto_marks_seen(&self) -> bool {
+        self.mark_seen_delay_secs.is_some()
+    }
+
     /// Politique de rapatriement correspondante.
     #[must_use]
     pub fn fetch_policy(&self) -> FetchPolicy {
@@ -357,6 +365,15 @@ mod tests {
         };
         assert_eq!(never.validate(), Ok(()), "jamais : permis");
         assert_eq!(never.sanitized(), never, "jamais : gardé à la relecture");
+        assert!(!never.auto_marks_seen(), "aucun marquage automatique");
+        assert!(Settings::default().auto_marks_seen());
+        assert!(
+            Settings {
+                mark_seen_delay_secs: Some(0),
+                ..never
+            }
+            .auto_marks_seen()
+        );
     }
 
     #[test]

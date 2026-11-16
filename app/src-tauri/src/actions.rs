@@ -14,7 +14,9 @@ use norelly_domain::actions::{
     MAX_ACTION_TARGETS, MessageAction, conversation_targets, opened_seen_targets,
 };
 use norelly_domain::mailbox::MailboxId;
-use norelly_domain::ports::{ConversationId, MessageId, PendingOpId, PendingOpStore};
+use norelly_domain::ports::{
+    ConversationId, MessageId, PendingOpId, PendingOpStore, SettingsStore,
+};
 use tauri::State;
 
 use crate::ipc::{ActionDto, ActionResultDto, ErrorCodeDto, FieldDto, IpcError, ScopeDto, id32};
@@ -98,6 +100,7 @@ async fn apply(
 /// (`newest_copy` des messages lus). Le domaine (`opened_seen_targets`) y
 /// ajoute leurs exemplaires d'autres dossiers et écarte les messages
 /// arrivés depuis (au-delà du repère) ou étrangers à la conversation.
+/// Rien n'est marqué si les paramètres disent « jamais ».
 #[tauri::command]
 #[specta::specta]
 pub async fn mark_opened_seen(
@@ -119,6 +122,20 @@ pub async fn mark_opened_seen(
             MessageId::new(i64::from(raw)).ok_or_else(|| IpcError::invalid(FieldDto::Message))
         })
         .collect::<Result<Vec<_>, _>>()?;
+    // « Jamais » choisi dans les paramètres : aucun marquage automatique,
+    // quoi que demande l'interface.
+    let settings = state
+        .mail
+        .settings
+        .settings()
+        .await
+        .map_err(IpcError::storage)?;
+    if !settings.auto_marks_seen() {
+        return Ok(ActionResultDto {
+            ops: Vec::new(),
+            messages: 0,
+        });
+    }
     let members = state
         .mail
         .store

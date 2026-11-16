@@ -88,7 +88,7 @@ supprimer, depuis l'application.
 Exemple : avec deux dossiers « Bla » et « Bli » au premier niveau,
 déplacer « Bli » dans « Bla » en fait un sous-dossier de « Bla ».
 
-**Glisser-déposer**, à la souris, sans fenêtre :
+**Glisser-déposer**, à la souris ou au doigt, sans fenêtre :
 
 - saisir un dossier dans le panneau de gauche et le lâcher **sur un autre
   dossier** pour l'y ranger, ou **sur la ligne du compte** (nom et
@@ -96,7 +96,10 @@ déplacer « Bli » dans « Bla » en fait un sous-dossier de « Bla ».
 - seuls les dossiers qui ont un menu **⋯** se saisissent : ni la boîte de
   réception, ni les dossiers spéciaux ;
 - le glisser ne commence qu'après un petit déplacement bouton enfoncé :
-  un simple clic affiche toujours le dossier ;
+  un simple clic affiche toujours le dossier ; au doigt, après un appui
+  long sans bouger (un doigt qui bouge tout de suite fait défiler) ;
+- près du haut ou du bas du panneau, celui-ci défile pour atteindre les
+  dossiers hors de vue ;
 - pendant le glisser, le nom du dossier suit le pointeur, le dossier
   saisi est estompé et la cible survolée est encadrée ; ne sont pas des
   cibles : le dossier lui-même, ses sous-dossiers, les dossiers virtuels,

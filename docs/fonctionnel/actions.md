@@ -26,7 +26,9 @@ rattraper.
     est cochée : nombre de conversations cochées, **Tout désélectionner**
     et les actions groupées ;
   - **glisser-déposer** (déplacer seulement) : une conversation de la liste,
-    tirée à la souris et lâchée sur un dossier du panneau de gauche ;
+    un résultat de recherche ou la conversation ouverte (par la poignée à
+    gauche de son titre), tiré à la souris ou au doigt et lâché sur un
+    dossier du panneau de gauche ;
   - raccourcis et palette.
 - Quand la place manque, les boutons les moins utilisés passent dans
   **Plus…** plutôt que de disparaître (Répondre, Archiver et Supprimer
@@ -35,8 +37,21 @@ rattraper.
 - **Glisser-déposer** :
   - la conversation saisie est emportée seule ; si elle est cochée, toutes
     les conversations cochées sont emportées ;
+  - depuis les résultats de recherche, la conversation du message trouvé
+    est emportée, dans le dossier où il a été trouvé (comme si elle avait
+    été ouverte puis déplacée) ;
+  - depuis la conversation ouverte, c'est la poignée à gauche du titre qui
+    se saisit (le titre reste sélectionnable, le texte des messages ne se
+    glisse pas) ;
   - le glisser ne commence qu'après un petit déplacement bouton enfoncé :
     un simple clic ouvre toujours la conversation ;
+  - au doigt, le glisser commence après un appui long sans bouger ; un
+    doigt qui bouge tout de suite fait défiler, comme d'habitude ; sur une
+    ligne de la liste, si le doigt reste immobile plus longtemps, le menu
+    contextuel s'ouvre comme avant et le glisser est abandonné ;
+  - quand le pointeur approche du haut ou du bas du panneau de gauche, le
+    panneau défile, d'autant plus vite que le pointeur est près du bord :
+    les dossiers hors de vue restent accessibles ;
   - pendant le glisser, une étiquette suit le pointeur (sujet, ou nombre de
     conversations), les conversations emportées sont atténuées et le dossier
     survolé est encadré s'il peut les recevoir ;
@@ -44,8 +59,8 @@ rattraper.
     annule le glisser sans rien changer ;
   - le dépôt fait exactement « Déplacer vers… » : même bandeau, même
     **Annuler**, mêmes règles ;
-  - à la souris (ou au stylet) seulement ; au clavier, « Déplacer vers… »
-    (`v`) fait la même chose.
+  - le glisser n'est qu'un raccourci : « Déplacer vers… » (bouton, menu,
+    `v` au clavier) fait la même chose.
 - Les libellés qui basculent (« Suivre » ou « Ne plus suivre », « Marquer
   comme lu » ou « non lu ») suivent l'état de toutes les conversations
   visées.

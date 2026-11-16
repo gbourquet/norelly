@@ -137,8 +137,13 @@ You can also **drag** a message into a folder: click the message in the
 list, keep the mouse button pressed, bring it over a folder in the left
 panel, then release. The folder that will receive the message is outlined.
 If you have ticked several messages, drag one of them: they all go
-together. To give up, release elsewhere or press **Esc**. As with **Move
-to…**, you can undo right after.
+together. You can also drag a search result, or the open message, by the
+handle on the left of its title. If the folder you want is not visible,
+bring the message near the top or bottom of the left panel: it scrolls by
+itself. To give up, release elsewhere or press **Esc**. As with **Move to…**, you can undo right after.
+
+On a touch screen, keep your finger on the message for a moment without
+moving, then slide it to the folder.
 
 ![A message dragged onto the "Garden" folder](captures/drag-to-folder.png)
 

@@ -150,9 +150,14 @@ Vous pouvez aussi **glisser** un message dans un dossier : cliquez sur le
 message dans la liste, gardez le bouton de la souris enfoncé, amenez-le sur
 un dossier du panneau de gauche, puis relâchez. Le dossier qui va recevoir
 le message est encadré. Si vous avez coché plusieurs messages, glissez l'un
-d'eux : ils partent tous ensemble. Pour renoncer, relâchez ailleurs ou
-appuyez sur **Échap**. Comme pour **Déplacer vers…**, vous pouvez annuler
-juste après.
+d'eux : ils partent tous ensemble. Vous pouvez aussi glisser un résultat
+de recherche, ou le message ouvert, par la poignée à gauche de son titre.
+Si le dossier voulu n'est pas visible, approchez le message du haut ou du
+bas du panneau de gauche : il défile tout seul. Pour renoncer, relâchez ailleurs ou appuyez sur
+**Échap**. Comme pour **Déplacer vers…**, vous pouvez annuler juste après.
+
+Sur un écran tactile, gardez le doigt posé un instant sur le message, sans
+bouger, puis faites-le glisser jusqu'au dossier.
 
 ![Un message glissé sur le dossier « Jardin »](captures/drag-to-folder.png)
 

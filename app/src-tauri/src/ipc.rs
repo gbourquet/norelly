@@ -87,6 +87,13 @@ pub enum ErrorCodeDto {
     /// Nom de dossier avec un caractère interdit (`*`, `%`, caractère
     /// invisible).
     FolderNameInvalid,
+    /// Nom de dossier interprété par certains serveurs : commence par `~`
+    /// ou `#`, segment `.` ou `..`, ou accolade finale (prise pour
+    /// l'annonce d'un littéral IMAP).
+    FolderNameReserved,
+    /// Dossier à déplacer dont le nom, venu du serveur, serait interprété
+    /// par certains serveurs : le renommer d'abord.
+    FolderReservedName,
     /// Nom de dossier avec le séparateur de hiérarchie du serveur
     /// (`detail` : le séparateur).
     FolderNameDelimiter,

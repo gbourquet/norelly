@@ -586,6 +586,8 @@ pub enum NewFolderError {
     TooLong,
     #[error("nom de dossier avec un caractère interdit")]
     InvalidCharacter,
+    #[error("nom de dossier interprété par certains serveurs")]
+    Reserved,
     #[error("nom de dossier avec le séparateur de hiérarchie « {0} »")]
     ContainsDelimiter(char),
     #[error("un dossier de ce nom existe déjà")]
@@ -644,7 +646,9 @@ pub fn new_folder_name(
 
 /// Nom saisi pour un nouveau dossier, sans ses espaces de bord, vérifié
 /// seul (sans la liste des dossiers) : non vide, borné, sans caractère de
-/// contrôle ou de mise en forme ni joker IMAP. Voir [`new_folder_name`].
+/// contrôle ou de mise en forme ni joker IMAP, et non interprété par
+/// certains serveurs ([`is_reserved_folder_name`]). Voir
+/// [`new_folder_name`].
 pub fn folder_label(label: &str) -> Result<&str, NewFolderError> {
     let label = label.trim();
     if label.is_empty() {
@@ -659,7 +663,26 @@ pub fn folder_label(label: &str) -> Result<&str, NewFolderError> {
     {
         return Err(NewFolderError::InvalidCharacter);
     }
+    if is_reserved_folder_name(label) {
+        return Err(NewFolderError::Reserved);
+    }
     Ok(label)
+}
+
+/// Vrai si le nom d'un dossier (dernier niveau) serait interprété par
+/// certains serveurs au lieu d'être pris tel quel : un segment (entre `/`
+/// ou `\`, séparateurs des chemins de fichiers, que le serveur annonce ou
+/// non un séparateur) qui commence par `~` (répertoire personnel) ou `#`
+/// (espace de noms), ou qui vaut `.` ou `..` (chemin relatif), espaces de
+/// bord compris ; ou une accolade finale, que le serveur cite en fin de
+/// ligne d'état et qu'un client prendrait pour l'annonce d'un littéral
+/// IMAP (`{3}`).
+fn is_reserved_folder_name(name: &str) -> bool {
+    name.trim_end().ends_with('}')
+        || name
+            .split(['/', '\\'])
+            .map(str::trim)
+            .any(|segment| segment == "." || segment == ".." || segment.starts_with(['~', '#']))
 }
 
 /// Renommage ou suppression d'un dossier refusé.
@@ -673,6 +696,8 @@ pub enum FolderChangeError {
     HasSubfolders,
     #[error("un dossier ne peut pas aller dans lui-même ni dans un de ses sous-dossiers")]
     IntoItself,
+    #[error("dossier dont le nom serait interprété par certains serveurs")]
+    ReservedName,
     #[error(transparent)]
     Name(#[from] NewFolderError),
 }
@@ -721,7 +746,9 @@ pub fn renamed_folder_name(
 /// parent connu, non virtuel, serveur avec hiérarchie, préfixe « INBOX »
 /// au premier niveau s'il y a lieu). Un dossier ne va ni dans lui-même ni
 /// dans un de ses sous-dossiers ; un dossier du même nom à l'arrivée, à la
-/// casse près, est refusé. Déjà à cet endroit : son nom est renvoyé tel
+/// casse près, est refusé, comme un nom conservé qu'un serveur
+/// interpréterait (voir [`folder_label`], `ReservedName`) : il vient du
+/// serveur, qui a pu le recevoir d'un autre client. Déjà à cet endroit : son nom est renvoyé tel
 /// quel. Les dossiers protégés (voir [`renamed_folder_name`]) ne se
 /// déplacent pas.
 pub fn moved_folder_name(
@@ -743,6 +770,9 @@ pub fn moved_folder_name(
         return Err(NewFolderError::ContainsDelimiter(d).into());
     }
     let moved = MailboxName::parse(&format!("{prefix}{leaf}")).map_err(NewFolderError::from)?;
+    if moved != *folder && is_reserved_folder_name(leaf) {
+        return Err(FolderChangeError::ReservedName);
+    }
     let wanted = moved.as_str().to_lowercase();
     if existing
         .iter()

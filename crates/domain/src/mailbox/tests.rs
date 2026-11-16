@@ -394,6 +394,101 @@ fn folder_label_is_checked_alone() {
 }
 
 #[test]
+fn folder_label_rejects_names_interpreted_by_servers() {
+    // Répertoire personnel, espace de noms, segments relatifs, et accolade
+    // finale prise pour l'annonce d'un littéral IMAP (`{3}`).
+    for label in [
+        "~",
+        "~alice",
+        " ~Perso",
+        "#news",
+        "#shared",
+        ".",
+        "..",
+        " .. ",
+        "a/..",
+        "./a",
+        "a/ ..",
+        "a/.. ",
+        "a/ ~root",
+        "a\\..",
+        "a\\~b",
+        "x\\#y",
+        "a/\u{a0}#b",
+        "~a/b",
+        "a/#b",
+        "Notes{3}",
+        "Notes{3+}",
+        "x}",
+        "{}",
+    ] {
+        assert_eq!(
+            folder_label(label),
+            Err(NewFolderError::Reserved),
+            "{label}"
+        );
+    }
+    for label in [
+        "Notes~",
+        "C#",
+        "a.b",
+        "...",
+        "a..b",
+        ".cache",
+        "{3} notes",
+        "Projet {x",
+        "a~b",
+    ] {
+        assert_eq!(folder_label(label), Ok(label), "{label}");
+    }
+}
+
+#[test]
+fn new_and_renamed_folders_reject_reserved_names_without_delimiter() {
+    let flat = vec![remote("INBOX", None), remote("Bla", None)];
+    for label in ["~alice", "#news", "..", "Notes{3}"] {
+        assert_eq!(
+            new_folder_name(label, None, &flat),
+            Err(NewFolderError::Reserved),
+            "{label}"
+        );
+        assert_eq!(
+            renamed_folder_name(&name("Bla"), label, &flat),
+            Err(FolderChangeError::Name(NewFolderError::Reserved)),
+            "{label}"
+        );
+    }
+}
+
+#[test]
+fn moved_folder_rejects_a_reserved_kept_name() {
+    // Le nom conservé vient du serveur (dossier créé par un autre client).
+    for leaf in ["~alice", "#news", "..", ".", " ..", "Notes{3}"] {
+        let folder = format!("Projets/{leaf}");
+        let mut existing = plain_account();
+        existing.push(remote(&folder, Some('/')));
+        assert_eq!(
+            moved_folder_name(&name(&folder), None, &existing),
+            Err(FolderChangeError::ReservedName),
+            "{leaf}"
+        );
+        // Déjà à cet endroit : rien n'est envoyé, rien à refuser.
+        assert_eq!(
+            moved_folder_name(&name(&folder), Some(&name("Projets")), &existing),
+            Ok(name(&folder)),
+            "{leaf}"
+        );
+    }
+    // Serveur sans séparateur : le nom entier est conservé, et il est déjà
+    // au premier niveau.
+    let flat = vec![remote("INBOX", None), remote("Notes{3}", None)];
+    assert_eq!(
+        moved_folder_name(&name("Notes{3}"), None, &flat),
+        Ok(name("Notes{3}"))
+    );
+}
+
+#[test]
 fn new_folder_rejects_virtual_parents() {
     let mut all = remote("[Gmail]/Tous", Some('/'));
     all.role = MailboxRole::All;

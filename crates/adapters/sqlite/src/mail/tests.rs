@@ -2,7 +2,7 @@ use norelly_domain::ports::AccountRepository;
 use norelly_test_support::actions_contracts::pending_op_store_contract;
 use norelly_test_support::contracts::sample_account;
 use norelly_test_support::mail_contracts::{mail_store_contract, sample_message};
-use norelly_test_support::reading_contracts::conversation_query_contract;
+use norelly_test_support::reading_contracts::{conversation_query_contract, forged_copy_contract};
 
 use super::*;
 use crate::SqliteAccountRepository;
@@ -59,6 +59,13 @@ async fn conversations_pass_contract() -> Result<(), StoreError> {
     let db = Database::open_in_memory().map_err(|e| StoreError(e.to_string()))?;
     let (a, b) = two_accounts(&db).await?;
     conversation_query_contract(&SqliteMailStore::new(db), a, b).await
+}
+
+#[tokio::test]
+async fn forged_copies_pass_contract() -> Result<(), StoreError> {
+    let db = Database::open_in_memory().map_err(|e| StoreError(e.to_string()))?;
+    let (a, _) = two_accounts(&db).await?;
+    forged_copy_contract(&SqliteMailStore::new(db), a).await
 }
 
 #[tokio::test]

@@ -10,9 +10,12 @@ use std::collections::BTreeSet;
 
 use norelly_domain::account::AccountId;
 use norelly_domain::conversation::{
-    Assignment, ConversationScope, SubjectCandidate, ThreadKeys, assign,
+    Assignment, ConversationScope, MessageCopy, ShownCopy, SubjectCandidate, ThreadKeys, assign,
+    shown_copies,
 };
-use norelly_domain::mailbox::{Correspondent, MAX_SUBJECT_CHARS, MailboxName, header_text};
+use norelly_domain::mailbox::{
+    Correspondent, MAX_SUBJECT_CHARS, MailboxName, MailboxRole, header_text,
+};
 use norelly_domain::ports::{
     ConversationCursor, ConversationId, ConversationListItem, ConversationMessage,
     ConversationPage, ConversationQuery, MAX_CONVERSATION_MESSAGES, MAX_LISTED_SENDERS,
@@ -360,6 +363,7 @@ type MessageRow = (
     bool,
     Option<String>,
     String,
+    String,
 );
 
 fn messages_query(
@@ -370,7 +374,7 @@ fn messages_query(
         .prepare_cached(
             "SELECT m.id, b.account_id, m.mailbox_id, m.uid, m.sort_date, m.from_name, \
              m.from_address, m.to_json, m.cc_json, m.subject, m.flags, m.keywords, \
-             m.has_attachments, m.message_id, m.sender_auth \
+             m.has_attachments, m.message_id, m.sender_auth, b.role \
              FROM messages m JOIN mailboxes b ON b.id = m.mailbox_id \
              WHERE m.conversation_id = ?1 AND m.hidden = 0 AND (m.flags & 8) = 0 \
              ORDER BY m.sort_date DESC, m.id DESC LIMIT ?2",
@@ -396,14 +400,32 @@ fn messages_query(
                 r.get(12)?,
                 r.get(13)?,
                 r.get(14)?,
+                r.get(15)?,
             ))
         })
         .map_err(store_error)?
         .collect::<Result<_, _>>()
         .map_err(store_error)?;
-    let mut seen = BTreeSet::new();
+    // Choix de l'exemplaire affiché : règle du domaine.
+    let picked = {
+        let copies = rows
+            .iter()
+            .map(|r| {
+                Ok(MessageCopy {
+                    id: MessageId::new(r.0).ok_or_else(|| corrupted("identifiant de message"))?,
+                    role: MailboxRole::parse(&r.15).ok_or_else(|| corrupted("rôle"))?,
+                    message_id: r.13.as_deref(),
+                })
+            })
+            .collect::<Result<Vec<_>, StoreError>>()?;
+        shown_copies(&copies)
+    };
+    let mut rows: Vec<Option<MessageRow>> = rows.into_iter().map(Some).collect();
     let mut out = Vec::new();
-    for row in rows {
+    for ShownCopy { index, newest_copy } in picked {
+        let Some(row) = rows.get_mut(index).and_then(Option::take) else {
+            continue;
+        };
         let (
             id,
             account,
@@ -418,14 +440,10 @@ fn messages_query(
             bits,
             keywords,
             attachments,
-            message_id,
+            _message_id,
             sender_auth,
+            _role,
         ) = row;
-        if let Some(mid) = message_id
-            && !seen.insert(mid)
-        {
-            continue;
-        }
         out.push(ConversationMessage {
             id: MessageId::new(id).ok_or_else(|| corrupted("identifiant de message"))?,
             account: AccountId::new(account).map_err(|_| corrupted("compte"))?,
@@ -445,6 +463,7 @@ fn messages_query(
             subject: header_text(&subject, MAX_SUBJECT_CHARS),
             flags: flags_from(bits, &keywords),
             has_attachments: attachments,
+            newest_copy,
         });
         if out.len() >= MAX_CONVERSATION_MESSAGES {
             break;

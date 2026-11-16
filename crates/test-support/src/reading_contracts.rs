@@ -572,10 +572,108 @@ impl SettingsStore for InMemorySettings {
     }
 }
 
+/// Contrat du dédoublonnage de [`ConversationQuery::conversation_messages`]
+/// face à un message forgé qui reprend le `Message-ID` d'un message reçu :
+/// l'original reste affiché, et son repère d'exemplaires (`newest_copy`)
+/// couvre tous les exemplaires présents. Compte `account` existant, sans
+/// boîte.
+pub async fn forged_copy_contract<S>(store: &S, account: AccountId) -> Result<(), StoreError>
+where
+    S: MailStore + ConversationQuery,
+{
+    let boxes = store
+        .replace_mailboxes(
+            account,
+            &[
+                mailbox("INBOX", MailboxRole::Inbox, true),
+                mailbox("Archives", MailboxRole::Archive, true),
+                mailbox("Junk", MailboxRole::Junk, true),
+            ],
+        )
+        .await?;
+    let (inbox, archives, junk) = (
+        id_of(&boxes, "INBOX"),
+        id_of(&boxes, "Archives"),
+        id_of(&boxes, "Junk"),
+    );
+    let original = || threaded(1, 100, "f1@a", &[], "Facture", "Alice", false);
+    store.apply_sync(inbox, &batch(vec![original()])).await?;
+    store.apply_sync(archives, &batch(vec![original()])).await?;
+    let conversation = all_pages(store, ConversationScope::Mailbox(inbox), 10)
+        .await?
+        .first()
+        .map(|c| c.id)
+        .ok_or_else(|| StoreError("conversation".into()))?;
+    let view = |messages: &[norelly_domain::ports::ConversationMessage]| {
+        messages
+            .iter()
+            .map(|m| {
+                (
+                    m.mailbox,
+                    m.from.as_ref().map_or(String::new(), |f| f.name.clone()),
+                )
+            })
+            .collect::<Vec<_>>()
+    };
+    let before = store.conversation_messages(conversation).await?;
+    assert_eq!(view(&before), [(inbox, "Alice".to_owned())], "{before:?}");
+    let shown = before.first().ok_or_else(|| StoreError("vide".into()))?;
+    assert!(
+        shown.newest_copy > shown.id,
+        "l'exemplaire des Archives est couvert : {shown:?}"
+    );
+
+    // Messages forgés avec le même Message-ID : plus récent dans la boîte
+    // de réception, plus ancien dans les Indésirables.
+    store
+        .apply_sync(
+            inbox,
+            &batch(vec![threaded(
+                2,
+                500,
+                "f1@a",
+                &[],
+                "Facture",
+                "Usurpateur",
+                false,
+            )]),
+        )
+        .await?;
+    store
+        .apply_sync(
+            junk,
+            &batch(vec![threaded(
+                1,
+                50,
+                "f1@a",
+                &[],
+                "Facture",
+                "Usurpateur",
+                false,
+            )]),
+        )
+        .await?;
+    let after = store.conversation_messages(conversation).await?;
+    assert_eq!(view(&after), [(inbox, "Alice".to_owned())], "{after:?}");
+    let still = after.first().ok_or_else(|| StoreError("vide".into()))?;
+    assert_eq!(still.id, shown.id, "l'original reste affiché");
+    assert!(
+        still.newest_copy > shown.newest_copy,
+        "les exemplaires arrivés depuis relèvent le repère : {still:?}"
+    );
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::mail_contracts::InMemoryMailStore;
+
+    #[tokio::test]
+    async fn in_memory_forged_copies_pass_contract() -> Result<(), StoreError> {
+        let account = AccountId::new(1).map_err(|e| StoreError(e.to_string()))?;
+        forged_copy_contract(&InMemoryMailStore::default(), account).await
+    }
 
     #[tokio::test]
     async fn in_memory_conversations_pass_contract() -> Result<(), StoreError> {

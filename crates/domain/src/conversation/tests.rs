@@ -485,3 +485,59 @@ proptest! {
         prop_assert_eq!(index.partition().iter().map(Vec::len).sum::<usize>(), messages.len());
     }
 }
+
+// ---------------------------------------------------------------------------
+// Exemplaires d'un même message
+// ---------------------------------------------------------------------------
+
+fn copy(id: i64, role: MailboxRole, message_id: Option<&str>) -> MessageCopy<'_> {
+    MessageCopy {
+        id: MessageId::new(id).unwrap_or_else(|| panic!("id")),
+        role,
+        message_id,
+    }
+}
+
+fn shown(index: usize, newest: i64) -> ShownCopy {
+    ShownCopy {
+        index,
+        newest_copy: MessageId::new(newest).unwrap_or_else(|| panic!("id")),
+    }
+}
+
+#[test]
+fn the_oldest_copy_is_shown_whatever_the_reading_order() {
+    // Lu du plus récent au plus ancien : l'exemplaire forgé (7), arrivé
+    // après l'original (2), ne prend pas sa place.
+    let copies = [
+        copy(7, MailboxRole::Inbox, Some("a@x")),
+        copy(5, MailboxRole::Inbox, Some("b@x")),
+        copy(2, MailboxRole::Inbox, Some("a@x")),
+        copy(4, MailboxRole::Archive, Some("a@x")),
+    ];
+    assert_eq!(shown_copies(&copies), [shown(1, 5), shown(2, 7)]);
+}
+
+#[test]
+fn a_copy_outside_the_junk_folder_is_preferred() {
+    // L'exemplaire des Indésirables est le plus ancien et lu en premier :
+    // l'autre l'emporte quand même.
+    let copies = [
+        copy(1, MailboxRole::Junk, Some("a@x")),
+        copy(3, MailboxRole::Archive, Some("a@x")),
+    ];
+    assert_eq!(shown_copies(&copies), [shown(1, 3)]);
+    // Seul exemplaire : affiché, même dans les Indésirables.
+    let alone = [copy(1, MailboxRole::Junk, Some("a@x"))];
+    assert_eq!(shown_copies(&alone), [shown(0, 1)]);
+}
+
+#[test]
+fn a_message_without_message_id_is_its_own_copy() {
+    let copies = [
+        copy(4, MailboxRole::Inbox, None),
+        copy(3, MailboxRole::Inbox, None),
+    ];
+    assert_eq!(shown_copies(&copies), [shown(0, 4), shown(1, 3)]);
+    assert_eq!(shown_copies(&[]), []);
+}

@@ -27,6 +27,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use serde::{Deserialize, Serialize};
 
 use crate::mailbox::{MAX_REFERENCES, MailboxId, MailboxRole, MessageHeaders};
+use crate::ports::MessageId;
 
 /// Fenêtre du regroupement par sujet : une réponse sans référence connue
 /// ne rejoint une conversation de même sujet que si leurs dates sont à
@@ -744,6 +745,69 @@ impl ConversationScope {
     pub const fn unified_inbox() -> Self {
         Self::Unified(MailboxRole::Inbox)
     }
+}
+
+// ---------------------------------------------------------------------------
+// Exemplaires d'un même message
+// ---------------------------------------------------------------------------
+
+/// Exemplaire d'un message lu pour l'affichage d'une conversation : un
+/// même message peut être rangé dans plusieurs dossiers (même
+/// `Message-ID`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MessageCopy<'a> {
+    pub id: MessageId,
+    pub role: MailboxRole,
+    pub message_id: Option<&'a str>,
+}
+
+/// Exemplaire retenu pour l'affichage.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ShownCopy {
+    /// Position de l'exemplaire dans la liste lue.
+    pub index: usize,
+    /// Plus grand identifiant parmi les exemplaires de ce message.
+    pub newest_copy: MessageId,
+}
+
+/// Un exemplaire par message, dans l'ordre de `copies`. Parmi les
+/// exemplaires d'un même `Message-ID`, celui qui n'est pas dans les
+/// Indésirables l'emporte, puis le plus ancien arrivé (plus petit
+/// identifiant) : un message forgé qui reprend le `Message-ID` d'un
+/// message déjà reçu ne prend jamais sa place à l'affichage. Un message
+/// sans `Message-ID` est son propre exemplaire.
+#[must_use]
+pub fn shown_copies(copies: &[MessageCopy<'_>]) -> Vec<ShownCopy> {
+    let rank = |c: &MessageCopy<'_>| (c.role == MailboxRole::Junk, c.id);
+    // Pour chaque Message-ID : position de l'exemplaire retenu et plus
+    // grand identifiant du groupe.
+    let mut groups: BTreeMap<&str, (usize, MessageId)> = BTreeMap::new();
+    let mut shown = Vec::new();
+    for (index, c) in copies.iter().enumerate() {
+        let Some(mid) = c.message_id else {
+            shown.push(ShownCopy {
+                index,
+                newest_copy: c.id,
+            });
+            continue;
+        };
+        groups
+            .entry(mid)
+            .and_modify(|(best, newest)| {
+                if copies.get(*best).is_none_or(|b| rank(c) < rank(b)) {
+                    *best = index;
+                }
+                *newest = (*newest).max(c.id);
+            })
+            .or_insert((index, c.id));
+    }
+    shown.extend(
+        groups
+            .into_values()
+            .map(|(index, newest_copy)| ShownCopy { index, newest_copy }),
+    );
+    shown.sort_by_key(|s| s.index);
+    shown
 }
 
 #[cfg(test)]

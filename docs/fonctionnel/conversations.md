@@ -38,6 +38,10 @@ de messages.
 - Une conversation n'est jamais scindée quand un message qui la reliait
   disparaît.
 - Une conversation affiche au plus ses 500 messages.
+- Un même message rangé dans plusieurs dossiers n'apparaît qu'une fois.
+  L'exemplaire affiché est celui qui n'est pas dans les Indésirables, puis
+  le premier reçu : un message qui se fait passer pour un message déjà
+  reçu ne prend jamais sa place.
 
 ## Cas limites
 

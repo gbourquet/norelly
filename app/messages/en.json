@@ -502,6 +502,8 @@
   "cmd_person_show": "View contact",
   "cmd_person_show_keywords": "view open card contact address book sender recipient",
   "person_in_contacts": "In your contacts",
+  "person_unverified": "Unverified sender",
+  "person_unverified_hint": "Your mail server could not confirm that this message really comes from this address. Be careful with links and attachments.",
   "person_menu": "Actions for {name}",
   "conversation_to_label": "To:",
   "cmd_contact_delete": "Delete contact",

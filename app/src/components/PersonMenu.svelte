@@ -2,9 +2,12 @@
   import { m } from "../lib/paraglide/messages.js";
   // Nom d'une personne d'un message (expéditeur, destinataire) : un clic
   // ouvre son menu (« Ajouter au carnet d'adresses » ou « Voir le
-  // contact ») ; une pastille signale une personne du carnet. Le nom
-  // affiché est choisi par Rust (carnet, sinon en-tête).
+  // contact ») ; une pastille signale un expéditeur du carnet authentifié,
+  // une mention un expéditeur en échec d'authentification. Le nom affiché,
+  // la pastille et le verdict sont décidés par Rust : l'interface affiche
+  // l'état reçu.
   import BookUserIcon from "@lucide/svelte/icons/book-user";
+  import ShieldAlertIcon from "@lucide/svelte/icons/shield-alert";
   import type { CorrespondentDto } from "../lib/ipc/api";
   import type { CommandRegistry } from "../lib/commands/registry";
   import { personActions, type PersonKind } from "../lib/visible-actions";
@@ -26,10 +29,13 @@
 
   const kind = $derived<PersonKind>(person.contact !== null ? "contact" : "stranger");
   const name = $derived(personName(person));
+  const unverified = $derived(person.auth === "fail");
   const label = $derived(
-    person.contact !== null
+    person.contact_badge
       ? `${m.person_menu({ name })} (${m.person_in_contacts()})`
-      : m.person_menu({ name }),
+      : unverified
+        ? `${m.person_menu({ name })} (${m.person_unverified()})`
+        : m.person_menu({ name }),
   );
 </script>
 
@@ -44,9 +50,14 @@
       aria-label={label}
     >
       <span class="name">{name}</span>
-      {#if person.contact !== null}
+      {#if person.contact_badge}
         <span class="badge" title={m.person_in_contacts()}>
           <BookUserIcon size={12} aria-hidden="true" />
+        </span>
+      {:else if unverified}
+        <span class="unverified" title={m.person_unverified_hint()}>
+          <ShieldAlertIcon size={12} aria-hidden="true" />
+          <span>{m.person_unverified()}</span>
         </span>
       {/if}
     </button>
@@ -85,5 +96,19 @@
   .badge {
     display: inline-flex;
     color: var(--color-accent);
+  }
+
+  .unverified {
+    display: inline-flex;
+    flex-shrink: 0;
+    align-items: center;
+    gap: var(--space-1);
+    padding: 0 var(--space-1);
+    border-radius: var(--radius-sm);
+    background: var(--color-warning-bg);
+    color: var(--color-warning);
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-normal);
+    white-space: nowrap;
   }
 </style>

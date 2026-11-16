@@ -24,6 +24,8 @@ function conversation(id: number): ConversationDto {
         address: `e${id}@example.com`,
         contact: null,
         show_address: false,
+        auth: "unknown",
+        contact_badge: false,
       },
     ],
     messages: 1,
@@ -90,13 +92,26 @@ vi.mock("./lib/ipc/api", () => ({
         account: 1,
         mailbox: 5,
         date: 1_700_000_000,
+        // Sujet 2 : expéditeur en échec d'authentification ; sujet 3 :
+        // contact du carnet authentifié (pastille décidée par Rust).
         from: {
           name: `Expéditeur ${id}`,
           address: `e${id}@example.com`,
-          contact: null,
+          contact: id === 3 ? 9 : null,
           show_address: false,
+          auth: id === 2 ? "fail" : id === 3 ? "pass" : "unknown",
+          contact_badge: id === 3,
         },
-        to: [{ name: "Alice", address: "alice@example.com", contact: 4 }],
+        to: [
+          {
+            name: "Alice",
+            address: "alice@example.com",
+            contact: 4,
+            show_address: false,
+            auth: "unknown",
+            contact_badge: false,
+          },
+        ],
         cc: [],
         subject: `Sujet ${id}`,
         unread: id === 1,
@@ -601,15 +616,44 @@ describe("lecture", () => {
     await fireEvent.click(within(form).getByRole("button", { name: "Annuler" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
 
-    // Destinataire déjà dans le carnet : pastille, puis sa fiche.
-    const known = within(reader).getByRole("button", {
-      name: "Actions pour Alice (Dans vos contacts)",
-    });
-    expect(within(known).getByTitle("Dans vos contacts")).toBeInTheDocument();
+    // Destinataire déjà dans le carnet : sa fiche, sans pastille (seul un
+    // expéditeur authentifié la reçoit).
+    const known = within(reader).getByRole("button", { name: "Actions pour Alice" });
+    expect(within(known).queryByTitle("Dans vos contacts")).toBeNull();
     await fireEvent.pointerDown(known, { button: 0, pointerType: "mouse" });
     await fireEvent.click(await screen.findByRole("menuitem", { name: "Voir le contact" }));
     await waitFor(() => expect(app.view).toBe("contacts"));
     await waitFor(() => expect(contacts.selectedId).toBe(4));
     app.showMail();
+  });
+
+  it("la pastille « Dans vos contacts » suit l'état reçu ; un échec affiche un avertissement", async () => {
+    render(App);
+    const list = await screen.findByRole("listbox", { name: "Conversations" });
+
+    // Contact du carnet authentifié : pastille.
+    await fireEvent.click(await within(list).findByText("Sujet 3"));
+    let reader = await screen.findByRole("article", { name: "Conversation" });
+    const trusted = await within(reader).findByRole("button", {
+      name: "Actions pour Expéditeur 3 (Dans vos contacts)",
+    });
+    expect(within(trusted).getByTitle("Dans vos contacts")).toBeInTheDocument();
+    expect(within(reader).queryByText("Expéditeur non vérifié")).toBeNull();
+
+    // Échec : avertissement visible, sans pastille.
+    await fireEvent.click(within(list).getByText("Sujet 2"));
+    reader = await screen.findByRole("article", { name: "Conversation" });
+    const unverified = await within(reader).findByRole("button", {
+      name: "Actions pour Expéditeur 2 (Expéditeur non vérifié)",
+    });
+    expect(within(unverified).queryByTitle("Dans vos contacts")).toBeNull();
+    expect(within(unverified).getByText("Expéditeur non vérifié")).toBeVisible();
+
+    // Sans verdict : ni pastille, ni avertissement.
+    await fireEvent.click(within(list).getByText("Sujet 1"));
+    reader = await screen.findByRole("article", { name: "Conversation" });
+    await within(reader).findByRole("button", { name: "Actions pour Expéditeur 1" });
+    expect(within(reader).queryByTitle("Dans vos contacts")).toBeNull();
+    expect(within(reader).queryByText("Expéditeur non vérifié")).toBeNull();
   });
 });

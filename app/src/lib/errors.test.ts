@@ -186,6 +186,11 @@ describe("traduction des erreurs IPC", () => {
       contact_duplicates_too_many: true,
       contact_merge_too_large: true,
       contact_merge_conflict: true,
+      label_refused: true,
+      label_name_invalid: true,
+      label_name_too_long: true,
+      label_exists: true,
+      label_too_many: true,
       internal: true,
     } satisfies Record<ErrorCodeDto, true>;
     const fields = {
@@ -221,6 +226,9 @@ describe("traduction des erreurs IPC", () => {
       contact_list: true,
       list_name: true,
       list_description: true,
+      label: true,
+      label_name: true,
+      label_color: true,
     } satisfies Record<FieldDto, true>;
     const kinds = {
       network: true,

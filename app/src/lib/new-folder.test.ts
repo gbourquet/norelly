@@ -27,6 +27,7 @@ function folder(
     selectable: true,
     total: 0,
     unread: 0,
+    labels_refused: false,
   };
 }
 

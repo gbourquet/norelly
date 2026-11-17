@@ -26,6 +26,7 @@ function hit(n: number, conversation: number | null = n): SearchHit {
     unread: n % 2 === 0,
     flagged: n === 3,
     has_attachments: false,
+    labels: [],
   };
 }
 
@@ -47,6 +48,16 @@ function fakeApi(total: number) {
 describe("état de la recherche", () => {
   beforeEach(() => vi.useFakeTimers());
   afterEach(() => vi.useRealTimers());
+
+  it("recherche lancée d'ailleurs (pastille) : barre ouverte, requête cherchée tout de suite", async () => {
+    const { api, calls } = fakeApi(2);
+    const search = new SearchState(api, () => 0);
+    await search.searchFor('étiquette:"Projet"');
+    expect(search.active).toBe(true);
+    expect(search.query).toBe('étiquette:"Projet"');
+    expect(calls.map((c) => c.query)).toEqual(['étiquette:"Projet"']);
+    expect(search.hits.length).toBe(2);
+  });
 
   it("s'ouvre en demandant le focus et se referme à zéro", async () => {
     const { api } = fakeApi(3);
@@ -183,6 +194,7 @@ describe("état de la recherche", () => {
       unread: 1,
       flagged: false,
       has_attachments: false,
+      labels: [],
     });
     expect(search.conversationOf(hit(5, null))).toBeNull();
   });

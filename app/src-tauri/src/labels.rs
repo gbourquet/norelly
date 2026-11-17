@@ -256,3 +256,32 @@ pub async fn delete_label(
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use norelly_domain::labels::BUILTIN_NAMES;
+
+    /// Les noms des étiquettes de Thunderbird reconnus par la recherche
+    /// (domaine) sont ceux qu'affichent les catalogues.
+    #[test]
+    fn builtin_names_match_the_catalogs() {
+        for (index, (lang, catalog)) in [
+            ("fr", include_str!("../../messages/fr.json")),
+            ("en", include_str!("../../messages/en.json")),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let messages: serde_json::Value =
+                serde_json::from_str(catalog).unwrap_or_else(|e| panic!("{lang} : {e}"));
+            for (n, names) in BUILTIN_NAMES.iter().enumerate() {
+                let key = format!("label_builtin_{}", n + 1);
+                assert_eq!(
+                    messages.get(&key).and_then(|v| v.as_str()),
+                    names.get(index).copied(),
+                    "{lang} : {key}"
+                );
+            }
+        }
+    }
+}

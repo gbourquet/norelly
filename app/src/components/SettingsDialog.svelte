@@ -2,6 +2,7 @@
   // Paramètres : langue, mises à jour, notifications, affichage,
   // marquage comme lu, rapatriement. Les valeurs sont revalidées par Rust à l'enregistrement.
   import { m } from "../lib/paraglide/messages.js";
+  import type { Snippet } from "svelte";
   import Modal from "./Modal.svelte";
   import type { SettingsDto } from "../lib/ipc/api";
   import { markSeenChoices } from "../lib/settings.svelte";
@@ -15,9 +16,12 @@
     error: string | null;
     onSave: (next: SettingsDto, plainText: boolean) => void;
     onClose: () => void;
+    /** Réglages appliqués tout de suite (étiquettes des comptes). */
+    extra?: Snippet;
   }
 
-  let { open, settings, plainText, updatesSupported, error, onSave, onClose }: Props = $props();
+  let { open, settings, plainText, updatesSupported, error, onSave, onClose, extra }: Props =
+    $props();
 
   const MIB = 1024 * 1024;
   const THRESHOLDS = [1, 2, 5, 10, 25];
@@ -34,7 +38,7 @@
   });
 </script>
 
-<Modal {open} title={m.settings_title()} {onClose} width="520px">
+<Modal {open} title={m.settings_title()} {onClose} width="600px">
   {#if draft}
     <form
       class="settings"
@@ -105,6 +109,7 @@
         </select>
       </label>
       <p class="note">{m.settings_restart_note()}</p>
+      {#if extra}{@render extra()}{/if}
       {#if error}
         <p class="error" role="alert">{error}</p>
       {/if}

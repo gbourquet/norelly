@@ -32,6 +32,7 @@ function conversation(id: number): ConversationDto {
     unread: id === 1 ? 1 : 0,
     flagged: false,
     has_attachments: id === 1,
+    labels: [],
   };
 }
 
@@ -82,6 +83,7 @@ vi.mock("./lib/ipc/api", () => ({
         selectable: true,
         total: 3,
         unread: 1,
+        labels_refused: false,
       },
     ]),
     listConversations: vi.fn(async () => ({
@@ -119,6 +121,7 @@ vi.mock("./lib/ipc/api", () => ({
         unread: id === 1,
         flagged: false,
         has_attachments: false,
+        labels: [],
         newest_copy: id * 10,
       },
     ]),
@@ -155,6 +158,34 @@ vi.mock("./lib/ipc/api", () => ({
       attachments: [],
     })),
     discardDraft: vi.fn(async () => undefined),
+    listLabels: vi.fn(async () => [
+      {
+        keyword: "Projet",
+        name: { kind: "named", name: "Projet" },
+        color: { background: "#1565c0", text: "#ffffff" },
+      },
+      { keyword: "Client", name: { kind: "named", name: "Client" }, color: null },
+      { keyword: "$label1", name: { kind: "builtin", number: 1 }, color: null },
+    ]),
+    labelMenu: vi.fn(async () => ({
+      choices: [
+        {
+          label: { keyword: "Projet", name: { kind: "named", name: "Projet" }, color: null },
+          checked: true,
+          allowed: true,
+        },
+        {
+          label: { keyword: "Client", name: { kind: "named", name: "Client" }, color: null },
+          checked: false,
+          allowed: false,
+        },
+      ],
+      can_create: true,
+      available: true,
+      accounts: [1],
+    })),
+    createLabel: vi.fn(),
+    searchMessages: vi.fn(async () => ({ items: [], next: null })),
     saveDraft: vi.fn(async () => ({ id: 1 })),
     listContacts: vi.fn(async () => ({ items: [], next: null })),
     getContact: vi.fn(async (id: number) => ({
@@ -177,7 +208,7 @@ vi.mock("./lib/ipc/api", () => ({
 
 const { default: App } = await import("./App.svelte");
 const { api } = await import("./lib/ipc/api");
-const { app, contacts, mail, settings } = await import("./lib/app.svelte");
+const { app, contacts, mail, search, settings } = await import("./lib/app.svelte");
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -311,6 +342,133 @@ describe("lecture", () => {
     }
   });
 
+  it("étiquettes : pastilles de la ligne et du volet, recherche d'un clic, « Étiqueter… »", async () => {
+    vi.mocked(api.listConversations).mockResolvedValueOnce({
+      items: [
+        { ...conversation(1), labels: ["Projet", "Client", "$label1"] },
+        conversation(2),
+        conversation(3),
+      ],
+      next: null,
+    });
+    vi.mocked(api.conversationMessages).mockImplementationOnce(async (id: number) => [
+      {
+        id: id * 10,
+        account: 1,
+        mailbox: 5,
+        date: 1_700_000_000,
+        from: null,
+        to: [],
+        cc: [],
+        subject: `Sujet ${id}`,
+        unread: false,
+        flagged: false,
+        has_attachments: false,
+        labels: ["Projet", "$label1"],
+        newest_copy: id * 10,
+      },
+    ]);
+    render(App);
+    const list = await screen.findByRole("listbox", { name: "Conversations" });
+    const row = (await within(list).findByText("Sujet 1")).closest("[role=option]") as HTMLElement;
+    // Deux pastilles au plus, puis « +1 » ; couleur validée.
+    const chips = await within(row).findAllByRole("button", { name: /^Rechercher les messages/ });
+    expect(chips.map((c) => c.textContent)).toEqual(["Projet", "Client"]);
+    expect(chips[0]).toHaveStyle({ backgroundColor: "#1565c0", color: "#ffffff" });
+    expect(within(row).getByText("+1")).toHaveAttribute("title", "Autres étiquettes : Important");
+
+    // Volet de lecture : toutes les étiquettes, sous le sujet.
+    await fireEvent.click(within(list).getByText("Sujet 1"));
+    const reader = await screen.findByRole("article", { name: "Conversation" });
+    const all = await within(reader).findByRole("list", { name: "Étiquettes" });
+    expect(
+      within(all)
+        .getAllByRole("button")
+        .map((b) => b.textContent),
+    ).toEqual(["Projet", "Important"]);
+
+    // « Plus… » → « Étiqueter… » : menu de la sélection, refus expliqué.
+    const toolbar = within(reader).getByRole("toolbar", { name: "Actions sur la conversation" });
+    await fireEvent.pointerDown(within(toolbar).getByRole("button", { name: "Plus…" }), {
+      button: 0,
+      pointerType: "mouse",
+    });
+    const menu = await screen.findByRole("menu", { name: "Plus…" });
+    await fireEvent.click(within(menu).getByRole("menuitem", { name: /^Étiqueter… L/ }));
+    const dialog = await screen.findByRole("dialog", { name: "Étiqueter" });
+    const boxes = await within(dialog).findAllByRole("checkbox");
+    expect(boxes.map((b) => (b as HTMLInputElement).checked)).toEqual([true, false]);
+    expect(boxes[1]).toBeDisabled();
+    expect(boxes[1]?.closest("label")).toHaveAttribute(
+      "title",
+      "Ce serveur n'accepte pas cette étiquette dans ce dossier.",
+    );
+    await fireEvent.click(boxes[0] as HTMLElement);
+    await waitFor(() =>
+      expect(api.performAction).toHaveBeenCalledWith([1], expect.anything(), {
+        kind: "set_label",
+        keyword: "Projet",
+        value: false,
+      }),
+    );
+    await fireEvent.click(within(dialog).getByRole("button", { name: "Terminé" }));
+
+    // Clic sur une pastille : recherche de l'étiquette.
+    await fireEvent.click(within(all).getByRole("button", { name: /Projet/ }));
+    await waitFor(() =>
+      expect(api.searchMessages).toHaveBeenCalledWith(
+        'étiquette:"Projet"',
+        { kind: "all" },
+        expect.any(Number),
+        0,
+        expect.any(Number),
+      ),
+    );
+    search.close();
+  });
+
+  it("étiqueter est désactivé, avec une explication, si le serveur refuse les étiquettes", async () => {
+    const folders = vi.mocked(api.listFolders).getMockImplementation();
+    vi.mocked(api.listFolders).mockResolvedValue([
+      {
+        id: 5,
+        name: "INBOX",
+        leaf: "INBOX",
+        depth: 0,
+        indent: 0,
+        label: "INBOX",
+        role: "inbox",
+        selectable: true,
+        total: 3,
+        unread: 1,
+        labels_refused: true,
+      },
+    ]);
+    try {
+      render(App);
+      const list = await screen.findByRole("listbox", { name: "Conversations" });
+      await fireEvent.click(await within(list).findByText("Sujet 1"));
+      const reader = await screen.findByRole("article", { name: "Conversation" });
+      const toolbar = within(reader).getByRole("toolbar", {
+        name: "Actions sur la conversation",
+      });
+      await waitFor(() => expect(api.listFolders).toHaveBeenCalled());
+      await fireEvent.pointerDown(within(toolbar).getByRole("button", { name: "Plus…" }), {
+        button: 0,
+        pointerType: "mouse",
+      });
+      const menu = await screen.findByRole("menu", { name: "Plus…" });
+      const item = within(menu).getByRole("menuitem", { name: /^Étiqueter…/ });
+      await waitFor(() => expect(item).toHaveAttribute("data-disabled"));
+      expect(item).toHaveAttribute(
+        "title",
+        "Étiqueter… — Ce serveur ne garde pas les étiquettes dans ce dossier.",
+      );
+    } finally {
+      if (folders) vi.mocked(api.listFolders).mockImplementation(folders);
+    }
+  });
+
   it("à l'impression, le corps garde la largeur mesurée à l'écran", async () => {
     render(App);
     await waitFor(() => expect(api.listConversations).toHaveBeenCalled());
@@ -386,6 +544,7 @@ describe("lecture", () => {
         selectable: true,
         total: 3,
         unread: 1,
+        labels_refused: false,
       },
       {
         id: 9,
@@ -398,6 +557,7 @@ describe("lecture", () => {
         selectable: true,
         total: 0,
         unread: 0,
+        labels_refused: false,
       },
     ]);
     render(App);
@@ -429,6 +589,7 @@ describe("lecture", () => {
         selectable: true,
         total: 3,
         unread: 1,
+        labels_refused: false,
       },
       {
         id: 7,
@@ -441,6 +602,7 @@ describe("lecture", () => {
         selectable: true,
         total: 0,
         unread: 0,
+        labels_refused: false,
       },
     ]);
     render(App);
@@ -524,6 +686,7 @@ describe("lecture", () => {
         selectable: true,
         total: 3,
         unread: 1,
+        labels_refused: false,
       },
       {
         id: 7,
@@ -536,6 +699,7 @@ describe("lecture", () => {
         selectable: true,
         total: 0,
         unread: 0,
+        labels_refused: false,
       },
     ]);
     render(App);
@@ -746,6 +910,7 @@ describe("lecture", () => {
       "Supprimer #",
       "Marquer comme non lu Maj+U",
       "Suivre S",
+      "Étiqueter… L",
       "Déplacer vers… V",
       "Ajouter au carnet d'adresses",
     ]);

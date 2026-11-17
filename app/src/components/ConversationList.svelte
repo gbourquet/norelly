@@ -18,7 +18,9 @@
     rowActions,
     subjectOf,
   } from "../lib/visible-actions";
-  import type { CorrespondentDto } from "../lib/ipc/api";
+  import type { CorrespondentDto, LabelDto } from "../lib/ipc/api";
+  import { labelText, rowChips } from "../lib/labels.svelte";
+  import LabelChip from "./LabelChip.svelte";
   import ActionButtons from "./ActionButtons.svelte";
   import ActionBar from "./ActionBar.svelte";
   import { VirtualList } from "../lib/virtual-list.svelte";
@@ -40,6 +42,10 @@
     personContext?: (person: CorrespondentDto) => C;
     /** Exécute une commande pour `person`. */
     onPerson?: (id: string, person: CorrespondentDto) => void;
+    /** Étiquettes d'un compte (noms, couleurs des pastilles). */
+    labelsOf?: (account: number) => LabelDto[];
+    /** Clic sur une pastille : recherche de l'étiquette. */
+    onLabel?: (label: LabelDto) => void;
   }
 
   let {
@@ -52,6 +58,8 @@
     person = null,
     personContext,
     onPerson,
+    labelsOf,
+    onLabel,
   }: Props = $props();
 
   /** Entrées du menu contextuel : ouvrir, puis les actions de la barre
@@ -263,6 +271,22 @@
                       <span class="subject"
                         >{c.subject !== "" ? c.subject : m.common_no_subject()}</span
                       >
+                      {#if labelsOf !== undefined && c.labels.length > 0}
+                        {@const chips = rowChips(c.labels, labelsOf(c.account))}
+                        <span class="labels" aria-label={m.label_list()}>
+                          {#each chips.shown as label (label.keyword)}
+                            <LabelChip {label} onSearch={onLabel} />
+                          {/each}
+                          {#if chips.hidden.length > 0}
+                            <span
+                              class="more-labels"
+                              title={m.label_more_title({
+                                labels: chips.hidden.map(labelText).join(", "),
+                              })}>{m.label_more({ count: chips.hidden.length })}</span
+                            >
+                          {/if}
+                        </span>
+                      {/if}
                       {#if c.has_attachments}<PaperclipIcon
                           size={14}
                           aria-label={m.list_attachment()}
@@ -289,6 +313,7 @@
             <ContextMenu.Item
               class="menu-item"
               disabled={!e.enabled}
+              title={e.enabled ? undefined : e.tooltip}
               onSelect={() => runMenu(action.command)}
             >
               <Icon size={16} aria-hidden="true" />
@@ -455,6 +480,29 @@
   }
 
   .count {
+    color: var(--color-text-muted);
+    font-size: var(--font-size-xs);
+  }
+
+  /* Pastilles après le sujet : le sujet garde la place restante. */
+  .labels {
+    display: flex;
+    flex: 0 1 auto;
+    align-items: center;
+    gap: var(--space-1);
+    min-width: 0;
+    max-width: 60%;
+    overflow: hidden;
+  }
+
+  .labels :global(.chip) {
+    flex: 0 1 auto;
+    min-width: 2.5em;
+    max-width: 9em;
+  }
+
+  .more-labels {
+    flex: none;
     color: var(--color-text-muted);
     font-size: var(--font-size-xs);
   }

@@ -19,6 +19,9 @@ export interface Command<C> {
   keywords?: string[];
   /** Condition d'activation ; absente : toujours active. */
   when?: (ctx: C) => boolean;
+  /** Raison affichée dans l'infobulle quand la commande est désactivée
+   * (`null` : pas d'explication particulière). */
+  unavailable?: (ctx: C) => string | null;
   /** Visible dans la palette (vrai par défaut). */
   inPalette?: boolean;
   run: (ctx: C) => void | Promise<void>;

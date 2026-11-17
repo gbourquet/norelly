@@ -35,6 +35,7 @@ describe("actions visibles", () => {
     expect(ids(readerActions({ unread: 0, flagged: false }).more)).toEqual([
       "action.mark-unread",
       "action.flag",
+      "action.label",
       "action.move",
       "reading.plain-text",
       "reading.print",
@@ -47,7 +48,7 @@ describe("actions visibles", () => {
 
   it("menu « Plus… » en groupes : état, affichage, navigation", () => {
     const sections = readerActions(null).more.map((a) => a.section);
-    expect(sections).toEqual([1, 1, 1, 2, 2, 3, 3]);
+    expect(sections).toEqual([1, 1, 1, 1, 2, 2, 3, 3]);
     // Les actions principales repliées dans « Plus… » forment le premier groupe.
     expect(readerActions(null).primary.every((a) => (a.section ?? 0) === 0)).toBe(true);
   });
@@ -68,7 +69,7 @@ describe("actions visibles", () => {
     expect(ids(rowActions({ unread: 0, flagged: false }))[2]).toBe("action.mark-unread");
   });
 
-  it("barre groupée : archiver, supprimer, lu, non lu, déplacer ; suivi dans « Plus… »", () => {
+  it("barre groupée : archiver, supprimer, lu, non lu, déplacer ; suivi et étiqueter dans « Plus… »", () => {
     const { primary, more } = bulkActions();
     expect(ids(primary)).toEqual([
       "action.archive",
@@ -77,7 +78,7 @@ describe("actions visibles", () => {
       "action.mark-unread",
       "action.move",
     ]);
-    expect(ids(more)).toEqual(["action.flag"]);
+    expect(ids(more)).toEqual(["action.flag", "action.label"]);
   });
 
   it("menu contextuel : ouvrir, puis les actions de la barre, en groupes", () => {
@@ -91,9 +92,10 @@ describe("actions visibles", () => {
       "action.delete",
       "action.mark-read",
       "action.flag",
+      "action.label",
       "action.move",
     ]);
-    expect(actions.map((a) => a.section ?? 0)).toEqual([0, 1, 1, 1, 2, 2, 3, 3, 3]);
+    expect(actions.map((a) => a.section ?? 0)).toEqual([0, 1, 1, 1, 2, 2, 3, 3, 3, 3]);
     expect(actions.find((a) => a.command === "action.flag")?.label?.()).toBe("Ne plus suivre");
   });
 
@@ -122,6 +124,7 @@ describe("menu d'un dossier", () => {
     selectable: true,
     total: 0,
     unread: 0,
+    labels_refused: false,
   });
 
   it("dossier ordinaire : nouveau sous-dossier, puis renommer, déplacer, puis supprimer", () => {

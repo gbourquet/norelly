@@ -22,6 +22,7 @@ function folder(id: number, name: string, role = "normal", total = 0): FolderDto
     selectable: true,
     total,
     unread: 0,
+    labels_refused: false,
   };
 }
 

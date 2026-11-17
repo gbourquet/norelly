@@ -101,6 +101,12 @@ export function fieldLabel(field: FieldDto | null): string {
       return m.field_list_name();
     case "list_description":
       return m.field_list_description();
+    case "label":
+      return m.field_label();
+    case "label_name":
+      return m.field_label_name();
+    case "label_color":
+      return m.field_label_color();
     case null:
       return "?";
   }
@@ -244,6 +250,16 @@ function codeText(code: ErrorCodeDto, field: FieldDto | null): string {
       return m.err_contact_merge_too_large();
     case "contact_merge_conflict":
       return m.err_contact_merge_conflict();
+    case "label_refused":
+      return m.err_label_refused();
+    case "label_name_invalid":
+      return m.err_label_name_invalid();
+    case "label_name_too_long":
+      return m.err_label_name_too_long();
+    case "label_exists":
+      return m.err_label_exists();
+    case "label_too_many":
+      return m.err_label_too_many();
     case "contact_list_not_found":
       return m.err_contact_list_not_found();
     case "internal":

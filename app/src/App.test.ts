@@ -242,6 +242,7 @@ function bobWithProjets(): void {
       selectable: true,
       total: 0,
       unread: 0,
+      labels_refused: false,
     },
     {
       id: 12,
@@ -254,6 +255,7 @@ function bobWithProjets(): void {
       selectable: true,
       total: 4,
       unread: 0,
+      labels_refused: false,
     },
   ]);
 }
@@ -317,6 +319,7 @@ describe("App", () => {
         selectable: true,
         total: 0,
         unread: 0,
+        labels_refused: false,
       },
     ]);
     render(App);
@@ -352,6 +355,7 @@ describe("App", () => {
         selectable: true,
         total: 0,
         unread: 0,
+        labels_refused: false,
       },
       {
         id: 12,
@@ -364,6 +368,7 @@ describe("App", () => {
         selectable: true,
         total: 0,
         unread: 0,
+        labels_refused: false,
       },
     ]);
     render(App);
@@ -461,6 +466,7 @@ describe("App", () => {
           unread: 0,
           flagged: false,
           has_attachments: false,
+          labels: [],
         },
       ],
       next: null,
@@ -560,6 +566,7 @@ describe("App", () => {
       unread: 0,
       flagged: false,
       has_attachments: false,
+      labels: [],
     });
     vi.mocked(api.listConversations).mockResolvedValue({
       items: [conversation(21, "Devis cuisine"), conversation(22, "Facture")],
@@ -626,6 +633,7 @@ describe("App", () => {
           unread: false,
           flagged: false,
           has_attachments: false,
+          labels: [],
         },
       ],
       next: null,
@@ -707,6 +715,7 @@ describe("App", () => {
       selectable: true,
       total: 0,
       unread: 0,
+      labels_refused: false,
     });
     const listed = await api.listFolders(3);
     vi.mocked(api.listFolders).mockResolvedValue([
@@ -780,6 +789,7 @@ describe("App", () => {
           unread: 0,
           flagged: false,
           has_attachments: false,
+          labels: [],
         },
       ],
       next: null,
@@ -897,6 +907,7 @@ describe("App", () => {
       unread: false,
       flagged: false,
       has_attachments: false,
+      labels: [],
     });
     vi.mocked(api.searchMessages).mockResolvedValue({
       items: [found(1, " d'avril"), found(2, " <img src=x onerror=alert(1)>")],

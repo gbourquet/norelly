@@ -28,6 +28,8 @@ import {
 } from "./contact-lists.svelte";
 import { SearchState } from "./search.svelte";
 import { SettingsState, markSeenDelayMs } from "./settings.svelte";
+import { LabelMenuState, LabelSettingsState, LabelsState, labelQuery } from "./labels.svelte";
+import type { LabelDto } from "./ipc/api";
 import { UpdatesState } from "./updates.svelte";
 import type { ConversationMessage } from "./ipc/api";
 import { failureLabel } from "./outbox";
@@ -45,6 +47,7 @@ export type DialogName =
   | "remove-account"
   | "change-password"
   | "move"
+  | "label"
   | "archive-folder"
   | "new-folder"
   | "rename-folder"
@@ -75,6 +78,9 @@ export interface AppContext {
   reading: boolean;
   /** Une action peut viser au moins une conversation. */
   hasTargets: boolean;
+  /** Le serveur refuse les étiquettes dans un dossier des conversations
+   * visées : « Étiqueter » est désactivé, avec une explication. */
+  labelsRefused: boolean;
   /** Nombre de conversations cochées. */
   marked: number;
   /** La dernière action peut être annulée. */
@@ -175,6 +181,7 @@ class AppState {
         conversations: 0,
         reading: false,
         hasTargets: false,
+        labelsRefused: false,
         marked: 0,
         canUndo: mail.lastAction !== null,
         searching: false,
@@ -196,6 +203,13 @@ class AppState {
       // Liste des résultats sans conversation ouverte : rien à viser (la
       // liste des conversations est masquée).
       hasTargets: search.active && mail.opened === null ? false : mail.targets().length > 0,
+      labelsRefused: mail
+        .targets()
+        .some(
+          (c) =>
+            (mail.folders[c.account] ?? []).find((f) => f.id === c.mailbox)?.labels_refused ===
+            true,
+        ),
       marked: mail.marked.length,
       canUndo: mail.lastAction !== null,
       searching: search.active,
@@ -464,6 +478,22 @@ export const mail = new MailState(api, () => markSeenDelayMs(settings.current));
 
 export const search = new SearchState(api);
 
+/** Étiquettes de chaque compte, relues avec ses dossiers. */
+export const labels = new LabelsState(api);
+mail.onFolders = (account) => void labels.load(account);
+
+/** Dialogue « Étiqueter… » de la sélection. */
+export const labelMenu = new LabelMenuState(api, (action, done) => mail.act(action, done));
+
+/** Réglages des étiquettes. */
+export const labelSettings = new LabelSettingsState(api, labels);
+
+/** Recherche des messages d'une étiquette (clic sur une pastille). */
+export function searchLabel(label: LabelDto): void {
+  app.showMail();
+  void search.searchFor(labelQuery(label));
+}
+
 export const contacts = new ContactsState(api);
 
 /** Formulaire d'ajout ou de modification d'un contact. */
@@ -707,6 +737,23 @@ export function registerAppCommands(): () => void {
           return;
         }
         app.open("move");
+      },
+    }),
+    registry.register({
+      id: "action.label",
+      title: m.cmd_label(),
+      group: m.group_actions(),
+      shortcut: "l",
+      keywords: words(m.cmd_label_keywords()),
+      when: (ctx) => ctx.hasTargets && !ctx.labelsRefused,
+      unavailable: (ctx) => (ctx.hasTargets && ctx.labelsRefused ? m.label_refused() : null),
+      run: async () => {
+        const targets = mail.captureTargets();
+        app.open("label");
+        await labelMenu.load(
+          targets.targets.map((c) => c.id),
+          targets.scope,
+        );
       },
     }),
     registry.register({

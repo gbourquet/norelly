@@ -5,7 +5,10 @@
 // - un export CSV de Google Contacts : les fiches déjà importées sont
 //   reconnues par leur adresse (doublons, choix de leur sort), la fiche
 //   sans adresse est rejetée avec sa raison, la nouvelle est ajoutée ;
-// - la fiche importée garde ses accents et sa note ;
+// - la fiche importée garde ses accents et sa note ; ses étiquettes
+//   (`work`, `home`, `cell`) s'affichent traduites ;
+// - un export vCard d'Apple : les étiquettes personnalisées
+//   (`X-ABLabel:bureau`) sont reprises, les réservées traduites ;
 // - nettoyage : les contacts importés sont supprimés (sélection multiple).
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -67,6 +70,12 @@ describe("import du carnet", () => {
     await expect(card).toBeDisplayed();
     await expect(card.$("span=elodie.cezanne@example.com")).toBeDisplayed();
     await expect(card.$("p*=Rencontrée à Lyon, France.")).toBeDisplayed();
+    // Étiquettes de l'export (`work`, `home`, `cell`) traduites.
+    await expect(card.$$("span.tag=Travail")).toBeElementsArrayOfSize(2);
+    await expect(card.$("span.tag=Domicile")).toBeDisplayed();
+    await expect(card.$("span.tag=Mobile")).toBeDisplayed();
+    await expect(card.$("span.tag=work")).not.toBeExisting();
+    await expect(card.$("span.tag=cell")).not.toBeExisting();
   });
 
   it("importe un export CSV de Google : doublons reconnus, fiche sans adresse rejetée", async () => {
@@ -93,8 +102,29 @@ describe("import du carnet", () => {
     await expect($$('//*[@role="option"]')).toBeElementsArrayOfSize(3);
   });
 
+  it("importe un export vCard d'Apple : étiquettes personnalisées reprises", async () => {
+    const preview = await importFile("apple.vcf");
+    await expect(preview.$("p*=« apple.vcf » (vCard)")).toBeDisplayed();
+    await preview.$("button=Importer").click();
+    await preview.waitForDisplayed({ reverse: true, timeout: 20000 });
+    await row("Alice Martin").click();
+    const card = $('article[aria-label="Fiche de Alice Martin"]');
+    await expect(card).toBeDisplayed();
+    // `item2.X-ABLabel:bureau` gardé tel quel ; `_$!<Other>!$_` traduit.
+    await expect(card.$("span.tag=bureau")).toBeDisplayed();
+    await expect(card.$("span.tag=Autre")).toBeDisplayed();
+    await expect(card.$("span.tag=Domicile")).toBeDisplayed();
+    await expect(card.$("span.tag=Mobile")).toBeDisplayed();
+  });
+
   it("supprime les contacts importés", async () => {
-    for (const name of ["Élodie Cézanne", "Marc Durand", "contact@plomberie.example"]) {
+    for (const name of [
+      "Élodie Cézanne",
+      "Marc Durand",
+      "contact@plomberie.example",
+      "Alice Martin",
+      "support@evil.example",
+    ]) {
       await row(name).$('input[type="checkbox"]').click();
     }
     // Trop étroite, la barre range la suppression dans « Plus… ».

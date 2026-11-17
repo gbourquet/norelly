@@ -85,9 +85,27 @@ function sameScope(a: ScopeDto, b: ScopeDto): boolean {
  * rien n'est marqué. */
 export type MarkSeenDelay = () => number | null;
 
+/** Visibilité de la fenêtre : le délai du marquage comme lu ne court que
+ * pendant qu'elle est visible. */
+export interface WindowVisibility {
+  isVisible(): boolean;
+  /** Prévient à chaque changement ; renvoie de quoi cesser l'écoute. */
+  onChange(listener: () => void): () => void;
+}
+
+/** Visibilité du document (fenêtre réduite ou masquée : cachée). */
+export const documentVisibility: WindowVisibility = {
+  isVisible: () => document.visibilityState !== "hidden",
+  onChange: (listener) => {
+    document.addEventListener("visibilitychange", listener);
+    return () => document.removeEventListener("visibilitychange", listener);
+  },
+};
+
 export class MailState {
   readonly #api: MailApi;
   readonly #markSeenDelay: MarkSeenDelay;
+  readonly #visibility: WindowVisibility;
   /** Dossiers par compte. */
   folders = $state<Record<number, FolderDto[]>>({});
   /** Comptes hors ligne (raison). */
@@ -119,8 +137,9 @@ export class MailState {
    * pas été rejouées sur le serveur. */
   lastAction = $state<number[] | null>(null);
   #actionGeneration = 0;
-  /** Marquage comme lu en attente de la conversation ouverte. */
-  #autoSeen: ReturnType<typeof setTimeout> | null = null;
+  /** Annule le marquage comme lu en attente de la conversation ouverte
+   * (minuterie et écoute de la visibilité). */
+  #autoSeen: (() => void) | null = null;
   /** Ouverture courante : un chargement de messages d'une ouverture
    * précédente ne programme rien. */
   #openGeneration = 0;
@@ -131,9 +150,14 @@ export class MailState {
 
   readonly selected = $derived(this.conversations[this.selectedIndex] ?? null);
 
-  constructor(api: MailApi, markSeenDelay: MarkSeenDelay) {
+  constructor(
+    api: MailApi,
+    markSeenDelay: MarkSeenDelay,
+    visibility: WindowVisibility = documentVisibility,
+  ) {
     this.#api = api;
     this.#markSeenDelay = markSeenDelay;
+    this.#visibility = visibility;
   }
 
   /** Dernière relecture demandée, par compte : une réponse plus ancienne,
@@ -283,6 +307,9 @@ export class MailState {
    * non lus seront marqués comme lus si la conversation est encore
    * ouverte au bout du délai des réglages ; un message arrivé entre-temps
    * n'a pas été vu et n'est pas compté (Rust choisit les messages visés).
+   * Le délai ne court que fenêtre visible : suspendu quand elle est cachée,
+   * il reprend à son retour avec le temps restant (le temps déjà passé à
+   * l'écran compte comme vu).
    */
   async #openWith(conversation: ConversationDto, scope: ScopeDto | null): Promise<void> {
     this.#cancelAutoSeen();
@@ -295,15 +322,51 @@ export class MailState {
     const shown = this.messages.filter((x) => x.unread).map((x) => x.id);
     const delay = this.#markSeenDelay();
     if (shown.length === 0 || delay === null) return;
-    this.#autoSeen = setTimeout(() => {
+    this.#autoSeen = this.#whileVisible(delay, () => {
       this.#autoSeen = null;
       this.#autoSeenInFlight = this.#markOpenedSeen(conversation, shown);
-    }, delay);
+    });
+  }
+
+  /** Appelle `fire` quand la fenêtre a été visible pendant `delay` ms au
+   * total ; renvoie l'annulation. L'écoute de la visibilité cesse à
+   * l'appel de `fire` comme à l'annulation. */
+  #whileVisible(delay: number, fire: () => void): () => void {
+    let remaining = delay;
+    let startedAt = 0;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const pause = (): void => {
+      if (timer === null) return;
+      clearTimeout(timer);
+      timer = null;
+      remaining = Math.max(0, remaining - (performance.now() - startedAt));
+    };
+    const resume = (): void => {
+      if (timer !== null) return;
+      startedAt = performance.now();
+      timer = setTimeout(() => {
+        timer = null;
+        stopListening();
+        fire();
+      }, remaining);
+    };
+    const stopListening = this.#visibility.onChange(() => {
+      if (this.#visibility.isVisible()) resume();
+      else pause();
+    });
+    if (this.#visibility.isVisible()) resume();
+    let cancelled = false;
+    return () => {
+      if (cancelled) return;
+      cancelled = true;
+      pause();
+      stopListening();
+    };
   }
 
   #cancelAutoSeen(): void {
     this.#openGeneration++;
-    if (this.#autoSeen !== null) clearTimeout(this.#autoSeen);
+    this.#autoSeen?.();
     this.#autoSeen = null;
   }
 

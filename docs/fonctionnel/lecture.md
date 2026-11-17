@@ -24,7 +24,9 @@ sur l'application ; ouvrir liens et pièces jointes sans danger.
   l'est à la demande.
 - **Texte brut** : bouton par message, et préférence globale.
 - Une conversation non lue **devient lue quand elle reste ouverte quelques
-  secondes** : la parcourir rapidement ne change rien. Seuls les messages
+  secondes** : la parcourir rapidement ne change rien. Seul compte le
+  temps passé fenêtre visible : réduite ou masquée, l'attente est
+  suspendue et reprend quand la fenêtre réapparaît. Seuls les messages
   affichés à l'ouverture deviennent lus : une réponse arrivée pendant la
   lecture reste non lue. Ce marquage ne
   remplace pas le message de la dernière action ni sa possibilité

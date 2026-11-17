@@ -6,7 +6,14 @@ import type {
   ConversationMessage,
   ScopeDto,
 } from "./ipc/api";
-import { MailState, PAGE_SIZE, UNDO_WINDOW_MS, UNIFIED_INBOX, type MailApi } from "./mail.svelte";
+import {
+  MailState,
+  PAGE_SIZE,
+  UNDO_WINDOW_MS,
+  UNIFIED_INBOX,
+  documentVisibility,
+  type MailApi,
+} from "./mail.svelte";
 import { IpcFailure } from "./errors";
 
 /** Sans marquage comme lu à l'ouverture (réglages non chargés). */
@@ -702,6 +709,130 @@ describe("marquage comme lu à l'ouverture", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  describe("fenêtre cachée", () => {
+    /** Visibilité de la fenêtre pilotée par le test. */
+    function fakeVisibility(visible: boolean) {
+      const listeners = new Set<() => void>();
+      const source = {
+        isVisible: () => visible,
+        onChange: (listener: () => void) => {
+          listeners.add(listener);
+          return () => listeners.delete(listener);
+        },
+        set(value: boolean) {
+          visible = value;
+          for (const listener of [...listeners]) listener();
+        },
+        listeners: () => listeners.size,
+      };
+      return source;
+    }
+
+    it("visibilité par défaut : celle du document, écoutée par visibilitychange", () => {
+      let state: DocumentVisibilityState = "visible";
+      const spy = vi.spyOn(document, "visibilityState", "get").mockImplementation(() => state);
+      try {
+        const listener = vi.fn();
+        const stop = documentVisibility.onChange(listener);
+        expect(documentVisibility.isVisible()).toBe(true);
+        state = "hidden";
+        expect(documentVisibility.isVisible()).toBe(false);
+        document.dispatchEvent(new Event("visibilitychange"));
+        expect(listener).toHaveBeenCalledTimes(1);
+        stop();
+        document.dispatchEvent(new Event("visibilitychange"));
+        expect(listener).toHaveBeenCalledTimes(1);
+      } finally {
+        spy.mockRestore();
+      }
+    });
+
+    it("le délai est suspendu tant que la fenêtre est cachée, puis reprend avec le temps restant", async () => {
+      vi.useFakeTimers();
+      try {
+        const api = fakeApi(3, [1]);
+        const visibility = fakeVisibility(true);
+        const mail = new MailState(api, () => DELAY_MS, visibility);
+        await mail.show(UNIFIED_INBOX);
+        await mail.open();
+        await vi.advanceTimersByTimeAsync(2000);
+        visibility.set(false);
+        await vi.advanceTimersByTimeAsync(60_000);
+        expect(seenCalls(api)).toEqual([]);
+        visibility.set(true);
+        await vi.advanceTimersByTimeAsync(DELAY_MS - 2000 - 1);
+        expect(seenCalls(api)).toEqual([]);
+        await vi.advanceTimersByTimeAsync(1);
+        expect(seenCalls(api)).toEqual([[1, [10]]]);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("ouverte fenêtre cachée : le délai ne commence qu'au retour de la fenêtre", async () => {
+      vi.useFakeTimers();
+      try {
+        const api = fakeApi(3, [1]);
+        const visibility = fakeVisibility(false);
+        const mail = new MailState(api, () => DELAY_MS, visibility);
+        await mail.show(UNIFIED_INBOX);
+        await mail.open();
+        await vi.advanceTimersByTimeAsync(60_000);
+        expect(seenCalls(api)).toEqual([]);
+        visibility.set(true);
+        await vi.advanceTimersByTimeAsync(DELAY_MS - 1);
+        expect(seenCalls(api)).toEqual([]);
+        await vi.advanceTimersByTimeAsync(1);
+        expect(seenCalls(api)).toEqual([[1, [10]]]);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("délai nul, fenêtre cachée : marqué seulement quand la fenêtre redevient visible", async () => {
+      vi.useFakeTimers();
+      try {
+        const api = fakeApi(3, [1]);
+        const visibility = fakeVisibility(false);
+        const mail = new MailState(api, () => 0, visibility);
+        await mail.show(UNIFIED_INBOX);
+        await mail.open();
+        await vi.advanceTimersByTimeAsync(60_000);
+        expect(seenCalls(api)).toEqual([]);
+        visibility.set(true);
+        await vi.advanceTimersByTimeAsync(0);
+        expect(seenCalls(api)).toEqual([[1, [10]]]);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("l'écoute de la visibilité cesse quand la conversation est quittée ou marquée", async () => {
+      vi.useFakeTimers();
+      try {
+        const api = fakeApi(3, [1, 2]);
+        const visibility = fakeVisibility(false);
+        const mail = new MailState(api, () => DELAY_MS, visibility);
+        await mail.show(UNIFIED_INBOX);
+        await mail.open();
+        expect(visibility.listeners()).toBe(1);
+        mail.back();
+        expect(visibility.listeners()).toBe(0);
+        visibility.set(true);
+        await vi.advanceTimersByTimeAsync(DELAY_MS);
+        expect(seenCalls(api)).toEqual([]);
+
+        await mail.open();
+        expect(visibility.listeners()).toBe(1);
+        await vi.advanceTimersByTimeAsync(DELAY_MS);
+        expect(seenCalls(api)).toEqual([[1, [10]]]);
+        expect(visibility.listeners()).toBe(0);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
   });
 });
 

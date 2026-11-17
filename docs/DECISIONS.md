@@ -439,6 +439,13 @@ est majoritairement écrit par Claude et relu par le mainteneur.
   ne sert qu'aux tests d'intégration. Un correctif est proposé chez
   testcontainers-rs : à la prochaine version, mettre à jour
   `testcontainers` et retirer l'exception.
+- **Dérogation validée par le mainteneur (2026-11-17)** : l'avis
+  RUSTSEC-2026-0543 (`chrono` non maintenu, toutes versions, sans
+  vulnérabilité connue ni version sûre) est ignoré dans `deny.toml`. La
+  bibliothèque est tirée par `imap-codec` et `imap-types`, via
+  `imap-next`, et fait donc partie de l'application livrée. Aucun
+  remplacement n'est possible sans changer de bibliothèque IMAP : retirer
+  l'exception quand `imap-codec` abandonnera `chrono`.
 
 ## ADR-010 : éditeur de rédaction
 

@@ -183,7 +183,8 @@ logiciel :
 1. Dans **Contacts**, cliquez sur **Exporter…**, en haut de la liste
    (dans **Plus…** si la fenêtre est étroite). Pour n'exporter que
    quelques contacts, cochez-les d'abord, puis cliquez sur **Exporter…**
-   dans la barre qui apparaît.
+   dans la barre qui apparaît. Tant que le carnet est vide, le bouton
+   est grisé : il n'y a rien à exporter.
 2. Choisissez le format : **vCard 4.0** convient presque partout (Gmail,
    iPhone, Android, Thunderbird) ; **vCard 3.0** pour un logiciel ancien ;
    **CSV** pour Outlook ou un tableur ; **LDIF** pour Thunderbird.

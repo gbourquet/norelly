@@ -19,6 +19,7 @@ use crate::compose::ReplySource;
 use crate::compose::draft::{ComposeError, Draft, DraftSync, Recipient, RemoteCopy};
 use crate::compose::outbox::OutboxEntry;
 use crate::connection::ConnectionError;
+use crate::contact_duplicates::DismissedPair;
 use crate::contact_export::{ContactSelection, ExportCard, ExportFormat};
 use crate::contact_import::{ContactCompletion, DecodedContacts};
 use crate::contact_lists::{ContactList, ContactListDraft, ContactListFilter, ContactListId};
@@ -1820,6 +1821,28 @@ pub trait ContactDirectory: Send + Sync {
         selection: &ContactSelection,
         limit: usize,
     ) -> impl Future<Output = Result<Vec<Contact>, StoreError>> + Send;
+}
+
+/// Groupes de doublons passés par l'utilisateur
+/// ([`crate::contact_duplicates::Dismissal`]), retenus pour ne plus les
+/// proposer.
+///
+/// Une paire est oubliée dès que l'une de ses deux fiches est modifiée
+/// (fusion et import compris) ou supprimée : le groupe peut alors être
+/// proposé de nouveau. Au plus
+/// [`MAX_DISMISSED_PAIRS`](crate::contact_duplicates::MAX_DISMISSED_PAIRS) paires sont
+/// retenues, les plus anciennes oubliées d'abord.
+pub trait DuplicateDismissals: Send + Sync {
+    /// Retient les paires `pairs`. Une paire déjà retenue redevient la
+    /// plus récente ; une paire dont une fiche n'est pas (ou plus) dans le
+    /// carnet est ignorée.
+    fn dismiss(
+        &self,
+        pairs: &[DismissedPair],
+    ) -> impl Future<Output = Result<(), StoreError>> + Send;
+
+    /// Paires retenues, dans n'importe quel ordre.
+    fn dismissed(&self) -> impl Future<Output = Result<Vec<DismissedPair>, StoreError>> + Send;
 }
 
 // ---------------------------------------------------------------------------

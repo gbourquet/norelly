@@ -54,6 +54,8 @@ fn card_dto(contact: &Contact) -> Result<DuplicateCardDto, IpcError> {
             .map(|e| ContactEmailDto {
                 address: e.address().to_string(),
                 label: e.label().unwrap_or_default().to_owned(),
+                // La fenêtre des doublons n'affiche pas les étiquettes.
+                label_kind: None,
                 preferred: e.preferred(),
             })
             .collect(),

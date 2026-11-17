@@ -91,6 +91,7 @@ export type {
   DuplicateCardDto,
   DuplicateReasonDto,
   ContactEmailDto,
+  ContactLabelKindDto,
   ContactFieldsDto,
   ContactPhoneDto,
   ComposeEventDto,

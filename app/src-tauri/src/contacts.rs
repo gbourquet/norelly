@@ -18,7 +18,7 @@ use tauri::State;
 
 use crate::ipc::{
     ContactCursorDto, ContactDto, ContactEmailDto, ContactFieldsDto, ContactItemDto,
-    ContactPageDto, ContactPhoneDto, ErrorCodeDto, FieldDto, IpcError, id32,
+    ContactLabelKindDto, ContactPageDto, ContactPhoneDto, ErrorCodeDto, FieldDto, IpcError, id32,
 };
 use crate::state::AppState;
 
@@ -150,6 +150,7 @@ pub(crate) fn contact_dto(contact: &Contact) -> Result<ContactDto, IpcError> {
                 .emails
                 .into_iter()
                 .map(|e| ContactEmailDto {
+                    label_kind: ContactLabelKindDto::of(&e.label),
                     address: e.address,
                     label: e.label,
                     preferred: e.preferred,
@@ -159,6 +160,7 @@ pub(crate) fn contact_dto(contact: &Contact) -> Result<ContactDto, IpcError> {
                 .phones
                 .into_iter()
                 .map(|p| ContactPhoneDto {
+                    label_kind: ContactLabelKindDto::of(&p.label),
                     number: p.number,
                     label: p.label,
                 })

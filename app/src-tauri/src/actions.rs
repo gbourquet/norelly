@@ -93,21 +93,26 @@ async fn apply(
 }
 
 /// Marque comme lus les messages d'une conversation restée ouverte :
-/// `shown`, les messages affichés non lus à l'ouverture. Le domaine
-/// (`opened_seen_targets`) y ajoute leurs exemplaires d'autres dossiers et
-/// écarte les messages arrivés depuis ou étrangers à la conversation.
+/// `shown`, les messages affichés non lus à l'ouverture ; `known_until`,
+/// le plus grand identifiant d'exemplaire connu à l'ouverture
+/// (`newest_copy` des messages lus). Le domaine (`opened_seen_targets`) y
+/// ajoute leurs exemplaires d'autres dossiers et écarte les messages
+/// arrivés depuis (au-delà du repère) ou étrangers à la conversation.
 #[tauri::command]
 #[specta::specta]
 pub async fn mark_opened_seen(
     state: State<'_, AppState>,
     conversation: u32,
     shown: Vec<u32>,
+    known_until: u32,
 ) -> Result<ActionResultDto, IpcError> {
     if shown.len() > MAX_ACTION_TARGETS {
         return Err(IpcError::new(ErrorCodeDto::TooManyMessages));
     }
     let conversation = ConversationId::new(i64::from(conversation))
         .ok_or_else(|| IpcError::invalid(FieldDto::Conversation))?;
+    let known_until = MessageId::new(i64::from(known_until))
+        .ok_or_else(|| IpcError::invalid(FieldDto::Message))?;
     let shown = shown
         .into_iter()
         .map(|raw| {
@@ -120,7 +125,7 @@ pub async fn mark_opened_seen(
         .conversation_members(conversation)
         .await
         .map_err(IpcError::storage)?;
-    let messages = opened_seen_targets(&members, &shown);
+    let messages = opened_seen_targets(&members, &shown, known_until);
     apply(&state, &messages, MessageAction::MarkSeen(true)).await
 }
 

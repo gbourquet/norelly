@@ -1228,16 +1228,16 @@ async fn opened_conversation_marks_only_the_shown_messages() {
     assert_eq!(page.items.len(), 2);
     assert!(page.items.iter().all(|c| c.unread == 1));
     let (opened, other) = (page.items[0].id, page.items[1].id);
-    let mine = conversation_messages(t.state(), opened)
+    let shown = conversation_messages(t.state(), opened)
         .await
-        .unwrap_or_else(|e| panic!("{e:?}"))[0]
-        .id;
+        .unwrap_or_else(|e| panic!("{e:?}"));
+    let (mine, known) = (shown[0].id, shown[0].newest_copy);
     let foreign = conversation_messages(t.state(), other)
         .await
         .unwrap_or_else(|e| panic!("{e:?}"))[0]
         .id;
 
-    let result = mark_opened_seen(t.state(), opened, vec![mine, foreign])
+    let result = mark_opened_seen(t.state(), opened, vec![mine, foreign], known.max(foreign))
         .await
         .unwrap_or_else(|e| panic!("{e:?}"));
     assert_eq!(result.messages, 1);
@@ -1251,16 +1251,94 @@ async fn opened_conversation_marks_only_the_shown_messages() {
 
     // Entrées refusées.
     assert_eq!(
-        code(mark_opened_seen(t.state(), 0, vec![mine]).await),
+        code(mark_opened_seen(t.state(), 0, vec![mine], known).await),
         (ErrorCodeDto::InvalidInput, Some(FieldDto::Conversation))
     );
     assert_eq!(
-        code(mark_opened_seen(t.state(), opened, vec![0]).await),
+        code(mark_opened_seen(t.state(), opened, vec![0], known).await),
         (ErrorCodeDto::InvalidInput, Some(FieldDto::Message))
     );
     assert_eq!(
-        code(mark_opened_seen(t.state(), opened, vec![mine; 1001]).await).0,
+        code(mark_opened_seen(t.state(), opened, vec![mine], 0).await),
+        (ErrorCodeDto::InvalidInput, Some(FieldDto::Message))
+    );
+    assert_eq!(
+        code(mark_opened_seen(t.state(), opened, vec![mine; 1001], known).await).0,
         ErrorCodeDto::TooManyMessages
+    );
+}
+
+/// Un message forgé qui reprend le `Message-ID` du message affiché et
+/// arrive pendant le délai n'est ni marqué lu, ni affiché à la place de
+/// l'original.
+#[tokio::test]
+async fn a_forged_copy_arrived_after_the_opening_stays_unread() {
+    use crate::reading::conversation_messages;
+    use norelly_domain::mailbox::MailboxId;
+    use norelly_domain::ports::{MailStore, SyncBatch};
+    let t = test_app().await;
+    let scope = ScopeDto::Unified {
+        role: "inbox".into(),
+    };
+    let opened = list_conversations(t.state(), scope.clone(), None, 50)
+        .await
+        .unwrap_or_else(|e| panic!("{e:?}"))
+        .items[0]
+        .id;
+    let shown = conversation_messages(t.state(), opened)
+        .await
+        .unwrap_or_else(|e| panic!("{e:?}"));
+    assert_eq!(shown.len(), 1);
+    let (original, known) = (shown[0].id, shown[0].newest_copy);
+    let inbox = MailboxId::new(i64::from(shown[0].mailbox)).unwrap_or_else(|| panic!("boîte"));
+
+    // Message forgé, plus récent, avec le Message-ID de l'original
+    // (`m2@example.com`, message le plus récent de la boîte factice).
+    let mut forged = norelly_test_support::mail_contracts::sample_message(3, 3_000, false);
+    forged.meta.headers.message_id = Some("m2@example.com".into());
+    t.state()
+        .mail
+        .store
+        .apply_sync(
+            inbox,
+            &SyncBatch {
+                new: vec![forged],
+                // État de la boîte factice conservé (UIDVALIDITY 7).
+                state: norelly_domain::sync::MailboxSyncState {
+                    uid_validity: norelly_domain::mailbox::UidValidity::new(7),
+                    uid_next: norelly_domain::mailbox::Uid::new(4),
+                    ..norelly_domain::sync::MailboxSyncState::default()
+                },
+                ..SyncBatch::default()
+            },
+        )
+        .await
+        .unwrap_or_else(|e| panic!("{e}"));
+
+    let result = mark_opened_seen(t.state(), opened, vec![original], known)
+        .await
+        .unwrap_or_else(|e| panic!("{e:?}"));
+    assert_eq!(result.messages, 1, "seul l'original est marqué lu");
+    assert_eq!(result.ops.len(), 1);
+    let after = list_conversations(t.state(), scope, None, 50)
+        .await
+        .unwrap_or_else(|e| panic!("{e:?}"));
+    let unread = after
+        .items
+        .iter()
+        .find(|c| c.id == opened)
+        .map(|c| c.unread);
+    assert_eq!(unread, Some(1), "le message forgé reste non lu");
+    let shown = conversation_messages(t.state(), opened)
+        .await
+        .unwrap_or_else(|e| panic!("{e:?}"));
+    // L'original reste affiché, à lire tant que l'exemplaire forgé ne l'est
+    // pas : la prochaine ouverture le marquera, cette fois en connaissance
+    // de cause.
+    assert_eq!(
+        shown.iter().map(|m| (m.id, m.unread)).collect::<Vec<_>>(),
+        [(original, true)],
+        "l'original reste affiché"
     );
 }
 

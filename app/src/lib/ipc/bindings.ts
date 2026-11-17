@@ -115,11 +115,13 @@ export const commands = {
 	performAction: (conversations: number[], scope: ScopeDto, action: ActionDto) => typedError<ActionResultDto, IpcError_Serialize>(__TAURI_INVOKE("perform_action", { conversations, scope, action })),
 	/**
 	 *  Marque comme lus les messages d'une conversation restée ouverte :
-	 *  `shown`, les messages affichés non lus à l'ouverture. Le domaine
-	 *  (`opened_seen_targets`) y ajoute leurs exemplaires d'autres dossiers et
-	 *  écarte les messages arrivés depuis ou étrangers à la conversation.
+	 *  `shown`, les messages affichés non lus à l'ouverture ; `known_until`,
+	 *  le plus grand identifiant d'exemplaire connu à l'ouverture
+	 *  (`newest_copy` des messages lus). Le domaine (`opened_seen_targets`) y
+	 *  ajoute leurs exemplaires d'autres dossiers et écarte les messages
+	 *  arrivés depuis (au-delà du repère) ou étrangers à la conversation.
 	 */
-	markOpenedSeen: (conversation: number, shown: number[]) => typedError<ActionResultDto, IpcError_Serialize>(__TAURI_INVOKE("mark_opened_seen", { conversation, shown })),
+	markOpenedSeen: (conversation: number, shown: number[], knownUntil: number) => typedError<ActionResultDto, IpcError_Serialize>(__TAURI_INVOKE("mark_opened_seen", { conversation, shown, knownUntil })),
 	/**
 	 *  Annule des opérations encore en attente (dernière action) ; renvoie le
 	 *  nombre d'opérations annulées (0 si elles ont déjà été rejouées).
@@ -790,6 +792,12 @@ export type ConversationMessageDto_Deserialize = {
 	unread: boolean,
 	flagged: boolean,
 	has_attachments: boolean,
+	/**
+	 *  Plus grand identifiant parmi les exemplaires de ce message présents
+	 *  à la lecture : l'interface en garde le maximum comme repère de
+	 *  l'ouverture (`mark_opened_seen`).
+	 */
+	newest_copy: number,
 };
 
 /**  Message d'une conversation. */
@@ -805,6 +813,12 @@ export type ConversationMessageDto_Serialize = {
 	unread: boolean,
 	flagged: boolean,
 	has_attachments: boolean,
+	/**
+	 *  Plus grand identifiant parmi les exemplaires de ce message présents
+	 *  à la lecture : l'interface en garde le maximum comme repère de
+	 *  l'ouverture (`mark_opened_seen`).
+	 */
+	newest_copy: number,
 };
 
 export type ConversationPageDto = ConversationPageDto_Serialize | ConversationPageDto_Deserialize;

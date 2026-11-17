@@ -322,9 +322,12 @@ export class MailState {
     const shown = this.messages.filter((x) => x.unread).map((x) => x.id);
     const delay = this.#markSeenDelay();
     if (shown.length === 0 || delay === null) return;
+    // Repère de l'ouverture : un exemplaire arrivé ensuite, même avec le
+    // Message-ID d'un message affiché, n'a pas été vu.
+    const knownUntil = this.messages.reduce((max, x) => Math.max(max, x.newest_copy), 0);
     this.#autoSeen = this.#whileVisible(delay, () => {
       this.#autoSeen = null;
-      this.#autoSeenInFlight = this.#markOpenedSeen(conversation, shown);
+      this.#autoSeenInFlight = this.#markOpenedSeen(conversation, shown, knownUntil);
     });
   }
 
@@ -374,9 +377,13 @@ export class MailState {
    * qui restent ceux de la dernière action de l'utilisateur. La promesse
    * rendue ne couvre que l'enregistrement du marquage : le rafraîchissement
    * qui suit n'est pas attendu par une action de l'utilisateur. */
-  async #markOpenedSeen(conversation: ConversationDto, shown: number[]): Promise<void> {
+  async #markOpenedSeen(
+    conversation: ConversationDto,
+    shown: number[],
+    knownUntil: number,
+  ): Promise<void> {
     try {
-      await this.#api.markOpenedSeen(conversation.id, shown);
+      await this.#api.markOpenedSeen(conversation.id, shown, knownUntil);
     } catch (e) {
       this.notice = { text: errorText(e), undoable: false };
       return;

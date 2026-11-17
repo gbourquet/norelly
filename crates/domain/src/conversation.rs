@@ -27,6 +27,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use serde::{Deserialize, Serialize};
 
 use crate::mailbox::{MAX_REFERENCES, MailboxId, MailboxRole, MessageHeaders};
+use crate::ports::MessageId;
 
 /// Fenêtre du regroupement par sujet : une réponse sans référence connue
 /// ne rejoint une conversation de même sujet que si leurs dates sont à
@@ -744,6 +745,74 @@ impl ConversationScope {
     pub const fn unified_inbox() -> Self {
         Self::Unified(MailboxRole::Inbox)
     }
+}
+
+// ---------------------------------------------------------------------------
+// Exemplaires d'un même message
+// ---------------------------------------------------------------------------
+
+/// Exemplaire d'un message lu pour l'affichage d'une conversation : un
+/// même message peut être rangé dans plusieurs dossiers (même
+/// `Message-ID`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MessageCopy<'a> {
+    /// Identifiant local, croissant à l'insertion (un déplacement ou une
+    /// resynchronisation en attribue un nouveau).
+    pub id: MessageId,
+    /// Date de remise par le serveur (INTERNALDATE), conservée quand le
+    /// message change de dossier.
+    pub received: i64,
+    pub seen: bool,
+    pub message_id: Option<&'a str>,
+}
+
+/// Exemplaire retenu pour l'affichage.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ShownCopy {
+    /// Position de l'exemplaire dans la liste lue.
+    pub index: usize,
+    /// Plus grand identifiant parmi les exemplaires de ce message.
+    pub newest_copy: MessageId,
+    /// Un exemplaire au moins n'est pas lu.
+    pub unread: bool,
+}
+
+/// Un exemplaire par message, dans l'ordre de `copies`. Parmi les
+/// exemplaires d'un même `Message-ID`, le premier remis par le serveur
+/// l'emporte (date de remise, puis plus petit identifiant) : un message
+/// forgé qui reprend le `Message-ID` d'un message déjà reçu ne prend pas
+/// sa place, même si l'original change ensuite de dossier. Le message est
+/// non lu tant qu'un de ses exemplaires l'est. Un message sans
+/// `Message-ID` est son propre exemplaire.
+#[must_use]
+pub fn shown_copies(copies: &[MessageCopy<'_>]) -> Vec<ShownCopy> {
+    let rank = |c: &MessageCopy<'_>| (c.received, c.id);
+    let mut groups: BTreeMap<&str, ShownCopy> = BTreeMap::new();
+    let mut shown = Vec::new();
+    for (index, c) in copies.iter().enumerate() {
+        let own = ShownCopy {
+            index,
+            newest_copy: c.id,
+            unread: !c.seen,
+        };
+        let Some(mid) = c.message_id else {
+            shown.push(own);
+            continue;
+        };
+        groups
+            .entry(mid)
+            .and_modify(|g| {
+                if copies.get(g.index).is_none_or(|b| rank(c) < rank(b)) {
+                    g.index = index;
+                }
+                g.newest_copy = g.newest_copy.max(c.id);
+                g.unread |= !c.seen;
+            })
+            .or_insert(own);
+    }
+    shown.extend(groups.into_values());
+    shown.sort_by_key(|s| s.index);
+    shown
 }
 
 #[cfg(test)]

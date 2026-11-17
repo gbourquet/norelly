@@ -7,7 +7,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use norelly_domain::account::AccountId;
-use norelly_domain::conversation::{ConversationScope, ThreadKeys, ThreadMessage, thread};
+use norelly_domain::conversation::{
+    ConversationScope, MessageCopy, ShownCopy, ThreadKeys, ThreadMessage, shown_copies, thread,
+};
 use norelly_domain::fetch_policy::PartPath;
 use norelly_domain::mailbox::{
     Correspondent, Flags, MailboxId, MailboxName, MailboxRole, MessageHeaders, MessageMeta, ModSeq,
@@ -1162,15 +1164,26 @@ impl ConversationQuery for InMemoryMailStore {
             .collect();
         members
             .sort_by_key(|l| std::cmp::Reverse((l.message.stored.meta.sort_date(), l.message.id)));
-        let mut seen = BTreeSet::new();
+        let copies: Vec<MessageCopy<'_>> = members
+            .iter()
+            .map(|l| MessageCopy {
+                id: l.message.id,
+                received: l.message.stored.meta.internal_date,
+                seen: l.message.stored.meta.flags.seen,
+                message_id: l.message.stored.meta.headers.message_id.as_deref(),
+            })
+            .collect();
         let mut out = Vec::new();
-        for l in members {
-            let meta = &l.message.stored.meta;
-            if let Some(mid) = &meta.headers.message_id
-                && !seen.insert(mid.clone())
-            {
+        for ShownCopy {
+            index,
+            newest_copy,
+            unread,
+        } in shown_copies(&copies)
+        {
+            let Some(l) = members.get(index) else {
                 continue;
-            }
+            };
+            let meta = &l.message.stored.meta;
             out.push(ConversationMessage {
                 id: l.message.id,
                 account: l.account,
@@ -1182,8 +1195,13 @@ impl ConversationQuery for InMemoryMailStore {
                 to: meta.headers.to.clone(),
                 cc: meta.headers.cc.clone(),
                 subject: meta.headers.subject.clone(),
-                flags: meta.flags.clone(),
+                flags: {
+                    let mut flags = meta.flags.clone();
+                    flags.seen = !unread;
+                    flags
+                },
                 has_attachments: meta.has_attachments(),
+                newest_copy,
             });
             if out.len() >= MAX_CONVERSATION_MESSAGES {
                 break;

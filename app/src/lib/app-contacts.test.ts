@@ -182,6 +182,7 @@ function message(id: number, from: CorrespondentDto | null): ConversationMessage
     unread: false,
     flagged: false,
     has_attachments: false,
+    newest_copy: id,
   };
 }
 

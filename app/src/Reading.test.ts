@@ -119,6 +119,7 @@ vi.mock("./lib/ipc/api", () => ({
         unread: id === 1,
         flagged: false,
         has_attachments: false,
+        newest_copy: id * 10,
       },
     ]),
     openMessage: vi.fn(async (id: number) => ({ ...structuredClone(view), id })),
@@ -235,7 +236,7 @@ describe("lecture", () => {
     const list = await screen.findByRole("listbox", { name: "Conversations" });
     await within(list).findByText("Sujet 1");
     await fireEvent.keyDown(window, { key: "Enter" });
-    await waitFor(() => expect(api.markOpenedSeen).toHaveBeenCalledWith(1, [10]));
+    await waitFor(() => expect(api.markOpenedSeen).toHaveBeenCalledWith(1, [10], 10));
   });
 
   it("bannière d'images bloquées, pièces jointes et messages d'agent validés", async () => {

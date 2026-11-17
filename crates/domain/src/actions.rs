@@ -244,18 +244,23 @@ pub fn conversation_targets(
 /// Messages à marquer comme lus quand une conversation reste ouverte :
 /// `shown`, les messages affichés non lus à l'ouverture, et leurs
 /// exemplaires rangés dans d'autres dossiers (même `Message-ID`), s'ils
-/// sont encore non lus. Un message arrivé depuis l'ouverture n'a pas été
-/// vu et n'est pas touché ; un identifiant étranger à la conversation est
-/// ignoré.
+/// sont encore non lus. `known_until` est le plus grand identifiant connu
+/// à l'ouverture (les identifiants croissent à l'arrivée) : un message
+/// arrivé depuis, même s'il reprend le `Message-ID` d'un message affiché,
+/// n'a pas été vu et n'est pas touché. Un identifiant étranger à la
+/// conversation est ignoré.
 #[must_use]
-pub fn opened_seen_targets(members: &[Member], shown: &[MessageId]) -> Vec<MessageId> {
-    let shown_ids: Vec<&str> = members
-        .iter()
+pub fn opened_seen_targets(
+    members: &[Member],
+    shown: &[MessageId],
+    known_until: MessageId,
+) -> Vec<MessageId> {
+    let known = || members.iter().filter(|m| m.id <= known_until);
+    let shown_ids: Vec<&str> = known()
         .filter(|m| shown.contains(&m.id))
         .filter_map(|m| m.message_id.as_deref())
         .collect();
-    members
-        .iter()
+    known()
         .filter(|m| !m.flags.seen)
         .filter(|m| {
             shown.contains(&m.id)

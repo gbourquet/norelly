@@ -1053,10 +1053,20 @@ pub struct ConversationMessage {
     pub subject: String,
     pub flags: Flags,
     pub has_attachments: bool,
+    /// Plus grand identifiant parmi les exemplaires de ce message (même
+    /// `Message-ID`, tous dossiers) présents à la lecture : repère de
+    /// l'ouverture pour le marquage comme lu.
+    pub newest_copy: MessageId,
 }
 
 /// Nombre maximal de messages renvoyés pour une conversation.
 pub const MAX_CONVERSATION_MESSAGES: usize = 500;
+
+/// Nombre maximal d'exemplaires d'une conversation examinés pour choisir
+/// ceux qui s'affichent : les premiers remis par le serveur, pour qu'un
+/// afflux de messages ne fasse jamais sortir un original au profit d'un
+/// exemplaire forgé arrivé après lui.
+pub const MAX_CONVERSATION_COPIES: usize = MAX_CONVERSATION_MESSAGES * 20;
 
 /// Listes de conversations, précalculées (ADR-003).
 pub trait ConversationQuery: Send + Sync {
@@ -1071,7 +1081,8 @@ pub trait ConversationQuery: Send + Sync {
 
     /// Messages d'une conversation, tous dossiers confondus, du plus
     /// ancien au plus récent ; un même message présent dans plusieurs
-    /// dossiers (même `Message-ID`) n'apparaît qu'une fois. Au plus
+    /// dossiers (même `Message-ID`) n'apparaît qu'une fois, par l'exemplaire
+    /// que choisit [`crate::conversation::shown_copies`]. Au plus
     /// [`MAX_CONVERSATION_MESSAGES`] (les plus récents).
     fn conversation_messages(
         &self,

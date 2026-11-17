@@ -156,7 +156,7 @@ where
 
     // --- Déplacement vers la Corbeille : message masqué ---
     let t2 = target(store, m2).await?;
-    let delete = resolve(MessageAction::Delete, &t2.mailbox, &folders, None)
+    let delete = resolve(&MessageAction::Delete, &t2.mailbox, &folders, None)
         .map_err(|e| fail(&e.to_string()))?;
     assert!(matches!(&delete, Effect::MoveTo(f) if f.id == trash));
     let op2 = PendingOp::new(&delete, &t2, 100).ok_or_else(|| fail("opération"))?;
@@ -439,6 +439,7 @@ where
         name: norelly_domain::mailbox::MailboxName::parse("Corbeille").map_err(|_| fail("nom"))?,
         role: MailboxRole::Trash,
         selectable: true,
+        keywords: norelly_domain::labels::KeywordPermission::Unknown,
     });
     let op = PendingOp::new(&hide, &t1, 100).ok_or_else(|| fail("opération"))?;
     let hidden = record_one(store, &op).await?;

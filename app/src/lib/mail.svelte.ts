@@ -227,6 +227,7 @@ export class MailState {
       if (this.#folderReads[account] !== read) return;
       const before = this.folders[account] ?? [];
       this.folders[account] = folders;
+      this.onFolders?.(account);
       // Dossier affiché disparu (renommé, déplacé ou supprimé, ici ou
       // ailleurs) : retour à la boîte de réception du compte.
       const scope = this.scope;
@@ -507,6 +508,9 @@ export class MailState {
 
   /** Rappel après chaque action (rafraîchir une recherche affichée). */
   onActed: (() => void) | null = null;
+  /** Appelé après chaque relecture des dossiers d'un compte (action,
+   * synchronisation) : les étiquettes du compte sont relues aussi. */
+  onFolders: ((account: number) => void) | null = null;
 
   /** Ouvre une conversation trouvée par la recherche ; `scope` : dossier
    * du message trouvé, où s'appliquent les actions. */

@@ -1,6 +1,7 @@
 use norelly_domain::ports::AccountRepository;
 use norelly_test_support::actions_contracts::pending_op_store_contract;
 use norelly_test_support::contracts::sample_account;
+use norelly_test_support::labels_contracts::label_store_contract;
 use norelly_test_support::mail_contracts::{mail_store_contract, sample_message};
 use norelly_test_support::reading_contracts::{conversation_query_contract, forged_copy_contract};
 
@@ -40,6 +41,17 @@ async fn pending_ops_pass_contract() -> Result<(), StoreError> {
     let db = Database::open_in_memory().map_err(|e| StoreError(e.to_string()))?;
     let (a, b) = two_accounts(&db).await?;
     pending_op_store_contract(&SqliteMailStore::new(db), a, b).await
+}
+
+#[tokio::test]
+async fn labels_pass_contract() -> Result<(), StoreError> {
+    let path = temp_path("labels");
+    let db = Database::open(&path).map_err(|e| StoreError(e.to_string()))?;
+    let (a, b) = two_accounts(&db).await?;
+    label_store_contract(&SqliteMailStore::new(db.clone()), a, b).await?;
+    assert_eq!(db.integrity_problems().await?, Vec::<String>::new());
+    let _ = std::fs::remove_dir_all(path.parent().unwrap_or(&path));
+    Ok(())
 }
 
 #[tokio::test]

@@ -8,6 +8,7 @@ import TrashIcon from "@lucide/svelte/icons/trash-2";
 import FolderInputIcon from "@lucide/svelte/icons/folder-input";
 import FlagIcon from "@lucide/svelte/icons/flag";
 import FlagOffIcon from "@lucide/svelte/icons/flag-off";
+import TagIcon from "@lucide/svelte/icons/tag";
 import MailOpenIcon from "@lucide/svelte/icons/mail-open";
 import MailIcon from "@lucide/svelte/icons/mail";
 import ReplyIcon from "@lucide/svelte/icons/reply";
@@ -58,6 +59,7 @@ export interface ActionSubject {
 const archive: VisibleAction = { command: "action.archive", icon: ArchiveIcon };
 const remove: VisibleAction = { command: "action.delete", icon: TrashIcon };
 const move: VisibleAction = { command: "action.move", icon: FolderInputIcon };
+const label: VisibleAction = { command: "action.label", icon: TagIcon };
 
 /** Bascule lu / non lu : propose l'état inverse de la conversation. */
 function readToggle(subject: ActionSubject | null): VisibleAction {
@@ -115,6 +117,7 @@ export function readerActions(
     more: [
       { ...readToggle(subject), section: 1 },
       { ...flagToggle(subject), section: 1 },
+      { ...label, section: 1 },
       { ...move, section: 1 },
       { command: "reading.plain-text", icon: FileTextIcon, section: 2 },
       { command: "reading.print", icon: PrinterIcon, section: 2 },
@@ -136,7 +139,7 @@ export function bulkActions(): { primary: VisibleAction[]; more: VisibleAction[]
       { command: "action.mark-unread", icon: MailIcon, priority: 4 },
       { ...move, priority: 5 },
     ],
-    more: [{ command: "action.flag", icon: FlagIcon }],
+    more: [{ command: "action.flag", icon: FlagIcon }, label],
   };
 }
 
@@ -165,6 +168,7 @@ export function menuActions(
     { ...remove, section: 2 },
     { ...readToggle(subject), section: 3 },
     { ...flagToggle(subject), section: 3 },
+    { ...label, section: 3 },
     { ...move, section: 3 },
     ...personSection(person, 4),
   ];

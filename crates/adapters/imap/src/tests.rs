@@ -2277,3 +2277,78 @@ async fn silence_after_login_is_an_interrupted_authentication() -> TestResult {
     );
     Ok(())
 }
+
+/// Étiquettes : `PERMANENTFLAGS` lu au `SELECT` en écriture et ignoré en
+/// lecture seule ; mot-clé posé sur un message (`store_flag`) et sur un
+/// ensemble d'UID compact (`store_keyword`) ; recherche des messages qui le
+/// portent (`UID SEARCH KEYWORD`).
+#[tokio::test]
+async fn keywords_are_stored_searched_and_permanent_flags_read() -> TestResult {
+    use norelly_domain::actions::{ActionFlag, FlagChange};
+    use norelly_domain::labels::KeywordPermission;
+    use norelly_domain::mailbox::{Keyword, MailboxName, Uid};
+    use norelly_domain::sync::SelectRequest;
+
+    let script = Script::new()
+        .expect("EXAMINE Projets")
+        .send(
+            "* 3 EXISTS\r\n* OK [UIDVALIDITY 7] v\r\n* OK [PERMANENTFLAGS ()] lecture seule\r\n\
+             {tag} OK [READ-ONLY] EXAMINE termine\r\n",
+        )
+        .expect("SELECT Projets")
+        .send(
+            "* 3 EXISTS\r\n* OK [UIDVALIDITY 7] v\r\n\
+             * OK [PERMANENTFLAGS (\\Seen \\Flagged $label1 Projet)] limites\r\n\
+             {tag} OK [READ-WRITE] SELECT termine\r\n",
+        )
+        .expect("UID STORE 4 +FLAGS.SILENT (Projet)")
+        .send("{tag} OK STORE termine\r\n")
+        .expect("UID STORE 1:3,7 -FLAGS.SILENT (&AMAAIA-faire)")
+        .send("{tag} OK STORE termine\r\n")
+        .expect("UID SEARCH KEYWORD Projet")
+        .send("* SEARCH 4 9\r\n{tag} OK SEARCH termine\r\n")
+        .expect("LOGOUT")
+        .send("* BYE au revoir\r\n{tag} OK LOGOUT termine\r\n");
+    let (mut session, server) = scripted_session(script).await?;
+    let projets = MailboxName::parse("Projets")?;
+    let examined = session
+        .select(
+            &projets,
+            &SelectRequest {
+                condstore: false,
+                qresync: None,
+            },
+        )
+        .await?;
+    assert_eq!(examined.keywords, KeywordPermission::Unknown);
+    let selected = session.select_writable(&projets).await?;
+    assert_eq!(
+        selected.keywords,
+        KeywordPermission::from_tokens(["$label1", "Projet"])
+    );
+    let projet = Keyword::parse("Projet").ok_or("mot-clé")?;
+    let uid = |n: u32| Uid::new(n).ok_or("uid");
+    session
+        .store_flag(
+            uid(4)?,
+            FlagChange {
+                flag: ActionFlag::Keyword(projet.clone()),
+                value: true,
+            },
+            None,
+        )
+        .await?;
+    let encoded = Keyword::parse("&AMAAIA-faire").ok_or("mot-clé")?;
+    session
+        .store_keyword(&[uid(7)?, uid(1)?, uid(2)?, uid(3)?], &encoded, false)
+        .await?;
+    // Ensemble vide : rien n'est envoyé.
+    session.store_keyword(&[], &encoded, true).await?;
+    assert_eq!(
+        session.search_keyword(&projet).await?,
+        [uid(4)?, uid(9)?].into_iter().collect()
+    );
+    session.logout().await?;
+    server.finish().await.result?;
+    Ok(())
+}

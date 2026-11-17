@@ -21,6 +21,8 @@
     backTitle: string;
     /** Barre d'actions (sous le titre). */
     toolbar?: Snippet;
+    /** Étiquettes de la conversation (sous le sujet). */
+    labels?: Snippet;
     /** Nom d'une personne (expéditeur en gras si non lu, destinataire),
      * avec son menu ; sinon, le nom seul. */
     person?: Snippet<[CorrespondentDto, boolean]>;
@@ -30,8 +32,18 @@
     onGrab?: (e: PointerEvent) => void;
   }
 
-  let { conversation, messages, api, onBack, onKey, backTitle, toolbar, person, onGrab }: Props =
-    $props();
+  let {
+    conversation,
+    messages,
+    api,
+    onBack,
+    onKey,
+    backTitle,
+    toolbar,
+    labels,
+    person,
+    onGrab,
+  }: Props = $props();
 
   let expanded = $state<number[]>([]);
 
@@ -73,6 +85,7 @@
       <div class="toolbar">{@render toolbar()}</div>
     {/if}
   </header>
+  {#if labels}{@render labels()}{/if}
   <ol class="messages">
     {#each messages as msg (msg.id)}
       {@const open = expanded.includes(msg.id)}

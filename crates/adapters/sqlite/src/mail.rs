@@ -51,7 +51,7 @@ fn json<T: serde::Serialize>(value: &T) -> Result<String, StoreError> {
     serde_json::to_string(value).map_err(|e| StoreError(format!("sérialisation : {e}")))
 }
 
-fn keywords_text(flags: &Flags) -> String {
+pub(crate) fn keywords_text(flags: &Flags) -> String {
     flags
         .keywords()
         .iter()

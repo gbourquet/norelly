@@ -144,6 +144,7 @@ impl Server {
             changed: vec![],
             vanished: UidRanges::default(),
             incomplete: false,
+            ..SelectedMailbox::default()
         };
         if let Some(q) = &request.qresync
             && self.condstore

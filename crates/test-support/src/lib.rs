@@ -30,6 +30,7 @@ pub mod fake_imap;
 pub mod fake_server;
 pub mod fakes;
 pub mod imap_control;
+pub mod labels_contracts;
 pub mod mail_contracts;
 pub mod reading_contracts;
 pub mod search_contracts;

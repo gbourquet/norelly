@@ -15,7 +15,7 @@
 //!   chercher une négation seule), les filtres des conditions SQL.
 
 use norelly_domain::account::AccountId;
-use norelly_domain::mailbox::{Correspondent, MAX_SUBJECT_CHARS, header_text};
+use norelly_domain::mailbox::{Correspondent, Keyword, MAX_SUBJECT_CHARS, header_text};
 use norelly_domain::ports::{
     ConversationId, MAX_PAGE_SIZE, MAX_SEARCH_RESULTS, MAX_SNIPPET_CHARS, MessageId, SearchHit,
     SearchIndex, SearchPage, SearchRequest, SearchScope, StoreError,
@@ -145,6 +145,7 @@ fn search_query(c: &Connection, request: &SearchRequest) -> Result<SearchPage, S
     let mut positive: Vec<String> = Vec::new();
     let mut negative: Vec<String> = Vec::new();
     let mut filters: Vec<(bool, Filter)> = Vec::new();
+    let mut labels: Vec<(bool, &[Keyword])> = Vec::new();
     for clause in request.query.clauses() {
         match &clause.atom {
             Atom::Text {
@@ -163,9 +164,10 @@ fn search_query(c: &Connection, request: &SearchRequest) -> Result<SearchPage, S
                 }
             }
             Atom::Filter(filter) => filters.push((clause.negated, *filter)),
+            Atom::Label { keywords, .. } => labels.push((clause.negated, keywords)),
         }
     }
-    if positive.is_empty() && negative.is_empty() && filters.is_empty() {
+    if positive.is_empty() && negative.is_empty() && filters.is_empty() && labels.is_empty() {
         return Ok(SearchPage::default());
     }
     let ranked = !positive.is_empty();
@@ -209,6 +211,18 @@ fn search_query(c: &Connection, request: &SearchRequest) -> Result<SearchPage, S
             Filter::Before(day) => sql.bind("(m.sort_date < ?)", day.start_timestamp(offset)),
             Filter::After(day) => sql.bind("(m.sort_date >= ?)", day.start_timestamp(offset)),
         }
+    }
+    // Étiquette : l'un des mots-clés dans `keywords` (séparés par des
+    // espaces), comparaison exacte ; aucun mot-clé : aucun message.
+    for (negated, keywords) in labels {
+        sql.push(if negated { "AND NOT (0" } else { "AND (0" });
+        for keyword in keywords {
+            sql.bind(
+                "OR instr(' ' || m.keywords || ' ', ' ' || ? || ' ') > 0",
+                keyword.as_str().to_owned(),
+            );
+        }
+        sql.push(")");
     }
     if ranked {
         sql.push("ORDER BY");

@@ -26,6 +26,7 @@ function conversation(id: number, account = 1, mailbox = 10): ConversationDto {
     unread: 0,
     flagged: false,
     has_attachments: false,
+    labels: [],
   };
 }
 
@@ -52,6 +53,7 @@ function folder(id: number, selectable = true): FolderDto {
     selectable,
     total: 0,
     unread: 0,
+    labels_refused: false,
   };
 }
 
@@ -233,6 +235,7 @@ describe("glisser depuis la recherche ou le message ouvert", () => {
       unread: false,
       flagged: false,
       has_attachments: false,
+      labels: [],
     };
   }
 

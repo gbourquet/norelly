@@ -1729,3 +1729,257 @@ async fn merge_requests_are_revalidated() {
         (ErrorCodeDto::ContactNotFound, None)
     );
 }
+
+#[tokio::test]
+async fn labels_are_created_set_shown_searched_renamed_and_deleted() {
+    use crate::ipc::{LabelNameDto, SearchScopeDto};
+    use crate::labels::{
+        create_label, delete_label, label_menu, list_labels, rename_label, set_label_color,
+    };
+    use crate::reading::conversation_messages;
+    use crate::search::search_messages;
+    let t = test_app().await;
+    let account = id32(t.account.get());
+    let folders = list_folders(t.state(), account)
+        .await
+        .unwrap_or_else(|e| panic!("{e:?}"));
+    let inbox = folders
+        .iter()
+        .find(|f| f.role == "inbox")
+        .map(|f| f.id)
+        .unwrap_or_else(|| panic!("INBOX"));
+    let scope = ScopeDto::Mailbox { id: inbox };
+    let page = list_conversations(t.state(), scope.clone(), None, 50)
+        .await
+        .unwrap_or_else(|e| panic!("{e:?}"));
+    let first = page.items[0].id;
+
+    // --- Création, revalidée par le domaine ---
+    let label = create_label(
+        t.state(),
+        account,
+        " À faire ".into(),
+        Some("#1565C0".into()),
+        false,
+    )
+    .await
+    .unwrap_or_else(|e| panic!("{e:?}"));
+    assert_eq!(label.keyword, "&AMAAIA-faire");
+    assert!(matches!(&label.name, LabelNameDto::Named { name } if name == "À faire"));
+    let colors = label
+        .color
+        .as_ref()
+        .map(|c| (c.background.as_str(), c.text.as_str()));
+    assert_eq!(colors, Some(("#1565c0", "#ffffff")));
+    assert_eq!(
+        code(create_label(t.state(), account, "   ".into(), None, false).await),
+        (ErrorCodeDto::LabelNameInvalid, Some(FieldDto::LabelName))
+    );
+    assert_eq!(
+        code(create_label(t.state(), account, "x".repeat(41), None, false).await),
+        (ErrorCodeDto::LabelNameTooLong, Some(FieldDto::LabelName))
+    );
+    assert_eq!(
+        code(
+            create_label(
+                t.state(),
+                account,
+                "Client".into(),
+                Some("red".into()),
+                false
+            )
+            .await
+        ),
+        (ErrorCodeDto::InvalidInput, Some(FieldDto::LabelColor))
+    );
+    assert_eq!(
+        code(create_label(t.state(), account, "à faire".into(), None, false).await).0,
+        ErrorCodeDto::LabelExists
+    );
+    assert_eq!(
+        code(create_label(t.state(), 0, "Client".into(), None, false).await),
+        (ErrorCodeDto::InvalidInput, Some(FieldDto::Account))
+    );
+    assert_eq!(
+        code(create_label(t.state(), account, "Junk".into(), None, false).await),
+        (ErrorCodeDto::LabelNameReserved, Some(FieldDto::LabelName))
+    );
+    // Depuis le menu « Étiqueter… » : l'étiquette du même nom est reprise.
+    let reused = create_label(t.state(), account, "à faire".into(), None, true)
+        .await
+        .unwrap_or_else(|e| panic!("{e:?}"));
+    assert_eq!(reused.keyword, label.keyword);
+
+    // --- Menu « Étiqueter… », pose ---
+    let menu = label_menu(t.state(), vec![first], scope.clone())
+        .await
+        .unwrap_or_else(|e| panic!("{e:?}"));
+    assert!(menu.available && menu.can_create);
+    assert_eq!(menu.accounts, [account]);
+    assert_eq!(
+        menu.choices
+            .iter()
+            .map(|c| (c.label.keyword.as_str(), c.checked, c.allowed))
+            .collect::<Vec<_>>(),
+        [("&AMAAIA-faire", false, true)]
+    );
+    perform_action(
+        t.state(),
+        vec![first],
+        scope.clone(),
+        ActionDto::SetLabel {
+            keyword: label.keyword.clone(),
+            value: true,
+        },
+    )
+    .await
+    .unwrap_or_else(|e| panic!("{e:?}"));
+    assert_eq!(
+        code(
+            perform_action(
+                t.state(),
+                vec![first],
+                scope.clone(),
+                ActionDto::SetLabel {
+                    keyword: "a b".into(),
+                    value: true,
+                },
+            )
+            .await
+        ),
+        (ErrorCodeDto::InvalidInput, Some(FieldDto::Label))
+    );
+    assert_eq!(
+        code(
+            perform_action(
+                t.state(),
+                vec![first],
+                scope.clone(),
+                ActionDto::SetLabel {
+                    keyword: "$Junk".into(),
+                    value: true,
+                },
+            )
+            .await
+        ),
+        (ErrorCodeDto::InvalidInput, Some(FieldDto::Label)),
+        "mot-clé de protocole"
+    );
+    let menu = label_menu(t.state(), vec![first], scope.clone())
+        .await
+        .unwrap_or_else(|e| panic!("{e:?}"));
+    assert!(menu.choices.iter().all(|c| c.checked), "cochée");
+
+    // --- Affichage : ligne, volet de lecture, recherche ---
+    let row = |page: crate::ipc::ConversationPageDto| {
+        page.items
+            .into_iter()
+            .find(|c| c.id == first)
+            .map(|c| c.labels)
+            .unwrap_or_default()
+    };
+    let listed = list_conversations(t.state(), scope.clone(), None, 50)
+        .await
+        .unwrap_or_else(|e| panic!("{e:?}"));
+    assert_eq!(row(listed), ["&AMAAIA-faire"]);
+    let messages = conversation_messages(t.state(), first)
+        .await
+        .unwrap_or_else(|e| panic!("{e:?}"));
+    assert!(
+        messages
+            .iter()
+            .any(|m| m.labels == ["&AMAAIA-faire".to_owned()])
+    );
+    let found = search_messages(
+        t.state(),
+        "étiquette:\"à faire\"".into(),
+        SearchScopeDto::All,
+        0,
+        0,
+        50,
+    )
+    .await
+    .unwrap_or_else(|e| panic!("{e:?}"));
+    assert_eq!(found.items.len(), 1);
+    assert_eq!(found.items[0].labels, ["&AMAAIA-faire"]);
+
+    // --- Couleur, renommage ---
+    set_label_color(t.state(), account, label.keyword.clone(), None)
+        .await
+        .unwrap_or_else(|e| panic!("{e:?}"));
+    assert_eq!(
+        code(set_label_color(t.state(), account, "a b".into(), None).await),
+        (ErrorCodeDto::InvalidInput, Some(FieldDto::Label))
+    );
+    let renamed = rename_label(t.state(), account, label.keyword.clone(), "Urgent".into())
+        .await
+        .unwrap_or_else(|e| panic!("{e:?}"));
+    assert_eq!(renamed.keyword, "Urgent");
+    let keywords: Vec<String> = list_labels(t.state(), account)
+        .await
+        .unwrap_or_else(|e| panic!("{e:?}"))
+        .into_iter()
+        .map(|l| l.keyword)
+        .collect();
+    assert_eq!(keywords, ["Urgent"]);
+    let listed = list_conversations(t.state(), scope.clone(), None, 50)
+        .await
+        .unwrap_or_else(|e| panic!("{e:?}"));
+    assert_eq!(row(listed), ["Urgent"], "renommée tout de suite");
+
+    // --- Suppression de la liste seulement : plus affichée ---
+    delete_label(t.state(), account, "Urgent".into(), false)
+        .await
+        .unwrap_or_else(|e| panic!("{e:?}"));
+    let listed = list_conversations(t.state(), scope.clone(), None, 50)
+        .await
+        .unwrap_or_else(|e| panic!("{e:?}"));
+    assert!(row(listed).is_empty());
+    assert_eq!(
+        code(delete_label(t.state(), account, "Absent".into(), false).await),
+        (ErrorCodeDto::NotFound, Some(FieldDto::Label))
+    );
+
+    // --- Serveur qui refuse les étiquettes : action désactivée ---
+    assert!(folders.iter().all(|f| !f.labels_refused));
+    {
+        use norelly_domain::labels::KeywordPermission;
+        use norelly_domain::ports::LabelStore;
+        let name =
+            norelly_domain::mailbox::MailboxName::parse("INBOX").unwrap_or_else(|e| panic!("{e}"));
+        t.state()
+            .mail
+            .store
+            .set_keyword_permission(
+                t.account,
+                &name,
+                &KeywordPermission::from_tokens(["\\Seen"]),
+            )
+            .await
+            .unwrap_or_else(|e| panic!("{e}"));
+    }
+    let refused = list_folders(t.state(), account)
+        .await
+        .unwrap_or_else(|e| panic!("{e:?}"));
+    assert!(refused.iter().any(|f| f.id == inbox && f.labels_refused));
+    let menu = label_menu(t.state(), vec![first], scope.clone())
+        .await
+        .unwrap_or_else(|e| panic!("{e:?}"));
+    assert!(!menu.available && !menu.can_create);
+    assert_eq!(
+        code(
+            perform_action(
+                t.state(),
+                vec![first],
+                scope,
+                ActionDto::SetLabel {
+                    keyword: "Client".into(),
+                    value: true,
+                },
+            )
+            .await
+        )
+        .0,
+        ErrorCodeDto::LabelRefused
+    );
+}

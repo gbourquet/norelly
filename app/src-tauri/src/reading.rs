@@ -17,7 +17,7 @@ use norelly_domain::conversation::ConversationScope;
 use norelly_domain::fetch_policy::PartPath;
 use norelly_domain::mailbox::{MailboxId, MailboxRole, place_in_display_tree};
 use norelly_domain::ports::{
-    ConversationCursor, ConversationId, ConversationQuery, FolderTreeQuery, MessageId,
+    ConversationCursor, ConversationId, ConversationQuery, FolderTreeQuery, LabelStore, MessageId,
     ReadingPreferences,
 };
 use norelly_domain::reading::{
@@ -32,6 +32,7 @@ use crate::ipc::{
     ConversationPageDto, CorrespondentDto, ErrorCodeDto, FieldDto, FolderDto, IpcError,
     MessageViewDto, ReadingPreferencesDto, ScopeDto, date_dto, date_from_dto, id32,
 };
+use crate::labels::HiddenLabels;
 use crate::state::AppState;
 
 fn message_id(raw: u32) -> Result<MessageId, IpcError> {
@@ -70,6 +71,14 @@ pub async fn list_folders(
         .tree(account)
         .await
         .map_err(IpcError::storage)?;
+    let permissions: std::collections::BTreeMap<_, _> = state
+        .mail
+        .store
+        .keyword_permissions(account)
+        .await
+        .map_err(IpcError::storage)?
+        .into_iter()
+        .collect();
     // Retrait et libellé affichés : décidés par le domaine, d'après l'arbre.
     place_in_display_tree(tree)
         .into_iter()
@@ -89,6 +98,7 @@ pub async fn list_folders(
                 selectable: f.selectable,
                 total: f.total,
                 unread: f.unread,
+                labels_refused: permissions.get(&f.id).is_some_and(|p| !p.accepts_labels()),
             })
         })
         .collect()
@@ -124,6 +134,7 @@ pub async fn list_conversations(
     }
     .execute(page.items.iter().flat_map(|c| &c.senders))
     .await;
+    let hidden = HiddenLabels::of(&state, page.items.iter().map(|c| c.account).collect()).await?;
     let items = page
         .items
         .iter()
@@ -143,6 +154,7 @@ pub async fn list_conversations(
                 unread: c.unread,
                 flagged: c.flagged,
                 has_attachments: c.has_attachments,
+                labels: hidden.visible(c.account, &c.keywords),
             })
         })
         .collect::<Result<_, IpcError>>()?;
@@ -184,6 +196,7 @@ pub async fn conversation_messages(
     }
     .execute(people)
     .await;
+    let hidden = HiddenLabels::of(&state, messages.iter().map(|m| m.account).collect()).await?;
     let named = |list: &[norelly_domain::mailbox::Correspondent]| {
         list.iter()
             .map(|p| CorrespondentDto::named(&names, p))
@@ -208,6 +221,7 @@ pub async fn conversation_messages(
                 flagged: m.flags.flagged,
                 has_attachments: m.has_attachments,
                 newest_copy: id32(m.newest_copy.get())?,
+                labels: hidden.visible(m.account, m.flags.keywords()),
             })
         })
         .collect()

@@ -133,6 +133,33 @@ export const commands = {
 	 *  `\Archive` (`None` : aucun).
 	 */
 	setArchiveFolder: (account: number, mailbox: number | null) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("set_archive_folder", { account, mailbox })),
+	/**  Étiquettes d'un compte (réglages, pastilles). */
+	listLabels: (account: number) => typedError<LabelDto_Serialize[], IpcError_Serialize>(__TAURI_INVOKE("list_labels", { account })),
+	/**
+	 *  Menu « Étiqueter… » des conversations `conversations` affichées dans
+	 *  `scope` : étiquettes cochées si tous les messages visés les portent,
+	 *  désactivées si le serveur les refuse.
+	 */
+	labelMenu: (conversations: number[], scope: ScopeDto) => typedError<LabelMenuDto_Serialize, IpcError_Serialize>(__TAURI_INVOKE("label_menu", { conversations, scope })),
+	/**
+	 *  Crée une étiquette (réglages, ou « Nouvelle étiquette » du menu).
+	 *  `reuse` (menu « Étiqueter… ») : une étiquette qui porte déjà ce nom
+	 *  (décision du domaine) est rendue au lieu d'un refus ; `color` est alors
+	 *  ignorée.
+	 */
+	createLabel: (account: number, name: string, color: string | null, reuse: boolean) => typedError<LabelDto_Serialize, IpcError_Serialize>(__TAURI_INVOKE("create_label", { account, name, color, reuse })),
+	/**  Couleur d'une étiquette (`None` : pastille neutre). */
+	setLabelColor: (account: number, keyword: string, color: string | null) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("set_label_color", { account, keyword, color })),
+	/**
+	 *  Renomme une étiquette : tout de suite en local, puis sur tous les
+	 *  messages du serveur (réécriture rejouée par l'acteur du compte).
+	 */
+	renameLabel: (account: number, keyword: string, name: string) => typedError<LabelDto_Serialize, IpcError_Serialize>(__TAURI_INVOKE("rename_label", { account, keyword, name })),
+	/**
+	 *  Supprime une étiquette de la liste ; avec `remove_from_messages`, la
+	 *  retire aussi de tous les messages (en local, puis sur le serveur).
+	 */
+	deleteLabel: (account: number, keyword: string, removeFromMessages: boolean) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("delete_label", { account, keyword, removeFromMessages })),
 	/**
 	 *  Crée le dossier `name` dans le compte `account`, sous `parent` ou au
 	 *  premier niveau ; la liste des dossiers est ensuite relue (événement
@@ -354,7 +381,9 @@ export type AccountDto_Serialize = {
 };
 
 /**  Action demandée par l'interface (revalidée par le domaine). */
-export type ActionDto = { kind: "mark_seen"; value: boolean } | { kind: "mark_flagged"; value: boolean } | { kind: "move"; mailbox: number } | { kind: "delete" } | { kind: "archive" };
+export type ActionDto = { kind: "mark_seen"; value: boolean } | { kind: "mark_flagged"; value: boolean } | 
+/**  Étiquette `keyword` (mot-clé) posée ou retirée. */
+{ kind: "set_label"; keyword: string; value: boolean } | { kind: "move"; mailbox: number } | { kind: "delete" } | { kind: "archive" };
 
 /**
  *  Résultat d'une action : opérations enregistrées (annulables) et
@@ -761,6 +790,11 @@ export type ConversationDto_Deserialize = {
 	unread: number,
 	flagged: boolean,
 	has_attachments: boolean,
+	/**
+	 *  Étiquettes à afficher (mots-clés des messages de la conversation
+	 *  dans le dossier, sans ceux de protocole ni ceux masqués).
+	 */
+	labels: string[],
 };
 
 /**  Ligne de la liste des conversations. */
@@ -775,6 +809,11 @@ export type ConversationDto_Serialize = {
 	unread: number,
 	flagged: boolean,
 	has_attachments: boolean,
+	/**
+	 *  Étiquettes à afficher (mots-clés des messages de la conversation
+	 *  dans le dossier, sans ceux de protocole ni ceux masqués).
+	 */
+	labels: string[],
 };
 
 /**  Message d'une conversation. */
@@ -799,6 +838,8 @@ export type ConversationMessageDto_Deserialize = {
 	 *  l'ouverture (`mark_opened_seen`).
 	 */
 	newest_copy: number,
+	/**  Étiquettes à afficher (mots-clés). */
+	labels: string[],
 };
 
 /**  Message d'une conversation. */
@@ -820,6 +861,8 @@ export type ConversationMessageDto_Serialize = {
 	 *  l'ouverture (`mark_opened_seen`).
 	 */
 	newest_copy: number,
+	/**  Étiquettes à afficher (mots-clés). */
+	labels: string[],
 };
 
 export type ConversationPageDto = ConversationPageDto_Serialize | ConversationPageDto_Deserialize;
@@ -1219,6 +1262,20 @@ export type ErrorCodeDto =
  *  doublons (rien n'a été écrit).
  */
 "contact_merge_conflict" | 
+/**  Le dossier refuse de garder cette étiquette (`PERMANENTFLAGS`). */
+"label_refused" | 
+/**  Nom d'étiquette vide ou avec un caractère interdit. */
+"label_name_invalid" | 
+/**  Nom d'étiquette trop long. */
+"label_name_too_long" | 
+/**  Une étiquette porte déjà ce nom. */
+"label_exists" | 
+/**  Trop d'étiquettes sur le compte. */
+"label_too_many" | 
+/**  Nom réservé à un usage technique (indésirable, transféré…). */
+"label_name_reserved" | 
+/**  Trop de renommages d'étiquettes attendent encore le serveur. */
+"label_rewrites_pending" | 
 /**  Erreur interne (journalisée). */
 "internal";
 
@@ -1316,7 +1373,13 @@ export type FieldDto = "address" | "display_name" | "host" | "port" | "username"
 /**  Nom d'une liste de diffusion. */
 "list_name" | 
 /**  Description d'une liste de diffusion. */
-"list_description";
+"list_description" | 
+/**  Étiquette (mot-clé). */
+"label" | 
+/**  Nom d'une étiquette. */
+"label_name" | 
+/**  Couleur d'une étiquette. */
+"label_color";
 
 /**  Dossier d'un compte. */
 export type FolderDto = {
@@ -1344,6 +1407,11 @@ export type FolderDto = {
 	selectable: boolean,
 	total: number,
 	unread: number,
+	/**
+	 *  Le serveur refuse d'y garder des étiquettes (`PERMANENTFLAGS`) :
+	 *  « Étiqueter » y est désactivé, avec une explication.
+	 */
+	labels_refused: boolean,
 };
 
 /**  Bilan d'un import selon une politique de doublons. */
@@ -1410,6 +1478,106 @@ export type IpcError_Serialize = {
 	field: FieldDto | null,
 	detail: string | null,
 };
+
+/**  Étiquette proposée par le menu « Étiqueter… ». */
+export type LabelChoiceDto = LabelChoiceDto_Serialize | LabelChoiceDto_Deserialize;
+
+/**  Étiquette proposée par le menu « Étiqueter… ». */
+export type LabelChoiceDto_Deserialize = {
+	label: LabelDto_Deserialize,
+	/**  Tous les messages visés la portent. */
+	checked: boolean,
+	/**  Le serveur accepte de la poser (ou elle est cochée). */
+	allowed: boolean,
+};
+
+/**  Étiquette proposée par le menu « Étiqueter… ». */
+export type LabelChoiceDto_Serialize = {
+	label: LabelDto_Serialize,
+	/**  Tous les messages visés la portent. */
+	checked: boolean,
+	/**  Le serveur accepte de la poser (ou elle est cochée). */
+	allowed: boolean,
+};
+
+/**
+ *  Couleurs d'une pastille, `#rrggbb` validées par le domaine : fond
+ *  choisi, texte blanc ou noir pour le contraste.
+ */
+export type LabelColorDto = {
+	background: string,
+	text: string,
+};
+
+/**  Étiquette d'un compte. */
+export type LabelDto = LabelDto_Serialize | LabelDto_Deserialize;
+
+/**  Étiquette d'un compte. */
+export type LabelDto_Deserialize = {
+	/**  Mot-clé IMAP : identifiant de l'étiquette. */
+	keyword: string,
+	name: LabelNameDto,
+	/**  Couleur locale (`None` : pastille neutre). */
+	color?: LabelColorDto | null,
+};
+
+/**  Étiquette d'un compte. */
+export type LabelDto_Serialize = {
+	/**  Mot-clé IMAP : identifiant de l'étiquette. */
+	keyword: string,
+	name: LabelNameDto,
+	/**  Couleur locale (`None` : pastille neutre). */
+	color: LabelColorDto | null,
+};
+
+/**  Menu « Étiqueter… » d'une sélection (décidé par le domaine). */
+export type LabelMenuDto = LabelMenuDto_Serialize | LabelMenuDto_Deserialize;
+
+/**  Menu « Étiqueter… » d'une sélection (décidé par le domaine). */
+export type LabelMenuDto_Deserialize = {
+	choices: LabelChoiceDto_Deserialize[],
+	/**  Une nouvelle étiquette peut être créée et posée. */
+	can_create: boolean,
+	/**
+	 *  L'action a un effet possible ; sinon elle est désactivée (le
+	 *  serveur refuse les étiquettes).
+	 */
+	available: boolean,
+	/**
+	 *  Comptes des conversations (une nouvelle étiquette est créée sur
+	 *  chacun).
+	 */
+	accounts: number[],
+};
+
+/**  Menu « Étiqueter… » d'une sélection (décidé par le domaine). */
+export type LabelMenuDto_Serialize = {
+	choices: LabelChoiceDto_Serialize[],
+	/**  Une nouvelle étiquette peut être créée et posée. */
+	can_create: boolean,
+	/**
+	 *  L'action a un effet possible ; sinon elle est désactivée (le
+	 *  serveur refuse les étiquettes).
+	 */
+	available: boolean,
+	/**
+	 *  Comptes des conversations (une nouvelle étiquette est créée sur
+	 *  chacun).
+	 */
+	accounts: number[],
+};
+
+/**  Nom affiché d'une étiquette. */
+export type LabelNameDto = 
+/**
+ *  Étiquette de Thunderbird (`$label1` à `$label5`) : nom donné par
+ *  les catalogues (`label_builtin_N`).
+ */
+{ kind: "builtin"; number: number } | 
+/**  Nom décodé. */
+{ kind: "named"; name: string } | 
+/**  Mot-clé illisible, à afficher tel quel (texte échappé). */
+{ kind: "raw"; keyword: string };
 
 /**  Langue de l'interface. */
 export type LanguageDto = "system" | "fr" | "en";
@@ -1550,6 +1718,8 @@ export type SearchHitDto_Deserialize = {
 	unread: boolean,
 	flagged: boolean,
 	has_attachments: boolean,
+	/**  Étiquettes à afficher (mots-clés ; voir [`LabelDto`]). */
+	labels: string[],
 };
 
 /**  Message trouvé par une recherche. */
@@ -1566,6 +1736,8 @@ export type SearchHitDto_Serialize = {
 	unread: boolean,
 	flagged: boolean,
 	has_attachments: boolean,
+	/**  Étiquettes à afficher (mots-clés ; voir [`LabelDto`]). */
+	labels: string[],
 };
 
 /**  Une page de résultats. */

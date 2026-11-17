@@ -15,6 +15,7 @@ pub mod contact_lists;
 pub mod contacts;
 pub mod folders;
 pub mod ipc;
+pub mod labels;
 pub mod logs;
 pub mod mail;
 pub mod protocols;
@@ -66,6 +67,12 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             actions::mark_opened_seen,
             actions::undo_actions,
             actions::set_archive_folder,
+            labels::list_labels,
+            labels::label_menu,
+            labels::create_label,
+            labels::set_label_color,
+            labels::rename_label,
+            labels::delete_label,
             folders::create_folder,
             folders::rename_folder,
             folders::move_folder,

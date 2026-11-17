@@ -28,6 +28,10 @@ fn action_of(dto: ActionDto) -> Result<MessageAction, IpcError> {
     Ok(match dto {
         ActionDto::MarkSeen { value } => MessageAction::MarkSeen(value),
         ActionDto::MarkFlagged { value } => MessageAction::MarkFlagged(value),
+        ActionDto::SetLabel { keyword, value } => MessageAction::SetLabel {
+            keyword: crate::labels::keyword_of(&keyword)?,
+            value,
+        },
         ActionDto::Move { mailbox } => MessageAction::Move(
             MailboxId::new(i64::from(mailbox))
                 .ok_or_else(|| IpcError::invalid(FieldDto::Mailbox))?,
@@ -62,7 +66,7 @@ pub async fn perform_action(
             .conversation_members(id)
             .await
             .map_err(IpcError::storage)?;
-        messages.extend(conversation_targets(action, &members, &scope));
+        messages.extend(conversation_targets(&action, &members, &scope));
     }
     let messages: Vec<_> = messages.into_iter().collect();
     apply(&state, &messages, action).await

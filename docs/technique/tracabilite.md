@@ -237,13 +237,50 @@ Accès à la souris (interface) :
 
 ### Commandes
 
-`action.archive`, `action.delete`, `action.flag`, `action.mark-read`, `action.mark-unread`, `action.move`, `action.toggle-mark`, `selection.clear`, `action.undo`, `account.archive-folder`.
+`action.archive`, `action.delete`, `action.flag`, `action.mark-read`, `action.mark-unread`, `action.label`, `action.move`, `action.toggle-mark`, `selection.clear`, `action.undo`, `account.archive-folder`.
 
 ### Vérifications et compléments
 
 - Suppressions faites par un autre client pendant un `EXPUNGE` sans
   UIDPLUS : comptées (`ReplayReport::foreign_expunges`), la boîte est
   resynchronisée.
+
+## Étiquettes
+
+Fiche : [etiquettes.md](../fonctionnel/etiquettes.md).
+
+### Règles et code
+
+| Règle | Où |
+|---|---|
+| Nom validé (`LabelName` : sans blancs de bord, non vide, sans contrôle ni caractère invisible, 40 caractères et mot-clé de 64 octets au plus) ; encodage réversible en mot-clé : UTF-7 modifié des noms de dossiers (RFC 3501, 5.1.3), étendu aux caractères interdits dans un atom (espace, `( ) { " \ % * ]`) et au `$` de tête ; relu seulement s'il est la forme canonique d'un nom valide (`decode_label`), sinon affiché tel quel (`LabelDisplay::Raw`) | `crates/domain/src/labels.rs` |
+| Mots-clés de protocole jamais affichés : tout `$…` sauf `$label1` à `$label5`, et `Junk`, `NonJunk`, `NotJunk`, `Forwarded`, `Redirected` (`is_protocol_keyword`) ; `$label1` à `$label5` : étiquettes de Thunderbird, nommées par les catalogues (`LabelDisplay::Builtin`, `BUILTIN_NAMES` pour la recherche, comparés aux catalogues par un test) | `labels.rs`, `app/src-tauri/src/labels.rs` (`builtin_names_match_the_catalogs`) |
+| Liste d'un compte : étiquettes enregistrées et mots-clés vus sur les messages, sans les masquées (supprimées de la liste) ni les anciens noms en cours de réécriture (`account_labels`, `hidden_keywords`) ; pastilles filtrées de même (`visible_labels`) ; doublons de nom refusés aux majuscules et accents près, mot-clé comparé à la casse ASCII près (`plan_create`, `plan_rename`) ; nom d'un mot-clé de protocole refusé (`LabelError::Reserved`), et mot-clé de protocole refusé comme étiquette par l'IPC et le domaine (`ActionError::ReservedKeyword`) ; renommage qui ne change que la casse ASCII : sans effet (`LabelError::Unchanged`, sinon le retrait de l'ancien retirerait le nouveau) ; menu « Étiqueter… » : étiquette du même nom reprise (`label_named`, `CreateLabel::existing_or_new`, `create_label(reuse)`) | `labels.rs`, `crates/application/src/labels.rs`, `app/src-tauri/src/labels.rs` |
+| Couleur `#rrggbb` seulement (`LabelColor::parse`) ; texte blanc ou noir, celui qui contraste le plus (WCAG, au moins 4,5:1 pour toute couleur, vérifié par proptest) (`LabelColor::text`) ; recontrôlée par l'interface avant tout style (`chipColors`) | `labels.rs`, `app/src/lib/labels.svelte.ts` |
+| `PERMANENTFLAGS` lu au `SELECT` en écriture seulement (vide en `EXAMINE`), noté par dossier (`KeywordPermission`, `set_keyword_permission`) ; inconnu : tout est permis (RFC 3501) ; pose refusée par le domaine (`ActionError::KeywordRefused`) et au rejeu (`Conflict::KeywordRefused`) ; retrait toujours permis ; dossier qui n'accepte aucune étiquette : action désactivée avec une raison (`accepts_labels`, `FolderDto::labels_refused`, `Command::unavailable`) | `labels.rs`, `actions.rs`, `crates/adapters/imap/src/session.rs` (`select_rw`), `crates/application/src/actions.rs`, `app/src-tauri/src/reading.rs`, `app/src/lib/commands/describe.ts` |
+| Pose et retrait : action `SetLabel` (drapeau `ActionFlag::Keyword`), mêmes file, annulation, fusion et rejeu que Lu et Suivi ; portée : messages de la conversation dans le dossier affiché (`conversation_targets`) ; case cochée si tous les messages visés portent l'étiquette (`label_menu`) | `actions.rs`, `labels.rs`, `crates/application/src/labels.rs` (`LabelMenuFor`) |
+| Renommer, retirer de tous les messages : réécriture enregistrée et appliquée en local dans une transaction, opérations en attente sur l'ancien mot-clé comprises (`record_rewrite`, `LabelRewrite::follow`), rejouée par l'acteur du compte après les actions (`ReplayRewrites`, un échec n'empêche pas la relecture des boîtes touchées par les actions) : un `SELECT` par dossier pour toutes les réécritures en attente, `UID SEARCH KEYWORD`, puis par lots de 500 UID (`rewrite_batches`) le nouveau mot-clé posé avant que l'ancien soit retiré ; reprise sûre après une coupure ; dossier qui refuse le nouveau mot-clé ou la commande laissé tel quel (`LabelRewrite::applies_to`), puis relu entièrement à la synchronisation (`forget_flag_state`) ; abandon après 5 essais (`MAX_REWRITE_ATTEMPTS`), retrait et dossiers marqués à relire dans une transaction (`abandon_rewrite`) ; 16 réécritures en attente au plus (`check_rewrites`, `LabelError::RewritesPending`), 1 000 étiquettes enregistrées masquées comprises (`check_stored`) ; liste : étiquettes enregistrées gardées avant les mots-clés vus (`Label::saved`) ; recherche : 32 mots-clés au plus par clause | `labels.rs`, `crates/application/src/labels.rs`, `account_actor.rs`, `crates/adapters/sqlite/src/labels.rs` |
+| Pastilles : deux au plus dans la ligne puis « +N » (`rowChips`), toutes sous le sujet (`selectionChips`) ; clic : recherche `étiquette:"nom"` (`labelQuery`, mot-clé si le nom contient un guillemet) | `app/src/lib/labels.svelte.ts`, `LabelChip.svelte`, `ConversationList.svelte`, `App.svelte` |
+
+Cas d'usage : `ListLabels`, `CreateLabel`, `SetLabelColor`, `RenameLabel`,
+`DeleteLabel`, `ReplayRewrites`, `LabelMenuFor`
+(`crates/application/src/labels.rs`) ; poser et retirer : `PerformAction`.
+
+### Clés des messages
+
+`cmd_label`, `cmd_label_keywords`, `tooltip_unavailable`, `err_label_name_reserved`, `err_label_rewrites_pending`, `label_refused`, `label_builtin_1` à `label_builtin_5`, `label_search_operator`, `label_search`, `label_more`, `label_more_title`, `label_list`, `label_dialog_*`, `label_choice_refused`, `label_applied`, `label_removed`, `settings_labels*`, `settings_label_*`, `err_label_refused`, `err_label_name_invalid`, `err_label_name_too_long`, `err_label_exists`, `err_label_too_many`, `field_label`, `field_label_name`, `field_label_color`.
+
+### Commandes
+
+`action.label`.
+
+### Vérifications et compléments
+
+- Contrat de la session IMAP sur les mots-clés (`labels_session_contract`),
+  joué contre le faux serveur et Dovecot ; contrat du stockage
+  (`label_store_contract`), joué contre le faux et SQLite.
+- Scénario e2e `app/e2e/specs/labels.e2e.mjs` ; captures `label-menu`,
+  `label-settings`, `label-reading`, `label-list`.
 
 ## Dossiers : création, renommage, déplacement, suppression
 
@@ -420,6 +457,7 @@ Syntaxe (`crates/domain/src/search.rs`, `parse_query`) :
 | `"phrase exacte"` | expression ; guillemet final facultatif |
 | `from:`, `to:` (À et Cc), `subject:` | sur un champ, suivis d'un mot ou d'une phrase |
 | `has:attachment`, `is:unread`, `is:read`, `is:flagged` | filtres |
+| `label:`, `étiquette:` (`fold` : accent et casse indifférents) | `Atom::Label` : mots-clés de l'encodage du nom et des étiquettes de Thunderbird de ce nom (`label_keywords`), complétés à la commande des mots-clés connus des comptes (`Query::resolve_labels`) ; SQL : `instr` sur `messages.keywords`, mot-clé en paramètre lié |
 | `before:AAAA-MM-JJ`, `after:AAAA-MM-JJ` | `before` exclut le jour, `after` l'inclut ; début du jour selon le fuseau de l'utilisateur |
 | `-clause` | exclusion |
 

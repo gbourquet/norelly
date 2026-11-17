@@ -53,6 +53,7 @@ closes the search.
 | Flag (or unflag) | `S` |
 | Mark as read | `Shift+I` |
 | Mark as unread | `Shift+U` |
+| Label… | `L` |
 | Move to… | `V` |
 | Select conversation | `X` |
 | Clear selection | palette |

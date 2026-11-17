@@ -68,6 +68,7 @@ const conversation: ConversationDto = {
   unread: 0,
   flagged: false,
   has_attachments: false,
+  labels: [],
 };
 
 function enabled(id: string): boolean {
@@ -182,6 +183,7 @@ function message(id: number, from: CorrespondentDto | null): ConversationMessage
     unread: false,
     flagged: false,
     has_attachments: false,
+    labels: [],
     newest_copy: id,
   };
 }

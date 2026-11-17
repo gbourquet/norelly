@@ -143,6 +143,39 @@ export async function canaryHits() {
   return body.hits;
 }
 
+/** Commandes IMAP brèves, à la suite, sur une session authentifiée
+ * (étiquetées c1, c2…) ; renvoie toute la réponse, une fois la dernière
+ * terminée. */
+export async function imapCommands(commands) {
+  const socket = tls.connect({
+    host: "imap.norelly.test",
+    port: 31993,
+    servername: "imap.norelly.test",
+    rejectUnauthorized: false,
+  });
+  let buffer = "";
+  socket.setEncoding("utf8");
+  socket.on("data", (d) => (buffer += d));
+  const waitFor = async (pattern) => {
+    const deadline = Date.now() + 20000;
+    while (!pattern.test(buffer)) {
+      if (Date.now() > deadline) throw new Error(`IMAP : ${pattern} non reçu : ${buffer}`);
+      await new Promise((r) => setTimeout(r, 50));
+    }
+  };
+  await waitFor(/^\* OK/m);
+  socket.write(`a LOGIN norelly "${password}"\r\n`);
+  await waitFor(/^a (OK|NO|BAD)/m);
+  for (const [i, command] of commands.entries()) {
+    socket.write(`c${i} ${command}\r\n`);
+    await waitFor(new RegExp(`^c${i} (OK|NO|BAD)`, "m"));
+  }
+  const out = buffer;
+  socket.write("z LOGOUT\r\n");
+  socket.end();
+  return out;
+}
+
 /** Commande IMAP brève sur une session authentifiée ; renvoie la réponse. */
 export async function imapCommand(command) {
   const socket = tls.connect({

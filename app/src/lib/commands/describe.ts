@@ -30,10 +30,13 @@ export function describeCommand<C>(
   if (command === undefined) return null;
   const text = label ?? command.title;
   const keys = command.parsedShortcut ? formatShortcut(command.parsedShortcut).join("+") : "";
+  const enabled = registry.isEnabled(command, ctx);
+  // Désactivée pour une raison connue : l'infobulle l'explique.
+  const reason = enabled ? null : (command.unavailable?.(ctx) ?? null);
   return {
     label: text,
     keys,
-    tooltip: tooltip(text, keys),
-    enabled: registry.isEnabled(command, ctx),
+    tooltip: reason === null ? tooltip(text, keys) : m.tooltip_unavailable({ label: text, reason }),
+    enabled,
   };
 }

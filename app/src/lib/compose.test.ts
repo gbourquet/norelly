@@ -88,6 +88,7 @@ const message: ConversationMessage = {
   unread: false,
   flagged: false,
   has_attachments: false,
+  labels: [],
   newest_copy: 9,
 };
 

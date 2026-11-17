@@ -41,6 +41,7 @@ function conversation(id: number, account = 1): ConversationDto {
     unread: 0,
     flagged: false,
     has_attachments: false,
+    labels: [],
   };
 }
 
@@ -85,6 +86,7 @@ function fakeApi(total: number, unread: number[] = []): MailApi & { calls: Scope
         unread: unread.includes(id),
         flagged: false,
         has_attachments: false,
+        labels: [],
         newest_copy: id * 10,
       },
     ]),
@@ -352,6 +354,16 @@ describe("état de la lecture", () => {
   });
 });
 
+describe("relecture des dossiers", () => {
+  it("prévient après chaque relecture d'un compte (étiquettes relues aussi)", async () => {
+    const mail = new MailState(fakeApi(3), noAutoSeen);
+    const reloaded = vi.fn();
+    mail.onFolders = reloaded;
+    await mail.loadFolders(4);
+    expect(reloaded).toHaveBeenCalledWith(4);
+  });
+});
+
 describe("conversation ouverte depuis la recherche", () => {
   it("agit dans le dossier du résultat, puis revient à la portée affichée", async () => {
     const api = fakeApi(3);
@@ -468,6 +480,7 @@ describe("marquage comme lu à l'ouverture", () => {
       unread,
       flagged: false,
       has_attachments: false,
+      labels: [],
       newest_copy: newestCopy,
     };
   }

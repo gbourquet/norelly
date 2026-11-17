@@ -3,7 +3,7 @@ use std::time::Duration;
 use norelly_domain::credentials::{Credentials, Secret, Username};
 use norelly_domain::endpoint::{Host, Security, ServerEndpoint};
 use norelly_domain::mailbox::{Flags, FolderChangeError, MailboxId};
-use norelly_domain::ports::{FolderTreeQuery, MailStore, MessageId};
+use norelly_domain::ports::{FolderTreeQuery, LabelStore, MailStore, MessageId};
 use norelly_domain::security::PlaintextPolicy;
 use norelly_test_support::fake_imap::FakeImap;
 use norelly_test_support::fakes::FakeMailServers;
@@ -1337,5 +1337,52 @@ async fn many_small_folders_do_not_burst_the_interface() {
         .filter(|e| refresh(e))
         .count();
     assert!(during <= 2, "{during} signaux pendant le tour : {seen:?}");
+    r.handle.shutdown().await;
+}
+
+#[tokio::test]
+async fn a_renamed_label_is_rewritten_on_the_server_on_request() {
+    use crate::labels::RenameLabel;
+    use norelly_domain::labels::LabelName;
+    use norelly_domain::mailbox::Keyword;
+
+    let imap = FakeImap::new();
+    imap.append(
+        "INBOX",
+        b"Subject: a\r\n\r\nx",
+        Flags::from_tokens(["Vieux"]),
+        1,
+    );
+    let mut r = start(&imap);
+    wait_for(&mut r.events, WAIT, online).await;
+    wait_inbox(&r, 1, WAIT).await;
+    let vieux = Keyword::parse("Vieux").unwrap_or_else(|| panic!("mot-clé"));
+    let neuf = LabelName::parse("Neuf").unwrap_or_else(|e| panic!("{e}"));
+    RenameLabel { store: &*r.store }
+        .execute(account(), &vieux, &neuf)
+        .await
+        .unwrap_or_else(|e| panic!("{e}"));
+    r.handle.replay_soon();
+    let imap = r.imap.clone();
+    eventually(WAIT, "mot-clé réécrit sur le serveur", || {
+        imap.flags_of("INBOX")
+            .values()
+            .all(|f| f.keywords().iter().map(Keyword::as_str).eq(["Neuf"]))
+    })
+    .await;
+    let deadline = tokio::time::Instant::now() + WAIT;
+    while !r
+        .store
+        .label_rewrites(account())
+        .await
+        .unwrap_or_else(|e| panic!("{e}"))
+        .is_empty()
+    {
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "réécriture terminée"
+        );
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
     r.handle.shutdown().await;
 }

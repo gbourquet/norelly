@@ -215,6 +215,11 @@ impl Flags {
         }
     }
 
+    /// Retire un mot-clé ; `true` s'il était présent.
+    pub fn remove_keyword(&mut self, keyword: &Keyword) -> bool {
+        self.keywords.remove(keyword)
+    }
+
     /// Drapeaux système sous forme de masque (stockage compact).
     #[must_use]
     pub fn system_bits(&self) -> u8 {

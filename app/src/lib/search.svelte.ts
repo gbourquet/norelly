@@ -54,6 +54,15 @@ export class SearchState {
     this.#clear();
   }
 
+  /** Recherche demandée d'ailleurs (clic sur une pastille d'étiquette) :
+   * barre ouverte, requête cherchée tout de suite. */
+  searchFor(text: string): Promise<void> {
+    this.open();
+    this.query = text;
+    this.searched = false;
+    return this.submit();
+  }
+
   /** Nouvelle saisie : recherche après une courte pause de frappe. */
   setQuery(text: string): void {
     this.query = text;
@@ -179,6 +188,7 @@ export class SearchState {
       unread: hit.unread ? 1 : 0,
       flagged: hit.flagged,
       has_attachments: hit.has_attachments,
+      labels: hit.labels,
     };
   }
 }

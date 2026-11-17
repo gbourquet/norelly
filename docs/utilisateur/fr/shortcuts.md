@@ -54,6 +54,7 @@ passent d'un résultat à l'autre et `Échap` ferme la recherche.
 | Suivre (ou ne plus suivre) | `S` |
 | Marquer comme lu | `Maj+I` |
 | Marquer comme non lu | `Maj+U` |
+| Étiqueter… | `L` |
 | Déplacer vers… | `V` |
 | Sélectionner la conversation | `X` |
 | Tout désélectionner | palette |

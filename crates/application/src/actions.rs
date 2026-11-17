@@ -15,9 +15,10 @@ use norelly_domain::actions::{
     unexpected_expunges,
 };
 use norelly_domain::connection::ConnectionError;
+use norelly_domain::labels::KeywordPermission;
 use norelly_domain::mailbox::{MailboxId, MailboxName, Uid};
 use norelly_domain::ports::{
-    MessageId, PendingOpId, PendingOpStore, RemoteMailboxSession, StoreError,
+    LabelStore, MessageId, PendingOpId, PendingOpStore, RemoteMailboxSession, StoreError,
 };
 
 /// Échec d'une action.
@@ -78,7 +79,7 @@ impl<S: PendingOpStore> PerformAction<'_, S> {
                     e.insert((list, fallback))
                 }
             };
-            let effect = resolve(action, &target.mailbox, list, *fallback)?;
+            let effect = resolve(&action, &target.mailbox, list, *fallback)?;
             match PendingOp::new(&effect, &target, now) {
                 Some(op) => planned.push(op),
                 None => report.skipped += 1,
@@ -155,7 +156,7 @@ enum Executed {
     Dropped(Option<Conflict>),
 }
 
-impl<S: PendingOpStore> ReplayActions<'_, S> {
+impl<S: PendingOpStore + LabelStore> ReplayActions<'_, S> {
     pub async fn execute<R: RemoteMailboxSession>(
         &self,
         session: &mut R,
@@ -185,7 +186,17 @@ impl<S: PendingOpStore> ReplayActions<'_, S> {
                 existing = Some(listed.into_iter().map(|m| m.name).collect());
             }
             let outcome = match self.replay_one(session, &op, existing.as_ref()).await {
-                Ok(outcome) => outcome,
+                Ok((outcome, keywords)) => {
+                    // Mots-clés permanents lus au SELECT : notés pour le
+                    // menu « Étiqueter… » (une étiquette refusée y est
+                    // désactivée).
+                    if keywords != KeywordPermission::Unknown {
+                        self.store
+                            .set_keyword_permission(self.account, &op.mailbox, &keywords)
+                            .await?;
+                    }
+                    outcome
+                }
                 // Refus du serveur (`NO`) : l'opération ne passera pas,
                 // l'état local est rétabli ; la session reste utilisable.
                 Err(ConnectionError::Rejected(reason)) => {
@@ -219,7 +230,7 @@ impl<S: PendingOpStore> ReplayActions<'_, S> {
         session: &mut R,
         op: &PendingOp,
         existing: Option<&BTreeSet<MailboxName>>,
-    ) -> Result<Executed, ConnectionError> {
+    ) -> Result<(Executed, KeywordPermission), ConnectionError> {
         let selected = match session.select_writable(&op.mailbox).await {
             Ok(s) => Some(s),
             // Boîte source disparue.
@@ -230,7 +241,12 @@ impl<S: PendingOpStore> ReplayActions<'_, S> {
             Some(_) => session.message_flags(op.uid).await?,
             None => None,
         };
+        let keywords = selected
+            .as_ref()
+            .map(|s| s.keywords.clone())
+            .unwrap_or_default();
         let view = ServerView {
+            keywords: keywords.clone(),
             uid_validity: selected.and_then(|s| s.uid_validity),
             flags,
             target_exists: match &op.kind {
@@ -239,8 +255,10 @@ impl<S: PendingOpStore> ReplayActions<'_, S> {
             },
         };
         match decide(op, &view) {
-            ReplayDecision::AlreadyDone => return Ok(Executed::Done(0)),
-            ReplayDecision::Drop(conflict) => return Ok(Executed::Dropped(Some(conflict))),
+            ReplayDecision::AlreadyDone => return Ok((Executed::Done(0), keywords)),
+            ReplayDecision::Drop(conflict) => {
+                return Ok((Executed::Dropped(Some(conflict)), keywords));
+            }
             ReplayDecision::Apply => {}
         }
         let foreign = match &op.kind {
@@ -250,16 +268,16 @@ impl<S: PendingOpStore> ReplayActions<'_, S> {
                 ..
             } => {
                 if session
-                    .store_flag(op.uid, *change, *unchanged_since)
+                    .store_flag(op.uid, change.clone(), *unchanged_since)
                     .await?
                     == StoreOutcome::Modified
                 {
                     let current = session.message_flags(op.uid).await?;
                     let Some(current) = current else {
-                        return Ok(Executed::Dropped(Some(Conflict::MessageGone)));
+                        return Ok((Executed::Dropped(Some(Conflict::MessageGone)), keywords));
                     };
-                    if after_modified(*change, &current) == ReplayDecision::Apply {
-                        session.store_flag(op.uid, *change, None).await?;
+                    if after_modified(change, &current) == ReplayDecision::Apply {
+                        session.store_flag(op.uid, change.clone(), None).await?;
                     }
                 }
                 0
@@ -279,7 +297,7 @@ impl<S: PendingOpStore> ReplayActions<'_, S> {
                 remove(session, op.uid, strategy).await?
             }
         };
-        Ok(Executed::Done(foreign))
+        Ok((Executed::Done(foreign), keywords))
     }
 }
 

@@ -11,9 +11,12 @@ use norelly_domain::conversation::{
     ConversationScope, MessageCopy, ShownCopy, ThreadKeys, ThreadMessage, shown_copies, thread,
 };
 use norelly_domain::fetch_policy::PartPath;
+use norelly_domain::labels::{
+    KeywordPermission, LabelRewrite, PendingFollow, StoredLabel, rewrite_flags,
+};
 use norelly_domain::mailbox::{
-    Correspondent, Flags, MailboxId, MailboxName, MailboxRole, MessageHeaders, MessageMeta, ModSeq,
-    RemoteMailbox, Uid, UidValidity,
+    Correspondent, Flags, Keyword, MailboxId, MailboxName, MailboxRole, MessageHeaders,
+    MessageMeta, ModSeq, RemoteMailbox, Uid, UidValidity,
 };
 use norelly_domain::ports::{
     BlobId, BlobStore, FolderNode, FolderTreeQuery, MAX_PAGE_SIZE, MailStore, MessageId,
@@ -36,7 +39,7 @@ use norelly_domain::actions::{
     FolderRef, LocalEffect, LocalMessage, MAX_ACTION_TARGETS, Member, OpKind, PendingOp,
     QueueChange, local_effect, revert_effect,
 };
-use norelly_domain::ports::{PendingOpId, PendingOpStore};
+use norelly_domain::ports::{LabelRewriteId, LabelStore, PendingOpId, PendingOpStore};
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
     m.lock().unwrap_or_else(PoisonError::into_inner)
@@ -678,6 +681,13 @@ struct MemState {
     /// Essais de rejeu des opérations réservées.
     claimed: BTreeMap<PendingOpId, u32>,
     archive: BTreeMap<AccountId, MailboxId>,
+    /// Mots-clés permanents par boîte (`PERMANENTFLAGS`).
+    permissions: BTreeMap<MailboxId, KeywordPermission>,
+    /// Étiquettes enregistrées.
+    labels: BTreeMap<(AccountId, Keyword), StoredLabel>,
+    next_rewrite: i64,
+    /// Réécritures en attente : compte, réécriture, essais.
+    rewrites: BTreeMap<LabelRewriteId, (AccountId, LabelRewrite, u32)>,
 }
 
 /// Faux [`MailStore`] et ports de requête en mémoire.
@@ -1131,6 +1141,10 @@ impl ConversationQuery for InMemoryMailStore {
                     has_attachments: members
                         .iter()
                         .any(|l| l.message.stored.meta.has_attachments()),
+                    keywords: members
+                        .iter()
+                        .flat_map(|l| l.message.stored.meta.flags.keywords().iter().cloned())
+                        .collect(),
                 })
             })
             .collect();
@@ -1288,12 +1302,198 @@ impl MemState {
     }
 }
 
-fn folder_ref(m: &StoredMailbox) -> FolderRef {
+impl LabelStore for InMemoryMailStore {
+    async fn stored_labels(&self, account: AccountId) -> Result<Vec<StoredLabel>, StoreError> {
+        Ok(lock(&self.state)
+            .labels
+            .iter()
+            .filter(|((a, _), _)| *a == account)
+            .map(|(_, l)| l.clone())
+            .collect())
+    }
+
+    async fn seen_keywords(&self, account: AccountId) -> Result<BTreeSet<Keyword>, StoreError> {
+        let s = lock(&self.state);
+        Ok(s.located()
+            .iter()
+            .filter(|l| l.account == account)
+            .flat_map(|l| l.message.stored.meta.flags.keywords().iter().cloned())
+            .collect())
+    }
+
+    async fn save_label(&self, account: AccountId, label: &StoredLabel) -> Result<(), StoreError> {
+        lock(&self.state)
+            .labels
+            .insert((account, label.keyword.clone()), label.clone());
+        Ok(())
+    }
+
+    async fn record_rewrite(
+        &self,
+        account: AccountId,
+        rewrite: &LabelRewrite,
+    ) -> Result<LabelRewriteId, StoreError> {
+        let mut s = lock(&self.state);
+        s.next_rewrite += 1;
+        let id =
+            LabelRewriteId::new(s.next_rewrite).ok_or_else(|| StoreError("identifiant".into()))?;
+        s.rewrites.insert(id, (account, rewrite.clone(), 0));
+        let ids: Vec<MailboxId> = s
+            .mailboxes
+            .iter()
+            .filter(|(a, _, _)| *a == account)
+            .map(|(_, m, _)| m.id)
+            .collect();
+        for mailbox in ids {
+            if let Some(msgs) = s.messages.get_mut(&mailbox) {
+                for m in msgs.values_mut() {
+                    rewrite_flags(&mut m.stored.meta.flags, &rewrite.from, rewrite.to.as_ref());
+                }
+            }
+        }
+        let ops: Vec<PendingOpId> = s
+            .ops
+            .iter()
+            .filter(|(_, op)| op.account == account)
+            .map(|(id, _)| *id)
+            .collect();
+        for id in ops {
+            let follow = s.ops.get(&id).map(|op| rewrite.follow(op));
+            match follow {
+                Some(PendingFollow::Rewritten(op)) => {
+                    s.ops.insert(id, op);
+                }
+                Some(PendingFollow::Dropped) => {
+                    s.ops.remove(&id);
+                }
+                _ => {}
+            }
+        }
+        let old = s.labels.remove(&(account, rewrite.from.clone()));
+        if let Some(to) = &rewrite.to {
+            let label = StoredLabel {
+                keyword: to.clone(),
+                color: old.and_then(|l| l.color),
+                hidden: false,
+            };
+            s.labels.insert((account, to.clone()), label);
+        }
+        Ok(id)
+    }
+
+    async fn label_rewrites(
+        &self,
+        account: AccountId,
+    ) -> Result<Vec<(LabelRewriteId, LabelRewrite)>, StoreError> {
+        Ok(lock(&self.state)
+            .rewrites
+            .iter()
+            .filter(|(_, (a, _, _))| *a == account)
+            .map(|(id, (_, r, _))| (*id, r.clone()))
+            .collect())
+    }
+
+    async fn claim_rewrite(
+        &self,
+        account: AccountId,
+        id: LabelRewriteId,
+    ) -> Result<Option<u32>, StoreError> {
+        let mut s = lock(&self.state);
+        Ok(match s.rewrites.get_mut(&id) {
+            Some((a, _, attempts)) if *a == account => {
+                *attempts += 1;
+                Some(*attempts)
+            }
+            _ => None,
+        })
+    }
+
+    async fn complete_rewrite(
+        &self,
+        account: AccountId,
+        id: LabelRewriteId,
+    ) -> Result<(), StoreError> {
+        let mut s = lock(&self.state);
+        if s.rewrites.get(&id).is_some_and(|(a, _, _)| *a == account) {
+            s.rewrites.remove(&id);
+        }
+        Ok(())
+    }
+
+    async fn keyword_permissions(
+        &self,
+        account: AccountId,
+    ) -> Result<Vec<(MailboxId, KeywordPermission)>, StoreError> {
+        let s = lock(&self.state);
+        Ok(s.mailboxes
+            .iter()
+            .filter(|(a, _, _)| *a == account)
+            .filter_map(|(_, m, _)| s.permissions.get(&m.id).map(|p| (m.id, p.clone())))
+            .collect())
+    }
+
+    async fn abandon_rewrite(
+        &self,
+        account: AccountId,
+        id: LabelRewriteId,
+    ) -> Result<(), StoreError> {
+        let mut s = lock(&self.state);
+        if s.rewrites.get(&id).is_some_and(|(a, _, _)| *a == account) {
+            s.rewrites.remove(&id);
+            for (a, _, state) in &mut s.mailboxes {
+                if *a == account {
+                    state.highest_modseq = None;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    async fn forget_flag_state(
+        &self,
+        account: AccountId,
+        mailbox: &MailboxName,
+    ) -> Result<(), StoreError> {
+        let mut s = lock(&self.state);
+        if let Some((_, _, state)) = s
+            .mailboxes
+            .iter_mut()
+            .find(|(a, m, _)| *a == account && m.mailbox.name == *mailbox)
+        {
+            state.highest_modseq = None;
+        }
+        Ok(())
+    }
+
+    async fn set_keyword_permission(
+        &self,
+        account: AccountId,
+        mailbox: &MailboxName,
+        permission: &KeywordPermission,
+    ) -> Result<(), StoreError> {
+        let mut s = lock(&self.state);
+        let id = s
+            .mailboxes
+            .iter()
+            .find(|(a, m, _)| *a == account && m.mailbox.name == *mailbox)
+            .map(|(_, m, _)| m.id);
+        if let Some(id) = id {
+            s.permissions.insert(id, permission.clone());
+        }
+        Ok(())
+    }
+}
+
+fn folder_ref(
+    m: &StoredMailbox,
+    permissions: &BTreeMap<MailboxId, KeywordPermission>,
+) -> FolderRef {
     FolderRef {
         id: m.id,
         name: m.mailbox.name.clone(),
         role: m.mailbox.role,
         selectable: m.mailbox.selectable,
+        keywords: permissions.get(&m.id).cloned().unwrap_or_default(),
     }
 }
 
@@ -1308,7 +1508,7 @@ impl PendingOpStore for InMemoryMailStore {
                 return Ok(Some(LocalMessage {
                     id: message,
                     account: *account,
-                    mailbox: folder_ref(mailbox),
+                    mailbox: folder_ref(mailbox, &s.permissions),
                     uid: m.stored.meta.uid,
                     flags: m.stored.meta.flags.clone(),
                     uid_validity: state.uid_validity,
@@ -1345,11 +1545,11 @@ impl PendingOpStore for InMemoryMailStore {
     }
 
     async fn action_folders(&self, account: AccountId) -> Result<Vec<FolderRef>, StoreError> {
-        Ok(lock(&self.state)
-            .mailboxes
+        let s = lock(&self.state);
+        Ok(s.mailboxes
             .iter()
             .filter(|(a, _, _)| *a == account)
-            .map(|(_, m, _)| folder_ref(m))
+            .map(|(_, m, _)| folder_ref(m, &s.permissions))
             .collect())
     }
 
@@ -1685,11 +1885,13 @@ impl norelly_domain::ports::SearchIndex for InMemoryMailStore {
             .map(|c| {
                 let words = match &c.atom {
                     Atom::Text { text, .. } => tokens(text),
-                    Atom::Filter(_) => Vec::new(),
+                    Atom::Filter(_) | Atom::Label { .. } => Vec::new(),
                 };
                 (c.negated, c.atom.clone(), words)
             })
-            .filter(|(_, atom, words)| matches!(atom, Atom::Filter(_)) || !words.is_empty())
+            .filter(|(_, atom, words)| {
+                matches!(atom, Atom::Filter(_) | Atom::Label { .. }) || !words.is_empty()
+            })
             .collect();
         if clauses.is_empty() {
             return Ok(SearchPage::default());
@@ -1754,6 +1956,9 @@ impl norelly_domain::ports::SearchIndex for InMemoryMailStore {
                         Filter::Before(d) => date < d.start_timestamp(request.utc_offset_seconds),
                         Filter::After(d) => date >= d.start_timestamp(request.utc_offset_seconds),
                     },
+                    Atom::Label { keywords, .. } => {
+                        keywords.iter().any(|k| meta.flags.keywords().contains(k))
+                    }
                 };
                 if matched == *negated {
                     continue 'messages;

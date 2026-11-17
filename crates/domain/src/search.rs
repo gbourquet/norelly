@@ -9,6 +9,8 @@
 //! - `from:`, `to:` (destinataires, À et Cc), `subject:`, suivis d'un mot
 //!   ou d'une phrase entre guillemets ;
 //! - `has:attachment`, `is:unread`, `is:read`, `is:flagged` ;
+//! - `label:`, ou `étiquette:` (accent facultatif), suivi d'un nom
+//!   d'étiquette ou d'un nom entre guillemets ([`Atom::Label`]) ;
 //! - `before:AAAA-MM-JJ` (strictement avant ce jour) et `after:AAAA-MM-JJ`
 //!   (ce jour compris) ;
 //! - `-` devant n'importe quelle clause pour l'exclure.
@@ -21,6 +23,9 @@
 //! L'arbre produit ne contient que des données : sa traduction dans la
 //! syntaxe d'un moteur (FTS5…) et l'échappement des termes relèvent de
 //! l'adaptateur qui implémente [`crate::ports::SearchIndex`].
+
+use crate::labels::label_keywords;
+use crate::mailbox::Keyword;
 
 /// Longueur maximale d'une requête, en caractères.
 pub const MAX_QUERY_CHARS: usize = 512;
@@ -72,6 +77,13 @@ pub enum Atom {
         phrase: bool,
     },
     Filter(Filter),
+    /// Étiquette : messages portant l'un des `keywords`, mots-clés du nom
+    /// `name` ([`crate::labels::label_keywords`] ; complétés par
+    /// [`Query::resolve_labels`] des mots-clés connus). Jamais vide.
+    Label {
+        name: String,
+        keywords: Vec<Keyword>,
+    },
 }
 
 /// Clause de la requête, éventuellement niée.
@@ -157,6 +169,13 @@ fn next_atom(input: &str) -> (Option<Atom>, &str) {
         let atom = text_atom(field, text, true).or_else(|| text_atom(Field::Any, word, false));
         return (atom, rest);
     }
+    if let (Some(op), Some(after)) = (word.strip_suffix(':'), rest.strip_prefix('"'))
+        && is_label_operator(op)
+    {
+        let (text, rest) = read_phrase(after);
+        let atom = label_atom(text).or_else(|| text_atom(Field::Any, word, false));
+        return (atom, rest);
+    }
     (Some(word_atom(word)), rest)
 }
 
@@ -175,6 +194,20 @@ fn text_atom(field: Field, text: &str, phrase: bool) -> Option<Atom> {
         field,
         text: text.to_owned(),
         phrase,
+    })
+}
+
+/// `label:` ou `étiquette:` (casse et accent indifférents).
+fn is_label_operator(op: &str) -> bool {
+    matches!(fold(op).as_str(), "label" | "etiquette")
+}
+
+/// Clause d'étiquette ; `None` pour un nom invalide (vide…).
+fn label_atom(name: &str) -> Option<Atom> {
+    let keywords = label_keywords(name, &[]);
+    (!keywords.is_empty()).then(|| Atom::Label {
+        name: name.trim().to_owned(),
+        keywords,
     })
 }
 
@@ -206,6 +239,9 @@ fn word_atom(word: &str) -> Atom {
             text: value.to_owned(),
             phrase: false,
         };
+    }
+    if is_label_operator(op) {
+        return label_atom(value).unwrap_or_else(plain);
     }
     let filter = match (
         op.to_ascii_lowercase().as_str(),
@@ -243,6 +279,29 @@ impl Query {
             }
         }
         terms
+    }
+
+    /// Complète les clauses d'étiquette des mots-clés connus (`known` :
+    /// étiquettes des comptes cherchés) dont le nom affiché correspond.
+    pub fn resolve_labels(&mut self, known: &[Keyword]) {
+        for clause in &mut self.clauses {
+            if let Atom::Label { name, keywords } = &mut clause.atom {
+                for k in label_keywords(name, known) {
+                    if !keywords.contains(&k) {
+                        keywords.push(k);
+                    }
+                }
+            }
+        }
+    }
+
+    /// La requête cherche une étiquette (les mots-clés connus des comptes
+    /// sont alors à lire, [`Self::resolve_labels`]).
+    #[must_use]
+    pub fn has_labels(&self) -> bool {
+        self.clauses
+            .iter()
+            .any(|c| matches!(c.atom, Atom::Label { .. }))
     }
 
     /// Vrai si la requête ne contient aucune clause.

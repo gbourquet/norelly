@@ -44,7 +44,13 @@
     <Separator class="menu-separator" />
   {/if}
   {#if info !== null}
-    <Item class="menu-item" disabled={!info.enabled} onSelect={() => select(action.command)}>
+    <!-- Désactivée : l'infobulle explique pourquoi (raison de la commande). -->
+    <Item
+      class="menu-item"
+      disabled={!info.enabled}
+      title={info.enabled ? undefined : info.tooltip}
+      onSelect={() => select(action.command)}
+    >
       <Icon size={16} aria-hidden="true" />
       <span class="menu-label">{info.label}</span>
       {#if info.keys}<kbd>{info.keys}</kbd>{/if}

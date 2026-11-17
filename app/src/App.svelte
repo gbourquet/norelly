@@ -29,6 +29,10 @@
   import OutboxDialog from "./components/OutboxDialog.svelte";
   import SearchPanel from "./components/SearchPanel.svelte";
   import SettingsDialog from "./components/SettingsDialog.svelte";
+  import LabelDialog from "./components/LabelDialog.svelte";
+  import LabelSettings from "./components/LabelSettings.svelte";
+  import LabelChip from "./components/LabelChip.svelte";
+  import { selectionChips } from "./lib/labels.svelte";
   import DraftsDialog from "./components/DraftsDialog.svelte";
   import UpdateQuestion from "./components/UpdateQuestion.svelte";
   import UpdateBanner from "./components/UpdateBanner.svelte";
@@ -61,9 +65,13 @@
     contacts,
     listDeletion,
     listForm,
+    labelMenu,
+    labelSettings,
+    labels as labelsStore,
     lists,
     mail,
     moveAccount,
+    searchLabel,
     openSelectedHit,
     registerAppCommands,
     registry,
@@ -476,6 +484,8 @@
         person={mail.targetSender()}
         personContext={(p) => app.contextForPerson(p)}
         onPerson={(id, p) => void runForPerson(id, p)}
+        labelsOf={(account) => labelsStore.of(account)}
+        onLabel={searchLabel}
       />
     {/if}
   {/snippet}
@@ -521,6 +531,23 @@
             run={(id) => void runForPerson(id, p)}
             {strong}
           />
+        {/snippet}
+        {#snippet labels()}
+          {@const opened = mail.opened}
+          {@const chips =
+            opened === null
+              ? []
+              : selectionChips(
+                  mail.messages.map((x) => x.labels),
+                  labelsStore.of(opened.account),
+                )}
+          {#if chips.length > 0}
+            <ul class="conversation-labels" aria-label={m.label_list()}>
+              {#each chips as label (label.keyword)}
+                <li><LabelChip {label} onSearch={searchLabel} /></li>
+              {/each}
+            </ul>
+          {/if}
         {/snippet}
         {#snippet toolbar()}
           {@const actions = readerActions(mail.opened, app.context().person)}
@@ -733,6 +760,7 @@
   onUndo={() => void mail.undo()}
   onDismiss={() => (mail.notice = null)}
 />
+<LabelDialog open={app.dialog === "label"} state={labelMenu} onClose={() => app.close()} />
 <SettingsDialog
   open={app.dialog === "settings"}
   settings={settings.current}
@@ -746,7 +774,11 @@
     if (plain !== app.plainText) await api.setPreferPlainText(plain).catch(() => undefined);
     app.close();
   }}
-/>
+>
+  {#snippet extra()}
+    <LabelSettings accounts={app.accounts} state={labelSettings} labels={labelsStore} />
+  {/snippet}
+</SettingsDialog>
 <UpdateBanner
   version={updates.available}
   installing={updates.installing}
@@ -903,6 +935,16 @@
 />
 
 <style>
+  /* Étiquettes de la conversation ouverte, sous le sujet. */
+  .conversation-labels {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-1);
+    margin: 0;
+    padding: 0 var(--space-4) var(--space-2);
+    list-style: none;
+  }
+
   /* Étiquette qui suit le pointeur pendant un glisser. */
   .drag-ghost {
     position: fixed;

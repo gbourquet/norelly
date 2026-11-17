@@ -11,16 +11,17 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
-use norelly_domain::actions::{FlagChange, StoreOutcome};
+use norelly_domain::actions::{ActionFlag, FlagChange, StoreOutcome};
 use norelly_domain::capabilities::ServerCapabilities;
 use norelly_domain::compose::draft::RemoteCopy;
 use norelly_domain::connection::ConnectionError;
 use norelly_domain::endpoint::Host;
 use norelly_domain::fetch_policy::BodyFetch;
 use norelly_domain::fetch_policy::PartPath;
+use norelly_domain::labels::KeywordPermission;
 use norelly_domain::mailbox::{
-    Flags, ListedMailbox, MailboxName, MessageHeaders, MessageMeta, ModSeq, RawHeaders, Uid,
-    UidValidity,
+    Flags, Keyword, ListedMailbox, MailboxName, MessageHeaders, MessageMeta, ModSeq, RawHeaders,
+    Uid, UidValidity,
 };
 use norelly_domain::ports::{FetchedBody, IdleOutcome, RemoteMailboxSession};
 use norelly_domain::sender_auth::{AuthServTrust, received_fields};
@@ -97,6 +98,11 @@ struct State {
     /// Le prochain RENAME est appliqué, puis sa réponse se perd (session
     /// coupée).
     lose_next_rename_reply: bool,
+    /// Jetons de `PERMANENTFLAGS` annoncés au `SELECT` en écriture (`None` :
+    /// réponse absente). Un mot-clé non permanent n'est pas gardé.
+    permanent_flags: Option<Vec<String>>,
+    /// `UID STORE` de mots-clés sur un ensemble : tailles des ensembles.
+    keyword_stores: Vec<usize>,
 }
 
 impl State {
@@ -150,6 +156,19 @@ impl FakeImap {
             connect_error: None,
             connect_attempts: 0,
             lose_next_rename_reply: false,
+            permanent_flags: Some(
+                [
+                    "\\Seen",
+                    "\\Answered",
+                    "\\Flagged",
+                    "\\Deleted",
+                    "\\Draft",
+                    "\\*",
+                ]
+                .map(str::to_owned)
+                .to_vec(),
+            ),
+            keyword_stores: Vec::new(),
         };
         Self {
             state: Arc::new(Mutex::new(state)),
@@ -172,6 +191,19 @@ impl FakeImap {
         let mut s = lock(&self.state);
         s.move_ext = move_ext;
         s.uidplus = uidplus;
+    }
+
+    /// `PERMANENTFLAGS` annoncé au `SELECT` en écriture (`None` : absent) ;
+    /// un mot-clé que la liste ne permet pas n'est pas gardé.
+    pub fn set_permanent_flags(&self, tokens: Option<&[&str]>) {
+        lock(&self.state).permanent_flags =
+            tokens.map(|t| t.iter().map(|s| (*s).to_owned()).collect());
+    }
+
+    /// Tailles des ensembles d'UID reçus par `store_keyword`, dans l'ordre.
+    #[must_use]
+    pub fn keyword_stores(&self) -> Vec<usize> {
+        lock(&self.state).keyword_stores.clone()
     }
 
     /// Refuse les dépôts (APPEND) de plus de `limit` octets, comme un
@@ -522,6 +554,14 @@ impl FakeImapSession {
         Ok(s)
     }
 
+    /// Mots-clés permanents annoncés par le serveur.
+    fn permission(&self) -> KeywordPermission {
+        lock(&self.server.state)
+            .permanent_flags
+            .as_ref()
+            .map_or(KeywordPermission::Unknown, KeywordPermission::from_tokens)
+    }
+
     fn selected_name(&self) -> Result<String, ConnectionError> {
         self.selected
             .as_ref()
@@ -669,6 +709,7 @@ impl RemoteMailboxSession for FakeImapSession {
             changed: vec![],
             vanished: UidRanges::default(),
             incomplete: false,
+            keywords: KeywordPermission::Unknown,
         };
         if let Some(q) = &request.qresync
             && ext.qresync
@@ -790,7 +831,9 @@ impl RemoteMailboxSession for FakeImapSession {
             condstore: self.extensions.condstore,
             qresync: None,
         };
-        self.select(mailbox, &request).await
+        let mut selected = self.select(mailbox, &request).await?;
+        selected.keywords = self.permission();
+        Ok(selected)
     }
 
     async fn message_flags(&mut self, target: Uid) -> Result<Option<Flags>, ConnectionError> {
@@ -809,6 +852,7 @@ impl RemoteMailboxSession for FakeImapSession {
     ) -> Result<StoreOutcome, ConnectionError> {
         let name = self.selected_name()?;
         let condstore = self.extensions.condstore;
+        let permission = self.permission();
         self.throttle().await;
         let outcome = {
             let mut s = self.step()?;
@@ -822,7 +866,12 @@ impl RemoteMailboxSession for FakeImapSession {
             {
                 return Ok(StoreOutcome::Modified);
             }
-            if change.flag.get(&msg.flags) != change.value {
+            // Mot-clé non permanent : accepté, mais pas gardé.
+            let kept = match &change.flag {
+                ActionFlag::Keyword(k) if change.value => permission.can_store(k),
+                _ => true,
+            };
+            if kept && change.flag.get(&msg.flags) != change.value {
                 change.flag.set(&mut msg.flags, change.value);
                 msg.modseq = next;
                 m.modseq = next;
@@ -831,6 +880,53 @@ impl RemoteMailboxSession for FakeImapSession {
         };
         self.server.touch(&name);
         Ok(outcome)
+    }
+
+    async fn search_keyword(
+        &mut self,
+        keyword: &Keyword,
+    ) -> Result<BTreeSet<Uid>, ConnectionError> {
+        let name = self.selected_name()?;
+        self.throttle().await;
+        let mut s = self.step()?;
+        let m = s.mailbox(&name).ok_or(ConnectionError::Closed)?;
+        Ok(m.messages
+            .iter()
+            .filter(|(_, msg)| msg.flags.keywords().contains(keyword))
+            .filter_map(|(u, _)| uid(*u))
+            .collect())
+    }
+
+    async fn store_keyword(
+        &mut self,
+        uids: &[Uid],
+        keyword: &Keyword,
+        add: bool,
+    ) -> Result<(), ConnectionError> {
+        if uids.is_empty() {
+            return Ok(());
+        }
+        let name = self.selected_name()?;
+        let keep = !add || self.permission().can_store(keyword);
+        self.throttle().await;
+        {
+            let mut s = self.step()?;
+            s.keyword_stores.push(uids.len());
+            let m = s.mailbox(&name).ok_or(ConnectionError::Closed)?;
+            for target in uids {
+                let next = m.modseq + 1;
+                if let Some(msg) = m.messages.get_mut(&target.get()) {
+                    let flag = ActionFlag::Keyword(keyword.clone());
+                    if keep && flag.get(&msg.flags) != add {
+                        flag.set(&mut msg.flags, add);
+                        msg.modseq = next;
+                        m.modseq = next;
+                    }
+                }
+            }
+        }
+        self.server.touch(&name);
+        Ok(())
     }
 
     async fn mark_deleted(&mut self, target: Uid) -> Result<(), ConnectionError> {

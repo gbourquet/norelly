@@ -54,6 +54,23 @@ describe("describeCommand", () => {
     expect(d?.tooltip).toBe("Ranger — E");
   });
 
+  it("commande indisponible : l'infobulle explique pourquoi", () => {
+    const r = registry();
+    r.register({
+      id: "a.label",
+      title: "Étiqueter…",
+      group: "G",
+      shortcut: "l",
+      when: (ctx) => ctx.open,
+      unavailable: (ctx) => (ctx.open ? null : "Le serveur refuse."),
+      run: () => {},
+    });
+    const off = describeCommand(r, "a.label", { open: false });
+    expect(off?.enabled).toBe(false);
+    expect(off?.tooltip).toBe("Étiqueter… — Le serveur refuse.");
+    expect(describeCommand(r, "a.label", { open: true })?.tooltip).toBe("Étiqueter… — L");
+  });
+
   it("commande inconnue : rien", () => {
     expect(describeCommand(registry(), "inconnue", { open: false })).toBeNull();
   });

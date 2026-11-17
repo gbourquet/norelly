@@ -33,7 +33,9 @@ use norelly_domain::connection::{
 };
 use norelly_domain::endpoint::{Security, ServerEndpoint};
 use norelly_domain::fetch_policy::BodyFetch;
-use norelly_domain::mailbox::{Flags, ListedMailbox, MailboxName, MessageMeta, ModSeq, Uid};
+use norelly_domain::mailbox::{
+    Flags, Keyword, ListedMailbox, MailboxName, MessageMeta, ModSeq, Uid,
+};
 use norelly_domain::ports::{
     ConnectRequest, FetchedBody, IdleOutcome, RemoteMailboxConnector, RemoteMailboxSession,
 };
@@ -515,15 +517,39 @@ impl RemoteMailboxSession for ImapSession {
         change: FlagChange,
         unchanged_since: Option<ModSeq>,
     ) -> Result<StoreOutcome, ConnectionError> {
-        let flag = match change.flag {
+        let flag = match &change.flag {
             ActionFlag::Seen => Flag::Seen,
             ActionFlag::Flagged => Flag::Flagged,
+            ActionFlag::Keyword(k) => Flag::Keyword(session::keyword_atom(k)?),
         };
         // UNCHANGEDSINCE n'a de sens qu'avec CONDSTORE actif sur la boîte.
         let unchanged_since = unchanged_since.filter(|_| self.selected_condstore);
         self.conn
             .store(uid, flag, change.value, unchanged_since)
             .await
+    }
+
+    async fn search_keyword(
+        &mut self,
+        keyword: &Keyword,
+    ) -> Result<BTreeSet<Uid>, ConnectionError> {
+        self.conn.search_keyword(keyword).await
+    }
+
+    async fn store_keyword(
+        &mut self,
+        uids: &[Uid],
+        keyword: &Keyword,
+        add: bool,
+    ) -> Result<(), ConnectionError> {
+        if uids.is_empty() {
+            return Ok(());
+        }
+        if uids.len() > norelly_domain::labels::REWRITE_BATCH {
+            return Err(ConnectionError::Protocol("trop d'UID pour un STORE".into()));
+        }
+        let flag = Flag::Keyword(session::keyword_atom(keyword)?);
+        self.conn.store_set(uids, flag, add, None).await.map(|_| ())
     }
 
     async fn mark_deleted(&mut self, uid: Uid) -> Result<(), ConnectionError> {

@@ -13,7 +13,9 @@ use norelly_domain::conversation::{
     Assignment, ConversationScope, MessageCopy, ShownCopy, SubjectCandidate, ThreadKeys, assign,
     shown_copies,
 };
-use norelly_domain::mailbox::{Correspondent, MAX_SUBJECT_CHARS, MailboxName, header_text};
+use norelly_domain::mailbox::{
+    Correspondent, Keyword, MAX_SUBJECT_CHARS, MailboxName, header_text,
+};
 use norelly_domain::ports::{
     ConversationCursor, ConversationId, ConversationListItem, ConversationMessage,
     ConversationPage, ConversationQuery, MAX_CONVERSATION_COPIES, MAX_CONVERSATION_MESSAGES,
@@ -259,16 +261,16 @@ fn query_rows(
     rows.map_err(store_error)
 }
 
-/// Sujet du message le plus récent et expéditeurs distincts d'une
-/// conversation dans un dossier.
+/// Sujet du message le plus récent, expéditeurs distincts et mots-clés
+/// réunis d'une conversation dans un dossier.
 fn summary(
     c: &Connection,
     conversation: i64,
     mailbox: i64,
-) -> Result<(String, Vec<Correspondent>), StoreError> {
+) -> Result<(String, Vec<Correspondent>, BTreeSet<Keyword>), StoreError> {
     let mut stmt = c
         .prepare_cached(
-            "SELECT subject, from_name, from_address FROM messages \
+            "SELECT subject, from_name, from_address, keywords FROM messages \
              WHERE conversation_id = ?1 AND mailbox_id = ?2 \
              ORDER BY sort_date DESC, id DESC LIMIT 50",
         )
@@ -279,13 +281,16 @@ fn summary(
                 r.get::<_, String>(0)?,
                 r.get::<_, String>(1)?,
                 r.get::<_, String>(2)?,
+                r.get::<_, String>(3)?,
             ))
         })
         .map_err(store_error)?;
     let mut subject = None;
     let mut senders: Vec<Correspondent> = Vec::new();
+    let mut keywords = BTreeSet::new();
     for row in rows {
-        let (s, name, address) = row.map_err(store_error)?;
+        let (s, name, address, words) = row.map_err(store_error)?;
+        keywords.extend(flags_from(0, &words).keywords().iter().cloned());
         subject.get_or_insert_with(|| header_text(&s, MAX_SUBJECT_CHARS));
         if senders.len() < MAX_LISTED_SENDERS && (!name.is_empty() || !address.is_empty()) {
             let person = Correspondent::new(&name, &address);
@@ -294,7 +299,7 @@ fn summary(
             }
         }
     }
-    Ok((subject.unwrap_or_default(), senders))
+    Ok((subject.unwrap_or_default(), senders, keywords))
 }
 
 pub(crate) fn conversations_query(
@@ -313,7 +318,7 @@ pub(crate) fn conversations_query(
     for (id, account, mailbox, date, messages, unread, flagged, attachments) in
         rows.into_iter().take(limit as usize)
     {
-        let (subject, senders) = summary(c, id, mailbox)?;
+        let (subject, senders, keywords) = summary(c, id, mailbox)?;
         items.push(ConversationListItem {
             id: ConversationId::new(id).ok_or_else(|| corrupted("conversation"))?,
             account: AccountId::new(account).map_err(|_| corrupted("compte"))?,
@@ -325,6 +330,7 @@ pub(crate) fn conversations_query(
             unread: u32::try_from(unread).unwrap_or(u32::MAX),
             flagged,
             has_attachments: attachments,
+            keywords,
         });
     }
     let next = if more {

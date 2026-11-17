@@ -29,6 +29,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
 
+use crate::labels::KeywordPermission;
 use crate::mailbox::{Flags, ModSeq, Uid, UidValidity};
 
 /// État de synchronisation enregistré pour une boîte.
@@ -176,6 +177,9 @@ pub struct SelectedMailbox {
     /// Des réponses ont été écartées (indécodables) : `changed` et
     /// `vanished` peuvent être incomplets.
     pub incomplete: bool,
+    /// Mots-clés gardés (`PERMANENTFLAGS`) ; [`KeywordPermission::Unknown`]
+    /// en lecture seule (`EXAMINE` : la réponse n'y vaut rien).
+    pub keywords: KeywordPermission,
 }
 
 /// Drapeaux d'un message reçus du serveur.

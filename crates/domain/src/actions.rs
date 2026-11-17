@@ -32,7 +32,10 @@ use serde::{Deserialize, Serialize};
 use crate::account::AccountId;
 use crate::capabilities::ServerCapabilities;
 use crate::conversation::ConversationScope;
-use crate::mailbox::{Flags, MailboxId, MailboxName, MailboxRole, ModSeq, Uid, UidValidity};
+use crate::labels::{KeywordPermission, in_scope, is_protocol_keyword};
+use crate::mailbox::{
+    Flags, Keyword, MailboxId, MailboxName, MailboxRole, ModSeq, Uid, UidValidity,
+};
 use crate::ports::{MessageId, PendingOpId};
 
 /// Délai avant le rejeu d'une opération : l'utilisateur peut l'annuler
@@ -47,55 +50,67 @@ pub const MAX_REPLAY_ATTEMPTS: u32 = 5;
 /// Nombre maximal de messages visés par une action (sélection multiple).
 pub const MAX_ACTION_TARGETS: usize = 1000;
 
-/// Drapeau modifiable par une action.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+/// Drapeau modifiable par une action : Lu, Suivi, ou mot-clé (étiquette).
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum ActionFlag {
     Seen,
     Flagged,
+    Keyword(Keyword),
 }
 
 impl ActionFlag {
     /// Valeur du drapeau dans `flags`.
     #[must_use]
-    pub fn get(self, flags: &Flags) -> bool {
+    pub fn get(&self, flags: &Flags) -> bool {
         match self {
             Self::Seen => flags.seen,
             Self::Flagged => flags.flagged,
+            Self::Keyword(k) => flags.keywords().contains(k),
         }
     }
 
-    pub fn set(self, flags: &mut Flags, value: bool) {
+    pub fn set(&self, flags: &mut Flags, value: bool) {
         match self {
             Self::Seen => flags.seen = value,
             Self::Flagged => flags.flagged = value,
+            Self::Keyword(k) if value => flags.insert_keyword(k.clone()),
+            Self::Keyword(k) => {
+                flags.remove_keyword(k);
+            }
         }
     }
 
     /// Jeton IMAP.
     #[must_use]
-    pub const fn token(self) -> &'static str {
+    pub fn token(&self) -> &str {
         match self {
             Self::Seen => "\\Seen",
             Self::Flagged => "\\Flagged",
+            Self::Keyword(k) => k.as_str(),
         }
     }
 }
 
 /// Ajout ou retrait d'un drapeau (`STORE +FLAGS` / `-FLAGS`) : les autres
 /// drapeaux du message ne sont jamais touchés.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct FlagChange {
     pub flag: ActionFlag,
     pub value: bool,
 }
 
 /// Action demandée par l'utilisateur.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MessageAction {
     /// Lu (`true`) ou non lu.
     MarkSeen(bool),
     /// Suivi (drapeau) ou non.
     MarkFlagged(bool),
+    /// Étiquette posée (`true`) ou retirée.
+    SetLabel {
+        keyword: Keyword,
+        value: bool,
+    },
     /// Déplacer vers un dossier du même compte.
     Move(MailboxId),
     Delete,
@@ -109,6 +124,8 @@ pub struct FolderRef {
     pub name: MailboxName,
     pub role: MailboxRole,
     pub selectable: bool,
+    /// Mots-clés que le dossier garde (`PERMANENTFLAGS`).
+    pub keywords: KeywordPermission,
 }
 
 /// Effet d'une action sur un message.
@@ -137,13 +154,17 @@ pub enum ActionError {
     TooManyTargets,
     #[error("trop d'opérations en attente sur ce compte")]
     QueueFull,
+    #[error("le dossier refuse cette étiquette")]
+    KeywordRefused,
+    #[error("mot-clé réservé au protocole")]
+    ReservedKeyword,
 }
 
 /// Effet de `action` sur un message du dossier `source`. `folders` :
 /// dossiers du compte ; `archive_fallback` : dossier de repli choisi par
 /// l'utilisateur quand le compte n'a pas de dossier `\Archive`.
 pub fn resolve(
-    action: MessageAction,
+    action: &MessageAction,
     source: &FolderRef,
     folders: &[FolderRef],
     archive_fallback: Option<MailboxId>,
@@ -162,14 +183,26 @@ pub fn resolve(
     match action {
         MessageAction::MarkSeen(value) => Ok(Effect::SetFlag(FlagChange {
             flag: ActionFlag::Seen,
-            value,
+            value: *value,
         })),
         MessageAction::MarkFlagged(value) => Ok(Effect::SetFlag(FlagChange {
             flag: ActionFlag::Flagged,
-            value,
+            value: *value,
         })),
+        MessageAction::SetLabel { keyword, value } => {
+            if is_protocol_keyword(keyword) {
+                return Err(ActionError::ReservedKeyword);
+            }
+            if *value && !source.keywords.can_store(keyword) {
+                return Err(ActionError::KeywordRefused);
+            }
+            Ok(Effect::SetFlag(FlagChange {
+                flag: ActionFlag::Keyword(keyword.clone()),
+                value: *value,
+            }))
+        }
         MessageAction::Move(id) => target(
-            folders.iter().find(|f| f.id == id),
+            folders.iter().find(|f| f.id == *id),
             ActionError::UnknownFolder,
         ),
         MessageAction::Delete if source.role == MailboxRole::Trash => Ok(Effect::Expunge),
@@ -201,22 +234,21 @@ pub struct Member {
 /// - lu / non lu : toute la conversation, tous dossiers ;
 /// - suivi : le message le plus récent de la portée (sans effet si l'un
 ///   d'eux l'est déjà) ; plus suivi : tous les messages suivis ;
+/// - étiquette posée ou retirée : les messages de la portée qui ne sont
+///   pas déjà dans l'état voulu ;
 /// - déplacer, supprimer, archiver : les messages de la portée seulement
 ///   (les réponses rangées dans « Envoyés » ne bougent pas).
 #[must_use]
 pub fn conversation_targets(
-    action: MessageAction,
+    action: &MessageAction,
     members: &[Member],
     scope: &ConversationScope,
 ) -> Vec<MessageId> {
-    let in_scope = |m: &&Member| match scope {
-        ConversationScope::Mailbox(id) => m.mailbox == *id,
-        ConversationScope::Unified(role) => m.role == *role,
-    };
+    let in_scope = |m: &&Member| in_scope(m, scope);
     match action {
         MessageAction::MarkSeen(value) => members
             .iter()
-            .filter(|m| m.flags.seen != value)
+            .filter(|m| m.flags.seen != *value)
             .map(|m| m.id)
             .collect(),
         MessageAction::MarkFlagged(true) => {
@@ -233,6 +265,12 @@ pub fn conversation_targets(
         MessageAction::MarkFlagged(false) => members
             .iter()
             .filter(|m| m.flags.flagged)
+            .map(|m| m.id)
+            .collect(),
+        MessageAction::SetLabel { keyword, value } => members
+            .iter()
+            .filter(in_scope)
+            .filter(|m| m.flags.keywords().contains(keyword) != *value)
             .map(|m| m.id)
             .collect(),
         MessageAction::Move(_) | MessageAction::Delete | MessageAction::Archive => {
@@ -358,7 +396,7 @@ impl PendingOp {
                     return None;
                 }
                 OpKind::Flag {
-                    change: *change,
+                    change: change.clone(),
                     previous,
                     unchanged_since: message.highest_modseq,
                 }
@@ -387,7 +425,7 @@ impl PendingOp {
 }
 
 /// Changement local (application optimiste ou annulation).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LocalEffect {
     /// Donne au drapeau la valeur indiquée.
     SetFlag {
@@ -407,7 +445,7 @@ pub fn local_effect(op: &PendingOp) -> LocalEffect {
     match &op.kind {
         OpKind::Flag { change, .. } => LocalEffect::SetFlag {
             message: op.message,
-            flag: change.flag,
+            flag: change.flag.clone(),
             value: change.value,
         },
         OpKind::Move { .. } | OpKind::Expunge => LocalEffect::Hide {
@@ -425,7 +463,7 @@ pub fn revert_effect(op: &PendingOp) -> LocalEffect {
             change, previous, ..
         } => LocalEffect::SetFlag {
             message: op.message,
-            flag: change.flag,
+            flag: change.flag.clone(),
             value: *previous,
         },
         OpKind::Move { .. } | OpKind::Expunge => LocalEffect::Show {
@@ -597,6 +635,8 @@ pub struct ServerView {
     pub flags: Option<Flags>,
     /// La boîte de destination existe (déplacement).
     pub target_exists: bool,
+    /// Mots-clés que la boîte source garde (`PERMANENTFLAGS`).
+    pub keywords: KeywordPermission,
 }
 
 /// Raison de l'abandon d'une opération.
@@ -611,6 +651,8 @@ pub enum Conflict {
     TargetMissing,
     /// Trop d'essais sans succès ([`MAX_REPLAY_ATTEMPTS`]).
     TooManyAttempts,
+    /// La boîte refuse de garder ce mot-clé (`PERMANENTFLAGS`).
+    KeywordRefused,
 }
 
 /// Décision de rejeu.
@@ -637,6 +679,14 @@ pub fn decide(op: &PendingOp, view: &ServerView) -> ReplayDecision {
         OpKind::Flag { change, .. } if change.flag.get(flags) == change.value => {
             ReplayDecision::AlreadyDone
         }
+        OpKind::Flag {
+            change:
+                FlagChange {
+                    flag: ActionFlag::Keyword(keyword),
+                    value: true,
+                },
+            ..
+        } if !view.keywords.can_store(keyword) => ReplayDecision::Drop(Conflict::KeywordRefused),
         OpKind::Move { .. } if !view.target_exists => ReplayDecision::Drop(Conflict::TargetMissing),
         _ => ReplayDecision::Apply,
     }
@@ -649,7 +699,7 @@ pub fn decide(op: &PendingOp, view: &ServerView) -> ReplayDecision {
 /// concurrent n'est écrasé : elle est réappliquée sans condition, sauf si
 /// le serveur a déjà la valeur voulue.
 #[must_use]
-pub fn after_modified(change: FlagChange, server_flags: &Flags) -> ReplayDecision {
+pub fn after_modified(change: &FlagChange, server_flags: &Flags) -> ReplayDecision {
     if change.flag.get(server_flags) == change.value {
         ReplayDecision::AlreadyDone
     } else {

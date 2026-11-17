@@ -13,13 +13,14 @@ use std::time::Duration;
 
 use imap_next::imap_types::body::{BodyStructure, SpecificFields};
 use imap_next::imap_types::command::{CommandBody, FetchModifier, SelectParameter, StoreModifier};
+use imap_next::imap_types::core::Atom;
 use imap_next::imap_types::core::{IString, Literal, NString, Vec1};
 use imap_next::imap_types::extensions::binary::LiteralOrLiteral8;
 use imap_next::imap_types::extensions::enable::CapabilityEnable;
 use imap_next::imap_types::fetch::{
     MacroOrMessageDataItemNames, MessageDataItem, MessageDataItemName, Part, Section,
 };
-use imap_next::imap_types::flag::{Flag, FlagFetch, StoreResponse, StoreType};
+use imap_next::imap_types::flag::{Flag, FlagFetch, FlagPerm, StoreResponse, StoreType};
 use imap_next::imap_types::mailbox::{ListMailbox, Mailbox};
 use imap_next::imap_types::response::{Code, Data, StatusKind};
 use imap_next::imap_types::search::SearchKey;
@@ -32,6 +33,7 @@ use norelly_domain::fetch_policy::{
     BodyFetch, Disposition, MAX_MIME_DEPTH, MAX_MIME_PARTS, MimePart, PartPath, attachment_name,
     mime_token,
 };
+use norelly_domain::labels::KeywordPermission;
 use norelly_domain::mailbox::{
     Flags, ListedMailbox, MailboxName, MessageHeaders, MessageMeta, ModSeq, RawHeaders, Uid,
     UidValidity, is_subfolder,
@@ -56,6 +58,13 @@ fn text(raw: &[u8]) -> String {
 
 fn istring(s: &IString<'_>) -> String {
     mime_token(&text(s.as_ref()))
+}
+
+/// Mot-clé du domaine (atom déjà validé) en atom IMAP.
+pub(crate) fn keyword_atom(
+    keyword: &norelly_domain::mailbox::Keyword,
+) -> Result<Atom<'static>, ConnectionError> {
+    Atom::try_from(keyword.as_str().to_owned()).map_err(|_| protocol("mot-clé invalide"))
 }
 
 /// Ensemble d'UID compact (`1:5,7,9:12`), trié.
@@ -822,6 +831,15 @@ impl Connection {
                 Code::UidValidity(v) => selected.uid_validity = UidValidity::new(v.get()),
                 Code::UidNext(n) => selected.uid_next = Uid::new(n.get()),
                 Code::HighestModSeq(m) => selected.highest_modseq = ModSeq::new(m.get()),
+                // Seulement en écriture : en lecture seule (`EXAMINE`), les
+                // serveurs annoncent une liste vide.
+                Code::PermanentFlags(flags) => {
+                    selected.keywords =
+                        KeywordPermission::from_tokens(flags.iter().map(|f| match f {
+                            FlagPerm::Asterisk => "\\*".to_owned(),
+                            FlagPerm::Flag(flag) => flag.to_string(),
+                        }));
+                }
                 _ => {}
             }
         }
@@ -863,7 +881,18 @@ impl Connection {
         add: bool,
         unchanged_since: Option<ModSeq>,
     ) -> Result<StoreOutcome, ConnectionError> {
-        let set = uid_set([uid]).ok_or_else(|| protocol("UID invalide"))?;
+        self.store_set(&[uid], flag, add, unchanged_since).await
+    }
+
+    /// `UID STORE <ensemble> [(UNCHANGEDSINCE m)] ±FLAGS.SILENT (flag)`.
+    pub(crate) async fn store_set(
+        &mut self,
+        uids: &[Uid],
+        flag: Flag<'static>,
+        add: bool,
+        unchanged_since: Option<ModSeq>,
+    ) -> Result<StoreOutcome, ConnectionError> {
+        let set = uid_set(uids.iter().copied()).ok_or_else(|| protocol("UID invalide"))?;
         let body = CommandBody::Store {
             sequence_set: set,
             kind: if add {
@@ -1026,7 +1055,23 @@ impl Connection {
 
     /// `UID SEARCH DELETED`.
     pub(crate) async fn search_deleted(&mut self) -> Result<BTreeSet<Uid>, ConnectionError> {
-        let body = CommandBody::search(None, Vec1::from(SearchKey::Deleted), true);
+        self.search_uids(SearchKey::Deleted).await
+    }
+
+    /// `UID SEARCH KEYWORD k`.
+    pub(crate) async fn search_keyword(
+        &mut self,
+        keyword: &norelly_domain::mailbox::Keyword,
+    ) -> Result<BTreeSet<Uid>, ConnectionError> {
+        self.search_uids(SearchKey::Keyword(keyword_atom(keyword)?))
+            .await
+    }
+
+    async fn search_uids(
+        &mut self,
+        key: SearchKey<'static>,
+    ) -> Result<BTreeSet<Uid>, ConnectionError> {
+        let body = CommandBody::search(None, Vec1::from(key), true);
         let reply = self.execute_bulk(body).await?;
         ensure_ok(&reply.status)?;
         let mut out = BTreeSet::new();

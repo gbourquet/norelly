@@ -15,6 +15,7 @@
 //! - [`fetch_policy`] : politique de rapatriement des corps ;
 //! - [`reading`] : liens externes, images distantes, pièces jointes ;
 //! - [`actions`] : actions sur les messages, file d'opérations, rejeu ;
+//! - [`labels`] : étiquettes (mots-clés), couleurs, réécriture ;
 //! - [`notify`] : nouveaux messages à signaler (notifications) ;
 //! - [`settings`] : paramètres de l'application ;
 //! - [`search`] : syntaxe des requêtes de recherche, surlignage ;
@@ -44,6 +45,7 @@ pub mod credentials;
 pub mod discovery;
 pub mod endpoint;
 pub mod fetch_policy;
+pub mod labels;
 pub mod mailbox;
 pub mod notify;
 pub mod oauth;

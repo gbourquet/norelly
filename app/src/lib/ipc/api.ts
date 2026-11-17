@@ -63,6 +63,8 @@ import {
   type RecipientFieldDto,
   type CorrespondentDto_Serialize,
   type SecretsBackendDto,
+  type LabelDto_Serialize,
+  type LabelMenuDto_Serialize,
 } from "./bindings";
 import { IpcFailure } from "../errors";
 
@@ -142,6 +144,12 @@ export type ContactItem = ContactPage["items"][number];
 export type ContactList = ContactListDto_Serialize;
 export type ContactListPage = ContactListPageDto_Serialize;
 export type ConversationDto = ConversationDto_Serialize;
+/** Étiquette d'un compte : mot-clé, nom (Thunderbird, décodé, ou mot-clé
+ * illisible), couleurs validées par Rust. */
+export type LabelDto = LabelDto_Serialize;
+/** Menu « Étiqueter… » d'une sélection, décidé par Rust. */
+export type LabelMenu = LabelMenuDto_Serialize;
+export type LabelChoice = LabelMenu["choices"][number];
 /** Correspondant affiché : `contact`, la fiche du carnet qui porte
  * l'adresse. */
 export type CorrespondentDto = CorrespondentDto_Serialize;
@@ -299,6 +307,34 @@ export const api = {
 
   setArchiveFolder: (account: number, mailbox: number | null): Promise<void> =>
     unwrap(commands.setArchiveFolder(account, mailbox)).then(() => undefined),
+
+  /** Étiquettes d'un compte. */
+  listLabels: (account: number): Promise<LabelDto[]> => unwrap(commands.listLabels(account)),
+
+  /** Menu « Étiqueter… » des conversations visées dans `scope`. */
+  labelMenu: (conversations: number[], scope: ScopeDto): Promise<LabelMenu> =>
+    unwrap(commands.labelMenu(conversations, scope)),
+
+  /** Crée une étiquette (`color` : `#rrggbb`, revalidée par Rust) ;
+   * `reuse` : rend celle qui porte déjà ce nom au lieu d'un refus. */
+  createLabel: (
+    account: number,
+    name: string,
+    color: string | null,
+    reuse: boolean,
+  ): Promise<LabelDto> => unwrap(commands.createLabel(account, name, color, reuse)),
+
+  setLabelColor: (account: number, keyword: string, color: string | null): Promise<void> =>
+    unwrap(commands.setLabelColor(account, keyword, color)).then(() => undefined),
+
+  /** Renomme une étiquette ; les messages du serveur suivent en arrière-plan. */
+  renameLabel: (account: number, keyword: string, name: string): Promise<LabelDto> =>
+    unwrap(commands.renameLabel(account, keyword, name)),
+
+  /** Supprime une étiquette de la liste ; avec `removeFromMessages`, la
+   * retire aussi de tous les messages. */
+  deleteLabel: (account: number, keyword: string, removeFromMessages: boolean): Promise<void> =>
+    unwrap(commands.deleteLabel(account, keyword, removeFromMessages)).then(() => undefined),
 
   /** Crée un dossier (sous `parent`, ou au premier niveau) ; renvoie son
    * identifiant local (`null` si la liste n'est pas encore relue). */

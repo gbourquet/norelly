@@ -16,8 +16,8 @@ use norelly_test_support::containers::{
 };
 use norelly_test_support::imap_control::ImapControl;
 use norelly_test_support::session_contract::{
-    actions_session_contract, folders_session_contract, remote_session_contract,
-    sender_auth_session_contract,
+    actions_session_contract, folders_session_contract, labels_session_contract,
+    remote_session_contract, sender_auth_session_contract,
 };
 use norelly_tls::{TlsClientFactory, TrustRoots};
 
@@ -57,6 +57,13 @@ async fn dovecot_passes_session_contract() -> TestResult {
     actions_session_contract(&no_move, &request, &control, "ActionsSansMove").await?;
     let bare = ImapConnector::new(tls()).hiding_capabilities(&["MOVE", "UIDPLUS"]);
     actions_session_contract(&bare, &request, &control, "ActionsSansUidplus").await?;
+    Box::pin(labels_session_contract(
+        &connector,
+        &request,
+        &control,
+        "Etiquettes",
+    ))
+    .await?;
     // Sur le tas : la suite enchaîne plusieurs contrats, dont les futurs
     // cumulés dépasseraient la pile d'un fil de test (build de débogage).
     Box::pin(folders_session_contract(

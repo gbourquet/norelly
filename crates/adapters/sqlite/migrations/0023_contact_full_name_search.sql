@@ -1,4 +1,4 @@
--- Version 22 : nom complet cherché dans le carnet.
+-- Version 23 : nom complet cherché dans le carnet.
 --
 -- Le texte cherché d'une fiche (search_text) contient désormais aussi le
 -- nom complet composé « prénom nom » (norelly_domain::contacts::

@@ -78,7 +78,7 @@ fn migrations() -> Migrations<'static> {
         M::up(include_str!("../migrations/0021_labels.sql")),
         M::up(include_str!("../migrations/0022_contact_dismissals.sql")),
         M::up_with_hook(
-            include_str!("../migrations/0022_contact_full_name_search.sql"),
+            include_str!("../migrations/0023_contact_full_name_search.sql"),
             |tx: &rusqlite::Transaction<'_>| {
                 contacts::index_full_names(tx).map_err(|e| rusqlite_migration::HookError::Hook(e.0))
             },
@@ -715,26 +715,28 @@ mod tests {
          VALUES (1, 1, 'INBOX', 42, 7, 'flag', 'keyword', 1, 0, 'Projet', 0);",
         // v22 : les contacts des versions 11 et 18 écartés comme doublons.
         "INSERT INTO contact_duplicate_dismissals (low_id, high_id, batch) VALUES (1, 2, 1);",
-        // v22 : schéma inchangé (texte cherché recalculé) ; un nom de
+        // v23 : schéma inchangé (texte cherché recalculé) ; un nom de
         // famille au contact de la version 18, clés à jour.
         "UPDATE contacts SET family_name = 'V22', sort_key = 'v18 v22', \
          search_text = 'v18\nv22\nv18 v22\nv18@example.com' WHERE id = 2;",
     ];
 
-    /// Base de version 21 : à la montée en version 22, le texte cherché des
+    /// Base de la version précédente : à la montée vers la migration 23
+    /// (la dernière de la liste, d'où les indices relatifs), le texte cherché des
     /// fiches est recalculé (nom complet composé compris), sans toucher au
     /// reste ; les fiches se relisent et « alice mar » trouve Alice
     /// Martin. Une fiche dont la clé de tri stockée n'est pas celle du
     /// domaine (corrompue) ou illisible est laissée telle quelle.
     #[tokio::test]
-    async fn upgrading_to_v22_indexes_contact_full_names() -> Result<(), StoreError> {
+    async fn upgrading_to_v23_indexes_contact_full_names() -> Result<(), StoreError> {
         use norelly_domain::contacts::{ContactFilter, ContactId};
         use norelly_domain::ports::{ContactDirectory, PageSize};
         let mut conn = Connection::open_in_memory().map_err(store_error)?;
         conn.pragma_update(None, "foreign_keys", "ON")
             .map_err(store_error)?;
         let m = migrations();
-        for (version, fixture) in FIXTURES.iter().enumerate().take(21) {
+        let target = FIXTURES.len();
+        for (version, fixture) in FIXTURES.iter().enumerate().take(target - 1) {
             m.to_version(&mut conn, version + 1)
                 .map_err(|e| StoreError(e.to_string()))?;
             conn.execute_batch(fixture).map_err(store_error)?;
@@ -770,7 +772,7 @@ mod tests {
              (36, 0, 'ugo@example.com', 'autre@example.com', NULL, 1);",
         )
         .map_err(store_error)?;
-        m.to_version(&mut conn, 22)
+        m.to_version(&mut conn, target)
             .map_err(|e| StoreError(e.to_string()))?;
         assert_eq!(
             stored_names(&conn, 30),

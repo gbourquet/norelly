@@ -325,7 +325,7 @@ pub(crate) fn drop_names_imitating_address(tx: &Transaction<'_>) -> Result<(), S
     Ok(())
 }
 
-/// Étape de la migration 22 : recalcule le texte cherché des fiches
+/// Étape de la migration 23 : recalcule le texte cherché des fiches
 /// enregistrées, qui contient désormais le nom complet composé, selon
 /// [`ContactDraft::full_name_reindex`]. Seule cette colonne est réécrite,
 /// et seulement pour une fiche dont les clés de tri et de recherche

@@ -5,6 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ConversationDto, ConversationMessage, CorrespondentDto } from "./ipc/api";
 
 const listed = vi.hoisted(() => ({ calls: 0 }));
+/** Contacts renvoyés par `listContacts` (carnet vide par défaut). */
+const book = vi.hoisted(() => ({ items: [] as unknown[] }));
 const picked = vi.hoisted(() => ({
   result: null as unknown,
   args: [] as string[],
@@ -17,7 +19,7 @@ vi.mock("./ipc/api", () => ({
       listed.calls += 1;
       return { items: [], next: null };
     }),
-    listContacts: vi.fn(async () => ({ items: [], next: null })),
+    listContacts: vi.fn(async () => ({ items: book.items, next: null })),
     previewContactImport: vi.fn(async (title: string, filter: string) => {
       picked.args = [title, filter];
       if (picked.result instanceof Error) throw picked.result;
@@ -56,6 +58,7 @@ const {
   runForPerson,
   search,
 } = await import("./app.svelte");
+const { describeCommand } = await import("./commands/describe");
 
 const conversation: ConversationDto = {
   id: 1,
@@ -219,6 +222,7 @@ describe("personnes d'un message et carnet", () => {
     app.close();
     app.showMail();
     app.personTarget = null;
+    book.items = [];
     mail.opened = null;
     mail.messages = [];
     mail.conversations = [];
@@ -321,6 +325,9 @@ describe("personnes d'un message et carnet", () => {
   });
 
   it("exporter : tout le carnet depuis n'importe où, la sélection depuis la vue Contacts", async () => {
+    book.items = [
+      { id: 1, name: "Alice", address: "alice@example.com", organization: null, favorite: false },
+    ];
     expect(enabled("contacts.export")).toBe(true);
     await registry.execute("contacts.export", app.context());
     expect(app.view).toBe("contacts");
@@ -338,6 +345,31 @@ describe("personnes d'un message et carnet", () => {
     expect(contactExport.selection).toEqual({ kind: "contacts", ids: [5, 3] });
     app.close();
     contacts.clearMarks();
+  });
+
+  it("exporter est désactivé sur un carnet vide, avec l'explication", async () => {
+    book.items = [];
+    await app.showContacts();
+    expect(enabled("contacts.export")).toBe(false);
+    expect(describeCommand(registry, "contacts.export", app.context())?.tooltip).toBe(
+      "Exporter les contacts… — Le carnet est vide : aucun contact à exporter.",
+    );
+
+    // Un contact : de nouveau disponible.
+    book.items = [
+      { id: 1, name: "Alice", address: "alice@example.com", organization: null, favorite: false },
+    ];
+    await contacts.load();
+    expect(enabled("contacts.export")).toBe(true);
+  });
+
+  it("exporter depuis le courrier un carnet vide : un message, pas de fenêtre", async () => {
+    book.items = [];
+    app.showMail();
+    await registry.execute("contacts.export", app.context());
+    expect(app.view).toBe("contacts");
+    expect(app.dialog).toBeNull();
+    expect(mail.notice?.text).toBe("Aucun contact à exporter.");
   });
 
   it("rechercher les doublons : ouvre la vue Contacts et la fenêtre, recherche lancée", async () => {

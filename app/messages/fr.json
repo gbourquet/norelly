@@ -717,6 +717,7 @@
   "cmd_contacts_export_selected": "Exporter les contacts choisis…",
   "cmd_contacts_export_selected_keywords": "exporter sauvegarder enregistrer sélection cochés fichier vcard vcf csv ldif",
   "contacts_export_button": "Exporter…",
+  "contacts_export_unavailable_empty": "Le carnet est vide : aucun contact à exporter.",
   "contacts_export_title": "Exporter des contacts",
   "contacts_export_scope_all": "Tout le carnet sera exporté.",
   "contacts_export_scope_selected": "{count} contact(s) choisi(s) ser(a/ont) exporté(s).",

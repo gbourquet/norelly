@@ -133,6 +133,79 @@ describe("liste des contacts", () => {
     expect(s.items.map((i) => i.id)).toEqual([2]);
   });
 
+  it("sait si le carnet entier est vide, même quand un filtre ne trouve rien", async () => {
+    const book: ContactDto[] = [];
+    const api = fakeApi(book);
+    const s = new ContactsState(api);
+    await s.load();
+    expect(s.bookEmpty).toBe(true);
+    // Filtre sans résultat sur un carnet vide : toujours vide.
+    await s.search("zoé");
+    expect(s.bookEmpty).toBe(true);
+
+    book.push(contact(1, "Alice"));
+    // Filtre qui trouve un contact : le carnet n'est pas vide.
+    await s.search("ali");
+    expect(s.bookEmpty).toBe(false);
+    // Filtre sans résultat : le carnet, lui, n'est pas vide.
+    await s.search("bob");
+    expect(s.items).toEqual([]);
+    expect(s.bookEmpty).toBe(false);
+    await s.showFavorites(true);
+    expect(s.bookEmpty).toBe(false);
+
+    // Sans filtre, la liste fait foi.
+    book.splice(0);
+    await s.showFavorites(false);
+    await s.search("");
+    expect(s.bookEmpty).toBe(true);
+  });
+
+  it("un filtre sans résultat relit le carnet entier : ajout et suppression suivis", async () => {
+    const book: ContactDto[] = [];
+    const api = fakeApi(book);
+    const s = new ContactsState(api);
+    await s.search("zoé");
+    expect(s.bookEmpty).toBe(true);
+
+    // Contact créé pendant une recherche qui ne le trouve pas.
+    book.push(contact(1, "Bob"));
+    await s.saved(at(book, 0));
+    expect(s.items).toEqual([]);
+    expect(s.bookEmpty).toBe(false);
+    // Une seule fiche lue pour en juger, sans filtre.
+    expect(api.listContacts).toHaveBeenLastCalledWith("", false, null, 1);
+
+    // Dernier contact supprimé pendant une recherche.
+    await s.search("bob");
+    expect(s.bookEmpty).toBe(false);
+    book.splice(0);
+    await s.removed([1]);
+    expect(s.bookEmpty).toBe(true);
+  });
+
+  it("un échec de chargement ne déclare pas le carnet vide", async () => {
+    const api = fakeApi([contact(1, "Alice")]);
+    const s = new ContactsState(api);
+    await s.load();
+    expect(s.bookEmpty).toBe(false);
+    api.listContacts.mockRejectedValueOnce(new IpcFailure("storage"));
+    await s.load();
+    expect(s.bookEmpty).toBe(false);
+
+    // Carnet jugé vide, puis relecture en échec : plus rien n'est sûr,
+    // l'export reste proposé (Rust tranche).
+    const empty = new ContactsState(fakeApi());
+    await empty.load();
+    expect(empty.bookEmpty).toBe(true);
+    const failing = fakeApi();
+    failing.listContacts.mockRejectedValue(new IpcFailure("storage"));
+    const t = new ContactsState(failing);
+    t.bookEmpty = true;
+    await t.load();
+    expect(t.bookEmpty).toBe(false);
+  });
+
   it("affiche l'erreur de chargement", async () => {
     const api = fakeApi();
     api.listContacts.mockRejectedValueOnce(new IpcFailure("storage"));

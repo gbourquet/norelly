@@ -294,6 +294,10 @@ l'ordinateur** : rien n'est envoyé à un serveur.
   est trop étroite) exporte tout le carnet ; **Exporter…** dans la barre
   des contacts cochés n'exporte que ceux-là. Les deux sont aussi dans la
   palette de commandes.
+- Carnet vide : **Exporter…** est grisé, et son infobulle explique qu'il
+  n'y a aucun contact à exporter. Lancé depuis la palette hors de la vue
+  Contacts, l'export ouvre le carnet et, s'il est vide, l'annonce par un
+  message, sans fenêtre de format.
 - Une fenêtre rappelle ce qui sera exporté et fait choisir le format :
   **vCard 4.0** (par défaut, le plus courant), **vCard 3.0** (logiciels
   anciens), **CSV** (colonnes de Google Contacts, lisibles par Outlook et

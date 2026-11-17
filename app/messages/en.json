@@ -717,6 +717,7 @@
   "cmd_contacts_export_selected": "Export selected contacts…",
   "cmd_contacts_export_selected_keywords": "export save backup selection checked file vcard vcf csv ldif",
   "contacts_export_button": "Export…",
+  "contacts_export_unavailable_empty": "The address book is empty: there are no contacts to export.",
   "contacts_export_title": "Export contacts",
   "contacts_export_scope_all": "The whole address book will be exported.",
   "contacts_export_scope_selected": "{count} selected contact(s) will be exported.",

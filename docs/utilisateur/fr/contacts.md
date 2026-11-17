@@ -181,7 +181,8 @@ Pour garder une copie de votre carnet, ou le reprendre dans un autre
 logiciel :
 
 1. Dans **Contacts**, cliquez sur **Exporter…**, en haut de la liste
-   (dans **Plus…** si la fenêtre est étroite). Pour n'exporter que
+   (dans **Plus…** si la fenêtre est étroite) ; tant que le carnet est
+   vide, il est grisé : il n'y a rien à exporter. Pour n'exporter que
    quelques contacts, cochez-les d'abord, puis cliquez sur **Exporter…**
    dans la barre qui apparaît.
 2. Choisissez le format : **vCard 4.0** convient presque partout (Gmail,

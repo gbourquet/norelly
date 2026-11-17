@@ -93,15 +93,18 @@ const personSection = (person: PersonKind, section: number): VisibleAction[] =>
 
 /** Barre du mail ouvert : actions principales, libellées, et actions
  * secondaires du menu « Plus… » (dont l'expéditeur du dernier message,
- * `person`). */
+ * `person`). Sur deux rangées (`rows`) au besoin, pour garder les cinq
+ * actions principales visibles avec les largeurs de panneaux par défaut. */
 export function readerActions(
   subject: ActionSubject | null,
   person: PersonKind = null,
 ): {
   primary: VisibleAction[];
   more: VisibleAction[];
+  rows: number;
 } {
   return {
+    rows: 2,
     primary: [
       { command: "compose.reply", icon: ReplyIcon, priority: 1 },
       { command: "compose.reply-all", icon: ReplyAllIcon, priority: 5 },
@@ -255,32 +258,61 @@ export function rowActions(subject: ActionSubject | null): VisibleAction[] {
 }
 
 /**
+ * Nombre de rangées occupées par des boutons de largeurs `widths`, dans
+ * l'ordre de la barre, quand chaque rangée offre `available` px et que les
+ * boutons passent à la ligne suivante dès qu'ils ne tiennent plus.
+ */
+function rowsNeeded(widths: number[], available: number, gap: number): number {
+  let rows = 0;
+  let line = 0;
+  for (const width of widths) {
+    if (rows > 0 && line + gap + width <= available) {
+      line += gap + width;
+    } else {
+      rows += 1;
+      line = width;
+    }
+  }
+  return rows;
+}
+
+/**
  * Boutons gardés visibles dans une largeur donnée : par priorité
- * croissante, tant qu'ils tiennent avec le bouton « Plus… » (`moreWidth`)
- * et les espaces (`gap`) ; le plus prioritaire reste toujours. Sans action
- * secondaire (`secondary` faux), « Plus… » ne compte que s'il sert : tout
- * reste visible si tout tient sans lui. Largeur disponible nulle (pas
- * encore mesurée) : tout reste visible.
+ * croissante, tant qu'ils tiennent sur `rows` rangées (une par défaut)
+ * avec le bouton « Plus… » (`moreWidth`, en dernier) et les espaces
+ * (`gap`) ; le passage à la ligne suit l'ordre de la barre. Le plus
+ * prioritaire reste toujours. Sans action secondaire (`secondary` faux),
+ * « Plus… » ne compte que s'il sert : tout reste visible si tout tient
+ * sans lui. Largeur disponible nulle (pas encore mesurée) : tout reste
+ * visible. Une action absente (`absent`, non affichée) ne compte pas et
+ * n'est jamais visible.
  */
 export function fitByPriority(
-  items: { width: number; priority: number }[],
+  items: { width: number; priority: number; absent?: boolean }[],
   available: number,
   moreWidth: number,
   gap: number,
   secondary = true,
+  rows = 1,
 ): boolean[] {
-  if (available <= 0) return items.map(() => true);
-  const all = items.reduce((sum, item, i) => sum + item.width + (i > 0 ? gap : 0), 0);
-  if (!secondary && all <= available) return items.map(() => true);
-  const order = items.map((item, index) => ({ ...item, index }));
+  const present = items.map((item) => item.absent !== true);
+  if (available <= 0) return present;
+  const fits = (visible: boolean[], more: boolean): boolean => {
+    const widths = items.filter((_, i) => visible[i]).map((item) => item.width);
+    return rowsNeeded(more ? [...widths, moreWidth] : widths, available, gap) <= rows;
+  };
+  if (!secondary && fits(present, false)) return present;
+  const order = items
+    .map((item, index) => ({ ...item, index }))
+    .filter((item) => item.absent !== true);
   order.sort((a, b) => a.priority - b.priority);
   const visible = items.map(() => false);
-  let used = moreWidth;
   for (const [rank, item] of order.entries()) {
-    const next = used + gap + item.width;
-    if (rank > 0 && next > available) break;
     visible[item.index] = true;
-    used = next;
+    if (rank > 0 && !fits(visible, true)) {
+      visible[item.index] = false;
+      break;
+    }
   }
   return visible;
 }

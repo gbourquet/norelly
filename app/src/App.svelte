@@ -530,6 +530,7 @@
             {registry}
             context={app.context()}
             label={m.conversation_toolbar()}
+            rows={actions.rows}
           />
         {/snippet}
       </ConversationView>

@@ -30,9 +30,12 @@ rattraper.
     gauche de son titre), tiré à la souris ou au doigt et lâché sur un
     dossier du panneau de gauche ;
   - raccourcis et palette.
-- Quand la place manque, les boutons les moins utilisés passent dans
-  **Plus…** plutôt que de disparaître (Répondre, Archiver et Supprimer
-  restent visibles le plus longtemps).
+- Quand la place manque, la barre du message ouvert passe d'abord sur
+  deux rangées, pour que ses cinq boutons restent visibles sur un écran
+  courant avec les largeurs de panneaux par défaut. Si cela ne suffit
+  toujours pas, les boutons les moins utilisés passent dans **Plus…**
+  plutôt que de disparaître (Répondre, Archiver et Supprimer restent
+  visibles le plus longtemps). Les autres barres restent sur une rangée.
 - Cocher une case n'ouvre pas la conversation.
 - **Glisser-déposer** :
   - la conversation saisie est emportée seule ; si elle est cochée, toutes

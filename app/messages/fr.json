@@ -351,6 +351,7 @@
   "conversation_toolbar": "Actions sur la conversation",
   "err_no_recipient": "Ajoutez au moins un destinataire.",
   "err_too_many_recipients": "Trop de destinataires.",
+  "compose_too_many_recipients": "Destinataires non ajoutés : le message en compterait {count}, au-delà de la limite de {max}.",
   "err_invalid_subject": "Le sujet contient un caractère interdit ou est trop long.",
   "err_body_too_large": "Le message est trop long.",
   "err_attachments_too_large": "Les pièces jointes dépassent 25 Mio.",

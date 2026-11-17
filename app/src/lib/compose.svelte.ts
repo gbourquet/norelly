@@ -14,7 +14,7 @@ import type {
   RecipientDto,
   RecipientSuggestion,
 } from "./ipc/api";
-import { errorText } from "./errors";
+import { errorText, IpcFailure, recipientLimitText } from "./errors";
 import { longDate, personName } from "./format";
 import { m } from "./paraglide/messages.js";
 
@@ -31,6 +31,7 @@ export type ComposeApi = Pick<
   | "scheduleDraft"
   | "discardDraft"
   | "parseRecipient"
+  | "checkRecipients"
   | "suggestContacts"
   | "suggestContactLists"
   | "expandContactList"
@@ -40,7 +41,8 @@ export type ComposeApi = Pick<
 
 export type RecipientField = "to" | "cc" | "bcc";
 
-const same = (a: string, b: string): boolean => a.toLowerCase() === b.toLowerCase();
+/** Clé d'une adresse pour reconnaître un doublon : à la casse près. */
+const key = (address: string): string => address.toLowerCase();
 
 export class ComposeState {
   readonly #api: ComposeApi;
@@ -49,6 +51,9 @@ export class ComposeState {
   busy = $state(false);
   suggestions = $state<RecipientSuggestion[]>([]);
   listSuggestions = $state<ContactListItemDto[]>([]);
+  /** Destinataires refusés à l'ajout (limite du message dépassée),
+   * affiché près des champs ; effacé au prochain ajout ou retrait. */
+  recipientWarning = $state<string | null>(null);
   /** Modifié depuis le dernier enregistrement. */
   #dirty = false;
   #saveTimer: ReturnType<typeof setTimeout> | null = null;
@@ -98,6 +103,7 @@ export class ComposeState {
     this.#dirty = false;
     this.draft = null;
     this.error = null;
+    this.recipientWarning = null;
     this.suggestions = [];
     this.listSuggestions = [];
   }
@@ -123,27 +129,94 @@ export class ComposeState {
   async addRecipient(field: RecipientField, raw: string): Promise<boolean> {
     if (this.draft === null || raw.trim() === "") return false;
     const session = this.#session;
+    this.recipientWarning = null;
     let parsed: RecipientDto;
     try {
       parsed = await this.#api.parseRecipient(raw);
     } catch {
       return false;
     }
-    if (this.draft === null || session !== this.#session) return false;
-    const all = [...this.draft.to, ...this.draft.cc, ...this.draft.bcc];
-    if (all.some((r) => same(r.address, parsed.address))) return false;
-    this.draft = { ...this.draft, [field]: [...this.draft[field], parsed] };
+    const inserted = await this.#insert(field, [parsed], session);
+    if (inserted === null || inserted === 0) return false;
     this.suggestions = [];
     this.listSuggestions = [];
-    this.#changed();
     return true;
+  }
+
+  /** Destinataires du brouillon, tous champs confondus. */
+  #count(): number {
+    const d = this.draft;
+    return d === null ? 0 : d.to.length + d.cc.length + d.bcc.length;
+  }
+
+  /** `read` sans les adresses déjà présentes (à la casse près), chacune
+   * une fois. */
+  #unseen(read: RecipientDto[]): RecipientDto[] {
+    if (this.draft === null) return [];
+    const seen = new Set(
+      [...this.draft.to, ...this.draft.cc, ...this.draft.bcc].map((r) => key(r.address)),
+    );
+    const added: RecipientDto[] = [];
+    for (const r of read) {
+      if (seen.has(key(r.address))) continue;
+      seen.add(key(r.address));
+      added.push({ name: r.name, address: r.address });
+    }
+    return added;
+  }
+
+  /** Ajoute à `field` ceux de `read` absents du brouillon, si Rust accepte
+   * le total ; revérifié tant qu'un autre ajout l'a changé pendant la
+   * vérification. Nombre ajouté, ou `null` si rien ne l'est (limite
+   * dépassée, avertissement affiché ; brouillon refermé ou remplacé). */
+  async #insert(
+    field: RecipientField,
+    read: RecipientDto[],
+    session: number,
+  ): Promise<number | null> {
+    let checked: number | null = null;
+    for (;;) {
+      if (this.draft === null || session !== this.#session) return null;
+      const added = this.#unseen(read);
+      if (added.length === 0) return 0;
+      const total = this.#count() + added.length;
+      if (total === checked) {
+        this.draft = { ...this.draft, [field]: [...this.draft[field], ...added] };
+        this.recipientWarning = null;
+        this.#changed();
+        return added.length;
+      }
+      if (!(await this.#fits(total))) return null;
+      checked = total;
+    }
+  }
+
+  /** Le message peut-il compter `count` destinataires, décidé par Rust ;
+   * sinon l'avertissement indique la limite et le nombre, pour prévenir
+   * dès l'ajout plutôt qu'à l'enregistrement ou à l'envoi. */
+  async #fits(count: number): Promise<boolean> {
+    try {
+      await this.#api.checkRecipients(count);
+      return true;
+    } catch (e) {
+      if (e instanceof IpcFailure && e.code === "too_many_recipients") {
+        this.recipientWarning = recipientLimitText(count);
+      } else {
+        this.recipientWarning = null;
+        this.error = errorText(e);
+      }
+      return false;
+    }
   }
 
   /** Ajoute des destinataires déjà connus (« Écrire à »), relus par Rust
    * comme une saisie (nom imitant une adresse écarté) ; une adresse déjà
-   * présente ou refusée est ignorée. */
-  async addRecipients(field: RecipientField, recipients: RecipientDto[]): Promise<void> {
+   * présente ou refusée est ignorée. `false` (rien d'ajouté) si le total
+   * dépasserait la limite de destinataires (avertissement affiché) ou si
+   * le brouillon a changé entre-temps. */
+  async addRecipients(field: RecipientField, recipients: RecipientDto[]): Promise<boolean> {
     const session = this.#session;
+    this.recipientWarning = null;
     const read: RecipientDto[] = [];
     for (const r of recipients) {
       try {
@@ -152,30 +225,27 @@ export class ComposeState {
         // Adresse refusée par Rust : ignorée.
       }
     }
-    if (this.draft === null || session !== this.#session) return;
-    const all = [...this.draft.to, ...this.draft.cc, ...this.draft.bcc];
-    const added: RecipientDto[] = [];
-    for (const r of read) {
-      if ([...all, ...added].some((x) => same(x.address, r.address))) continue;
-      added.push({ name: r.name, address: r.address });
-    }
-    if (added.length === 0) return;
-    this.draft = { ...this.draft, [field]: [...this.draft[field], ...added] };
-    this.#changed();
+    return (await this.#insert(field, read, session)) !== null;
   }
 
   /** Liste de diffusion choisie dans les suggestions : ses membres,
    * dépliés par Rust (adresse préférée de chacun), deviennent des puces
    * relues comme une saisie, dans le champ décidé par Rust (la copie
-   * cachée pour une liste « en Cci », quel que soit `field`). `false` si la liste est refusée (erreur
-   * affichée). */
+   * cachée pour une liste « en Cci », quel que soit `field`). `false` si
+   * la liste est refusée (erreur affichée) ou si elle ferait dépasser la
+   * limite de destinataires (rien d'inséré, avertissement affiché). */
   async addList(field: RecipientField, id: number): Promise<boolean> {
     if (this.draft === null) return false;
     const session = this.#session;
     try {
       const expanded = await this.#api.expandContactList(id, field);
       if (session !== this.#session) return false;
-      await this.addRecipients(expanded.field, expanded.recipients);
+      if (!(await this.addRecipients(expanded.field, expanded.recipients))) {
+        // Refusée (limite) : les propositions ne masquent pas l'avertissement.
+        this.suggestions = [];
+        this.listSuggestions = [];
+        return false;
+      }
     } catch (e) {
       this.error = errorText(e);
       return false;
@@ -188,6 +258,7 @@ export class ComposeState {
   removeRecipient(field: RecipientField, index: number): void {
     if (this.draft === null) return;
     this.draft = { ...this.draft, [field]: this.draft[field].filter((_, i) => i !== index) };
+    this.recipientWarning = null;
     this.#changed();
   }
 

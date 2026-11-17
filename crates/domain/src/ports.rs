@@ -1047,6 +1047,9 @@ pub struct ConversationListItem {
     pub unread: u32,
     pub flagged: bool,
     pub has_attachments: bool,
+    /// Mots-clés des messages de la conversation dans le dossier (les plus
+    /// récents), réunis : étiquettes de la ligne.
+    pub keywords: BTreeSet<Keyword>,
 }
 
 /// Une page de conversations.

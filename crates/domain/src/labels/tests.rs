@@ -136,7 +136,7 @@ fn visible_labels_skip_protocol_and_hidden_keywords() {
     let hidden = BTreeSet::from([kw("Ancien")]);
     assert_eq!(
         visible_labels(
-            &flags(&["\\Seen", "$Junk", "$label2", "Ancien", "Projet"]),
+            flags(&["\\Seen", "$Junk", "$label2", "Ancien", "Projet"]).keywords(),
             &hidden
         ),
         [kw("$label2"), kw("Projet")]

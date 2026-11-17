@@ -6,8 +6,10 @@
 //! jamais les interpréter comme du HTML.
 
 use norelly_application::contacts::NameSenders;
+use norelly_application::labels::ListLabels;
 use norelly_domain::account::AccountId;
 use norelly_domain::mailbox::MailboxId;
+use norelly_domain::ports::AccountRepository;
 use norelly_domain::ports::{SearchIndex, SearchRequest, SearchScope};
 use norelly_domain::search::{Segment, highlight, parse_query};
 use tauri::State;
@@ -16,6 +18,7 @@ use crate::ipc::{
     CorrespondentDto, FieldDto, IpcError, SearchHitDto, SearchPageDto, SearchScopeDto, SegmentDto,
     date_dto, id32,
 };
+use crate::labels::HiddenLabels;
 use crate::state::AppState;
 
 /// Décalage horaire maximal accepté (UTC−14 à UTC+14), en minutes.
@@ -53,11 +56,35 @@ pub async fn search_messages(
     offset: u32,
     limit: u32,
 ) -> Result<SearchPageDto, IpcError> {
-    let query = parse_query(&query).map_err(|_| IpcError::invalid(FieldDto::Query))?;
+    let mut query = parse_query(&query).map_err(|_| IpcError::invalid(FieldDto::Query))?;
     if utc_offset_minutes.abs() > MAX_UTC_OFFSET_MINUTES {
         return Err(IpcError::invalid(FieldDto::Query));
     }
     let scope = scope_of(&scope)?;
+    // `étiquette:nom` : mots-clés des comptes dont le nom affiché
+    // correspond (décision du domaine).
+    let accounts: Vec<AccountId> = state
+        .accounts
+        .list()
+        .await
+        .map_err(IpcError::storage)?
+        .iter()
+        .map(norelly_domain::account::Account::id)
+        .collect();
+    let mut known = Vec::new();
+    let list = ListLabels {
+        store: &*state.mail.store,
+    };
+    for account in &accounts {
+        known.extend(
+            list.execute(*account)
+                .await
+                .map_err(IpcError::storage)?
+                .into_iter()
+                .map(|l| l.keyword),
+        );
+    }
+    query.resolve_labels(&known);
     let terms = query.highlight_terms();
     let page = state
         .mail
@@ -76,6 +103,7 @@ pub async fn search_messages(
     }
     .execute(page.items.iter().filter_map(|h| h.from.as_ref()))
     .await;
+    let hidden = HiddenLabels::of(&state, page.items.iter().map(|h| h.account).collect()).await?;
     let items = page
         .items
         .into_iter()
@@ -92,6 +120,7 @@ pub async fn search_messages(
                 unread: !h.flags.seen,
                 flagged: h.flags.flagged,
                 has_attachments: h.has_attachments,
+                labels: hidden.visible(h.account, h.flags.keywords()),
             })
         })
         .collect::<Result<_, IpcError>>()?;

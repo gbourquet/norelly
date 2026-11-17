@@ -196,6 +196,14 @@ pub enum ErrorCodeDto {
     ContactMergeConflict,
     /// Le dossier refuse de garder cette étiquette (`PERMANENTFLAGS`).
     LabelRefused,
+    /// Nom d'étiquette vide ou avec un caractère interdit.
+    LabelNameInvalid,
+    /// Nom d'étiquette trop long.
+    LabelNameTooLong,
+    /// Une étiquette porte déjà ce nom.
+    LabelExists,
+    /// Trop d'étiquettes sur le compte.
+    LabelTooMany,
     /// Erreur interne (journalisée).
     Internal,
 }
@@ -246,6 +254,12 @@ pub enum FieldDto {
     ListName,
     /// Description d'une liste de diffusion.
     ListDescription,
+    /// Étiquette (mot-clé).
+    Label,
+    /// Nom d'une étiquette.
+    LabelName,
+    /// Couleur d'une étiquette.
+    LabelColor,
 }
 
 /// Erreur renvoyée à l'interface : un code, le champ concerné, et un détail
@@ -337,6 +351,33 @@ impl From<norelly_application::actions::ActionFailure> for IpcError {
                 ActionError::QueueFull => Self::new(ErrorCodeDto::PendingQueueFull),
                 ActionError::KeywordRefused => Self::new(ErrorCodeDto::LabelRefused),
             },
+        }
+    }
+}
+
+impl From<norelly_domain::labels::LabelError> for IpcError {
+    fn from(e: norelly_domain::labels::LabelError) -> Self {
+        use norelly_domain::labels::LabelError;
+        let name = |code| Self {
+            field: Some(FieldDto::LabelName),
+            ..Self::new(code)
+        };
+        match e {
+            LabelError::Empty | LabelError::InvalidChar => name(ErrorCodeDto::LabelNameInvalid),
+            LabelError::TooLong => name(ErrorCodeDto::LabelNameTooLong),
+            LabelError::AlreadyExists | LabelError::Unchanged => name(ErrorCodeDto::LabelExists),
+            LabelError::Unknown => Self::not_found(FieldDto::Label),
+            LabelError::TooMany => Self::new(ErrorCodeDto::LabelTooMany),
+        }
+    }
+}
+
+impl From<norelly_application::labels::LabelFailure> for IpcError {
+    fn from(e: norelly_application::labels::LabelFailure) -> Self {
+        use norelly_application::labels::LabelFailure;
+        match e {
+            LabelFailure::Invalid(e) => e.into(),
+            LabelFailure::Store(e) => Self::storage(e),
         }
     }
 }
@@ -1389,6 +1430,8 @@ pub struct SearchHitDto {
     pub unread: bool,
     pub flagged: bool,
     pub has_attachments: bool,
+    /// Étiquettes à afficher (mots-clés ; voir [`LabelDto`]).
+    pub labels: Vec<String>,
 }
 
 /// Une page de résultats.
@@ -1412,6 +1455,9 @@ pub struct ConversationDto {
     pub unread: u32,
     pub flagged: bool,
     pub has_attachments: bool,
+    /// Étiquettes à afficher (mots-clés des messages de la conversation
+    /// dans le dossier, sans ceux de protocole ni ceux masqués).
+    pub labels: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Type)]
@@ -1438,6 +1484,8 @@ pub struct ConversationMessageDto {
     /// à la lecture : l'interface en garde le maximum comme repère de
     /// l'ouverture (`mark_opened_seen`).
     pub newest_copy: u32,
+    /// Étiquettes à afficher (mots-clés).
+    pub labels: Vec<String>,
 }
 
 /// Pièce jointe d'un message ouvert.
@@ -1495,12 +1543,23 @@ pub struct MessageViewDto {
 }
 
 /// Action demandée par l'interface (revalidée par le domaine).
-#[derive(Debug, Clone, Copy, Deserialize, Type)]
+#[derive(Debug, Clone, Deserialize, Type)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ActionDto {
-    MarkSeen { value: bool },
-    MarkFlagged { value: bool },
-    Move { mailbox: u32 },
+    MarkSeen {
+        value: bool,
+    },
+    MarkFlagged {
+        value: bool,
+    },
+    /// Étiquette `keyword` (mot-clé) posée ou retirée.
+    SetLabel {
+        keyword: String,
+        value: bool,
+    },
+    Move {
+        mailbox: u32,
+    },
     Delete,
     Archive,
 }
@@ -1511,6 +1570,81 @@ pub enum ActionDto {
 pub struct ActionResultDto {
     pub ops: Vec<u32>,
     pub messages: u32,
+}
+
+/// Nom affiché d'une étiquette.
+#[derive(Debug, Clone, Serialize, Type)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum LabelNameDto {
+    /// Étiquette de Thunderbird (`$label1` à `$label5`) : nom donné par
+    /// les catalogues (`label_builtin_N`).
+    Builtin { number: u8 },
+    /// Nom décodé.
+    Named { name: String },
+    /// Mot-clé illisible, à afficher tel quel (texte échappé).
+    Raw { keyword: String },
+}
+
+/// Couleurs d'une pastille, `#rrggbb` validées par le domaine : fond
+/// choisi, texte blanc ou noir pour le contraste.
+#[derive(Debug, Clone, Serialize, Type)]
+pub struct LabelColorDto {
+    pub background: String,
+    pub text: String,
+}
+
+/// Étiquette d'un compte.
+#[derive(Debug, Clone, Serialize, Type)]
+pub struct LabelDto {
+    /// Mot-clé IMAP : identifiant de l'étiquette.
+    pub keyword: String,
+    pub name: LabelNameDto,
+    /// Couleur locale (`None` : pastille neutre).
+    pub color: Option<LabelColorDto>,
+}
+
+/// Étiquette proposée par le menu « Étiqueter… ».
+#[derive(Debug, Clone, Serialize, Type)]
+pub struct LabelChoiceDto {
+    pub label: LabelDto,
+    /// Tous les messages visés la portent.
+    pub checked: bool,
+    /// Le serveur accepte de la poser (ou elle est cochée).
+    pub allowed: bool,
+}
+
+/// Menu « Étiqueter… » d'une sélection (décidé par le domaine).
+#[derive(Debug, Clone, Serialize, Type)]
+pub struct LabelMenuDto {
+    pub choices: Vec<LabelChoiceDto>,
+    /// Une nouvelle étiquette peut être créée et posée.
+    pub can_create: bool,
+    /// L'action a un effet possible ; sinon elle est désactivée (le
+    /// serveur refuse les étiquettes).
+    pub available: bool,
+    /// Comptes des conversations (une nouvelle étiquette est créée sur
+    /// chacun).
+    pub accounts: Vec<u32>,
+}
+
+impl From<&norelly_domain::labels::Label> for LabelDto {
+    fn from(label: &norelly_domain::labels::Label) -> Self {
+        use norelly_domain::labels::LabelDisplay;
+        Self {
+            keyword: label.keyword.as_str().to_owned(),
+            name: match &label.display {
+                LabelDisplay::Builtin(number) => LabelNameDto::Builtin { number: *number },
+                LabelDisplay::Named(name) => LabelNameDto::Named { name: name.clone() },
+                LabelDisplay::Raw(keyword) => LabelNameDto::Raw {
+                    keyword: keyword.clone(),
+                },
+            },
+            color: label.color.map(|c| LabelColorDto {
+                background: c.to_hex(),
+                text: c.text().color().to_hex(),
+            }),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Type)]

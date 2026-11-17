@@ -323,8 +323,8 @@ where
     let sent_list = all_pages(store, ConversationScope::Unified(MailboxRole::Sent), 10).await?;
     assert_eq!(sent_list.first().map(|i| i.id), Some(merged.id));
 
-    // --- Drapeaux : compteurs à jour ---
-    let mut seen = Flags::from_tokens(["\\Seen", "\\Flagged"]);
+    // --- Drapeaux : compteurs à jour, mots-clés réunis ---
+    let mut seen = Flags::from_tokens(["\\Seen", "\\Flagged", "Projet"]);
     seen.answered = false;
     store
         .apply_sync(
@@ -341,6 +341,12 @@ where
         .await?;
     let item = all_pages(store, ConversationScope::Mailbox(inbox), 50).await?;
     assert_eq!(item.first().map(|i| (i.unread, i.flagged)), Some((1, true)));
+    assert_eq!(
+        item.first()
+            .map(|i| i.keywords.iter().map(|k| k.as_str()).collect::<Vec<_>>()),
+        Some(vec!["Projet"]),
+        "mots-clés des messages de la conversation dans le dossier"
+    );
 
     // --- Suppressions ---
     store

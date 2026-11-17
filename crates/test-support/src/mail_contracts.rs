@@ -1139,6 +1139,10 @@ impl ConversationQuery for InMemoryMailStore {
                     has_attachments: members
                         .iter()
                         .any(|l| l.message.stored.meta.has_attachments()),
+                    keywords: members
+                        .iter()
+                        .flat_map(|l| l.message.stored.meta.flags.keywords().iter().cloned())
+                        .collect(),
                 })
             })
             .collect();

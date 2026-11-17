@@ -32,6 +32,7 @@ use crate::ipc::{
     ConversationPageDto, CorrespondentDto, ErrorCodeDto, FieldDto, FolderDto, IpcError,
     MessageViewDto, ReadingPreferencesDto, ScopeDto, date_dto, date_from_dto, id32,
 };
+use crate::labels::HiddenLabels;
 use crate::state::AppState;
 
 fn message_id(raw: u32) -> Result<MessageId, IpcError> {
@@ -124,6 +125,7 @@ pub async fn list_conversations(
     }
     .execute(page.items.iter().flat_map(|c| &c.senders))
     .await;
+    let hidden = HiddenLabels::of(&state, page.items.iter().map(|c| c.account).collect()).await?;
     let items = page
         .items
         .iter()
@@ -143,6 +145,7 @@ pub async fn list_conversations(
                 unread: c.unread,
                 flagged: c.flagged,
                 has_attachments: c.has_attachments,
+                labels: hidden.visible(c.account, &c.keywords),
             })
         })
         .collect::<Result<_, IpcError>>()?;
@@ -184,6 +187,7 @@ pub async fn conversation_messages(
     }
     .execute(people)
     .await;
+    let hidden = HiddenLabels::of(&state, messages.iter().map(|m| m.account).collect()).await?;
     let named = |list: &[norelly_domain::mailbox::Correspondent]| {
         list.iter()
             .map(|p| CorrespondentDto::named(&names, p))
@@ -208,6 +212,7 @@ pub async fn conversation_messages(
                 flagged: m.flags.flagged,
                 has_attachments: m.has_attachments,
                 newest_copy: id32(m.newest_copy.get())?,
+                labels: hidden.visible(m.account, m.flags.keywords()),
             })
         })
         .collect()

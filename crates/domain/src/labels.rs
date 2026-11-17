@@ -296,12 +296,12 @@ pub fn is_protocol_keyword(keyword: &Keyword) -> bool {
         || PROTOCOL_PLAIN.iter().any(|p| p.eq_ignore_ascii_case(raw))
 }
 
-/// Étiquettes d'un message à afficher : ses mots-clés, sans ceux de
-/// protocole ni ceux masqués sur le compte ([`hidden_keywords`]).
+/// Étiquettes à afficher d'un message (ou d'une conversation) : ses
+/// mots-clés, sans ceux de protocole ni ceux masqués sur le compte
+/// ([`hidden_keywords`]).
 #[must_use]
-pub fn visible_labels(flags: &Flags, hidden: &BTreeSet<Keyword>) -> Vec<Keyword> {
-    flags
-        .keywords()
+pub fn visible_labels(keywords: &BTreeSet<Keyword>, hidden: &BTreeSet<Keyword>) -> Vec<Keyword> {
+    keywords
         .iter()
         .filter(|k| !is_protocol_keyword(k) && !hidden.contains(*k))
         .cloned()

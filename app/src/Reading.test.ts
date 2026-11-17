@@ -277,6 +277,55 @@ describe("lecture", () => {
     expect(api.openExternal).not.toHaveBeenCalled();
   });
 
+  it("« Imprimer » dans « Plus… » et Ctrl+P impriment la conversation ouverte", async () => {
+    const print = vi.spyOn(window, "print").mockImplementation(() => undefined);
+    try {
+      render(App);
+      await waitFor(() => expect(api.listConversations).toHaveBeenCalled());
+      // Aucune conversation ouverte : rien à imprimer.
+      await fireEvent.keyDown(window, { key: "p", ctrlKey: true });
+      expect(print).not.toHaveBeenCalled();
+
+      const list = await screen.findByRole("listbox", { name: "Conversations" });
+      await fireEvent.click(await within(list).findByText("Sujet 1"));
+      const reader = await screen.findByRole("article", { name: "Conversation" });
+      // Seule la conversation est désignée pour le papier.
+      expect(reader).toHaveAttribute("data-print-root");
+      const toolbar = within(reader).getByRole("toolbar", { name: "Actions sur la conversation" });
+      await fireEvent.pointerDown(within(toolbar).getByRole("button", { name: "Plus…" }), {
+        button: 0,
+        pointerType: "mouse",
+      });
+      const menu = await screen.findByRole("menu", { name: "Plus…" });
+      const item = within(menu).getByRole("menuitem", { name: /^Imprimer/ });
+      expect(item).toHaveTextContent("Ctrl+P");
+      await fireEvent.click(item);
+      await waitFor(() => expect(print).toHaveBeenCalledTimes(1));
+      // Le menu est fermé avant l'impression.
+      expect(screen.queryByRole("menu", { name: "Plus…" })).toBeNull();
+
+      await fireEvent.keyDown(window, { key: "p", ctrlKey: true });
+      await waitFor(() => expect(print).toHaveBeenCalledTimes(2));
+    } finally {
+      print.mockRestore();
+    }
+  });
+
+  it("à l'impression, le corps garde la largeur mesurée à l'écran", async () => {
+    render(App);
+    await waitFor(() => expect(api.listConversations).toHaveBeenCalled());
+    const list = await screen.findByRole("listbox", { name: "Conversations" });
+    await fireEvent.click(await within(list).findByText("Sujet 1"));
+    const frame = await screen.findByTitle("Contenu du message");
+    Object.defineProperty(frame, "clientWidth", { configurable: true, value: 640 });
+    window.dispatchEvent(new Event("beforeprint"));
+    // Largeur fixée : la hauteur annoncée par l'agent reste juste, rien
+    // n'est coupé sur le papier.
+    expect(frame.style.width).toBe("640px");
+    window.dispatchEvent(new Event("afterprint"));
+    expect(frame.style.width).toBe("");
+  });
+
   it("actions au clavier : e, s, x, puis annulation par z", async () => {
     render(App);
     const list = await screen.findByRole("listbox", { name: "Conversations" });

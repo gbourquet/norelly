@@ -69,6 +69,20 @@
     }
   }
 
+  // Impression : le cadre garde la largeur de l'écran, pour que la hauteur
+  // annoncée par l'agent reste juste (aucun script ne tourne pendant la
+  // mise en page du papier). Plus large que la feuille, la page est réduite
+  // à sa largeur par le moteur (WebKitGTK et WebView2 le font par défaut).
+  // Réglé directement sur l'élément : l'impression suit l'événement sans
+  // attendre une mise à jour de Svelte.
+  function keepWidthForPrint(): void {
+    if (frame !== null && frame.clientWidth > 0) frame.style.width = `${frame.clientWidth}px`;
+  }
+
+  function releasePrintWidth(): void {
+    if (frame !== null) frame.style.width = "";
+  }
+
   async function reloadAfter(action: () => Promise<void>): Promise<void> {
     try {
       await action();
@@ -95,7 +109,11 @@
   }
 </script>
 
-<svelte:window onmessage={onMessage} />
+<svelte:window
+  onmessage={onMessage}
+  onbeforeprint={keepWidthForPrint}
+  onafterprint={releasePrintWidth}
+/>
 
 <div class="body">
   {#if error}
@@ -163,7 +181,7 @@
       </ul>
     {/if}
     {#if notice}
-      <p class="notice" role="status">{notice}</p>
+      <p class="notice transient" role="status">{notice}</p>
     {/if}
   {/if}
 </div>
@@ -197,6 +215,22 @@
   .mode {
     display: flex;
     justify-content: flex-end;
+  }
+
+  /* Papier : le corps, l'avis d'affichage simplifié et le nom des pièces
+     jointes, sans les boutons ni les messages d'une action. En bloc : les
+     moteurs coupent mal une colonne flexible entre deux pages. */
+  @media print {
+    .body {
+      display: block;
+    }
+
+    .banner,
+    .mode,
+    .transient,
+    .attachments button {
+      display: none;
+    }
   }
 
   .attachments {

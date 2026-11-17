@@ -23,6 +23,12 @@ sur l'application ; ouvrir liens et pièces jointes sans danger.
   et « Enregistrer… » (choix du dossier). Une pièce non encore téléchargée
   l'est à la demande.
 - **Texte brut** : bouton par message, et préférence globale.
+- **Impression** : « Imprimer », dans le menu « Plus… » de la barre
+  d'actions, ouvre la fenêtre d'impression du système. Seule la
+  conversation ouverte part sur le papier : son objet et ses messages
+  dépliés (expéditeur, destinataires, date, corps, nom des pièces jointes),
+  sans boutons ni panneaux, en thème clair. Rien d'autre de la fenêtre
+  (liste, autres comptes, fenêtre ouverte, notification) n'est imprimé.
 - Une conversation non lue **devient lue quand elle reste ouverte quelques
   secondes** : la parcourir rapidement ne change rien. Seul compte le
   temps passé fenêtre visible : réduite ou masquée, l'attente est
@@ -58,6 +64,11 @@ sur l'application ; ouvrir liens et pièces jointes sans danger.
   macros, images, texte, sons, vidéos) ; tout le reste s'enregistre
   seulement.
 - **Enregistrement** : jamais d'écrasement d'un fichier existant.
+- **Le papier montre ce que l'écran montre** : l'impression ne charge
+  rien de plus (une image bloquée reste absente), et un message ne peut
+  pas faire imprimer un contenu différent de celui affiché, ni sa propre
+  mise en page de l'impression. Seule l'utilisatrice ou l'utilisateur
+  peut lancer l'impression, jamais le message.
 
 ## Cas limites
 
@@ -70,6 +81,9 @@ sur l'application ; ouvrir liens et pièces jointes sans danger.
   reste possible.
 - Une image distante ne peut viser qu'une adresse présente dans le
   message affiché, jamais une adresse arbitraire.
+- Impression d'une conversation : les messages repliés ne sont pas
+  imprimés ; il suffit de les déplier avant.
+- « Imprimer » n'est proposé que lorsqu'une conversation est ouverte.
 
 ## Messages affichés
 
@@ -89,3 +103,4 @@ sur l'application ; ouvrir liens et pièces jointes sans danger.
 | Commande | Raccourci |
 |---|---|
 | Préférer le texte brut (ou le HTML) | palette |
+| Imprimer | `Ctrl+P` |

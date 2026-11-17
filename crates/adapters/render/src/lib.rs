@@ -149,13 +149,15 @@ pub fn text_to_html(text: &str) -> String {
     out
 }
 
-/// Styles de base du document (avant ceux du mail).
+/// Styles de base du document (avant ceux du mail). Les fonds s'impriment
+/// comme à l'écran : un texte masqué par son fond le reste sur le papier.
 const BASE_STYLE: &str = "html{color-scheme:light}\
 body{margin:0;padding:16px;font-family:system-ui,-apple-system,'Segoe UI',sans-serif;\
 font-size:14px;line-height:1.5;color:#1f2328;background:#fff;overflow-wrap:anywhere}\
 img{max-width:100%}\
 .norelly-text{white-space:pre-wrap;font-family:inherit}\
-blockquote{margin:0 0 0 8px;padding-left:8px;border-left:2px solid #d0d7de}";
+blockquote{margin:0 0 0 8px;padding-left:8px;border-left:2px solid #d0d7de}\
+*{print-color-adjust:exact!important;-webkit-print-color-adjust:exact!important}";
 
 /// Mode d'affichage effectivement employé.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -270,6 +272,29 @@ mod tests {
     }
 
     #[test]
+    fn agent_cannot_print() {
+        // L'impression est demandée par l'interface seulement : le mail ne
+        // doit avoir aucun moyen de la déclencher par l'agent, qui n'appelle
+        // pas `print`, n'écoute aucun message entrant et n'accède à aucune
+        // propriété calculée de `window`.
+        let can_print = |js: &str| {
+            ["print", "onmessage", "\"message\"", "'message'", "window["]
+                .iter()
+                .any(|needle| js.contains(needle))
+        };
+        assert!(!can_print(AGENT_JS));
+        for hostile in [
+            "window.print()",
+            "window['pr' + 'int']()",
+            "window.onmessage = function () {}",
+            "addEventListener(\"message\", f)",
+            "addEventListener('message', f)",
+        ] {
+            assert!(can_print(hostile), "{hostile}");
+        }
+    }
+
+    #[test]
     fn csp_allows_only_the_agent() {
         let csp = content_security_policy(&Protocols::custom_schemes());
         assert!(csp.starts_with("default-src 'none';"));
@@ -287,6 +312,13 @@ mod tests {
             windows
                 .contains("img-src http://mailpart.localhost http://remote-img.localhost data:;")
         );
+    }
+
+    #[test]
+    fn backgrounds_are_printed_as_on_screen() {
+        let doc = document("<p>x</p>");
+        assert!(doc.contains("print-color-adjust:exact!important"));
+        assert!(doc.contains("-webkit-print-color-adjust:exact!important"));
     }
 
     #[test]

@@ -32,6 +32,19 @@ Pour passer à la conversation suivante ou précédente sans revenir à la
 liste : **Plus…**, puis **Conversation suivante** ou **Conversation
 précédente** (au clavier : **J** et **K**).
 
+### Imprimer un message
+
+Cliquez sur **Plus…** dans la barre d'actions, puis sur **Imprimer** (au
+clavier : **Ctrl** + **P**). La fenêtre d'impression de votre ordinateur
+s'ouvre : choisissez l'imprimante, ou « Enregistrer en PDF ».
+
+![Le menu « Plus… » d'un message ouvert, avec « Imprimer »](captures/reading-more.png)
+
+Seule la conversation ouverte est imprimée : son objet et les messages
+dépliés, avec leurs expéditeurs, leurs dates et le nom des pièces jointes.
+Pour imprimer un ancien message de la conversation, dépliez-le d'abord.
+Les images bloquées restent bloquées sur le papier.
+
 ### Les images bloquées
 
 Certains messages contiennent des images placées sur Internet. Elles

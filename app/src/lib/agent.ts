@@ -75,6 +75,14 @@ export function parseAgentMessage(
   }
 }
 
+/** Vrai si la commande d'une touche relayée par l'agent doit être lancée.
+ * Sous Windows, WebView2 imprime déjà de lui-même sur `Ctrl+P` frappé dans
+ * le cadre (touche native, non annulable sans toucher à l'agent) : la
+ * relayer ouvrirait une seconde impression. */
+export function relayFrameCommand(command: string, windows = isWindows()): boolean {
+  return !(windows && command === "reading.print");
+}
+
 /** Adresse `mailview://` d'un message selon la plateforme. */
 export function mailviewUrl(message: number, version = 0, windows = isWindows()): string {
   const base = windows ? "http://mailview.localhost/" : "mailview://localhost/";

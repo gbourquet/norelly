@@ -17,8 +17,8 @@ rattraper.
 - Accès, qui font tous la même chose :
   - **barre d'actions** du message ouvert : Répondre, Répondre à tous,
     Transférer, Archiver, Supprimer, avec icône et libellé ; les autres
-    actions (lu / non lu, suivre, déplacer, texte brut, conversation
-    suivante ou précédente) dans **Plus…** ;
+    actions (lu / non lu, suivre, déplacer, texte brut, imprimer,
+    conversation suivante ou précédente) dans **Plus…** ;
   - **boutons au survol** d'une ligne : archiver, supprimer, lu / non lu ;
   - **menu contextuel** (clic droit sur une ligne) : ouvrir, puis les
     actions de la barre, raccourci à droite ;

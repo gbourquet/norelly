@@ -30,6 +30,19 @@ To move to the next or previous conversation without going back to the
 list: **More…**, then **Next conversation** or **Previous conversation**
 (from the keyboard: **J** and **K**).
 
+### Printing a message
+
+Click **More…** in the action bar, then **Print** (on the keyboard:
+**Ctrl** + **P**). Your computer's print window opens: choose the printer,
+or "Save as PDF".
+
+![The "More…" menu of an open message, with "Print"](captures/reading-more.png)
+
+Only the open conversation is printed: its subject and the expanded
+messages, with their senders, dates and attachment names. To print an older
+message of the conversation, expand it first. Blocked images stay blocked
+on paper.
+
 ### Blocked images
 
 Some messages contain images stored on the Internet. They are often used

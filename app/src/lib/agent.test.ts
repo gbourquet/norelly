@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MAX_FRAME_HEIGHT, mailviewUrl, parseAgentMessage } from "./agent";
+import { MAX_FRAME_HEIGHT, mailviewUrl, parseAgentMessage, relayFrameCommand } from "./agent";
 
 const frame = {} as Window;
 const other = {} as Window;
@@ -37,6 +37,8 @@ describe("messages de l'agent", () => {
       "norelly:height",
       [],
       { type: "inconnu" },
+      // L'impression ne se demande jamais depuis le mail.
+      { type: "norelly:print" },
       { type: "norelly:height", height: "10" },
       { type: "norelly:height", height: -1 },
       { type: "norelly:height", height: Number.NaN },
@@ -65,5 +67,15 @@ describe("messages de l'agent", () => {
   it("construit l'adresse mailview selon la plateforme", () => {
     expect(mailviewUrl(12, 3, false)).toBe("mailview://localhost/12?v=3");
     expect(mailviewUrl(12, 0, true)).toBe("http://mailview.localhost/12?v=0");
+  });
+});
+
+describe("touches relayées par l'agent", () => {
+  it("Ctrl+P du cadre est laissé à WebView2, qui imprime déjà de lui-même", () => {
+    // Sous Windows, la touche d'impression native de WebView2 n'est pas
+    // annulable depuis le cadre : la relayer ouvrirait deux impressions.
+    expect(relayFrameCommand("reading.print", true)).toBe(false);
+    expect(relayFrameCommand("reading.print", false)).toBe(true);
+    expect(relayFrameCommand("conversation.next", true)).toBe(true);
   });
 });

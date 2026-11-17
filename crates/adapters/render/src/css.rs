@@ -3,7 +3,9 @@
 //! chargement réseau depuis le CSS) :
 //! - commentaires et échappements CSS résolus, puis vérifications faites
 //!   sur le texte final, celui que lira le moteur de rendu ;
-//! - règles `@import`, `@charset`, `@namespace` supprimées ;
+//! - règles `@import`, `@charset`, `@namespace` et `@page` supprimées ;
+//! - requêtes de média alignées sur l'écran (`print` jamais vrai,
+//!   `screen` toujours vrai) : l'impression montre ce que l'écran montre ;
 //! - `url(…)` réécrites : `cid:` vers `mailpart://`, `data:image/…`
 //!   conservées, tout le reste remplacé par `none` ;
 //! - fonctions qui chargent ou exécutent (`image-set`, `expression`, `src`,
@@ -31,10 +33,18 @@ const BLOCKED_FUNCTIONS: &[&str] = &[
 ];
 
 /// Mots neutralisés partout (propriétés ou valeurs exécutables).
-const BLOCKED_WORDS: &[&str] = &["behavior", "-moz-binding", "javascript", "vbscript"];
+/// `color-adjust` : l'impression des fonds est fixée par Norelly.
+const BLOCKED_WORDS: &[&str] = &[
+    "behavior",
+    "-moz-binding",
+    "javascript",
+    "vbscript",
+    "color-adjust",
+];
 
 /// Règles retirées en entier.
-const BLOCKED_AT_RULES: &[&str] = &["@import", "@charset", "@namespace"];
+/// `@custom-media` nommerait une requête de média hors de la réécriture.
+const BLOCKED_AT_RULES: &[&str] = &["@import", "@charset", "@namespace", "@custom-media"];
 
 /// Résout les échappements et retire les commentaires.
 fn normalize(css: &str) -> String {
@@ -163,28 +173,78 @@ fn url_argument(css: &str, from: usize) -> (String, usize) {
     (value.trim().to_owned(), from + offset + end)
 }
 
-/// Fin d'un appel de fonction dont la parenthèse ouvrante est à `open` :
-/// indice après la parenthèse fermante correspondante (parenthèses
-/// imbriquées et chaînes comprises), ou fin du texte.
-fn call_end(css: &str, open: usize) -> usize {
+/// Fin d'un bloc délimité par `open` et `close` qui commence à `from` :
+/// indice après le `close` correspondant (blocs imbriqués et chaînes
+/// compris), ou après un `;` rencontré hors de tout bloc si `semicolon`,
+/// ou fin du texte.
+fn block_end(css: &str, from: usize, open: char, close: char, semicolon: bool) -> usize {
     let mut depth = 0usize;
     let mut quote: Option<char> = None;
-    for (j, c) in css.get(open..).unwrap_or_default().char_indices() {
+    for (j, c) in css.get(from..).unwrap_or_default().char_indices() {
         match (quote, c) {
             (Some(q), c) if c == q => quote = None,
             (Some(_), _) => {}
             (None, '"' | '\'') => quote = Some(c),
-            (None, '(') => depth += 1,
-            (None, ')') => {
+            (None, ';') if semicolon && depth == 0 => return from + j + 1,
+            (None, c) if c == open => depth += 1,
+            (None, c) if c == close => {
                 depth = depth.saturating_sub(1);
                 if depth == 0 {
-                    return open + j + 1;
+                    return from + j + 1;
                 }
             }
             _ => {}
         }
     }
     css.len()
+}
+
+/// Fin d'un appel de fonction dont la parenthèse ouvrante est à `open`.
+fn call_end(css: &str, open: usize) -> usize {
+    block_end(css, open, '(', ')', false)
+}
+
+/// Fin d'une règle `@…` commençant à `from` : après son `;` si elle n'a
+/// pas de bloc, sinon après l'accolade fermante de son bloc.
+fn at_rule_end(css: &str, from: usize) -> usize {
+    block_end(css, from, '{', '}', true)
+}
+
+/// Caractéristiques de média dont la valeur change sur le papier.
+const PRINT_DEPENDENT_FEATURES: &[&str] = &[
+    "update",
+    "scan",
+    "grid",
+    "color",
+    "min-color",
+    "max-color",
+    "color-index",
+    "min-color-index",
+    "max-color-index",
+    "monochrome",
+    "min-monochrome",
+    "max-monochrome",
+    "prefers-color-scheme",
+    "display-mode",
+];
+
+/// Mot d'une requête de média réécrit pour que l'impression montre ce que
+/// montre l'écran : `print` et les caractéristiques qui changent sur le
+/// papier (rafraîchissement, appareil, résolution, couleurs) deviennent
+/// inconnus (jamais vrais), `screen` devient `all` (vrai aussi sur le
+/// papier).
+fn media_word(lower: &str) -> Option<&'static str> {
+    match lower {
+        "screen" => Some("all"),
+        "print" => Some("x-bloque"),
+        _ if PRINT_DEPENDENT_FEATURES.contains(&lower)
+            || lower.contains("device-")
+            || lower.ends_with("resolution") =>
+        {
+            Some("x-bloque")
+        }
+        _ => None,
+    }
 }
 
 /// Réécriture d'une ressource référencée par `url()`.
@@ -208,6 +268,11 @@ pub fn sanitize_css(css: &str, resolve_cid: &dyn Fn(&str) -> Option<String>) -> 
     let css = remove_at_rules(normalize(truncated));
     let mut out = String::with_capacity(css.len());
     let mut i = 0;
+    // Entre `@media` et son `{` : requête de média.
+    let mut media_query = false;
+    // Chaîne en cours (les échappements sont déjà résolus) : `@`, `{` et
+    // `;` n'y sont que du texte.
+    let mut quote: Option<char> = None;
     while i < css.len() {
         let Some(c) = css.get(i..).and_then(|r| r.chars().next()) else {
             break;
@@ -245,6 +310,11 @@ pub fn sanitize_css(css: &str, resolve_cid: &dyn Fn(&str) -> Option<String>) -> 
             }
             if BLOCKED_WORDS.iter().any(|w| lower.contains(w)) {
                 out.push_str("x-bloque");
+            } else if let Some(media) = (media_query && quote.is_none())
+                .then(|| media_word(&lower))
+                .flatten()
+            {
+                out.push_str(media);
             } else {
                 out.push_str(word);
             }
@@ -253,9 +323,40 @@ pub fn sanitize_css(css: &str, resolve_cid: &dyn Fn(&str) -> Option<String>) -> 
         }
         match c {
             '<' => out.push(' '),
+            '"' | '\'' => {
+                match quote {
+                    None => quote = Some(c),
+                    Some(q) if q == c => quote = None,
+                    Some(_) => {}
+                }
+                out.push(c);
+            }
+            '@' | '{' | ';' if quote.is_some() => out.push(c),
             '@' => {
+                // Mot-clé lu sur quelques caractères seulement (coût borné
+                // même pour un texte truffé de `@`).
+                let keyword: String = css
+                    .get(i + 1..)
+                    .unwrap_or_default()
+                    .chars()
+                    .take_while(|ch| is_ident_char(*ch))
+                    .take(8)
+                    .collect::<String>()
+                    .to_ascii_lowercase();
+                if keyword == "page" {
+                    // Mise en page de l'impression (marges, textes des
+                    // marges) : supprimée, le papier reprend l'écran.
+                    out.push(' ');
+                    i = at_rule_end(&css, i);
+                    continue;
+                }
                 // At-rule restante (média, keyframes…) : conservée.
+                media_query = keyword == "media";
                 out.push('@');
+            }
+            '{' | ';' => {
+                media_query = false;
+                out.push(c);
             }
             _ => out.push(c),
         }
@@ -297,6 +398,9 @@ mod tests {
             "div { -moz-binding: url(http://canari.test/x.xml#x) }",
             "div { background: url(javascript:alert(1)) }",
             "a { content: '</style><script>alert(1)</script>' }",
+            "@media print { body { background: url(http://canari.test/impression.png) } }",
+            "@page { @top-center { content: url(http://canari.test/marge.png) } }",
+            "@supports (display: grid) { @media print { p { background: url(//canari.test/x) } } }",
         ] {
             let out = clean(hostile);
             let lower = out.to_lowercase();
@@ -348,10 +452,112 @@ mod tests {
     }
 
     #[test]
+    fn print_media_matches_the_screen() {
+        // L'impression montre ce que l'écran montre : une règle réservée
+        // à l'impression ne s'applique jamais, une règle réservée à
+        // l'écran s'applique aussi sur le papier.
+        assert_eq!(
+            clean("@media print { .iban { display: block } } p{}"),
+            "@media x-bloque { .iban { display: block } } p{}"
+        );
+        assert_eq!(
+            clean("@MEDIA Print, (max-width: 1px) { a{} }"),
+            "@MEDIA x-bloque, (max-width: 1px) { a{} }"
+        );
+        assert_eq!(
+            clean("@media only screen and (max-width: 600px) { .col { width: 100% } }"),
+            "@media only all and (max-width: 600px) { .col { width: 100% } }"
+        );
+        assert_eq!(
+            clean("@supports (display: grid) { @media not screen { a { color: red } } }"),
+            "@supports (display: grid) { @media not all { a { color: red } } }"
+        );
+        // Une chaîne ne termine pas la requête.
+        assert_eq!(
+            clean("@media \"{\", print { a{} }"),
+            "@media \"{\", x-bloque { a{} }"
+        );
+        assert_eq!(
+            clean("@media ';', print { a{} }"),
+            "@media ';', x-bloque { a{} }"
+        );
+        // Caractéristiques qui changent sur le papier : jamais vraies.
+        for feature in [
+            "update: none",
+            "min-device-width: 1px",
+            "-webkit-min-device-pixel-ratio: 2",
+            "min-resolution: 2dppx",
+            "monochrome",
+            "color",
+            "prefers-color-scheme: dark",
+        ] {
+            let out = clean(&format!("@media ({feature}) {{ a{{}} }}"));
+            assert!(out.starts_with("@media (x-bloque"), "{feature:?} → {out:?}");
+        }
+        // Ailleurs que dans une requête de média, les mots restent.
+        let ordinary = ".print, .screen, .update { color: red; width: 1px }";
+        assert_eq!(clean(ordinary), ordinary);
+        // Dans une chaîne, `@media` et `@page` ne sont que du texte.
+        let quoted = "p::after{content:\"@media screen print\"} a{content:'@page {'} b{color:red}";
+        assert_eq!(clean(quoted), quoted);
+    }
+
+    #[test]
+    fn page_rules_are_removed() {
+        for css in [
+            "@page { margin: 0; @top-center { content: 'Payez sur FR76' } } p{color:red}",
+            "@PAGE :first { size: A4 } p{color:red}",
+            "@pa\\67 e { margin: 0 } p{color:red}",
+        ] {
+            let out = clean(css);
+            assert!(!out.to_lowercase().contains("@page"), "{css:?} → {out:?}");
+            assert!(!out.contains("Payez"), "{css:?} → {out:?}");
+            assert!(
+                out.trim_start().starts_with("p{color:red}"),
+                "{css:?} → {out:?}"
+            );
+        }
+        // Règle non fermée : supprimée jusqu'à la fin.
+        assert_eq!(clean("p{} @page { margin: 0").trim(), "p{}");
+        // Dans une chaîne, `@page` n'est que du texte.
+        let quoted = "a{content:\"info@page.fr\"} b{color:red}";
+        assert_eq!(clean(quoted), quoted);
+        // Requête de média nommée : supprimée (elle échapperait à la
+        // réécriture).
+        let out = clean("@custom-media --p print; @media (--p) { a{} }");
+        assert!(
+            !out.contains("custom-media") && !out.contains("print"),
+            "{out:?}"
+        );
+    }
+
+    #[test]
+    fn print_color_adjustment_is_left_to_norelly() {
+        // Le mail ne choisit pas l'impression des fonds : un texte masqué
+        // par son fond à l'écran le reste sur le papier.
+        for css in [
+            "p { print-color-adjust: economy }",
+            "p { -webkit-print-color-adjust: economy }",
+            "p { color-adjust: economy }",
+        ] {
+            let out = clean(css);
+            assert!(!out.contains("color-adjust"), "{css:?} → {out:?}");
+        }
+    }
+
+    #[test]
     fn many_at_rules_are_removed_in_linear_time() {
         let css = "@import;".repeat(60_000);
         let started = std::time::Instant::now();
         assert!(!clean(&css).contains("@import"));
+        assert!(started.elapsed() < std::time::Duration::from_secs(2));
+    }
+
+    #[test]
+    fn many_media_rules_stay_fast() {
+        let css = "@m".repeat(200_000) + &"@page{".repeat(50_000);
+        let started = std::time::Instant::now();
+        let _ = clean(&css);
         assert!(started.elapsed() < std::time::Duration::from_secs(2));
     }
 

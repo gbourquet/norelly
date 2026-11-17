@@ -88,6 +88,8 @@
   "search_close": "Fermer la recherche",
   "cmd_plain_text": "Préférer le texte brut (ou le HTML)",
   "cmd_plain_text_keywords": "html texte affichage",
+  "cmd_print": "Imprimer",
+  "cmd_print_keywords": "imprimante papier pdf",
   "cmd_sync": "Synchroniser le compte sélectionné",
   "cmd_sync_keywords": "actualiser relever",
   "cmd_account_remove": "Supprimer le compte sélectionné…",

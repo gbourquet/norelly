@@ -16,15 +16,12 @@ function block(source: string): Record<string, string> {
   );
 }
 
-const light = block(css.slice(0, css.indexOf("@media (prefers-color-scheme: dark)")));
+// Thème sombre, réservé à l'écran (le papier reste clair).
+const DARK = "@media screen and (prefers-color-scheme: dark)";
+const light = block(css.slice(0, css.indexOf(DARK)));
 const dark = {
   ...light,
-  ...block(
-    css.slice(
-      css.indexOf("@media (prefers-color-scheme: dark)"),
-      css.indexOf("@media (prefers-reduced-motion"),
-    ),
-  ),
+  ...block(css.slice(css.indexOf(DARK), css.indexOf("@media (prefers-reduced-motion"))),
 };
 
 function luminance(hex: string): number {

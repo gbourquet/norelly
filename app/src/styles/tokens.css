@@ -64,7 +64,8 @@
   --shadow-dialog: 0 12px 40px rgb(15 18 22 / 25%);
 }
 
-@media (prefers-color-scheme: dark) {
+/* Thème sombre à l'écran seulement : le papier reste en thème clair. */
+@media screen and (prefers-color-scheme: dark) {
   :root {
     --color-bg: #16181c;
     --color-surface: #1e2126;
@@ -93,6 +94,35 @@
   :root {
     --duration-fast: 0ms;
     --duration: 0ms;
+  }
+}
+
+/* Impression : seule la partie marquée `data-print-root` (la conversation
+   ouverte) part sur le papier ; tout le reste de la fenêtre (panneaux,
+   autres messages, menus, fenêtres, notifications) est masqué, quel qu'il
+   soit. Sans conversation ouverte, la fenêtre s'imprime telle quelle.
+   Thème clair (jetons de :root), sans défilement : le contenu se répartit
+   sur les pages. */
+@media print {
+  :root {
+    color-scheme: light;
+  }
+
+  body:has([data-print-root])
+    :not([data-print-root], [data-print-root] *, :has([data-print-root])) {
+    display: none !important;
+  }
+
+  body:has([data-print-root]),
+  html:has([data-print-root]),
+  #app:has([data-print-root]),
+  body :has([data-print-root]) {
+    display: block !important;
+    width: auto !important;
+    height: auto !important;
+    min-height: 0 !important;
+    overflow: visible !important;
+    position: static !important;
   }
 }
 

@@ -88,6 +88,8 @@
   "search_close": "Close search",
   "cmd_plain_text": "Prefer plain text (or HTML)",
   "cmd_plain_text_keywords": "html text display",
+  "cmd_print": "Print",
+  "cmd_print_keywords": "printer paper pdf",
   "cmd_sync": "Synchronise selected account",
   "cmd_sync_keywords": "refresh fetch",
   "cmd_account_remove": "Remove selected account…",

@@ -173,6 +173,8 @@ Fiche : [lecture.md](../fonctionnel/lecture.md).
 | Marquage après le délai des réglages, sans message ni annulation ; délai compté fenêtre visible seulement (`WindowVisibility`, par défaut `document.visibilityState` et `visibilitychange`) : suspendu fenêtre cachée, repris au retour avec le temps restant, attendu au retour de la fenêtre même avec un délai nul ; écoute retirée au marquage comme à l'annulation ; minuteur annulé si l'on quitte la conversation, si l'utilisateur agit dessus ou si une autre ouverture la dépasse ; rien tant que les réglages ne sont pas chargés ; une action de l'utilisateur attend l'enregistrement du marquage en cours d'envoi, pour l'emporter, mais pas le rafraîchissement qui le suit | `app/src/lib/mail.svelte.ts`, `mail.test.ts` |
 | Délai du marquage comme lu : réglage de l'application, 5 s par défaut, 60 s au plus (0 : à l'ouverture) ; valeur stockée hors bornes ramenée à la valeur par défaut, réglage par réglage (`Settings::sanitized`) | `crates/domain/src/settings.rs` (`mark_seen_delay_secs`, `MAX_MARK_SEEN_DELAY_SECS`), `crates/adapters/sqlite/src/preferences.rs` (`app.mark_seen_delay`) |
 | Proxy d'images : sans cookies ni `Referer`, User-Agent neutre, taille et types bornés, adresses publiques seulement, autorisation revérifiée à chaque image | `app/src-tauri/src/remote_images.rs` |
+| Impression : commande de l'interface (`window.print()`), sans IPC ni capability ; seule la conversation ouverte (`data-print-root`) est imprimée, tout le reste masqué ; cadre du corps inchangé (sandbox, CSP), largeur d'écran gardée pour ne rien couper | `app/src/lib/app.svelte.ts` (`reading.print`), `app/src/styles/tokens.css` (`@media print`), `MessageBody.svelte`, `Reading.test.ts` |
+| CSS d'un mail : `@page` et `@custom-media` supprimés, requêtes de média alignées sur l'écran (`print` et caractéristiques propres au papier jamais vraies, `screen` toujours vrai), `print-color-adjust` fixé par Norelly ; l'agent n'a aucun moyen de lancer l'impression ; `Ctrl+P` frappé dans le cadre laissé à WebView2 sous Windows (une seule impression) | `crates/adapters/render/src/css.rs` (`print_media_matches_the_screen`, `page_rules_are_removed`, `print_color_adjustment_is_left_to_norelly`), `crates/adapters/render/src/lib.rs` (`agent_cannot_print`, `backgrounds_are_printed_as_on_screen`), `app/src/lib/agent.ts` (`relayFrameCommand`), `app/src/lib/agent.test.ts` |
 
 ### Clés des messages
 
@@ -180,7 +182,7 @@ Fiche : [lecture.md](../fonctionnel/lecture.md).
 
 ### Commandes
 
-`reading.plain-text`.
+`reading.plain-text`, `reading.print` (`Ctrl+P`).
 
 ### Vérifications et compléments
 
@@ -676,7 +678,7 @@ Fiche : [clavier.md](../fonctionnel/clavier.md).
 | Groupe | Identifiants (raccourci) |
 |---|---|
 | Général | `palette.open` (`Ctrl+K`), `help.shortcuts` (`?`), `settings.open` (`Ctrl+,`) |
-| Lecture | `conversation.next` (`j`), `conversation.previous` (`k`), `conversation.open` (`Entrée`), `conversation.back` (`Échap`), `search.open` (`/`), `mailbox.unified`, `reading.plain-text` |
+| Lecture | `conversation.next` (`j`), `conversation.previous` (`k`), `conversation.open` (`Entrée`), `conversation.back` (`Échap`), `search.open` (`/`), `mailbox.unified`, `reading.plain-text`, `reading.print` (`Ctrl+P`) |
 | Actions | `action.archive` (`e`), `action.delete` (`#`), `action.flag` (`s`), `action.mark-read` (`Maj+I`), `action.mark-unread` (`Maj+U`), `action.move` (`v`), `action.toggle-mark` (`x`), `selection.clear`, `action.undo` (`z`) |
 | Rédaction | `compose.new` (`c`), `compose.reply` (`r`), `compose.reply-all` (`a`), `compose.forward` (`f`), `drafts.open`, `compose.outbox` |
 | Comptes | `account.add`, `account.new-folder`, `folder.rename`, `folder.move`, `folder.delete`, `account.archive-folder`, `account.sync`, `account.remove` |

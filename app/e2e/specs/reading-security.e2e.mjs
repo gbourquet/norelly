@@ -6,13 +6,16 @@
 // - IPC Tauri inaccessible depuis mailview:// (origine opaque, CSP) ;
 // - un lien javascript: n'est jamais ouvert ;
 // - les touches frappées dans le corps du message sont renvoyées à
-//   l'interface (j : conversation suivante).
+//   l'interface (j : conversation suivante) ;
+// - « Imprimer » imprime la fenêtre principale sans rien charger (le
+//   dialogue natif est remplacé : il ne se pilote pas).
 import { $, browser, expect } from "@wdio/globals";
 import {
   addTestAccount,
   address,
   appendMessages,
   canaryHits,
+  openMenu,
   removeTestAccount,
 } from "./helpers.mjs";
 
@@ -30,7 +33,9 @@ Content-Type: text/html; charset=utf-8
 <meta http-equiv="refresh" content="0;url=http://${CANARY}/refresh">
 <link rel="stylesheet" href="http://${CANARY}/lien.css">
 <base href="http://${CANARY}/">
-<style>@import url(http://${CANARY}/import.css); body { background: url(http://${CANARY}/fond.png) }</style>
+<style>@import url(http://${CANARY}/import.css); body { background: url(http://${CANARY}/fond.png) }
+@media print { body { background: url(http://${CANARY}/impression.png) } }
+@page { @top-center { content: url(http://${CANARY}/marge.png) } }</style>
 <script>fetch("http://${CANARY}/script"); document.body.dataset.pwned = "script";</script>
 </head><body onload="fetch('http://${CANARY}/onload')">
 <p>Contenu du message piégé</p>
@@ -142,6 +147,43 @@ describe("lecture sécurisée", () => {
     await expect($("h1=Message ordinaire")).toBeDisplayed({ wait: 20000 });
     await browser.keys("Escape");
     await expect($("h1=Message ordinaire")).not.toBeDisplayed({ wait: 10000 });
+  });
+
+  it("imprime depuis « Plus… » sans rien charger", async () => {
+    await $("span=Message piégé").click();
+    await expect($("h1=Message piégé")).toBeDisplayed({ wait: 30000 });
+    // Dialogue natif remplacé par un compteur.
+    await browser.execute(() => {
+      window.__printed = 0;
+      window.print = () => {
+        window.__printed += 1;
+      };
+    });
+    await openMenu($("//button[normalize-space()='Plus…'][not(ancestor::*[@aria-hidden='true'])]"));
+    await $("//*[@role='menuitem'][starts-with(normalize-space(), 'Imprimer')]").click();
+    await browser.waitUntil(async () => (await browser.execute(() => window.__printed)) === 1, {
+      timeout: 10000,
+      timeoutMsg: "window.print() non appelé",
+    });
+    // Seule la conversation est désignée pour le papier, et le moteur
+    // comprend la règle qui masque le reste (un sélecteur non reconnu
+    // ferait ignorer toute la règle, et tout imprimer).
+    const print = await browser.execute(() => {
+      const selectors = [];
+      for (const sheet of document.styleSheets) {
+        for (const rule of sheet.cssRules) {
+          if (rule instanceof CSSMediaRule && rule.media.mediaText.includes("print")) {
+            for (const inner of rule.cssRules) selectors.push(inner.selectorText ?? "");
+          }
+        }
+      }
+      return {
+        roots: document.querySelectorAll("[data-print-root]").length,
+        hides: selectors.some((s) => s.includes(":not(") && s.includes("data-print-root")),
+      };
+    });
+    expect(print).toEqual({ roots: 1, hides: true });
+    await browser.keys("Escape");
   });
 
   it("n'a envoyé aucune requête au serveur canari", async () => {

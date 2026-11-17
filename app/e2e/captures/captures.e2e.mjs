@@ -330,6 +330,12 @@ describe(`captures d'écran (${lang})`, () => {
     await first.click();
     await expect($(`h1=${content.messages[0][1]}`)).toBeDisplayed({ wait: 30000 });
     await capture("reading");
+
+    // Menu « Plus… » du message ouvert (dont « Imprimer »).
+    await openMenu(button(msg("action_more")));
+    await menuItem(msg("cmd_print")).waitForDisplayed({ timeout: 10000 });
+    await capture("reading-more");
+    await browser.keys("Escape");
   });
 
   it("réponse, puis brouillon gardé", async () => {

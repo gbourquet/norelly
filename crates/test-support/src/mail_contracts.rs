@@ -11,6 +11,7 @@ use norelly_domain::conversation::{
     ConversationScope, MessageCopy, ShownCopy, ThreadKeys, ThreadMessage, shown_copies, thread,
 };
 use norelly_domain::fetch_policy::PartPath;
+use norelly_domain::labels::KeywordPermission;
 use norelly_domain::mailbox::{
     Correspondent, Flags, MailboxId, MailboxName, MailboxRole, MessageHeaders, MessageMeta, ModSeq,
     RemoteMailbox, Uid, UidValidity,
@@ -678,6 +679,8 @@ struct MemState {
     /// Essais de rejeu des opérations réservées.
     claimed: BTreeMap<PendingOpId, u32>,
     archive: BTreeMap<AccountId, MailboxId>,
+    /// Mots-clés permanents par boîte (`PERMANENTFLAGS`).
+    permissions: BTreeMap<MailboxId, KeywordPermission>,
 }
 
 /// Faux [`MailStore`] et ports de requête en mémoire.
@@ -1288,12 +1291,13 @@ impl MemState {
     }
 }
 
-fn folder_ref(m: &StoredMailbox) -> FolderRef {
+fn folder_ref(m: &StoredMailbox, permissions: &BTreeMap<MailboxId, KeywordPermission>) -> FolderRef {
     FolderRef {
         id: m.id,
         name: m.mailbox.name.clone(),
         role: m.mailbox.role,
         selectable: m.mailbox.selectable,
+        keywords: permissions.get(&m.id).cloned().unwrap_or_default(),
     }
 }
 
@@ -1308,7 +1312,7 @@ impl PendingOpStore for InMemoryMailStore {
                 return Ok(Some(LocalMessage {
                     id: message,
                     account: *account,
-                    mailbox: folder_ref(mailbox),
+                    mailbox: folder_ref(mailbox, &s.permissions),
                     uid: m.stored.meta.uid,
                     flags: m.stored.meta.flags.clone(),
                     uid_validity: state.uid_validity,
@@ -1345,11 +1349,11 @@ impl PendingOpStore for InMemoryMailStore {
     }
 
     async fn action_folders(&self, account: AccountId) -> Result<Vec<FolderRef>, StoreError> {
-        Ok(lock(&self.state)
-            .mailboxes
+        let s = lock(&self.state);
+        Ok(s.mailboxes
             .iter()
             .filter(|(a, _, _)| *a == account)
-            .map(|(_, m, _)| folder_ref(m))
+            .map(|(_, m, _)| folder_ref(m, &s.permissions))
             .collect())
     }
 
@@ -1685,11 +1689,13 @@ impl norelly_domain::ports::SearchIndex for InMemoryMailStore {
             .map(|c| {
                 let words = match &c.atom {
                     Atom::Text { text, .. } => tokens(text),
-                    Atom::Filter(_) => Vec::new(),
+                    Atom::Filter(_) | Atom::Label { .. } => Vec::new(),
                 };
                 (c.negated, c.atom.clone(), words)
             })
-            .filter(|(_, atom, words)| matches!(atom, Atom::Filter(_)) || !words.is_empty())
+            .filter(|(_, atom, words)| {
+                matches!(atom, Atom::Filter(_) | Atom::Label { .. }) || !words.is_empty()
+            })
             .collect();
         if clauses.is_empty() {
             return Ok(SearchPage::default());
@@ -1754,6 +1760,9 @@ impl norelly_domain::ports::SearchIndex for InMemoryMailStore {
                         Filter::Before(d) => date < d.start_timestamp(request.utc_offset_seconds),
                         Filter::After(d) => date >= d.start_timestamp(request.utc_offset_seconds),
                     },
+                    Atom::Label { keywords, .. } => {
+                        keywords.iter().any(|k| meta.flags.keywords().contains(k))
+                    }
                 };
                 if matched == *negated {
                     continue 'messages;

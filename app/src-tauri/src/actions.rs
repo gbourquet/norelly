@@ -62,7 +62,7 @@ pub async fn perform_action(
             .conversation_members(id)
             .await
             .map_err(IpcError::storage)?;
-        messages.extend(conversation_targets(action, &members, &scope));
+        messages.extend(conversation_targets(&action, &members, &scope));
     }
     let messages: Vec<_> = messages.into_iter().collect();
     apply(&state, &messages, action).await

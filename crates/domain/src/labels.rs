@@ -402,9 +402,10 @@ pub fn contrast_ratio(a: LabelColor, b: LabelColor) -> f64 {
 // ---------------------------------------------------------------------------
 
 /// Mots-clés qu'un dossier garde (`PERMANENTFLAGS` de `SELECT`).
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub enum KeywordPermission {
     /// Jamais lu (ou réponse absente) : tout est permanent (RFC 3501, 7.1).
+    #[default]
     Unknown,
     /// `\*` : tout mot-clé, y compris nouveau.
     Any,
@@ -756,9 +757,10 @@ pub fn label_keywords(name: &str, known: &[Keyword]) -> Vec<Keyword> {
     };
     let folded = fold(name.as_str());
     let mut out = vec![name.keyword()];
-    for k in known {
-        if !out.contains(k) && display(k).folded_names().contains(&folded) {
-            out.push(k.clone());
+    let builtins = (1..=BUILTIN_LABELS).filter_map(|n| Keyword::parse(&format!("$label{n}")));
+    for k in builtins.chain(known.iter().cloned()) {
+        if !out.contains(&k) && display(&k).folded_names().contains(&folded) {
+            out.push(k);
         }
     }
     out

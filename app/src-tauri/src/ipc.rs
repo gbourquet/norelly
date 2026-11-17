@@ -194,6 +194,8 @@ pub enum ErrorCodeDto {
     /// Fusion refusée : une fiche a changé depuis la recherche des
     /// doublons (rien n'a été écrit).
     ContactMergeConflict,
+    /// Le dossier refuse de garder cette étiquette (`PERMANENTFLAGS`).
+    LabelRefused,
     /// Erreur interne (journalisée).
     Internal,
 }
@@ -333,6 +335,7 @@ impl From<norelly_application::actions::ActionFailure> for IpcError {
                 ActionError::TooManyTargets => Self::new(ErrorCodeDto::TooManyMessages),
                 ActionError::UnknownFolder => Self::invalid(FieldDto::Mailbox),
                 ActionError::QueueFull => Self::new(ErrorCodeDto::PendingQueueFull),
+                ActionError::KeywordRefused => Self::new(ErrorCodeDto::LabelRefused),
             },
         }
     }

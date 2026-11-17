@@ -18,6 +18,7 @@ use norelly_domain::connection::ConnectionError;
 use norelly_domain::endpoint::Host;
 use norelly_domain::fetch_policy::BodyFetch;
 use norelly_domain::fetch_policy::PartPath;
+use norelly_domain::labels::KeywordPermission;
 use norelly_domain::mailbox::{
     Flags, ListedMailbox, MailboxName, MessageHeaders, MessageMeta, ModSeq, RawHeaders, Uid,
     UidValidity,
@@ -669,6 +670,7 @@ impl RemoteMailboxSession for FakeImapSession {
             changed: vec![],
             vanished: UidRanges::default(),
             incomplete: false,
+            keywords: KeywordPermission::Unknown,
         };
         if let Some(q) = &request.qresync
             && ext.qresync

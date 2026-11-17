@@ -19,17 +19,19 @@ use crate::store_error;
 /// drapeaux, mots-clés, date de tri, `Message-ID`.
 type MemberRow = (i64, i64, String, i64, String, i64, Option<String>);
 
-const fn flag_bit(flag: ActionFlag) -> i64 {
+const fn flag_bit(flag: &ActionFlag) -> i64 {
     match flag {
         ActionFlag::Seen => 1,
         ActionFlag::Flagged => 4,
+        ActionFlag::Keyword(_) => 0,
     }
 }
 
-const fn flag_name(flag: ActionFlag) -> &'static str {
+const fn flag_name(flag: &ActionFlag) -> &'static str {
     match flag {
         ActionFlag::Seen => "seen",
         ActionFlag::Flagged => "flagged",
+        ActionFlag::Keyword(_) => "keyword",
     }
 }
 
@@ -49,7 +51,7 @@ fn apply_effect(c: &Connection, effect: LocalEffect) -> Result<(), StoreError> {
             flag,
             value,
         } => {
-            let bit = flag_bit(flag);
+            let bit = flag_bit(&flag);
             c.prepare_cached("UPDATE messages SET flags = (flags & ~?2) | ?3 WHERE id = ?1")
                 .and_then(|mut stmt| {
                     stmt.execute(params![message.get(), bit, if value { bit } else { 0 }])
@@ -169,7 +171,7 @@ fn insert_op(c: &Connection, op: &PendingOp) -> Result<i64, StoreError> {
             unchanged_since,
         } => (
             "flag",
-            Some(flag_name(change.flag)),
+            Some(flag_name(&change.flag)),
             Some(change.value),
             Some(*previous),
             unchanged_since.map(|m| i64::try_from(m.get()).unwrap_or(i64::MAX)),
@@ -436,6 +438,7 @@ fn folder_of(id: i64, name: &str, role: &str, selectable: bool) -> Result<Folder
         name: MailboxName::parse(name).map_err(|_| corrupted("nom de boîte"))?,
         role: MailboxRole::parse(role).ok_or_else(|| corrupted("rôle"))?,
         selectable,
+        keywords: norelly_domain::labels::KeywordPermission::Unknown,
     })
 }
 

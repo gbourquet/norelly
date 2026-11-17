@@ -504,7 +504,7 @@ fn label_search_matches_names_case_and_accent_insensitively() {
     );
     assert_eq!(
         label_keywords("a faire", &known),
-        [kw("a&ACA-faire"), kw("&AMAAIA-faire")]
+        [kw("a&ACA-faire"), kw("$label4"), kw("&AMAAIA-faire")]
     );
     // Noms de Thunderbird, en français comme en anglais.
     assert_eq!(

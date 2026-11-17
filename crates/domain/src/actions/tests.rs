@@ -12,6 +12,7 @@ fn folder(id: i64, name: &str, role: MailboxRole) -> FolderRef {
         name: MailboxName::parse(name).unwrap_or_else(|_| panic!("nom")),
         role,
         selectable: true,
+        keywords: KeywordPermission::Unknown,
     }
 }
 
@@ -70,11 +71,11 @@ fn delete_moves_to_trash_then_expunges_from_trash() {
     let inbox = &all[0];
     let trash = &all[1];
     assert_eq!(
-        resolve(MessageAction::Delete, inbox, &all, None),
+        resolve(&MessageAction::Delete, inbox, &all, None),
         Ok(Effect::MoveTo(trash.clone()))
     );
     assert_eq!(
-        resolve(MessageAction::Delete, trash, &all, None),
+        resolve(&MessageAction::Delete, trash, &all, None),
         Ok(Effect::Expunge)
     );
     let without_trash: Vec<_> = all
@@ -83,7 +84,7 @@ fn delete_moves_to_trash_then_expunges_from_trash() {
         .cloned()
         .collect();
     assert_eq!(
-        resolve(MessageAction::Delete, inbox, &without_trash, None),
+        resolve(&MessageAction::Delete, inbox, &without_trash, None),
         Err(ActionError::NoTrash)
     );
 }
@@ -93,7 +94,7 @@ fn archive_uses_archive_role_then_configured_fallback() {
     let all = folders();
     let inbox = &all[0];
     assert_eq!(
-        resolve(MessageAction::Archive, inbox, &all, None),
+        resolve(&MessageAction::Archive, inbox, &all, None),
         Ok(Effect::MoveTo(all[2].clone()))
     );
     let without_archive: Vec<_> = all
@@ -102,12 +103,11 @@ fn archive_uses_archive_role_then_configured_fallback() {
         .cloned()
         .collect();
     assert_eq!(
-        resolve(MessageAction::Archive, inbox, &without_archive, None),
+        resolve(&MessageAction::Archive, inbox, &without_archive, None),
         Err(ActionError::NoArchive)
     );
     assert_eq!(
-        resolve(
-            MessageAction::Archive,
+        resolve(&MessageAction::Archive,
             inbox,
             &without_archive,
             Some(mailbox_id(4))
@@ -116,7 +116,7 @@ fn archive_uses_archive_role_then_configured_fallback() {
     );
     // Déjà dans les archives.
     assert_eq!(
-        resolve(MessageAction::Archive, &all[2], &all, None),
+        resolve(&MessageAction::Archive, &all[2], &all, None),
         Err(ActionError::SameFolder)
     );
 }
@@ -126,18 +126,18 @@ fn move_targets_are_checked() {
     let mut all = folders();
     let inbox = all[0].clone();
     assert_eq!(
-        resolve(MessageAction::Move(mailbox_id(9)), &inbox, &all, None),
+        resolve(&MessageAction::Move(mailbox_id(9)), &inbox, &all, None),
         Err(ActionError::UnknownFolder)
     );
     assert_eq!(
-        resolve(MessageAction::Move(mailbox_id(1)), &inbox, &all, None),
+        resolve(&MessageAction::Move(mailbox_id(1)), &inbox, &all, None),
         Err(ActionError::SameFolder)
     );
     if let Some(f) = all.get_mut(3) {
         f.selectable = false;
     }
     assert_eq!(
-        resolve(MessageAction::Move(mailbox_id(4)), &inbox, &all, None),
+        resolve(&MessageAction::Move(mailbox_id(4)), &inbox, &all, None),
         Err(ActionError::NotSelectable)
     );
 }
@@ -249,6 +249,7 @@ fn conflicts_drop_the_op() {
         uid_validity: UidValidity::new(validity),
         flags,
         target_exists,
+        keywords: KeywordPermission::Unknown,
     };
     let moved = op(OpKind::Move {
         to: MailboxName::parse("Archives").unwrap_or_else(|_| panic!("nom")),
@@ -279,15 +280,19 @@ fn conflicts_drop_the_op() {
         flag: ActionFlag::Seen,
         value: true,
     };
-    assert_eq!(after_modified(change, &seen), ReplayDecision::AlreadyDone);
+    assert_eq!(after_modified(&change, &seen), ReplayDecision::AlreadyDone);
     assert_eq!(
-        after_modified(change, &Flags::default()),
+        after_modified(&change, &Flags::default()),
         ReplayDecision::Apply
     );
 }
 
 fn flag() -> impl Strategy<Value = ActionFlag> {
-    prop_oneof![Just(ActionFlag::Seen), Just(ActionFlag::Flagged)]
+    prop_oneof![
+        Just(ActionFlag::Seen),
+        Just(ActionFlag::Flagged),
+        Just(ActionFlag::Keyword(keyword("Projet"))),
+    ]
 }
 
 proptest! {
@@ -307,7 +312,7 @@ proptest! {
         let mut current = local(start.clone());
         let mut queue: Vec<PendingOp> = Vec::new();
         for (f, value) in steps {
-            let effect = Effect::SetFlag(FlagChange { flag: f, value });
+            let effect = Effect::SetFlag(FlagChange { flag: f.clone(), value });
             let Some(new) = PendingOp::new(&effect, &current, 0) else { continue };
             match coalesce(&queue, &new) {
                 Coalesce::Push => queue.push(new),
@@ -372,31 +377,29 @@ fn conversation_targets_follow_the_action() {
     let id = |n: i64| MessageId::new(n).unwrap_or_else(|| panic!("id"));
     let inbox = ConversationScope::Mailbox(mailbox_id(1));
     assert_eq!(
-        conversation_targets(MessageAction::MarkSeen(true), &members, &inbox),
+        conversation_targets(&MessageAction::MarkSeen(true), &members, &inbox),
         [id(3), id(4)],
         "toute la conversation"
     );
     assert_eq!(
-        conversation_targets(MessageAction::Delete, &members, &inbox),
+        conversation_targets(&MessageAction::Delete, &members, &inbox),
         [id(1), id(3)],
         "portée seulement"
     );
     assert_eq!(
-        conversation_targets(
-            MessageAction::Archive,
+        conversation_targets(&MessageAction::Archive,
             &members,
             &ConversationScope::Unified(MailboxRole::Inbox)
         ),
         [id(1), id(3)]
     );
     assert_eq!(
-        conversation_targets(MessageAction::MarkFlagged(true), &members, &inbox),
+        conversation_targets(&MessageAction::MarkFlagged(true), &members, &inbox),
         [id(3)],
         "le plus récent de la portée"
     );
     assert!(
-        conversation_targets(
-            MessageAction::MarkFlagged(true),
+        conversation_targets(&MessageAction::MarkFlagged(true),
             &members,
             &ConversationScope::Mailbox(mailbox_id(3))
         )
@@ -404,7 +407,7 @@ fn conversation_targets_follow_the_action() {
         "déjà suivi"
     );
     assert_eq!(
-        conversation_targets(MessageAction::MarkFlagged(false), &members, &inbox),
+        conversation_targets(&MessageAction::MarkFlagged(false), &members, &inbox),
         [id(4)]
     );
 }
@@ -591,5 +594,114 @@ fn opened_seen_targets_ignore_copies_arrived_after_the_opening() {
     assert_eq!(
         opened_seen_targets(&members, &[id(3)], id(2)),
         Vec::<MessageId>::new()
+    );
+}
+
+fn keyword(raw: &str) -> Keyword {
+    Keyword::parse(raw).unwrap_or_else(|| panic!("mot-clé"))
+}
+
+fn label(raw: &str, value: bool) -> MessageAction {
+    MessageAction::SetLabel {
+        keyword: keyword(raw),
+        value,
+    }
+}
+
+#[test]
+fn labels_are_refused_by_folders_that_do_not_keep_them() {
+    let all = folders();
+    let mut inbox = all[0].clone();
+    inbox.keywords = KeywordPermission::from_tokens(["Projet"]);
+    assert_eq!(
+        resolve(&label("Projet", true), &inbox, &all, None),
+        Ok(Effect::SetFlag(FlagChange {
+            flag: ActionFlag::Keyword(keyword("Projet")),
+            value: true,
+        }))
+    );
+    assert_eq!(
+        resolve(&label("Client", true), &inbox, &all, None),
+        Err(ActionError::KeywordRefused)
+    );
+    // Retirer reste toujours possible.
+    assert!(resolve(&label("Client", false), &inbox, &all, None).is_ok());
+}
+
+#[test]
+fn label_targets_are_the_messages_of_the_displayed_folder() {
+    let member = |id: i64, mailbox: i64, role: MailboxRole, keywords: &[&str]| Member {
+        id: MessageId::new(id).unwrap_or_else(|| panic!("id")),
+        mailbox: mailbox_id(mailbox),
+        role,
+        flags: Flags::from_tokens(keywords.iter().copied()),
+        date: id,
+        message_id: None,
+    };
+    let members = vec![
+        member(1, 1, MailboxRole::Inbox, &["Projet"]),
+        member(2, 5, MailboxRole::Sent, &[]),
+        member(3, 1, MailboxRole::Inbox, &[]),
+    ];
+    let id = |n: i64| MessageId::new(n).unwrap_or_else(|| panic!("id"));
+    let inbox = ConversationScope::Mailbox(mailbox_id(1));
+    assert_eq!(
+        conversation_targets(&label("Projet", true), &members, &inbox),
+        [id(3)]
+    );
+    assert_eq!(
+        conversation_targets(&label("Projet", false), &members, &inbox),
+        [id(1)]
+    );
+    assert_eq!(
+        conversation_targets(
+            &label("Projet", true),
+            &members,
+            &ConversationScope::Unified(MailboxRole::Sent)
+        ),
+        [id(2)]
+    );
+}
+
+#[test]
+fn label_ops_record_previous_value_and_skip_noops() {
+    let effect = |value| {
+        Effect::SetFlag(FlagChange {
+            flag: ActionFlag::Keyword(keyword("Projet")),
+            value,
+        })
+    };
+    let tagged = Flags::from_tokens(["Projet"]);
+    assert!(PendingOp::new(&effect(true), &local(tagged.clone()), 0).is_none());
+    let op = PendingOp::new(&effect(false), &local(tagged), 0);
+    assert!(matches!(
+        op.map(|o| o.kind),
+        Some(OpKind::Flag { previous: true, .. })
+    ));
+}
+
+#[test]
+fn label_replay_is_dropped_when_the_server_refuses_the_keyword() {
+    let tag = op(OpKind::Flag {
+        change: FlagChange {
+            flag: ActionFlag::Keyword(keyword("Projet")),
+            value: true,
+        },
+        previous: false,
+        unchanged_since: None,
+    });
+    let view = |keywords| ServerView {
+        uid_validity: UidValidity::new(7),
+        flags: Some(Flags::default()),
+        target_exists: true,
+        keywords,
+    };
+    assert_eq!(
+        decide(&tag, &view(KeywordPermission::from_tokens(["Autre"]))),
+        ReplayDecision::Drop(Conflict::KeywordRefused)
+    );
+    assert_eq!(
+        decide(&tag, &view(KeywordPermission::Any)),
+        ReplayDecision::Apply
     );
 }

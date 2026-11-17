@@ -354,3 +354,52 @@ fn tokens_are_folded_alphanumeric_runs() {
     );
     assert!(tokens(" -- ! ").is_empty());
 }
+
+fn label(name: &str, keywords: &[&str]) -> Clause {
+    Clause {
+        negated: false,
+        atom: Atom::Label {
+            name: name.to_owned(),
+            keywords: keywords
+                .iter()
+                .map(|k| Keyword::parse(k).unwrap_or_else(|| panic!("mot-clé")))
+                .collect(),
+        },
+    }
+}
+
+#[test]
+fn label_operator_in_french_and_english() {
+    assert_eq!(parse("étiquette:Projet"), [label("Projet", &["Projet"])]);
+    assert_eq!(parse("Etiquette:Projet"), [label("Projet", &["Projet"])]);
+    assert_eq!(parse("label:projet"), [label("projet", &["projet"])]);
+    assert_eq!(
+        parse("label:\"À faire\" devis"),
+        [
+            label("À faire", &["&AMAAIA-faire", "$label4"]),
+            word(Field::Any, "devis")
+        ]
+    );
+    assert_eq!(parse("-label:Projet"), [not(label("Projet", &["Projet"]))]);
+    // Étiquettes de Thunderbird reconnues par leur nom.
+    assert_eq!(
+        parse("étiquette:travail"),
+        [label("travail", &["travail", "$label2"])]
+    );
+    // Sans valeur : texte libre.
+    assert_eq!(parse("label:"), [word(Field::Any, "label:")]);
+    assert_eq!(
+        parse("label:\"  \""),
+        [word(Field::Any, "label:")]
+    );
+}
+
+#[test]
+fn label_clauses_take_the_known_keywords_of_the_same_name() {
+    let mut query = parse_query("étiquette:projet").unwrap_or_else(|_| panic!("requête"));
+    let known = ["Projet", "Autre"].map(|k| Keyword::parse(k).unwrap_or_else(|| panic!("mot-clé")));
+    query.resolve_labels(&known);
+    assert_eq!(query.clauses(), [label("projet", &["projet", "Projet"])]);
+    // Pas de surlignage pour une étiquette.
+    assert!(query.highlight_terms().is_empty());
+}

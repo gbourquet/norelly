@@ -1219,6 +1219,8 @@ export type ErrorCodeDto =
  *  doublons (rien n'a été écrit).
  */
 "contact_merge_conflict" | 
+/**  Le dossier refuse de garder cette étiquette (`PERMANENTFLAGS`). */
+"label_refused" | 
 /**  Erreur interne (journalisée). */
 "internal";
 

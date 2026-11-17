@@ -163,6 +163,7 @@ fn search_query(c: &Connection, request: &SearchRequest) -> Result<SearchPage, S
                 }
             }
             Atom::Filter(filter) => filters.push((clause.negated, *filter)),
+            Atom::Label { .. } => {}
         }
     }
     if positive.is_empty() && negative.is_empty() && filters.is_empty() {

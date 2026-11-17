@@ -78,7 +78,7 @@ impl<S: PendingOpStore> PerformAction<'_, S> {
                     e.insert((list, fallback))
                 }
             };
-            let effect = resolve(action, &target.mailbox, list, *fallback)?;
+            let effect = resolve(&action, &target.mailbox, list, *fallback)?;
             match PendingOp::new(&effect, &target, now) {
                 Some(op) => planned.push(op),
                 None => report.skipped += 1,
@@ -231,6 +231,10 @@ impl<S: PendingOpStore> ReplayActions<'_, S> {
             None => None,
         };
         let view = ServerView {
+            keywords: selected
+                .as_ref()
+                .map(|s| s.keywords.clone())
+                .unwrap_or_default(),
             uid_validity: selected.and_then(|s| s.uid_validity),
             flags,
             target_exists: match &op.kind {
@@ -250,7 +254,7 @@ impl<S: PendingOpStore> ReplayActions<'_, S> {
                 ..
             } => {
                 if session
-                    .store_flag(op.uid, *change, *unchanged_since)
+                    .store_flag(op.uid, change.clone(), *unchanged_since)
                     .await?
                     == StoreOutcome::Modified
                 {
@@ -258,8 +262,8 @@ impl<S: PendingOpStore> ReplayActions<'_, S> {
                     let Some(current) = current else {
                         return Ok(Executed::Dropped(Some(Conflict::MessageGone)));
                     };
-                    if after_modified(*change, &current) == ReplayDecision::Apply {
-                        session.store_flag(op.uid, *change, None).await?;
+                    if after_modified(change, &current) == ReplayDecision::Apply {
+                        session.store_flag(op.uid, change.clone(), None).await?;
                     }
                 }
                 0

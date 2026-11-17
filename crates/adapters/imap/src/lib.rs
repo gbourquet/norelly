@@ -515,9 +515,12 @@ impl RemoteMailboxSession for ImapSession {
         change: FlagChange,
         unchanged_since: Option<ModSeq>,
     ) -> Result<StoreOutcome, ConnectionError> {
-        let flag = match change.flag {
+        let flag = match &change.flag {
             ActionFlag::Seen => Flag::Seen,
             ActionFlag::Flagged => Flag::Flagged,
+            ActionFlag::Keyword(_) => {
+                return Err(ConnectionError::Protocol("mot-clé non pris en charge".into()));
+            }
         };
         // UNCHANGEDSINCE n'a de sens qu'avec CONDSTORE actif sur la boîte.
         let unchanged_since = unchanged_since.filter(|_| self.selected_condstore);

@@ -1332,9 +1332,12 @@ async fn a_forged_copy_arrived_after_the_opening_stays_unread() {
     let shown = conversation_messages(t.state(), opened)
         .await
         .unwrap_or_else(|e| panic!("{e:?}"));
+    // L'original reste affiché, à lire tant que l'exemplaire forgé ne l'est
+    // pas : la prochaine ouverture le marquera, cette fois en connaissance
+    // de cause.
     assert_eq!(
         shown.iter().map(|m| (m.id, m.unread)).collect::<Vec<_>>(),
-        [(original, false)],
+        [(original, true)],
         "l'original reste affiché"
     );
 }

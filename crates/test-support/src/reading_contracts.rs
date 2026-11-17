@@ -13,9 +13,9 @@ use norelly_domain::mailbox::{
     Correspondent, Flags, MailboxId, MailboxRole, MessageHeaders, MessageMeta,
 };
 use norelly_domain::ports::{
-    ConversationId, ConversationListItem, ConversationQuery, MailStore, MessageLocator,
-    ReadingPreferences, SettingsStore, StoreError, StoredBody, StoredMailbox, StoredMessage,
-    SyncBatch,
+    ConversationId, ConversationListItem, ConversationQuery, MAX_CONVERSATION_MESSAGES, MailStore,
+    MessageLocator, ReadingPreferences, SettingsStore, StoreError, StoredBody, StoredMailbox,
+    StoredMessage, SyncBatch,
 };
 use norelly_domain::sender_auth::SenderAuth;
 use norelly_domain::sync::FlagUpdate;
@@ -596,9 +596,11 @@ where
         id_of(&boxes, "Archives"),
         id_of(&boxes, "Junk"),
     );
-    let original = || threaded(1, 100, "f1@a", &[], "Facture", "Alice", false);
-    store.apply_sync(inbox, &batch(vec![original()])).await?;
-    store.apply_sync(archives, &batch(vec![original()])).await?;
+    let original = |n: u32| threaded(n, 100, "f1@a", &[], "Facture", "Alice", true);
+    store.apply_sync(inbox, &batch(vec![original(1)])).await?;
+    store
+        .apply_sync(archives, &batch(vec![original(1)]))
+        .await?;
     let conversation = all_pages(store, ConversationScope::Mailbox(inbox), 10)
         .await?
         .first()
@@ -622,36 +624,21 @@ where
         shown.newest_copy > shown.id,
         "l'exemplaire des Archives est couvert : {shown:?}"
     );
+    assert!(shown.flags.seen);
 
-    // Messages forgés avec le même Message-ID : plus récent dans la boîte
-    // de réception, plus ancien dans les Indésirables.
+    // Messages forgés avec le même Message-ID, remis après l'original :
+    // plus récent dans la boîte de réception, daté du passé (en-tête
+    // Date) dans les Indésirables.
+    let forged = |n: u32, date: i64, received: i64| {
+        let mut m = threaded(n, date, "f1@a", &[], "Facture", "Usurpateur", false);
+        m.meta.internal_date = received;
+        m
+    };
     store
-        .apply_sync(
-            inbox,
-            &batch(vec![threaded(
-                2,
-                500,
-                "f1@a",
-                &[],
-                "Facture",
-                "Usurpateur",
-                false,
-            )]),
-        )
+        .apply_sync(inbox, &batch(vec![forged(2, 10_000, 10_000)]))
         .await?;
     store
-        .apply_sync(
-            junk,
-            &batch(vec![threaded(
-                1,
-                50,
-                "f1@a",
-                &[],
-                "Facture",
-                "Usurpateur",
-                false,
-            )]),
-        )
+        .apply_sync(junk, &batch(vec![forged(1, 50, 600)]))
         .await?;
     let after = store.conversation_messages(conversation).await?;
     assert_eq!(view(&after), [(inbox, "Alice".to_owned())], "{after:?}");
@@ -660,6 +647,58 @@ where
     assert!(
         still.newest_copy > shown.newest_copy,
         "les exemplaires arrivés depuis relèvent le repère : {still:?}"
+    );
+    assert!(!still.flags.seen, "non lu tant qu'un exemplaire l'est");
+
+    // L'original change de dossier après l'arrivée du forgé : il reçoit
+    // un nouvel identifiant, plus grand que celui du forgé, mais garde sa
+    // date de remise.
+    let removed = |uid_n: u32| SyncBatch {
+        removed: vec![uid(uid_n)],
+        ..batch(vec![])
+    };
+    store.apply_sync(inbox, &removed(1)).await?;
+    store.apply_sync(archives, &removed(1)).await?;
+    store
+        .apply_sync(archives, &batch(vec![original(2)]))
+        .await?;
+    // Le faux renumérote les conversations : on la retrouve par le dossier.
+    let conversation = all_pages(store, ConversationScope::Mailbox(archives), 10)
+        .await?
+        .first()
+        .map(|c| c.id)
+        .ok_or_else(|| StoreError("conversation déplacée".into()))?;
+    let moved = store.conversation_messages(conversation).await?;
+    assert_eq!(
+        view(&moved),
+        [(archives, "Alice".to_owned())],
+        "l'original déplacé reste affiché : {moved:?}"
+    );
+
+    // Afflux de réponses récentes : l'original, ancien, sort des messages
+    // affichés, sans que le forgé, daté de plus récent, prenne sa place.
+    let flood: Vec<StoredMessage> = (0..u32::try_from(MAX_CONVERSATION_MESSAGES * 4)
+        .unwrap_or(u32::MAX))
+        .map(|i| {
+            threaded(
+                10 + i,
+                1_000 + i64::from(i),
+                &format!("r{i}@a"),
+                &["f1@a"],
+                "Re: Facture",
+                "Bob",
+                true,
+            )
+        })
+        .collect();
+    store.apply_sync(inbox, &batch(flood)).await?;
+    let flooded = store.conversation_messages(conversation).await?;
+    assert_eq!(flooded.len(), MAX_CONVERSATION_MESSAGES);
+    assert!(
+        flooded
+            .iter()
+            .all(|m| m.from.as_ref().is_some_and(|f| f.name == "Bob")),
+        "aucun exemplaire forgé affiché"
     );
     Ok(())
 }

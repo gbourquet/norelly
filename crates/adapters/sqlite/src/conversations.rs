@@ -13,13 +13,12 @@ use norelly_domain::conversation::{
     Assignment, ConversationScope, MessageCopy, ShownCopy, SubjectCandidate, ThreadKeys, assign,
     shown_copies,
 };
-use norelly_domain::mailbox::{
-    Correspondent, MAX_SUBJECT_CHARS, MailboxName, MailboxRole, header_text,
-};
+use norelly_domain::mailbox::{Correspondent, MAX_SUBJECT_CHARS, MailboxName, header_text};
 use norelly_domain::ports::{
     ConversationCursor, ConversationId, ConversationListItem, ConversationMessage,
-    ConversationPage, ConversationQuery, MAX_CONVERSATION_MESSAGES, MAX_LISTED_SENDERS,
-    MAX_PAGE_SIZE, MessageId, MessageLocation, MessageLocator, StoreError, StoredBody, same_sender,
+    ConversationPage, ConversationQuery, MAX_CONVERSATION_COPIES, MAX_CONVERSATION_MESSAGES,
+    MAX_LISTED_SENDERS, MAX_PAGE_SIZE, MessageId, MessageLocation, MessageLocator, StoreError,
+    StoredBody, same_sender,
 };
 use norelly_domain::sender_auth::SenderAuth;
 use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, params};
@@ -347,8 +346,8 @@ fn people(raw: &str) -> Vec<Correspondent> {
         .collect()
 }
 
+/// Contenu d'un exemplaire affiché.
 type MessageRow = (
-    i64,
     i64,
     i64,
     i64,
@@ -361,116 +360,146 @@ type MessageRow = (
     i64,
     String,
     bool,
-    Option<String>,
-    String,
     String,
 );
 
+/// Exemplaire d'une conversation, sans son contenu : identifiant,
+/// `Message-ID`, date de remise, drapeaux, date de tri.
+type CopyRow = (i64, Option<String>, i64, i64, i64);
+
+/// Messages d'une conversation, à lire dans une transaction (instantané
+/// unique pour les deux étapes) : les exemplaires d'abord, dans l'ordre de
+/// remise et bornés à [`MAX_CONVERSATION_COPIES`], pour que le domaine
+/// choisisse l'exemplaire affiché ; puis le contenu des
+/// [`MAX_CONVERSATION_MESSAGES`] messages retenus les plus récents.
 fn messages_query(
     c: &Connection,
     conversation: ConversationId,
 ) -> Result<Vec<ConversationMessage>, StoreError> {
-    let mut stmt = c
+    let limit = i64::try_from(MAX_CONVERSATION_COPIES).unwrap_or(i64::MAX);
+    let copies: Vec<CopyRow> = c
         .prepare_cached(
-            "SELECT m.id, b.account_id, m.mailbox_id, m.uid, m.sort_date, m.from_name, \
-             m.from_address, m.to_json, m.cc_json, m.subject, m.flags, m.keywords, \
-             m.has_attachments, m.message_id, m.sender_auth, b.role \
-             FROM messages m JOIN mailboxes b ON b.id = m.mailbox_id \
-             WHERE m.conversation_id = ?1 AND m.hidden = 0 AND (m.flags & 8) = 0 \
-             ORDER BY m.sort_date DESC, m.id DESC LIMIT ?2",
+            "SELECT id, message_id, internal_date, flags, sort_date FROM messages \
+             WHERE conversation_id = ?1 AND hidden = 0 AND (flags & 8) = 0 \
+             ORDER BY internal_date, id LIMIT ?2",
         )
-        .map_err(store_error)?;
-    // Marge pour les doublons (même message dans plusieurs dossiers).
-    let fetch = i64::try_from(MAX_CONVERSATION_MESSAGES * 4).unwrap_or(i64::MAX);
-    let rows: Vec<MessageRow> = stmt
-        .query_map(params![conversation.get(), fetch], |r| {
-            Ok((
-                r.get(0)?,
-                r.get(1)?,
-                r.get(2)?,
-                r.get(3)?,
-                r.get(4)?,
-                r.get(5)?,
-                r.get(6)?,
-                r.get(7)?,
-                r.get(8)?,
-                r.get(9)?,
-                r.get(10)?,
-                r.get(11)?,
-                r.get(12)?,
-                r.get(13)?,
-                r.get(14)?,
-                r.get(15)?,
-            ))
+        .map_err(store_error)?
+        .query_map(params![conversation.get(), limit], |r| {
+            Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?))
         })
         .map_err(store_error)?
         .collect::<Result<_, _>>()
         .map_err(store_error)?;
-    // Choix de l'exemplaire affiché : règle du domaine.
-    let picked = {
-        let copies = rows
-            .iter()
-            .map(|r| {
-                Ok(MessageCopy {
-                    id: MessageId::new(r.0).ok_or_else(|| corrupted("identifiant de message"))?,
-                    role: MailboxRole::parse(&r.15).ok_or_else(|| corrupted("rôle"))?,
-                    message_id: r.13.as_deref(),
-                })
-            })
-            .collect::<Result<Vec<_>, StoreError>>()?;
-        shown_copies(&copies)
-    };
-    let mut rows: Vec<Option<MessageRow>> = rows.into_iter().map(Some).collect();
-    let mut out = Vec::new();
-    for ShownCopy { index, newest_copy } in picked {
-        let Some(row) = rows.get_mut(index).and_then(Option::take) else {
+    let ids = copies
+        .iter()
+        .map(|r| MessageId::new(r.0).ok_or_else(|| corrupted("identifiant de message")))
+        .collect::<Result<Vec<_>, _>>()?;
+    let candidates: Vec<MessageCopy<'_>> = copies
+        .iter()
+        .zip(&ids)
+        .map(|((_, message_id, received, bits, _), id)| MessageCopy {
+            id: *id,
+            received: *received,
+            seen: bits & 1 != 0,
+            message_id: message_id.as_deref(),
+        })
+        .collect();
+    // Exemplaires retenus par le domaine, les plus récents d'abord.
+    let mut picked: Vec<(i64, ShownCopy)> = shown_copies(&candidates)
+        .into_iter()
+        .filter_map(|s| copies.get(s.index).map(|r| (r.4, s)))
+        .collect();
+    picked.sort_by_key(|(date, s)| std::cmp::Reverse((*date, ids.get(s.index).copied())));
+    picked.truncate(MAX_CONVERSATION_MESSAGES);
+    picked.reverse();
+
+    let mut stmt = c
+        .prepare_cached(
+            "SELECT b.account_id, m.mailbox_id, m.uid, m.sort_date, m.from_name, \
+             m.from_address, m.to_json, m.cc_json, m.subject, m.flags, m.keywords, \
+             m.has_attachments, m.sender_auth \
+             FROM messages m JOIN mailboxes b ON b.id = m.mailbox_id WHERE m.id = ?1",
+        )
+        .map_err(store_error)?;
+    let mut out = Vec::with_capacity(picked.len());
+    for (_, shown) in picked {
+        let Some(id) = ids.get(shown.index).copied() else {
             continue;
         };
-        let (
-            id,
-            account,
-            mailbox,
-            uid,
-            date,
-            from_name,
-            from_address,
-            to,
-            cc,
-            subject,
-            bits,
-            keywords,
-            attachments,
-            _message_id,
-            sender_auth,
-            _role,
-        ) = row;
-        out.push(ConversationMessage {
-            id: MessageId::new(id).ok_or_else(|| corrupted("identifiant de message"))?,
-            account: AccountId::new(account).map_err(|_| corrupted("compte"))?,
-            mailbox: mailbox_id(mailbox)?,
-            uid: uid_of(uid)?,
-            date,
-            from: (!from_name.is_empty() || !from_address.is_empty())
-                .then(|| Correspondent::new(&from_name, &from_address)),
-            // Valeur inattendue (base modifiée à la main) : aucun verdict,
-            // donc aucune pastille ; la conversation reste lisible.
-            sender_auth: SenderAuth::from_code(&sender_auth).unwrap_or_else(|| {
-                tracing::warn!(message = id, "authentification de l'expéditeur illisible");
-                SenderAuth::Unknown
-            }),
-            to: people(&to),
-            cc: people(&cc),
-            subject: header_text(&subject, MAX_SUBJECT_CHARS),
-            flags: flags_from(bits, &keywords),
-            has_attachments: attachments,
-            newest_copy,
-        });
-        if out.len() >= MAX_CONVERSATION_MESSAGES {
-            break;
-        }
+        let row: Option<MessageRow> = stmt
+            .query_row(params![id.get()], |r| {
+                Ok((
+                    r.get(0)?,
+                    r.get(1)?,
+                    r.get(2)?,
+                    r.get(3)?,
+                    r.get(4)?,
+                    r.get(5)?,
+                    r.get(6)?,
+                    r.get(7)?,
+                    r.get(8)?,
+                    r.get(9)?,
+                    r.get(10)?,
+                    r.get(11)?,
+                    r.get(12)?,
+                ))
+            })
+            .optional()
+            .map_err(store_error)?;
+        let Some(row) = row else { continue };
+        out.push(conversation_message(id, row, shown)?);
     }
-    out.reverse();
     Ok(out)
+}
+
+/// Message affiché : contenu de l'exemplaire retenu ; lu seulement si tous
+/// ses exemplaires le sont.
+fn conversation_message(
+    id: MessageId,
+    row: MessageRow,
+    shown: ShownCopy,
+) -> Result<ConversationMessage, StoreError> {
+    let (
+        account,
+        mailbox,
+        uid,
+        date,
+        from_name,
+        from_address,
+        to,
+        cc,
+        subject,
+        bits,
+        keywords,
+        attachments,
+        sender_auth,
+    ) = row;
+    let mut flags = flags_from(bits, &keywords);
+    flags.seen = !shown.unread;
+    Ok(ConversationMessage {
+        id,
+        account: AccountId::new(account).map_err(|_| corrupted("compte"))?,
+        mailbox: mailbox_id(mailbox)?,
+        uid: uid_of(uid)?,
+        date,
+        from: (!from_name.is_empty() || !from_address.is_empty())
+            .then(|| Correspondent::new(&from_name, &from_address)),
+        // Valeur inattendue (base modifiée à la main) : aucun verdict,
+        // donc aucune pastille ; la conversation reste lisible.
+        sender_auth: SenderAuth::from_code(&sender_auth).unwrap_or_else(|| {
+            tracing::warn!(
+                message = id.get(),
+                "authentification de l'expéditeur illisible"
+            );
+            SenderAuth::Unknown
+        }),
+        to: people(&to),
+        cc: people(&cc),
+        subject: header_text(&subject, MAX_SUBJECT_CHARS),
+        flags,
+        has_attachments: attachments,
+        newest_copy: shown.newest_copy,
+    })
 }
 
 impl ConversationQuery for SqliteMailStore {
@@ -490,7 +519,10 @@ impl ConversationQuery for SqliteMailStore {
         conversation: ConversationId,
     ) -> Result<Vec<ConversationMessage>, StoreError> {
         self.db()
-            .read(move |c| messages_query(c, conversation))
+            .read(move |c| {
+                let tx = c.transaction().map_err(store_error)?;
+                messages_query(&tx, conversation)
+            })
             .await
     }
 }

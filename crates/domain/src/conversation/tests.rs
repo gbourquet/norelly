@@ -490,54 +490,79 @@ proptest! {
 // Exemplaires d'un même message
 // ---------------------------------------------------------------------------
 
-fn copy(id: i64, role: MailboxRole, message_id: Option<&str>) -> MessageCopy<'_> {
+/// Exemplaire `id`, remis par le serveur à `received` (INTERNALDATE).
+fn copy(id: i64, received: i64, seen: bool, message_id: Option<&str>) -> MessageCopy<'_> {
     MessageCopy {
         id: MessageId::new(id).unwrap_or_else(|| panic!("id")),
-        role,
+        received,
+        seen,
         message_id,
     }
 }
 
-fn shown(index: usize, newest: i64) -> ShownCopy {
+fn shown(index: usize, newest: i64, unread: bool) -> ShownCopy {
     ShownCopy {
         index,
         newest_copy: MessageId::new(newest).unwrap_or_else(|| panic!("id")),
+        unread,
     }
 }
 
 #[test]
-fn the_oldest_copy_is_shown_whatever_the_reading_order() {
-    // Lu du plus récent au plus ancien : l'exemplaire forgé (7), arrivé
+fn the_first_delivered_copy_is_shown_whatever_the_reading_order() {
+    // Lu du plus récent au plus ancien : l'exemplaire forgé (7), remis
     // après l'original (2), ne prend pas sa place.
     let copies = [
-        copy(7, MailboxRole::Inbox, Some("a@x")),
-        copy(5, MailboxRole::Inbox, Some("b@x")),
-        copy(2, MailboxRole::Inbox, Some("a@x")),
-        copy(4, MailboxRole::Archive, Some("a@x")),
+        copy(7, 300, true, Some("a@x")),
+        copy(5, 200, true, Some("b@x")),
+        copy(2, 100, true, Some("a@x")),
+        copy(4, 100, true, Some("a@x")),
     ];
-    assert_eq!(shown_copies(&copies), [shown(1, 5), shown(2, 7)]);
+    assert_eq!(
+        shown_copies(&copies),
+        [shown(1, 5, false), shown(2, 7, false)]
+    );
 }
 
 #[test]
-fn a_copy_outside_the_junk_folder_is_preferred() {
-    // L'exemplaire des Indésirables est le plus ancien et lu en premier :
-    // l'autre l'emporte quand même.
+fn delivery_date_wins_over_the_local_identifier() {
+    // L'original, rangé ou resynchronisé après l'arrivée du forgé, a reçu
+    // un identifiant local plus grand (9) ; sa date de remise, conservée
+    // par le serveur, reste la plus ancienne.
     let copies = [
-        copy(1, MailboxRole::Junk, Some("a@x")),
-        copy(3, MailboxRole::Archive, Some("a@x")),
+        copy(9, 100, true, Some("a@x")),
+        copy(5, 400, true, Some("a@x")),
     ];
-    assert_eq!(shown_copies(&copies), [shown(1, 3)]);
-    // Seul exemplaire : affiché, même dans les Indésirables.
-    let alone = [copy(1, MailboxRole::Junk, Some("a@x"))];
-    assert_eq!(shown_copies(&alone), [shown(0, 1)]);
+    assert_eq!(shown_copies(&copies), [shown(0, 9, false)]);
+    // Même date de remise : le plus petit identifiant départage.
+    let tie = [
+        copy(6, 100, true, Some("a@x")),
+        copy(3, 100, true, Some("a@x")),
+    ];
+    assert_eq!(shown_copies(&tie), [shown(1, 6, false)]);
+}
+
+#[test]
+fn a_message_is_unread_while_one_of_its_copies_is() {
+    // Exemplaire affiché lu, autre exemplaire non lu : le message reste à
+    // lire (et sera marqué à l'ouverture).
+    let copies = [
+        copy(1, 100, true, Some("a@x")),
+        copy(2, 200, false, Some("a@x")),
+        copy(3, 300, true, Some("b@x")),
+    ];
+    assert_eq!(
+        shown_copies(&copies),
+        [shown(0, 2, true), shown(2, 3, false)]
+    );
 }
 
 #[test]
 fn a_message_without_message_id_is_its_own_copy() {
-    let copies = [
-        copy(4, MailboxRole::Inbox, None),
-        copy(3, MailboxRole::Inbox, None),
-    ];
-    assert_eq!(shown_copies(&copies), [shown(0, 4), shown(1, 3)]);
+    let copies = [copy(4, 100, false, None), copy(3, 100, true, None)];
+    assert_eq!(
+        shown_copies(&copies),
+        [shown(0, 4, true), shown(1, 3, false)]
+    );
     assert_eq!(shown_copies(&[]), []);
 }

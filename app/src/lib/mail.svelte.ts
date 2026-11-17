@@ -320,11 +320,11 @@ export class MailState {
     await this.#loadMessages(conversation.id);
     if (generation !== this.#openGeneration) return;
     const shown = this.messages.filter((x) => x.unread).map((x) => x.id);
-    // Repère de l'ouverture : un exemplaire arrivé ensuite, même avec le
-    // Message-ID d'un message affiché, n'a pas été vu.
-    const knownUntil = Math.max(0, ...this.messages.map((x) => x.newest_copy));
     const delay = this.#markSeenDelay();
     if (shown.length === 0 || delay === null) return;
+    // Repère de l'ouverture : un exemplaire arrivé ensuite, même avec le
+    // Message-ID d'un message affiché, n'a pas été vu.
+    const knownUntil = this.messages.reduce((max, x) => Math.max(max, x.newest_copy), 0);
     this.#autoSeen = this.#whileVisible(delay, () => {
       this.#autoSeen = null;
       this.#autoSeenInFlight = this.#markOpenedSeen(conversation, shown, knownUntil);

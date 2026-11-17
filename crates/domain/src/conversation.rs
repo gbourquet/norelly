@@ -756,8 +756,13 @@ impl ConversationScope {
 /// `Message-ID`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MessageCopy<'a> {
+    /// Identifiant local, croissant à l'insertion (un déplacement ou une
+    /// resynchronisation en attribue un nouveau).
     pub id: MessageId,
-    pub role: MailboxRole,
+    /// Date de remise par le serveur (INTERNALDATE), conservée quand le
+    /// message change de dossier.
+    pub received: i64,
+    pub seen: bool,
     pub message_id: Option<&'a str>,
 }
 
@@ -768,44 +773,44 @@ pub struct ShownCopy {
     pub index: usize,
     /// Plus grand identifiant parmi les exemplaires de ce message.
     pub newest_copy: MessageId,
+    /// Un exemplaire au moins n'est pas lu.
+    pub unread: bool,
 }
 
 /// Un exemplaire par message, dans l'ordre de `copies`. Parmi les
-/// exemplaires d'un même `Message-ID`, celui qui n'est pas dans les
-/// Indésirables l'emporte, puis le plus ancien arrivé (plus petit
-/// identifiant) : un message forgé qui reprend le `Message-ID` d'un
-/// message déjà reçu ne prend jamais sa place à l'affichage. Un message
-/// sans `Message-ID` est son propre exemplaire.
+/// exemplaires d'un même `Message-ID`, le premier remis par le serveur
+/// l'emporte (date de remise, puis plus petit identifiant) : un message
+/// forgé qui reprend le `Message-ID` d'un message déjà reçu ne prend pas
+/// sa place, même si l'original change ensuite de dossier. Le message est
+/// non lu tant qu'un de ses exemplaires l'est. Un message sans
+/// `Message-ID` est son propre exemplaire.
 #[must_use]
 pub fn shown_copies(copies: &[MessageCopy<'_>]) -> Vec<ShownCopy> {
-    let rank = |c: &MessageCopy<'_>| (c.role == MailboxRole::Junk, c.id);
-    // Pour chaque Message-ID : position de l'exemplaire retenu et plus
-    // grand identifiant du groupe.
-    let mut groups: BTreeMap<&str, (usize, MessageId)> = BTreeMap::new();
+    let rank = |c: &MessageCopy<'_>| (c.received, c.id);
+    let mut groups: BTreeMap<&str, ShownCopy> = BTreeMap::new();
     let mut shown = Vec::new();
     for (index, c) in copies.iter().enumerate() {
+        let own = ShownCopy {
+            index,
+            newest_copy: c.id,
+            unread: !c.seen,
+        };
         let Some(mid) = c.message_id else {
-            shown.push(ShownCopy {
-                index,
-                newest_copy: c.id,
-            });
+            shown.push(own);
             continue;
         };
         groups
             .entry(mid)
-            .and_modify(|(best, newest)| {
-                if copies.get(*best).is_none_or(|b| rank(c) < rank(b)) {
-                    *best = index;
+            .and_modify(|g| {
+                if copies.get(g.index).is_none_or(|b| rank(c) < rank(b)) {
+                    g.index = index;
                 }
-                *newest = (*newest).max(c.id);
+                g.newest_copy = g.newest_copy.max(c.id);
+                g.unread |= !c.seen;
             })
-            .or_insert((index, c.id));
+            .or_insert(own);
     }
-    shown.extend(
-        groups
-            .into_values()
-            .map(|(index, newest_copy)| ShownCopy { index, newest_copy }),
-    );
+    shown.extend(groups.into_values());
     shown.sort_by_key(|s| s.index);
     shown
 }

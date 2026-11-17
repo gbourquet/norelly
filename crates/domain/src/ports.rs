@@ -1062,6 +1062,12 @@ pub struct ConversationMessage {
 /// Nombre maximal de messages renvoyés pour une conversation.
 pub const MAX_CONVERSATION_MESSAGES: usize = 500;
 
+/// Nombre maximal d'exemplaires d'une conversation examinés pour choisir
+/// ceux qui s'affichent : les premiers remis par le serveur, pour qu'un
+/// afflux de messages ne fasse jamais sortir un original au profit d'un
+/// exemplaire forgé arrivé après lui.
+pub const MAX_CONVERSATION_COPIES: usize = MAX_CONVERSATION_MESSAGES * 20;
+
 /// Listes de conversations, précalculées (ADR-003).
 pub trait ConversationQuery: Send + Sync {
     /// Au plus `limit` conversations (borné à [`MAX_PAGE_SIZE`]) après

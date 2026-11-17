@@ -1168,12 +1168,18 @@ impl ConversationQuery for InMemoryMailStore {
             .iter()
             .map(|l| MessageCopy {
                 id: l.message.id,
-                role: l.role,
+                received: l.message.stored.meta.internal_date,
+                seen: l.message.stored.meta.flags.seen,
                 message_id: l.message.stored.meta.headers.message_id.as_deref(),
             })
             .collect();
         let mut out = Vec::new();
-        for ShownCopy { index, newest_copy } in shown_copies(&copies) {
+        for ShownCopy {
+            index,
+            newest_copy,
+            unread,
+        } in shown_copies(&copies)
+        {
             let Some(l) = members.get(index) else {
                 continue;
             };
@@ -1189,7 +1195,11 @@ impl ConversationQuery for InMemoryMailStore {
                 to: meta.headers.to.clone(),
                 cc: meta.headers.cc.clone(),
                 subject: meta.headers.subject.clone(),
-                flags: meta.flags.clone(),
+                flags: {
+                    let mut flags = meta.flags.clone();
+                    flags.seen = !unread;
+                    flags
+                },
                 has_attachments: meta.has_attachments(),
                 newest_copy,
             });

@@ -39,9 +39,10 @@ de messages.
   disparaît.
 - Une conversation affiche au plus ses 500 messages.
 - Un même message rangé dans plusieurs dossiers n'apparaît qu'une fois.
-  L'exemplaire affiché est celui qui n'est pas dans les Indésirables, puis
-  le premier reçu : un message qui se fait passer pour un message déjà
-  reçu ne prend jamais sa place.
+  L'exemplaire affiché est le premier reçu, même s'il change ensuite de
+  dossier : un message qui se fait passer pour un message déjà reçu ne
+  prend jamais sa place, même nombreux. Le message reste non lu tant qu'un
+  de ses exemplaires l'est.
 
 ## Cas limites
 

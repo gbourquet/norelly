@@ -175,6 +175,12 @@ Un contact est reconnu comme déjà présent s'il a la même adresse
 électronique. Une fiche sans adresse électronique n'est pas importée : le
 carnet de Norelly sert à écrire des messages.
 
+Les étiquettes courantes des adresses et des téléphones (travail,
+domicile, mobile, fax…) s'affichent en français, quelle que soit la
+langue du logiciel d'origine. Les étiquettes personnelles, comme celles
+créées dans Contacts d'Apple (« bureau », « chalet »), sont reprises telles
+quelles.
+
 ## Exporter vos contacts
 
 Pour garder une copie de votre carnet, ou le reprendre dans un autre

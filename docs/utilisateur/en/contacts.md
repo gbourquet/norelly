@@ -171,6 +171,11 @@ A contact is recognised as already there if it has the same email
 address. A card without an email address is not imported: Norelly's
 address book is for writing messages.
 
+Common labels on addresses and phone numbers (work, home, mobile, fax…)
+are shown in English, whatever the language of the program they come
+from. Personal labels, such as those created in Apple Contacts ("office",
+"cottage"), are kept as they are.
+
 ## Exporting your contacts
 
 To keep a copy of your address book, or move it to another program:

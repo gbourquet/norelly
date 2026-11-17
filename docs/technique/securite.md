@@ -279,6 +279,15 @@ Risques résiduels, acceptés avec la décision du mainteneur :
 - Bornes partout : profondeur MIME, nombre de parties, tailles, nombre de
   clauses, de destinataires, de pièces jointes, d'opérations en attente,
   durée d'une recherche (2 s).
+- Étiquettes : nom revalidé par le domaine (`LabelName`), encodé en
+  atom ASCII avant tout envoi au serveur (`keyword_atom` le revérifie) ;
+  mot-clé reçu de l'interface revalidé (`Keyword::parse`) ; mot-clé du
+  serveur jamais interprété (affiché en texte échappé s'il n'est pas un nom
+  canonique) ; couleur stockée et transmise en `#rrggbb` seulement
+  (`LabelColor`, `CHECK` SQL, contrôle redoublé dans l'interface avant le
+  style) ; recherche par étiquette en paramètres liés ; réécriture d'un
+  mot-clé par lots bornés (`REWRITE_BATCH`), jamais sur un ensemble d'UID
+  vide.
 - Suppression d'un dossier : refusée s'il a un sous-dossier, d'après la
   liste du compte puis un `LIST "<parent><délim>%"` relu juste avant
   `DELETE`, où tout nom illisible ou refusé compte
@@ -328,7 +337,8 @@ reçus de l'interface ; types MIME recalculés.
 Signalés au mainteneur dans chaque PR qui les touche (ADR-008) :
 
 - `crates/domain/src/security.rs`, `discovery.rs`, `reading.rs`,
-  `credentials.rs`, `oauth.rs`, `auth.rs`, `sender_auth.rs` ;
+  `credentials.rs`, `oauth.rs`, `auth.rs`, `sender_auth.rs`, `labels.rs`
+  (encodage des mots-clés, couleurs) ;
 - `crates/adapters/oauth/src/lib.rs`, `crates/application/src/oauth.rs` ;
 - `crates/adapters/tls/src/lib.rs`, `crates/adapters/imap/src/connection.rs`,
   `crates/adapters/smtp/src/stream.rs` ;

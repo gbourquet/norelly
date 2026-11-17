@@ -62,6 +62,7 @@ relecture prioritaire du mainteneur.
 | `conversation` | Fils JWZ, version incrémentale, boîte unifiée |
 | `reading` | Liens, images distantes, noms et ouverture des pièces jointes |
 | `actions` | Sémantique des actions, application optimiste, file durable, conflits |
+| `labels` | Étiquettes : nom encodé en mot-clé, mots-clés réservés, couleur et contraste, `PERMANENTFLAGS`, menu « Étiqueter… », réécriture par lots |
 | `compose` (`draft`, `outbox`) | Réponses, sujets, fils, citation ; brouillon ; file d'envoi |
 | `search` | Syntaxe des requêtes, surlignage |
 | `contacts` | Fiche du carnet d'adresses validée, clé d'adresse, nom affiché, filtre et ordre de la liste (ADR-012) |
@@ -84,6 +85,7 @@ Orchestration async des ports, sans règle métier propre :
 | `sync` | `SyncAccount`, boîte par boîte, enregistrement par lots |
 | `reading` | `ReadMessage`, `allow_remote_images`, `DownloadPart` |
 | `actions` | `PerformAction`, `UndoActions`, `ReplayActions` |
+| `labels` | `ListLabels`, `CreateLabel`, `SetLabelColor`, `RenameLabel`, `DeleteLabel`, `ReplayRewrites` (réécriture sur le serveur, rejouée par l'acteur), `LabelMenuFor` |
 | `compose`, `compose_worker` | `SaveDraft`, `QueueMessage`, `PrepareReply`, `DeliverOutbox`, `RecoverOutbox`, `FileSentCopies`, `SyncDrafts` ; un travailleur par compte |
 | `contacts` | `CreateContact`, `UpdateContact`, `DeleteContacts`, `ListContacts`, `GetContact` |
 

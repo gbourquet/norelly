@@ -262,6 +262,42 @@ clavier, **X** coche ou décoche le message choisi.
 **Annuler** : après chaque action, un bandeau apparaît en bas avec un
 bouton **Annuler** (ou la touche **Z**).
 
+## Étiqueter un message
+
+Une étiquette classe un message sous un thème (« Associations »,
+« Factures »…) sans le déplacer. Un message peut en porter plusieurs.
+
+1. Ouvrez le message, cliquez sur **Plus…** puis sur **Étiqueter…** (ou
+   faites un clic droit sur la ligne du message ; au clavier : **L**).
+2. Cochez une étiquette pour la poser, décochez-la pour la retirer. Pour
+   en créer une, tapez son nom sous **Nouvelle étiquette**, puis cliquez sur
+   **Créer et poser**.
+3. Cliquez sur **Terminé**.
+
+![La fenêtre « Étiqueter » avec deux étiquettes cochées](captures/label-menu.png)
+
+Les étiquettes apparaissent en **pastilles** : dans la liste, après le
+sujet (deux au plus, puis « +1 », « +2 »…), et sous le sujet du message
+ouvert. **Cliquez sur une pastille** pour retrouver tous les messages de
+cette étiquette.
+
+![Des pastilles d'étiquettes dans la liste des messages](captures/label-list.png)
+
+![Les étiquettes sous le sujet du message ouvert](captures/label-reading.png)
+
+Pour **colorer**, **renommer** ou **supprimer** une étiquette, ouvrez les
+**Paramètres** : la section **Étiquettes** liste celles de chaque compte. La
+couleur reste sur votre ordinateur. Un renommage met à jour vos messages
+sur le serveur, en arrière-plan : vous pouvez continuer à travailler. En
+supprimant une étiquette, vous pouvez aussi la retirer de tous vos
+messages.
+
+![La section « Étiquettes » des paramètres](captures/label-settings.png)
+
+Si **Étiqueter…** est grisé, le serveur de ce compte ne garde pas les
+étiquettes dans ce dossier : passez la souris dessus pour en voir la
+raison.
+
 ## Supprimer
 
 Cliquez sur **Supprimer** dans la barre d'actions, sur la petite corbeille
@@ -296,6 +332,7 @@ Pour affiner, vous pouvez ajouter :
 | `"bonne année"` | cette expression exacte |
 | `has:attachment` | les messages avec une pièce jointe |
 | `is:unread` | les messages non lus (`is:read` : lus, `is:flagged` : suivis) |
+| `étiquette:factures` | les messages qui portent l'étiquette « Factures » (`étiquette:"à faire"` pour un nom avec des espaces) |
 | `after:2026-01-31` | les messages reçus à partir du 31 janvier 2026 (`before:` : avant) |
 | `-publicité` | les messages qui **ne** contiennent **pas** ce mot |
 

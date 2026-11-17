@@ -29,6 +29,7 @@ Syntaxe :
 | `"phrase exacte"` | expression ; guillemet final facultatif |
 | `from:`, `to:` (À et Cc), `subject:` | sur un champ, suivis d'un mot ou d'une phrase |
 | `has:attachment`, `is:unread`, `is:read`, `is:flagged` | filtres : avec pièce jointe, non lu, lu, suivi |
+| `étiquette:nom`, `label:nom` (accent facultatif), `étiquette:"nom avec espaces"` | messages qui portent l'étiquette ; nom aux majuscules et accents près, étiquettes de Thunderbird aussi par leur nom français ou anglais ; un clic sur une pastille lance cette recherche (voir [étiquettes](etiquettes.md)) |
 | `before:AAAA-MM-JJ`, `after:AAAA-MM-JJ` | `before` exclut le jour, `after` l'inclut ; la journée commence à minuit, heure de l'utilisateur |
 | `-critère` | exclusion |
 

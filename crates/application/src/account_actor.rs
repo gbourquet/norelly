@@ -12,7 +12,8 @@
 //! La connexion de commandes rejoue aussi la file des actions
 //! ([`ReplayActions`]) : à chaque ouverture de session (reconnexion), sur
 //! demande ([`AccountHandle::replay_soon`]) et à l'échéance de la fenêtre
-//! d'annulation de la prochaine opération ; les boîtes touchées sont
+//! d'annulation de la prochaine opération, puis les réécritures
+//! d'étiquettes en attente ([`ReplayRewrites`]) ; les boîtes touchées sont
 //! ensuite resynchronisées.
 //!
 //! Chaque connexion perdue est rouverte avec une attente exponentielle

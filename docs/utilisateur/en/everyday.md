@@ -241,6 +241,38 @@ the chosen message.
 **Undo**: after each action, a banner appears at the bottom with an
 **Undo** button (or the **Z** key).
 
+## Labeling a message
+
+A label files a message under a topic (“Clubs”, “Bills”…) without moving
+it. A message can have several labels.
+
+1. Open the message, click **More…** then **Label…** (or right-click the
+   message's row; on the keyboard: **L**).
+2. Check a label to apply it, uncheck it to remove it. To create one, type
+   its name under **New label**, then click **Create and apply**.
+3. Click **Done**.
+
+![The “Label” window with two checked labels](captures/label-menu.png)
+
+Labels show as **chips**: in the list, after the subject (two at most, then
+“+1”, “+2”…), and under the subject of the open message. **Click a chip**
+to find every message with that label.
+
+![Label chips in the message list](captures/label-list.png)
+
+![The labels under the subject of the open message](captures/label-reading.png)
+
+To **color**, **rename** or **delete** a label, open **Settings**: the
+**Labels** section lists those of each account. The color stays on your
+computer. Renaming updates your messages on the server, in the background:
+you can keep working. When deleting a label, you can also remove it from
+all your messages.
+
+![The “Labels” section of the settings](captures/label-settings.png)
+
+If **Label…** is greyed out, this account's server does not keep labels in
+this folder: hover over it to see why.
+
 ## Deleting
 
 Click **Delete** in the action bar, the small bin that appears when the
@@ -274,6 +306,7 @@ To narrow it down, you can add:
 | `"happy new year"` | this exact phrase |
 | `has:attachment` | messages with an attachment |
 | `is:unread` | unread messages (`is:read`: read, `is:flagged`: flagged) |
+| `label:bills` | messages with the “Bills” label (`label:"to do"` for a name with spaces) |
 | `after:2026-01-31` | messages received from 31 January 2026 on (`before:`: before) |
 | `-advert` | messages that do **not** contain this word |
 

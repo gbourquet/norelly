@@ -73,6 +73,7 @@ const content = {
     newFolder: "Santé",
     search: "tarte",
     suggest: "ler",
+    labels: ["Associations", "Famille"],
     contacts: [
       ["Alice", "Martin", "alice@norelly.test", "Association des parents d'élèves"],
       ["Paul", "Bernard", "paul@norelly.test", ""],
@@ -119,6 +120,7 @@ const content = {
     newFolder: "Health",
     search: "pie",
     suggest: "lee",
+    labels: ["Clubs", "Family"],
     contacts: [
       ["Alice", "Martin", "alice@norelly.test", "Parents' association"],
       ["Paul", "Brown", "paul@norelly.test", ""],
@@ -446,6 +448,56 @@ describe(`captures d'écran (${lang})`, () => {
     await browser.keys("Escape");
     await picker.waitForDisplayed({ reverse: true, timeout: 10000 });
     await browser.keys("Escape");
+  });
+
+  it("étiquettes : menu « Étiqueter… », réglages, pastilles (à la souris)", async () => {
+    const subject = content.messages[2][1];
+    await $(`span=${subject}`).click();
+    await expect($(`h1=${subject}`)).toBeDisplayed({ wait: 30000 });
+    await openMenu(button(msg("action_more")));
+    await menuItem(msg("cmd_label")).click();
+    const dialog = dialogTitled(msg("label_dialog_title"));
+    await dialog.waitForDisplayed({ timeout: 10000 });
+    const name = dialog.$(`input[aria-label="${msg("label_dialog_new")}"]`);
+    for (const [i, label] of content.labels.entries()) {
+      await name.setValue(label);
+      await dialog.$(`button=${msg("label_dialog_create")}`).click();
+      await expect(dialog.$$('input[type="checkbox"]')).toBeElementsArrayOfSize(i + 1, {
+        wait: 10000,
+      });
+    }
+    await capture("label-menu");
+    await dialog.$(`button=${msg("label_dialog_done")}`).click();
+    await dialog.waitForDisplayed({ reverse: true, timeout: 10000 });
+
+    // Réglages : couleur de la première étiquette (sélecteur de couleur du
+    // système, valeur posée comme il la rend).
+    await button(msg("sidebar_settings")).click();
+    const settings = dialogTitled(msg("settings_title"));
+    await settings.waitForDisplayed({ timeout: 10000 });
+    const color = settings.$(
+      `input[type="color"][aria-label="${msg("settings_label_color", { label: content.labels[0] })}"]`,
+    );
+    await color.waitForDisplayed({ timeout: 10000 });
+    await browser.execute((el) => {
+      el.value = "#2e7d32";
+      el.dispatchEvent(new Event("change", { bubbles: true }));
+    }, color);
+    await expect(settings.$(`button=${msg("settings_label_no_color")}`)).toBeDisplayed({
+      wait: 10000,
+    });
+    await settings.$("#labels-settings-title").scrollIntoView();
+    await capture("label-settings");
+    await settings.$(`aria/${msg("common_close")}`).click();
+    await settings.waitForDisplayed({ reverse: true, timeout: 10000 });
+
+    // Pastilles sous le sujet et dans la ligne.
+    await capture("label-reading");
+    await browser.keys("Escape");
+    await $(
+      `button[aria-label="${msg("label_search", { label: content.labels[0] })}"]`,
+    ).waitForDisplayed({ timeout: 10000 });
+    await capture("label-list");
   });
 
   it("nouveau dossier (à la souris)", async () => {

@@ -14,7 +14,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { $, browser, expect } from "@wdio/globals";
+import { $, $$, browser, expect } from "@wdio/globals";
 import {
   accountMenu,
   appendMessages,
@@ -345,7 +345,9 @@ describe(`captures d'écran (${lang})`, () => {
       await browser.waitUntil(async () => (await $("body").getSize("width")) === 1280, {
         timeout: 5000,
       });
-      const bar = $(`[role="toolbar"][aria-label="${msg("conversation_toolbar")}"]`);
+      // Plusieurs éléments peuvent porter ce nom de barre : seul compte un
+      // bouton affiché, hors de la copie invisible de mesure.
+      const toolbar = `//*[@role="toolbar"][@aria-label="${msg("conversation_toolbar")}"]`;
       for (const key of [
         "cmd_reply",
         "cmd_reply_all",
@@ -353,11 +355,17 @@ describe(`captures d'écran (${lang})`, () => {
         "cmd_archive",
         "cmd_delete",
       ]) {
-        await expect(
-          bar.$(
-            `.//button[normalize-space()="${msg(key)}"][not(ancestor::*[@aria-hidden="true"])]`,
-          ),
-        ).toBeDisplayed({ wait: 5000 });
+        const shown = async () => {
+          const found = await $$(
+            `${toolbar}//button[normalize-space()="${msg(key)}"][not(ancestor::*[@aria-hidden="true"])]`,
+          );
+          for (const el of found) if (await el.isDisplayed()) return true;
+          return false;
+        };
+        await browser.waitUntil(shown, {
+          timeout: 5000,
+          timeoutMsg: `« ${msg(key)} » absent de la barre à 1 280 px`,
+        });
       }
     } finally {
       // Taille des captures rétablie avant les scénarios suivants.

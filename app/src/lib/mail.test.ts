@@ -612,6 +612,31 @@ describe("marquage comme lu à l'ouverture", () => {
     }
   });
 
+  it("une action de l'utilisateur n'attend pas le rafraîchissement qui suit le marquage", async () => {
+    vi.useFakeTimers();
+    try {
+      const api = fakeApi(3, [1]);
+      const mail = new MailState(api, () => DELAY_MS);
+      await mail.show(UNIFIED_INBOX);
+      await mail.open();
+      // Rafraîchissement après le marquage : il ne se termine jamais.
+      vi.mocked(api.listFolders).mockImplementationOnce(() => new Promise(() => undefined));
+      await vi.advanceTimersByTimeAsync(DELAY_MS);
+      expect(seenCalls(api)).toHaveLength(1);
+      expect(api.listFolders).toHaveBeenCalledTimes(1);
+
+      const unseen = mail.act({ kind: "mark_seen", value: false }, "Non lu.");
+      await vi.advanceTimersByTimeAsync(0);
+      expect(api.performAction).toHaveBeenCalledWith([1], UNIFIED_INBOX, {
+        kind: "mark_seen",
+        value: false,
+      });
+      await unseen;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("conversation ouverte depuis la recherche", async () => {
     vi.useFakeTimers();
     try {

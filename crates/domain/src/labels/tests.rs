@@ -220,6 +220,11 @@ fn permanent_flags_decide_what_can_be_stored() {
     let none = KeywordPermission::from_tokens(["\\Seen", "\\Flagged"]);
     assert!(!none.can_create() && !none.can_store(&kw("Projet")));
 
+    // Dossier qui accepte au moins une étiquette : l'action reste proposée.
+    assert!(any.accepts_labels() && listed.accepts_labels());
+    assert!(!none.accepts_labels());
+    assert!(KeywordPermission::Unknown.accepts_labels());
+
     // Réponse absente : tout est permanent (RFC 3501, 7.1).
     assert!(KeywordPermission::Unknown.can_create());
     assert!(KeywordPermission::Unknown.can_store(&kw("Projet")));
@@ -514,5 +519,10 @@ fn label_search_matches_names_case_and_accent_insensitively() {
     assert_eq!(label_keywords("Work", &known), [kw("Work"), kw("$label2")]);
     // Mot-clé illisible : cherché tel quel.
     assert_eq!(label_keywords("a&b", &known), [kw("a&-b"), kw("a&b")]);
+    // Un mot-clé connu se cherche aussi par lui-même (nom avec « " »).
+    assert_eq!(
+        label_keywords("&AMAAIA-faire", &known),
+        [kw("&-AMAAIA-faire"), kw("&AMAAIA-faire")]
+    );
     assert!(label_keywords("   ", &known).is_empty());
 }

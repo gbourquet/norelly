@@ -1254,6 +1254,9 @@ pub struct FolderDto {
     pub selectable: bool,
     pub total: u32,
     pub unread: u32,
+    /// Le serveur refuse d'y garder des étiquettes (`PERMANENTFLAGS`) :
+    /// « Étiqueter » y est désactivé, avec une explication.
+    pub labels_refused: bool,
 }
 
 /// Portée d'une liste de conversations.

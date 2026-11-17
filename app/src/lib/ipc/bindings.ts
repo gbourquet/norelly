@@ -1398,6 +1398,11 @@ export type FolderDto = {
 	selectable: boolean,
 	total: number,
 	unread: number,
+	/**
+	 *  Le serveur refuse d'y garder des étiquettes (`PERMANENTFLAGS`) :
+	 *  « Étiqueter » y est désactivé, avec une explication.
+	 */
+	labels_refused: boolean,
 };
 
 /**  Bilan d'un import selon une politique de doublons. */

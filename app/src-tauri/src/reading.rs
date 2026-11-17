@@ -17,7 +17,7 @@ use norelly_domain::conversation::ConversationScope;
 use norelly_domain::fetch_policy::PartPath;
 use norelly_domain::mailbox::{MailboxId, MailboxRole, place_in_display_tree};
 use norelly_domain::ports::{
-    ConversationCursor, ConversationId, ConversationQuery, FolderTreeQuery, MessageId,
+    ConversationCursor, ConversationId, ConversationQuery, FolderTreeQuery, LabelStore, MessageId,
     ReadingPreferences,
 };
 use norelly_domain::reading::{
@@ -71,6 +71,14 @@ pub async fn list_folders(
         .tree(account)
         .await
         .map_err(IpcError::storage)?;
+    let permissions: std::collections::BTreeMap<_, _> = state
+        .mail
+        .store
+        .keyword_permissions(account)
+        .await
+        .map_err(IpcError::storage)?
+        .into_iter()
+        .collect();
     // Retrait et libellé affichés : décidés par le domaine, d'après l'arbre.
     place_in_display_tree(tree)
         .into_iter()
@@ -90,6 +98,7 @@ pub async fn list_folders(
                 selectable: f.selectable,
                 total: f.total,
                 unread: f.unread,
+                labels_refused: permissions.get(&f.id).is_some_and(|p| !p.accepts_labels()),
             })
         })
         .collect()

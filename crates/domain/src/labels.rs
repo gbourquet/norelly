@@ -439,6 +439,16 @@ impl KeywordPermission {
         Self::Listed(listed)
     }
 
+    /// Le dossier accepte au moins une étiquette (sinon « Étiqueter » est
+    /// désactivé, avec une explication).
+    #[must_use]
+    pub fn accepts_labels(&self) -> bool {
+        match self {
+            Self::Unknown | Self::Any => true,
+            Self::Listed(set) => set.iter().any(|k| !is_protocol_keyword(k)),
+        }
+    }
+
     /// Un mot-clé nouveau peut être créé.
     #[must_use]
     pub fn can_create(&self) -> bool {
@@ -753,7 +763,9 @@ pub(crate) fn in_scope(member: &Member, scope: &ConversationScope) -> bool {
 
 /// Mots-clés cherchés par `étiquette:name` : l'encodage de `name`, puis
 /// les mots-clés connus (`known`) dont le nom affiché est `name` (casse et
-/// accents indifférents ; noms de Thunderbird en français et en anglais).
+/// accents indifférents ; noms de Thunderbird en français et en anglais),
+/// ou qui sont `name` lui-même (casse indifférente : un nom qui contient
+/// `"` se cherche par son mot-clé).
 #[must_use]
 pub fn label_keywords(name: &str, known: &[Keyword]) -> Vec<Keyword> {
     let Ok(name) = LabelName::parse(name) else {
@@ -763,7 +775,9 @@ pub fn label_keywords(name: &str, known: &[Keyword]) -> Vec<Keyword> {
     let mut out = vec![name.keyword()];
     let builtins = (1..=BUILTIN_LABELS).filter_map(|n| Keyword::parse(&format!("$label{n}")));
     for k in builtins.chain(known.iter().cloned()) {
-        if !out.contains(&k) && display(&k).folded_names().contains(&folded) {
+        let by_name = display(&k).folded_names().contains(&folded);
+        let by_keyword = k.as_str().eq_ignore_ascii_case(name.as_str());
+        if !out.contains(&k) && (by_name || by_keyword) {
             out.push(k);
         }
     }

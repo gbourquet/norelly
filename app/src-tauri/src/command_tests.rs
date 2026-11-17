@@ -1904,4 +1904,47 @@ async fn labels_are_created_set_shown_searched_renamed_and_deleted() {
         code(delete_label(t.state(), account, "Absent".into(), false).await),
         (ErrorCodeDto::NotFound, Some(FieldDto::Label))
     );
+
+    // --- Serveur qui refuse les étiquettes : action désactivée ---
+    assert!(folders.iter().all(|f| !f.labels_refused));
+    {
+        use norelly_domain::labels::KeywordPermission;
+        use norelly_domain::ports::LabelStore;
+        let name =
+            norelly_domain::mailbox::MailboxName::parse("INBOX").unwrap_or_else(|e| panic!("{e}"));
+        t.state()
+            .mail
+            .store
+            .set_keyword_permission(
+                t.account,
+                &name,
+                &KeywordPermission::from_tokens(["\\Seen"]),
+            )
+            .await
+            .unwrap_or_else(|e| panic!("{e}"));
+    }
+    let refused = list_folders(t.state(), account)
+        .await
+        .unwrap_or_else(|e| panic!("{e:?}"));
+    assert!(refused.iter().any(|f| f.id == inbox && f.labels_refused));
+    let menu = label_menu(t.state(), vec![first], scope.clone())
+        .await
+        .unwrap_or_else(|e| panic!("{e:?}"));
+    assert!(!menu.available && !menu.can_create);
+    assert_eq!(
+        code(
+            perform_action(
+                t.state(),
+                vec![first],
+                scope,
+                ActionDto::SetLabel {
+                    keyword: "Client".into(),
+                    value: true,
+                },
+            )
+            .await
+        )
+        .0,
+        ErrorCodeDto::LabelRefused
+    );
 }

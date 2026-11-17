@@ -357,6 +357,7 @@ Fiche : [redaction.md](../fonctionnel/redaction.md).
 | Citation : en-tête « Le … a écrit : » construit par l'interface dans la langue de l'utilisateur, inséré tel quel par le domaine | `compose.rs` (`quote`), ADR-011 |
 | Destinataire saisi ou collé lu en Rust (`Recipient::parse`, commande `parse_recipient`) : « adresse », « Nom <adresse> », nom entre guillemets ; nom imitant une adresse écarté (`Recipient::new`, aussi pour tout brouillon relu ; champs privés : aucun destinataire construit ni modifié autrement, doctests `compile_fail`) ; l'interface n'en décide pas | `crates/domain/src/compose/draft.rs`, `app/src-tauri/src/compose.rs` |
 | Validation avant envoi : au moins un destinataire, 100 au plus ; sujet sans caractère de contrôle, 998 caractères au plus ; corps ≤ 5 Mio ; pièces jointes ≤ 25 Mio au total et 100 au plus | `crates/domain/src/compose/draft.rs` (`check_sendable`) |
+| Limite de destinataires (`check_recipient_count`, `MAX_RECIPIENTS`) : une seule règle pour l'envoi, l'enregistrement d'un brouillon (`draft_of`) et l'ajout dans l'éditeur ; commande `check_recipients` interrogée avant d'ajouter un destinataire, une liste dépliée ou des contacts « Écrire à » (total après dédoublonnage) ; refus `too_many_recipients` : rien n'est ajouté, avertissement sous les destinataires avec le nombre et la limite (`MAX_RECIPIENTS` exportée dans les bindings pour le texte seulement), brouillon toujours enregistrable ; avertissement effacé au retrait d'une puce | `crates/domain/src/compose/draft.rs`, `app/src-tauri/src/compose.rs`, `app/src/lib/compose.svelte.ts` (`#fits`), `ComposeDialog.svelte` |
 | HTML de l'éditeur réassaini en Rust (liste blanche minimale : p, br, gras, italique, barré, liens http/https/mailto, listes, citations) ; version texte dérivée du HTML assaini ; envoi en `multipart/alternative` | `crates/adapters/render/src/compose.rs`, ADR-010 |
 | `Bcc` seulement dans les copies locales, jamais dans les octets transmis ; `Message-ID` aléatoire de 128 bits, sans nom de machine | `render/src/compose.rs` |
 | Type MIME des pièces jointes recalculé en Rust d'après le nom ; taille réelle revérifiée ; chemins des fichiers jamais transmis par l'interface (jeton de dépôt) | `crates/application/src/compose.rs` (`QueueMessage`) |
@@ -364,7 +365,7 @@ Fiche : [redaction.md](../fonctionnel/redaction.md).
 
 ### Clés des messages
 
-`compose_title_new`, `compose_title_reply`, `compose_title_forward`, `compose_attribution`, `compose_forward_intro`, `err_no_recipient`, `err_too_many_recipients`, `err_invalid_subject`, `err_body_too_large`, `err_attachments_too_large`, `err_too_many_attachments`, `compose_queued`.
+`compose_title_new`, `compose_title_reply`, `compose_title_forward`, `compose_attribution`, `compose_forward_intro`, `err_no_recipient`, `err_too_many_recipients`, `compose_too_many_recipients`, `err_invalid_subject`, `err_body_too_large`, `err_attachments_too_large`, `err_too_many_attachments`, `compose_queued`.
 
 ### Commandes
 
@@ -638,6 +639,10 @@ Fiche : [contacts.md](../fonctionnel/contacts.md). Décision : ADR-012.
   création à la souris, nom en double refusé, « Ajouter à une liste… »,
   « Écrire à la liste », liste proposée à la saisie, dépliée en Cci et
   envoyée vers Mailpit (membres en copie cachée seulement), suppression.
+- Scénario de bout en bout de la limite de destinataires
+  (`app/e2e/specs/recipient-limit.e2e.mjs`) : deux listes de 60 membres ;
+  la seconde, qui ferait 120 destinataires, n'est pas insérée et
+  l'avertissement s'affiche dès son choix ; retirer une puce l'efface.
 - Nom des correspondants sur l'application factice : liste, conversation,
   recherche (`command_tests.rs`, `senders_in_the_book_are_named_from_their_card`).
 

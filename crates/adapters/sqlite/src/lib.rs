@@ -18,6 +18,7 @@ pub mod compose;
 pub mod contact_lists;
 pub mod contacts;
 pub mod conversations;
+pub mod labels;
 pub mod mail;
 pub mod preferences;
 pub mod search;
@@ -73,6 +74,7 @@ fn migrations() -> Migrations<'static> {
             },
         ),
         M::up(include_str!("../migrations/0020_sender_auth.sql")),
+        M::up(include_str!("../migrations/0021_labels.sql")),
     ])
 }
 
@@ -695,7 +697,73 @@ mod tests {
         "UPDATE contacts SET nickname = 'V19' WHERE id = 1;",
         // v20 : verdict d'authentification de l'expéditeur.
         "UPDATE messages SET sender_auth = 'pass' WHERE id = 1;",
+        // v21 : une étiquette colorée, une réécriture en attente, les
+        // mots-clés permanents d'un dossier, une opération de mot-clé.
+        "INSERT INTO labels (account_id, keyword, color, hidden) VALUES (1, 'Projet', '#1565c0', 0); \
+         INSERT INTO label_rewrites (account_id, from_keyword, to_keyword) VALUES (1, 'Vieux', 'Neuf'); \
+         UPDATE mailboxes SET permanent_flags = '*' WHERE id = 1; \
+         INSERT INTO pending_ops (account_id, message_id, mailbox, uid_validity, uid, kind, flag, \
+         value, previous, keyword, not_before) \
+         VALUES (1, 1, 'INBOX', 42, 7, 'flag', 'keyword', 1, 0, 'Projet', 0);",
     ];
+
+    /// Base de version 20 : à la montée en version 21, la file d'opérations
+    /// est reconstruite sans rien perdre (opérations et compteur des
+    /// identifiants, que désignent les copies provisoires) ; une opération
+    /// de mot-clé exige son mot-clé.
+    #[test]
+    fn upgrading_to_v21_keeps_pending_ops_and_their_counter() -> Result<(), StoreError> {
+        let mut conn = Connection::open_in_memory().map_err(store_error)?;
+        conn.pragma_update(None, "foreign_keys", "ON")
+            .map_err(store_error)?;
+        let m = migrations();
+        for (version, fixture) in FIXTURES.iter().enumerate().take(20) {
+            m.to_version(&mut conn, version + 1)
+                .map_err(|e| StoreError(e.to_string()))?;
+            conn.execute_batch(fixture).map_err(store_error)?;
+        }
+        // Une deuxième opération, déjà rejouée : le compteur vaut 2.
+        conn.execute_batch(
+            "INSERT INTO pending_ops (account_id, message_id, mailbox, uid_validity, uid, kind, \
+             not_before) VALUES (1, 1, 'INBOX', 42, 7, 'expunge', 0); \
+             DELETE FROM pending_ops WHERE id = 2;",
+        )
+        .map_err(store_error)?;
+        m.to_version(&mut conn, 21)
+            .map_err(|e| StoreError(e.to_string()))?;
+        let kept: Vec<(i64, String)> = conn
+            .prepare("SELECT id, kind FROM pending_ops ORDER BY id")
+            .and_then(|mut st| st.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?.collect())
+            .map_err(store_error)?;
+        assert_eq!(kept, [(1, "move".to_owned())]);
+        conn.execute(
+            "INSERT INTO pending_ops (account_id, message_id, mailbox, uid_validity, uid, kind, \
+             flag, value, previous, keyword, not_before) \
+             VALUES (1, 1, 'INBOX', 42, 7, 'flag', 'keyword', 1, 0, 'Projet', 0)",
+            [],
+        )
+        .map_err(store_error)?;
+        assert_eq!(conn.last_insert_rowid(), 3, "compteur conservé");
+        assert!(
+            conn.execute(
+                "INSERT INTO pending_ops (account_id, message_id, mailbox, uid_validity, uid, \
+                 kind, flag, value, previous, not_before) \
+                 VALUES (1, 1, 'INBOX', 42, 7, 'flag', 'keyword', 1, 0, 0)",
+                [],
+            )
+            .is_err(),
+            "mot-clé exigé"
+        );
+        assert!(
+            conn.execute(
+                "INSERT INTO labels (account_id, keyword, color) VALUES (1, 'X', 'red')",
+                [],
+            )
+            .is_err(),
+            "couleur #rrggbb seulement"
+        );
+        Ok(())
+    }
 
     /// Base de version 19 : à la montée en version 20, les messages déjà
     /// enregistrés valent `unknown` (sans pastille ni avertissement), et

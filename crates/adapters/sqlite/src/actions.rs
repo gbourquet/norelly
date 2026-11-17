@@ -7,11 +7,12 @@ use norelly_domain::actions::{
     ActionFlag, FlagChange, FolderRef, LocalEffect, LocalMessage, MAX_ACTION_TARGETS, Member,
     OpKind, PendingOp, QueueChange, local_effect, revert_effect,
 };
-use norelly_domain::mailbox::{MailboxId, MailboxName, MailboxRole, ModSeq, UidValidity};
+use norelly_domain::labels::KeywordPermission;
+use norelly_domain::mailbox::{Keyword, MailboxId, MailboxName, MailboxRole, ModSeq, UidValidity};
 use norelly_domain::ports::{ConversationId, MessageId, PendingOpId, PendingOpStore, StoreError};
 use rusqlite::{Connection, OptionalExtension, Row, TransactionBehavior, params};
 
-use crate::mail::{SqliteMailStore, corrupted, flags_from, mailbox_id, uid_of};
+use crate::mail::{SqliteMailStore, corrupted, flags_from, keywords_text, mailbox_id, uid_of};
 use crate::store_error;
 
 /// Masque d'un drapeau dans la colonne `messages.flags`.
@@ -35,10 +36,14 @@ const fn flag_name(flag: &ActionFlag) -> &'static str {
     }
 }
 
-fn parse_flag(raw: &str) -> Result<ActionFlag, StoreError> {
+fn parse_flag(raw: &str, keyword: Option<&str>) -> Result<ActionFlag, StoreError> {
     match raw {
         "seen" => Ok(ActionFlag::Seen),
         "flagged" => Ok(ActionFlag::Flagged),
+        "keyword" => keyword
+            .and_then(Keyword::parse)
+            .map(ActionFlag::Keyword)
+            .ok_or_else(|| corrupted("mot-clé d'opération")),
         _ => Err(corrupted("drapeau d'opération")),
     }
 }
@@ -46,6 +51,29 @@ fn parse_flag(raw: &str) -> Result<ActionFlag, StoreError> {
 /// Applique un effet local ; sans effet si le message a disparu.
 fn apply_effect(c: &Connection, effect: LocalEffect) -> Result<(), StoreError> {
     match effect {
+        LocalEffect::SetFlag {
+            message,
+            flag: flag @ ActionFlag::Keyword(_),
+            value,
+        } => {
+            let row: Option<(i64, String)> = c
+                .query_row(
+                    "SELECT flags, keywords FROM messages WHERE id = ?1",
+                    [message.get()],
+                    |r| Ok((r.get(0)?, r.get(1)?)),
+                )
+                .optional()
+                .map_err(store_error)?;
+            if let Some((bits, keywords)) = row {
+                let mut flags = flags_from(bits, &keywords);
+                flag.set(&mut flags, value);
+                c.prepare_cached("UPDATE messages SET keywords = ?2 WHERE id = ?1")
+                    .and_then(|mut stmt| {
+                        stmt.execute(params![message.get(), keywords_text(&flags)])
+                    })
+                    .map_err(store_error)?;
+            }
+        }
         LocalEffect::SetFlag {
             message,
             flag,
@@ -180,10 +208,21 @@ fn insert_op(c: &Connection, op: &PendingOp) -> Result<i64, StoreError> {
         OpKind::Move { to } => ("move", None, None, None, None, Some(to.as_str())),
         OpKind::Expunge => ("expunge", None, None, None, None, None),
     };
+    let keyword = match &op.kind {
+        OpKind::Flag {
+            change:
+                FlagChange {
+                    flag: ActionFlag::Keyword(k),
+                    ..
+                },
+            ..
+        } => Some(k.as_str()),
+        _ => None,
+    };
     c.execute(
         "INSERT INTO pending_ops (account_id, message_id, mailbox, uid_validity, uid, kind, \
-         flag, value, previous, unchanged_since, target, not_before) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+         flag, value, previous, unchanged_since, target, not_before, keyword) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
         params![
             op.account.get(),
             op.message.get(),
@@ -197,6 +236,7 @@ fn insert_op(c: &Connection, op: &PendingOp) -> Result<i64, StoreError> {
             since,
             target,
             op.not_before,
+            keyword,
         ],
     )
     .map_err(store_error)?;
@@ -204,7 +244,7 @@ fn insert_op(c: &Connection, op: &PendingOp) -> Result<i64, StoreError> {
 }
 
 const OP_COLUMNS: &str = "id, account_id, message_id, mailbox, uid_validity, uid, kind, flag, \
-                          value, previous, unchanged_since, target, not_before";
+                          value, previous, unchanged_since, target, not_before, keyword";
 
 type OpRow = (
     i64,
@@ -220,6 +260,7 @@ type OpRow = (
     Option<i64>,
     Option<String>,
     i64,
+    Option<String>,
 );
 
 fn read_op_row(r: &Row<'_>) -> rusqlite::Result<OpRow> {
@@ -237,6 +278,7 @@ fn read_op_row(r: &Row<'_>) -> rusqlite::Result<OpRow> {
         r.get(10)?,
         r.get(11)?,
         r.get(12)?,
+        r.get(13)?,
     ))
 }
 
@@ -256,11 +298,12 @@ fn op_of(row: OpRow) -> Result<(PendingOpId, PendingOp), StoreError> {
         since,
         target,
         not_before,
+        keyword,
     ) = row;
     let kind = match kind.as_str() {
         "flag" => OpKind::Flag {
             change: FlagChange {
-                flag: parse_flag(flag.as_deref().unwrap_or_default())?,
+                flag: parse_flag(flag.as_deref().unwrap_or_default(), keyword.as_deref())?,
                 value: value.ok_or_else(|| corrupted("valeur d'opération"))?,
             },
             previous: previous.ok_or_else(|| corrupted("valeur précédente"))?,
@@ -432,13 +475,19 @@ fn pending_ops_in(
     rows.into_iter().map(op_of).collect()
 }
 
-fn folder_of(id: i64, name: &str, role: &str, selectable: bool) -> Result<FolderRef, StoreError> {
+fn folder_of(
+    id: i64,
+    name: &str,
+    role: &str,
+    selectable: bool,
+    permanent_flags: Option<&str>,
+) -> Result<FolderRef, StoreError> {
     Ok(FolderRef {
         id: mailbox_id(id)?,
         name: MailboxName::parse(name).map_err(|_| corrupted("nom de boîte"))?,
         role: MailboxRole::parse(role).ok_or_else(|| corrupted("rôle"))?,
         selectable,
-        keywords: norelly_domain::labels::KeywordPermission::Unknown,
+        keywords: KeywordPermission::from_storage(permanent_flags),
     })
 }
 
@@ -449,7 +498,7 @@ impl PendingOpStore for SqliteMailStore {
                 let row = c
                     .query_row(
                         "SELECT b.account_id, b.id, b.name, b.role, b.selectable, m.uid, m.flags, \
-                         m.keywords, b.uid_validity, b.highest_modseq \
+                         m.keywords, b.uid_validity, b.highest_modseq, b.permanent_flags \
                          FROM messages m JOIN mailboxes b ON b.id = m.mailbox_id \
                          WHERE m.id = ?1 AND m.hidden = 0 AND m.pending_op IS NULL",
                         [message.get()],
@@ -465,6 +514,7 @@ impl PendingOpStore for SqliteMailStore {
                                 r.get::<_, String>(7)?,
                                 r.get::<_, Option<i64>>(8)?,
                                 r.get::<_, Option<i64>>(9)?,
+                                r.get::<_, Option<String>>(10)?,
                             ))
                         },
                     )
@@ -481,6 +531,7 @@ impl PendingOpStore for SqliteMailStore {
                     keywords,
                     validity,
                     modseq,
+                    permanent_flags,
                 )) = row
                 else {
                     return Ok(None);
@@ -488,7 +539,7 @@ impl PendingOpStore for SqliteMailStore {
                 Ok(Some(LocalMessage {
                     id: message,
                     account: AccountId::new(account).map_err(|_| corrupted("compte"))?,
-                    mailbox: folder_of(mbox, &name, &role, selectable)?,
+                    mailbox: folder_of(mbox, &name, &role, selectable, permanent_flags.as_deref())?,
                     uid: uid_of(uid)?,
                     flags: flags_from(bits, &keywords),
                     uid_validity: validity
@@ -555,19 +606,21 @@ impl PendingOpStore for SqliteMailStore {
             .run(move |c| {
                 let mut stmt = c
                     .prepare_cached(
-                        "SELECT id, name, role, selectable FROM mailboxes \
+                        "SELECT id, name, role, selectable, permanent_flags FROM mailboxes \
                          WHERE account_id = ?1 ORDER BY position, id",
                     )
                     .map_err(store_error)?;
-                let rows: Vec<(i64, String, String, bool)> = stmt
+                let rows: Vec<(i64, String, String, bool, Option<String>)> = stmt
                     .query_map([account.get()], |r| {
-                        Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
+                        Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?))
                     })
                     .map_err(store_error)?
                     .collect::<Result<_, _>>()
                     .map_err(store_error)?;
                 rows.iter()
-                    .map(|(id, name, role, selectable)| folder_of(*id, name, role, *selectable))
+                    .map(|(id, name, role, selectable, permanent)| {
+                        folder_of(*id, name, role, *selectable, permanent.as_deref())
+                    })
                     .collect()
             })
             .await

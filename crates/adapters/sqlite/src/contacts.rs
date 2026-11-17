@@ -340,8 +340,9 @@ pub(crate) fn index_full_names(tx: &Transaction<'_>) -> Result<(), StoreError> {
         let stored = row.derived.clone();
         let (input, keys) = row.into_input();
         let text = keys_consistent(&input, &keys)
-            .then(|| ContactDraft::full_name_reindex(&input, &stored))
-            .flatten();
+            .then(|| ContactDraft::from_stored(input.clone()).ok())
+            .flatten()
+            .and_then(|read| read.full_name_reindex(&input, &stored));
         let Some(text) = text else {
             invalid += 1;
             return Ok(());

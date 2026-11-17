@@ -107,7 +107,10 @@ pub enum MessageAction {
     /// Suivi (drapeau) ou non.
     MarkFlagged(bool),
     /// Étiquette posée (`true`) ou retirée.
-    SetLabel { keyword: Keyword, value: bool },
+    SetLabel {
+        keyword: Keyword,
+        value: bool,
+    },
     /// Déplacer vers un dossier du même compte.
     Move(MailboxId),
     Delete,

@@ -32,9 +32,10 @@ use crate::discovery::{
 };
 use crate::endpoint::{Host, Protocol, ServerEndpoint};
 use crate::fetch_policy::{BodyFetch, MimePart, PartPath};
+use crate::labels::{KeywordPermission, LabelRewrite, StoredLabel};
 use crate::mailbox::{
-    Correspondent, Flags, ListedMailbox, MailboxId, MailboxName, MailboxRole, MessageMeta, ModSeq,
-    RemoteMailbox, Uid,
+    Correspondent, Flags, Keyword, ListedMailbox, MailboxId, MailboxName, MailboxRole, MessageMeta,
+    ModSeq, RemoteMailbox, Uid,
 };
 use crate::search::Query;
 use crate::security::{CertificateException, PlaintextPolicy};
@@ -412,6 +413,25 @@ pub trait RemoteMailboxSession: Send {
         change: FlagChange,
         unchanged_since: Option<ModSeq>,
     ) -> impl Future<Output = Result<StoreOutcome, ConnectionError>> + Send;
+
+    /// UID des messages de la boîte sélectionnée qui portent `keyword`
+    /// (`UID SEARCH KEYWORD`).
+    fn search_keyword(
+        &mut self,
+        keyword: &Keyword,
+    ) -> impl Future<Output = Result<BTreeSet<Uid>, ConnectionError>> + Send;
+
+    /// Ajoute ou retire `keyword` sur les messages `uids` de la boîte
+    /// sélectionnée, en une commande (`UID STORE <ensemble>
+    /// ±FLAGS.SILENT (keyword)`) ; au plus
+    /// [`crate::labels::REWRITE_BATCH`] UID. Les messages disparus
+    /// entre-temps sont ignorés par le serveur.
+    fn store_keyword(
+        &mut self,
+        uids: &[Uid],
+        keyword: &Keyword,
+        add: bool,
+    ) -> impl Future<Output = Result<(), ConnectionError>> + Send;
 
     /// Marque un message `\Deleted` (`UID STORE +FLAGS.SILENT (\Deleted)`).
     fn mark_deleted(
@@ -1268,6 +1288,96 @@ pub trait PendingOpStore: Send + Sync {
         &self,
         account: AccountId,
         mailbox: Option<MailboxId>,
+    ) -> impl Future<Output = Result<(), StoreError>> + Send;
+}
+
+// ---------------------------------------------------------------------------
+// Étiquettes
+// ---------------------------------------------------------------------------
+
+/// Identifiant d'une réécriture d'étiquette en attente.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct LabelRewriteId(i64);
+
+impl LabelRewriteId {
+    #[must_use]
+    pub fn new(raw: i64) -> Option<Self> {
+        (raw > 0).then_some(Self(raw))
+    }
+
+    #[must_use]
+    pub const fn get(self) -> i64 {
+        self.0
+    }
+}
+
+/// Étiquettes d'un compte (couleurs locales, masquage), réécritures en
+/// attente (renommage, retrait de tous les messages) et mots-clés
+/// permanents des dossiers.
+pub trait LabelStore: Send + Sync {
+    /// Étiquettes enregistrées du compte.
+    fn stored_labels(
+        &self,
+        account: AccountId,
+    ) -> impl Future<Output = Result<Vec<StoredLabel>, StoreError>> + Send;
+
+    /// Mots-clés portés par les messages visibles du compte (bornés à
+    /// [`crate::labels::MAX_LABELS`] fois deux).
+    fn seen_keywords(
+        &self,
+        account: AccountId,
+    ) -> impl Future<Output = Result<BTreeSet<Keyword>, StoreError>> + Send;
+
+    /// Crée ou remplace l'étiquette enregistrée `label.keyword`.
+    fn save_label(
+        &self,
+        account: AccountId,
+        label: &StoredLabel,
+    ) -> impl Future<Output = Result<(), StoreError>> + Send;
+
+    /// Enregistre une réécriture et l'applique tout de suite en local, dans
+    /// la même transaction : mots-clés des messages du compte, étiquette
+    /// enregistrée (`from` retirée, `to` créée avec la couleur de `from`).
+    fn record_rewrite(
+        &self,
+        account: AccountId,
+        rewrite: &LabelRewrite,
+    ) -> impl Future<Output = Result<LabelRewriteId, StoreError>> + Send;
+
+    /// Réécritures en attente du compte, dans l'ordre d'enregistrement.
+    fn label_rewrites(
+        &self,
+        account: AccountId,
+    ) -> impl Future<Output = Result<Vec<(LabelRewriteId, LabelRewrite)>, StoreError>> + Send;
+
+    /// Compte un essai de la réécriture avant de la jouer ; renvoie le
+    /// nombre d'essais, `None` si elle n'existe pas (ou pas sur ce compte).
+    fn claim_rewrite(
+        &self,
+        account: AccountId,
+        id: LabelRewriteId,
+    ) -> impl Future<Output = Result<Option<u32>, StoreError>> + Send;
+
+    /// Retire une réécriture terminée (ou abandonnée).
+    fn complete_rewrite(
+        &self,
+        account: AccountId,
+        id: LabelRewriteId,
+    ) -> impl Future<Output = Result<(), StoreError>> + Send;
+
+    /// Mots-clés permanents connus des dossiers du compte.
+    fn keyword_permissions(
+        &self,
+        account: AccountId,
+    ) -> impl Future<Output = Result<Vec<(MailboxId, KeywordPermission)>, StoreError>> + Send;
+
+    /// Note les mots-clés permanents d'un dossier, lus au `SELECT` ; sans
+    /// effet pour un dossier inconnu.
+    fn set_keyword_permission(
+        &self,
+        account: AccountId,
+        mailbox: &MailboxName,
+        permission: &KeywordPermission,
     ) -> impl Future<Output = Result<(), StoreError>> + Send;
 }
 

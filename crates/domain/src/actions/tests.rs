@@ -107,7 +107,8 @@ fn archive_uses_archive_role_then_configured_fallback() {
         Err(ActionError::NoArchive)
     );
     assert_eq!(
-        resolve(&MessageAction::Archive,
+        resolve(
+            &MessageAction::Archive,
             inbox,
             &without_archive,
             Some(mailbox_id(4))
@@ -387,7 +388,8 @@ fn conversation_targets_follow_the_action() {
         "portée seulement"
     );
     assert_eq!(
-        conversation_targets(&MessageAction::Archive,
+        conversation_targets(
+            &MessageAction::Archive,
             &members,
             &ConversationScope::Unified(MailboxRole::Inbox)
         ),
@@ -399,7 +401,8 @@ fn conversation_targets_follow_the_action() {
         "le plus récent de la portée"
     );
     assert!(
-        conversation_targets(&MessageAction::MarkFlagged(true),
+        conversation_targets(
+            &MessageAction::MarkFlagged(true),
             &members,
             &ConversationScope::Mailbox(mailbox_id(3))
         )

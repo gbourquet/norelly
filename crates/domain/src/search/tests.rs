@@ -388,10 +388,7 @@ fn label_operator_in_french_and_english() {
     );
     // Sans valeur : texte libre.
     assert_eq!(parse("label:"), [word(Field::Any, "label:")]);
-    assert_eq!(
-        parse("label:\"  \""),
-        [word(Field::Any, "label:")]
-    );
+    assert_eq!(parse("label:\"  \""), [word(Field::Any, "label:")]);
 }
 
 #[test]

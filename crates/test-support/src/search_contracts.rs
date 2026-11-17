@@ -198,7 +198,7 @@ where
         to: &[CAROLE],
         cc: &[ALICE],
         message_id: "reunion@example.com",
-        flags: &["\\Seen", "\\Flagged"],
+        flags: &["\\Seen", "\\Flagged", "Projet"],
         attachment: false,
     };
     let carole_arrive = Mail {
@@ -209,7 +209,7 @@ where
         to: &[BOB],
         cc: &[],
         message_id: "arrive@example.com",
-        flags: &["\\Seen"],
+        flags: &["\\Seen", "&AMAAIA-faire", "$label2"],
         attachment: false,
     };
     let supprime = Mail {
@@ -422,6 +422,39 @@ where
         found(store, "has:attachment", mine).await?,
         ["Facture d'avril"]
     );
+
+    // --- Étiquettes ---
+    assert_eq!(
+        found(store, "étiquette:Projet", mine).await?,
+        ["Réunion de lundi"]
+    );
+    assert_eq!(
+        found(store, "label:\"À faire\"", mine).await?,
+        ["Carole arrive"]
+    );
+    assert_eq!(
+        found(store, "label:travail", mine).await?,
+        ["Carole arrive"],
+        "étiquette de Thunderbird par son nom"
+    );
+    assert_eq!(
+        found(store, "is:read from:bob -étiquette:Projet", mine).await?,
+        ["Carole arrive"]
+    );
+    assert!(found(store, "label:projet", mine).await?.is_empty());
+    let mut resolved = request("label:projet", mine);
+    resolved
+        .query
+        .resolve_labels(&[norelly_domain::mailbox::Keyword::parse("Projet")
+            .ok_or_else(|| StoreError("mot-clé".into()))?]);
+    let hits: Vec<String> = store
+        .search(resolved)
+        .await?
+        .items
+        .into_iter()
+        .map(|h| h.subject)
+        .collect();
+    assert_eq!(hits, ["Réunion de lundi"], "nom résolu, casse indifférente");
     assert_eq!(
         found(store, "is:read -is:flagged -has:attachment from:bob", mine).await?,
         ["Carole arrive"]

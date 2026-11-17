@@ -7,6 +7,7 @@ use std::time::Duration;
 
 use norelly_domain::actions::{ActionFlag, FlagChange, StoreOutcome};
 use norelly_domain::fetch_policy::BodyFetch;
+use norelly_domain::labels::KeywordPermission;
 use norelly_domain::mailbox::{MailboxName, MailboxRole, Uid, classify_mailboxes};
 use norelly_domain::ports::{
     ConnectRequest, FetchedBody, IdleOutcome, RemoteMailboxConnector, RemoteMailboxSession,
@@ -510,6 +511,121 @@ where
     Ok(())
 }
 
+/// Contrat des étiquettes (mots-clés) : `PERMANENTFLAGS` lu au `SELECT`
+/// en écriture (pas en lecture seule), mot-clé posé et retiré par
+/// `store_flag`, posé et retiré sur un ensemble d'UID en une commande
+/// (`store_keyword`), messages qui le portent (`search_keyword`). Le
+/// serveur doit accepter tout mot-clé (`\*`, comme Dovecot). `box_name` est
+/// créée puis supprimée.
+pub async fn labels_session_contract<C, K>(
+    connector: &C,
+    request: &ConnectRequest,
+    control: &K,
+    box_name: &str,
+) -> Result<(), String>
+where
+    C: RemoteMailboxConnector,
+    K: MailboxControl,
+{
+    control.create(box_name).await?;
+    for n in 1..=3 {
+        control
+            .append(box_name, &contract_message(n), false)
+            .await?;
+    }
+    let mut session = connector
+        .connect(request)
+        .await
+        .map_err(|e| e.to_string())?;
+    session
+        .enable_sync_extensions()
+        .await
+        .map_err(|e| e.to_string())?;
+    let work = name(box_name);
+    let e = |e: norelly_domain::connection::ConnectionError| e.to_string();
+    let keyword = |raw: &str| {
+        norelly_domain::mailbox::Keyword::parse(raw).ok_or_else(|| format!("mot-clé {raw}"))
+    };
+
+    // --- PERMANENTFLAGS : sans valeur en lecture seule ---
+    let examined = session
+        .select(
+            &work,
+            &SelectRequest {
+                condstore: false,
+                qresync: None,
+            },
+        )
+        .await
+        .map_err(e)?;
+    assert_eq!(examined.keywords, KeywordPermission::Unknown, "EXAMINE");
+    let selected = session.select_writable(&work).await.map_err(e)?;
+    assert_eq!(selected.keywords, KeywordPermission::Any, "SELECT");
+
+    // --- Un message : store_flag ---
+    let projet = keyword("Projet")?;
+    let tag = FlagChange {
+        flag: ActionFlag::Keyword(projet.clone()),
+        value: true,
+    };
+    let outcome = session
+        .store_flag(uid(1), tag, selected.highest_modseq)
+        .await
+        .map_err(e)?;
+    assert_eq!(outcome, StoreOutcome::Stored);
+    let flags = session.message_flags(uid(1)).await.map_err(e)?;
+    assert!(
+        flags
+            .as_ref()
+            .is_some_and(|f| f.keywords().contains(&projet) && !f.seen),
+        "mot-clé posé, les autres drapeaux intacts : {flags:?}"
+    );
+    assert_eq!(
+        session.search_keyword(&projet).await.map_err(e)?,
+        BTreeSet::from([uid(1)])
+    );
+
+    // --- Un ensemble d'UID : store_keyword ---
+    let encoded = keyword("&AMAAIA-faire")?;
+    session
+        .store_keyword(&[uid(1), uid(2), uid(3)], &encoded, true)
+        .await
+        .map_err(e)?;
+    assert_eq!(
+        session.search_keyword(&encoded).await.map_err(e)?,
+        BTreeSet::from([uid(1), uid(2), uid(3)])
+    );
+    session
+        .store_keyword(&[uid(1), uid(3), uid(99)], &encoded, false)
+        .await
+        .map_err(e)?;
+    assert_eq!(
+        session.search_keyword(&encoded).await.map_err(e)?,
+        BTreeSet::from([uid(2)]),
+        "UID absent ignoré"
+    );
+    let flags = session.message_flags(uid(1)).await.map_err(e)?;
+    assert!(
+        flags
+            .as_ref()
+            .is_some_and(|f| f.keywords().contains(&projet)),
+        "les autres mots-clés ne sont pas touchés : {flags:?}"
+    );
+
+    // --- Retrait ---
+    let untag = FlagChange {
+        flag: ActionFlag::Keyword(projet.clone()),
+        value: false,
+    };
+    session.store_flag(uid(1), untag, None).await.map_err(e)?;
+    assert!(session.search_keyword(&projet).await.map_err(e)?.is_empty());
+    session.store_keyword(&[], &projet, true).await.map_err(e)?;
+
+    session.logout().await.map_err(e)?;
+    control.delete(box_name).await?;
+    Ok(())
+}
+
 /// Contrat des dossiers (`CREATE`, `RENAME`, `DELETE`) : le dossier créé
 /// apparaît dans `LIST` et peut être sélectionné ; renommé (même
 /// sélectionné), il emporte ses sous-dossiers et ses messages ; supprimé,
@@ -967,6 +1083,13 @@ mod tests {
             actions_session_contract(&servers, &fake_request()?, &imap, "Actions").await?;
         }
         Ok(())
+    }
+
+    #[tokio::test]
+    async fn fake_server_passes_labels_contract() -> Result<(), String> {
+        let imap = FakeImap::new();
+        let servers = FakeMailServers::with_imap(imap.clone());
+        labels_session_contract(&servers, &fake_request()?, &imap, "Etiquettes").await
     }
 
     #[tokio::test]

@@ -15,7 +15,9 @@ use norelly_domain::discovery::{
 };
 use norelly_domain::endpoint::{Host, Protocol, ServerEndpoint};
 use norelly_domain::fetch_policy::BodyFetch;
-use norelly_domain::mailbox::{Flags, ListedMailbox, MailboxName, MessageMeta, ModSeq, Uid};
+use norelly_domain::mailbox::{
+    Flags, Keyword, ListedMailbox, MailboxName, MessageMeta, ModSeq, Uid,
+};
 use norelly_domain::ports::{
     AutoconfigClient, ConnectRequest, DiscoveryError, FetchedBody, IdleOutcome, MailSender,
     OutgoingMessage, PortProber, RemoteMailboxConnector, RemoteMailboxSession, SendError,
@@ -222,6 +224,20 @@ impl RemoteMailboxSession for FakeSession {
         unchanged_since: Option<ModSeq>,
     ) -> impl Future<Output = Result<StoreOutcome, ConnectionError>> + Send {
         self.inner.store_flag(uid, change, unchanged_since)
+    }
+    fn search_keyword(
+        &mut self,
+        keyword: &Keyword,
+    ) -> impl Future<Output = Result<BTreeSet<Uid>, ConnectionError>> + Send {
+        self.inner.search_keyword(keyword)
+    }
+    fn store_keyword(
+        &mut self,
+        uids: &[Uid],
+        keyword: &Keyword,
+        add: bool,
+    ) -> impl Future<Output = Result<(), ConnectionError>> + Send {
+        self.inner.store_keyword(uids, keyword, add)
     }
     fn mark_deleted(
         &mut self,

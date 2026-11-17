@@ -44,6 +44,7 @@ pub mod credentials;
 pub mod discovery;
 pub mod endpoint;
 pub mod fetch_policy;
+pub mod labels;
 pub mod mailbox;
 pub mod notify;
 pub mod oauth;

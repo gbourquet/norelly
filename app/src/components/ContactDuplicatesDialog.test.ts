@@ -23,6 +23,7 @@ const group: ContactDuplicateGroupDto = {
   ],
   reasons: ["same_name", "same_phone"],
   truncated: true,
+  suggest_keep: true,
 };
 
 function api(groups: ContactDuplicateGroupDto[], merge?: Error) {
@@ -32,6 +33,7 @@ function api(groups: ContactDuplicateGroupDto[], merge?: Error) {
       name: "Alice Martin",
       preferred_address: `c${keep}@example.com`,
     })),
+    dismissContactDuplicates: vi.fn(async () => null),
     mergeContacts: vi.fn(async (keep: number) => {
       if (merge) throw merge;
       return {
@@ -104,6 +106,34 @@ describe("fenêtre des doublons", () => {
     expect(await screen.findByText("Tous les doublons ont été examinés.")).toBeTruthy();
     await fireEvent.click(screen.getByText("Fermer"));
     expect(onClose).toHaveBeenCalled();
+  });
+
+  it("groupe rapproché sans le nom : aucune fiche gardée, invitation à choisir", async () => {
+    const byGmail: ContactDuplicateGroupDto = {
+      contacts: [card(5, "Carole"), card(6, "Caro")],
+      reasons: ["same_gmail_address"],
+      truncated: false,
+      suggest_keep: false,
+    };
+    const form = new ContactDuplicatesState(api([byGmail]));
+    await form.open();
+    show(form);
+    expect(screen.getByText("Même adresse Gmail")).toBeTruthy();
+    expect(screen.getByText(/choisissez vous-même la fiche à garder/)).toBeTruthy();
+    const radios = screen.getAllByRole("radio") as HTMLInputElement[];
+    expect(radios.some((r) => r.checked)).toBe(false);
+    const merge = screen.getByRole("button", { name: "Fusionner" }) as HTMLButtonElement;
+    expect(merge.disabled).toBe(true);
+    await fireEvent.click(radios[0] as HTMLElement);
+    await vi.waitFor(() => expect(merge.disabled).toBe(false));
+    expect(screen.queryByText(/choisissez vous-même/)).toBeNull();
+  });
+
+  it("explique qu'un groupe passé n'est plus proposé", async () => {
+    const form = new ContactDuplicatesState(api([group]));
+    await form.open();
+    show(form);
+    expect(screen.getByText(/Un groupe passé ne vous sera plus proposé/)).toBeTruthy();
   });
 
   it("sans doublon : message", async () => {

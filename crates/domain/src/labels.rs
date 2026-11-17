@@ -47,6 +47,10 @@ pub const MAX_LABELS: usize = 500;
 /// Nombre maximal d'UID par `UID STORE` d'une réécriture.
 pub const REWRITE_BATCH: usize = 500;
 
+/// Essais d'une réécriture avant abandon (serveur qui la refuse toujours) :
+/// elle ne bloque jamais la synchronisation du compte indéfiniment.
+pub const MAX_REWRITE_ATTEMPTS: u32 = 5;
+
 /// Étiquettes de Thunderbird (`$label1` à `$label5`).
 pub const BUILTIN_LABELS: u8 = 5;
 

@@ -1,7 +1,7 @@
 use norelly_domain::actions::QueueChange;
 use norelly_domain::fetch_policy::FetchPolicy;
 use norelly_domain::mailbox::Flags;
-use norelly_domain::ports::{MessageListQuery, RemoteMailboxSession, StoredMailbox};
+use norelly_domain::ports::{LabelStore, MessageListQuery, RemoteMailboxSession, StoredMailbox};
 use norelly_domain::sync::SyncExtensions;
 use norelly_test_support::fake_imap::{FakeImap, FakeImapSession};
 use norelly_test_support::mail_contracts::{InMemoryBlobStore, InMemoryMailStore};
@@ -601,4 +601,68 @@ async fn pending_actions_keep_their_effect_while_the_sync_shows_headers() {
         .await
         .unwrap_or_else(|e| panic!("{e}"));
     assert_eq!(shown, vec![true], "action en attente toujours visible");
+}
+
+fn label(raw: &str, value: bool) -> MessageAction {
+    MessageAction::SetLabel {
+        keyword: norelly_domain::mailbox::Keyword::parse(raw).unwrap_or_else(|| panic!("mot-clé")),
+        value,
+    }
+}
+
+fn has(flags: &Flags, raw: &str) -> bool {
+    flags.keywords().iter().any(|k| k.as_str() == raw)
+}
+
+#[tokio::test]
+async fn a_label_is_optimistic_then_replayed_and_the_permanent_flags_kept() {
+    let mut w = world(true, true).await;
+    let m1 = w.id_of("INBOX", 1).await;
+    let report = w.act(&[m1], label("Projet", true)).await;
+    assert_eq!(report.recorded.len(), 1);
+    assert!(
+        has(&w.visible("INBOX").await[0].2, "Projet"),
+        "tout de suite"
+    );
+    let replayed = w.replay(LATER).await;
+    assert_eq!(replayed.applied, 1);
+    assert!(has(&w.imap.flags_of("INBOX")[&uid(1)], "Projet"));
+    // Mots-clés permanents lus au SELECT, notés pour le menu.
+    let inbox = w.box_id("INBOX");
+    assert_eq!(
+        w.store
+            .keyword_permissions(account())
+            .await
+            .unwrap_or_else(|e| panic!("{e}")),
+        [(inbox, norelly_domain::labels::KeywordPermission::Any)]
+    );
+    w.act(&[m1], label("Projet", false)).await;
+    w.replay(LATER).await;
+    assert!(!has(&w.imap.flags_of("INBOX")[&uid(1)], "Projet"));
+}
+
+#[tokio::test]
+async fn a_label_refused_by_the_server_is_dropped_and_then_refused_locally() {
+    let mut w = world(true, true).await;
+    w.imap
+        .set_permanent_flags(Some(&["\\Seen", "\\Flagged", "$label1"]));
+    let m1 = w.id_of("INBOX", 1).await;
+    w.act(&[m1], label("Projet", true)).await;
+    let report = w.replay(LATER).await;
+    assert_eq!(
+        report.dropped,
+        [(report.dropped[0].0, Some(Conflict::KeywordRefused))]
+    );
+    assert!(!has(&w.visible("INBOX").await[0].2, "Projet"), "rétabli");
+    assert!(!has(&w.imap.flags_of("INBOX")[&uid(1)], "Projet"));
+    // Le dossier est désormais connu pour refuser : action refusée tout
+    // de suite, sauf pour un mot-clé permis.
+    let refused = PerformAction { store: &w.store }
+        .execute(&[m1], label("Projet", true), NOW)
+        .await;
+    assert_eq!(
+        refused,
+        Err(ActionFailure::Invalid(ActionError::KeywordRefused))
+    );
+    assert_eq!(w.act(&[m1], label("$label1", true)).await.recorded.len(), 1);
 }

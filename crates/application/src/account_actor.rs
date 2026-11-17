@@ -28,7 +28,7 @@ use norelly_domain::connection::{ConnectionError, TimeoutStage};
 use norelly_domain::fetch_policy::{BodyFetch, FetchPolicy};
 use norelly_domain::mailbox::{MailboxName, MailboxRole, RemoteMailbox, Uid, relocation_confirmed};
 use norelly_domain::ports::{
-    BlobStore, ConnectRequest, FetchedBody, IdleOutcome, MailStore, PendingOpStore,
+    BlobStore, ConnectRequest, FetchedBody, IdleOutcome, LabelStore, MailStore, PendingOpStore,
     RemoteMailboxConnector, RemoteMailboxSession, SearchTextExtractor, StoredMailbox,
 };
 use norelly_domain::sync::{Backoff, IDLE_RENEWAL_SECS, SelectRequest, SyncExtensions};
@@ -37,6 +37,7 @@ use tokio::task::JoinHandle;
 
 use crate::actions::{ReplayActions, ReplayFailure};
 use crate::folders::{FolderChange, FolderFailure};
+use crate::labels::ReplayRewrites;
 use crate::sync::{SyncAccount, SyncEvent, SyncFailure, SyncStep};
 
 /// Réglages de l'acteur.
@@ -456,7 +457,7 @@ impl LiveRefresh {
 impl<C, M, B> Shared<C, M, B>
 where
     C: RemoteMailboxConnector,
-    M: MailStore + PendingOpStore,
+    M: MailStore + PendingOpStore + LabelStore,
     B: BlobStore,
 {
     fn emit(&self, event: SyncEvent) {
@@ -665,12 +666,21 @@ where
         }
         .execute(session, now)
         .await?;
-        if !report.touched.is_empty() {
-            self.sync_named(session, ext, known, report.touched.iter().cloned())
+        // Étiquettes renommées ou retirées : réécrites sur le serveur.
+        let rewrites = ReplayRewrites {
+            account: self.account,
+            store: &*self.store,
+        }
+        .execute(session)
+        .await?;
+        let mut touched = report.touched;
+        touched.extend(rewrites.touched);
+        if !touched.is_empty() {
+            self.sync_named(session, ext, known, touched.iter().cloned())
                 .await?;
             // Effets locaux rétablis (opération abandonnée) : l'interface
             // doit relire ces boîtes même si le serveur n'a pas changé.
-            for name in &report.touched {
+            for name in &touched {
                 if let Some(m) = known.iter().find(|m| m.mailbox.name == *name) {
                     self.emit(SyncEvent::FolderChanged {
                         account: self.account,
@@ -1131,7 +1141,7 @@ pub fn spawn<C, M, B>(
 where
     C: RemoteMailboxConnector + 'static,
     C::Session: 'static,
-    M: MailStore + PendingOpStore + 'static,
+    M: MailStore + PendingOpStore + LabelStore + 'static,
     B: BlobStore + 'static,
 {
     let (events, _) = broadcast::channel(256);

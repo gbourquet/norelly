@@ -114,9 +114,12 @@ describe("export du carnet", () => {
     const bytes = readFileSync(file);
     expect([...bytes.subarray(0, 3)]).toEqual([0xef, 0xbb, 0xbf]);
     const lines = bytes.subarray(3).toString("utf8").split("\r\n");
-    expect(lines[0].startsWith("Name,First Name,Last Name,Nickname,Organization Name,Notes,")).toBe(
-      true,
-    );
+    expect(
+      lines[0].startsWith("Name,First Name,Last Name,Nickname,Organization Name,Notes,Labels,"),
+    ).toBe(true);
+    // Colonne « Labels » : la fiche arrive dans « Mes contacts » à l'import Google.
+    const labels = lines[0].split(",").indexOf("Labels");
+    expect(lines[1].split(",")[labels]).toBe("* myContacts");
     expect(lines.join("\n")).toContain("Élodie");
     expect(lines.join("\n")).not.toContain("Marc");
     // Téléphone « +33 » neutralisé contre les formules des tableurs.

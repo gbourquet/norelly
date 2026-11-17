@@ -335,6 +335,8 @@ l'ordinateur** : rien n'est envoyé à un serveur.
     en travail, domicile, portable, fax ou bipeur ;
   - dans tous les formats, l'adresse préférée est écrite en premier ; les
     favoris et les listes de diffusion ne sont pas exportés.
+- Un CSV importé dans Google Contacts y range les contacts dans « Mes
+  contacts », comme ceux créés directement chez Google.
 - Dans le CSV, une valeur qui commence par `=`, `+`, `-` ou `@` (un
   numéro « +33… » par exemple), ou par l'une de leurs variantes
   typographiques (formes larges, petites, en exposant ou en indice, signe

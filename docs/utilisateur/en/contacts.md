@@ -187,7 +187,8 @@ To keep a copy of your address book, or move it to another program:
    appears.
 2. Choose the format: **vCard 4.0** works almost everywhere (Gmail,
    iPhone, Android, Thunderbird); **vCard 3.0** for older software;
-   **CSV** for Outlook or a spreadsheet; **LDIF** for Thunderbird.
+   **CSV** for Outlook, a spreadsheet or Google Contacts (contacts land in
+   “My Contacts”); **LDIF** for Thunderbird.
 3. Click **Export…**, choose the folder and the file name, then **Save**.
 
 ![Choosing the format of an export](captures/contacts-export.png)

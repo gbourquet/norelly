@@ -462,6 +462,11 @@ export const api = {
   previewContactMerge: (keep: number, others: number[]): Promise<ContactMergePreviewDto> =>
     unwrap(commands.previewContactMerge(keep, others)),
 
+  /** Retient le groupe passé `contacts` : il n'est plus proposé tant
+   * qu'aucune de ses fiches ne change. */
+  dismissContactDuplicates: (contacts: number[]): Promise<null> =>
+    unwrap(commands.dismissContactDuplicates(contacts)),
+
   /** Fusionne les fiches `others` dans `keep` ; renvoie la fiche gardée. */
   mergeContacts: (keep: number, others: number[]): Promise<ContactDto> =>
     unwrap(commands.mergeContacts(keep, others)),

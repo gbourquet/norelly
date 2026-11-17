@@ -1,20 +1,22 @@
 //! Cas d'usage des doublons du carnet (ADR-012) : chercher les groupes de
-//! doublons ([`FindDuplicates`]), prévoir ([`PreviewMerge`]) et fusionner
-//! des fiches ([`MergeContacts`]).
+//! doublons ([`FindDuplicates`]), écarter un groupe passé
+//! ([`DismissDuplicates`]), prévoir ([`PreviewMerge`]) et fusionner des
+//! fiches ([`MergeContacts`]).
 //!
 //! Les règles (critères de rapprochement, fiche proposée, fusion) sont
 //! dans `norelly_domain::contact_duplicates` ; ce module lit le carnet,
 //! applique la règle et écrit la fusion en une transaction.
 
 use norelly_domain::contact_duplicates::{
-    DuplicateReason, MAX_DUPLICATE_SCAN, MergeSelection, find_duplicates, merge_contacts,
+    Dismissal, DuplicateReason, MAX_DUPLICATE_SCAN, MergeSelection, find_duplicates, merge_contacts,
 };
 use norelly_domain::contact_export::ContactSelection;
 use std::collections::HashMap;
 
 use norelly_domain::contacts::{Contact, ContactDraft, ContactId};
 use norelly_domain::ports::{
-    ContactBook, ContactDirectory, ContactStoreError, StoreError, TextNormalizer,
+    ContactBook, ContactDirectory, ContactStoreError, DuplicateDismissals, StoreError,
+    TextNormalizer,
 };
 
 use crate::contacts::ContactFailure;
@@ -36,16 +38,19 @@ pub struct DuplicateCandidates {
     pub reasons: Vec<DuplicateReason>,
     /// Groupe tronqué à ses fiches les plus complètes.
     pub truncated: bool,
+    /// La première fiche est proposée d'office comme fiche gardée.
+    pub suggest_keep: bool,
 }
 
-/// Cas d'usage : groupes de doublons du carnet.
+/// Cas d'usage : groupes de doublons du carnet, hors groupes écartés.
 #[derive(Debug)]
-pub struct FindDuplicates<'a, D, N> {
+pub struct FindDuplicates<'a, D, S, N> {
     pub directory: &'a D,
+    pub dismissals: &'a S,
     pub normalizer: &'a N,
 }
 
-impl<D: ContactDirectory, N: TextNormalizer> FindDuplicates<'_, D, N> {
+impl<D: ContactDirectory, S: DuplicateDismissals, N: TextNormalizer> FindDuplicates<'_, D, S, N> {
     pub async fn execute(&self) -> Result<Vec<DuplicateCandidates>, DuplicateScanFailure> {
         // Une fiche de plus que la borne : savoir qu'elle est dépassée.
         let contacts = self
@@ -55,8 +60,9 @@ impl<D: ContactDirectory, N: TextNormalizer> FindDuplicates<'_, D, N> {
         if contacts.len() > MAX_DUPLICATE_SCAN {
             return Err(DuplicateScanFailure::TooMany);
         }
+        let dismissed = self.dismissals.dismissed().await?;
         let by_id: HashMap<ContactId, &Contact> = contacts.iter().map(|c| (c.id(), c)).collect();
-        Ok(find_duplicates(&contacts, self.normalizer)
+        Ok(find_duplicates(&contacts, &dismissed, self.normalizer)
             .into_iter()
             .map(|group| DuplicateCandidates {
                 contacts: group
@@ -66,8 +72,22 @@ impl<D: ContactDirectory, N: TextNormalizer> FindDuplicates<'_, D, N> {
                     .collect(),
                 reasons: group.reasons,
                 truncated: group.truncated,
+                suggest_keep: group.suggest_keep,
             })
             .collect())
+    }
+}
+
+/// Cas d'usage : retenir un groupe passé, pour ne plus le proposer tant
+/// que ses fiches ne changent pas.
+#[derive(Debug)]
+pub struct DismissDuplicates<'a, S> {
+    pub dismissals: &'a S,
+}
+
+impl<S: DuplicateDismissals> DismissDuplicates<'_, S> {
+    pub async fn execute(&self, dismissal: &Dismissal) -> Result<(), StoreError> {
+        self.dismissals.dismiss(dismissal.pairs()).await
     }
 }
 

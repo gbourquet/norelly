@@ -6,10 +6,14 @@ import type {
   Api,
   ContactCursorDto,
   ContactDto,
+  ContactEmailDto,
   ContactFieldsDto,
   ContactItem,
+  ContactLabelKindDto,
+  ContactPhoneDto,
   RecipientDto,
 } from "./ipc/api";
+import { labelKindText } from "./contact-label";
 // Constante générée depuis le domaine, lue dans les bindings eux-mêmes
 // (et non via `api.ts`, simulé par les tests de l'application).
 import { MAX_CONTACT_SELECTION, type FieldDto } from "./ipc/bindings";
@@ -271,9 +275,43 @@ function isNameField(field: FieldDto | null): field is ContactNameField {
   return field !== null && NAME_FIELDS.includes(field);
 }
 
+/** Ligne d'adresse ou de téléphone du formulaire : pour une étiquette
+ * reconnue, montrée traduite, son texte enregistré et la traduction
+ * montrée à l'ouverture. */
+interface StoredLabel {
+  stored?: { text: string; shown: string };
+}
+
+/** Champs du formulaire d'un contact. */
+export type ContactFormFields = Omit<ContactFieldsDto, "emails" | "phones"> & {
+  emails: (ContactEmailDto & StoredLabel)[];
+  phones: (ContactPhoneDto & StoredLabel)[];
+};
+
+/** Ligne du formulaire : étiquette reconnue montrée traduite, texte
+ * enregistré gardé à côté. */
+function shownRow<T extends { label: string; label_kind?: ContactLabelKindDto | null }>(
+  row: T,
+): T & StoredLabel {
+  if (row.label_kind == null) return row;
+  const shown = labelKindText(row.label_kind);
+  return { ...row, stored: { text: row.label, shown }, label: shown };
+}
+
+/** Formulaire d'une fiche relue. */
+function formFields(fields: ContactFieldsDto): ContactFormFields {
+  return { ...fields, emails: fields.emails.map(shownRow), phones: fields.phones.map(shownRow) };
+}
+
+/** Étiquette envoyée : le texte enregistré si sa traduction montrée n'a
+ * pas été modifiée (même si la langue a changé depuis), la saisie sinon. */
+function sentLabel(row: { label: string } & StoredLabel): string {
+  return row.stored !== undefined && row.label === row.stored.shown ? row.stored.text : row.label;
+}
+
 export class ContactFormState {
   readonly #api: ContactsApi;
-  fields = $state<ContactFieldsDto>(emptyFields());
+  fields = $state<ContactFormFields>(emptyFields());
   /** Fiche modifiée ; `null` : nouveau contact. */
   id = $state<number | null>(null);
   busy = $state(false);
@@ -297,7 +335,9 @@ export class ContactFormState {
   reset(contact: ContactDto | null): void {
     this.id = contact?.id ?? null;
     this.fields =
-      contact === null ? emptyFields() : structuredClone($state.snapshot(contact.fields));
+      contact === null
+        ? emptyFields()
+        : formFields(structuredClone($state.snapshot(contact.fields)));
     if (this.fields.emails.length === 0) this.addEmail();
     this.error = null;
     this.fieldError = null;
@@ -354,8 +394,12 @@ export class ContactFormState {
     const fields = $state.snapshot(this.fields);
     return {
       ...fields,
-      emails: fields.emails.filter((e) => e.address.trim() !== ""),
-      phones: fields.phones.filter((p) => p.number.trim() !== "" || p.label.trim() !== ""),
+      emails: fields.emails
+        .filter((e) => e.address.trim() !== "")
+        .map((e) => ({ address: e.address, label: sentLabel(e), preferred: e.preferred })),
+      phones: fields.phones
+        .filter((p) => p.number.trim() !== "" || p.label.trim() !== "")
+        .map((p) => ({ number: p.number, label: sentLabel(p) })),
     };
   }
 

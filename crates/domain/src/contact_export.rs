@@ -13,6 +13,7 @@ use std::borrow::Cow;
 use std::time::Duration;
 
 use crate::contact_import::{MAX_IMPORT_CARDS, MAX_IMPORT_FILE_BYTES};
+use crate::contact_labels::ContactLabelKind;
 use crate::contacts::{
     ContactDraft, ContactEmail, ContactId, ContactSelectionError, MAX_CONTACT_NAME_CHARS,
     MAX_CONTACT_SELECTION, contact_selection,
@@ -212,12 +213,11 @@ fn google_label(label: &str) -> Option<String> {
 /// (`telephoneNumber`, aussi pour une étiquette inconnue ou absente),
 /// `home`, `cell`, `fax` ou `pager`.
 fn ldif_phone_label(label: Option<&str>) -> &'static str {
-    let label = label.map(str::to_lowercase).unwrap_or_default();
-    match label.as_str() {
-        "home" | "maison" | "domicile" | "perso" | "personnel" => "home",
-        "cell" | "mobile" | "portable" => "cell",
-        "fax" | "télécopie" | "telecopie" => "fax",
-        "pager" | "bipeur" | "radiomessagerie" => "pager",
+    match label.and_then(ContactLabelKind::of) {
+        Some(ContactLabelKind::Home) => "home",
+        Some(ContactLabelKind::Mobile) => "cell",
+        Some(ContactLabelKind::Fax) => "fax",
+        Some(ContactLabelKind::Pager) => "pager",
         _ => "work",
     }
 }

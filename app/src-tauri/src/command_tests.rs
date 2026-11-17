@@ -1760,6 +1760,7 @@ async fn labels_are_created_set_shown_searched_renamed_and_deleted() {
         account,
         " À faire ".into(),
         Some("#1565C0".into()),
+        false,
     )
     .await
     .unwrap_or_else(|e| panic!("{e:?}"));
@@ -1771,25 +1772,43 @@ async fn labels_are_created_set_shown_searched_renamed_and_deleted() {
         .map(|c| (c.background.as_str(), c.text.as_str()));
     assert_eq!(colors, Some(("#1565c0", "#ffffff")));
     assert_eq!(
-        code(create_label(t.state(), account, "   ".into(), None).await),
+        code(create_label(t.state(), account, "   ".into(), None, false).await),
         (ErrorCodeDto::LabelNameInvalid, Some(FieldDto::LabelName))
     );
     assert_eq!(
-        code(create_label(t.state(), account, "x".repeat(41), None).await),
+        code(create_label(t.state(), account, "x".repeat(41), None, false).await),
         (ErrorCodeDto::LabelNameTooLong, Some(FieldDto::LabelName))
     );
     assert_eq!(
-        code(create_label(t.state(), account, "Client".into(), Some("red".into())).await),
+        code(
+            create_label(
+                t.state(),
+                account,
+                "Client".into(),
+                Some("red".into()),
+                false
+            )
+            .await
+        ),
         (ErrorCodeDto::InvalidInput, Some(FieldDto::LabelColor))
     );
     assert_eq!(
-        code(create_label(t.state(), account, "à faire".into(), None).await).0,
+        code(create_label(t.state(), account, "à faire".into(), None, false).await).0,
         ErrorCodeDto::LabelExists
     );
     assert_eq!(
-        code(create_label(t.state(), 0, "Client".into(), None).await),
+        code(create_label(t.state(), 0, "Client".into(), None, false).await),
         (ErrorCodeDto::InvalidInput, Some(FieldDto::Account))
     );
+    assert_eq!(
+        code(create_label(t.state(), account, "Junk".into(), None, false).await),
+        (ErrorCodeDto::LabelNameReserved, Some(FieldDto::LabelName))
+    );
+    // Depuis le menu « Étiqueter… » : l'étiquette du même nom est reprise.
+    let reused = create_label(t.state(), account, "à faire".into(), None, true)
+        .await
+        .unwrap_or_else(|e| panic!("{e:?}"));
+    assert_eq!(reused.keyword, label.keyword);
 
     // --- Menu « Étiqueter… », pose ---
     let menu = label_menu(t.state(), vec![first], scope.clone())
@@ -1829,6 +1848,22 @@ async fn labels_are_created_set_shown_searched_renamed_and_deleted() {
             .await
         ),
         (ErrorCodeDto::InvalidInput, Some(FieldDto::Label))
+    );
+    assert_eq!(
+        code(
+            perform_action(
+                t.state(),
+                vec![first],
+                scope.clone(),
+                ActionDto::SetLabel {
+                    keyword: "$Junk".into(),
+                    value: true,
+                },
+            )
+            .await
+        ),
+        (ErrorCodeDto::InvalidInput, Some(FieldDto::Label)),
+        "mot-clé de protocole"
     );
     let menu = label_menu(t.state(), vec![first], scope.clone())
         .await

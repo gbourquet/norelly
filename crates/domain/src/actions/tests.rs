@@ -629,6 +629,13 @@ fn labels_are_refused_by_folders_that_do_not_keep_them() {
     );
     // Retirer reste toujours possible.
     assert!(resolve(&label("Client", false), &inbox, &all, None).is_ok());
+    // Mots-clés de protocole : jamais posés ni retirés comme une étiquette.
+    for value in [true, false] {
+        assert_eq!(
+            resolve(&label("$Junk", value), &all[0], &all, None),
+            Err(ActionError::ReservedKeyword)
+        );
+    }
 }
 
 #[test]

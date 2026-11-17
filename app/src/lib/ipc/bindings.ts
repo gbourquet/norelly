@@ -141,8 +141,13 @@ export const commands = {
 	 *  désactivées si le serveur les refuse.
 	 */
 	labelMenu: (conversations: number[], scope: ScopeDto) => typedError<LabelMenuDto_Serialize, IpcError_Serialize>(__TAURI_INVOKE("label_menu", { conversations, scope })),
-	/**  Crée une étiquette (réglages, ou « Nouvelle étiquette » du menu). */
-	createLabel: (account: number, name: string, color: string | null) => typedError<LabelDto_Serialize, IpcError_Serialize>(__TAURI_INVOKE("create_label", { account, name, color })),
+	/**
+	 *  Crée une étiquette (réglages, ou « Nouvelle étiquette » du menu).
+	 *  `reuse` (menu « Étiqueter… ») : une étiquette qui porte déjà ce nom
+	 *  (décision du domaine) est rendue au lieu d'un refus ; `color` est alors
+	 *  ignorée.
+	 */
+	createLabel: (account: number, name: string, color: string | null, reuse: boolean) => typedError<LabelDto_Serialize, IpcError_Serialize>(__TAURI_INVOKE("create_label", { account, name, color, reuse })),
 	/**  Couleur d'une étiquette (`None` : pastille neutre). */
 	setLabelColor: (account: number, keyword: string, color: string | null) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("set_label_color", { account, keyword, color })),
 	/**
@@ -1267,6 +1272,8 @@ export type ErrorCodeDto =
 "label_exists" | 
 /**  Trop d'étiquettes sur le compte. */
 "label_too_many" | 
+/**  Nom réservé à un usage technique (indésirable, transféré…). */
+"label_name_reserved" | 
 /**  Erreur interne (journalisée). */
 "internal";
 

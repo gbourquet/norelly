@@ -60,7 +60,6 @@ fn istring(s: &IString<'_>) -> String {
     mime_token(&text(s.as_ref()))
 }
 
-/// Ensemble d'UID compact (`1:5,7,9:12`), trié.
 /// Mot-clé du domaine (atom déjà validé) en atom IMAP.
 pub(crate) fn keyword_atom(
     keyword: &norelly_domain::mailbox::Keyword,
@@ -68,6 +67,7 @@ pub(crate) fn keyword_atom(
     Atom::try_from(keyword.as_str().to_owned()).map_err(|_| protocol("mot-clé invalide"))
 }
 
+/// Ensemble d'UID compact (`1:5,7,9:12`), trié.
 pub(crate) fn uid_set(uids: impl IntoIterator<Item = Uid>) -> Option<SequenceSet> {
     let sorted: BTreeSet<u32> = uids.into_iter().map(Uid::get).collect();
     let mut parts: Vec<String> = Vec::new();

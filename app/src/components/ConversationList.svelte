@@ -484,14 +484,14 @@
     font-size: var(--font-size-xs);
   }
 
-  /* Pastilles après le sujet : le sujet garde la place restante. */
+  /* Pastilles après le sujet : elles gardent leur place (la moitié de la
+     ligne au plus), le sujet prend le reste et s'abrège. */
   .labels {
     display: flex;
-    flex: 0 1 auto;
+    flex: none;
     align-items: center;
     gap: var(--space-1);
-    min-width: 0;
-    max-width: 60%;
+    max-width: 50%;
     overflow: hidden;
   }
 

@@ -295,6 +295,15 @@ impl Query {
         }
     }
 
+    /// La requête cherche une étiquette (les mots-clés connus des comptes
+    /// sont alors à lire, [`Self::resolve_labels`]).
+    #[must_use]
+    pub fn has_labels(&self) -> bool {
+        self.clauses
+            .iter()
+            .any(|c| matches!(c.atom, Atom::Label { .. }))
+    }
+
     /// Vrai si la requête ne contient aucune clause.
     #[must_use]
     pub fn is_empty(&self) -> bool {

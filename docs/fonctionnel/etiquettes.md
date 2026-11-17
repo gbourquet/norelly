@@ -62,6 +62,8 @@ messagerie qui les connaît (Thunderbird, par exemple) les voit aussi.
   borné en longueur ; espaces de début et de fin retirés. Deux étiquettes
   d'un même compte ne peuvent pas porter le même nom, aux majuscules et aux
   accents près.
+- Les noms des marques techniques (voir plus bas : « Junk »,
+  « Forwarded »…) sont réservés : refusés à la création et au renommage.
 - **Tous les caractères** sont permis dans un nom (accents, espaces,
   ponctuation, autres écritures) : il est enregistré sur le serveur sous
   une forme que tout logiciel de messagerie accepte, et relu à l'identique.
@@ -86,7 +88,10 @@ messagerie qui les connaît (Thunderbird, par exemple) les voit aussi.
   suivante, sans jamais laisser un message sans aucune des deux étiquettes
   (ancienne ou nouvelle). Il se fait par lots, sans bloquer l'interface,
   même sur une très grande boîte. Un dossier qui refuse le nouveau nom est
-  laissé tel quel.
+  laissé tel quel, et l'affichage de ce dossier est remis à l'état du
+  serveur.
+- Une étiquette posée ou retirée juste avant un renommage suit le nouveau
+  nom.
 
 ## Cas limites
 
@@ -95,7 +100,9 @@ messagerie qui les connaît (Thunderbird, par exemple) les voit aussi.
 - Nom déjà pris (aux majuscules et accents près) : refusé à la création et
   au renommage ; dans la fenêtre **Étiqueter**, l'étiquette existante est
   posée.
-- Renommer sous le même nom : rien ne change.
+- Renommer sous le même nom, ou en ne changeant que des majuscules sans
+  accent (« Projet » en « PROJET ») : rien ne change, la plupart des
+  serveurs ne distinguant pas ces deux noms.
 - Une étiquette renommée sur un autre ordinateur apparaît sous son nouveau
   nom à la synchronisation suivante ; l'ancien nom disparaît de la liste
   quand plus aucun message ne le porte.
@@ -114,7 +121,7 @@ messagerie qui les connaît (Thunderbird, par exemple) les voit aussi.
 | Réglages | Étiquettes, Compte, Aucune étiquette sur ce compte., Ajouter, Couleur de « {label} », Sans couleur, Renommer, Supprimer |
 | Suppression | Supprimer « {label} » de la liste ?, La retirer aussi de tous les messages (sur le serveur) |
 | Renommage | Étiquette renommée. Les messages du serveur suivent en arrière-plan. |
-| Nom refusé | Donnez un nom à l'étiquette, sans caractère invisible. ; Ce nom d'étiquette est trop long. ; Une étiquette porte déjà ce nom. |
+| Nom refusé | Donnez un nom à l'étiquette, sans caractère invisible. ; Ce nom d'étiquette est trop long. ; Une étiquette porte déjà ce nom. ; Ce nom est réservé à un usage technique : choisissez-en un autre. |
 
 ## Raccourcis
 

@@ -260,6 +260,8 @@ function codeText(code: ErrorCodeDto, field: FieldDto | null): string {
       return m.err_label_exists();
     case "label_too_many":
       return m.err_label_too_many();
+    case "label_name_reserved":
+      return m.err_label_name_reserved();
     case "contact_list_not_found":
       return m.err_contact_list_not_found();
     case "internal":

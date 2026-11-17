@@ -482,8 +482,14 @@ export const search = new SearchState(api);
 export const labels = new LabelsState(api);
 mail.onFolders = (account) => void labels.load(account);
 
+/** Conversations visées à l'ouverture du dialogue « Étiqueter… » : ses
+ * cases s'y appliquent, même après qu'une première a décoché la sélection. */
+let labelTargets: FrozenTargets | null = null;
+
 /** Dialogue « Étiqueter… » de la sélection. */
-export const labelMenu = new LabelMenuState(api, (action, done) => mail.act(action, done));
+export const labelMenu = new LabelMenuState(api, (action, done) =>
+  labelTargets === null ? Promise.resolve() : mail.actOn(labelTargets, action, done),
+);
 
 /** Réglages des étiquettes. */
 export const labelSettings = new LabelSettingsState(api, labels);
@@ -749,6 +755,7 @@ export function registerAppCommands(): () => void {
       unavailable: (ctx) => (ctx.hasTargets && ctx.labelsRefused ? m.label_refused() : null),
       run: async () => {
         const targets = mail.captureTargets();
+        labelTargets = targets;
         app.open("label");
         await labelMenu.load(
           targets.targets.map((c) => c.id),

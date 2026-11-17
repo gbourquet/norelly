@@ -845,5 +845,6 @@
   "err_label_too_many": "Too many labels on this account.",
   "field_label": "label",
   "field_label_name": "label name",
-  "field_label_color": "label color"
+  "field_label_color": "label color",
+  "err_label_name_reserved": "This name is reserved for technical use: choose another one."
 }

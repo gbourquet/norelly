@@ -32,7 +32,7 @@ use serde::{Deserialize, Serialize};
 use crate::account::AccountId;
 use crate::capabilities::ServerCapabilities;
 use crate::conversation::ConversationScope;
-use crate::labels::{KeywordPermission, in_scope};
+use crate::labels::{KeywordPermission, in_scope, is_protocol_keyword};
 use crate::mailbox::{
     Flags, Keyword, MailboxId, MailboxName, MailboxRole, ModSeq, Uid, UidValidity,
 };
@@ -156,6 +156,8 @@ pub enum ActionError {
     QueueFull,
     #[error("le dossier refuse cette étiquette")]
     KeywordRefused,
+    #[error("mot-clé réservé au protocole")]
+    ReservedKeyword,
 }
 
 /// Effet de `action` sur un message du dossier `source`. `folders` :
@@ -188,6 +190,9 @@ pub fn resolve(
             value: *value,
         })),
         MessageAction::SetLabel { keyword, value } => {
+            if is_protocol_keyword(keyword) {
+                return Err(ActionError::ReservedKeyword);
+            }
             if *value && !source.keywords.can_store(keyword) {
                 return Err(ActionError::KeywordRefused);
             }

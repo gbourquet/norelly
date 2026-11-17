@@ -4,7 +4,7 @@
 // décidés en Rust ; ici, seulement l'affichage et les appels.
 
 import type { ActionDto, Api, LabelChoice, LabelDto, LabelMenu, ScopeDto } from "./ipc/api";
-import { IpcFailure, errorText } from "./errors";
+import { errorText } from "./errors";
 import { m } from "./paraglide/messages.js";
 
 /** Pastilles au plus dans une ligne de la liste, puis « +N ». */
@@ -133,14 +133,22 @@ export class LabelMenuState {
     this.#scope = scope;
     this.error = null;
     this.newName = "";
+    // Jamais le menu d'une autre sélection pendant le chargement.
+    this.menu = null;
     await this.#reload();
   }
 
+  #generation = 0;
+
   async #reload(): Promise<void> {
     if (this.#scope === null) return;
+    const generation = ++this.#generation;
     try {
-      this.menu = await this.#api.labelMenu(this.#conversations, this.#scope);
+      const menu = await this.#api.labelMenu(this.#conversations, this.#scope);
+      if (generation === this.#generation) this.menu = menu;
     } catch (e) {
+      if (generation !== this.#generation) return;
+      this.menu = null;
       this.error = errorText(e);
     }
   }
@@ -163,31 +171,24 @@ export class LabelMenuState {
     }
   }
 
-  /** Crée l'étiquette `newName` sur chaque compte de la sélection (déjà
-   * là : gardée), puis la pose. */
+  /** Crée l'étiquette `newName` sur chaque compte de la sélection (Rust
+   * reprend celle qui porte déjà ce nom), puis la pose. */
   async create(): Promise<void> {
     const name = this.newName.trim();
     if (name === "" || this.menu === null || !this.menu.can_create || this.busy) return;
     this.busy = true;
     this.error = null;
     try {
-      let keyword: string | null = null;
-      let label = name;
+      let created: LabelDto | null = null;
       for (const account of this.menu.accounts) {
-        try {
-          const created = await this.#api.createLabel(account, name, null);
-          keyword ??= created.keyword;
-          label = labelText(created);
-        } catch (e) {
-          if (!(e instanceof IpcFailure && e.code === "label_exists")) throw e;
-          // Déjà sur ce compte : la même étiquette (même nom) est posée.
-          keyword ??=
-            this.menu.choices.find((c) => labelText(c.label).toLowerCase() === name.toLowerCase())
-              ?.label.keyword ?? null;
-        }
+        const label = await this.#api.createLabel(account, name, null, true);
+        created ??= label;
       }
-      if (keyword === null) return;
-      await this.#act({ kind: "set_label", keyword, value: true }, m.label_applied({ label }));
+      if (created === null) return;
+      await this.#act(
+        { kind: "set_label", keyword: created.keyword, value: true },
+        m.label_applied({ label: labelText(created) }),
+      );
       this.newName = "";
       await this.#reload();
     } catch (e) {
@@ -241,7 +242,7 @@ export class LabelSettingsState {
   async create(): Promise<void> {
     const name = this.newName.trim();
     if (name === "") return;
-    if (await this.#change(async (a) => void (await this.#api.createLabel(a, name, null)))) {
+    if (await this.#change(async (a) => void (await this.#api.createLabel(a, name, null, false)))) {
       this.newName = "";
     }
   }

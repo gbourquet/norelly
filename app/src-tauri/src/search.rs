@@ -61,30 +61,36 @@ pub async fn search_messages(
         return Err(IpcError::invalid(FieldDto::Query));
     }
     let scope = scope_of(&scope)?;
-    // `étiquette:nom` : mots-clés des comptes dont le nom affiché
-    // correspond (décision du domaine).
-    let accounts: Vec<AccountId> = state
-        .accounts
-        .list()
-        .await
-        .map_err(IpcError::storage)?
-        .iter()
-        .map(norelly_domain::account::Account::id)
-        .collect();
-    let mut known = Vec::new();
-    let list = ListLabels {
-        store: &*state.mail.store,
-    };
-    for account in &accounts {
-        known.extend(
-            list.execute(*account)
+    // `étiquette:nom` : mots-clés des comptes cherchés dont le nom affiché
+    // correspond (décision du domaine) ; lus seulement pour une telle
+    // requête.
+    if query.has_labels() {
+        let accounts: Vec<AccountId> = match scope {
+            SearchScope::Account(account) => vec![account],
+            SearchScope::All | SearchScope::Mailbox(_) => state
+                .accounts
+                .list()
                 .await
                 .map_err(IpcError::storage)?
-                .into_iter()
-                .map(|l| l.keyword),
-        );
+                .iter()
+                .map(norelly_domain::account::Account::id)
+                .collect(),
+        };
+        let mut known = Vec::new();
+        let list = ListLabels {
+            store: &*state.mail.store,
+        };
+        for account in &accounts {
+            known.extend(
+                list.execute(*account)
+                    .await
+                    .map_err(IpcError::storage)?
+                    .into_iter()
+                    .map(|l| l.keyword),
+            );
+        }
+        query.resolve_labels(&known);
     }
-    query.resolve_labels(&known);
     let terms = query.highlight_terms();
     let page = state
         .mail

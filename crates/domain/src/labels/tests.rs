@@ -358,8 +358,86 @@ fn renaming_a_label_plans_a_rewrite() {
         plan_rename(&kw("Projet"), &name("Projet"), &existing),
         Err(LabelError::Unchanged)
     );
-    // Changer seulement la casse est un vrai renommage.
-    assert!(plan_rename(&kw("Projet"), &name("PROJET"), &existing).is_ok());
+    // Changer seulement la casse ASCII : même mot-clé pour la plupart des
+    // serveurs (le poser puis retirer l'ancien les retirerait tous).
+    assert_eq!(
+        plan_rename(&kw("Projet"), &name("PROJET"), &existing),
+        Err(LabelError::Unchanged)
+    );
+    // Accent changé : un autre mot-clé.
+    assert!(plan_rename(&kw("Projet"), &name("Projét"), &existing).is_ok());
+}
+
+#[test]
+fn protocol_names_are_reserved() {
+    let existing = account_labels(&[], &BTreeSet::new(), &[]);
+    for raw in ["Junk", "nonjunk", "Forwarded"] {
+        assert_eq!(
+            plan_create(&name(raw), &existing),
+            Err(LabelError::Reserved),
+            "{raw}"
+        );
+    }
+    let existing = account_labels(&[stored("Projet", None, false)], &BTreeSet::new(), &[]);
+    assert_eq!(
+        plan_rename(&kw("Projet"), &name("Junk"), &existing),
+        Err(LabelError::Reserved)
+    );
+}
+
+#[test]
+fn existing_label_of_a_name() {
+    let existing = account_labels(
+        &[stored("Projet", None, false)],
+        &BTreeSet::from([kw("$label2")]),
+        &[],
+    );
+    assert_eq!(
+        label_named(&name("projet"), &existing).map(|l| l.keyword.as_str()),
+        Some("Projet")
+    );
+    // Étiquette de Thunderbird, sous son nom anglais comme français.
+    assert_eq!(
+        label_named(&name("Work"), &existing).map(|l| l.keyword.as_str()),
+        Some("$label2")
+    );
+    assert_eq!(label_named(&name("Client"), &existing), None);
+}
+
+#[test]
+fn pending_label_ops_follow_a_rewrite() {
+    use crate::actions::{ActionFlag, FlagChange, OpKind, PendingOp};
+    use crate::mailbox::{MailboxName, UidValidity};
+    let op = |keyword: &str| PendingOp {
+        account: crate::account::AccountId::new(1).unwrap_or_else(|_| panic!("compte")),
+        message: crate::ports::MessageId::new(1).unwrap_or_else(|| panic!("id")),
+        mailbox: MailboxName::parse("INBOX").unwrap_or_else(|_| panic!("nom")),
+        uid_validity: UidValidity::new(1).unwrap_or_else(|| panic!("validité")),
+        uid: Uid::new(1).unwrap_or_else(|| panic!("uid")),
+        kind: OpKind::Flag {
+            change: FlagChange {
+                flag: ActionFlag::Keyword(kw(keyword)),
+                value: true,
+            },
+            previous: false,
+            unchanged_since: None,
+        },
+        not_before: 0,
+    };
+    let rename = LabelRewrite {
+        from: kw("Vieux"),
+        to: Some(kw("Neuf")),
+    };
+    assert_eq!(rename.follow(&op("Autre")), PendingFollow::Unchanged);
+    assert_eq!(
+        rename.follow(&op("Vieux")),
+        PendingFollow::Rewritten(op("Neuf"))
+    );
+    let remove = LabelRewrite {
+        from: kw("Vieux"),
+        to: None,
+    };
+    assert_eq!(remove.follow(&op("Vieux")), PendingFollow::Dropped);
 }
 
 #[test]
@@ -499,6 +577,15 @@ fn empty_selection_checks_nothing() {
 // ---------------------------------------------------------------------------
 // Recherche
 // ---------------------------------------------------------------------------
+
+#[test]
+fn label_search_is_only_resolved_when_asked() {
+    let with = crate::search::parse_query("facture étiquette:Projet")
+        .unwrap_or_else(|_| panic!("requête"));
+    let without = crate::search::parse_query("facture").unwrap_or_else(|_| panic!("requête"));
+    assert!(with.has_labels());
+    assert!(!without.has_labels());
+}
 
 #[test]
 fn label_search_matches_names_case_and_accent_insensitively() {

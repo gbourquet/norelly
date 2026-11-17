@@ -355,6 +355,12 @@ async fn a_folder_refusing_the_new_name_is_left_as_is() {
     assert_eq!(report.completed, 1);
     assert_eq!(w.server("INBOX", "Vieux"), [1], "laissé tel quel");
     assert!(w.server("INBOX", "Neuf").is_empty());
+    // La copie locale, réécrite d'avance, est relue du serveur.
+    assert!(report.touched.iter().any(|m| m.as_str() == "INBOX"));
+    w.sync().await;
+    assert_eq!(w.local("INBOX").await[0].1, ["Autre", "Vieux"]);
+    // L'ancien nom revient (porté sur le serveur) ; le nouveau reste listé.
+    assert_eq!(w.keywords().await, ["Autre", "Neuf", "Vieux"]);
 }
 
 #[tokio::test]
@@ -379,6 +385,51 @@ async fn a_rewrite_failing_forever_is_abandoned() {
     assert_eq!((report.completed, report.abandoned), (0, 1));
     assert_eq!(w.pending().await, 0);
     assert_eq!(w.server("INBOX", "Vieux"), [1], "rien envoyé");
+    // Copie locale relue du serveur dans tous les dossiers.
+    assert_eq!(report.touched.len(), 2);
+    w.sync().await;
+    assert_eq!(w.local("INBOX").await[0].1, ["Autre", "Vieux"]);
+    assert_eq!(w.local("Archives").await[0].1, ["Vieux"]);
+}
+
+#[tokio::test]
+async fn several_renames_are_replayed_in_order() {
+    let mut w = world(2).await;
+    RenameLabel { store: &w.store }
+        .execute(account(), &kw("Vieux"), &name("Neuf"))
+        .await
+        .unwrap_or_else(|e| panic!("{e}"));
+    RenameLabel { store: &w.store }
+        .execute(account(), &kw("Neuf"), &name("Final"))
+        .await
+        .unwrap_or_else(|e| panic!("{e}"));
+    let report = w.rewrite().await.unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(report.completed, 2);
+    for mailbox in ["INBOX", "Archives"] {
+        assert!(w.server(mailbox, "Vieux").is_empty());
+        assert!(w.server(mailbox, "Neuf").is_empty());
+    }
+    assert_eq!(w.server("INBOX", "Final"), [1, 2]);
+    assert_eq!(w.server("Archives", "Final"), [1]);
+}
+
+#[tokio::test]
+async fn the_label_menu_reuses_an_existing_label_of_the_same_name() {
+    let w = world(1).await;
+    let create = CreateLabel { store: &w.store };
+    assert_eq!(
+        create.existing_or_new(account(), &name("vieux")).await,
+        Ok(kw("Vieux"))
+    );
+    assert_eq!(
+        create.existing_or_new(account(), &name("Nouvelle")).await,
+        Ok(kw("Nouvelle"))
+    );
+    assert_eq!(w.keywords().await, ["Autre", "Nouvelle", "Vieux"]);
+    assert_eq!(
+        create.existing_or_new(account(), &name("Junk")).await,
+        Err(LabelFailure::Invalid(LabelError::Reserved))
+    );
 }
 
 #[tokio::test]

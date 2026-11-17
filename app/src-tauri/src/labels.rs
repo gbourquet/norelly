@@ -13,7 +13,9 @@ use norelly_application::labels::{
 };
 use norelly_domain::account::AccountId;
 use norelly_domain::actions::MAX_ACTION_TARGETS;
-use norelly_domain::labels::{LabelColor, LabelError, LabelName, visible_labels};
+use norelly_domain::labels::{
+    LabelColor, LabelError, LabelName, is_protocol_keyword, visible_labels,
+};
 use norelly_domain::mailbox::Keyword;
 use norelly_domain::ports::ConversationId;
 use tauri::State;
@@ -28,9 +30,12 @@ fn account_of(raw: u32) -> Result<AccountId, IpcError> {
     AccountId::new(i64::from(raw)).map_err(|_| IpcError::invalid(FieldDto::Account))
 }
 
-/// Mot-clé reçu de l'interface, revalidé.
+/// Mot-clé d'étiquette reçu de l'interface, revalidé : un atom, jamais un
+/// mot-clé de protocole (`$Junk`…).
 pub(crate) fn keyword_of(raw: &str) -> Result<Keyword, IpcError> {
-    Keyword::parse(raw).ok_or_else(|| IpcError::invalid(FieldDto::Label))
+    Keyword::parse(raw)
+        .filter(|k| !is_protocol_keyword(k))
+        .ok_or_else(|| IpcError::invalid(FieldDto::Label))
 }
 
 fn color_of(raw: Option<&str>) -> Result<Option<LabelColor>, IpcError> {
@@ -167,6 +172,9 @@ pub async fn label_menu(
 }
 
 /// Crée une étiquette (réglages, ou « Nouvelle étiquette » du menu).
+/// `reuse` (menu « Étiqueter… ») : une étiquette qui porte déjà ce nom
+/// (décision du domaine) est rendue au lieu d'un refus ; `color` est alors
+/// ignorée.
 #[tauri::command]
 #[specta::specta]
 pub async fn create_label(
@@ -174,15 +182,19 @@ pub async fn create_label(
     account: u32,
     name: String,
     color: Option<String>,
+    reuse: bool,
 ) -> Result<LabelDto, IpcError> {
     let account = account_of(account)?;
     let name = name_of(&name)?;
     let color = color_of(color.as_deref())?;
-    let keyword = CreateLabel {
+    let create = CreateLabel {
         store: &*state.mail.store,
-    }
-    .execute(account, &name, color)
-    .await?;
+    };
+    let keyword = if reuse {
+        create.existing_or_new(account, &name).await?
+    } else {
+        create.execute(account, &name, color).await?
+    };
     label_dto(&state, account, &keyword).await
 }
 

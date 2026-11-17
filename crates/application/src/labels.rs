@@ -15,12 +15,12 @@ use norelly_domain::connection::ConnectionError;
 use norelly_domain::conversation::ConversationScope;
 use norelly_domain::labels::{
     KeywordPermission, Label, LabelColor, LabelError, LabelMenu, LabelName, LabelRewrite,
-    MAX_REWRITE_ATTEMPTS, StoredLabel, account_labels, hidden_keywords, label_menu, plan_create,
-    plan_rename, rewrite_batches,
+    MAX_REWRITE_ATTEMPTS, StoredLabel, account_labels, hidden_keywords, label_menu, label_named,
+    plan_create, plan_rename, rewrite_batches,
 };
 use norelly_domain::mailbox::{Keyword, MailboxId, MailboxName, classify_mailboxes};
 use norelly_domain::ports::{
-    ConversationId, LabelRewriteId, LabelStore, PendingOpStore, RemoteMailboxSession, StoreError,
+    ConversationId, LabelStore, PendingOpStore, RemoteMailboxSession, StoreError,
 };
 
 use crate::actions::ReplayFailure;
@@ -109,6 +109,22 @@ impl<S: LabelStore> CreateLabel<'_, S> {
             )
             .await?;
         Ok(keyword)
+    }
+}
+
+impl<S: LabelStore> CreateLabel<'_, S> {
+    /// Étiquette `name` du compte : celle qui porte déjà ce nom, sinon une
+    /// nouvelle (menu « Étiqueter… »).
+    pub async fn existing_or_new(
+        &self,
+        account: AccountId,
+        name: &LabelName,
+    ) -> Result<Keyword, LabelFailure> {
+        let labels = ListLabels { store: self.store }.execute(account).await?;
+        if let Some(existing) = label_named(name, &labels) {
+            return Ok(existing.keyword.clone());
+        }
+        self.execute(account, name, None).await
     }
 }
 
@@ -236,16 +252,14 @@ impl<S: LabelStore> ReplayRewrites<'_, S> {
         session: &mut R,
     ) -> Result<RewriteReport, ReplayFailure> {
         let mut report = RewriteReport::default();
-        let rewrites = self.store.label_rewrites(self.account).await?;
-        if rewrites.is_empty() {
+        let pending = self.store.label_rewrites(self.account).await?;
+        if pending.is_empty() {
             return Ok(report);
         }
-        let mailboxes: Vec<MailboxName> = classify_mailboxes(session.list_mailboxes().await?)
-            .into_iter()
-            .filter(|m| m.selectable)
-            .map(|m| m.name)
-            .collect();
-        for (id, rewrite) in rewrites {
+        // Chaque essai est compté avant tout envoi ; au-delà du plafond, la
+        // réécriture est abandonnée.
+        let mut active = Vec::new();
+        for (id, rewrite) in pending {
             let Some(attempts) = self.store.claim_rewrite(self.account, id).await? else {
                 continue;
             };
@@ -253,63 +267,121 @@ impl<S: LabelStore> ReplayRewrites<'_, S> {
                 tracing::warn!(account = %self.account, attempts, "réécriture d'étiquette abandonnée après trop d'essais");
                 self.store.complete_rewrite(self.account, id).await?;
                 report.abandoned += 1;
-                continue;
+            } else {
+                active.push((id, rewrite));
             }
+        }
+        let mailboxes: Vec<MailboxName> = classify_mailboxes(session.list_mailboxes().await?)
+            .into_iter()
+            .filter(|m| m.selectable)
+            .map(|m| m.name)
+            .collect();
+        // Abandon : la copie locale, réécrite d'avance, est relue du
+        // serveur dans tous les dossiers.
+        if report.abandoned > 0 {
             for mailbox in &mailboxes {
-                if self.rewrite_mailbox(session, mailbox, &rewrite).await? {
-                    report.touched.insert(mailbox.clone());
-                }
+                self.resync(mailbox, &mut report).await?;
             }
-            self.complete(id).await?;
+        }
+        if active.is_empty() {
+            return Ok(report);
+        }
+        let rewrites: Vec<LabelRewrite> = active.iter().map(|(_, r)| r.clone()).collect();
+        for mailbox in &mailboxes {
+            let done = self.rewrite_mailbox(session, mailbox, &rewrites).await?;
+            if done.changed {
+                report.touched.insert(mailbox.clone());
+            }
+            if done.left_behind {
+                self.resync(mailbox, &mut report).await?;
+            }
+        }
+        for (id, _) in active {
+            self.store.complete_rewrite(self.account, id).await?;
             report.completed += 1;
         }
         Ok(report)
     }
 
-    async fn complete(&self, id: LabelRewriteId) -> Result<(), StoreError> {
-        self.store.complete_rewrite(self.account, id).await
+    /// Dossier où une réécriture n'a pas pu se faire : ses drapeaux seront
+    /// relus entièrement à la synchronisation qui suit.
+    async fn resync(
+        &self,
+        mailbox: &MailboxName,
+        report: &mut RewriteReport,
+    ) -> Result<(), StoreError> {
+        self.store.forget_flag_state(self.account, mailbox).await?;
+        report.touched.insert(mailbox.clone());
+        Ok(())
     }
 
-    /// Réécrit un dossier ; `true` si des messages ont changé. Un refus du
-    /// serveur (`NO`) laisse le dossier tel quel.
+    /// Réécrit un dossier (un seul `SELECT` pour toutes les réécritures,
+    /// dans leur ordre). Un refus du serveur (`NO`), ou un dossier qui
+    /// refuse le nouveau mot-clé, laisse le dossier tel quel.
     async fn rewrite_mailbox<R: RemoteMailboxSession>(
         &self,
         session: &mut R,
         mailbox: &MailboxName,
-        rewrite: &LabelRewrite,
-    ) -> Result<bool, ReplayFailure> {
-        let outcome = async {
-            let selected = session.select_writable(mailbox).await?;
+        rewrites: &[LabelRewrite],
+    ) -> Result<MailboxRewrite, ReplayFailure> {
+        let mut done = MailboxRewrite::default();
+        let selected = match session.select_writable(mailbox).await {
+            Ok(selected) => selected,
+            Err(ConnectionError::Rejected(reason)) => {
+                tracing::warn!(account = %self.account, %reason, "dossier non sélectionnable pour une réécriture d'étiquette");
+                done.left_behind = true;
+                return Ok(done);
+            }
+            Err(e) => return Err(e.into()),
+        };
+        if selected.keywords != KeywordPermission::Unknown {
+            self.store
+                .set_keyword_permission(self.account, mailbox, &selected.keywords)
+                .await?;
+        }
+        for rewrite in rewrites {
             if !rewrite.applies_to(&selected.keywords) {
                 tracing::info!("dossier qui refuse le nouveau mot-clé : laissé tel quel");
-                return Ok((false, selected.keywords));
+                done.left_behind = true;
+                continue;
             }
-            let uids = session.search_keyword(&rewrite.from).await?;
-            for batch in rewrite_batches(&uids) {
-                if let Some(to) = &rewrite.to {
-                    session.store_keyword(&batch, to, true).await?;
+            match rewrite_keyword(session, rewrite).await {
+                Ok(changed) => done.changed |= changed,
+                Err(ConnectionError::Rejected(reason)) => {
+                    tracing::warn!(account = %self.account, %reason, "réécriture d'étiquette refusée dans un dossier");
+                    done.left_behind = true;
                 }
-                session.store_keyword(&batch, &rewrite.from, false).await?;
+                Err(e) => return Err(e.into()),
             }
-            Ok((!uids.is_empty(), selected.keywords))
         }
-        .await;
-        match outcome {
-            Ok((changed, keywords)) => {
-                if keywords != KeywordPermission::Unknown {
-                    self.store
-                        .set_keyword_permission(self.account, mailbox, &keywords)
-                        .await?;
-                }
-                Ok(changed)
-            }
-            Err(ConnectionError::Rejected(reason)) => {
-                tracing::warn!(account = %self.account, %reason, "réécriture d'étiquette refusée dans un dossier");
-                Ok(false)
-            }
-            Err(e) => Err(e.into()),
-        }
+        Ok(done)
     }
+}
+
+/// Bilan de la réécriture d'un dossier.
+#[derive(Debug, Default)]
+struct MailboxRewrite {
+    /// Des messages ont changé.
+    changed: bool,
+    /// Une réécriture n'a pas pu s'y faire (refus) : la copie locale est à
+    /// relire.
+    left_behind: bool,
+}
+
+/// `UID SEARCH KEYWORD`, puis, par lots, le nouveau mot-clé posé avant que
+/// l'ancien soit retiré ; `true` si des messages le portaient.
+async fn rewrite_keyword<R: RemoteMailboxSession>(
+    session: &mut R,
+    rewrite: &LabelRewrite,
+) -> Result<bool, ConnectionError> {
+    let uids = session.search_keyword(&rewrite.from).await?;
+    for batch in rewrite_batches(&uids) {
+        if let Some(to) = &rewrite.to {
+            session.store_keyword(&batch, to, true).await?;
+        }
+        session.store_keyword(&batch, &rewrite.from, false).await?;
+    }
+    Ok(!uids.is_empty())
 }
 
 /// Étiquettes proposées pour une sélection de conversations.

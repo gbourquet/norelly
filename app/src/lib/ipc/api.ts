@@ -314,9 +314,14 @@ export const api = {
   labelMenu: (conversations: number[], scope: ScopeDto): Promise<LabelMenu> =>
     unwrap(commands.labelMenu(conversations, scope)),
 
-  /** Crée une étiquette (`color` : `#rrggbb`, revalidée par Rust). */
-  createLabel: (account: number, name: string, color: string | null): Promise<LabelDto> =>
-    unwrap(commands.createLabel(account, name, color)),
+  /** Crée une étiquette (`color` : `#rrggbb`, revalidée par Rust) ;
+   * `reuse` : rend celle qui porte déjà ce nom au lieu d'un refus. */
+  createLabel: (
+    account: number,
+    name: string,
+    color: string | null,
+    reuse: boolean,
+  ): Promise<LabelDto> => unwrap(commands.createLabel(account, name, color, reuse)),
 
   setLabelColor: (account: number, keyword: string, color: string | null): Promise<void> =>
     unwrap(commands.setLabelColor(account, keyword, color)).then(() => undefined),

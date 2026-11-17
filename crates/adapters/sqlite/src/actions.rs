@@ -368,7 +368,7 @@ fn pending_ops(
 
 /// Opérations en attente du compte, revalidées une à une : une ligne
 /// illisible est ignorée (elle ne bloque pas un renommage local).
-fn readable_ops(
+pub(crate) fn readable_ops(
     c: &Connection,
     account: AccountId,
 ) -> Result<Vec<(PendingOpId, PendingOp)>, StoreError> {

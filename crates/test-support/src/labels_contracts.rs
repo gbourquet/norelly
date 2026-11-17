@@ -187,6 +187,20 @@ where
     assert!(store.cancel(id).await?);
     assert!(flags_of(store, inbox, m2).await?.keywords().is_empty());
 
+    // --- Opération en attente sur l'ancien mot-clé : suit la réécriture ---
+    let t2 = store
+        .action_target(m2)
+        .await?
+        .ok_or_else(|| fail("message visé"))?;
+    let tag_old = Effect::SetFlag(FlagChange {
+        flag: ActionFlag::Keyword(keyword("Vieux")?),
+        value: true,
+    });
+    let pending_old = PendingOp::new(&tag_old, &t2, 100).ok_or_else(|| fail("opération"))?;
+    store
+        .record_all(&[QueueChange::Push(pending_old.clone())])
+        .await?;
+
     // --- Réécriture : renommage ---
     let rename = LabelRewrite {
         from: keyword("Vieux")?,
@@ -216,6 +230,33 @@ where
         store.label_rewrites(account).await?,
         [(rewrite, rename.clone())]
     );
+    let followed: Vec<_> = store
+        .pending(account)
+        .await?
+        .into_iter()
+        .map(|(_, op)| op)
+        .collect();
+    assert_eq!(
+        followed,
+        [PendingOp {
+            kind: norelly_domain::actions::OpKind::Flag {
+                change: FlagChange {
+                    flag: ActionFlag::Keyword(keyword("Neuf")?),
+                    value: true,
+                },
+                previous: false,
+                unchanged_since: t2.highest_modseq,
+            },
+            ..pending_old.clone()
+        }],
+        "l'opération en attente vise le nouveau nom"
+    );
+    assert!(
+        flags_of(store, inbox, m2)
+            .await?
+            .keywords()
+            .contains(&keyword("Neuf")?)
+    );
     assert!(store.label_rewrites(other).await?.is_empty());
     assert_eq!(store.claim_rewrite(account, rewrite).await?, Some(1));
     assert_eq!(store.claim_rewrite(account, rewrite).await?, Some(2));
@@ -236,6 +277,33 @@ where
         flags_of(store, inbox, m1).await?,
         Flags::from_tokens(["$Junk", "Autre"])
     );
+    assert!(
+        store.pending(account).await?.is_empty(),
+        "opération sans objet retirée"
+    );
+    assert!(flags_of(store, inbox, m2).await?.keywords().is_empty());
+
+    // --- Drapeaux à relire entièrement à la prochaine synchronisation ---
+    assert!(
+        store
+            .local_mailbox(inbox)
+            .await?
+            .state
+            .highest_modseq
+            .is_some()
+    );
+    let name = norelly_domain::mailbox::MailboxName::parse("INBOX").map_err(|_| fail("nom"))?;
+    store.forget_flag_state(other, &name).await?;
+    assert!(
+        store
+            .local_mailbox(inbox)
+            .await?
+            .state
+            .highest_modseq
+            .is_some()
+    );
+    store.forget_flag_state(account, &name).await?;
+    assert_eq!(store.local_mailbox(inbox).await?.state.highest_modseq, None);
     assert!(
         !store
             .stored_labels(account)

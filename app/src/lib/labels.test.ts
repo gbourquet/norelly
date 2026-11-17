@@ -174,8 +174,9 @@ describe("menu « Étiqueter… »", () => {
     await state.load([7, 8], { kind: "unified", role: "inbox" });
     state.newName = "  Urgent ";
     await state.create();
-    expect(api.createLabel).toHaveBeenNthCalledWith(1, 1, "Urgent", null);
-    expect(api.createLabel).toHaveBeenNthCalledWith(2, 2, "Urgent", null);
+    // Une étiquette du même nom déjà sur un compte est reprise (Rust).
+    expect(api.createLabel).toHaveBeenNthCalledWith(1, 1, "Urgent", null, true);
+    expect(api.createLabel).toHaveBeenNthCalledWith(2, 2, "Urgent", null, true);
     expect(act).toHaveBeenCalledWith(
       { kind: "set_label", keyword: "Urgent", value: true },
       "Étiquette « Urgent » posée.",
@@ -183,16 +184,23 @@ describe("menu « Étiqueter… »", () => {
     expect(state.newName).toBe("");
   });
 
-  it("étiquette déjà existante sur un compte : posée quand même", async () => {
-    const { api, act, state } = setup();
-    api.createLabel.mockRejectedValueOnce(new IpcFailure("label_exists", "label_name"));
+  it("le menu d'une autre sélection ne montre jamais l'ancien pendant son chargement", async () => {
+    const { api, state } = setup();
     await state.load([7], { kind: "mailbox", id: 3 });
-    state.newName = "Projet";
-    await state.create();
-    expect(act).toHaveBeenCalledWith(
-      { kind: "set_label", keyword: "Projet", value: true },
-      "Étiquette « Projet » posée.",
+    expect(state.menu).not.toBeNull();
+    let release: (value: LabelMenu) => void = () => {};
+    api.labelMenu.mockImplementationOnce(
+      () => new Promise<LabelMenu>((resolve) => (release = resolve)),
     );
+    const loading = state.load([8], { kind: "mailbox", id: 3 });
+    expect(state.menu).toBeNull();
+    release(menu({ choices: [] }));
+    await loading;
+    expect(state.menu?.choices).toEqual([]);
+    api.labelMenu.mockRejectedValueOnce(new IpcFailure("storage"));
+    await state.load([9], { kind: "mailbox", id: 3 });
+    expect(state.menu).toBeNull();
+    expect(state.error).toBe("Erreur du stockage local.");
   });
 
   it("nom refusé : message d'erreur, rien n'est posé", async () => {
@@ -235,7 +243,7 @@ describe("réglages des étiquettes", () => {
     state.account = 1;
     state.newName = "Client";
     await state.create();
-    expect(api.createLabel).toHaveBeenCalledWith(1, "Client", null);
+    expect(api.createLabel).toHaveBeenCalledWith(1, "Client", null, false);
     expect(state.newName).toBe("");
     await state.setColor(named("Projet", "Projet"), "#ABCDEF");
     expect(api.setLabelColor).toHaveBeenCalledWith(1, "Projet", "#abcdef");

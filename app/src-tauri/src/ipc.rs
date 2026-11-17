@@ -204,6 +204,8 @@ pub enum ErrorCodeDto {
     LabelExists,
     /// Trop d'étiquettes sur le compte.
     LabelTooMany,
+    /// Nom réservé à un usage technique (indésirable, transféré…).
+    LabelNameReserved,
     /// Erreur interne (journalisée).
     Internal,
 }
@@ -350,6 +352,7 @@ impl From<norelly_application::actions::ActionFailure> for IpcError {
                 ActionError::UnknownFolder => Self::invalid(FieldDto::Mailbox),
                 ActionError::QueueFull => Self::new(ErrorCodeDto::PendingQueueFull),
                 ActionError::KeywordRefused => Self::new(ErrorCodeDto::LabelRefused),
+                ActionError::ReservedKeyword => Self::invalid(FieldDto::Label),
             },
         }
     }
@@ -368,6 +371,7 @@ impl From<norelly_domain::labels::LabelError> for IpcError {
             LabelError::AlreadyExists | LabelError::Unchanged => name(ErrorCodeDto::LabelExists),
             LabelError::Unknown => Self::not_found(FieldDto::Label),
             LabelError::TooMany => Self::new(ErrorCodeDto::LabelTooMany),
+            LabelError::Reserved => name(ErrorCodeDto::LabelNameReserved),
         }
     }
 }

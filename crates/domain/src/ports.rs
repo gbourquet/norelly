@@ -1340,7 +1340,8 @@ pub trait LabelStore: Send + Sync {
 
     /// Enregistre une réécriture et l'applique tout de suite en local, dans
     /// la même transaction : mots-clés des messages du compte, étiquette
-    /// enregistrée (`from` retirée, `to` créée avec la couleur de `from`).
+    /// enregistrée (`from` retirée, `to` créée avec la couleur de `from`),
+    /// opérations en attente sur `from` ([`LabelRewrite::follow`]).
     fn record_rewrite(
         &self,
         account: AccountId,
@@ -1373,6 +1374,16 @@ pub trait LabelStore: Send + Sync {
         &self,
         account: AccountId,
     ) -> impl Future<Output = Result<Vec<(MailboxId, KeywordPermission)>, StoreError>> + Send;
+
+    /// Oublie le `HIGHESTMODSEQ` d'un dossier du compte : la prochaine
+    /// synchronisation relit tous ses drapeaux (copie locale corrigée après
+    /// une réécriture qui n'a pas pu s'y faire). Sans effet pour un dossier
+    /// inconnu.
+    fn forget_flag_state(
+        &self,
+        account: AccountId,
+        mailbox: &MailboxName,
+    ) -> impl Future<Output = Result<(), StoreError>> + Send;
 
     /// Note les mots-clés permanents d'un dossier, lus au `SELECT` ; sans
     /// effet pour un dossier inconnu.

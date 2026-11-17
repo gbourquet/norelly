@@ -7,12 +7,14 @@ use std::collections::BTreeSet;
 
 use norelly_domain::account::AccountId;
 use norelly_domain::labels::{
-    KeywordPermission, LabelColor, LabelRewrite, MAX_LABELS, StoredLabel, rewrite_flags,
+    KeywordPermission, LabelColor, LabelRewrite, MAX_LABELS, PendingFollow, StoredLabel,
+    rewrite_flags,
 };
 use norelly_domain::mailbox::{Keyword, MailboxId, MailboxName};
 use norelly_domain::ports::{LabelRewriteId, LabelStore, StoreError};
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 
+use crate::actions::readable_ops;
 use crate::mail::{SqliteMailStore, flags_from, keywords_text, mailbox_id};
 use crate::store_error;
 
@@ -90,6 +92,39 @@ fn rewrite_messages(
         update
             .execute(params![id, keywords_text(&flags)])
             .map_err(store_error)?;
+    }
+    Ok(())
+}
+
+/// Opérations en attente sur l'ancien mot-clé : elles suivent la
+/// réécriture (domaine : [`LabelRewrite::follow`]).
+fn follow_pending_ops(
+    c: &Connection,
+    account: AccountId,
+    rewrite: &LabelRewrite,
+) -> Result<(), StoreError> {
+    for (id, op) in readable_ops(c, account)? {
+        match rewrite.follow(&op) {
+            PendingFollow::Unchanged => {}
+            PendingFollow::Rewritten(_) => {
+                c.execute(
+                    "UPDATE pending_ops SET keyword = ?3 WHERE id = ?1 AND account_id = ?2",
+                    params![
+                        id.get(),
+                        account.get(),
+                        rewrite.to.as_ref().map(Keyword::as_str)
+                    ],
+                )
+                .map_err(store_error)?;
+            }
+            PendingFollow::Dropped => {
+                c.execute(
+                    "DELETE FROM pending_ops WHERE id = ?1 AND account_id = ?2",
+                    params![id.get(), account.get()],
+                )
+                .map_err(store_error)?;
+            }
+        }
     }
     Ok(())
 }
@@ -174,6 +209,7 @@ impl LabelStore for SqliteMailStore {
                 let id = LabelRewriteId::new(tx.last_insert_rowid())
                     .ok_or_else(|| StoreError("identifiant de réécriture".into()))?;
                 rewrite_messages(&tx, account, &rewrite)?;
+                follow_pending_ops(&tx, account, &rewrite)?;
                 let color = color_of(&tx, account, &rewrite.from)?;
                 tx.execute(
                     "DELETE FROM labels WHERE account_id = ?1 AND keyword = ?2",
@@ -293,6 +329,25 @@ impl LabelStore for SqliteMailStore {
                         Ok((mailbox_id(*id)?, KeywordPermission::from_storage(Some(raw))))
                     })
                     .collect()
+            })
+            .await
+    }
+
+    async fn forget_flag_state(
+        &self,
+        account: AccountId,
+        mailbox: &MailboxName,
+    ) -> Result<(), StoreError> {
+        let mailbox = mailbox.clone();
+        self.db()
+            .run(move |c| {
+                c.execute(
+                    "UPDATE mailboxes SET highest_modseq = NULL \
+                     WHERE account_id = ?1 AND name = ?2",
+                    params![account.get(), mailbox.as_str()],
+                )
+                .map_err(store_error)?;
+                Ok(())
             })
             .await
     }

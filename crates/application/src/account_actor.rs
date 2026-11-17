@@ -667,15 +667,19 @@ where
         }
         .execute(session, now)
         .await?;
-        // Étiquettes renommées ou retirées : réécrites sur le serveur.
+        // Étiquettes renommées ou retirées : réécrites sur le serveur. Un
+        // échec n'empêche pas de relire les boîtes touchées par les
+        // actions ; il est rendu ensuite.
         let rewrites = ReplayRewrites {
             account: self.account,
             store: &*self.store,
         }
         .execute(session)
-        .await?;
+        .await;
         let mut touched = report.touched;
-        touched.extend(rewrites.touched);
+        if let Ok(done) = &rewrites {
+            touched.extend(done.touched.iter().cloned());
+        }
         if !touched.is_empty() {
             self.sync_named(session, ext, known, touched.iter().cloned())
                 .await?;
@@ -690,6 +694,7 @@ where
                 }
             }
         }
+        rewrites?;
         let next = self
             .store
             .pending(self.account)

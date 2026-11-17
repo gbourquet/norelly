@@ -31,7 +31,7 @@
 
 use std::collections::BTreeSet;
 
-use crate::actions::Member;
+use crate::actions::{ActionFlag, FlagChange, Member, OpKind, PendingOp};
 use crate::contacts::is_invisible;
 use crate::conversation::ConversationScope;
 use crate::mailbox::{Flags, Keyword, MAX_KEYWORD_LEN, MailboxId, Uid};
@@ -83,6 +83,8 @@ pub enum LabelError {
     Unchanged,
     #[error("trop d'étiquettes sur ce compte")]
     TooMany,
+    #[error("nom réservé à un usage technique")]
+    Reserved,
 }
 
 // ---------------------------------------------------------------------------
@@ -619,16 +621,23 @@ fn collides(
     existing
         .iter()
         .filter(|l| Some(&l.keyword) != except)
-        .any(|l| &l.keyword == keyword || l.display.folded_names().contains(&folded))
+        .any(|l| {
+            l.keyword.as_str().eq_ignore_ascii_case(keyword.as_str())
+                || l.display.folded_names().contains(&folded)
+        })
 }
 
 /// Mot-clé d'une nouvelle étiquette `name`.
 ///
 /// # Errors
 /// [`LabelError::AlreadyExists`] si une étiquette du même nom existe ;
+/// [`LabelError::Reserved`] pour un nom de mot-clé de protocole ;
 /// [`LabelError::TooMany`] au-delà de [`MAX_LABELS`].
 pub fn plan_create(name: &LabelName, existing: &[Label]) -> Result<Keyword, LabelError> {
     let keyword = name.keyword();
+    if is_protocol_keyword(&keyword) {
+        return Err(LabelError::Reserved);
+    }
     if collides(&keyword, name, existing, None) {
         return Err(LabelError::AlreadyExists);
     }
@@ -642,7 +651,8 @@ pub fn plan_create(name: &LabelName, existing: &[Label]) -> Result<Keyword, Labe
 ///
 /// # Errors
 /// [`LabelError::Unknown`] si `from` n'est pas listée,
-/// [`LabelError::Unchanged`] si le mot-clé ne change pas,
+/// [`LabelError::Unchanged`] si le mot-clé ne change pas (casse ASCII
+/// comprise), [`LabelError::Reserved`] pour un nom de mot-clé de protocole,
 /// [`LabelError::AlreadyExists`] si une autre étiquette porte ce nom.
 pub fn plan_rename(
     from: &Keyword,
@@ -653,8 +663,13 @@ pub fn plan_rename(
         return Err(LabelError::Unknown);
     }
     let keyword = to.keyword();
-    if &keyword == from {
+    // Même mot-clé à la casse ASCII près : la plupart des serveurs les
+    // confondent ; poser le nouveau puis retirer l'ancien les retirerait.
+    if keyword.as_str().eq_ignore_ascii_case(from.as_str()) {
         return Err(LabelError::Unchanged);
+    }
+    if is_protocol_keyword(&keyword) {
+        return Err(LabelError::Reserved);
     }
     if collides(&keyword, to, existing, Some(from)) {
         return Err(LabelError::AlreadyExists);
@@ -663,6 +678,66 @@ pub fn plan_rename(
         from: from.clone(),
         to: Some(keyword),
     })
+}
+
+/// Étiquette de `existing` qui porte le nom `name` (même mot-clé, ou même
+/// nom aux majuscules et accents près, noms de Thunderbird compris).
+#[must_use]
+pub fn label_named<'a>(name: &LabelName, existing: &'a [Label]) -> Option<&'a Label> {
+    let keyword = name.keyword();
+    let folded = fold(name.as_str());
+    existing.iter().find(|l| {
+        l.keyword.as_str().eq_ignore_ascii_case(keyword.as_str())
+            || l.display.folded_names().contains(&folded)
+    })
+}
+
+/// Opération en attente sur un mot-clé réécrit.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PendingFollow {
+    /// Elle ne vise pas l'ancien mot-clé.
+    Unchanged,
+    /// Elle vise désormais le nouveau mot-clé.
+    Rewritten(PendingOp),
+    /// Mot-clé retiré de tous les messages : elle n'a plus d'objet.
+    Dropped,
+}
+
+impl LabelRewrite {
+    /// Une opération en attente qui pose ou retire l'ancien mot-clé suit
+    /// la réécriture : sinon, rejouée après elle, elle le remettrait.
+    #[must_use]
+    pub fn follow(&self, op: &PendingOp) -> PendingFollow {
+        let OpKind::Flag {
+            change:
+                FlagChange {
+                    flag: ActionFlag::Keyword(keyword),
+                    value,
+                },
+            previous,
+            unchanged_since,
+        } = &op.kind
+        else {
+            return PendingFollow::Unchanged;
+        };
+        if keyword != &self.from {
+            return PendingFollow::Unchanged;
+        }
+        match &self.to {
+            None => PendingFollow::Dropped,
+            Some(to) => PendingFollow::Rewritten(PendingOp {
+                kind: OpKind::Flag {
+                    change: FlagChange {
+                        flag: ActionFlag::Keyword(to.clone()),
+                        value: *value,
+                    },
+                    previous: *previous,
+                    unchanged_since: *unchanged_since,
+                },
+                ..op.clone()
+            }),
+        }
+    }
 }
 
 /// Lots d'UID d'une réécriture (au plus [`REWRITE_BATCH`] chacun).

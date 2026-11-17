@@ -11,7 +11,9 @@ use norelly_domain::conversation::{
     ConversationScope, MessageCopy, ShownCopy, ThreadKeys, ThreadMessage, shown_copies, thread,
 };
 use norelly_domain::fetch_policy::PartPath;
-use norelly_domain::labels::{KeywordPermission, LabelRewrite, StoredLabel, rewrite_flags};
+use norelly_domain::labels::{
+    KeywordPermission, LabelRewrite, PendingFollow, StoredLabel, rewrite_flags,
+};
 use norelly_domain::mailbox::{
     Correspondent, Flags, Keyword, MailboxId, MailboxName, MailboxRole, MessageHeaders,
     MessageMeta, ModSeq, RemoteMailbox, Uid, UidValidity,
@@ -1349,6 +1351,24 @@ impl LabelStore for InMemoryMailStore {
                 }
             }
         }
+        let ops: Vec<PendingOpId> = s
+            .ops
+            .iter()
+            .filter(|(_, op)| op.account == account)
+            .map(|(id, _)| *id)
+            .collect();
+        for id in ops {
+            let follow = s.ops.get(&id).map(|op| rewrite.follow(op));
+            match follow {
+                Some(PendingFollow::Rewritten(op)) => {
+                    s.ops.insert(id, op);
+                }
+                Some(PendingFollow::Dropped) => {
+                    s.ops.remove(&id);
+                }
+                _ => {}
+            }
+        }
         let old = s.labels.remove(&(account, rewrite.from.clone()));
         if let Some(to) = &rewrite.to {
             let label = StoredLabel {
@@ -1410,6 +1430,22 @@ impl LabelStore for InMemoryMailStore {
             .filter(|(a, _, _)| *a == account)
             .filter_map(|(_, m, _)| s.permissions.get(&m.id).map(|p| (m.id, p.clone())))
             .collect())
+    }
+
+    async fn forget_flag_state(
+        &self,
+        account: AccountId,
+        mailbox: &MailboxName,
+    ) -> Result<(), StoreError> {
+        let mut s = lock(&self.state);
+        if let Some((_, _, state)) = s
+            .mailboxes
+            .iter_mut()
+            .find(|(a, m, _)| *a == account && m.mailbox.name == *mailbox)
+        {
+            state.highest_modseq = None;
+        }
+        Ok(())
     }
 
     async fn set_keyword_permission(

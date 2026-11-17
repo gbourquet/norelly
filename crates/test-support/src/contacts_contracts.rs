@@ -5,6 +5,7 @@
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use norelly_domain::address::EmailAddress;
+use norelly_domain::contact_duplicates::{DismissedPair, MAX_DISMISSED_PAIRS};
 use norelly_domain::contact_export::ContactSelection;
 use norelly_domain::contact_import::ContactCompletion;
 use norelly_domain::contact_lists::{ContactList, ContactListDraft, ContactListInput};
@@ -14,7 +15,7 @@ use norelly_domain::contacts::{
 };
 use norelly_domain::ports::{
     ContactBook, ContactCursor, ContactDirectory, ContactListItem, ContactPage, ContactStoreError,
-    ImportOutcome, MAX_CONTACT_LOOKUP, MAX_PAGE_SIZE, PageSize, StoreError,
+    DuplicateDismissals, ImportOutcome, MAX_CONTACT_LOOKUP, MAX_PAGE_SIZE, PageSize, StoreError,
 };
 
 /// Fiche de test : `name` (nom affiché, vide : aucun) et ses adresses, la
@@ -685,6 +686,9 @@ pub struct InMemoryContactBook {
     pub(crate) lists: Mutex<(i64, Vec<ContactList>)>,
     /// Fiches rendues illisibles par [`Self::corrupt`].
     unreadable: Mutex<Vec<ContactId>>,
+    /// Paires de doublons écartées, de la plus ancienne à la plus récente
+    /// ([`crate::contact_dismissals_contracts`]).
+    dismissed: Mutex<Vec<DismissedPair>>,
 }
 
 impl InMemoryContactBook {
@@ -714,6 +718,17 @@ impl InMemoryContactBook {
 
     pub(crate) fn lock(&self) -> MutexGuard<'_, (i64, Vec<Contact>)> {
         self.state.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    fn lock_dismissed(&self) -> MutexGuard<'_, Vec<DismissedPair>> {
+        self.dismissed.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Oublie les paires écartées des fiches `ids`, modifiées ou
+    /// supprimées.
+    fn forget_dismissed(&self, ids: &[ContactId]) {
+        self.lock_dismissed()
+            .retain(|p| !ids.contains(&p.low()) && !ids.contains(&p.high()));
     }
 
     pub(crate) fn lock_lists(&self) -> MutexGuard<'_, (i64, Vec<ContactList>)> {
@@ -789,6 +804,7 @@ impl ContactBook for InMemoryContactBook {
         }
         let contact = draft.clone().with_id(id);
         state.1[index] = contact.clone();
+        self.forget_dismissed(&[id]);
         Ok(contact)
     }
 
@@ -832,6 +848,8 @@ impl ContactBook for InMemoryContactBook {
             contacts.push(draft.clone().with_id(id));
         }
         *state = (last, contacts);
+        let completed: Vec<ContactId> = complete.iter().map(ContactCompletion::id).collect();
+        self.forget_dismissed(&completed);
         Ok(ImportOutcome {
             created: create.len(),
             completed: complete.len(),
@@ -901,6 +919,8 @@ impl ContactBook for InMemoryContactBook {
         if let Some(slot) = state.1.iter_mut().find(|c| c.id() == keep) {
             *slot = contact.clone();
         }
+        let written: Vec<ContactId> = std::iter::once(keep).chain(absorbed).collect();
+        self.forget_dismissed(&written);
         Ok(contact)
     }
 
@@ -927,7 +947,29 @@ impl ContactBook for InMemoryContactBook {
                 *list = draft.with_id(list.id());
             }
         }
+        self.forget_dismissed(ids);
         Ok(before - state.1.len())
+    }
+}
+
+impl DuplicateDismissals for InMemoryContactBook {
+    async fn dismiss(&self, pairs: &[DismissedPair]) -> Result<(), StoreError> {
+        let state = self.lock();
+        let known = |id: ContactId| state.1.iter().any(|c| c.id() == id);
+        let mut dismissed = self.lock_dismissed();
+        for p in pairs {
+            if known(p.low()) && known(p.high()) {
+                dismissed.retain(|d| d != p);
+                dismissed.push(*p);
+            }
+        }
+        let excess = dismissed.len().saturating_sub(MAX_DISMISSED_PAIRS);
+        dismissed.drain(..excess);
+        Ok(())
+    }
+
+    async fn dismissed(&self) -> Result<Vec<DismissedPair>, StoreError> {
+        Ok(self.lock_dismissed().clone())
     }
 }
 

@@ -87,7 +87,7 @@ function sameScope(a: ScopeDto, b: ScopeDto): boolean {
 export type MarkSeenDelay = () => number | null;
 
 /** Visibilité de la fenêtre : le délai du marquage comme lu ne court que
- * pendant qu'elle est visible. */
+ * pendant qu'elle est vue, c'est-à-dire visible et au premier plan. */
 export interface WindowVisibility {
   isVisible(): boolean;
   /** Prévient à chaque changement ; renvoie de quoi cesser l'écoute. */
@@ -102,6 +102,59 @@ export const documentVisibility: WindowVisibility = {
     return () => document.removeEventListener("visibilitychange", listener);
   },
 };
+
+/** Focus de la fenêtre native de l'application (fenêtre Tauri). */
+export interface WindowFocus {
+  isFocused(): Promise<boolean>;
+  /** Abonnement aux changements de focus ; renvoie le retrait. */
+  onFocusChanged(listener: (focused: boolean) => void): Promise<() => void>;
+}
+
+/**
+ * Fenêtre vue : ni réduite ni masquée, et avec le focus de la fenêtre
+ * native. Une fenêtre passée derrière une autre application perd le focus ;
+ * recouverte en le gardant, elle n'est pas détectable et compte comme vue.
+ * Le focus natif ne change pas quand l'utilisateur clique dans le corps
+ * d'un message (cadre), au contraire des événements `focus`/`blur` du
+ * document. Tant que le focus initial n'est pas connu, ou s'il est
+ * inaccessible (hors de l'application), la fenêtre compte comme ayant le
+ * focus. L'écoute du focus dure autant que l'application.
+ */
+export function windowPresence(focus: WindowFocus): WindowVisibility {
+  // Simple liste, sans réactivité : rien ne s'affiche à partir d'elle.
+  let listeners: (() => void)[] = [];
+  let focused = true;
+  let changed = false;
+  const set = (value: boolean): void => {
+    if (value === focused) return;
+    focused = value;
+    for (const listener of listeners) listener();
+  };
+  focus
+    .onFocusChanged((value) => {
+      changed = true;
+      set(value);
+    })
+    .catch(() => undefined);
+  focus.isFocused().then(
+    // Un changement déjà reçu est plus récent que cette lecture.
+    (value) => {
+      if (!changed) set(value);
+    },
+    () => undefined,
+  );
+  return {
+    isVisible: () => documentVisibility.isVisible() && focused,
+    onChange: (listener) => {
+      listeners = [...listeners, listener];
+      const stopVisibility = documentVisibility.onChange(listener);
+      return () => {
+        listeners = listeners.filter((l) => l !== listener);
+        stopVisibility();
+      };
+    },
+  };
+}
 
 export class MailState {
   readonly #api: MailApi;
@@ -308,9 +361,9 @@ export class MailState {
    * non lus seront marqués comme lus si la conversation est encore
    * ouverte au bout du délai des réglages ; un message arrivé entre-temps
    * n'a pas été vu et n'est pas compté (Rust choisit les messages visés).
-   * Le délai ne court que fenêtre visible : suspendu quand elle est cachée,
-   * il reprend à son retour avec le temps restant (le temps déjà passé à
-   * l'écran compte comme vu).
+   * Le délai ne court que fenêtre vue (visible et avec le focus) : suspendu
+   * quand elle est cachée ou perd le focus, il reprend à son retour avec le
+   * temps restant (le temps déjà passé à l'écran compte comme vu).
    */
   async #openWith(conversation: ConversationDto, scope: ScopeDto | null): Promise<void> {
     this.#cancelAutoSeen();

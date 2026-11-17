@@ -15,7 +15,7 @@ import {
 import { isEditableFolder } from "./folder-edit.svelte";
 import { canHoldFolders, type CreatedFolder, type NewFolderPreset } from "./new-folder.svelte";
 import { ComposeState } from "./compose.svelte";
-import { MailState, type FrozenTargets } from "./mail.svelte";
+import { MailState, windowPresence, type FrozenTargets } from "./mail.svelte";
 import { ContactFormState, ContactsState, DeleteContactsState } from "./contacts.svelte";
 import { ContactExportState } from "./contact-export.svelte";
 import { ContactDuplicatesState } from "./contact-duplicates.svelte";
@@ -474,7 +474,16 @@ export async function runForPerson(id: string, person: CorrespondentDto): Promis
   }
 }
 
-export const mail = new MailState(api, () => markSeenDelayMs(settings.current));
+export const mail = new MailState(
+  api,
+  () => markSeenDelayMs(settings.current),
+  // `getCurrentWindow` lève hors de Tauri (tests) : le focus est alors
+  // inaccessible et seule la visibilité compte.
+  windowPresence({
+    isFocused: async () => api.isWindowFocused(),
+    onFocusChanged: async (listener) => api.onWindowFocusChanged(listener),
+  }),
+);
 
 export const search = new SearchState(api);
 

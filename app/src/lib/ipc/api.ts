@@ -3,6 +3,7 @@
 // revalide tout.
 
 import { Channel } from "@tauri-apps/api/core";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   commands,
   events,
@@ -496,6 +497,13 @@ export const api = {
 
   onComposeEvent: async (listener: (event: ComposeEventDto) => void): Promise<() => void> =>
     events.composeEventDto.listen((e) => listener(e.payload)),
+
+  /** Focus de la fenêtre native (permissions de `core:default`). */
+  isWindowFocused: (): Promise<boolean> => getCurrentWindow().isFocused(),
+
+  /** Abonnement aux changements de focus de la fenêtre native ; renvoie le retrait. */
+  onWindowFocusChanged: async (listener: (focused: boolean) => void): Promise<() => void> =>
+    getCurrentWindow().onFocusChanged((e) => listener(e.payload)),
 
   /** Mises à jour : canal pris en charge, version annoncée (signature vérifiée au téléchargement). */
   updateStatus: (): Promise<UpdateStatusDto_Serialize> => commands.updateStatus(),

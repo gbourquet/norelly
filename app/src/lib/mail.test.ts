@@ -12,6 +12,7 @@ import {
   UNDO_WINDOW_MS,
   UNIFIED_INBOX,
   documentVisibility,
+  windowPresence,
   type MailApi,
 } from "./mail.svelte";
 import { IpcFailure } from "./errors";
@@ -804,6 +805,122 @@ describe("marquage comme lu à l'ouverture", () => {
       } finally {
         spy.mockRestore();
       }
+    });
+
+    describe("présence : visibilité et focus de la fenêtre native", () => {
+      /** Focus de la fenêtre native piloté par le test. */
+      function fakeFocus() {
+        const listeners = new Set<(focused: boolean) => void>();
+        let answer: (focused: boolean) => void = () => undefined;
+        const source = {
+          isFocused: () =>
+            new Promise<boolean>((resolve) => {
+              answer = resolve;
+            }),
+          onFocusChanged: (listener: (focused: boolean) => void) => {
+            listeners.add(listener);
+            return Promise.resolve(() => {
+              listeners.delete(listener);
+            });
+          },
+          /** Réponse à la lecture initiale du focus. */
+          answer: (focused: boolean) => answer(focused),
+          set(focused: boolean) {
+            for (const listener of [...listeners]) listener(focused);
+          },
+        };
+        return source;
+      }
+
+      it("vue tant que le focus initial n'est pas connu, puis selon la fenêtre native", async () => {
+        const focus = fakeFocus();
+        const presence = windowPresence(focus);
+        const listener = vi.fn();
+        presence.onChange(listener);
+        expect(presence.isVisible()).toBe(true);
+        focus.answer(false);
+        await Promise.resolve();
+        expect(presence.isVisible()).toBe(false);
+        expect(listener).toHaveBeenCalledTimes(1);
+      });
+
+      it("suit la perte et le retour du focus, et prévient à chaque changement", async () => {
+        const focus = fakeFocus();
+        const presence = windowPresence(focus);
+        await Promise.resolve();
+        const listener = vi.fn();
+        const stop = presence.onChange(listener);
+        focus.set(false);
+        expect(presence.isVisible()).toBe(false);
+        expect(listener).toHaveBeenCalledTimes(1);
+        focus.set(true);
+        expect(presence.isVisible()).toBe(true);
+        expect(listener).toHaveBeenCalledTimes(2);
+        stop();
+        focus.set(false);
+        expect(listener).toHaveBeenCalledTimes(2);
+      });
+
+      it("une réponse initiale arrivée après un changement de focus est ignorée", async () => {
+        const focus = fakeFocus();
+        const presence = windowPresence(focus);
+        await Promise.resolve();
+        focus.set(true);
+        focus.answer(false);
+        await Promise.resolve();
+        expect(presence.isVisible()).toBe(true);
+      });
+
+      it("fenêtre cachée : non vue même avec le focus, et prévenu par visibilitychange", () => {
+        let state: DocumentVisibilityState = "visible";
+        const spy = vi.spyOn(document, "visibilityState", "get").mockImplementation(() => state);
+        try {
+          const presence = windowPresence(fakeFocus());
+          const listener = vi.fn();
+          const stop = presence.onChange(listener);
+          state = "hidden";
+          document.dispatchEvent(new Event("visibilitychange"));
+          expect(presence.isVisible()).toBe(false);
+          expect(listener).toHaveBeenCalledTimes(1);
+          stop();
+          document.dispatchEvent(new Event("visibilitychange"));
+          expect(listener).toHaveBeenCalledTimes(1);
+        } finally {
+          spy.mockRestore();
+        }
+      });
+
+      it("focus natif inaccessible (hors de l'application) : seule la visibilité compte", async () => {
+        const presence = windowPresence({
+          isFocused: () => Promise.reject(new Error("hors de Tauri")),
+          onFocusChanged: () => Promise.reject(new Error("hors de Tauri")),
+        });
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(presence.isVisible()).toBe(true);
+      });
+
+      it("le délai est suspendu tant que la fenêtre n'a pas le focus, puis reprend avec le temps restant", async () => {
+        vi.useFakeTimers();
+        try {
+          const api = fakeApi(3, [1]);
+          const focus = fakeFocus();
+          const mail = new MailState(api, () => DELAY_MS, windowPresence(focus));
+          await mail.show(UNIFIED_INBOX);
+          await mail.open();
+          await vi.advanceTimersByTimeAsync(2000);
+          focus.set(false);
+          await vi.advanceTimersByTimeAsync(60_000);
+          expect(seenCalls(api)).toEqual([]);
+          focus.set(true);
+          await vi.advanceTimersByTimeAsync(DELAY_MS - 2000 - 1);
+          expect(seenCalls(api)).toEqual([]);
+          await vi.advanceTimersByTimeAsync(1);
+          expect(seenCalls(api)).toEqual([[1, [10], 10]]);
+        } finally {
+          vi.useRealTimers();
+        }
+      });
     });
 
     it("le délai est suspendu tant que la fenêtre est cachée, puis reprend avec le temps restant", async () => {

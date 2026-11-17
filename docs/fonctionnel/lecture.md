@@ -31,10 +31,13 @@ sur l'application ; ouvrir liens et pièces jointes sans danger.
   (liste, autres comptes, fenêtre ouverte, notification) n'est imprimé.
 - Une conversation non lue **devient lue quand elle reste ouverte quelques
   secondes** : la parcourir rapidement ne change rien. Seul compte le
-  temps passé fenêtre visible : réduite ou masquée, l'attente est
-  suspendue et reprend quand la fenêtre réapparaît. Le délai se choisit
-  dans les paramètres (immédiatement, quelques secondes, ou jamais : la
-  conversation ne devient alors lue qu'à la demande). Seuls les messages
+  temps passé fenêtre visible et au premier plan : réduite, masquée ou
+  passée derrière une autre application (une autre fenêtre est active),
+  l'attente est suspendue et reprend, avec le temps qu'il restait, quand
+  l'utilisateur revient à la fenêtre. Cliquer dans le corps du message ne
+  la suspend pas. Le délai se choisit dans les paramètres (immédiatement,
+  quelques secondes, ou jamais : la conversation ne devient alors lue
+  qu'à la demande). Seuls les messages
   affichés à l'ouverture, et leurs exemplaires déjà présents dans d'autres
   dossiers, deviennent lus : une réponse arrivée pendant la lecture reste
   non lue, de même qu'un message arrivé entre-temps qui se fait passer pour

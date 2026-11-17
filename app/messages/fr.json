@@ -742,6 +742,7 @@
   "contacts_export_confirm": "Exporter…",
   "contacts_export_busy": "Export en cours…",
   "contacts_export_pick_title": "Enregistrer les contacts exportés",
+  "contacts_export_file_name": "contacts",
   "contacts_export_filter_vcard": "Fichiers vCard",
   "contacts_export_filter_csv": "Fichiers CSV",
   "contacts_export_filter_ldif": "Fichiers LDIF",

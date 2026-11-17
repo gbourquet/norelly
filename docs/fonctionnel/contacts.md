@@ -320,8 +320,9 @@ l'ordinateur** : rien n'est envoyé à un serveur.
   anciens), **CSV** (colonnes de Google Contacts, lisibles par Outlook et
   les tableurs) ou **LDIF** (Thunderbird). Le format choisi est repris la
   fois suivante. **Exporter…** ouvre ensuite la fenêtre d'enregistrement
-  du système, où l'on choisit le dossier et le nom du fichier ; annuler
-  ramène au choix du format.
+  du système, où l'on choisit le dossier et le nom du fichier ; un nom
+  est proposé dans la langue de l'application, suivi de l'extension du
+  format choisi. Annuler ramène au choix du format.
 - Un message annonce le nombre de contacts exportés et le nom du fichier.
   Un fichier du même nom est remplacé d'un coup : en cas d'échec, l'ancien
   reste intact. Si l'ordinateur s'est arrêté brutalement pendant un export,

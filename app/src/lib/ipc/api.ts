@@ -447,7 +447,8 @@ export const api = {
 
   /**
    * Prépare l'export de `selection` au format `format`, ouvre le sélecteur
-   * d'enregistrement (titre et nom du filtre localisés) et écrit le
+   * d'enregistrement (titre, nom du filtre et nom de base du fichier
+   * proposé localisés ; Rust y ajoute l'extension du format) et écrit le
    * fichier choisi ; `null` si l'utilisateur annule.
    */
   exportContacts: (
@@ -455,8 +456,9 @@ export const api = {
     format: ContactExportFormatDto,
     title: string,
     filter: string,
+    fileName: string,
   ): Promise<ContactExportOutcomeDto | null> =>
-    unwrap(commands.exportContacts(selection, format, title, filter)),
+    unwrap(commands.exportContacts(selection, format, title, filter, fileName)),
 
   /** Groupes de doublons du carnet, la fiche proposée à garder d'abord. */
   findContactDuplicates: (): Promise<ContactDuplicateGroupDto[]> =>

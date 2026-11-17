@@ -225,11 +225,12 @@ pub const MAX_FILE_NAME_BYTES: usize = 200;
 /// Nom utilisé quand le nom annoncé est vide ou inutilisable.
 pub const DEFAULT_FILE_NAME: &str = "piece-jointe";
 
-/// Noms réservés de Windows (avec ou sans extension).
+/// Noms réservés de Windows (avec ou sans extension), dont les ports aux
+/// chiffres en exposant que Windows traite aussi comme des périphériques.
 const WINDOWS_RESERVED: &[&str] = &[
     "con", "prn", "aux", "nul", "com0", "com1", "com2", "com3", "com4", "com5", "com6", "com7",
     "com8", "com9", "lpt0", "lpt1", "lpt2", "lpt3", "lpt4", "lpt5", "lpt6", "lpt7", "lpt8", "lpt9",
-    "conin$", "conout$",
+    "conin$", "conout$", "com¹", "com²", "com³", "lpt¹", "lpt²", "lpt³",
 ];
 
 /// Nom de fichier sûr pour l'écriture dans un dossier choisi par
@@ -246,6 +247,20 @@ const WINDOWS_RESERVED: &[&str] = &[
 /// désigne toujours un fichier de ce dossier.
 #[must_use]
 pub fn safe_file_name(raw: &str) -> String {
+    safe_file_name_or(raw, DEFAULT_FILE_NAME)
+}
+
+/// [`safe_file_name`], avec `fallback` (non vide, déjà sûr) pour un nom
+/// vide ou inutilisable.
+pub(crate) fn safe_file_name_or(raw: &str, fallback: &str) -> String {
+    debug_assert!(
+        !fallback.is_empty() && sanitize_file_name(fallback, "_") == fallback,
+        "repli non sûr"
+    );
+    sanitize_file_name(raw, fallback)
+}
+
+fn sanitize_file_name(raw: &str, fallback: &str) -> String {
     let replaced: String = raw
         .chars()
         .map(|c| {
@@ -261,7 +276,7 @@ pub fn safe_file_name(raw: &str) -> String {
         .collect();
     let trimmed = replaced.trim_matches(|c: char| c == '.' || c.is_whitespace());
     let mut name = if trimmed.is_empty() {
-        DEFAULT_FILE_NAME.to_owned()
+        fallback.to_owned()
     } else {
         trimmed.to_owned()
     };
@@ -269,10 +284,10 @@ pub fn safe_file_name(raw: &str) -> String {
     if WINDOWS_RESERVED.contains(&stem.to_lowercase().as_str()) {
         name.insert(0, '_');
     }
-    truncate_keeping_extension(&name, MAX_FILE_NAME_BYTES)
+    truncate_keeping_extension(&name, MAX_FILE_NAME_BYTES, fallback)
 }
 
-fn truncate_keeping_extension(name: &str, max: usize) -> String {
+fn truncate_keeping_extension(name: &str, max: usize, fallback: &str) -> String {
     if name.len() <= max {
         return name.to_owned();
     }
@@ -290,11 +305,7 @@ fn truncate_keeping_extension(name: &str, max: usize) -> String {
         .get(..cut)
         .unwrap_or_default()
         .trim_end_matches(|c: char| c == '.' || c.is_whitespace());
-    let stem = if stem.is_empty() {
-        DEFAULT_FILE_NAME
-    } else {
-        stem
-    };
+    let stem = if stem.is_empty() { fallback } else { stem };
     match ext {
         Some(e) => format!("{stem}.{e}"),
         None => stem.to_owned(),
@@ -465,6 +476,9 @@ mod tests {
             ("Nul .txt", "_Nul .txt"),
             ("COM1.log", "_COM1.log"),
             ("lpt9", "_lpt9"),
+            ("COM¹.txt", "_COM¹.txt"),
+            ("lpt³", "_lpt³"),
+            ("com².log", "_com².log"),
             ("console.txt", "console.txt"),
             ("a\u{0}b\nc\rd.txt", "a_b_c_d.txt"),
             ("fac\u{202e}fdp.exe", "fac_fdp.exe"),

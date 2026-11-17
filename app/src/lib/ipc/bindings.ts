@@ -299,10 +299,11 @@ export const commands = {
 	applyContactImport: (token: number, policy: DuplicatePolicyDto) => typedError<ContactImportOutcomeDto, IpcError_Serialize>(__TAURI_INVOKE("apply_contact_import", { token, policy })),
 	/**
 	 *  Prépare et produit le fichier, ouvre le sélecteur d'enregistrement du
-	 *  système (titre et nom du filtre localisés par l'interface) et écrit le
+	 *  système (titre, nom du filtre et nom de base du fichier proposé
+	 *  localisés par l'interface, le nom revalidé par le domaine) et écrit le
 	 *  fichier choisi ; `None` si l'utilisateur annule.
 	 */
-	exportContacts: (selection: ContactExportSelectionDto, format: ContactExportFormatDto, title: string, filter: string) => typedError<ContactExportOutcomeDto | null, IpcError_Serialize>(__TAURI_INVOKE("export_contacts", { selection, format, title, filter })),
+	exportContacts: (selection: ContactExportSelectionDto, format: ContactExportFormatDto, title: string, filter: string, fileName: string) => typedError<ContactExportOutcomeDto | null, IpcError_Serialize>(__TAURI_INVOKE("export_contacts", { selection, format, title, filter, fileName })),
 	/**
 	 *  Groupes de doublons du carnet, dans l'ordre du nom de leur première
 	 *  fiche.

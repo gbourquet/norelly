@@ -77,6 +77,12 @@ fn migrations() -> Migrations<'static> {
         M::up(include_str!("../migrations/0020_sender_auth.sql")),
         M::up(include_str!("../migrations/0021_labels.sql")),
         M::up(include_str!("../migrations/0022_contact_dismissals.sql")),
+        M::up_with_hook(
+            include_str!("../migrations/0022_contact_full_name_search.sql"),
+            |tx: &rusqlite::Transaction<'_>| {
+                contacts::index_full_names(tx).map_err(|e| rusqlite_migration::HookError::Hook(e.0))
+            },
+        ),
     ])
 }
 
@@ -709,7 +715,88 @@ mod tests {
          VALUES (1, 1, 'INBOX', 42, 7, 'flag', 'keyword', 1, 0, 'Projet', 0);",
         // v22 : les contacts des versions 11 et 18 écartés comme doublons.
         "INSERT INTO contact_duplicate_dismissals (low_id, high_id, batch) VALUES (1, 2, 1);",
+        // v22 : schéma inchangé (texte cherché recalculé) ; un nom de
+        // famille au contact de la version 18.
+        "UPDATE contacts SET family_name = 'V22' WHERE id = 2;",
     ];
+
+    /// Base de version 21 : à la montée en version 22, le texte cherché des
+    /// fiches est recalculé (nom complet composé compris), sans toucher au
+    /// reste ; les fiches se relisent et « alice mar » trouve Alice
+    /// Martin. Une fiche dont la clé de tri stockée n'est pas celle du
+    /// domaine (corrompue) ou illisible est laissée telle quelle.
+    #[tokio::test]
+    async fn upgrading_to_v22_indexes_contact_full_names() -> Result<(), StoreError> {
+        use norelly_domain::contacts::{ContactFilter, ContactId};
+        use norelly_domain::ports::{ContactDirectory, PageSize};
+        let mut conn = Connection::open_in_memory().map_err(store_error)?;
+        conn.pragma_update(None, "foreign_keys", "ON")
+            .map_err(store_error)?;
+        let m = migrations();
+        for (version, fixture) in FIXTURES.iter().enumerate().take(21) {
+            m.to_version(&mut conn, version + 1)
+                .map_err(|e| StoreError(e.to_string()))?;
+            conn.execute_batch(fixture).map_err(store_error)?;
+        }
+        // Fiche 30 : Alice Martin, texte cherché d'avant (sans nom complet).
+        // Fiche 31 : clé de tri modifiée à la main (corrompue).
+        // Fiche 32 : prénom illisible (UTF-8 invalide).
+        conn.execute_batch(
+            "INSERT INTO contacts (id, given_name, family_name, organization, sort_key, \
+             search_text) VALUES \
+             (30, 'Alice', 'Martin', 'ACME', 'alice martin', \
+             'alice\nmartin\nacme\nalice@example.com'), \
+             (31, 'Bob', 'Durand', NULL, 'repère', 'bob\ndurand\nbob@example.com'), \
+             (32, CAST(X'FF' AS TEXT), 'Z', NULL, 'z', 'z'); \
+             INSERT INTO contact_emails (contact_id, position, address, address_key, label, \
+             preferred) VALUES \
+             (30, 0, 'alice@example.com', 'alice@example.com', NULL, 1), \
+             (31, 0, 'bob@example.com', 'bob@example.com', NULL, 1), \
+             (32, 0, 'z@example.com', 'z@example.com', NULL, 1);",
+        )
+        .map_err(store_error)?;
+        m.to_version(&mut conn, 22)
+            .map_err(|e| StoreError(e.to_string()))?;
+        assert_eq!(
+            stored_names(&conn, 30),
+            (
+                None,
+                Some("Alice".to_owned()),
+                Some("Martin".to_owned()),
+                None,
+                Some("ACME".to_owned()),
+                "alice martin".to_owned(),
+                "alice\nmartin\nalice martin\nacme\nalice@example.com".to_owned(),
+            )
+        );
+        // Fiche corrompue : ni réparée ni masquée.
+        let corrupt = stored_names(&conn, 31);
+        assert_eq!(
+            (corrupt.5.as_str(), corrupt.6.as_str()),
+            ("repère", "bob\ndurand\nbob@example.com")
+        );
+        let unreadable: String = conn
+            .query_row("SELECT search_text FROM contacts WHERE id = 32", [], |r| {
+                r.get(0)
+            })
+            .map_err(store_error)?;
+        assert_eq!(unreadable, "z");
+
+        let db = Database::init(conn).map_err(|e| StoreError(e.to_string()))?;
+        let book = contacts::SqliteContactBook::new(db);
+        let id = ContactId::new(30).ok_or_else(|| StoreError("id".into()))?;
+        assert!(book.get(id).await?.is_some(), "fiche 30 relue");
+        let page = book
+            .page(
+                &ContactFilter::new("alice mar", false),
+                None,
+                PageSize::new(10),
+            )
+            .await?;
+        let found: Vec<i64> = page.items.iter().map(|c| c.id.get()).collect();
+        assert_eq!(found, [30]);
+        Ok(())
+    }
 
     /// Base de version 20 : à la montée en version 21, la file d'opérations
     /// est reconstruite sans rien perdre (opérations et compteur des

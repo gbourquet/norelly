@@ -478,16 +478,29 @@ impl ContactDraft {
         self.display_name().to_lowercase()
     }
 
-    /// Texte dans lequel cherche un filtre : noms, organisation et
-    /// adresses, en minuscules, séparés par des sauts de ligne.
+    /// Nom complet « prénom nom », composé comme par [`display_label`],
+    /// quand les deux champs sont renseignés.
+    #[must_use]
+    pub fn full_name(&self) -> Option<String> {
+        match (&self.given_name, &self.family_name) {
+            (Some(given), Some(family)) => Some(format!("{given} {family}")),
+            _ => None,
+        }
+    }
+
+    /// Texte dans lequel cherche un filtre : noms, nom complet
+    /// ([`Self::full_name`]), organisation et adresses, en minuscules,
+    /// séparés par des sauts de ligne.
     #[must_use]
     pub fn search_text(&self) -> String {
+        let full_name = self.full_name();
         let names = [
-            &self.display_name,
-            &self.given_name,
-            &self.family_name,
-            &self.nickname,
-            &self.organization,
+            self.display_name.as_ref(),
+            self.given_name.as_ref(),
+            self.family_name.as_ref(),
+            full_name.as_ref(),
+            self.nickname.as_ref(),
+            self.organization.as_ref(),
         ];
         names
             .into_iter()
@@ -1572,6 +1585,22 @@ mod tests {
             );
         }
         assert!(!text.contains("secret"), "les notes ne sont pas cherchées");
+    }
+
+    #[test]
+    fn search_text_covers_the_composed_full_name() {
+        // Prénom et nom dans deux champs : « alice mar » trouve Alice
+        // Martin, même avec un nom affiché saisi.
+        let mut i = input(&["a@example.com"]);
+        i.given_name = "Alice".into();
+        i.family_name = "MARTIN".into();
+        let filter = ContactFilter::new("alice mar", false);
+        assert!(filter.matches(&draft(i.clone())));
+        i.display_name = "Ali".into();
+        assert!(filter.matches(&draft(i.clone())));
+        // Un seul des deux champs : pas de nom composé.
+        i.family_name = String::new();
+        assert!(!draft(i).search_text().contains("alice "));
     }
 
     #[test]

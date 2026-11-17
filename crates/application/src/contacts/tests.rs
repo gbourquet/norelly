@@ -299,6 +299,35 @@ fn suggested(found: &[RecipientSuggestion]) -> Vec<(&str, &str, bool)> {
         .collect()
 }
 
+/// Prénom et nom dans deux champs : « alice mar » propose Alice Martin,
+/// sous son nom du carnet, même quand un autre nom affiché est saisi.
+#[tokio::test]
+async fn suggestions_find_a_contact_by_its_full_name() -> Result<(), ContactFailure> {
+    let book = InMemoryContactBook::default();
+    let create = CreateContact { book: &book };
+    let mut alice = input("", &["alice@example.com"]);
+    alice.given_name = "Alice".into();
+    alice.family_name = "Martin".into();
+    create.execute(alice.clone()).await?;
+    alice.display_name = "Lili".into();
+    alice.emails[0].address = "lili@example.com".into();
+    create.execute(alice).await?;
+    let found = SuggestRecipients {
+        collected: &Collected(Vec::new()),
+        directory: &book,
+    }
+    .execute(account(), "alice mar", 10)
+    .await?;
+    assert_eq!(
+        suggested(&found),
+        [
+            ("Alice Martin", "alice@example.com", true),
+            ("Lili", "lili@example.com", true),
+        ]
+    );
+    Ok(())
+}
+
 #[tokio::test]
 async fn suggestions_put_contacts_first_then_collected_addresses() -> Result<(), ContactFailure> {
     let book = InMemoryContactBook::default();

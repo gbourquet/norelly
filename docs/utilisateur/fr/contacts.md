@@ -15,7 +15,8 @@ contacts remplace celle des messages ; la fiche du contact choisi s'affiche
 ![Les contacts : la liste au milieu, la fiche d'Alice Martin à droite](captures/contacts.png)
 
 - Pour trouver quelqu'un, tapez quelques lettres de son nom, de son
-  adresse ou de son organisation dans **Rechercher**.
+  adresse ou de son organisation dans **Rechercher**. Vous pouvez taper
+  le prénom puis le début du nom : « alice mar » trouve Alice Martin.
 - Cliquez sur **Favoris** pour ne voir que vos favoris, sur **Tous** pour
   tout revoir.
 - Pour revenir à vos messages, cliquez sur **Boîte de réception unifiée**

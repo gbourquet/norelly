@@ -251,10 +251,17 @@ pub async fn contact_book_contract<B: ContactBook + ContactDirectory>(
     );
     assert_eq!(line.items[0].organization.as_deref(), Some("ACME"));
     assert!(line.items[0].favorite);
-    // Recherche sur chaque nom (prénom, nom, surnom) et sur toutes les
-    // adresses, pas seulement la préférée : base des suggestions de
-    // destinataires.
-    for text in ["ALICE", "martin", "lili", "alice@example.com", "perso@"] {
+    // Recherche sur chaque nom (prénom, nom, surnom), sur le nom complet
+    // « prénom nom » et sur toutes les adresses, pas seulement la
+    // préférée : base des suggestions de destinataires.
+    for text in [
+        "ALICE",
+        "martin",
+        "alice mar",
+        "lili",
+        "alice@example.com",
+        "perso@",
+    ] {
         let found = book
             .page(&ContactFilter::new(text, false), None, PageSize::new(10))
             .await?;

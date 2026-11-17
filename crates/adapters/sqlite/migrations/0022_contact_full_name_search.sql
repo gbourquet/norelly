@@ -1,0 +1,11 @@
+-- Version 22 : nom complet cherché dans le carnet.
+--
+-- Le texte cherché d'une fiche (search_text) contient désormais aussi le
+-- nom complet composé « prénom nom » (norelly_domain::contacts::
+-- ContactDraft::search_text) : « alice mar » trouve Alice Martin. Le
+-- schéma ne change pas ; le texte cherché des fiches enregistrées avant
+-- est recalculé par le domaine dans le crochet Rust de la migration
+-- (norelly_sqlite::contacts::index_full_names), dans la même transaction,
+-- avec des paramètres liés. Sans lui, ces fiches seraient tenues pour
+-- corrompues à la relecture.
+SELECT 1;

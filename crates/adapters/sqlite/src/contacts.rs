@@ -340,6 +340,87 @@ pub(crate) fn drop_names_imitating_address(tx: &Transaction<'_>) -> Result<(), S
     Ok(())
 }
 
+/// Étape de la migration 22 : recalcule le texte cherché des fiches
+/// enregistrées, qui contient désormais le nom complet composé
+/// ([`ContactDraft::search_text`]). Seule cette colonne est réécrite, et
+/// seulement pour une fiche dont la clé de tri stockée est celle que
+/// calcule le domaine, pour la fiche relue ou, avec un nom imitant une
+/// adresse, telle qu'enregistrée (le texte cherché est alors pris du même
+/// calcul, comme au contrôle de [`ContactRow::into_contact`]). Une fiche
+/// illisible ou invalide reste telle quelle : écartée à la relecture comme
+/// avant, elle n'empêche pas d'ouvrir la base.
+pub(crate) fn index_full_names(tx: &Transaction<'_>) -> Result<(), StoreError> {
+    let (mut rewritten, mut unreadable, mut invalid) = (0_usize, 0_usize, 0_usize);
+    let mut after = 0_i64;
+    loop {
+        let ids: Vec<i64> = tx
+            .prepare_cached("SELECT id FROM contacts WHERE id > ?1 ORDER BY id LIMIT ?2")
+            .and_then(|mut s| {
+                s.query_map(params![after, CLEANUP_BATCH], |r| r.get(0))?
+                    .collect()
+            })
+            .map_err(store_error)?;
+        let Some(&last) = ids.last() else {
+            break;
+        };
+        after = last;
+        // Lot illisible : fiches relues une à une, les illisibles passées.
+        let mut batch = match rows(tx, &ids) {
+            Ok(batch) => batch,
+            Err(_) => {
+                let mut batch = HashMap::new();
+                for &id in &ids {
+                    match rows(tx, &[id]) {
+                        Ok(one) => batch.extend(one),
+                        Err(_) => unreadable += 1,
+                    }
+                }
+                batch
+            }
+        };
+        for id in ids {
+            let Some(row) = batch.remove(&id) else {
+                continue;
+            };
+            if row.unreadable {
+                unreadable += 1;
+                continue;
+            }
+            let (sort_key, search_text) = row.derived.clone();
+            let (input, _) = row.into_input();
+            let as_stored = ContactDraft::keys_as_stored(&input);
+            let Ok(draft) = ContactDraft::from_stored(input) else {
+                invalid += 1;
+                continue;
+            };
+            let expected = [Some((draft.sort_key(), draft.search_text())), as_stored]
+                .into_iter()
+                .flatten()
+                .find(|(key, _)| *key == sort_key);
+            let Some((_, text)) = expected else {
+                invalid += 1;
+                continue;
+            };
+            if text != search_text {
+                tx.execute(
+                    "UPDATE contacts SET search_text = ?2 WHERE id = ?1",
+                    params![id, text],
+                )
+                .map_err(store_error)?;
+                rewritten += 1;
+            }
+        }
+    }
+    // Des nombres seulement : aucune donnée de fiche dans le journal.
+    tracing::info!(
+        rewritten,
+        unreadable,
+        invalid,
+        "carnet : nom complet ajouté au texte cherché"
+    );
+    Ok(())
+}
+
 fn corrupted(id: i64, detail: &str) -> StoreError {
     StoreError(format!("contact {id} corrompu : {detail}"))
 }

@@ -23,6 +23,12 @@ ignore = [
     # Exception temporaire validée par le mainteneur le 2026-11-06 : à
     # retirer à la prochaine version de testcontainers.
     { id = "RUSTSEC-2026-0440", reason = "transitif via testcontainers (tests seulement), non maintenu, pas de vulnérabilité ; temporaire, validé par le mainteneur" },
+    # Non maintenu (pas une vulnérabilité), toutes versions, sans version
+    # sûre. `chrono` est tiré par imap-codec 2.0.0-alpha.9 et imap-types
+    # 2.0.0-alpha.7, via imap-next (bibliothèque IMAP, ADR-002) ; il est donc
+    # présent dans l'application livrée. Exception validée par le mainteneur
+    # le 2026-11-17 : à retirer quand imap-codec remplacera chrono.
+    { id = "RUSTSEC-2026-0543", reason = "transitif via imap-codec/imap-types (imap-next), non maintenu, pas de vulnérabilité ; validé par le mainteneur" },
 ]
 
 [licenses]

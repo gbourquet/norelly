@@ -247,6 +247,15 @@ export const commands = {
 	 */
 	parseRecipient: (raw: string) => typedError<RecipientDto, IpcError_Serialize>(__TAURI_INVOKE("parse_recipient", { raw })),
 	/**
+	 *  Un message peut-il compter `count` destinataires (tous champs
+	 *  confondus), décidé par le domaine ([`check_recipient_count`]) :
+	 *  l'éditeur le demande avant d'ajouter des puces, pour prévenir tout de
+	 *  suite plutôt qu'à l'enregistrement ou à l'envoi. Refus :
+	 *  `TooManyRecipients` (la limite est exportée dans les bindings,
+	 *  `MAX_RECIPIENTS`, pour le texte du message seulement).
+	 */
+	checkRecipients: (count: number) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("check_recipients", { count })),
+	/**
 	 *  Destinataires proposés pour la saisie : contacts du carnet, puis
 	 *  adresses connues du compte.
 	 */
@@ -353,6 +362,8 @@ export const events = {
 
 /* Constants */
 export const MAX_CONTACT_SELECTION = 1000 as const;
+
+export const MAX_RECIPIENTS = 100 as const;
 
 /* Types */
 /**  Compte enregistré. */

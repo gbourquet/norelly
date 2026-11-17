@@ -26,7 +26,7 @@ use norelly_domain::account::AccountId;
 use norelly_domain::address::EmailAddress;
 use norelly_domain::compose::Threading;
 use norelly_domain::compose::draft::{
-    ComposeError, Draft, DraftAttachment, MAX_RECIPIENTS, Recipient,
+    ComposeError, Draft, DraftAttachment, Recipient, check_recipient_count,
 };
 use norelly_domain::compose::outbox::{OutboxState, SendFailure};
 use norelly_domain::mailbox::MailboxRole;
@@ -73,9 +73,8 @@ pub fn draft_id_of(raw: u32) -> Result<DraftId, IpcError> {
 pub fn draft_of(dto: &DraftDto) -> Result<(Option<DraftId>, Draft), IpcError> {
     let id = dto.id.map(draft_id_of).transpose()?;
     let account = account_of(dto.account)?;
-    if dto.to.len() + dto.cc.len() + dto.bcc.len() > MAX_RECIPIENTS {
-        return Err(ComposeFailure::from(ComposeError::TooManyRecipients).into());
-    }
+    check_recipient_count(dto.to.len() + dto.cc.len() + dto.bcc.len())
+        .map_err(ComposeFailure::from)?;
     let mut draft = Draft::empty(account);
     draft.to = recipients_of(&dto.to)?;
     draft.cc = recipients_of(&dto.cc)?;
@@ -604,6 +603,21 @@ pub fn parse_recipient(raw: String) -> Result<RecipientDto, IpcError> {
     })
 }
 
+/// Un message peut-il compter `count` destinataires (tous champs
+/// confondus), décidé par le domaine ([`check_recipient_count`]) :
+/// l'éditeur le demande avant d'ajouter des puces, pour prévenir tout de
+/// suite plutôt qu'à l'enregistrement ou à l'envoi. Refus :
+/// `TooManyRecipients` (la limite est exportée dans les bindings,
+/// `MAX_RECIPIENTS`, pour le texte du message seulement).
+#[tauri::command]
+#[specta::specta]
+pub fn check_recipients(count: u32) -> Result<(), IpcError> {
+    // u32 tient dans usize sur les cibles visées ; sinon, au-delà de toute
+    // limite.
+    let count = usize::try_from(count).unwrap_or(usize::MAX);
+    check_recipient_count(count).map_err(|e| ComposeFailure::from(e).into())
+}
+
 /// Destinataires proposés pour la saisie : contacts du carnet, puis
 /// adresses connues du compte.
 #[tauri::command]
@@ -733,6 +747,7 @@ mod tests {
     use norelly_domain::ports::{OutboxId, OutgoingMessage, StoreError};
 
     use super::*;
+    use norelly_domain::compose::draft::MAX_RECIPIENTS;
 
     fn dto() -> DraftDto {
         DraftDto {
@@ -825,6 +840,21 @@ mod tests {
             })
             .collect();
         assert_eq!(code(draft_of(&d)).0, ErrorCodeDto::TooManyRecipients);
+    }
+
+    #[test]
+    fn recipient_count_is_checked_by_the_domain() {
+        assert!(check_recipients(0).is_ok());
+        let max = u32::try_from(MAX_RECIPIENTS).unwrap_or(0);
+        assert!(check_recipients(max).is_ok());
+        assert_eq!(
+            check_recipients(max + 1).err().map(|e| e.code),
+            Some(ErrorCodeDto::TooManyRecipients)
+        );
+        assert_eq!(
+            check_recipients(u32::MAX).err().map(|e| e.code),
+            Some(ErrorCodeDto::TooManyRecipients)
+        );
     }
 
     #[test]

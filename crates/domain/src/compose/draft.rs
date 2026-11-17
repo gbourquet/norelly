@@ -199,6 +199,17 @@ pub enum ComposeError {
     InvalidThreading,
 }
 
+/// Un message peut-il compter `count` destinataires, tous champs
+/// confondus : au plus [`MAX_RECIPIENTS`]. Règle commune à l'envoi, à
+/// l'enregistrement d'un brouillon et à l'ajout de destinataires dans
+/// l'éditeur (prévenir avant qu'un brouillon ne s'enregistre plus).
+pub fn check_recipient_count(count: usize) -> Result<(), ComposeError> {
+    if count > MAX_RECIPIENTS {
+        return Err(ComposeError::TooManyRecipients);
+    }
+    Ok(())
+}
+
 impl Draft {
     /// Brouillon vide d'un compte.
     #[must_use]
@@ -225,10 +236,7 @@ impl Draft {
         if count == 0 {
             return Err(ComposeError::NoRecipient);
         }
-        if count > MAX_RECIPIENTS {
-            return Err(ComposeError::TooManyRecipients);
-        }
-        Ok(())
+        check_recipient_count(count)
     }
 
     /// Le brouillon peut-il être enregistré (même incomplet) : seules les
@@ -485,6 +493,20 @@ mod tests {
         assert_eq!(d.check_sendable(), Err(ComposeError::TooManyRecipients));
         d.cc.pop();
         assert_eq!(d.check_sendable(), Ok(()));
+    }
+
+    #[test]
+    fn recipient_count_is_bounded_by_the_limit() {
+        assert_eq!(check_recipient_count(0), Ok(()));
+        assert_eq!(check_recipient_count(MAX_RECIPIENTS), Ok(()));
+        assert_eq!(
+            check_recipient_count(MAX_RECIPIENTS + 1),
+            Err(ComposeError::TooManyRecipients)
+        );
+        assert_eq!(
+            check_recipient_count(usize::MAX),
+            Err(ComposeError::TooManyRecipients)
+        );
     }
 
     #[test]

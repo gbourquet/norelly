@@ -107,37 +107,36 @@ pub fn find_duplicates(
     }
 
     let dismissed: HashSet<DismissedPair> = dismissed.iter().copied().collect();
-    let involved: HashSet<ContactId> = dismissed.iter().flat_map(|p| [p.low, p.high]).collect();
-    let linked = |a: usize, b: usize| {
-        DismissedPair::new(contacts[a].id(), contacts[b].id())
-            .is_some_and(|p| !dismissed.contains(&p))
-    };
     let mut sets = DisjointSets::new(contacts.len());
     // Fiches rapprochées, avec leur raison (pour les raisons du groupe).
     let mut links: Vec<(usize, DuplicateReason)> = Vec::new();
+    // Fiches rapprochées d'une autre par leur nom.
+    let mut named: HashSet<usize> = HashSet::new();
     for ((reason, _), indexes) in buckets {
         if indexes.len() < 2 {
             continue;
         }
-        // Une fiche d'aucune paire écartée est liée à toutes les autres :
-        // ces fiches-là sont réunies en chaîne, chacune des autres liée à
-        // la première d'entre elles, et les autres comparées deux à deux.
-        let (touched, free): (Vec<usize>, Vec<usize>) = indexes
-            .into_iter()
-            .partition(|&i| involved.contains(&contacts[i].id()));
-        for pair in free.windows(2) {
-            sets.union(pair[0], pair[1]);
-            links.push((pair[1], reason));
-        }
-        for (at, &a) in touched.iter().enumerate() {
-            if let Some(&first) = free.first() {
-                sets.union(first, a);
-                links.push((a, reason));
-            }
-            for &b in &touched[at + 1..] {
-                if linked(a, b) {
+        // Les fiches d'une même clé sont toutes liées, sauf les paires
+        // écartées : parcours en largeur de ce graphe. Une fiche non
+        // encore atteinte est soit atteinte (et retirée), soit gardée à
+        // cause d'une paire écartée : le parcours coûte autant que les
+        // fiches et les paires écartées de la clé.
+        let mut pending: Vec<usize> = indexes;
+        while let Some(start) = pending.pop() {
+            let mut queue = vec![start];
+            while let Some(a) = queue.pop() {
+                let (reached, kept): (Vec<usize>, Vec<usize>) = pending.iter().partition(|&&b| {
+                    DismissedPair::new(contacts[a].id(), contacts[b].id())
+                        .is_some_and(|p| !dismissed.contains(&p))
+                });
+                pending = kept;
+                for b in reached {
                     sets.union(a, b);
-                    links.push((a, reason));
+                    links.push((b, reason));
+                    if reason == DuplicateReason::SameName {
+                        named.extend([a, b]);
+                    }
+                    queue.push(b);
                 }
             }
         }
@@ -159,11 +158,12 @@ pub fn find_duplicates(
         .into_iter()
         .filter(|(_, indexes)| indexes.len() > 1)
         .map(|(root, indexes)| {
-            let mut group: Vec<&Contact> = indexes.iter().map(|&i| &contacts[i]).collect();
+            let mut group: Vec<usize> = indexes;
             // Les plus complètes d'abord (puis favorite, puis la plus
             // ancienne) : la première est proposée, les suivantes gardées
             // dans la borne, puis rangées par identifiant.
-            group.sort_by_key(|c| {
+            group.sort_by_key(|&i| {
+                let c = &contacts[i];
                 std::cmp::Reverse((
                     completeness(c.draft()),
                     c.draft().favorite(),
@@ -173,18 +173,18 @@ pub fn find_duplicates(
             let truncated = group.len() > MAX_DUPLICATE_GROUP_SIZE;
             group.truncate(MAX_DUPLICATE_GROUP_SIZE);
             let first = group.remove(0);
-            group.sort_by_key(|c| c.id());
+            group.sort_by_key(|&i| contacts[i].id());
             let mut reasons = reasons.remove(&root).unwrap_or_default();
             reasons.sort();
             // Seul un même nom désigne assez sûrement la même personne
             // pour proposer une fiche : rapprochée par un téléphone ou une
-            // boîte Gmail, une fiche importée très remplie serait proposée
-            // à la place de la fiche de l'utilisateur.
-            let suggest_keep = reasons.contains(&DuplicateReason::SameName);
-            let sort_key = first.draft().sort_key();
+            // boîte Gmail seulement, une fiche importée très remplie
+            // serait proposée à la place de la fiche de l'utilisateur.
+            let suggest_keep = named.contains(&first);
+            let sort_key = contacts[first].draft().sort_key();
             let contacts = std::iter::once(first)
                 .chain(group)
-                .map(Contact::id)
+                .map(|i| contacts[i].id())
                 .collect();
             (
                 sort_key,

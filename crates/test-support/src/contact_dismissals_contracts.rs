@@ -96,7 +96,9 @@ where
 }
 
 /// Contrat de la borne des paires retenues : au-delà de
-/// [`MAX_DISMISSED_PAIRS`], les plus anciennes sont oubliées d'abord.
+/// [`MAX_DISMISSED_PAIRS`], les paires des plus anciens appels à
+/// [`DuplicateDismissals::dismiss`] (groupes passés) sont oubliées, chaque
+/// appel en entier : un groupe n'est jamais oublié en partie.
 pub async fn duplicate_dismissals_bound_contract<B>(book: &B) -> Result<(), ContactStoreError>
 where
     B: ContactBook + ContactDirectory + DuplicateDismissals,
@@ -113,21 +115,31 @@ where
             all.push(pair(a.id(), b.id()));
         }
     }
-    let (first, rest) = all.split_at(MAX_DISMISSED_PAIRS);
-    book.dismiss(first).await?;
+    // La borne atteinte en appels de 100 paires.
+    let (full, rest) = all.split_at(MAX_DISMISSED_PAIRS);
+    for batch in full.chunks(100) {
+        book.dismiss(batch).await?;
+    }
     assert_eq!(book.dismissed().await?.len(), MAX_DISMISSED_PAIRS);
     // La plus ancienne, retenue de nouveau, redevient la plus récente.
-    book.dismiss(&first[..1]).await?;
+    book.dismiss(&full[..1]).await?;
     book.dismiss(&rest[..5]).await?;
     let kept = sorted(book).await?;
-    assert_eq!(kept.len(), MAX_DISMISSED_PAIRS, "borne dépassée");
-    assert!(kept.contains(&first[0]), "paire retenue de nouveau oubliée");
-    for old in &first[1..6] {
-        assert!(!kept.contains(old), "plus ancienne paire gardée");
+    assert!(kept.len() <= MAX_DISMISSED_PAIRS, "borne dépassée");
+    assert!(kept.contains(&full[0]), "paire retenue de nouveau oubliée");
+    for old in &full[1..100] {
+        assert!(!kept.contains(old), "plus ancien groupe gardé");
+    }
+    for later in &full[100..200] {
+        assert!(
+            kept.contains(later),
+            "groupe suivant oublié, en tout ou partie"
+        );
     }
     for new in &rest[..5] {
         assert!(kept.contains(new), "paire récente oubliée");
     }
+    assert_eq!(kept.len(), MAX_DISMISSED_PAIRS - 99 + 5);
     Ok(())
 }
 

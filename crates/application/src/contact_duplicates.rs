@@ -53,14 +53,14 @@ pub struct FindDuplicates<'a, D, S, N> {
 impl<D: ContactDirectory, S: DuplicateDismissals, N: TextNormalizer> FindDuplicates<'_, D, S, N> {
     pub async fn execute(&self) -> Result<Vec<DuplicateCandidates>, DuplicateScanFailure> {
         // Une fiche de plus que la borne : savoir qu'elle est dépassée.
-        let contacts = self
-            .directory
-            .contacts(&ContactSelection::All, MAX_DUPLICATE_SCAN + 1)
-            .await?;
+        let (contacts, dismissed) = tokio::try_join!(
+            self.directory
+                .contacts(&ContactSelection::All, MAX_DUPLICATE_SCAN + 1),
+            self.dismissals.dismissed(),
+        )?;
         if contacts.len() > MAX_DUPLICATE_SCAN {
             return Err(DuplicateScanFailure::TooMany);
         }
-        let dismissed = self.dismissals.dismissed().await?;
         let by_id: HashMap<ContactId, &Contact> = contacts.iter().map(|c| (c.id(), c)).collect();
         Ok(find_duplicates(&contacts, &dismissed, self.normalizer)
             .into_iter()

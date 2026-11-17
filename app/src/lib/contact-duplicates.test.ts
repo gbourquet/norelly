@@ -51,7 +51,8 @@ function fakeApi(
       if (options.preview) throw options.preview;
       return previewOf(keep, others);
     }),
-    dismissContactDuplicates: vi.fn(async (_contacts: number[]) => {
+    dismissContactDuplicates: vi.fn(async (contacts: number[]) => {
+      expect(contacts.length).toBeGreaterThan(1);
       if (options.dismiss) throw options.dismiss;
       return null;
     }),
@@ -208,6 +209,15 @@ describe("doublons du carnet", () => {
     await state.skip();
     expect(state.finished).toBe(true);
     expect(api.mergeContacts).not.toHaveBeenCalled();
+  });
+
+  it("un groupe tronqué passé n'est pas retenu : ses fiches cachées le reformeraient", async () => {
+    const api = fakeApi([{ ...alices, truncated: true }, bobs]);
+    const state = new ContactDuplicatesState(api);
+    await state.open();
+    await state.skip();
+    expect(api.dismissContactDuplicates).not.toHaveBeenCalled();
+    expect(state.current).toEqual(bobs);
   });
 
   it("échec de l'écart d'un groupe : message traduit, groupe gardé", async () => {

@@ -755,6 +755,7 @@
   "contacts_duplicates_reason_same_phone": "Même téléphone",
   "contacts_duplicates_reason_same_gmail_address": "Même adresse Gmail",
   "contacts_duplicates_choose": "Ces contacts ne portent pas le même nom : choisissez vous-même la fiche à garder.",
+  "contacts_duplicates_skip_truncated": "Passé, ce groupe trop nombreux sera de nouveau proposé à la prochaine recherche.",
   "contacts_duplicates_skip_help": "Un groupe passé ne vous sera plus proposé, sauf si l'une de ses fiches change.",
   "contacts_duplicates_help": "Les fiches cochées seront réunies dans la fiche gardée : ses champs vides sont complétés, les adresses, téléphones et notes ajoutés, et elle les remplace dans les listes de diffusion. Les autres fiches sont ensuite supprimées.",
   "contacts_duplicates_include": "Réunir {name}",

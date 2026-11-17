@@ -686,9 +686,10 @@ pub struct InMemoryContactBook {
     pub(crate) lists: Mutex<(i64, Vec<ContactList>)>,
     /// Fiches rendues illisibles par [`Self::corrupt`].
     unreadable: Mutex<Vec<ContactId>>,
-    /// Paires de doublons écartées, de la plus ancienne à la plus récente
+    /// Paires de doublons écartées, de la plus ancienne à la plus récente,
+    /// avec le numéro de l'appel qui les a retenues
     /// ([`crate::contact_dismissals_contracts`]).
-    dismissed: Mutex<Vec<DismissedPair>>,
+    dismissed: Mutex<Vec<(u64, DismissedPair)>>,
 }
 
 impl InMemoryContactBook {
@@ -720,15 +721,17 @@ impl InMemoryContactBook {
         self.state.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    fn lock_dismissed(&self) -> MutexGuard<'_, Vec<DismissedPair>> {
-        self.dismissed.lock().unwrap_or_else(PoisonError::into_inner)
+    fn lock_dismissed(&self) -> MutexGuard<'_, Vec<(u64, DismissedPair)>> {
+        self.dismissed
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
     }
 
     /// Oublie les paires écartées des fiches `ids`, modifiées ou
     /// supprimées.
     fn forget_dismissed(&self, ids: &[ContactId]) {
         self.lock_dismissed()
-            .retain(|p| !ids.contains(&p.low()) && !ids.contains(&p.high()));
+            .retain(|(_, p)| !ids.contains(&p.low()) && !ids.contains(&p.high()));
     }
 
     pub(crate) fn lock_lists(&self) -> MutexGuard<'_, (i64, Vec<ContactList>)> {
@@ -957,19 +960,23 @@ impl DuplicateDismissals for InMemoryContactBook {
         let state = self.lock();
         let known = |id: ContactId| state.1.iter().any(|c| c.id() == id);
         let mut dismissed = self.lock_dismissed();
+        let batch = dismissed.last().map_or(1, |(b, _)| b + 1);
         for p in pairs {
             if known(p.low()) && known(p.high()) {
-                dismissed.retain(|d| d != p);
-                dismissed.push(*p);
+                dismissed.retain(|(_, d)| d != p);
+                dismissed.push((batch, *p));
             }
         }
-        let excess = dismissed.len().saturating_sub(MAX_DISMISSED_PAIRS);
-        dismissed.drain(..excess);
+        // Les plus anciens appels oubliés en entier.
+        while dismissed.len() > MAX_DISMISSED_PAIRS {
+            let oldest = dismissed[0].0;
+            dismissed.retain(|(b, _)| *b != oldest);
+        }
         Ok(())
     }
 
     async fn dismissed(&self) -> Result<Vec<DismissedPair>, StoreError> {
-        Ok(self.lock_dismissed().clone())
+        Ok(self.lock_dismissed().iter().map(|(_, p)| *p).collect())
     }
 }
 

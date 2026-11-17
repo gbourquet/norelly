@@ -110,19 +110,23 @@ export class ContactDuplicatesState {
   }
 
   /** Passe au groupe suivant sans fusion ; Rust retient le groupe pour
-   * ne plus le proposer. En cas d'échec, message affiché, groupe gardé. */
+   * ne plus le proposer, sauf un groupe tronqué (ses fiches non
+   * présentées le reformeraient). En cas d'échec, message affiché, groupe
+   * gardé. */
   async skip(): Promise<void> {
     const group = this.current;
     if (group === null || this.busy) return;
-    this.busy = true;
     this.error = null;
-    try {
-      await this.#api.dismissContactDuplicates(group.contacts.map((c) => c.id));
-    } catch (e) {
-      this.error = errorText(e);
-      return;
-    } finally {
-      this.busy = false;
+    if (!group.truncated) {
+      this.busy = true;
+      try {
+        await this.#api.dismissContactDuplicates(group.contacts.map((c) => c.id));
+      } catch (e) {
+        this.error = errorText(e);
+        return;
+      } finally {
+        this.busy = false;
+      }
     }
     this.index += 1;
     await this.#present();

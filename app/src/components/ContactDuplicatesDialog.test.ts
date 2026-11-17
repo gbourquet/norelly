@@ -129,11 +129,14 @@ describe("fenêtre des doublons", () => {
     expect(screen.queryByText(/choisissez vous-même/)).toBeNull();
   });
 
-  it("explique qu'un groupe passé n'est plus proposé", async () => {
-    const form = new ContactDuplicatesState(api([group]));
+  it("explique qu'un groupe passé n'est plus proposé, sauf s'il est tronqué", async () => {
+    const form = new ContactDuplicatesState(api([{ ...group, truncated: false }, group]));
     await form.open();
     show(form);
     expect(screen.getByText(/Un groupe passé ne vous sera plus proposé/)).toBeTruthy();
+    await fireEvent.click(screen.getByRole("button", { name: "Passer" }));
+    expect(await screen.findByText(/sera de nouveau proposé/)).toBeTruthy();
+    expect(screen.queryByText(/Un groupe passé ne vous sera plus proposé/)).toBeNull();
   });
 
   it("sans doublon : message", async () => {

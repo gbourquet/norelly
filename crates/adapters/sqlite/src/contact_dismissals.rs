@@ -13,14 +13,19 @@ use rusqlite::params;
 use crate::contacts::SqliteContactBook;
 use crate::store_error;
 
-/// Retient une paire dont les deux fiches sont dans le carnet ; une paire
-/// déjà retenue est réinsérée, donc la plus récente.
-const DISMISS: &str = "INSERT OR REPLACE INTO contact_duplicate_dismissals (low_id, high_id) \
-     SELECT ?1, ?2 WHERE EXISTS (SELECT 1 FROM contacts WHERE id = ?1) \
+/// Numéro du groupe passé suivant.
+const NEXT_BATCH: &str = "SELECT coalesce(max(batch), 0) + 1 FROM contact_duplicate_dismissals";
+/// Retient une paire dont les deux fiches sont dans le carnet, dans le
+/// groupe `?3` ; une paire déjà retenue est réinsérée, donc la plus récente.
+const DISMISS: &str = "INSERT OR REPLACE INTO contact_duplicate_dismissals \
+     (low_id, high_id, batch) \
+     SELECT ?1, ?2, ?3 WHERE EXISTS (SELECT 1 FROM contacts WHERE id = ?1) \
        AND EXISTS (SELECT 1 FROM contacts WHERE id = ?2)";
-/// Oublie les plus anciennes paires au-delà des `?1` plus récentes.
-const FORGET_OLDEST: &str = "DELETE FROM contact_duplicate_dismissals WHERE rowid <= \
-     (SELECT rowid FROM contact_duplicate_dismissals ORDER BY rowid DESC LIMIT 1 OFFSET ?1)";
+/// Au-delà des `?1` paires les plus récentes, oublie les groupes les plus
+/// anciens, chacun en entier : celui de la première paire en trop et tous
+/// les précédents.
+const FORGET_OLDEST: &str = "DELETE FROM contact_duplicate_dismissals WHERE batch <= \
+     (SELECT batch FROM contact_duplicate_dismissals ORDER BY rowid DESC LIMIT 1 OFFSET ?1)";
 const DISMISSED: &str = "SELECT low_id, high_id FROM contact_duplicate_dismissals \
      ORDER BY rowid DESC LIMIT ?1";
 
@@ -39,11 +44,14 @@ impl DuplicateDismissals for SqliteContactBook {
         self.db
             .run(move |c| {
                 let tx = c.transaction().map_err(store_error)?;
+                let batch: i64 = tx
+                    .query_row(NEXT_BATCH, [], |row| row.get(0))
+                    .map_err(store_error)?;
                 {
                     let mut insert = tx.prepare_cached(DISMISS).map_err(store_error)?;
                     for p in &pairs {
                         insert
-                            .execute(params![p.low().get(), p.high().get()])
+                            .execute(params![p.low().get(), p.high().get(), batch])
                             .map_err(store_error)?;
                     }
                 }

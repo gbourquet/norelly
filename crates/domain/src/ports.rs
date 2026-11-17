@@ -1830,12 +1830,14 @@ pub trait ContactDirectory: Send + Sync {
 /// Une paire est oubliée dès que l'une de ses deux fiches est modifiée
 /// (fusion et import compris) ou supprimée : le groupe peut alors être
 /// proposé de nouveau. Au plus
-/// [`MAX_DISMISSED_PAIRS`](crate::contact_duplicates::MAX_DISMISSED_PAIRS) paires sont
-/// retenues, les plus anciennes oubliées d'abord.
+/// [`MAX_DISMISSED_PAIRS`](crate::contact_duplicates::MAX_DISMISSED_PAIRS)
+/// paires sont retenues : au-delà, les paires des plus anciens appels à
+/// [`Self::dismiss`] sont oubliées, chaque appel (un groupe passé) en
+/// entier, pour qu'un groupe ne revienne jamais en partie.
 pub trait DuplicateDismissals: Send + Sync {
-    /// Retient les paires `pairs`. Une paire déjà retenue redevient la
-    /// plus récente ; une paire dont une fiche n'est pas (ou plus) dans le
-    /// carnet est ignorée.
+    /// Retient les paires `pairs`, ensemble (un groupe passé). Une paire
+    /// déjà retenue redevient la plus récente, dans ce groupe ; une paire
+    /// dont une fiche n'est pas (ou plus) dans le carnet est ignorée.
     fn dismiss(
         &self,
         pairs: &[DismissedPair],

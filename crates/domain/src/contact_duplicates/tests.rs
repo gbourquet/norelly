@@ -619,7 +619,10 @@ fn a_card_with_two_spellings_of_its_gmail_address_is_not_its_own_duplicate() {
     let book = [stored(
         1,
         ContactInput {
-            emails: vec![email("jean.dupont@gmail.com"), email("jeandupont@gmail.com")],
+            emails: vec![
+                email("jean.dupont@gmail.com"),
+                email("jeandupont@gmail.com"),
+            ],
             ..named("Jean", "x@example.com")
         },
     )];
@@ -634,7 +637,10 @@ fn a_card_is_suggested_as_kept_only_for_a_group_of_the_same_name() {
         stored(1, with_phone("Alice", "a1@example.com", "06 12 34 56 78")),
         stored(2, with_phone("Alice", "a2@example.com", "06 12 34 56 78")),
         stored(3, with_phone("Bob", "bob@example.com", "01 23 45 67 89")),
-        stored(4, with_phone("Robert", "robert@example.com", "01 23 45 67 89")),
+        stored(
+            4,
+            with_phone("Robert", "robert@example.com", "01 23 45 67 89"),
+        ),
         stored(5, named("Carole", "carole.x@gmail.com")),
         stored(6, named("Caro", "carolex@gmail.com")),
     ];
@@ -644,11 +650,7 @@ fn a_card_is_suggested_as_kept_only_for_a_group_of_the_same_name() {
         .collect();
     assert_eq!(
         found,
-        [
-            (vec![1, 2], true),
-            (vec![3, 4], false),
-            (vec![5, 6], false)
-        ]
+        [(vec![1, 2], true), (vec![3, 4], false), (vec![5, 6], false)]
     );
 }
 
@@ -706,7 +708,10 @@ fn the_reasons_of_a_group_come_from_its_remaining_links() {
 fn dismissed_links_are_removed_whatever_their_reason() {
     let book = [
         stored(1, with_phone("Alice", "a1@example.com", "06 12 34 56 78")),
-        stored(2, with_phone("Alice", "alice.x@gmail.com", "06 12 34 56 78")),
+        stored(
+            2,
+            with_phone("Alice", "alice.x@gmail.com", "06 12 34 56 78"),
+        ),
         stored(3, named("Lili", "alicex@gmail.com")),
     ];
     assert!(groups_without(&book, &[pair(1, 2), pair(1, 3), pair(2, 3)]).is_empty());
@@ -754,4 +759,56 @@ fn a_dismissal_is_refused_when_invalid() {
         Dismissal::new(&full).map(|d| d.pairs().len()),
         Ok(MAX_DUPLICATE_GROUP_SIZE * (MAX_DUPLICATE_GROUP_SIZE - 1) / 2)
     );
+}
+
+#[test]
+fn a_card_joined_without_its_name_is_never_suggested_as_kept() {
+    // Alice (1) et Alice (2) portent le même nom ; la fiche 3, la plus
+    // remplie, ne les rejoint que par le téléphone de 2 : elle n'est pas
+    // proposée d'office.
+    let hostile = ContactInput {
+        organization: "Banque".into(),
+        notes: "Rappeler".into(),
+        emails: vec![email("x0@example.com"), email("x1@example.com")],
+        phones: vec![phone("06 12 34 56 78"), phone("01 99 99 99 99")],
+        ..named("Banque", "x0@example.com")
+    };
+    let book = [
+        stored(1, named("Alice", "a1@example.com")),
+        stored(2, with_phone("Alice", "a2@example.com", "06 12 34 56 78")),
+        stored(3, hostile),
+    ];
+    let found = find_duplicates(&book, &[], &FakeNfc);
+    assert_eq!(found.len(), 1);
+    assert_eq!(found[0].contacts[0], id(3), "la plus complète d'abord");
+    assert!(
+        !found[0].suggest_keep,
+        "fiche rapprochée sans le nom proposée"
+    );
+}
+
+#[test]
+fn many_dismissed_pairs_in_one_bucket_still_form_the_right_groups() {
+    // Dix fiches de même nom : les paires entre pairs et impairs sont
+    // écartées, il reste deux groupes (pairs, impairs).
+    let book: Vec<Contact> = (1..=10)
+        .map(|i| stored(i, named("Alice", &format!("a{i}@example.com"))))
+        .collect();
+    let mut dismissed = Vec::new();
+    for a in 1..=10 {
+        for b in (a + 1)..=10 {
+            if (a + b) % 2 == 1 {
+                dismissed.push(pair(a, b));
+            }
+        }
+    }
+    let mut found: Vec<Vec<i64>> = groups_without(&book, &dismissed)
+        .into_iter()
+        .map(|(mut ids, _)| {
+            ids.sort_unstable();
+            ids
+        })
+        .collect();
+    found.sort();
+    assert_eq!(found, [vec![1, 3, 5, 7, 9], vec![2, 4, 6, 8, 10]]);
 }

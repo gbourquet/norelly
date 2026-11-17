@@ -365,10 +365,11 @@ l'ordinateur** : rien n'est envoyé à un serveur.
 - Une fenêtre présente les groupes un par un (« Groupe 1 sur 3 ») et dit
   ce qui rapproche les fiches. Pour chaque fiche : son nom, ses adresses,
   ses téléphones, une case pour la réunir aux autres (toutes cochées au
-  départ) et le choix **Garder cette fiche**. Quand les fiches portent le
-  même nom, la plus complète est proposée ; sinon (rapprochées par le
-  téléphone ou l'adresse Gmail seulement) aucune ne l'est : une fiche
-  importée très remplie pourrait sinon prendre la place de la vôtre. La
+  départ) et le choix **Garder cette fiche**. La plus complète est
+  proposée si elle porte le même nom qu'une autre fiche du groupe ; sinon
+  (rapprochée par le téléphone ou l'adresse Gmail seulement) aucune ne
+  l'est : une fiche importée très remplie pourrait sinon prendre la place
+  de la vôtre. La
   fenêtre invite alors à choisir, et **Fusionner** reste indisponible tant
   qu'aucune fiche n'est gardée. Sous la fiche gardée, la fenêtre indique le nom et l'adresse
   préférée que le contact aura après la fusion, d'après les fiches
@@ -394,7 +395,10 @@ l'ordinateur** : rien n'est envoyé à un serveur.
   fusion), il peut être proposé de nouveau ; une nouvelle fiche qui
   ressemble à celles du groupe le fait aussi revenir, avec elle. Seuls les
   groupes passés les plus récents sont retenus : au-delà d'un grand
-  nombre, les plus anciens sont oubliés.
+  nombre, les plus anciens sont oubliés, chacun en entier. Un groupe trop
+  nombreux pour être présenté en entier n'est pas retenu (ses fiches non
+  présentées le reformeraient) : la fenêtre le dit, et il revient à la
+  prochaine recherche.
 - Fusion refusée, avec un message clair, si la fiche obtenue dépasserait
   ce qu'une fiche peut contenir (adresses, téléphones ou notes) : il faut
   alors décocher une fiche ou en alléger une.

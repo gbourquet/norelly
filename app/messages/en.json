@@ -755,6 +755,7 @@
   "contacts_duplicates_reason_same_phone": "Same phone number",
   "contacts_duplicates_reason_same_gmail_address": "Same Gmail address",
   "contacts_duplicates_choose": "These contacts do not have the same name: choose the card to keep yourself.",
+  "contacts_duplicates_skip_truncated": "If skipped, this oversized group will be suggested again at the next search.",
   "contacts_duplicates_skip_help": "A skipped group will not be suggested again, unless one of its cards changes.",
   "contacts_duplicates_help": "Checked cards are merged into the kept card: its empty fields are filled in, addresses, phone numbers and notes are added, and it replaces them in mailing lists. The other cards are then deleted.",
   "contacts_duplicates_include": "Merge {name}",

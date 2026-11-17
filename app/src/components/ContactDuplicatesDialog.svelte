@@ -102,7 +102,9 @@
         </li>
       {/each}
     </ul>
-    <p class="help skip-help">{m.contacts_duplicates_skip_help()}</p>
+    <p class="help skip-help">
+      {group.truncated ? m.contacts_duplicates_skip_truncated() : m.contacts_duplicates_skip_help()}
+    </p>
   {:else if form.error === null}
     <p class="status" role="status">
       {form.merged > 0 || form.total > 0

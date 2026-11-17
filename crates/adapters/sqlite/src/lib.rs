@@ -708,7 +708,7 @@ mod tests {
          value, previous, keyword, not_before) \
          VALUES (1, 1, 'INBOX', 42, 7, 'flag', 'keyword', 1, 0, 'Projet', 0);",
         // v22 : les contacts des versions 11 et 18 écartés comme doublons.
-        "INSERT INTO contact_duplicate_dismissals (low_id, high_id) VALUES (1, 2);",
+        "INSERT INTO contact_duplicate_dismissals (low_id, high_id, batch) VALUES (1, 2, 1);",
     ];
 
     /// Base de version 20 : à la montée en version 21, la file d'opérations

@@ -16,11 +16,12 @@ dessus un instant, et le bouton **?** en haut à gauche affiche
 2. Dans la liste du milieu, cliquez sur un message. Il s'affiche à droite.
    Les messages non lus sont écrits en gras. Un message ouvert depuis
    5 secondes est marqué comme lu ; tant que la fenêtre de Norelly est
-   réduite ou cachée, ce temps ne s'écoule pas. Le délai se change dans
-   les **Paramètres**, réglage **Marquer comme lu un message ouvert** :
-   immédiatement, après quelques secondes, ou **Jamais**. Pour le remettre
-   en gras, cliquez sur **Plus…** dans la barre d'actions, puis sur
-   **Marquer comme non lu** (ou appuyez sur **Maj** + **U**).
+   réduite, cachée ou que vous travaillez dans une autre application, ce
+   temps ne s'écoule pas. Le délai se change dans les **Paramètres**,
+   réglage **Marquer comme lu un message ouvert** : immédiatement, après
+   quelques secondes, ou **Jamais**. Pour le remettre en gras, cliquez sur
+   **Plus…** dans la barre d'actions, puis sur **Marquer comme non lu** (ou
+   appuyez sur **Maj** + **U**).
 3. Pour revenir à la liste, cliquez sur la flèche **Retour à la liste**
    ou appuyez sur **Échap**.
 

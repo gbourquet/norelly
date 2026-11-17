@@ -1346,8 +1346,12 @@ pub struct SettingsDto {
     /// Octets.
     pub attachment_threshold: u32,
     /// Secondes avant qu'une conversation non lue restée ouverte soit
-    /// marquée comme lue (0 : à l'ouverture).
-    pub mark_seen_delay_secs: u32,
+    /// marquée comme lue (0 : à l'ouverture ; `null` : jamais). Obligatoire
+    /// à l'enregistrement : un champ absent est refusé, il ne vaut pas
+    /// « jamais ».
+    #[serde(deserialize_with = "Option::deserialize")]
+    #[specta(type = Option<u32>)]
+    pub mark_seen_delay_secs: Option<u32>,
 }
 
 /// Où chercher.
@@ -1529,6 +1533,26 @@ mod error_tests {
             json(&IpcError::storage("disque plein")),
             serde_json::json!({ "code": "storage", "field": null, "detail": null })
         );
+    }
+
+    /// Délai du marquage comme lu obligatoire à l'enregistrement : un appel
+    /// qui l'omet est refusé, il ne vaut pas « jamais ».
+    #[test]
+    fn settings_require_the_mark_seen_delay() {
+        let mut value = serde_json::json!({
+            "language": "system",
+            "update_check": "enabled",
+            "notifications": true,
+            "notification_privacy": false,
+            "attachment_threshold": 2_097_152,
+            "mark_seen_delay_secs": null,
+        });
+        let never: Result<SettingsDto, _> = serde_json::from_value(value.clone());
+        assert_eq!(never.ok().map(|s| s.mark_seen_delay_secs), Some(None));
+        if let Some(map) = value.as_object_mut() {
+            map.remove("mark_seen_delay_secs");
+        }
+        assert!(serde_json::from_value::<SettingsDto>(value).is_err());
     }
 
     #[test]

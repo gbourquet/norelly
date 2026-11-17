@@ -1,10 +1,31 @@
 // Paramètres de l'application (runes Svelte 5) : lus et enregistrés par
-// Rust, qui les revalide ; question de mise à jour au premier lancement.
+// Rust, qui les revalide ; question de mise à jour au premier lancement ;
+// délai du marquage comme lu.
 
 import type { Api, SettingsDto } from "./ipc/api";
 import { errorText } from "./errors";
 
 export type SettingsApi = Pick<Api, "getSettings" | "saveSettings">;
+
+/** Délai du marquage comme lu (millisecondes) ; `null` : réglages pas
+ * encore chargés, ou « jamais ». */
+export function markSeenDelayMs(settings: SettingsDto | null): number | null {
+  const secs = settings?.mark_seen_delay_secs ?? null;
+  return secs === null ? null : secs * 1000;
+}
+
+/** Délais proposés (secondes), « jamais » en dernier. */
+const MARK_SEEN_DELAYS = [0, 2, 5, 10, 30];
+
+/** Choix du délai du marquage comme lu (secondes ; `null` : jamais) ;
+ * un délai enregistré hors de la liste y est ajouté, pour rester affiché. */
+export function markSeenChoices(current: number | null): (number | null)[] {
+  const delays =
+    current === null || MARK_SEEN_DELAYS.includes(current)
+      ? MARK_SEEN_DELAYS
+      : [...MARK_SEEN_DELAYS, current].sort((a, b) => a - b);
+  return [...delays, null];
+}
 
 export class SettingsState {
   readonly #api: SettingsApi;

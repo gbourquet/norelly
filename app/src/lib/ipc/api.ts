@@ -37,7 +37,7 @@ import {
   type SearchHitDto_Serialize,
   type SearchPageDto_Serialize,
   type SearchScopeDto,
-  type SettingsDto,
+  type SettingsDto_Serialize,
   type DraftsDto,
   type UpdateEventDto,
   type UpdateStatusDto_Serialize,
@@ -119,7 +119,6 @@ export type {
   ServerDto,
   SearchScopeDto,
   SegmentDto,
-  SettingsDto,
   DraftSummaryDto,
   DraftsDto,
   RemoteDraftDto,
@@ -130,6 +129,9 @@ export type {
 export type AddAccountInput = AddAccountInput_Deserialize;
 export type AddOAuthAccountInput = AddOAuthAccountInput_Deserialize;
 export type AccountDto = AccountDto_Serialize;
+/** Paramètres : délai du marquage comme lu toujours présent (`null` :
+ * jamais), ce qui convient aussi à l'enregistrement. */
+export type SettingsDto = SettingsDto_Serialize;
 export type AddAccountResult = AddAccountResultDto_Serialize;
 export type Discovery = DiscoveryDto_Serialize;
 export type ConversationPage = ConversationPageDto_Serialize;

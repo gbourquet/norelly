@@ -3,7 +3,9 @@
 
 use norelly_domain::address::EmailAddress;
 use norelly_domain::ports::{ReadingPreferences, SettingsStore, StoreError};
-use norelly_domain::settings::{Language, Settings, UpdateCheck};
+use norelly_domain::settings::{
+    Language, Settings, UpdateCheck, mark_seen_delay_code, parse_mark_seen_delay,
+};
 use rusqlite::{OptionalExtension, params};
 
 use crate::{Database, store_error};
@@ -115,7 +117,8 @@ const fn flag(value: bool) -> &'static str {
 }
 
 /// Paramètres relus : chaque valeur absente, illisible ou hors bornes
-/// reprend sa valeur par défaut (base modifiée à la main).
+/// reprend sa valeur par défaut (base modifiée à la main), sauf les options
+/// de vie privée illisibles, qui s'appliquent.
 fn settings_of(rows: &[(String, String)]) -> Settings {
     let defaults = Settings::default();
     let value = |key: &str| rows.iter().find(|(k, _)| k == key).map(|(_, v)| v.as_str());
@@ -141,9 +144,12 @@ fn settings_of(rows: &[(String, String)]) -> Settings {
         attachment_threshold: value(THRESHOLD_KEY)
             .and_then(|v| v.parse().ok())
             .unwrap_or(defaults.attachment_threshold),
-        mark_seen_delay_secs: value(MARK_SEEN_DELAY_KEY)
-            .and_then(|v| v.parse().ok())
-            .unwrap_or(defaults.mark_seen_delay_secs),
+        // Présent mais illisible : aucun marquage automatique (échec fermé
+        // sur une option de vie privée) ; hors bornes : valeur par défaut.
+        mark_seen_delay_secs: match value(MARK_SEEN_DELAY_KEY) {
+            None => defaults.mark_seen_delay_secs,
+            Some(v) => parse_mark_seen_delay(v).unwrap_or(None),
+        },
     }
     .sanitized()
 }
@@ -192,7 +198,7 @@ impl SettingsStore for SqliteSettingsStore {
             (THRESHOLD_KEY, settings.attachment_threshold.to_string()),
             (
                 MARK_SEEN_DELAY_KEY,
-                settings.mark_seen_delay_secs.to_string(),
+                mark_seen_delay_code(settings.mark_seen_delay_secs),
             ),
         ];
         self.db
@@ -244,7 +250,7 @@ mod tests {
         let chosen = Settings {
             notifications: false,
             attachment_threshold: 8 * 1024 * 1024,
-            mark_seen_delay_secs: 12,
+            mark_seen_delay_secs: Some(12),
             ..Settings::default()
         };
         store.save_settings(&chosen).await?;
@@ -272,6 +278,65 @@ mod tests {
             },
             "seul le délai hors bornes reprend sa valeur par défaut"
         );
+        Ok(())
+    }
+
+    /// Délai enregistré en secondes avant l'option « jamais » : relu tel
+    /// quel ; « jamais » est stocké sous un code lisible ; un code illisible
+    /// vaut « jamais ».
+    #[tokio::test]
+    async fn stored_mark_seen_delays_stay_readable() -> Result<(), StoreError> {
+        let db = Database::open_in_memory().map_err(|e| StoreError(e.to_string()))?;
+        let store = SqliteSettingsStore::new(db.clone());
+        store.save_settings(&Settings::default()).await?;
+        for (update, read) in [
+            (
+                "UPDATE settings SET value = '0' WHERE key = 'app.mark_seen_delay'",
+                Some(0),
+            ),
+            (
+                "UPDATE settings SET value = '12' WHERE key = 'app.mark_seen_delay'",
+                Some(12),
+            ),
+            (
+                "UPDATE settings SET value = 'never' WHERE key = 'app.mark_seen_delay'",
+                None,
+            ),
+            // Présente mais illisible : aucun marquage automatique (échec
+            // fermé sur une option de vie privée).
+            (
+                "UPDATE settings SET value = 'jamais' WHERE key = 'app.mark_seen_delay'",
+                None,
+            ),
+            (
+                "UPDATE settings SET value = '' WHERE key = 'app.mark_seen_delay'",
+                None,
+            ),
+        ] {
+            db.write_for_tests(update).await?;
+            assert_eq!(
+                store.settings().await?.mark_seen_delay_secs,
+                read,
+                "{update}"
+            );
+        }
+        store
+            .save_settings(&Settings {
+                mark_seen_delay_secs: None,
+                ..Settings::default()
+            })
+            .await?;
+        let stored = db
+            .read(|c| {
+                c.query_row(
+                    "SELECT value FROM settings WHERE key = 'app.mark_seen_delay'",
+                    [],
+                    |r| r.get::<_, String>(0),
+                )
+                .map_err(store_error)
+            })
+            .await?;
+        assert_eq!(stored, "never");
         Ok(())
     }
 

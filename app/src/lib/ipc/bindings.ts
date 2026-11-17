@@ -120,6 +120,7 @@ export const commands = {
 	 *  (`newest_copy` des messages lus). Le domaine (`opened_seen_targets`) y
 	 *  ajoute leurs exemplaires d'autres dossiers et écarte les messages
 	 *  arrivés depuis (au-delà du repère) ou étrangers à la conversation.
+	 *  Rien n'est marqué si les paramètres disent « jamais ».
 	 */
 	markOpenedSeen: (conversation: number, shown: number[], knownUntil: number) => typedError<ActionResultDto, IpcError_Serialize>(__TAURI_INVOKE("mark_opened_seen", { conversation, shown, knownUntil })),
 	/**
@@ -160,9 +161,9 @@ export const commands = {
 	/**  Une page de messages trouvés, hors ligne (index local). */
 	searchMessages: (query: string, scope: SearchScopeDto, utcOffsetMinutes: number, offset: number, limit: number) => typedError<SearchPageDto_Serialize, IpcError_Serialize>(__TAURI_INVOKE("search_messages", { query, scope, utcOffsetMinutes, offset, limit })),
 	/**  Paramètres de l'application. */
-	getSettings: () => typedError<SettingsDto, IpcError_Serialize>(__TAURI_INVOKE("get_settings")),
+	getSettings: () => typedError<SettingsDto_Serialize, IpcError_Serialize>(__TAURI_INVOKE("get_settings")),
 	/**  Enregistre les paramètres (revalidés par le domaine). */
-	saveSettings: (settings: SettingsDto) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("save_settings", { settings })),
+	saveSettings: (settings: SettingsDto_Deserialize) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("save_settings", { settings })),
 	/**
 	 *  Affiche une notification du système. Le texte, composé par
 	 *  l'interface dans la langue de l'utilisateur, est revalidé ; l'appel au
@@ -1659,7 +1660,10 @@ export type ServerDto = {
 };
 
 /**  Paramètres de l'application. */
-export type SettingsDto = {
+export type SettingsDto = SettingsDto_Serialize | SettingsDto_Deserialize;
+
+/**  Paramètres de l'application. */
+export type SettingsDto_Deserialize = {
 	language: LanguageDto,
 	update_check: UpdateCheckDto,
 	notifications: boolean,
@@ -1668,9 +1672,28 @@ export type SettingsDto = {
 	attachment_threshold: number,
 	/**
 	 *  Secondes avant qu'une conversation non lue restée ouverte soit
-	 *  marquée comme lue (0 : à l'ouverture).
+	 *  marquée comme lue (0 : à l'ouverture ; `null` : jamais). Obligatoire
+	 *  à l'enregistrement : un champ absent est refusé, il ne vaut pas
+	 *  « jamais ».
 	 */
-	mark_seen_delay_secs: number,
+	mark_seen_delay_secs: number | null,
+};
+
+/**  Paramètres de l'application. */
+export type SettingsDto_Serialize = {
+	language: LanguageDto,
+	update_check: UpdateCheckDto,
+	notifications: boolean,
+	notification_privacy: boolean,
+	/**  Octets. */
+	attachment_threshold: number,
+	/**
+	 *  Secondes avant qu'une conversation non lue restée ouverte soit
+	 *  marquée comme lue (0 : à l'ouverture ; `null` : jamais). Obligatoire
+	 *  à l'enregistrement : un champ absent est refusé, il ne vaut pas
+	 *  « jamais ».
+	 */
+	mark_seen_delay_secs: number | null,
 };
 
 /**  Événement de synchronisation relayé à l'interface. */

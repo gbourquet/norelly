@@ -522,10 +522,17 @@ pub async fn settings_store_contract<S: SettingsStore>(store: &S) -> Result<(), 
         notifications: false,
         notification_privacy: true,
         attachment_threshold: 8 * 1024 * 1024,
-        mark_seen_delay_secs: 12,
+        mark_seen_delay_secs: Some(12),
     };
     store.save_settings(&chosen).await?;
     assert_eq!(store.settings().await?, chosen);
+    let never = Settings {
+        mark_seen_delay_secs: None,
+        ..chosen
+    };
+    store.save_settings(&never).await?;
+    assert_eq!(store.settings().await?, never, "« jamais » relu tel quel");
+    store.save_settings(&chosen).await?;
     let invalid = Settings {
         attachment_threshold: MAX_ATTACHMENT_THRESHOLD + 1,
         ..chosen
@@ -536,7 +543,7 @@ pub async fn settings_store_contract<S: SettingsStore>(store: &S) -> Result<(), 
     );
     assert_eq!(store.settings().await?, chosen, "rien enregistré");
     let invalid = Settings {
-        mark_seen_delay_secs: MAX_MARK_SEEN_DELAY_SECS + 1,
+        mark_seen_delay_secs: Some(MAX_MARK_SEEN_DELAY_SECS + 1),
         ..chosen
     };
     assert!(

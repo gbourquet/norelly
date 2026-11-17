@@ -19,6 +19,7 @@ visible en bas du panneau de navigation (ou `Ctrl+,`) :
 | Notifier les nouveaux messages | oui (défaut) / non | immédiat |
 | Masquer l'expéditeur et le sujet dans les notifications | non (défaut) / oui | immédiat |
 | Afficher les messages en texte brut | non (défaut) / oui | immédiat |
+| Marquer comme lu un message ouvert | immédiatement, après quelques secondes (défaut 5 s), jamais | immédiat |
 | Télécharger d'avance les pièces jointes jusqu'à | en Mio (défaut 2) | au prochain démarrage |
 
 **Mises à jour (installateur Windows)** : au premier lancement, la question
@@ -40,13 +41,19 @@ et nombres suivent la langue choisie.
   identifiant de l'utilisateur ni de l'ordinateur.
 - **Mise à jour installée seulement si elle est authentique** : sa
   signature est vérifiée avant l'installation.
+- **Marquage comme lu** : « Jamais » supprime tout marquage automatique,
+  y compris pour un message déjà ouvert au moment du choix ; marquer comme
+  lu ou non lu à la main reste possible. Une valeur
+  enregistrée hors des bornes est remplacée par la valeur par défaut.
 - **Seuil de téléchargement des pièces jointes** : entre 64 Kio et
   64 Mio ; une valeur hors de ces bornes est remplacée par la valeur par
   défaut.
 
 ## Cas limites
 
-- Paramètres illisibles : valeurs par défaut, sans erreur.
+- Paramètres illisibles : valeurs par défaut, sans erreur ; une option de
+  vie privée illisible (masquer l'expéditeur et le sujet, ne jamais marquer
+  comme lu) s'applique.
 - Échec d'installation d'une mise à jour : message d'erreur.
 
 ## Messages affichés

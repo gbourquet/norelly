@@ -533,14 +533,14 @@ async fn settings_round_trip_and_are_revalidated() {
         "question pas encore posée"
     );
     assert!(first.notifications && !first.notification_privacy);
-    assert_eq!(first.mark_seen_delay_secs, 5);
+    assert_eq!(first.mark_seen_delay_secs, Some(5));
     let chosen = SettingsDto {
         language: LanguageDto::En,
         update_check: UpdateCheckDto::Enabled,
         notifications: true,
         notification_privacy: true,
         attachment_threshold: 4 * 1024 * 1024,
-        mark_seen_delay_secs: 20,
+        mark_seen_delay_secs: Some(20),
     };
     save_settings(t.state(), chosen)
         .await
@@ -559,8 +559,23 @@ async fn settings_round_trip_and_are_revalidated() {
         code(save_settings(t.state(), invalid).await),
         (ErrorCodeDto::InvalidInput, Some(FieldDto::Settings))
     );
+    let never = SettingsDto {
+        mark_seen_delay_secs: None,
+        ..chosen
+    };
+    save_settings(t.state(), never)
+        .await
+        .unwrap_or_else(|e| panic!("{e:?}"));
+    assert_eq!(
+        get_settings(t.state())
+            .await
+            .unwrap_or_else(|e| panic!("{e:?}"))
+            .mark_seen_delay_secs,
+        None,
+        "jamais de marquage automatique"
+    );
     let invalid = SettingsDto {
-        mark_seen_delay_secs: 61,
+        mark_seen_delay_secs: Some(61),
         ..chosen
     };
     assert_eq!(
@@ -1242,12 +1257,33 @@ async fn opened_conversation_marks_only_the_shown_messages() {
         .unwrap_or_else(|e| panic!("{e:?}"));
     assert_eq!(result.messages, 1);
     assert_eq!(result.ops.len(), 1);
-    let after = list_conversations(t.state(), scope, None, 50)
+    let after = list_conversations(t.state(), scope.clone(), None, 50)
         .await
         .unwrap_or_else(|e| panic!("{e:?}"));
     let unread = |id| after.items.iter().find(|c| c.id == id).map(|c| c.unread);
     assert_eq!(unread(opened), Some(0));
     assert_eq!(unread(other), Some(1), "autre conversation intacte");
+
+    // « Jamais » : Rust refuse le marquage automatique, rien ne change.
+    let mut settings = crate::settings::get_settings(t.state())
+        .await
+        .unwrap_or_else(|e| panic!("{e:?}"));
+    settings.mark_seen_delay_secs = None;
+    crate::settings::save_settings(t.state(), settings)
+        .await
+        .unwrap_or_else(|e| panic!("{e:?}"));
+    let never = mark_opened_seen(t.state(), other, vec![foreign], known.max(foreign))
+        .await
+        .unwrap_or_else(|e| panic!("{e:?}"));
+    assert_eq!((never.messages, never.ops.len()), (0, 0));
+    let after = list_conversations(t.state(), scope, None, 50)
+        .await
+        .unwrap_or_else(|e| panic!("{e:?}"));
+    assert_eq!(
+        after.items.iter().find(|c| c.id == other).map(|c| c.unread),
+        Some(1),
+        "« jamais » : reste non lue"
+    );
 
     // Entrées refusées.
     assert_eq!(

@@ -81,8 +81,9 @@ function sameScope(a: ScopeDto, b: ScopeDto): boolean {
 }
 
 /** Délai du marquage comme lu à l'ouverture (millisecondes), lu dans les
- * réglages à chaque ouverture ; `null` : réglages pas encore chargés,
- * rien n'est marqué. */
+ * réglages à chaque ouverture et relu à l'échéance ; `null` : réglages pas
+ * encore chargés, ou « jamais » choisi : rien n'est marqué dans les deux
+ * cas. */
 export type MarkSeenDelay = () => number | null;
 
 /** Visibilité de la fenêtre : le délai du marquage comme lu ne court que
@@ -327,6 +328,8 @@ export class MailState {
     const knownUntil = this.messages.reduce((max, x) => Math.max(max, x.newest_copy), 0);
     this.#autoSeen = this.#whileVisible(delay, () => {
       this.#autoSeen = null;
+      // « Jamais » choisi pendant le délai : rien n'est marqué.
+      if (this.#markSeenDelay() === null) return;
       this.#autoSeenInFlight = this.#markOpenedSeen(conversation, shown, knownUntil);
     });
   }

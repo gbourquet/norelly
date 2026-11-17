@@ -27,7 +27,7 @@ import {
   DeleteContactListState,
 } from "./contact-lists.svelte";
 import { SearchState } from "./search.svelte";
-import { SettingsState } from "./settings.svelte";
+import { SettingsState, markSeenDelayMs } from "./settings.svelte";
 import { UpdatesState } from "./updates.svelte";
 import type { ConversationMessage } from "./ipc/api";
 import { failureLabel } from "./outbox";
@@ -460,10 +460,7 @@ export async function runForPerson(id: string, person: CorrespondentDto): Promis
   }
 }
 
-export const mail = new MailState(api, () => {
-  const current = settings.current;
-  return current === null ? null : current.mark_seen_delay_secs * 1000;
-});
+export const mail = new MailState(api, () => markSeenDelayMs(settings.current));
 
 export const search = new SearchState(api);
 

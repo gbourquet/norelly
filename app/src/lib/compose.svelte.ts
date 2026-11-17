@@ -153,13 +153,16 @@ export class ComposeState {
    * une fois. */
   #unseen(read: RecipientDto[]): RecipientDto[] {
     if (this.draft === null) return [];
-    const seen = new Set(
-      [...this.draft.to, ...this.draft.cc, ...this.draft.bcc].map((r) => key(r.address)),
-    );
+    // Ensemble local, jamais rendu : un objet sans prototype suffit (pas
+    // de réactivité à suivre).
+    const seen: Record<string, true> = Object.create(null) as Record<string, true>;
+    for (const r of [...this.draft.to, ...this.draft.cc, ...this.draft.bcc]) {
+      seen[key(r.address)] = true;
+    }
     const added: RecipientDto[] = [];
     for (const r of read) {
-      if (seen.has(key(r.address))) continue;
-      seen.add(key(r.address));
+      if (seen[key(r.address)]) continue;
+      seen[key(r.address)] = true;
       added.push({ name: r.name, address: r.address });
     }
     return added;

@@ -84,7 +84,9 @@ rattraper.
 - **Archiver** = déplacer vers le dossier d'archives du compte, sinon vers
   le dossier choisi par l'utilisateur (« Choisir le dossier
   d'archives… »).
-- **Annulation** possible pendant 5 secondes ; au-delà, « trop tard ».
+- **Annulation** possible pendant 5 secondes ; au-delà, « trop tard ». Ce
+  délai court aussi quand la fenêtre est réduite ou en arrière-plan :
+  l'action part au serveur sans attendre le retour de l'utilisateur.
 - **Conflit avec le serveur** à l'envoi d'une action (message disparu,
   dossier de destination supprimé, dossier réinitialisé) : l'action est
   abandonnée, l'affichage revient à l'état d'avant, puis la

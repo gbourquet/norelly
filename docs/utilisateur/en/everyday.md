@@ -14,11 +14,12 @@ shortcuts.
    messages of all your addresses together, click **Unified inbox**.
 2. In the middle list, click a message. It is shown on the right. Unread
    messages are in bold. A message that stays open for 5 seconds is marked
-   as read; while the Norelly window is minimized or hidden, this time
-   does not count. Change the delay in the **Settings**, under **Mark an
-   open message as read**: immediately, after a few seconds, or **Never**.
-   To make it bold again, click **More…** in the action bar, then **Mark
-   as unread** (or press **Shift** + **U**).
+   as read; while the Norelly window is minimized, hidden, or you are
+   working in another application, this time does not count. Change the
+   delay in the **Settings**, under **Mark an open message as read**:
+   immediately, after a few seconds, or **Never**. To make it bold again,
+   click **More…** in the action bar, then **Mark as unread** (or press
+   **Shift** + **U**).
 3. To go back to the list, click the **Back to list** arrow or press
    **Esc**.
 

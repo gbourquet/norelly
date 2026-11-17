@@ -5,13 +5,22 @@
 // - « Exporter… » de la barre des contacts cochés : le seul contact coché,
 //   en CSV (BOM UTF-8, téléphone « +33 » neutralisé contre les formules) ;
 // - le carnet vidé, l'export vCard réimporté redonne les mêmes contacts
-//   (accents, note sur plusieurs lignes, adresse préférée).
+//   (accents, note sur plusieurs lignes, adresse préférée) ;
+// - le carnet vide, « Exporter… » de l'en-tête est désactivé et son
+//   infobulle dit pourquoi.
 import { mkdtempSync, readFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { $, $$, browser, expect } from "@wdio/globals";
-import { addTestAccount, barAction, pickFile, removeTestAccount, saveFile } from "./helpers.mjs";
+import {
+  addTestAccount,
+  barAction,
+  openMenu,
+  pickFile,
+  removeTestAccount,
+  saveFile,
+} from "./helpers.mjs";
 
 const data = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -132,5 +141,29 @@ describe("export du carnet", () => {
     await expect(card.$("p*=Préfère le téléphone.")).toBeDisplayed();
 
     await deleteAll(["Élodie Cézanne", "Marc Durand"]);
+  });
+
+  it("le carnet vide, « Exporter… » de l'en-tête est désactivé et dit pourquoi", async () => {
+    await $("p*=Aucun contact pour l'instant").waitForDisplayed({ timeout: 10000 });
+    const reason = "Exporter les contacts… — Le carnet est vide : aucun contact à exporter.";
+    const direct = header().$(
+      './/button[normalize-space()="Exporter…"][not(ancestor::*[@aria-hidden="true"])]',
+    );
+    if (await direct.isDisplayed().catch(() => false)) {
+      await expect(direct).toBeDisabled();
+      await expect(direct).toHaveAttribute("title", reason);
+    } else {
+      // Rangé dans « Plus… » faute de place : l'entrée y est désactivée.
+      await openMenu(
+        header().$('.//button[normalize-space()="Plus…"][not(ancestor::*[@aria-hidden="true"])]'),
+      );
+      const item = $(
+        '//*[@role="menuitem"][.//*[contains(@class, "menu-label")][normalize-space()="Exporter…"]]',
+      );
+      await expect(item).toHaveAttribute("aria-disabled", "true");
+      await expect(item).toHaveAttribute("title", reason);
+      await browser.keys("Escape");
+    }
+    await expect(dialog("Exporter des contacts")).not.toBeDisplayed();
   });
 });

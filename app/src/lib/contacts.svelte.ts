@@ -73,6 +73,11 @@ export class ContactsState {
   /** Une case vient d'être refusée : la borne des contacts cochés est
    * atteinte (message affiché jusqu'au prochain décochage). */
   markLimitReached = $state(false);
+  /** Le carnet entier est vide, d'après le dernier chargement qui permet
+   * d'en juger : sans filtre, la liste fait foi ; avec un filtre, seul un
+   * résultat renseigne (le carnet n'est pas vide), une liste vide ne dit
+   * rien. Avant tout chargement : non. */
+  bookEmpty = $state(false);
   /** Numéro du dernier chargement : une réponse plus ancienne est
    * ignorée. */
   #generation = 0;
@@ -93,6 +98,8 @@ export class ContactsState {
       this.items = page.items;
       this.next = page.next;
       this.error = null;
+      if (page.items.length > 0) this.bookEmpty = false;
+      else if (this.text === "" && !this.favoritesOnly) this.bookEmpty = true;
     } catch (e) {
       if (generation === this.#generation) this.error = errorText(e);
     } finally {

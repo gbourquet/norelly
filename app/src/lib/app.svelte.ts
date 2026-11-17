@@ -91,6 +91,9 @@ export interface AppContext {
   results: number;
   /** Le carnet d'adresses est affiché. */
   contactsView: boolean;
+  /** Le carnet d'adresses affiché est vide (rien à exporter). Hors de la
+   * vue Contacts : non, le carnet est relu en l'ouvrant. */
+  contactsEmpty: boolean;
   /** Nombre de contacts visés (menu d'une ligne, cochés, fiche ouverte). */
   contactTargets: number;
   /** Nombre de contacts cochés. */
@@ -187,6 +190,7 @@ class AppState {
         searching: false,
         results: 0,
         contactsView: true,
+        contactsEmpty: contacts.bookEmpty,
         contactTargets: listsView ? 0 : this.contactTargets().length,
         contactsMarked: listsView ? 0 : contacts.marked.length,
         listsView,
@@ -215,6 +219,7 @@ class AppState {
       searching: search.active,
       results: search.hits.length,
       contactsView: false,
+      contactsEmpty: false,
       contactTargets: 0,
       contactsMarked: 0,
       listsView: false,
@@ -943,8 +948,15 @@ export function registerAppCommands(): () => void {
       title: m.cmd_contacts_export(),
       group: m.group_contacts(),
       keywords: words(m.cmd_contacts_export_keywords()),
+      when: (ctx) => !ctx.contactsEmpty,
+      unavailable: (ctx) => (ctx.contactsEmpty ? m.contacts_export_unavailable_empty() : null),
       run: async () => {
         if (app.view !== "contacts") await app.showContacts();
+        // Carnet vide découvert en l'ouvrant : pas de choix de format.
+        if (contacts.bookEmpty) {
+          mail.notice = { text: m.err_contact_export_empty(), undoable: false };
+          return;
+        }
         contactExport.open({ kind: "all" });
         app.open("contact-export");
       },

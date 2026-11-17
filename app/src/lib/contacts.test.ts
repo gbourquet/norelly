@@ -147,7 +147,7 @@ describe("liste des contacts", () => {
     // Filtre qui trouve un contact : le carnet n'est pas vide.
     await s.search("ali");
     expect(s.bookEmpty).toBe(false);
-    // Filtre sans résultat : rien ne dit que le carnet est vide.
+    // Filtre sans résultat : le carnet, lui, n'est pas vide.
     await s.search("bob");
     expect(s.items).toEqual([]);
     expect(s.bookEmpty).toBe(false);
@@ -161,6 +161,29 @@ describe("liste des contacts", () => {
     expect(s.bookEmpty).toBe(true);
   });
 
+  it("un filtre sans résultat relit le carnet entier : ajout et suppression suivis", async () => {
+    const book: ContactDto[] = [];
+    const api = fakeApi(book);
+    const s = new ContactsState(api);
+    await s.search("zoé");
+    expect(s.bookEmpty).toBe(true);
+
+    // Contact créé pendant une recherche qui ne le trouve pas.
+    book.push(contact(1, "Bob"));
+    await s.saved(at(book, 0));
+    expect(s.items).toEqual([]);
+    expect(s.bookEmpty).toBe(false);
+    // Une seule fiche lue pour en juger, sans filtre.
+    expect(api.listContacts).toHaveBeenLastCalledWith("", false, null, 1);
+
+    // Dernier contact supprimé pendant une recherche.
+    await s.search("bob");
+    expect(s.bookEmpty).toBe(false);
+    book.splice(0);
+    await s.removed([1]);
+    expect(s.bookEmpty).toBe(true);
+  });
+
   it("un échec de chargement ne déclare pas le carnet vide", async () => {
     const api = fakeApi([contact(1, "Alice")]);
     const s = new ContactsState(api);
@@ -169,6 +192,18 @@ describe("liste des contacts", () => {
     api.listContacts.mockRejectedValueOnce(new IpcFailure("storage"));
     await s.load();
     expect(s.bookEmpty).toBe(false);
+
+    // Carnet jugé vide, puis relecture en échec : plus rien n'est sûr,
+    // l'export reste proposé (Rust tranche).
+    const empty = new ContactsState(fakeApi());
+    await empty.load();
+    expect(empty.bookEmpty).toBe(true);
+    const failing = fakeApi();
+    failing.listContacts.mockRejectedValue(new IpcFailure("storage"));
+    const t = new ContactsState(failing);
+    t.bookEmpty = true;
+    await t.load();
+    expect(t.bookEmpty).toBe(false);
   });
 
   it("affiche l'erreur de chargement", async () => {

@@ -176,10 +176,10 @@ address book is for writing messages.
 To keep a copy of your address book, or move it to another program:
 
 1. In **Contacts**, click **Export…**, at the top of the list (in
-   **More…** if the window is narrow). To export only some contacts, tick
-   them first, then click **Export…** in the bar that appears. While the
-   address book is empty, the button is greyed out: there is nothing to
-   export.
+   **More…** if the window is narrow); while the address book is empty,
+   it is greyed out: there is nothing to export. To export only some
+   contacts, tick them first, then click **Export…** in the bar that
+   appears.
 2. Choose the format: **vCard 4.0** works almost everywhere (Gmail,
    iPhone, Android, Thunderbird); **vCard 3.0** for older software;
    **CSV** for Outlook or a spreadsheet; **LDIF** for Thunderbird.

@@ -222,6 +222,7 @@ describe("personnes d'un message et carnet", () => {
     app.close();
     app.showMail();
     app.personTarget = null;
+    book.items = [];
     mail.opened = null;
     mail.messages = [];
     mail.conversations = [];
@@ -344,7 +345,6 @@ describe("personnes d'un message et carnet", () => {
     expect(contactExport.selection).toEqual({ kind: "contacts", ids: [5, 3] });
     app.close();
     contacts.clearMarks();
-    book.items = [];
   });
 
   it("exporter est désactivé sur un carnet vide, avec l'explication", async () => {
@@ -361,7 +361,6 @@ describe("personnes d'un message et carnet", () => {
     ];
     await contacts.load();
     expect(enabled("contacts.export")).toBe(true);
-    book.items = [];
   });
 
   it("exporter depuis le courrier un carnet vide : un message, pas de fenêtre", async () => {

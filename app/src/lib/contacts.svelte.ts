@@ -73,10 +73,9 @@ export class ContactsState {
   /** Une case vient d'être refusée : la borne des contacts cochés est
    * atteinte (message affiché jusqu'au prochain décochage). */
   markLimitReached = $state(false);
-  /** Le carnet entier est vide, d'après le dernier chargement qui permet
-   * d'en juger : sans filtre, la liste fait foi ; avec un filtre, seul un
-   * résultat renseigne (le carnet n'est pas vide), une liste vide ne dit
-   * rien. Avant tout chargement : non. */
+  /** Le carnet entier (pas seulement la liste filtrée) est vide, d'après
+   * le dernier chargement. Avant tout chargement, ou après un échec :
+   * non. */
   bookEmpty = $state(false);
   /** Numéro du dernier chargement : une réponse plus ancienne est
    * ignorée. */
@@ -98,13 +97,26 @@ export class ContactsState {
       this.items = page.items;
       this.next = page.next;
       this.error = null;
-      if (page.items.length > 0) this.bookEmpty = false;
-      else if (this.text === "" && !this.favoritesOnly) this.bookEmpty = true;
+      const empty = await this.#bookEmpty(page.items.length > 0);
+      if (generation === this.#generation) this.bookEmpty = empty;
     } catch (e) {
-      if (generation === this.#generation) this.error = errorText(e);
+      if (generation !== this.#generation) return;
+      this.error = errorText(e);
+      // Plus rien n'est sûr : l'export reste proposé, Rust tranche.
+      this.bookEmpty = false;
     } finally {
       if (generation === this.#generation) this.loading = false;
     }
+  }
+
+  /** Le carnet entier est-il vide ? Une liste non vide suffit à dire non,
+   * une liste vide sans filtre à dire oui ; un filtre sans résultat ne dit
+   * rien : une seule fiche est alors lue, sans filtre. */
+  async #bookEmpty(found: boolean): Promise<boolean> {
+    if (found) return false;
+    if (this.text === "" && !this.favoritesOnly) return true;
+    const any = await this.#api.listContacts("", false, null, 1);
+    return any.items.length === 0;
   }
 
   /** Page suivante, ajoutée à la liste. */

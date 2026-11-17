@@ -145,7 +145,7 @@ describe("export du carnet", () => {
 
   it("le carnet vide, « Exporter… » de l'en-tête est désactivé et dit pourquoi", async () => {
     await $("p*=Aucun contact pour l'instant").waitForDisplayed({ timeout: 10000 });
-    const reason = "Exporter les contacts… — Le carnet est vide : aucun contact à exporter.";
+    const reason = "Exporter… — Le carnet est vide : aucun contact à exporter.";
     const direct = header().$(
       './/button[normalize-space()="Exporter…"][not(ancestor::*[@aria-hidden="true"])]',
     );

@@ -1274,6 +1274,8 @@ export type ErrorCodeDto =
 "label_too_many" | 
 /**  Nom réservé à un usage technique (indésirable, transféré…). */
 "label_name_reserved" | 
+/**  Trop de renommages d'étiquettes attendent encore le serveur. */
+"label_rewrites_pending" | 
 /**  Erreur interne (journalisée). */
 "internal";
 

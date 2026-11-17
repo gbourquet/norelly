@@ -7,8 +7,8 @@ use std::collections::BTreeSet;
 
 use norelly_domain::account::AccountId;
 use norelly_domain::labels::{
-    KeywordPermission, LabelColor, LabelRewrite, MAX_LABELS, PendingFollow, StoredLabel,
-    rewrite_flags,
+    KeywordPermission, LabelColor, LabelRewrite, MAX_LABELS, MAX_PENDING_REWRITES,
+    MAX_STORED_LABELS, PendingFollow, StoredLabel, rewrite_flags,
 };
 use norelly_domain::mailbox::{Keyword, MailboxId, MailboxName};
 use norelly_domain::ports::{LabelRewriteId, LabelStore, StoreError};
@@ -17,6 +17,11 @@ use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use crate::actions::readable_ops;
 use crate::mail::{SqliteMailStore, flags_from, keywords_text, mailbox_id};
 use crate::store_error;
+
+/// Lignes lues au plus : étiquettes enregistrées (masquées comprises) et
+/// réécritures en attente (bornes du domaine, appliquées aussi en écriture).
+const STORED_LIMIT: i64 = MAX_STORED_LABELS as i64;
+const REWRITES_LIMIT: i64 = MAX_PENDING_REWRITES as i64;
 
 /// Mots-clés distincts lus au plus pour la liste d'un compte.
 const MAX_SEEN_KEYWORDS: usize = 2 * MAX_LABELS;
@@ -136,11 +141,13 @@ impl LabelStore for SqliteMailStore {
                 let rows: Vec<(String, Option<String>, bool)> = c
                     .prepare_cached(
                         "SELECT keyword, color, hidden FROM labels WHERE account_id = ?1 \
-                         ORDER BY keyword",
+                         ORDER BY keyword LIMIT ?2",
                     )
                     .and_then(|mut st| {
-                        st.query_map([account.get()], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
-                            .collect()
+                        st.query_map(params![account.get(), STORED_LIMIT], |r| {
+                            Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+                        })?
+                        .collect()
                     })
                     .map_err(store_error)?;
                 Ok(rows
@@ -243,11 +250,13 @@ impl LabelStore for SqliteMailStore {
                 let rows: Vec<(i64, String, Option<String>)> = c
                     .prepare_cached(
                         "SELECT id, from_keyword, to_keyword FROM label_rewrites \
-                         WHERE account_id = ?1 ORDER BY id",
+                         WHERE account_id = ?1 ORDER BY id LIMIT ?2",
                     )
                     .and_then(|mut st| {
-                        st.query_map([account.get()], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
-                            .collect()
+                        st.query_map(params![account.get(), REWRITES_LIMIT], |r| {
+                            Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+                        })?
+                        .collect()
                     })
                     .map_err(store_error)?;
                 Ok(rows
@@ -329,6 +338,35 @@ impl LabelStore for SqliteMailStore {
                         Ok((mailbox_id(*id)?, KeywordPermission::from_storage(Some(raw))))
                     })
                     .collect()
+            })
+            .await
+    }
+
+    async fn abandon_rewrite(
+        &self,
+        account: AccountId,
+        id: LabelRewriteId,
+    ) -> Result<(), StoreError> {
+        self.db()
+            .run(move |c| {
+                let tx = c
+                    .transaction_with_behavior(TransactionBehavior::Immediate)
+                    .map_err(store_error)?;
+                let removed = tx
+                    .execute(
+                        "DELETE FROM label_rewrites WHERE id = ?1 AND account_id = ?2",
+                        params![id.get(), account.get()],
+                    )
+                    .map_err(store_error)?;
+                if removed > 0 {
+                    tx.execute(
+                        "UPDATE mailboxes SET highest_modseq = NULL WHERE account_id = ?1",
+                        [account.get()],
+                    )
+                    .map_err(store_error)?;
+                }
+                tx.commit().map_err(store_error)?;
+                Ok(())
             })
             .await
     }

@@ -206,6 +206,8 @@ pub enum ErrorCodeDto {
     LabelTooMany,
     /// Nom réservé à un usage technique (indésirable, transféré…).
     LabelNameReserved,
+    /// Trop de renommages d'étiquettes attendent encore le serveur.
+    LabelRewritesPending,
     /// Erreur interne (journalisée).
     Internal,
 }
@@ -372,6 +374,7 @@ impl From<norelly_domain::labels::LabelError> for IpcError {
             LabelError::Unknown => Self::not_found(FieldDto::Label),
             LabelError::TooMany => Self::new(ErrorCodeDto::LabelTooMany),
             LabelError::Reserved => name(ErrorCodeDto::LabelNameReserved),
+            LabelError::RewritesPending => Self::new(ErrorCodeDto::LabelRewritesPending),
         }
     }
 }

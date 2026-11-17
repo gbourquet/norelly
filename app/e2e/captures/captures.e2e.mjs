@@ -479,10 +479,11 @@ describe(`captures d'écran (${lang})`, () => {
       `input[type="color"][aria-label="${msg("settings_label_color", { label: content.labels[0] })}"]`,
     );
     await color.waitForDisplayed({ timeout: 10000 });
+    const picker = await color;
     await browser.execute((el) => {
       el.value = "#2e7d32";
       el.dispatchEvent(new Event("change", { bubbles: true }));
-    }, color);
+    }, picker);
     await expect(settings.$(`button=${msg("settings_label_no_color")}`)).toBeDisplayed({
       wait: 10000,
     });

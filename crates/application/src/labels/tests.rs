@@ -1,9 +1,12 @@
 use norelly_domain::conversation::ConversationScope;
 use norelly_domain::fetch_policy::FetchPolicy;
-use norelly_domain::labels::{LabelDisplay, MAX_REWRITE_ATTEMPTS, REWRITE_BATCH};
+use norelly_domain::labels::{
+    LabelDisplay, MAX_PENDING_REWRITES, MAX_REWRITE_ATTEMPTS, MAX_STORED_LABELS, REWRITE_BATCH,
+    StoredLabel,
+};
 use norelly_domain::mailbox::{Flags, MailboxId, Uid};
 use norelly_domain::ports::{
-    ConversationQuery, MessageId, MessageListQuery, RemoteMailboxSession, StoredMailbox,
+    ConversationQuery, MailStore, MessageId, MessageListQuery, RemoteMailboxSession, StoredMailbox,
 };
 use norelly_domain::sync::SyncExtensions;
 use norelly_test_support::fake_imap::{FakeImap, FakeImapSession};
@@ -479,4 +482,91 @@ async fn the_label_menu_of_a_selection() {
     assert_eq!(menu.labels.len(), 2);
     let _ = MessageId::new(1);
     let _ = Uid::new(1);
+}
+
+#[tokio::test]
+async fn an_abandoned_rewrite_has_every_folder_reread_even_if_the_session_drops() {
+    let mut w = world(1).await;
+    RenameLabel { store: &w.store }
+        .execute(account(), &kw("Vieux"), &name("Neuf"))
+        .await
+        .unwrap_or_else(|e| panic!("{e}"));
+    let ids = w
+        .store
+        .label_rewrites(account())
+        .await
+        .unwrap_or_else(|e| panic!("{e}"));
+    for _ in 0..MAX_REWRITE_ATTEMPTS {
+        w.store
+            .claim_rewrite(account(), ids[0].0)
+            .await
+            .unwrap_or_else(|e| panic!("{e}"));
+    }
+    // Session coupée juste après l'abandon (avant la liste des dossiers).
+    w.imap.cut_after(Some(0));
+    assert!(w.rewrite().await.is_err());
+    assert_eq!(w.pending().await, 0);
+    for mailbox in ["INBOX", "Archives"] {
+        let local = w
+            .store
+            .local_mailbox(w.box_id(mailbox))
+            .await
+            .unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(local.state.highest_modseq, None, "{mailbox} à relire");
+    }
+}
+
+#[tokio::test]
+async fn pending_rewrites_are_bounded() {
+    let w = world(1).await;
+    let mut from = kw("Vieux");
+    for i in 0..MAX_PENDING_REWRITES {
+        from = RenameLabel { store: &w.store }
+            .execute(account(), &from, &name(&format!("Nom{i}")))
+            .await
+            .unwrap_or_else(|e| panic!("{e}"));
+    }
+    assert_eq!(
+        RenameLabel { store: &w.store }
+            .execute(account(), &from, &name("Encore"))
+            .await,
+        Err(LabelFailure::Invalid(LabelError::RewritesPending))
+    );
+    assert_eq!(
+        DeleteLabel { store: &w.store }
+            .execute(account(), &from, true)
+            .await,
+        Err(LabelFailure::Invalid(LabelError::RewritesPending))
+    );
+}
+
+#[tokio::test]
+async fn stored_labels_are_bounded_hidden_ones_included() {
+    let w = world(1).await;
+    for i in 0..MAX_STORED_LABELS {
+        w.store
+            .save_label(
+                account(),
+                &StoredLabel {
+                    keyword: kw(&format!("Cache{i}")),
+                    color: None,
+                    hidden: true,
+                },
+            )
+            .await
+            .unwrap_or_else(|e| panic!("{e}"));
+    }
+    assert_eq!(
+        CreateLabel { store: &w.store }
+            .execute(account(), &name("Client"), None)
+            .await,
+        Err(LabelFailure::Invalid(LabelError::TooMany))
+    );
+    // Une étiquette déjà enregistrée (masquée) peut revenir.
+    assert_eq!(
+        CreateLabel { store: &w.store }
+            .execute(account(), &name("Cache3"), None)
+            .await,
+        Ok(kw("Cache3"))
+    );
 }

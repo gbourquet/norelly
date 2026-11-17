@@ -262,6 +262,8 @@ function codeText(code: ErrorCodeDto, field: FieldDto | null): string {
       return m.err_label_too_many();
     case "label_name_reserved":
       return m.err_label_name_reserved();
+    case "label_rewrites_pending":
+      return m.err_label_rewrites_pending();
     case "contact_list_not_found":
       return m.err_contact_list_not_found();
     case "internal":

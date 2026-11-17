@@ -44,6 +44,16 @@ pub const MAX_LABEL_NAME_CHARS: usize = 40;
 /// Nombre maximal d'étiquettes listées pour un compte.
 pub const MAX_LABELS: usize = 500;
 
+/// Nombre maximal d'étiquettes enregistrées par compte, masquées comprises.
+pub const MAX_STORED_LABELS: usize = 2 * MAX_LABELS;
+
+/// Nombre maximal de réécritures (renommages, retraits) en attente par
+/// compte.
+pub const MAX_PENDING_REWRITES: usize = 16;
+
+/// Nombre maximal de mots-clés cherchés pour une clause `étiquette:`.
+pub const MAX_SEARCH_KEYWORDS: usize = 32;
+
 /// Nombre maximal d'UID par `UID STORE` d'une réécriture.
 pub const REWRITE_BATCH: usize = 500;
 
@@ -85,6 +95,8 @@ pub enum LabelError {
     TooMany,
     #[error("nom réservé à un usage technique")]
     Reserved,
+    #[error("trop de renommages attendent le serveur")]
+    RewritesPending,
 }
 
 // ---------------------------------------------------------------------------
@@ -531,6 +543,9 @@ pub struct Label {
     pub keyword: Keyword,
     pub display: LabelDisplay,
     pub color: Option<LabelColor>,
+    /// Enregistrée sur le compte (créée dans Norelly), pas seulement vue
+    /// sur des messages.
+    pub saved: bool,
 }
 
 /// Réécriture d'un mot-clé sur tous les messages du serveur : renommage
@@ -574,26 +589,34 @@ pub fn account_labels(
     rewrites: &[LabelRewrite],
 ) -> Vec<Label> {
     let hidden = hidden_keywords(stored, rewrites);
-    let mut keywords: BTreeSet<&Keyword> = stored
+    let shown = |k: &Keyword| !is_protocol_keyword(k) && !hidden.contains(k);
+    // Étiquettes enregistrées d'abord : des mots-clés vus sur le serveur
+    // (même très nombreux) ne les font jamais sortir de la liste.
+    let mut labels: Vec<Label> = stored
         .iter()
-        .filter(|s| !s.hidden)
-        .map(|s| &s.keyword)
-        .collect();
-    keywords.extend(seen.iter());
-    let mut labels: Vec<Label> = keywords
-        .into_iter()
-        .filter(|k| !is_protocol_keyword(k) && !hidden.contains(*k))
-        .map(|k| Label {
-            keyword: k.clone(),
-            display: display(k),
-            color: stored
-                .iter()
-                .find(|s| &s.keyword == k)
-                .and_then(|s| s.color),
+        .filter(|s| !s.hidden && shown(&s.keyword))
+        .take(MAX_LABELS)
+        .map(|s| Label {
+            keyword: s.keyword.clone(),
+            display: display(&s.keyword),
+            color: s.color,
+            saved: true,
         })
         .collect();
+    let room = MAX_LABELS.saturating_sub(labels.len());
+    let saved: BTreeSet<Keyword> = labels.iter().map(|l| l.keyword.clone()).collect();
+    labels.extend(
+        seen.iter()
+            .filter(|k| shown(k) && !saved.contains(*k))
+            .take(room)
+            .map(|k| Label {
+                keyword: k.clone(),
+                display: display(k),
+                color: None,
+                saved: false,
+            }),
+    );
     labels.sort_by_key(sort_key);
-    labels.truncate(MAX_LABELS);
     labels
 }
 
@@ -641,7 +664,7 @@ pub fn plan_create(name: &LabelName, existing: &[Label]) -> Result<Keyword, Labe
     if collides(&keyword, name, existing, None) {
         return Err(LabelError::AlreadyExists);
     }
-    if existing.len() >= MAX_LABELS {
+    if existing.iter().filter(|l| l.saved).count() >= MAX_LABELS {
         return Err(LabelError::TooMany);
     }
     Ok(keyword)
@@ -738,6 +761,29 @@ impl LabelRewrite {
             }),
         }
     }
+}
+
+/// Une étiquette de plus peut être enregistrée (`stored_rows` : lignes
+/// enregistrées du compte, masquées comprises).
+///
+/// # Errors
+/// [`LabelError::TooMany`] à [`MAX_STORED_LABELS`].
+pub fn check_stored(stored_rows: usize) -> Result<(), LabelError> {
+    if stored_rows >= MAX_STORED_LABELS {
+        return Err(LabelError::TooMany);
+    }
+    Ok(())
+}
+
+/// Une réécriture de plus peut être mise en attente.
+///
+/// # Errors
+/// [`LabelError::RewritesPending`] à [`MAX_PENDING_REWRITES`].
+pub fn check_rewrites(pending: usize) -> Result<(), LabelError> {
+    if pending >= MAX_PENDING_REWRITES {
+        return Err(LabelError::RewritesPending);
+    }
+    Ok(())
 }
 
 /// Lots d'UID d'une réécriture (au plus [`REWRITE_BATCH`] chacun).
@@ -856,6 +902,7 @@ pub fn label_keywords(name: &str, known: &[Keyword]) -> Vec<Keyword> {
             out.push(k);
         }
     }
+    out.truncate(MAX_SEARCH_KEYWORDS);
     out
 }
 

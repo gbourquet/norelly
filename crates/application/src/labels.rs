@@ -15,8 +15,8 @@ use norelly_domain::connection::ConnectionError;
 use norelly_domain::conversation::ConversationScope;
 use norelly_domain::labels::{
     KeywordPermission, Label, LabelColor, LabelError, LabelMenu, LabelName, LabelRewrite,
-    MAX_REWRITE_ATTEMPTS, StoredLabel, account_labels, hidden_keywords, label_menu, label_named,
-    plan_create, plan_rename, rewrite_batches,
+    MAX_REWRITE_ATTEMPTS, StoredLabel, account_labels, check_rewrites, check_stored,
+    hidden_keywords, label_menu, label_named, plan_create, plan_rename, rewrite_batches,
 };
 use norelly_domain::mailbox::{Keyword, MailboxId, MailboxName, classify_mailboxes};
 use norelly_domain::ports::{
@@ -68,6 +68,25 @@ impl<S: LabelStore> ListLabels<'_, S> {
     }
 }
 
+/// Borne des étiquettes enregistrées (domaine : [`check_stored`]).
+async fn stored_room<S: LabelStore>(
+    store: &S,
+    account: AccountId,
+    keyword: &Keyword,
+) -> Result<(), LabelFailure> {
+    let stored = store.stored_labels(account).await?;
+    if !stored.iter().any(|s| &s.keyword == keyword) {
+        check_stored(stored.len())?;
+    }
+    Ok(())
+}
+
+/// Borne des réécritures en attente (domaine : [`check_rewrites`]).
+async fn rewrite_room<S: LabelStore>(store: &S, account: AccountId) -> Result<(), LabelFailure> {
+    check_rewrites(store.label_rewrites(account).await?.len())?;
+    Ok(())
+}
+
 /// L'étiquette `keyword` est listée sur le compte.
 async fn listed<S: LabelStore>(
     store: &S,
@@ -98,6 +117,7 @@ impl<S: LabelStore> CreateLabel<'_, S> {
     ) -> Result<Keyword, LabelFailure> {
         let labels = ListLabels { store: self.store }.execute(account).await?;
         let keyword = plan_create(name, &labels)?;
+        self.check_room(account, &keyword).await?;
         self.store
             .save_label(
                 account,
@@ -113,6 +133,12 @@ impl<S: LabelStore> CreateLabel<'_, S> {
 }
 
 impl<S: LabelStore> CreateLabel<'_, S> {
+    /// Une ligne de plus peut être enregistrée pour `keyword` (sauf si elle
+    /// l'est déjà, masquée par exemple).
+    async fn check_room(&self, account: AccountId, keyword: &Keyword) -> Result<(), LabelFailure> {
+        stored_room(self.store, account, keyword).await
+    }
+
     /// Étiquette `name` du compte : celle qui porte déjà ce nom, sinon une
     /// nouvelle (menu « Étiqueter… »).
     pub async fn existing_or_new(
@@ -175,6 +201,7 @@ impl<S: LabelStore> RenameLabel<'_, S> {
     ) -> Result<Keyword, LabelFailure> {
         let labels = ListLabels { store: self.store }.execute(account).await?;
         let rewrite = plan_rename(keyword, name, &labels)?;
+        rewrite_room(self.store, account).await?;
         self.store.record_rewrite(account, &rewrite).await?;
         rewrite.to.ok_or_else(|| LabelError::Unknown.into())
     }
@@ -199,12 +226,14 @@ impl<S: LabelStore> DeleteLabel<'_, S> {
             return Err(LabelError::Unknown.into());
         }
         if remove_from_messages {
+            rewrite_room(self.store, account).await?;
             let rewrite = LabelRewrite {
                 from: keyword.clone(),
                 to: None,
             };
             self.store.record_rewrite(account, &rewrite).await?;
         } else {
+            stored_room(self.store, account, keyword).await?;
             self.store
                 .save_label(
                     account,
@@ -265,7 +294,10 @@ impl<S: LabelStore> ReplayRewrites<'_, S> {
             };
             if attempts > MAX_REWRITE_ATTEMPTS {
                 tracing::warn!(account = %self.account, attempts, "réécriture d'étiquette abandonnée après trop d'essais");
-                self.store.complete_rewrite(self.account, id).await?;
+                // Retirée et tous les dossiers marqués à relire, d'un coup :
+                // une coupure juste après ne laisse pas la copie locale
+                // fausse.
+                self.store.abandon_rewrite(self.account, id).await?;
                 report.abandoned += 1;
             } else {
                 active.push((id, rewrite));
@@ -276,12 +308,9 @@ impl<S: LabelStore> ReplayRewrites<'_, S> {
             .filter(|m| m.selectable)
             .map(|m| m.name)
             .collect();
-        // Abandon : la copie locale, réécrite d'avance, est relue du
-        // serveur dans tous les dossiers.
+        // Abandon : tous les dossiers sont à relire (déjà marqués).
         if report.abandoned > 0 {
-            for mailbox in &mailboxes {
-                self.resync(mailbox, &mut report).await?;
-            }
+            report.touched.extend(mailboxes.iter().cloned());
         }
         if active.is_empty() {
             return Ok(report);

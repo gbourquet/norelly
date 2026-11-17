@@ -846,5 +846,6 @@
   "field_label": "label",
   "field_label_name": "label name",
   "field_label_color": "label color",
-  "err_label_name_reserved": "This name is reserved for technical use: choose another one."
+  "err_label_name_reserved": "This name is reserved for technical use: choose another one.",
+  "err_label_rewrites_pending": "Label changes are still waiting for the server: try again once they are done."
 }

@@ -1432,6 +1432,23 @@ impl LabelStore for InMemoryMailStore {
             .collect())
     }
 
+    async fn abandon_rewrite(
+        &self,
+        account: AccountId,
+        id: LabelRewriteId,
+    ) -> Result<(), StoreError> {
+        let mut s = lock(&self.state);
+        if s.rewrites.get(&id).is_some_and(|(a, _, _)| *a == account) {
+            s.rewrites.remove(&id);
+            for (a, _, state) in &mut s.mailboxes {
+                if *a == account {
+                    state.highest_modseq = None;
+                }
+            }
+        }
+        Ok(())
+    }
+
     async fn forget_flag_state(
         &self,
         account: AccountId,

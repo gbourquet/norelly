@@ -613,3 +613,46 @@ fn label_search_matches_names_case_and_accent_insensitively() {
     );
     assert!(label_keywords("   ", &known).is_empty());
 }
+
+#[test]
+fn keywords_seen_on_the_server_never_evict_saved_labels() {
+    // Plus de mots-clés vus que la liste n'en garde, tous triés avant.
+    let seen: BTreeSet<Keyword> = (0..MAX_LABELS + 10)
+        .map(|i| kw(&format!("0000{i:04}")))
+        .collect();
+    let labels = account_labels(&[stored("Zebre", None, false)], &seen, &[]);
+    assert_eq!(labels.len(), MAX_LABELS);
+    assert!(labels.iter().any(|l| l.keyword == kw("Zebre") && l.saved));
+    // Ils ne comptent pas dans la limite des étiquettes créées.
+    assert_eq!(plan_create(&name("Client"), &labels), Ok(kw("Client")));
+}
+
+#[test]
+fn stored_labels_and_pending_rewrites_are_bounded() {
+    assert_eq!(check_stored(MAX_STORED_LABELS - 1), Ok(()));
+    assert_eq!(check_stored(MAX_STORED_LABELS), Err(LabelError::TooMany));
+    assert_eq!(check_rewrites(MAX_PENDING_REWRITES - 1), Ok(()));
+    assert_eq!(
+        check_rewrites(MAX_PENDING_REWRITES),
+        Err(LabelError::RewritesPending)
+    );
+}
+
+#[test]
+fn a_label_search_takes_a_bounded_number_of_keywords() {
+    let known: Vec<Keyword> = (0..200)
+        .map(|i| {
+            let mut raw: Vec<char> = "abcdefgh".chars().collect();
+            for (bit, c) in raw.iter_mut().enumerate() {
+                if i & (1 << bit) != 0 {
+                    *c = c.to_ascii_uppercase();
+                }
+            }
+            kw(&raw.into_iter().collect::<String>())
+        })
+        .collect();
+    assert_eq!(
+        label_keywords("abcdefgh", &known).len(),
+        MAX_SEARCH_KEYWORDS
+    );
+}

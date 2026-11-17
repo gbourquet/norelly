@@ -311,6 +311,61 @@ where
             .iter()
             .any(|l| l.keyword == remove.from)
     );
+
+    // --- Abandon : réécriture retirée, tous les dossiers du compte à
+    // relire, d'un coup ---
+    let projets = boxes
+        .iter()
+        .find(|m| m.mailbox.name.as_str() == "Projets")
+        .map(|m| m.id)
+        .ok_or_else(|| fail("Projets"))?;
+    store
+        .apply_sync(
+            projets,
+            &SyncBatch {
+                state: state(9, 60, 1),
+                ..SyncBatch::default()
+            },
+        )
+        .await?;
+    assert!(
+        store
+            .local_mailbox(projets)
+            .await?
+            .state
+            .highest_modseq
+            .is_some()
+    );
+    let before = store.label_rewrites(account).await?.len();
+    let stalled = store
+        .record_rewrite(
+            account,
+            &LabelRewrite {
+                from: keyword("Absent")?,
+                to: None,
+            },
+        )
+        .await?;
+    store.abandon_rewrite(other, stalled).await?;
+    assert_eq!(
+        store.label_rewrites(account).await?.len(),
+        before + 1,
+        "autre compte : rien"
+    );
+    assert!(
+        store
+            .local_mailbox(projets)
+            .await?
+            .state
+            .highest_modseq
+            .is_some()
+    );
+    store.abandon_rewrite(account, stalled).await?;
+    assert_eq!(store.label_rewrites(account).await?.len(), before);
+    assert_eq!(
+        store.local_mailbox(projets).await?.state.highest_modseq,
+        None
+    );
     Ok(())
 }
 

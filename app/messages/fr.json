@@ -846,5 +846,6 @@
   "field_label": "étiquette",
   "field_label_name": "nom de l'étiquette",
   "field_label_color": "couleur de l'étiquette",
-  "err_label_name_reserved": "Ce nom est réservé à un usage technique : choisissez-en un autre."
+  "err_label_name_reserved": "Ce nom est réservé à un usage technique : choisissez-en un autre.",
+  "err_label_rewrites_pending": "Des modifications d'étiquettes attendent encore le serveur : réessayez une fois qu'elles sont faites."
 }

@@ -1096,3 +1096,112 @@ async fn trapped_google_labels_and_apostrophes_cannot_alter_the_database()
     assert_eq!(l.db.schema().await?, schema_before, "schéma modifié");
     Ok(())
 }
+
+/// Étiquettes piégées : mots-clés et `PERMANENTFLAGS` annoncés par le
+/// serveur, puis listés, colorés, posés et retirés (file d'opérations),
+/// cherchés, renommés et retirés de tous les messages (réécritures) ; tout
+/// reste de la donnée : schéma inchangé, base intègre, comptes intacts.
+#[tokio::test]
+async fn trapped_keywords_cannot_alter_the_database() -> Result<(), Box<dyn std::error::Error>> {
+    use norelly_application::labels::{
+        DeleteLabel, ListLabels, RenameLabel, ReplayRewrites, SetLabelColor,
+    };
+    use norelly_domain::labels::{LabelColor, LabelName};
+    use norelly_domain::ports::LabelStore;
+
+    let l = local("labels-injection").await;
+    let schema_before = l.db.schema().await?;
+    let accounts = SqliteAccountRepository::new(l.db.clone());
+    let accounts_before = accounts.list().await?;
+    let trapped = "x';DROP-TABLE--";
+    let other = "1=1--";
+
+    let imap = FakeImap::new();
+    imap.set_permanent_flags(Some(&["\\Seen", trapped, other, "\\*"]));
+    let flags = Flags::from_tokens([trapped, other]);
+    imap.append("INBOX", &trapped_message(0), flags, 1_700_000_000);
+    let sync = SyncAccount {
+        account: l.account,
+        store: &*l.store,
+        blobs: &*l.blobs,
+        policy: FetchPolicy::default(),
+        text: std::sync::Arc::new(norelly_render::search_text::MimeTextExtractor),
+    };
+    let mut session = imap.session()?;
+    let ext = session.enable_sync_extensions().await?;
+    sync.sync_all(&mut session, ext, |_, _| {}).await?;
+
+    // Listé, coloré.
+    let keyword = Keyword::parse(trapped).ok_or("mot-clé")?;
+    let labels = ListLabels { store: &*l.store }.execute(l.account).await?;
+    assert!(labels.iter().any(|x| x.keyword == keyword));
+    SetLabelColor { store: &*l.store }
+        .execute(
+            l.account,
+            &keyword,
+            Some(LabelColor::parse("#123456").ok_or("couleur")?),
+        )
+        .await?;
+
+    // Retiré puis rejoué : PERMANENTFLAGS piégé noté sur la boîte.
+    let inbox = l
+        .store
+        .tree(l.account)
+        .await?
+        .into_iter()
+        .find(|n| n.name.is_inbox())
+        .ok_or("INBOX")?;
+    let id = l.store.page(inbox.id, None, 10).await?.items[0].id;
+    PerformAction { store: &*l.store }
+        .execute(
+            &[id],
+            MessageAction::SetLabel {
+                keyword: keyword.clone(),
+                value: false,
+            },
+            NOW,
+        )
+        .await?;
+    ReplayActions {
+        account: l.account,
+        store: &*l.store,
+    }
+    .execute(&mut session, NOW + 60)
+    .await?;
+    let permissions = l.store.keyword_permissions(l.account).await?;
+    assert_eq!(permissions.len(), 1, "{permissions:?}");
+
+    // Cherché.
+    let mut query = parse_query(&format!("étiquette:\"{trapped}\""))?;
+    query.resolve_labels(std::slice::from_ref(&keyword));
+    l.store
+        .search(SearchRequest {
+            query,
+            scope: SearchScope::All,
+            utc_offset_seconds: 0,
+            offset: 0,
+            limit: 10,
+        })
+        .await?;
+
+    // Renommé et retiré de tous les messages (réécritures rejouées).
+    RenameLabel { store: &*l.store }
+        .execute(l.account, &keyword, &LabelName::parse("Propre")?)
+        .await?;
+    DeleteLabel { store: &*l.store }
+        .execute(l.account, &Keyword::parse(other).ok_or("mot-clé")?, true)
+        .await?;
+    ReplayRewrites {
+        account: l.account,
+        store: &*l.store,
+    }
+    .execute(&mut session)
+    .await?;
+    assert!(l.store.label_rewrites(l.account).await?.is_empty());
+
+    assert_eq!(l.db.integrity_problems().await?, Vec::<String>::new());
+    assert_eq!(l.db.schema().await?, schema_before, "schéma modifié");
+    assert_eq!(accounts.list().await?, accounts_before, "comptes modifiés");
+    assert_eq!(l.store.tree(l.account).await?.len(), 1, "boîtes intactes");
+    Ok(())
+}

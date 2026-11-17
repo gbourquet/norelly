@@ -1369,6 +1369,16 @@ pub trait LabelStore: Send + Sync {
         id: LabelRewriteId,
     ) -> impl Future<Output = Result<(), StoreError>> + Send;
 
+    /// Abandonne une réécriture (trop d'essais) : retirée, et tous les
+    /// dossiers du compte marqués à relire entièrement (la copie locale,
+    /// réécrite d'avance, est corrigée par le serveur), dans la même
+    /// transaction. Sans effet pour une réécriture d'un autre compte.
+    fn abandon_rewrite(
+        &self,
+        account: AccountId,
+        id: LabelRewriteId,
+    ) -> impl Future<Output = Result<(), StoreError>> + Send;
+
     /// Mots-clés permanents connus des dossiers du compte.
     fn keyword_permissions(
         &self,

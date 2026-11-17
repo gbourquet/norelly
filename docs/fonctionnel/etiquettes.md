@@ -121,6 +121,7 @@ messagerie qui les connaît (Thunderbird, par exemple) les voit aussi.
 | Réglages | Étiquettes, Compte, Aucune étiquette sur ce compte., Ajouter, Couleur de « {label} », Sans couleur, Renommer, Supprimer |
 | Suppression | Supprimer « {label} » de la liste ?, La retirer aussi de tous les messages (sur le serveur) |
 | Renommage | Étiquette renommée. Les messages du serveur suivent en arrière-plan. |
+| Trop de changements en attente | Des modifications d'étiquettes attendent encore le serveur : réessayez une fois qu'elles sont faites. |
 | Nom refusé | Donnez un nom à l'étiquette, sans caractère invisible. ; Ce nom d'étiquette est trop long. ; Une étiquette porte déjà ce nom. ; Ce nom est réservé à un usage technique : choisissez-en un autre. |
 
 ## Raccourcis

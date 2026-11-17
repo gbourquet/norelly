@@ -85,7 +85,9 @@ describe("étiquettes", () => {
     const listRow = $(`//*[@role="option"][.//span[normalize-space()="${SUBJECT}"]]`);
     const chip = listRow.$(`button[aria-label="${chipName}"]`);
     await chip.waitForDisplayed({ timeout: 10000 });
-    await expect(chip).toHaveText(LABEL);
+    expect(await chip.getProperty("textContent")).toBe(LABEL);
+    // Pastille réellement visible (pas écrasée par le sujet).
+    expect((await chip.getSize()).width).toBeGreaterThan(30);
     await chip.click();
     const search = $('input[type="search"]');
     await search.waitForDisplayed({ timeout: 10000 });

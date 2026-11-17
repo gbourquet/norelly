@@ -192,6 +192,7 @@ describe("traduction des erreurs IPC", () => {
       label_exists: true,
       label_too_many: true,
       label_name_reserved: true,
+      label_rewrites_pending: true,
       internal: true,
     } satisfies Record<ErrorCodeDto, true>;
     const fields = {

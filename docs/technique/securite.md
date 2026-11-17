@@ -285,9 +285,17 @@ Risques résiduels, acceptés avec la décision du mainteneur :
   serveur jamais interprété (affiché en texte échappé s'il n'est pas un nom
   canonique) ; couleur stockée et transmise en `#rrggbb` seulement
   (`LabelColor`, `CHECK` SQL, contrôle redoublé dans l'interface avant le
-  style) ; recherche par étiquette en paramètres liés ; réécriture d'un
-  mot-clé par lots bornés (`REWRITE_BATCH`), jamais sur un ensemble d'UID
-  vide.
+  style) ; recherche par étiquette en paramètres liés, 32 mots-clés au
+  plus par clause (`MAX_SEARCH_KEYWORDS`) ; réécriture d'un mot-clé par
+  lots bornés (`REWRITE_BATCH`), jamais sur un ensemble d'UID vide ;
+  bornes : 500 étiquettes listées, les enregistrées toujours avant les
+  mots-clés vus sur le serveur (qui ne peuvent pas les évincer),
+  1 000 lignes enregistrées masquées comprises (`MAX_STORED_LABELS`),
+  16 réécritures en attente (`MAX_PENDING_REWRITES`) ; une réécriture
+  abandonnée marque tous les dossiers à relire dans la même transaction
+  (`abandon_rewrite`) ; charges d'injection dans les mots-clés, la couleur,
+  `PERMANENTFLAGS`, la recherche et les réécritures couvertes par
+  `hostile_message_sql.rs`.
 - Suppression d'un dossier : refusée s'il a un sous-dossier, d'après la
   liste du compte puis un `LIST "<parent><délim>%"` relu juste avant
   `DELETE`, où tout nom illisible ou refusé compte

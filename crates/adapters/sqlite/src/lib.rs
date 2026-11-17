@@ -716,8 +716,9 @@ mod tests {
         // v22 : les contacts des versions 11 et 18 écartés comme doublons.
         "INSERT INTO contact_duplicate_dismissals (low_id, high_id, batch) VALUES (1, 2, 1);",
         // v22 : schéma inchangé (texte cherché recalculé) ; un nom de
-        // famille au contact de la version 18.
-        "UPDATE contacts SET family_name = 'V22' WHERE id = 2;",
+        // famille au contact de la version 18, clés à jour.
+        "UPDATE contacts SET family_name = 'V22', sort_key = 'v18 v22', \
+         search_text = 'v18\nv22\nv18 v22\nv18@example.com' WHERE id = 2;",
     ];
 
     /// Base de version 21 : à la montée en version 22, le texte cherché des
@@ -741,18 +742,32 @@ mod tests {
         // Fiche 30 : Alice Martin, texte cherché d'avant (sans nom complet).
         // Fiche 31 : clé de tri modifiée à la main (corrompue).
         // Fiche 32 : prénom illisible (UTF-8 invalide).
+        // Fiche 33 : clé de tri juste, texte cherché retouché à la main.
+        // Fiche 34 : noms lisibles, adresse d'un type inattendu (BLOB).
+        // Fiche 35 : surnom imitant une adresse, clés calculées avec lui.
+        // Fiche 36 : clé d'adresse stockée qui n'est pas celle de l'adresse.
         conn.execute_batch(
             "INSERT INTO contacts (id, given_name, family_name, organization, sort_key, \
              search_text) VALUES \
              (30, 'Alice', 'Martin', 'ACME', 'alice martin', \
              'alice\nmartin\nacme\nalice@example.com'), \
              (31, 'Bob', 'Durand', NULL, 'repère', 'bob\ndurand\nbob@example.com'), \
-             (32, CAST(X'FF' AS TEXT), 'Z', NULL, 'z', 'z'); \
+             (32, CAST(X'FF' AS TEXT), 'Z', NULL, 'z', 'z'), \
+             (33, 'Eve', 'Roux', NULL, 'eve roux', 'zzz'), \
+             (34, 'Ann', 'Lee', NULL, 'ann lee', 'ann\nlee\nann@example.com'), \
+             (36, 'Ugo', 'Roy', NULL, 'ugo roy', 'ugo\nroy\nautre@example.com'); \
+             INSERT INTO contacts (id, given_name, family_name, nickname, sort_key, \
+             search_text) VALUES (35, 'Max', 'Dupont', 'ceo@bank.example', 'max dupont', \
+             'max\ndupont\nceo@bank.example\nmax@example.com'); \
              INSERT INTO contact_emails (contact_id, position, address, address_key, label, \
              preferred) VALUES \
              (30, 0, 'alice@example.com', 'alice@example.com', NULL, 1), \
              (31, 0, 'bob@example.com', 'bob@example.com', NULL, 1), \
-             (32, 0, 'z@example.com', 'z@example.com', NULL, 1);",
+             (32, 0, 'z@example.com', 'z@example.com', NULL, 1), \
+             (33, 0, 'eve@example.com', 'eve@example.com', NULL, 1), \
+             (34, 0, X'00', 'ann@example.com', NULL, 1), \
+             (35, 0, 'max@example.com', 'max@example.com', NULL, 1), \
+             (36, 0, 'ugo@example.com', 'autre@example.com', NULL, 1);",
         )
         .map_err(store_error)?;
         m.to_version(&mut conn, 22)
@@ -781,11 +796,24 @@ mod tests {
             })
             .map_err(store_error)?;
         assert_eq!(unreadable, "z");
+        for (id, kept) in [
+            (33, "zzz"),
+            (34, "ann\nlee\nann@example.com"),
+            (36, "ugo\nroy\nautre@example.com"),
+        ] {
+            assert_eq!(stored_names(&conn, id).6, kept, "fiche {id}");
+        }
+        assert_eq!(
+            stored_names(&conn, 35).6,
+            "max\ndupont\nmax dupont\nceo@bank.example\nmax@example.com"
+        );
 
         let db = Database::init(conn).map_err(|e| StoreError(e.to_string()))?;
         let book = contacts::SqliteContactBook::new(db);
         let id = ContactId::new(30).ok_or_else(|| StoreError("id".into()))?;
         assert!(book.get(id).await?.is_some(), "fiche 30 relue");
+        let id = ContactId::new(35).ok_or_else(|| StoreError("id".into()))?;
+        assert!(book.get(id).await?.is_some(), "fiche 35 relue");
         let page = book
             .page(
                 &ContactFilter::new("alice mar", false),

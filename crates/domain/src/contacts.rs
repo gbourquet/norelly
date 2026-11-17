@@ -307,6 +307,29 @@ impl ContactDraft {
         Some((stored.sort_key(), stored.search_text()))
     }
 
+    /// Migration du texte cherché au nom complet ([`Self::full_name`]) :
+    /// nouveau texte cherché d'une fiche enregistrée dont les clés stockées
+    /// `stored` (tri, texte cherché) sont celles que calculait le domaine
+    /// avant d'y ajouter le nom complet, ou déjà celles d'aujourd'hui, pour
+    /// la fiche relue ou telle qu'enregistrée avec un nom imitant une
+    /// adresse ([`Self::keys_as_stored`]). `None` sinon (fiche invalide,
+    /// clés retouchées) : elle n'est ni réparée ni masquée.
+    #[must_use]
+    pub fn full_name_reindex(input: &ContactInput, stored: &(String, String)) -> Option<String> {
+        let read = Self::from_stored(input.clone()).ok();
+        let as_stored = if input.has_names_imitating_address() {
+            Self::validate(input.clone(), NameRule::KeepImitations).ok()
+        } else {
+            None
+        };
+        [read, as_stored].into_iter().flatten().find_map(|draft| {
+            let current = draft.search_text();
+            let before = draft.search_text_with(None);
+            (draft.sort_key() == stored.0 && (stored.1 == before || stored.1 == current))
+                .then_some(current)
+        })
+    }
+
     /// Valide une fiche. Sans adresse marquée préférée, la première l'est.
     pub fn new(input: ContactInput) -> Result<Self, ContactError> {
         Self::validate(input, NameRule::RefuseImitations)
@@ -483,7 +506,7 @@ impl ContactDraft {
     #[must_use]
     pub fn full_name(&self) -> Option<String> {
         match (&self.given_name, &self.family_name) {
-            (Some(given), Some(family)) => Some(format!("{given} {family}")),
+            (Some(given), Some(family)) => Some(compose_full_name(given, family)),
             _ => None,
         }
     }
@@ -493,7 +516,12 @@ impl ContactDraft {
     /// séparés par des sauts de ligne.
     #[must_use]
     pub fn search_text(&self) -> String {
-        let full_name = self.full_name();
+        self.search_text_with(self.full_name())
+    }
+
+    /// Texte cherché, avec `full_name` comme nom complet (`None` : le
+    /// texte d'avant le nom complet, voir [`Self::full_name_reindex`]).
+    fn search_text_with(&self, full_name: Option<String>) -> String {
         let names = [
             self.display_name.as_ref(),
             self.given_name.as_ref(),
@@ -590,11 +618,17 @@ pub fn display_label(
         return name.to_owned();
     }
     match (given_name, family_name) {
-        (Some(given), Some(family)) => return format!("{given} {family}"),
+        (Some(given), Some(family)) => return compose_full_name(given, family),
         (Some(one), None) | (None, Some(one)) => return one.to_owned(),
         (None, None) => {}
     }
     nickname.map_or_else(|| address.to_string(), str::to_owned)
+}
+
+/// Nom complet « prénom nom », affiché ([`display_label`]) comme cherché
+/// ([`ContactDraft::full_name`]).
+fn compose_full_name(given: &str, family: &str) -> String {
+    format!("{given} {family}")
 }
 
 /// Caractères invisibles ou trompeurs, refusés dans une fiche (saisie ou
@@ -1601,6 +1635,47 @@ mod tests {
         // Un seul des deux champs : pas de nom composé.
         i.family_name = String::new();
         assert!(!draft(i).search_text().contains("alice "));
+    }
+
+    /// Texte cherché recalculé pour le nom complet : seulement depuis les
+    /// clés stockées d'avant (ou déjà à jour), pour la fiche relue ou
+    /// telle qu'enregistrée avec un nom imitant une adresse ; une clé
+    /// retouchée n'est ni réparée ni masquée.
+    #[test]
+    fn full_name_reindex_only_rewrites_the_previous_keys() {
+        let mut i = input(&["alice@example.com"]);
+        i.given_name = "Alice".into();
+        i.family_name = "Martin".into();
+        let new = "alice\nmartin\nalice martin\nalice@example.com".to_owned();
+        let before = (
+            "alice martin".to_owned(),
+            "alice\nmartin\nalice@example.com".to_owned(),
+        );
+        assert_eq!(
+            ContactDraft::full_name_reindex(&i, &before),
+            Some(new.clone())
+        );
+        // Déjà à jour : même texte.
+        let current = ("alice martin".to_owned(), new.clone());
+        assert_eq!(ContactDraft::full_name_reindex(&i, &current), Some(new));
+        // Texte ou clé de tri retouchés : rien.
+        let tampered = ("alice martin".to_owned(), "zzz".to_owned());
+        assert_eq!(ContactDraft::full_name_reindex(&i, &tampered), None);
+        let tampered = ("repère".to_owned(), before.1.clone());
+        assert_eq!(ContactDraft::full_name_reindex(&i, &tampered), None);
+        // Nom imitant une adresse : clés telles qu'enregistrées, avec lui.
+        i.nickname = "ceo@bank.example".into();
+        let stored = (
+            "alice martin".to_owned(),
+            "alice\nmartin\nceo@bank.example\nalice@example.com".to_owned(),
+        );
+        assert_eq!(
+            ContactDraft::full_name_reindex(&i, &stored),
+            Some("alice\nmartin\nalice martin\nceo@bank.example\nalice@example.com".to_owned())
+        );
+        // Fiche invalide : rien.
+        i.emails.clear();
+        assert_eq!(ContactDraft::full_name_reindex(&i, &stored), None);
     }
 
     #[test]

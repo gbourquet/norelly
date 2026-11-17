@@ -354,16 +354,23 @@ l'ordinateur** : rien n'est envoyé à un serveur.
   la vue Contacts, et dans la palette de commandes.
 - Sont proposés ensemble les contacts qui portent le **même nom** (sans
   tenir compte des majuscules, des espaces ni de l'ordre des mots :
-  « Martin Alice » et « alice martin » se ressemblent) ou le **même numéro
+  « Martin Alice » et « alice martin » se ressemblent), le **même numéro
   de téléphone** (« 06 12 34 56 78 » et « 0612345678 » sont le même
-  numéro ; un numéro très court ne compte pas). Un contact sans nom n'est
-  jamais rapproché par son nom. Deux contacts proches d'un même troisième
-  forment un seul groupe.
+  numéro ; un numéro très court ne compte pas) ou la **même adresse
+  Gmail** (Gmail ignore les points avant l'arobase et traite
+  `googlemail.com` comme `gmail.com` : « jean.dupont@gmail.com » et
+  « jeandupont@googlemail.com » mènent à la même boîte). Un contact sans
+  nom n'est jamais rapproché par son nom. Deux contacts proches d'un même
+  troisième forment un seul groupe.
 - Une fenêtre présente les groupes un par un (« Groupe 1 sur 3 ») et dit
   ce qui rapproche les fiches. Pour chaque fiche : son nom, ses adresses,
   ses téléphones, une case pour la réunir aux autres (toutes cochées au
-  départ) et le choix **Garder cette fiche** (la plus complète est
-  proposée). Sous la fiche gardée, la fenêtre indique le nom et l'adresse
+  départ) et le choix **Garder cette fiche**. Quand les fiches portent le
+  même nom, la plus complète est proposée ; sinon (rapprochées par le
+  téléphone ou l'adresse Gmail seulement) aucune ne l'est : une fiche
+  importée très remplie pourrait sinon prendre la place de la vôtre. La
+  fenêtre invite alors à choisir, et **Fusionner** reste indisponible tant
+  qu'aucune fiche n'est gardée. Sous la fiche gardée, la fenêtre indique le nom et l'adresse
   préférée que le contact aura après la fusion, d'après les fiches
   cochées : on voit ce qui restera avant de confirmer.
 - Un groupe trop nombreux pour une seule fusion ne présente que ses
@@ -380,8 +387,14 @@ l'ordinateur** : rien n'est envoyé à un serveur.
   supprimées. Tout se fait d'un coup : en cas d'échec, rien ne change.
   Si l'une des fiches a été modifiée depuis la recherche, rien n'est
   fusionné et un message invite à relancer la recherche.
-- **Passer** laisse le groupe tel quel et présente le suivant ; il sera de
-  nouveau proposé à la prochaine recherche.
+- **Passer** laisse le groupe tel quel et présente le suivant. Le groupe
+  passé est retenu : il n'est plus proposé aux recherches suivantes, même
+  après un redémarrage, tant qu'aucune de ses fiches n'est modifiée ni
+  supprimée. Dès que l'une change (modification, import qui la complète,
+  fusion), il peut être proposé de nouveau ; une nouvelle fiche qui
+  ressemble à celles du groupe le fait aussi revenir, avec elle. Seuls les
+  groupes passés les plus récents sont retenus : au-delà d'un grand
+  nombre, les plus anciens sont oubliés.
 - Fusion refusée, avec un message clair, si la fiche obtenue dépasserait
   ce qu'une fiche peut contenir (adresses, téléphones ou notes) : il faut
   alors décocher une fiche ou en alléger une.

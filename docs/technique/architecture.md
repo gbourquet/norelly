@@ -69,7 +69,7 @@ relecture prioritaire du mainteneur.
 | `contact_export` | Règles de sortie de l'export (`export_card` : adresse préférée en tête, ce que chaque format retient), sélection revalidée, neutralisation des cellules CSV et son inverse, bornes de l'import |
 | `contact_import` | Plan d'import d'un carnet : noms en NFC (port `TextNormalizer`), nom imitant une adresse retiré, caractères invisibles refusés, doublons par `AddressKey`, rejets motivés, politique « ignorer » ou « compléter » |
 | `notify`, `settings` | Notifications à émettre ; paramètres |
-| `ports` | Tous les traits (≈ 27) : `RemoteMailboxConnector`, `RemoteMailboxSession`, `MailSender`, `SecretStore`, `MailStore`, `BlobStore`, `PendingOpStore`, `DraftStore`, `OutboxStore`, `SearchIndex`, carnet (`ContactBook`), requêtes d'écran (`FolderTreeQuery`, `ConversationQuery`, `MessageListQuery`, `ContactDirectory`)… |
+| `ports` | Tous les traits (≈ 27) : `RemoteMailboxConnector`, `RemoteMailboxSession`, `MailSender`, `SecretStore`, `MailStore`, `BlobStore`, `PendingOpStore`, `DraftStore`, `OutboxStore`, `SearchIndex`, carnet (`ContactBook`, `DuplicateDismissals`), requêtes d'écran (`FolderTreeQuery`, `ConversationQuery`, `MessageListQuery`, `ContactDirectory`)… |
 
 Les ports asynchrones renvoient `impl Future + Send` (dispatch statique dans
 les chemins chauds) ; `dyn` n'est utilisé qu'au point d'assemblage.
@@ -96,7 +96,7 @@ Orchestration async des ports, sans règle métier propre :
 | `tls` | `ClientConfig` rustls : vérificateur de la plateforme + exception par empreinte | fichier sensible |
 | `imap` | `RemoteMailboxConnector`, `RemoteMailboxSession` : pilote d'E/S maison au-dessus d'`imap-next` (lignes bornées, délais, rejet des octets reçus après `STARTTLS`) | fichier sensible (`connection.rs`) |
 | `smtp` | `MailSender` : TLS par `norelly-tls`, puis `lettre` | STARTTLS exigé |
-| `sqlite` | `MailStore`, `AccountRepository`, requêtes d'écran, `PendingOpStore`, `DraftStore`, `OutboxStore`, `SearchIndex`, `SettingsStore`, `ContactBook`, `ContactDirectory`… | SQL paramétré uniquement (`check-sql.sh`) |
+| `sqlite` | `MailStore`, `AccountRepository`, requêtes d'écran, `PendingOpStore`, `DraftStore`, `OutboxStore`, `SearchIndex`, `SettingsStore`, `ContactBook`, `ContactDirectory`, `DuplicateDismissals`… | SQL paramétré uniquement (`check-sql.sh`) |
 | `blobs` | `BlobStore` : `.eml.zst` par compte et empreinte, écriture atomique | — |
 | `keyring` | `SecretStore` : Secret Service, Credential Manager ; fichier 0600 en dérogation | — |
 | `discovery` | `AutoconfigClient`, `SrvResolver`, `PortProber` | HTTPS seulement |

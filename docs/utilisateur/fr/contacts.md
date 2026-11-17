@@ -212,12 +212,17 @@ import, par exemple) :
 1. Dans **Contacts**, cliquez sur **Plus…**, en haut de la liste, puis
    sur **Rechercher les doublons…**.
 2. Norelly présente, un groupe à la fois, les contacts qui portent le même
-   nom ou le même numéro de téléphone. Vérifiez qu'il s'agit bien de la
-   même personne ; décochez une fiche pour la laisser de côté.
+   nom, le même numéro de téléphone ou la même adresse Gmail (Gmail
+   ignore les points : « jean.dupont@gmail.com » et
+   « jeandupont@gmail.com » sont la même boîte). Vérifiez qu'il s'agit
+   bien de la même personne ; décochez une fiche pour la laisser de côté.
 3. Choisissez la fiche à garder (**Garder cette fiche**), puis cliquez sur
-   **Fusionner**. Sous la fiche gardée, Norelly indique le nom et
-   l'adresse préférée que le contact aura après la fusion. Ou cliquez sur
-   **Passer** pour voir le groupe suivant sans rien changer.
+   **Fusionner**. Quand les fiches ne portent pas le même nom, Norelly ne
+   choisit pas à votre place : sélectionnez vous-même la fiche à garder.
+   Sous la fiche gardée, Norelly indique le nom et l'adresse préférée que
+   le contact aura après la fusion. Ou cliquez sur **Passer** pour voir le
+   groupe suivant sans rien changer : ce groupe ne vous sera plus
+   proposé, sauf si vous modifiez l'une de ses fiches.
 
 ![La recherche des doublons : deux fiches d'Alice Martin](captures/contacts-duplicates.png)
 

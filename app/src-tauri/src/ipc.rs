@@ -268,6 +268,14 @@ pub enum FieldDto {
     Nickname,
     Organization,
     Notes,
+    /// Titre ou fonction d'un contact.
+    Title,
+    /// Anniversaire d'un contact.
+    Birthday,
+    /// Adresse postale d'un contact.
+    PostalAddress,
+    /// Site web d'un contact.
+    Website,
     /// Liste de diffusion (identifiant).
     ContactList,
     /// Nom d'une liste de diffusion.
@@ -2140,6 +2148,32 @@ pub struct ContactPhoneDto {
     pub label_kind: Option<ContactLabelKindDto>,
 }
 
+/// Adresse postale d'une fiche contact. Élément vide : absent.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+pub struct ContactPostalAddressDto {
+    /// Rue, lignes séparées par `\n`.
+    pub street: String,
+    pub locality: String,
+    pub region: String,
+    pub postal_code: String,
+    pub country: String,
+    pub label: String,
+    /// Genre de l'étiquette, sur une fiche relue ; ignoré en saisie.
+    #[specta(optional)]
+    pub label_kind: Option<ContactLabelKindDto>,
+}
+
+/// Site web d'une fiche contact : sur une fiche relue, adresse `http` ou
+/// `https` acceptée par le domaine, ouverte par `open_external`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+pub struct ContactWebsiteDto {
+    pub url: String,
+    pub label: String,
+    /// Genre de l'étiquette, sur une fiche relue ; ignoré en saisie.
+    #[specta(optional)]
+    pub label_kind: Option<ContactLabelKindDto>,
+}
+
 /// Champs d'une fiche contact : saisie envoyée par l'interface (revalidée
 /// par le domaine) ou fiche relue (formulaire pré-rempli). Champ vide :
 /// absent.
@@ -2150,9 +2184,16 @@ pub struct ContactFieldsDto {
     pub family_name: String,
     pub nickname: String,
     pub organization: String,
+    /// Titre ou fonction.
+    pub title: String,
     pub notes: String,
+    /// Anniversaire : `1985-04-12`, ou `--04-12` sans année ; vide :
+    /// absent.
+    pub birthday: String,
     pub emails: Vec<ContactEmailDto>,
     pub phones: Vec<ContactPhoneDto>,
+    pub postal_addresses: Vec<ContactPostalAddressDto>,
+    pub websites: Vec<ContactWebsiteDto>,
     pub favorite: bool,
 }
 

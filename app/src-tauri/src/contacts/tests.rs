@@ -182,3 +182,89 @@ fn a_read_card_carries_the_kind_of_its_known_labels() {
     assert_eq!(dto.fields.emails[0].label, "Travail");
     assert_eq!(dto.fields.phones[0].label, "cell");
 }
+
+#[test]
+fn refused_details_become_codes_with_their_field() {
+    for (field, expected) in [
+        (ContactField::Title, FieldDto::Title),
+        (ContactField::Birthday, FieldDto::Birthday),
+        (ContactField::PostalAddress(1), FieldDto::PostalAddress),
+        (ContactField::PostalAddressLabel(0), FieldDto::PostalAddress),
+        (ContactField::Website(0), FieldDto::Website),
+        (ContactField::WebsiteLabel(2), FieldDto::Website),
+    ] {
+        assert_eq!(
+            code(ContactError::TooLong(field)),
+            (ErrorCodeDto::ContactTooLong, Some(expected), None),
+            "{field:?}"
+        );
+    }
+    for (error, field) in [
+        (ContactError::InvalidBirthday, FieldDto::Birthday),
+        (
+            ContactError::TooManyPostalAddresses,
+            FieldDto::PostalAddress,
+        ),
+        (
+            ContactError::EmptyPostalAddress { index: 0 },
+            FieldDto::PostalAddress,
+        ),
+        (ContactError::TooManyWebsites, FieldDto::Website),
+        (ContactError::InvalidWebsite { index: 1 }, FieldDto::Website),
+    ] {
+        assert_eq!(
+            code(error.clone()),
+            (ErrorCodeDto::ContactInvalid, Some(field), None),
+            "{error:?}"
+        );
+    }
+}
+
+#[test]
+fn details_go_through_the_interface_both_ways() {
+    use crate::ipc::{ContactPostalAddressDto, ContactWebsiteDto};
+    use norelly_domain::contacts::ContactDraft;
+    let sent = ContactFieldsDto {
+        title: "Directrice".into(),
+        birthday: "--04-12".into(),
+        emails: vec![ContactEmailDto {
+            address: "a@example.com".into(),
+            ..ContactEmailDto::default()
+        }],
+        postal_addresses: vec![ContactPostalAddressDto {
+            street: "1 rue A\nBât. B".into(),
+            locality: "Lyon".into(),
+            label: "Maison".into(),
+            ..ContactPostalAddressDto::default()
+        }],
+        websites: vec![ContactWebsiteDto {
+            url: "www.example.com".into(),
+            label: "work".into(),
+            label_kind: None,
+        }],
+        ..ContactFieldsDto::default()
+    };
+    let draft = ContactDraft::new(input_of(sent)).unwrap_or_else(|e| panic!("{e:?}"));
+    let id = ContactId::new(1).unwrap_or_else(|| panic!("id"));
+    let dto = contact_dto(&draft.with_id(id)).unwrap_or_else(|e| panic!("{e:?}"));
+    assert_eq!(dto.fields.title, "Directrice");
+    assert_eq!(dto.fields.birthday, "--04-12");
+    assert_eq!(
+        dto.fields.postal_addresses,
+        [ContactPostalAddressDto {
+            street: "1 rue A\nBât. B".into(),
+            locality: "Lyon".into(),
+            label: "Maison".into(),
+            label_kind: Some(ContactLabelKindDto::Home),
+            ..ContactPostalAddressDto::default()
+        }]
+    );
+    assert_eq!(
+        dto.fields.websites,
+        [ContactWebsiteDto {
+            url: "https://www.example.com".into(),
+            label: "work".into(),
+            label_kind: Some(ContactLabelKindDto::Work),
+        }]
+    );
+}

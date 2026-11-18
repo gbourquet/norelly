@@ -11,14 +11,16 @@ use norelly_application::contacts::{
 };
 use norelly_domain::contacts::{
     Contact, ContactError, ContactField, ContactId, ContactInput, ContactSelectionError,
-    EmailInput, MAX_CONTACT_EMAILS, PhoneInput, contact_selection,
+    EmailInput, MAX_CONTACT_EMAILS, PhoneInput, PostalAddressInput, WebsiteInput,
+    contact_selection,
 };
 use norelly_domain::ports::{ContactCursor, ContactListItem, ContactStoreError, PageSize};
 use tauri::State;
 
 use crate::ipc::{
     ContactCursorDto, ContactDto, ContactEmailDto, ContactFieldsDto, ContactItemDto,
-    ContactLabelKindDto, ContactPageDto, ContactPhoneDto, ErrorCodeDto, FieldDto, IpcError, id32,
+    ContactLabelKindDto, ContactPageDto, ContactPhoneDto, ContactPostalAddressDto,
+    ContactWebsiteDto, ErrorCodeDto, FieldDto, IpcError, id32,
 };
 use crate::state::AppState;
 
@@ -41,6 +43,12 @@ fn field_dto(field: ContactField) -> FieldDto {
         ContactField::Notes => FieldDto::Notes,
         ContactField::EmailLabel(_) => FieldDto::ContactEmail,
         ContactField::Phone(_) | ContactField::PhoneLabel(_) => FieldDto::ContactPhone,
+        ContactField::Title => FieldDto::Title,
+        ContactField::Birthday => FieldDto::Birthday,
+        ContactField::PostalAddress(_) | ContactField::PostalAddressLabel(_) => {
+            FieldDto::PostalAddress
+        }
+        ContactField::Website(_) | ContactField::WebsiteLabel(_) => FieldDto::Website,
     }
 }
 
@@ -78,6 +86,15 @@ pub(crate) fn contact_error(e: ContactFailure, typed: &[String]) -> IpcError {
             }
             ContactError::NameLooksLikeAddress(field) => {
                 invalid_field(ErrorCodeDto::ContactNameLooksLikeAddress, field_dto(field))
+            }
+            ContactError::InvalidBirthday => {
+                invalid_field(ErrorCodeDto::ContactInvalid, FieldDto::Birthday)
+            }
+            ContactError::TooManyPostalAddresses | ContactError::EmptyPostalAddress { .. } => {
+                invalid_field(ErrorCodeDto::ContactInvalid, FieldDto::PostalAddress)
+            }
+            ContactError::TooManyWebsites | ContactError::InvalidWebsite { .. } => {
+                invalid_field(ErrorCodeDto::ContactInvalid, FieldDto::Website)
             }
         },
         ContactFailure::Store(e) => match e {
@@ -129,6 +146,28 @@ fn input_of(dto: ContactFieldsDto) -> ContactInput {
                 label: p.label,
             })
             .collect(),
+        title: dto.title,
+        birthday: dto.birthday,
+        postal_addresses: dto
+            .postal_addresses
+            .into_iter()
+            .map(|a| PostalAddressInput {
+                street: a.street,
+                locality: a.locality,
+                region: a.region,
+                postal_code: a.postal_code,
+                country: a.country,
+                label: a.label,
+            })
+            .collect(),
+        websites: dto
+            .websites
+            .into_iter()
+            .map(|w| WebsiteInput {
+                url: w.url,
+                label: w.label,
+            })
+            .collect(),
         favorite: dto.favorite,
     }
 }
@@ -163,6 +202,30 @@ pub(crate) fn contact_dto(contact: &Contact) -> Result<ContactDto, IpcError> {
                     label_kind: ContactLabelKindDto::of(&p.label),
                     number: p.number,
                     label: p.label,
+                })
+                .collect(),
+            title: input.title,
+            birthday: input.birthday,
+            postal_addresses: input
+                .postal_addresses
+                .into_iter()
+                .map(|a| ContactPostalAddressDto {
+                    label_kind: ContactLabelKindDto::of(&a.label),
+                    street: a.street,
+                    locality: a.locality,
+                    region: a.region,
+                    postal_code: a.postal_code,
+                    country: a.country,
+                    label: a.label,
+                })
+                .collect(),
+            websites: input
+                .websites
+                .into_iter()
+                .map(|w| ContactWebsiteDto {
+                    label_kind: ContactLabelKindDto::of(&w.label),
+                    url: w.url,
+                    label: w.label,
                 })
                 .collect(),
             favorite: input.favorite,

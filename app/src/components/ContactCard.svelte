@@ -10,6 +10,7 @@
   import type { ContactDto } from "../lib/ipc/api";
   import type { CommandRegistry } from "../lib/commands/registry";
   import { contactsToolbar } from "../lib/visible-actions";
+  import { contactLabel } from "../lib/contact-label";
   import ActionBar from "./ActionBar.svelte";
 
   interface Props {
@@ -59,7 +60,7 @@
         {#each f.emails as email (email.address)}
           <li>
             <span class="value">{email.address}</span>
-            {#if email.label !== ""}<span class="tag">{email.label}</span>{/if}
+            {#if email.label !== ""}<span class="tag">{contactLabel(email)}</span>{/if}
             {#if email.preferred && f.emails.length > 1}<span class="tag preferred"
                 >{m.contacts_preferred()}</span
               >{/if}
@@ -75,7 +76,7 @@
           {#each f.phones as phone, i (i)}
             <li>
               <span class="value">{phone.number}</span>
-              {#if phone.label !== ""}<span class="tag">{phone.label}</span>{/if}
+              {#if phone.label !== ""}<span class="tag">{contactLabel(phone)}</span>{/if}
             </li>
           {/each}
         </ul>

@@ -21,6 +21,7 @@
 //! - [`search`] : syntaxe des requêtes de recherche, surlignage ;
 //! - [`contacts`] : carnet d'adresses (fiche, nom affiché, filtre) ;
 //! - [`contact_import`] : plan d'import d'un carnet (doublons, rejets) ;
+//! - [`contact_labels`] : genre des étiquettes de fiche, libellés Apple ;
 //! - [`contact_duplicates`] : doublons du carnet et fusion des fiches ;
 //! - [`contact_lists`] : listes de diffusion (nom unique, expansion) ;
 //! - [`oauth`] : connexion OAuth (fournisseurs, PKCE, XOAUTH2) ;
@@ -38,6 +39,7 @@ pub mod connection;
 pub mod contact_duplicates;
 pub mod contact_export;
 pub mod contact_import;
+pub mod contact_labels;
 pub mod contact_lists;
 pub mod contacts;
 pub mod conversation;

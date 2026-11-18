@@ -142,3 +142,43 @@ impl ContactDraftCheck {
         ContactError::InvalidAddress { index, error }
     }
 }
+
+#[test]
+fn a_read_card_carries_the_kind_of_its_known_labels() {
+    use norelly_domain::contacts::ContactDraft;
+    let input = ContactInput {
+        emails: vec![
+            EmailInput {
+                address: "a@example.com".into(),
+                label: "Travail".into(),
+                preferred: true,
+            },
+            EmailInput {
+                address: "b@example.com".into(),
+                label: String::new(),
+                preferred: false,
+            },
+        ],
+        phones: vec![
+            PhoneInput {
+                number: "01".into(),
+                label: "cell".into(),
+            },
+            PhoneInput {
+                number: "02".into(),
+                label: "bureau".into(),
+            },
+        ],
+        ..ContactInput::default()
+    };
+    let draft = ContactDraft::new(input).unwrap_or_else(|e| panic!("{e:?}"));
+    let id = ContactId::new(1).unwrap_or_else(|| panic!("id"));
+    let dto = contact_dto(&draft.with_id(id)).unwrap_or_else(|e| panic!("{e:?}"));
+    let emails: Vec<_> = dto.fields.emails.iter().map(|e| e.label_kind).collect();
+    assert_eq!(emails, [Some(ContactLabelKindDto::Work), None]);
+    let phones: Vec<_> = dto.fields.phones.iter().map(|p| p.label_kind).collect();
+    assert_eq!(phones, [Some(ContactLabelKindDto::Mobile), None]);
+    // Le texte enregistré n'est pas réécrit.
+    assert_eq!(dto.fields.emails[0].label, "Travail");
+    assert_eq!(dto.fields.phones[0].label, "cell");
+}

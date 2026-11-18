@@ -630,7 +630,7 @@ pub(crate) fn is_invisible(c: char) -> bool {
 }
 
 /// Caractère interdit dans un champ d'une ligne.
-fn forbidden(c: char) -> bool {
+pub(crate) fn forbidden(c: char) -> bool {
     c.is_control() || is_invisible(c)
 }
 

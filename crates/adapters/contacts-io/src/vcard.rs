@@ -2,10 +2,15 @@
 //! projet : dépliage des lignes, sauts souples quoted-printable,
 //! paramètres (`TYPE`, `PREF`, `CHARSET`, `ENCODING`), échappements,
 //! plusieurs cartes par fichier. Seuls `FN`, `N`, `NICKNAME`, `ORG`,
-//! `NOTE`, `EMAIL`, `TEL` et la nature de la carte (`KIND`) sont lus ; le
-//! reste (photos comprises) est ignoré sans être décodé.
+//! `NOTE`, `EMAIL`, `TEL`, la nature de la carte (`KIND`) et les libellés
+//! d'Apple (`itemN.X-ABLabel`, étiquette de l'adresse ou du téléphone du
+//! même groupe) sont lus ; le reste (photos comprises) est ignoré sans
+//! être décodé.
+
+use std::collections::HashMap;
 
 use norelly_domain::contact_import::{ImportedCard, MAX_IMPORT_CARDS};
+use norelly_domain::contact_labels::apple_label;
 use norelly_domain::contacts::{ContactInput, EmailInput, PhoneInput};
 use norelly_domain::ports::ContactCodecError;
 
@@ -71,10 +76,21 @@ fn logical_lines(text: &str) -> Vec<String> {
     lines
 }
 
-/// Propriété d'une ligne : nom (groupe retiré, en majuscules), paramètres
-/// (nom en majuscules, valeur), valeur brute.
+/// Libellés d'Apple gardés au plus par carte (groupes distincts) : un par
+/// adresse ou téléphone possible, avec de la marge pour ceux des adresses
+/// postales, dates ou sites ; au-delà, ils sont ignorés.
+const MAX_GROUP_LABELS: usize = MAX_VALUES_PER_CARD * 2;
+
+/// Longueur maximale d'un nom de groupe (`item1`), en octets ; au-delà, la
+/// propriété est lue sans groupe.
+const MAX_GROUP_BYTES: usize = 64;
+
+/// Propriété d'une ligne : groupe (`item1`, en minuscules), nom (groupe
+/// retiré, en majuscules), paramètres (nom en majuscules, valeur), valeur
+/// brute.
 #[derive(Debug)]
 struct Property<'a> {
+    group: Option<String>,
     name: String,
     params: Vec<(String, String)>,
     value: &'a str,
@@ -101,7 +117,14 @@ fn property(line: &str) -> Option<Property<'_>> {
     let (head, value) = split_line(line)?;
     let mut parts = split_unquoted(head, ';').into_iter();
     let name = parts.next()?;
-    let name = name.rsplit('.').next().unwrap_or(name).to_ascii_uppercase();
+    let (group, name) = match name.rsplit_once('.') {
+        Some((group, name)) => (
+            (group.len() <= MAX_GROUP_BYTES).then(|| group.to_ascii_lowercase()),
+            name,
+        ),
+        None => (None, name),
+    };
+    let name = name.to_ascii_uppercase();
     let mut params = Vec::new();
     for part in parts {
         match part.split_once('=') {
@@ -125,6 +148,7 @@ fn property(line: &str) -> Option<Property<'_>> {
         }
     }
     Some(Property {
+        group,
         name,
         params,
         value,
@@ -221,6 +245,14 @@ fn unescape(value: &str) -> String {
     components(value, None).concat()
 }
 
+/// Valeur d'une carte qui appartient à un groupe (`item1.TEL`), par son
+/// rang : son étiquette est le libellé Apple du groupe, s'il y en a un.
+#[derive(Debug)]
+enum Grouped {
+    Email(usize),
+    Phone(usize),
+}
+
 /// Carte en cours de lecture.
 #[derive(Debug, Default)]
 struct Card {
@@ -228,6 +260,10 @@ struct Card {
     notes: Vec<String>,
     list: bool,
     unreadable: bool,
+    /// Libellés Apple retenus, par groupe (le premier valable compte).
+    group_labels: HashMap<String, String>,
+    /// Adresses et téléphones d'un groupe.
+    grouped: Vec<(Grouped, String)>,
 }
 
 impl Card {
@@ -238,6 +274,10 @@ impl Card {
         );
         if p.name == "KIND" || p.name == "X-ADDRESSBOOKSERVER-KIND" {
             self.list |= p.value.trim().eq_ignore_ascii_case("group");
+            return;
+        }
+        if p.name == "X-ABLABEL" {
+            self.read_apple_label(p);
             return;
         }
         if !kept {
@@ -267,6 +307,10 @@ impl Card {
             "EMAIL" => {
                 let address = unescape(&value).trim().to_owned();
                 if !address.is_empty() {
+                    if let Some(group) = &p.group {
+                        self.grouped
+                            .push((Grouped::Email(input.emails.len()), group.clone()));
+                    }
                     input.emails.push(EmailInput {
                         address,
                         label: p.label(),
@@ -282,6 +326,10 @@ impl Card {
                     .filter(|scheme| scheme.eq_ignore_ascii_case("tel:"))
                     .map_or(raw, |_| &raw[4..]);
                 if !number.is_empty() {
+                    if let Some(group) = &p.group {
+                        self.grouped
+                            .push((Grouped::Phone(input.phones.len()), group.clone()));
+                    }
                     input.phones.push(PhoneInput {
                         number: number.to_owned(),
                         label: p.label(),
@@ -295,6 +343,23 @@ impl Card {
         }
     }
 
+    /// Libellé Apple d'un groupe (`item1.X-ABLabel`) : retenu s'il est
+    /// lisible et qu'une fiche peut le garder ([`apple_label`]), dans la
+    /// limite de [`MAX_GROUP_LABELS`] groupes ; sinon ignoré, sans rendre
+    /// la carte illisible (il peut viser une propriété que Norelly ne lit
+    /// pas).
+    fn read_apple_label(&mut self, p: &Property<'_>) {
+        let Some(group) = &p.group else {
+            return;
+        };
+        if self.group_labels.len() >= MAX_GROUP_LABELS || self.group_labels.contains_key(group) {
+            return;
+        }
+        if let Some(label) = p.text().and_then(|value| apple_label(&unescape(&value))) {
+            self.group_labels.insert(group.clone(), label);
+        }
+    }
+
     fn finish(self) -> ImportedCard {
         if self.unreadable {
             ImportedCard::Unreadable
@@ -303,6 +368,18 @@ impl Card {
         } else {
             let mut input = self.input;
             input.notes = self.notes.join("\n");
+            for (value, group) in &self.grouped {
+                let Some(label) = self.group_labels.get(group) else {
+                    continue;
+                };
+                let slot = match *value {
+                    Grouped::Email(i) => input.emails.get_mut(i).map(|e| &mut e.label),
+                    Grouped::Phone(i) => input.phones.get_mut(i).map(|p| &mut p.label),
+                };
+                if let Some(slot) = slot {
+                    slot.clone_from(label);
+                }
+            }
             ImportedCard::Contact(input)
         }
     }
@@ -394,6 +471,76 @@ mod tests {
         assert_eq!(c.phones[0].label, "cell");
         assert!(c.emails[0].preferred);
         assert_eq!(c.emails[0].label, "work");
+    }
+
+    #[test]
+    fn apple_labels_apply_to_the_value_of_their_group() {
+        let c = contact(
+            "BEGIN:VCARD\n\
+             Item2.X-ABLabel:bureau\n\
+             item1.TEL;type=CELL:01\n\
+             item2.TEL:02\n\
+             ITEM1.X-ABLabel:_$!<Work>!$_\n\
+             item3.EMAIL;type=HOME:a@example.com\n\
+             item3.X-ABLabel:  Chalet \\, été\n\
+             item4.X-ABLabel:orphelin\n\
+             TEL;type=HOME:03\n\
+             item5.X-ABLabel;CHARSET=UTF-8;ENCODING=QUOTED-PRINTABLE:Caf=C3=A9\n\
+             item5.TEL:04\n\
+             END:VCARD",
+        );
+        let phones: Vec<_> = c.phones.iter().map(|p| p.label.as_str()).collect();
+        assert_eq!(phones, ["work", "bureau", "home", "Café"]);
+        assert_eq!(c.emails[0].label, "Chalet , été");
+    }
+
+    #[test]
+    fn apple_labels_a_card_could_not_keep_leave_the_original_label() {
+        // Illisible, démesuré, refusé par une fiche, ou d'un groupe que
+        // Norelly ne lit pas : le libellé est ignoré, la fiche importée.
+        let c = contact(&format!(
+            "BEGIN:VCARD\n\
+             item1.EMAIL;type=HOME:a@example.com\n\
+             item1.X-ABLabel;ENCODING=QUOTED-PRINTABLE:=ZZ\n\
+             item2.TEL;type=CELL:01\n\
+             item2.X-ABLabel:Maison \u{2764}\u{FE0F}\n\
+             item3.TEL;type=WORK:02\n\
+             item3.X-ABLabel:{}\n\
+             item4.ADR:;;rue;Lyon;;;\n\
+             item4.X-ABLabel;CHARSET=UTF-8;ENCODING=QUOTED-PRINTABLE:=E9\n\
+             END:VCARD",
+            "x".repeat(MAX_FIELD_BYTES + 1)
+        ));
+        assert_eq!(c.emails[0].label, "home");
+        let phones: Vec<_> = c.phones.iter().map(|p| p.label.as_str()).collect();
+        assert_eq!(phones, ["cell", "work"]);
+    }
+
+    #[test]
+    fn apple_labels_beyond_the_bound_are_ignored() {
+        // Groupes distincts au-delà de la borne : ignorés, pas de croissance.
+        let labels: String = (0..=MAX_GROUP_LABELS)
+            .map(|i| format!("item{i}.X-ABLabel:l{i}\n"))
+            .collect();
+        let c = contact(&format!(
+            "BEGIN:VCARD\n{labels}item0.TEL:01\nitem{MAX_GROUP_LABELS}.TEL;type=CELL:02\nEND:VCARD"
+        ));
+        let phones: Vec<_> = c.phones.iter().map(|p| p.label.as_str()).collect();
+        assert_eq!(phones, ["l0", "cell"]);
+    }
+
+    #[test]
+    fn an_overlong_group_name_is_not_a_group() {
+        let group = "g".repeat(MAX_GROUP_BYTES + 1);
+        let c = contact(&format!(
+            "BEGIN:VCARD\n{group}.TEL;type=CELL:01\n{group}.X-ABLabel:bureau\nEND:VCARD"
+        ));
+        assert_eq!(c.phones[0].label, "cell");
+        let group = "g".repeat(MAX_GROUP_BYTES);
+        let c = contact(&format!(
+            "BEGIN:VCARD\n{group}.TEL;type=CELL:01\n{group}.X-ABLabel:bureau\nEND:VCARD"
+        ));
+        assert_eq!(c.phones[0].label, "bureau");
     }
 
     #[test]

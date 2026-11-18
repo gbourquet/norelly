@@ -52,6 +52,13 @@ l'ordinateur** : rien n'est envoyé à un serveur.
   contact. **Ajouter une adresse** et **Ajouter un téléphone** ajoutent une
   ligne ; la corbeille d'une ligne la retire. La dernière adresse ne peut
   pas être retirée ; retirer l'adresse préférée rend la première préférée.
+- Les étiquettes courantes (travail, domicile, mobile, fax, bipeur,
+  principal, autre) sont reconnues en anglais comme en français, sans
+  tenir compte des majuscules, et s'affichent dans la langue de
+  l'interface, sur la fiche comme dans la fenêtre de modification. Une
+  étiquette inconnue s'affiche telle quelle. Le texte enregistré ne change
+  pas tant que l'étiquette n'est pas modifiée : enregistrer la fiche sans
+  y toucher le garde.
 - Les lignes laissées vides ne sont pas enregistrées. **Enregistrer** reste
   grisé tant qu'aucune adresse n'est saisie ; pendant l'enregistrement, il
   indique « Enregistrement… » et la fenêtre ne peut pas être fermée.
@@ -258,6 +265,10 @@ l'ordinateur** : rien n'est envoyé à un serveur.
   français, virgules ou points-virgules) et de Thunderbird, LDIF de
   Thunderbird. Le format est reconnu au contenu, pas au nom du fichier ;
   les accents sont gardés quel que soit l'encodage de l'export.
+- Les étiquettes des adresses et des téléphones sont reprises, y compris
+  les étiquettes personnelles des Contacts d'Apple ; les étiquettes
+  prédéfinies d'Apple deviennent les étiquettes courantes
+  correspondantes.
 - Rien n'est écrit avant confirmation. Une fenêtre résume d'abord ce que
   l'import va faire : le fichier et son format, le nombre de nouveaux
   contacts, de fiches déjà dans le carnet, de fiches impossibles à

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { ContactCursorDto, ContactDto, ContactFieldsDto, ContactItem } from "./ipc/api";
 import { IpcFailure } from "./errors";
+import { setLocale } from "./paraglide/runtime.js";
 import {
   CONTACT_PAGE,
   ContactFormState,
@@ -388,6 +389,56 @@ describe("formulaire d'un contact", () => {
     expect(f.id).toBe(4);
     f.fields.display_name = "Autre";
     expect(source.fields.display_name).toBe("Alice");
+  });
+
+  it("montre traduites les étiquettes reconnues, et renvoie le texte enregistré s'il n'est pas modifié", async () => {
+    const source = contact(4, "Alice");
+    source.fields.emails = [
+      { address: "a@example.com", label: "work", label_kind: "work", preferred: true },
+      { address: "b@example.com", label: "home", label_kind: "home", preferred: false },
+    ];
+    source.fields.phones = [
+      { number: "01", label: "cell", label_kind: "mobile" },
+      { number: "02", label: "bureau", label_kind: null },
+    ];
+    const api = fakeApi([source]);
+    const f = new ContactFormState(api);
+    f.reset(source);
+    expect(f.fields.emails.map((e) => e.label)).toEqual(["Travail", "Domicile"]);
+    expect(f.fields.phones.map((p) => p.label)).toEqual(["Mobile", "bureau"]);
+    at(f.fields.emails, 1).label = "Maison";
+    await f.submit();
+    const sent = vi.mocked(api.updateContact).mock.lastCall?.[1];
+    expect(sent?.emails).toEqual([
+      { address: "a@example.com", label: "work", preferred: true },
+      { address: "b@example.com", label: "Maison", preferred: false },
+    ]);
+    expect(sent?.phones).toEqual([
+      { number: "01", label: "cell" },
+      { number: "02", label: "bureau" },
+    ]);
+    expect(source.fields.emails[0]?.label).toBe("work");
+  });
+
+  it("garde le texte enregistré d'une étiquette non modifiée si la langue change", async () => {
+    const source = contact(4, "Alice");
+    source.fields.phones = [{ number: "01", label: "cell", label_kind: "mobile" }];
+    source.fields.emails = [
+      { address: "a@example.com", label: "work", label_kind: "work", preferred: true },
+    ];
+    const api = fakeApi([source]);
+    const f = new ContactFormState(api);
+    try {
+      setLocale("fr", { reload: false });
+      f.reset(source);
+      setLocale("en", { reload: false });
+      await f.submit();
+    } finally {
+      setLocale("fr", { reload: false });
+    }
+    const sent = vi.mocked(api.updateContact).mock.lastCall?.[1];
+    expect(sent?.emails.map((e) => e.label)).toEqual(["work"]);
+    expect(sent?.phones.map((p) => p.label)).toEqual(["cell"]);
   });
 
   it("pré-remplit un nouveau contact avec le nom et l'adresse d'un correspondant", () => {

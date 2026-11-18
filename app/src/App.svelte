@@ -97,6 +97,13 @@
     let disposed = false;
     void settings.load();
     void updates.load().catch(() => undefined);
+    // Carnet distant relié : synchronisé au lancement, liste relue s'il a
+    // apporté des changements.
+    void carddav.background().then((report) => {
+      if (report === null || report.pulled === 0) return;
+      void contacts.load();
+      if (app.view === "mail") void mail.reload();
+    });
     void (async () => {
       // Comptes et première liste en parallèle : la boîte unifiée ne
       // dépend pas de la liste des comptes (démarrage plus court).

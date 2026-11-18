@@ -38,7 +38,7 @@ fn inputs_are_revalidated() {
 #[test]
 fn only_a_proposed_book_can_be_connected() {
     let services = CardDavServices::new(
-        AppCardDavClient::Unavailable("tests".into()),
+        Err("tests".into()),
         SqliteCardDavStore::new(
             norelly_sqlite::Database::open_in_memory().unwrap_or_else(|e| panic!("{e}")),
         ),

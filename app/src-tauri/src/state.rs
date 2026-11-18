@@ -29,7 +29,7 @@ use norelly_sqlite::contacts::SqliteContactBook;
 use norelly_sqlite::{Database, SqliteAccountRepository, SqliteCertificateExceptionStore};
 use norelly_tls::TlsClientFactory;
 
-use crate::carddav::{AppCardDavClient, CardDavServices};
+use crate::carddav::CardDavServices;
 use crate::contact_import::PendingImport;
 use crate::mail::MailServices;
 use crate::remote_images::RemoteImageProxy;
@@ -392,10 +392,7 @@ impl AppState {
             open_dir,
         );
         let carddav = CardDavServices::new(
-            match norelly_webdav::WebDavClient::new(&tls) {
-                Ok(c) => AppCardDavClient::Https(c),
-                Err(e) => AppCardDavClient::Unavailable(e.to_string()),
-            },
+            norelly_webdav::WebDavClient::new(&tls).map_err(|e| e.to_string()),
             norelly_sqlite::carddav::SqliteCardDavStore::new(db.clone()),
         );
         Ok(Self {

@@ -731,8 +731,8 @@ mod tests {
          VALUES (1, 10, 1, 2, 3, NULL);",
     ];
 
-    /// Montée vers la version 24 : les fiches existantes sont datées de la
-    /// migration ; une écriture redate la fiche ; supprimer un contact
+    /// Montée vers la version 24 : les fiches existantes ne sont pas
+    /// datées ; une écriture date la fiche ; supprimer un contact
     /// relié date la suppression de sa ressource.
     #[test]
     fn upgrading_to_v24_dates_contacts_and_deletions() -> Result<(), StoreError> {
@@ -748,14 +748,17 @@ mod tests {
         m.to_version(&mut conn, 24)
             .map_err(|e| StoreError(e.to_string()))?;
         conn.execute_batch(FIXTURES[23]).map_err(store_error)?;
-        let undated: i64 = conn
+        // Date inconnue des fiches existantes : 0, plus ancienne que toute
+        // fiche d'un serveur (elles ne l'emportent pas à la première
+        // synchronisation).
+        let dated: i64 = conn
             .query_row(
-                "SELECT COUNT(*) FROM contacts WHERE modified_at < 1700000000",
+                "SELECT COUNT(*) FROM contacts WHERE modified_at <> 0",
                 [],
                 |r| r.get(0),
             )
             .map_err(store_error)?;
-        assert_eq!(undated, 0, "fiche existante sans date");
+        assert_eq!(dated, 0, "fiche existante datée");
         conn.execute_batch(
             "UPDATE contacts SET modified_at = 5 WHERE id = 1; \
              UPDATE contacts SET notes = 'note' WHERE id = 1;",

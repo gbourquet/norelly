@@ -14,13 +14,11 @@ use norelly_application::carddav::{
     SyncError,
 };
 use norelly_domain::carddav::{
-    AddressBook, CardDavAccount, DavAccountError, DavCredentials, DavUrl, DavUsername,
+    AddressBook, CardDavAccount, DavCredentials, DavUrl, DavUsername,
     SyncFailure, SyncReport, validate_password,
 };
 use norelly_domain::credentials::Secret;
-use norelly_domain::ports::{
-    CardDavClient, CardDavError, CardDavStore, CardDavSyncRecord, StoreError,
-};
+use norelly_domain::ports::{CardDavError, CardDavStore, CardDavSyncRecord, StoreError};
 use norelly_sqlite::carddav::SqliteCardDavStore;
 use norelly_webdav::WebDavClient;
 use tauri::State;
@@ -35,105 +33,14 @@ use crate::state::AppState;
 /// retenues.
 const MAX_REMEMBERED_SEARCHES: usize = 4;
 
-/// Client CardDAV, ou la raison de son absence (TLS indisponible).
-#[derive(Debug)]
-pub enum AppCardDavClient {
-    Https(WebDavClient),
-    Unavailable(String),
-}
-
-impl CardDavClient for AppCardDavClient {
-    async fn address_books(
-        &self,
-        server: &DavUrl,
-        credentials: &DavCredentials,
-    ) -> Result<Vec<AddressBook>, CardDavError> {
-        match self {
-            Self::Https(c) => c.address_books(server, credentials).await,
-            Self::Unavailable(e) => Err(CardDavError::Network(e.clone())),
-        }
-    }
-
-    async fn entries(
-        &self,
-        book: &DavUrl,
-        credentials: &DavCredentials,
-    ) -> Result<Vec<norelly_domain::carddav::RemoteEntry>, CardDavError> {
-        match self {
-            Self::Https(c) => c.entries(book, credentials).await,
-            Self::Unavailable(e) => Err(CardDavError::Network(e.clone())),
-        }
-    }
-
-    async fn cards(
-        &self,
-        book: &DavUrl,
-        credentials: &DavCredentials,
-        hrefs: &[norelly_domain::carddav::Href],
-    ) -> Result<Vec<norelly_domain::carddav::RemoteCard>, CardDavError> {
-        match self {
-            Self::Https(c) => c.cards(book, credentials, hrefs).await,
-            Self::Unavailable(e) => Err(CardDavError::Network(e.clone())),
-        }
-    }
-
-    async fn create(
-        &self,
-        book: &DavUrl,
-        credentials: &DavCredentials,
-        href: &norelly_domain::carddav::Href,
-        card: &str,
-    ) -> Result<Option<norelly_domain::carddav::ETag>, CardDavError> {
-        match self {
-            Self::Https(c) => c.create(book, credentials, href, card).await,
-            Self::Unavailable(e) => Err(CardDavError::Network(e.clone())),
-        }
-    }
-
-    async fn update(
-        &self,
-        book: &DavUrl,
-        credentials: &DavCredentials,
-        href: &norelly_domain::carddav::Href,
-        etag: &norelly_domain::carddav::ETag,
-        card: &str,
-    ) -> Result<Option<norelly_domain::carddav::ETag>, CardDavError> {
-        match self {
-            Self::Https(c) => c.update(book, credentials, href, etag, card).await,
-            Self::Unavailable(e) => Err(CardDavError::Network(e.clone())),
-        }
-    }
-
-    async fn delete(
-        &self,
-        book: &DavUrl,
-        credentials: &DavCredentials,
-        href: &norelly_domain::carddav::Href,
-        etag: &norelly_domain::carddav::ETag,
-    ) -> Result<(), CardDavError> {
-        match self {
-            Self::Https(c) => c.delete(book, credentials, href, etag).await,
-            Self::Unavailable(e) => Err(CardDavError::Network(e.clone())),
-        }
-    }
-
-    fn new_uid(&self) -> norelly_domain::carddav::CardUid {
-        match self {
-            Self::Https(c) => c.new_uid(),
-            // Jamais appelé sans client (la synchronisation échoue avant).
-            Self::Unavailable(_) => norelly_domain::carddav::CardUid::parse("indisponible")
-                .unwrap_or_else(|| unreachable!("UID constant")),
-        }
-    }
-}
-
 /// Recherche retenue : (serveur, identifiant) et carnets proposés.
 type Search = ((String, String), Vec<AddressBook>);
 
 /// Services CardDAV de l'application.
 #[derive(Debug)]
 pub struct CardDavServices {
-    pub client: AppCardDavClient,
+    /// Client HTTPS, ou la raison de son absence (TLS indisponible).
+    client: Result<WebDavClient, String>,
     pub store: SqliteCardDavStore,
     /// Une synchronisation à la fois.
     syncing: tokio::sync::Mutex<()>,
@@ -143,13 +50,19 @@ pub struct CardDavServices {
 
 impl CardDavServices {
     #[must_use]
-    pub fn new(client: AppCardDavClient, store: SqliteCardDavStore) -> Self {
+    pub fn new(client: Result<WebDavClient, String>, store: SqliteCardDavStore) -> Self {
         Self {
             client,
             store,
             syncing: tokio::sync::Mutex::new(()),
             searches: Mutex::new(Vec::new()),
         }
+    }
+
+    fn client(&self) -> Result<&WebDavClient, CardDavError> {
+        self.client
+            .as_ref()
+            .map_err(|e| CardDavError::Network(e.clone()))
     }
 
     fn remember(&self, server: &DavUrl, username: &DavUsername, books: &[AddressBook]) {
@@ -181,12 +94,8 @@ pub(crate) fn server_of(raw: &str) -> Result<DavUrl, IpcError> {
 
 /// Identifiants revalidés.
 pub(crate) fn credentials_of(username: &str, password: String) -> Result<DavCredentials, IpcError> {
-    let username = DavUsername::parse(username.trim()).map_err(|e| match e {
-        DavAccountError::UsernameColon | DavAccountError::Username(_) => {
-            IpcError::invalid(FieldDto::Username)
-        }
-        _ => IpcError::invalid(FieldDto::Username),
-    })?;
+    let username =
+        DavUsername::parse(username.trim()).map_err(|_| IpcError::invalid(FieldDto::Username))?;
     let password = Secret::new(password);
     validate_password(&password).map_err(|_| IpcError::invalid(FieldDto::Password))?;
     Ok(DavCredentials { username, password })
@@ -306,9 +215,12 @@ async fn status(state: &AppState) -> Result<CardDavStatusDto, StoreError> {
 pub(crate) async fn sync_now(state: &AppState) -> Option<Result<SyncReport, SyncError>> {
     let carddav = &state.carddav;
     let _guard = carddav.syncing.try_lock().ok()?;
+    let Ok(client) = carddav.client() else {
+        return Some(Err(SyncError::Failed(SyncFailure::Network)));
+    };
     Some(
         SyncCardDav {
-            client: &carddav.client,
+            client,
             store: &carddav.store,
             book: &state.contacts,
             secrets: &state.secrets,
@@ -333,7 +245,7 @@ pub async fn find_carddav_books(
     let server = server_of(&server)?;
     let credentials = credentials_of(&username, password)?;
     let books = DiscoverAddressBooks {
-        client: &state.carddav.client,
+        client: state.carddav.client().map_err(remote_error)?,
     }
     .execute(&server, &credentials)
     .await
@@ -363,6 +275,13 @@ pub async fn connect_carddav(
 ) -> Result<CardDavStatusDto, IpcError> {
     let server = server_of(&server)?;
     let credentials = credentials_of(&username, password)?;
+    // Pas pendant une synchronisation : elle écrirait les ressources de
+    // l'ancien carnet sur l'état du nouveau.
+    let guard = state
+        .carddav
+        .syncing
+        .try_lock()
+        .map_err(|_| IpcError::new(ErrorCodeDto::CardDavSyncBusy))?;
     let book = state
         .carddav
         .proposed(&server, &credentials.username, &book_url)
@@ -376,6 +295,7 @@ pub async fn connect_carddav(
     .execute(&account, &credentials.password)
     .await
     .map_err(setup_error)?;
+    drop(guard);
     status(&state).await.map_err(IpcError::storage)
 }
 

@@ -136,6 +136,23 @@ describe("synchronisation CardDAV", () => {
     expect(state.connected).toBe(false);
   });
 
+  it("au lancement : synchronise un carnet relié, en silence", async () => {
+    const api = fakeApi(linked);
+    const state = new CardDavState(api);
+    expect(await state.background()).toEqual({ pulled: 2, pushed: 1, skipped: 0 });
+    expect(state.status).toEqual(synced);
+    // Aucun carnet relié : rien n'est demandé au serveur.
+    const idle = fakeApi();
+    expect(await new CardDavState(idle).background()).toBeNull();
+    expect(idle.syncCarddav).not.toHaveBeenCalled();
+    // Échec : rien d'affiché (il est enregistré, visible dans la fenêtre).
+    const failing = fakeApi(linked);
+    failing.syncCarddav.mockRejectedValueOnce(new IpcFailure("card_dav_unreachable"));
+    const quiet = new CardDavState(failing);
+    expect(await quiet.background()).toBeNull();
+    expect(quiet.error).toBeNull();
+  });
+
   it("fermée : le mot de passe saisi est oublié", async () => {
     const state = new CardDavState(fakeApi());
     await state.open();

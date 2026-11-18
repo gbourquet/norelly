@@ -17,7 +17,7 @@ use norelly_domain::carddav::{
 use norelly_domain::contact_export::{
     ContactSelection, ExportFormat, MAX_EXPORT_CONTACTS, export_card,
 };
-use norelly_domain::contact_import::ContactCompletion;
+use norelly_domain::contact_import::{ContactCompletion, import_keys};
 use norelly_domain::contacts::{Contact, ContactDraft};
 use norelly_domain::credentials::Secret;
 use norelly_domain::ports::{
@@ -161,7 +161,8 @@ fn rank(action: &SyncAction) -> u8 {
         SyncAction::Link { .. }
         | SyncAction::Refresh { .. }
         | SyncAction::Ignore { .. }
-        | SyncAction::Forget { .. } => 3,
+        | SyncAction::Forget { .. }
+        | SyncAction::Defer { .. } => 3,
         SyncAction::PushUpdate { .. } => 4,
         SyncAction::PushCreate { .. } => 5,
         SyncAction::DeleteRemote { .. } => 6,
@@ -169,10 +170,15 @@ fn rank(action: &SyncAction) -> u8 {
 }
 
 /// Erreur du serveur pendant une écriture : une fiche changée ou
-/// disparue entre-temps est remise à plus tard, le reste arrête tout.
+/// disparue entre-temps, ou une écriture refusée (carnet en lecture
+/// seule : 403, 405…) est remise à plus tard ; le reste arrête tout. Les
+/// identifiants, eux, ont été acceptés par la lecture du carnet.
 fn remote_step(error: CardDavError) -> Result<Step, SyncFailure> {
     match error {
-        CardDavError::PreconditionFailed | CardDavError::NotFound => Ok(Step::Skipped),
+        CardDavError::PreconditionFailed
+        | CardDavError::NotFound
+        | CardDavError::Unauthorized => Ok(Step::Skipped),
+        CardDavError::Server(code) if (400..500).contains(&code) => Ok(Step::Skipped),
         other => Err(failure_of(&other)),
     }
 }
@@ -309,11 +315,14 @@ where
                 .await
                 .map_err(|e| failure_of(&e))?;
             for card in cards {
-                let draft = self
-                    .codec
-                    .decode(card.data.as_bytes())
-                    .ok()
-                    .and_then(|decoded| remote_draft(&decoded, self.normalizer));
+                let decoded = self.codec.decode(card.data.as_bytes()).ok();
+                let draft = decoded
+                    .as_ref()
+                    .and_then(|decoded| remote_draft(decoded, self.normalizer));
+                let keys = decoded
+                    .as_ref()
+                    .map(|decoded| import_keys(&decoded.cards))
+                    .unwrap_or_default();
                 fetched.push(FetchedCard {
                     entry: RemoteEntry {
                         href: card.href,
@@ -321,6 +330,7 @@ where
                     },
                     raw: card.data,
                     draft,
+                    keys,
                 });
             }
         }
@@ -376,8 +386,17 @@ where
                 if let Err(e) = self.book.import(&[], &[completion]).await {
                     return local_step(e);
                 }
-                self.link_to(card, &draft.clone().with_id(contact.id()))
+                // Fiche relue telle qu'enregistrée : c'est elle que la
+                // synchronisation suivante comparera.
+                let Some(written) = self
+                    .book
+                    .get(contact.id())
                     .await
+                    .map_err(|_| SyncFailure::Storage)?
+                else {
+                    return Ok(Step::Skipped);
+                };
+                self.link_to(card, &written).await
             }
             SyncAction::Link { card, contact } | SyncAction::Refresh { card, contact } => {
                 self.link_to(card, contact).await
@@ -392,6 +411,7 @@ where
                 })
                 .await
             }
+            SyncAction::Defer { .. } => Ok(Step::Done),
             SyncAction::Forget { href } => {
                 self.store
                     .forget_link(href)

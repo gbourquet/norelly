@@ -845,9 +845,14 @@ est majoritairement écrit par Claude et relu par le mainteneur.
     sont pas utilisés : l'ETag est le seul mécanisme que tous les serveurs
     offrent, et la liste reste bornée ;
   - **écritures conditionnelles** : création `If-None-Match: *`,
-    modification et suppression `If-Match` : une fiche changée sur le
+    modification et suppression `If-Match` (partie opaque d'une ETag
+    faible, `If-Match` comparant fortement) : une fiche changée sur le
     serveur entre la lecture et l'écriture n'est jamais écrasée, elle est
-    revue à la synchronisation suivante ;
+    revue à la synchronisation suivante. Une écriture refusée (carnet en
+    lecture seule : 403, 405…) est comptée « laissée de côté » sans
+    arrêter la synchronisation ; une fiche changée que le serveur ne
+    renvoie pas (plus de 1 Mio) est remise à plus tard si elle est reliée,
+    laissée de côté sinon ;
   - **fiche du serveur complétée** : une modification faite dans Norelly
     remplace, dans la vCard du serveur, les seules propriétés que le carnet
     connaît (`FN`, `N`, `NICKNAME`, `ORG`, `EMAIL`, `TEL`, `NOTE`, avec
@@ -878,13 +883,17 @@ est majoritairement écrit par Claude et relu par le mainteneur.
     fiche de 1 Mio, réponse de découverte de 1 Mio, 100 carnets,
     profondeur XML de 32, DTD refusée (aucune entité externe ni expansion
     d'entités), délais de 10 s à la connexion et 120 s par requête ;
-  - **quand** : à l'ouverture de l'application et à la demande
-    (« Synchroniser maintenant »), une synchronisation à la fois. Pas de
-    synchronisation périodique pour l'instant.
+  - **quand** : à l'ouverture de l'application (demandée par l'interface,
+    qui relit alors la liste des contacts) et à la demande (« Synchroniser
+    maintenant »), une synchronisation à la fois ; relier un autre carnet
+    attend la fin d'une synchronisation en cours. Pas de synchronisation
+    périodique pour l'instant.
 - **Conséquences** :
   - une migration (24) : date de modification des contacts et de
     suppression d'un contact relié posées par déclencheurs, quel que soit
-    le chemin d'écriture ; compte, ressources connues (ETag, fiche locale
+    le chemin d'écriture ; les fiches d'avant la migration, de date
+    inconnue, valent 0 : à la première synchronisation, la fiche du
+    serveur l'emporte sur elles ; compte, ressources connues (ETag, fiche locale
     et fiche distante à la dernière synchronisation), dernière
     synchronisation ;
   - un serveur dont le carnet est sur un autre hôte que l'adresse saisie

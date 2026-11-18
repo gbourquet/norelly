@@ -5,7 +5,9 @@
 --   d'écriture (saisie, import, fusion, synchronisation) : toute écriture
 --   réécrit la ligne de contacts (norelly_sqlite::contacts::write). Elle
 --   départage un conflit (la dernière modification gagne). Les fiches
---   existantes prennent la date de la migration.
+--   existantes, de date inconnue, valent 0 : plus anciennes que toute
+--   fiche d'un serveur, elles ne l'emportent pas à la première
+--   synchronisation.
 -- - carddav_account : le compte CardDAV, un seul (id = 1) : serveur,
 --   identifiant, carnet choisi. Le mot de passe est dans le trousseau,
 --   jamais ici.
@@ -21,7 +23,6 @@
 --   code d'échec.
 
 ALTER TABLE contacts ADD COLUMN modified_at INTEGER NOT NULL DEFAULT 0;
-UPDATE contacts SET modified_at = unixepoch();
 
 CREATE TRIGGER contacts_modified_on_insert AFTER INSERT ON contacts
 BEGIN

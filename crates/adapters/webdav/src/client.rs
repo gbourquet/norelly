@@ -90,6 +90,14 @@ fn transport_error(error: reqwest::Error) -> CardDavError {
     }
 }
 
+/// Valeur d'`If-Match` pour `etag`. `If-Match` compare fortement : une
+/// ETag faible (`W/"…"`, donnée par certains serveurs ou mandataires) ne
+/// correspondrait jamais, sa partie opaque est envoyée.
+fn if_match(etag: &ETag) -> &str {
+    let raw = etag.as_str();
+    raw.strip_prefix("W/").unwrap_or(raw)
+}
+
 /// Erreur d'une réponse hors succès.
 fn status_error(status: StatusCode) -> CardDavError {
     match status.as_u16() {
@@ -470,7 +478,7 @@ impl CardDavClient for WebDavClient {
         etag: &ETag,
         card: &str,
     ) -> Result<Option<ETag>, CardDavError> {
-        self.put(book, credentials, href, ("If-Match", etag.as_str()), card)
+        self.put(book, credentials, href, ("If-Match", if_match(etag)), card)
             .await
     }
 
@@ -486,7 +494,7 @@ impl CardDavClient for WebDavClient {
                 "DELETE",
                 &book.at(href),
                 credentials,
-                &[("If-Match", etag.as_str())],
+                &[("If-Match", if_match(etag))],
                 None,
                 MAX_DISCOVERY_RESPONSE_BYTES,
             )
@@ -549,6 +557,15 @@ mod tests {
             status_error(StatusCode::BAD_GATEWAY),
             CardDavError::Server(502)
         );
+    }
+
+    #[test]
+    fn conditions_use_the_opaque_tag() {
+        let tag = |raw: &str| ETag::parse(raw).unwrap_or_else(|| panic!("{raw}"));
+        assert_eq!(if_match(&tag("\"abc\"")), "\"abc\"");
+        // `If-Match` compare fortement : une ETag faible ne correspondrait
+        // jamais.
+        assert_eq!(if_match(&tag("W/\"abc\"")), "\"abc\"");
     }
 
     #[test]

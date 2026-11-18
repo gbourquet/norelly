@@ -81,6 +81,10 @@ fn fetched(path: &str, tag: &str, card: Option<ContactDraft>, rev: Option<&str>)
     FetchedCard {
         entry: entry(path, tag),
         raw,
+        keys: card
+            .iter()
+            .flat_map(|d| d.emails().iter().map(|e| e.key().clone()))
+            .collect(),
         draft: card,
     }
 }
@@ -717,8 +721,38 @@ fn ignored_resources_are_reconsidered_when_they_change() {
 
 #[test]
 fn a_resource_not_returned_by_the_server_is_left_for_later() {
+    // Nouvelle : laissée de côté jusqu'à son prochain changement (elle
+    // n'est plus redemandée à chaque synchronisation).
     let plan = plan_sync(&[], &[], &[entry("/c/a.vcf", "1")], &[], 100);
-    assert!(plan.is_empty());
+    assert_eq!(kinds(&plan), ["ignore"]);
+    // Reliée : remise à plus tard, sans rien écrire ni la délier.
+    let links = [link("/c/a.vcf", "1", linked(1), "ancien")];
+    let plan = plan_sync(
+        &links,
+        &[local(1, "Alice", "alice@example.com", 10)],
+        &[entry("/c/a.vcf", "2")],
+        &[],
+        100,
+    );
+    assert_eq!(kinds(&plan), ["defer"]);
+}
+
+#[test]
+fn an_unreadable_remote_card_keeps_its_addresses() {
+    // Fiche distante illisible qui porte l'adresse d'un contact non relié :
+    // le contact n'est pas envoyé en double.
+    let mut card = fetched("/c/bob.vcf", "1", None, None);
+    card.keys = vec![
+        crate::contacts::AddressKey::parse("BOB@example.com").unwrap_or_else(|e| panic!("{e}")),
+    ];
+    let plan = plan_sync(
+        &[],
+        &[local(2, "Bob", "bob@example.com", 10)],
+        &[entry("/c/bob.vcf", "1")],
+        &[card],
+        100,
+    );
+    assert_eq!(kinds(&plan), ["ignore"]);
 }
 
 #[test]

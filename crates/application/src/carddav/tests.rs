@@ -411,3 +411,41 @@ async fn discovery_lists_the_books_of_the_account() {
     assert_eq!(books.len(), 1);
     assert_eq!(books[0].url().path(), w.client.book_path());
 }
+
+#[tokio::test]
+async fn a_read_only_book_still_brings_its_cards() {
+    world!(w);
+    w.configure().await;
+    w.book
+        .create(&sample_contact("Alice", &["alice@example.com"]))
+        .await
+        .unwrap_or_else(|e| panic!("{e}"));
+    w.put_remote("bob.vcf", &sample_card("bob", "Bob", "bob@example.com"));
+    *w.client
+        .read_only
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner) = true;
+    // Écriture refusée (403) : remise à plus tard, la synchronisation
+    // continue et rapporte la fiche laissée de côté.
+    let report = w.run(100).await.unwrap_or_else(|e| panic!("{e:?}"));
+    assert_eq!((report.pulled, report.pushed, report.skipped), (1, 0, 1));
+    assert_eq!(names(&w.local().await), ["Alice", "Bob"]);
+}
+
+#[tokio::test]
+async fn an_unreadable_remote_card_is_not_duplicated_by_a_local_contact() {
+    world!(w);
+    w.configure().await;
+    w.book
+        .create(&sample_contact("Bob", &["bob@example.com"]))
+        .await
+        .unwrap_or_else(|e| panic!("{e}"));
+    // Nom fait d'un caractère invisible : refusée à la reprise.
+    w.put_remote(
+        "bob.vcf",
+        "BEGIN:VCARD\r\nVERSION:3.0\r\nUID:bob\r\nFN:B\u{200B}ob\r\nEMAIL:bob@example.com\r\nEND:VCARD\r\n",
+    );
+    let report = w.run(100).await.unwrap_or_else(|e| panic!("{e:?}"));
+    assert_eq!(report.pushed, 0, "{report:?}");
+    assert_eq!(w.remote().len(), 1, "doublon envoyé sur le serveur");
+}

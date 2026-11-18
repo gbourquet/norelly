@@ -917,6 +917,8 @@ pub struct FetchedCard {
     pub raw: String,
     /// `None` : fiche que le carnet ne peut pas reprendre.
     pub draft: Option<ContactDraft>,
+    /// Adresses lues dans la fiche, même si elle ne peut pas être reprise.
+    pub keys: Vec<AddressKey>,
 }
 
 /// Contact du carnet.
@@ -964,6 +966,10 @@ pub enum SyncAction {
     DeleteRemote { href: Href, etag: ETag },
     /// Ressource disparue, ou dont le contact est recréé : oubliée.
     Forget { href: Href },
+    /// Fiche reliée changée que le serveur n'a pas renvoyée (trop grosse,
+    /// disparue entre-temps) : rien n'est écrit, elle est revue la
+    /// prochaine fois.
+    Defer { href: Href },
 }
 
 impl SyncAction {
@@ -981,6 +987,7 @@ impl SyncAction {
             Self::PushUpdate { .. } => "push-update",
             Self::DeleteRemote { .. } => "delete-remote",
             Self::Forget { .. } => "forget",
+            Self::Defer { .. } => "defer",
         }
     }
 }
@@ -1013,8 +1020,11 @@ pub fn hrefs_to_fetch(links: &[SyncLink], remote: &[RemoteEntry]) -> Vec<Href> {
 ///   autre fiche reprise, ou fiche que le carnet ne peut pas reprendre :
 ///   ignorée.
 /// - Le favori, absent des vCard, reste celui du carnet.
-/// - Une ressource changée que le serveur n'a pas renvoyée est remise à
-///   la prochaine synchronisation.
+/// - Une ressource changée que le serveur n'a pas renvoyée (trop grosse,
+///   disparue entre-temps) : reliée, elle est remise à plus tard ;
+///   nouvelle, elle est laissée de côté jusqu'à son prochain changement.
+/// - Une fiche distante illisible garde ses adresses ([`FetchedCard::keys`]) :
+///   un contact non relié qui les porte n'est pas envoyé en double.
 #[must_use]
 pub fn plan_sync(
     links: &[SyncLink],
@@ -1125,8 +1135,8 @@ impl<'a> Planner<'a> {
         let link = self.links.get(&entry.href).copied();
         let changed = link.is_none_or(|l| l.etag != entry.etag);
         let card = if changed {
-            // Pas renvoyée par le serveur : remise à plus tard.
             let Some(card) = self.fetched.get(&entry.href).copied() else {
+                self.not_returned(link, entry);
                 return;
             };
             Some(card)
@@ -1146,6 +1156,26 @@ impl<'a> Planner<'a> {
             (None, Some(card)) => self.new_remote(card),
             (None, None) => {}
         }
+    }
+
+    /// Ressource changée que le serveur n'a pas renvoyée (trop grosse,
+    /// disparue entre-temps) : reliée, elle est remise à plus tard ;
+    /// nouvelle, elle est laissée de côté jusqu'à son prochain changement.
+    fn not_returned(&mut self, link: Option<&SyncLink>, entry: &RemoteEntry) {
+        let action = match link.map(|l| l.state) {
+            Some(LinkState::Linked(_) | LinkState::Deleted { .. }) => SyncAction::Defer {
+                href: entry.href.clone(),
+            },
+            Some(LinkState::Ignored) | None => SyncAction::Ignore {
+                card: FetchedCard {
+                    entry: entry.clone(),
+                    raw: String::new(),
+                    draft: None,
+                    keys: Vec::new(),
+                },
+            },
+        };
+        self.actions.push(action);
     }
 
     /// Ressource inchangée sur le serveur.
@@ -1211,6 +1241,14 @@ impl<'a> Planner<'a> {
     /// Fiche distante qu'aucun contact ne reflète encore.
     fn new_remote(&mut self, card: &FetchedCard) {
         let Some(draft) = &card.draft else {
+            // Ses adresses restent les siennes : un contact non relié qui
+            // les porte n'est pas envoyé en double sur le serveur.
+            for key in &card.keys {
+                if let Some(id) = self.unlinked.get(key).copied() {
+                    self.taken.insert(id);
+                }
+                self.claimed.insert(key.clone());
+            }
             self.actions.push(SyncAction::Ignore { card: card.clone() });
             return;
         };
@@ -1323,7 +1361,7 @@ impl SyncReport {
             SyncAction::PushCreate { .. }
             | SyncAction::PushUpdate { .. }
             | SyncAction::DeleteRemote { .. } => self.pushed += 1,
-            SyncAction::Ignore { .. } => self.skipped += 1,
+            SyncAction::Ignore { .. } | SyncAction::Defer { .. } => self.skipped += 1,
             SyncAction::Link { .. } | SyncAction::Refresh { .. } | SyncAction::Forget { .. } => {}
         }
     }

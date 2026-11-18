@@ -68,6 +68,8 @@ pub struct FakeCardDavClient {
     uids: AtomicU64,
     /// Erreur imposée à toute requête (serveur injoignable…).
     pub failure: Mutex<Option<CardDavError>>,
+    /// Écritures refusées (carnet en lecture seule : 403).
+    pub read_only: Mutex<bool>,
 }
 
 impl FakeCardDavClient {
@@ -80,6 +82,7 @@ impl FakeCardDavClient {
             book_path: format!("/dav/books/{user}/contacts/"),
             uids: AtomicU64::new(0),
             failure: Mutex::new(None),
+            read_only: Mutex::new(false),
         }
     }
 
@@ -99,6 +102,14 @@ impl FakeCardDavClient {
             Ok(())
         } else {
             Err(CardDavError::Unauthorized)
+        }
+    }
+
+    fn writable(&self) -> Result<(), CardDavError> {
+        if *lock(&self.read_only) {
+            Err(CardDavError::Unauthorized)
+        } else {
+            Ok(())
         }
     }
 
@@ -185,6 +196,7 @@ impl CardDavClient for FakeCardDavClient {
     ) -> Result<Option<ETag>, CardDavError> {
         self.check(credentials)?;
         self.in_book(book)?;
+        self.writable()?;
         let tag = lock(&self.model)
             .put_if(href.as_str(), None, card)
             .map_err(model_error)?;
@@ -201,6 +213,7 @@ impl CardDavClient for FakeCardDavClient {
     ) -> Result<Option<ETag>, CardDavError> {
         self.check(credentials)?;
         self.in_book(book)?;
+        self.writable()?;
         let tag = lock(&self.model)
             .put_if(href.as_str(), Some(expected.as_str()), card)
             .map_err(model_error)?;
@@ -216,6 +229,7 @@ impl CardDavClient for FakeCardDavClient {
     ) -> Result<(), CardDavError> {
         self.check(credentials)?;
         self.in_book(book)?;
+        self.writable()?;
         match lock(&self.model).delete_if(href.as_str(), expected.as_str()) {
             Ok(()) | Err(ModelError::NotFound) => Ok(()),
             Err(e) => Err(model_error(e)),

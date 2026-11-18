@@ -230,17 +230,6 @@ pub fn run() {
                     Err(e) => tracing::error!(error = %e, "lecture des comptes"),
                 }
             });
-            // Synchronisation du carnet distant, s'il est relié (bilan
-            // enregistré, affiché par la fenêtre CardDAV).
-            let handle = app.handle().clone();
-            tauri::async_runtime::spawn(async move {
-                let state = handle.state::<state::AppState>();
-                if let Some(Err(e)) = carddav::sync_now(&state).await
-                    && e != norelly_application::carddav::SyncError::NotConfigured
-                {
-                    tracing::warn!(error = ?e, "synchronisation du carnet");
-                }
-            });
             Ok(())
         })
         .run(tauri::generate_context!())

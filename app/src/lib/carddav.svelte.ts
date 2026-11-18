@@ -130,6 +130,20 @@ export class CardDavState {
     }
   }
 
+  /** Synchronisation au lancement, si un carnet est relié : bilan, sinon
+   * `null` (échec enregistré, visible dans la fenêtre). */
+  async background(): Promise<CardDavReportDto | null> {
+    try {
+      this.status = await this.#api.carddavStatus();
+      if (this.status.account === null) return null;
+      const report = await this.#api.syncCarddav();
+      this.status = await this.#api.carddavStatus();
+      return report;
+    } catch {
+      return null;
+    }
+  }
+
   /** Fenêtre fermée : le mot de passe saisi est oublié. */
   close(): void {
     this.password = "";

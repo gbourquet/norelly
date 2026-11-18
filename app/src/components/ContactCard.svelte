@@ -1,12 +1,21 @@
 <script lang="ts" generics="C">
   import { m } from "../lib/paraglide/messages.js";
   // Fiche d'un contact, en lecture : barre d'actions (écrire, modifier,
-  // supprimer, favori), adresses, téléphones, organisation et notes. Tout
-  // est affiché en texte.
+  // supprimer, favori), adresses, téléphones, organisation et fonction,
+  // anniversaire, adresses postales, sites web et notes. Tout est affiché
+  // en texte ; un site s'ouvre par Rust (open_external, qui le revalide),
+  // son adresse entière visible sur le bouton.
   import StarIcon from "@lucide/svelte/icons/star";
   import MailIcon from "@lucide/svelte/icons/mail";
   import PhoneIcon from "@lucide/svelte/icons/phone";
   import BuildingIcon from "@lucide/svelte/icons/building-2";
+  import CakeIcon from "@lucide/svelte/icons/cake";
+  import MapPinIcon from "@lucide/svelte/icons/map-pin";
+  import GlobeIcon from "@lucide/svelte/icons/globe";
+  import ExternalLinkIcon from "@lucide/svelte/icons/external-link";
+  import { birthdayText, postalLines } from "../lib/contact-details";
+  import { activeLocale } from "../lib/i18n";
+  import { errorText } from "../lib/errors";
   import type { ContactDto } from "../lib/ipc/api";
   import type { CommandRegistry } from "../lib/commands/registry";
   import { contactsToolbar } from "../lib/visible-actions";
@@ -17,9 +26,28 @@
     contact: ContactDto;
     registry: CommandRegistry<C>;
     context: C;
+    /** Ouvre un site de la fiche dans le navigateur du système. */
+    openWebsite: (url: string) => Promise<void>;
   }
 
-  let { contact, registry, context }: Props = $props();
+  let { contact, registry, context, openWebsite }: Props = $props();
+
+  /** Échec de l'ouverture d'un site, affiché sous la liste des sites. */
+  let websiteError = $state<string | null>(null);
+
+  $effect(() => {
+    void contact.id;
+    websiteError = null;
+  });
+
+  async function open(url: string): Promise<void> {
+    websiteError = null;
+    try {
+      await openWebsite(url);
+    } catch (e) {
+      websiteError = m.contacts_website_failed({ error: errorText(e) });
+    }
+  }
 
   const actions = $derived(contactsToolbar({ favorite: contact.fields.favorite }));
   const f = $derived(contact.fields);
@@ -83,10 +111,57 @@
       </section>
     {/if}
 
-    {#if f.organization !== ""}
+    {#if f.organization !== "" || f.title !== ""}
       <section aria-label={m.contacts_organization()}>
         <h3><BuildingIcon size={16} aria-hidden="true" />{m.contacts_organization()}</h3>
-        <p class="value">{f.organization}</p>
+        {#if f.title !== ""}<p class="value">{f.title}</p>{/if}
+        {#if f.organization !== ""}<p class="value">{f.organization}</p>{/if}
+      </section>
+    {/if}
+
+    {#if f.birthday !== ""}
+      <section aria-label={m.contacts_birthday()}>
+        <h3><CakeIcon size={16} aria-hidden="true" />{m.contacts_birthday()}</h3>
+        <p class="value">{birthdayText(f.birthday, activeLocale())}</p>
+      </section>
+    {/if}
+
+    {#if f.postal_addresses.length > 0}
+      <section aria-label={m.contacts_postal_addresses()}>
+        <h3><MapPinIcon size={16} aria-hidden="true" />{m.contacts_postal_addresses()}</h3>
+        <ul>
+          {#each f.postal_addresses as place, i (i)}
+            <li class="place">
+              <address class="value">
+                {#each postalLines(place) as line, j (j)}<span class="line">{line}</span>{/each}
+              </address>
+              {#if place.label !== ""}<span class="tag">{contactLabel(place)}</span>{/if}
+            </li>
+          {/each}
+        </ul>
+      </section>
+    {/if}
+
+    {#if f.websites.length > 0}
+      <section aria-label={m.contacts_websites()}>
+        <h3><GlobeIcon size={16} aria-hidden="true" />{m.contacts_websites()}</h3>
+        <ul>
+          {#each f.websites as site, i (i)}
+            <li>
+              <button
+                class="link"
+                type="button"
+                title={m.contacts_open_website({ url: site.url })}
+                onclick={() => open(site.url)}
+              >
+                <span class="value">{site.url}</span>
+                <ExternalLinkIcon size={14} aria-hidden="true" />
+              </button>
+              {#if site.label !== ""}<span class="tag">{contactLabel(site)}</span>{/if}
+            </li>
+          {/each}
+        </ul>
+        {#if websiteError !== null}<p class="error" role="alert">{websiteError}</p>{/if}
       </section>
     {/if}
 
@@ -210,6 +285,39 @@
   .tag.preferred {
     border-color: var(--color-accent);
     color: var(--color-accent);
+  }
+
+  .place {
+    align-items: flex-start;
+  }
+
+  address {
+    display: flex;
+    flex-direction: column;
+    font-style: normal;
+  }
+
+  .link {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+    padding: 0;
+    border: none;
+    background: none;
+    color: var(--color-accent);
+    font: inherit;
+    text-align: left;
+    text-decoration: underline;
+    cursor: pointer;
+  }
+
+  .link:hover {
+    text-decoration-thickness: 2px;
+  }
+
+  .error {
+    margin: var(--space-2) 0 0;
+    color: var(--color-danger);
   }
 
   .notes {

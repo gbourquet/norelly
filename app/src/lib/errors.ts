@@ -105,6 +105,14 @@ export function fieldLabel(field: FieldDto | null): string {
       return m.field_organization();
     case "notes":
       return m.field_notes();
+    case "title":
+      return m.field_title();
+    case "birthday":
+      return m.field_birthday();
+    case "postal_address":
+      return m.field_postal_address();
+    case "website":
+      return m.field_website();
     case "contact_list":
       return m.field_contact_list();
     case "list_name":

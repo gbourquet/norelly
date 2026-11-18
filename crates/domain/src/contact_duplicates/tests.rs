@@ -366,6 +366,7 @@ fn completeness_counts_filled_fields_addresses_and_phones() {
         emails: vec![email("a@example.com"), email("b@example.com")],
         phones: vec![phone("01"), phone("02"), phone("03")],
         favorite: true,
+        ..ContactInput::default()
     });
     assert_eq!(completeness(&bare), 1);
     assert_eq!(completeness(&full), 6 + 2 + 3);

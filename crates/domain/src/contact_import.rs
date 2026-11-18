@@ -380,6 +380,7 @@ fn prepare(input: &ContactInput, normalizer: &impl TextNormalizer) -> (ContactIn
         emails,
         phones,
         favorite: input.favorite,
+        ..ContactInput::default()
     };
     // Vérifié sur les noms normalisés, comme à la relecture d'une fiche.
     let renamed = prepared.drop_names_imitating_address();

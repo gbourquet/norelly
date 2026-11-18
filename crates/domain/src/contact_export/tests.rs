@@ -41,6 +41,7 @@ fn full() -> ContactDraft {
             phone("04 72 00 00 00", ""),
         ],
         favorite: true,
+        ..ContactInput::default()
     })
 }
 

@@ -32,7 +32,7 @@ Les versions exactes font foi dans `Cargo.toml` (workspace),
 | `zstd` | 0.13 | Compression des messages bruts (`.eml.zst`) | ADR-003 |
 | `reqwest`, `quick-xml`, `hickory-resolver` | 0.13 / 0.42 / 0.26 | Autoconfiguration (HTTPS), XML, SRV | ADR-002 |
 | `csv` | 1.4 | Lecture des exports CSV de contacts (guillemets, champs sur plusieurs lignes) ; vCard et LDIF écrits pour le projet | ADR-012 |
-| `icu_normalizer` | 2.4 (`compiled_data` seule, déjà tirée par `idna`) | Normalisation NFC des noms importés, derrière le port `TextNormalizer` | ADR-012 |
+| `icu_normalizer` | 2.4 (`compiled_data` seule, déjà tirée par `idna`) | Normalisation NFC des noms importés et NFD des noms comparés par la recherche des doublons, derrière le port `TextNormalizer` | ADR-012 |
 | `keyring-core` + magasins Secret Service et Windows | 1 | Trousseau du système | ADR-002 |
 | `tokio` | 1.54 | Asynchrone | — |
 | `tracing` | 0.1 (plafonné à DEBUG à la compilation) | Journaux ; TRACE supprimé car `imap-next` y journaliserait les mots de passe | ADR-002 |

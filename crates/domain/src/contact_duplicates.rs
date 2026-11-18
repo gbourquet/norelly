@@ -83,11 +83,16 @@ pub fn find_duplicates(
 ) -> Vec<DuplicateGroup> {
     // Fiches de même clé, par raison, dans l'ordre du carnet.
     let mut buckets: HashMap<(DuplicateReason, String), Vec<usize>> = HashMap::new();
+    // Fiches de même nom exact (accents compris), dans l'ordre du carnet.
+    let mut namesakes: HashMap<String, Vec<usize>> = HashMap::new();
     for (index, contact) in contacts.iter().enumerate() {
         let draft = contact.draft();
         let mut keys: HashSet<(DuplicateReason, String)> = HashSet::new();
         if let Some(key) = name_key(draft, normalizer) {
             keys.insert((DuplicateReason::SameName, key));
+            if let Some(exact) = words_key(&normalizer.nfc(&draft.display_name())) {
+                namesakes.entry(exact).or_default().push(index);
+            }
         }
         for p in draft.phones() {
             let key = phone_key(p.number());
@@ -110,36 +115,19 @@ pub fn find_duplicates(
     let mut sets = DisjointSets::new(contacts.len());
     // Fiches rapprochées, avec leur raison (pour les raisons du groupe).
     let mut links: Vec<(usize, DuplicateReason)> = Vec::new();
-    // Fiches rapprochées d'une autre par leur nom.
-    let mut named: HashSet<usize> = HashSet::new();
     for ((reason, _), indexes) in buckets {
-        if indexes.len() < 2 {
-            continue;
-        }
-        // Les fiches d'une même clé sont toutes liées, sauf les paires
-        // écartées : parcours en largeur de ce graphe. Une fiche non
-        // encore atteinte est soit atteinte (et retirée), soit gardée à
-        // cause d'une paire écartée : le parcours coûte autant que les
-        // fiches et les paires écartées de la clé.
-        let mut pending: Vec<usize> = indexes;
-        while let Some(start) = pending.pop() {
-            let mut queue = vec![start];
-            while let Some(a) = queue.pop() {
-                let (reached, kept): (Vec<usize>, Vec<usize>) = pending.iter().partition(|&&b| {
-                    DismissedPair::new(contacts[a].id(), contacts[b].id())
-                        .is_some_and(|p| !dismissed.contains(&p))
-                });
-                pending = kept;
-                for b in reached {
-                    sets.union(a, b);
-                    links.push((b, reason));
-                    if reason == DuplicateReason::SameName {
-                        named.extend([a, b]);
-                    }
-                    queue.push(b);
-                }
-            }
-        }
+        link_unless_dismissed(indexes, contacts, &dismissed, |a, b| {
+            sets.union(a, b);
+            links.push((b, reason));
+        });
+    }
+    // Fiches liées à un homonyme exact : le nom sans accents rapproche
+    // « й » et « и », qui ne sont pas la même lettre.
+    let mut named: HashSet<usize> = HashSet::new();
+    for indexes in namesakes.into_values() {
+        link_unless_dismissed(indexes, contacts, &dismissed, |a, b| {
+            named.extend([a, b]);
+        });
     }
 
     let mut members: HashMap<usize, Vec<usize>> = HashMap::new();
@@ -176,10 +164,11 @@ pub fn find_duplicates(
             group.sort_by_key(|&i| contacts[i].id());
             let mut reasons = reasons.remove(&root).unwrap_or_default();
             reasons.sort();
-            // Seul un même nom désigne assez sûrement la même personne
-            // pour proposer une fiche : rapprochée par un téléphone ou une
-            // boîte Gmail seulement, une fiche importée très remplie
-            // serait proposée à la place de la fiche de l'utilisateur.
+            // Seul un même nom, accents compris, désigne assez sûrement la
+            // même personne pour proposer une fiche : rapprochée par un
+            // téléphone, une boîte Gmail ou un nom aux accents près
+            // seulement, une fiche importée très remplie serait proposée à
+            // la place de la fiche de l'utilisateur.
             let suggest_keep = named.contains(&first);
             let sort_key = contacts[first].draft().sort_key();
             let contacts = std::iter::once(first)
@@ -246,8 +235,8 @@ impl DisjointSets {
     }
 }
 
-/// Clé de comparaison du nom d'une fiche : mots du nom affiché en NFC et
-/// en minuscules, triés. `None` pour une fiche sans nom (seule l'adresse
+/// Clé de comparaison du nom d'une fiche : mots du nom affiché sans
+/// accents ([`without_accents`]) et en minuscules, triés. `None` pour une fiche sans nom (seule l'adresse
 /// s'afficherait) ou dont le nom imite une adresse.
 #[must_use]
 pub fn name_key(draft: &ContactDraft, normalizer: &impl TextNormalizer) -> Option<String> {
@@ -258,13 +247,71 @@ pub fn name_key(draft: &ContactDraft, normalizer: &impl TextNormalizer) -> Optio
     if !named {
         return None;
     }
-    let name = normalizer.nfc(&draft.display_name()).to_lowercase();
+    let name = without_accents(&draft.display_name(), normalizer).to_lowercase();
     if imitates_address(&name) {
         return None;
     }
+    words_key(&name)
+}
+
+/// Mots d'un nom en minuscules, triés ; `None` sans aucun mot.
+fn words_key(name: &str) -> Option<String> {
+    let name = name.to_lowercase();
     let mut words: Vec<&str> = name.split_whitespace().collect();
     words.sort_unstable();
     (!words.is_empty()).then(|| words.join(" "))
+}
+
+/// Lie les fiches `indexes` de même clé deux à deux (`link`, la seconde
+/// atteinte depuis la première), sauf les paires écartées : parcours en
+/// largeur de ce graphe. Une fiche non encore atteinte est soit atteinte
+/// (et retirée), soit gardée à cause d'une paire écartée : le parcours
+/// coûte autant que les fiches et les paires écartées de la clé.
+fn link_unless_dismissed(
+    indexes: Vec<usize>,
+    contacts: &[Contact],
+    dismissed: &HashSet<DismissedPair>,
+    mut link: impl FnMut(usize, usize),
+) {
+    if indexes.len() < 2 {
+        return;
+    }
+    let mut pending = indexes;
+    while let Some(start) = pending.pop() {
+        let mut queue = vec![start];
+        while let Some(a) = queue.pop() {
+            let (reached, kept): (Vec<usize>, Vec<usize>) = pending.iter().partition(|&&b| {
+                DismissedPair::new(contacts[a].id(), contacts[b].id())
+                    .is_some_and(|p| !dismissed.contains(&p))
+            });
+            pending = kept;
+            for b in reached {
+                link(a, b);
+                queue.push(b);
+            }
+        }
+    }
+}
+
+/// Accents combinants retirés à la comparaison des noms : le bloc des
+/// diacritiques combinants (U+0300 à U+036F), qui porte les accents, le
+/// tréma, la cédille et l'ogonek des écritures latine, grecque et
+/// cyrillique. Les autres marques combinantes (virama, points de
+/// l'hébreu ou de l'arabe…) font partie de la lettre et restent.
+const ACCENTS: std::ops::RangeInclusive<char> = '\u{300}'..='\u{36F}';
+
+/// Le texte sans ses accents, en NFC : décomposé (NFD), privé des
+/// accents combinants ([`ACCENTS`]), puis recomposé (une syllabe hangûl
+/// décomposée redevient une syllabe). « Élodie » devient « Elodie » ; une
+/// lettre distincte sans décomposition (« ø », « ß », « œ ») reste telle
+/// quelle.
+fn without_accents(text: &str, normalizer: &impl TextNormalizer) -> String {
+    let bare: String = normalizer
+        .nfd(text)
+        .chars()
+        .filter(|c| !ACCENTS.contains(c))
+        .collect();
+    normalizer.nfc(&bare)
 }
 
 /// Degré de remplissage d'une fiche : champs de nom, organisation et notes

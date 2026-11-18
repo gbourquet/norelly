@@ -15,7 +15,7 @@ use norelly_domain::contacts::{ContactDraft, ContactInput, EmailInput, PhoneInpu
 use norelly_domain::ports::{ContactCodec, ContactCodecError, TextNormalizer};
 
 /// Compositions connues du faux : forme décomposée, forme NFC.
-const COMPOSITIONS: [(&str, &str); 6] = [
+const COMPOSITIONS: [(&str, &str); 7] = [
     ("e\u{301}", "é"),
     ("E\u{301}", "É"),
     ("e\u{300}", "è"),
@@ -24,9 +24,26 @@ const COMPOSITIONS: [(&str, &str); 6] = [
     ("\u{212B}", "Å"),
     // Signe kelvin : K latin en NFC.
     ("\u{212A}", "K"),
+    // Syllabe hangûl : jamos recomposés.
+    ("\u{1112}\u{1161}\u{11AB}", "\u{D55C}"),
 ];
 
-/// Faux normaliseur : ne compose que [`COMPOSITIONS`].
+/// Décompositions connues du faux : caractère, forme NFD.
+const DECOMPOSITIONS: [(&str, &str); 8] = [
+    ("é", "e\u{301}"),
+    ("É", "E\u{301}"),
+    ("è", "e\u{300}"),
+    ("ç", "c\u{327}"),
+    ("Å", "A\u{30A}"),
+    // Signes angström et kelvin : décompositions singletons.
+    ("\u{212B}", "A\u{30A}"),
+    ("\u{212A}", "K"),
+    // Syllabe hangûl : décomposée en jamos (aucune marque combinante).
+    ("\u{D55C}", "\u{1112}\u{1161}\u{11AB}"),
+];
+
+/// Faux normaliseur : ne compose que [`COMPOSITIONS`] et ne décompose que
+/// [`DECOMPOSITIONS`].
 #[derive(Debug, Default, Clone, Copy)]
 pub struct FakeNfc;
 
@@ -36,9 +53,15 @@ impl TextNormalizer for FakeNfc {
             .iter()
             .fold(text.to_owned(), |acc, (from, to)| acc.replace(from, to))
     }
+
+    fn nfd(&self, text: &str) -> String {
+        DECOMPOSITIONS
+            .iter()
+            .fold(text.to_owned(), |acc, (from, to)| acc.replace(from, to))
+    }
 }
 
-/// Contrat de la normalisation NFC.
+/// Contrat de la normalisation NFC et NFD.
 pub fn text_normalizer_contract(normalizer: &impl TextNormalizer) {
     assert_eq!(normalizer.nfc(""), "");
     assert_eq!(normalizer.nfc("Alice Martin"), "Alice Martin");
@@ -53,6 +76,26 @@ pub fn text_normalizer_contract(normalizer: &impl TextNormalizer) {
     // Une forme de compatibilité (arobase pleine largeur) reste telle
     // quelle : NFC n'est pas NFKC.
     assert_eq!(normalizer.nfc("\u{FF20}"), "\u{FF20}");
+
+    // NFD : décomposée, idempotente, et NFC la recompose.
+    assert_eq!(normalizer.nfd(""), "");
+    assert_eq!(normalizer.nfd("Alice Martin"), "Alice Martin");
+    for (character, decomposed) in DECOMPOSITIONS {
+        assert_eq!(normalizer.nfd(character), decomposed, "{character:?}");
+        assert_eq!(
+            normalizer.nfd(decomposed),
+            decomposed,
+            "NFD non idempotente"
+        );
+    }
+    assert_eq!(
+        normalizer.nfd("Élodie Cézanne"),
+        "E\u{301}lodie Ce\u{301}zanne"
+    );
+    assert_eq!(normalizer.nfc(&normalizer.nfd("Élodie")), "Élodie");
+    assert_eq!(normalizer.nfc(&normalizer.nfd("\u{D55C}")), "\u{D55C}");
+    // NFD n'est pas NFKD : l'arobase pleine largeur reste telle quelle.
+    assert_eq!(normalizer.nfd("\u{FF20}"), "\u{FF20}");
 }
 
 /// Faux traducteur : rend `decoded` pour les octets `known`, et les

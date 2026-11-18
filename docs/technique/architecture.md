@@ -102,7 +102,7 @@ Orchestration async des ports, sans règle métier propre :
 | `discovery` | `AutoconfigClient`, `SrvResolver`, `PortProber` | HTTPS seulement |
 | `oauth` | `OAuthClient` : navigateur du système (`BrowserOpener`), redirection locale sur `127.0.0.1` (port éphémère), PKCE S256, échange et rafraîchissement des jetons par HTTPS (`norelly-tls`) | `state` vérifié par le domaine, retour forgé ignoré, corps des réponses jamais recopié (ADR-013) |
 | `render` | Rendu MIME → vue, assainissement HTML et CSS, agent, construction MIME sortante, extraction du texte indexé | fichiers sensibles (`sanitize.rs`, `css.rs`, `agent.js`) |
-| `contacts-io` | `ContactCodec` (lecture vCard, CSV Google/Outlook/Thunderbird, LDIF ; écriture vCard 4.0/3.0, CSV Google, LDIF Thunderbird), `TextNormalizer` (NFC) | entrées et sorties bornées, fuzzé (`contact_import`, `contact_export`) ; fichier lu et écrit par le shell, jamais d'URL suivie |
+| `contacts-io` | `ContactCodec` (lecture vCard, CSV Google/Outlook/Thunderbird, LDIF ; écriture vCard 4.0/3.0, CSV Google, LDIF Thunderbird), `TextNormalizer` (NFC, NFD) | entrées et sorties bornées, fuzzé (`contact_import`, `contact_export`) ; fichier lu et écrit par le shell, jamais d'URL suivie |
 
 ### Point d'assemblage et adaptateur entrant (`app/src-tauri`)
 

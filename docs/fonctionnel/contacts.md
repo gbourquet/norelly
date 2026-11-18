@@ -364,8 +364,9 @@ l'ordinateur** : rien n'est envoyé à un serveur.
 - **Rechercher les doublons…** se trouve dans le menu **Plus…** en haut de
   la vue Contacts, et dans la palette de commandes.
 - Sont proposés ensemble les contacts qui portent le **même nom** (sans
-  tenir compte des majuscules, des espaces ni de l'ordre des mots :
-  « Martin Alice » et « alice martin » se ressemblent), le **même numéro
+  tenir compte des majuscules, des accents, des espaces ni de l'ordre des
+  mots : « Martin Alice » et « alice martin » se ressemblent, comme
+  « Hélène Dupré » et « Helene Dupre »), le **même numéro
   de téléphone** (« 06 12 34 56 78 » et « 0612345678 » sont le même
   numéro ; un numéro très court ne compte pas) ou la **même adresse
   Gmail** (Gmail ignore les points avant l'arobase et traite
@@ -377,8 +378,9 @@ l'ordinateur** : rien n'est envoyé à un serveur.
   ce qui rapproche les fiches. Pour chaque fiche : son nom, ses adresses,
   ses téléphones, une case pour la réunir aux autres (toutes cochées au
   départ) et le choix **Garder cette fiche**. La plus complète est
-  proposée si elle porte le même nom qu'une autre fiche du groupe ; sinon
-  (rapprochée par le téléphone ou l'adresse Gmail seulement) aucune ne
+  proposée si elle porte exactement le même nom, accents compris, qu'une
+  autre fiche du groupe ; sinon (rapprochée par le téléphone, l'adresse
+  Gmail ou un nom aux accents près seulement) aucune ne
   l'est : une fiche importée très remplie pourrait sinon prendre la place
   de la vôtre. La
   fenêtre invite alors à choisir, et **Fusionner** reste indisponible tant

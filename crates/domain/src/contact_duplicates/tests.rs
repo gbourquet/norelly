@@ -2,12 +2,21 @@ use super::*;
 use crate::contacts::ContactInput;
 
 /// Normalisation de test : compose les seuls « e » suivis d'un accent aigu
-/// combinant (U+0301).
+/// combinant (U+0301) et la syllabe hangûl « 가 » ; ne décompose que « é »,
+/// « É », « à » et « 가 ».
 struct FakeNfc;
 
 impl TextNormalizer for FakeNfc {
     fn nfc(&self, text: &str) -> String {
         text.replace("e\u{301}", "é")
+            .replace("\u{1100}\u{1161}", "\u{AC00}")
+    }
+
+    fn nfd(&self, text: &str) -> String {
+        text.replace('é', "e\u{301}")
+            .replace('É', "E\u{301}")
+            .replace('à', "a\u{300}")
+            .replace('\u{AC00}', "\u{1100}\u{1161}")
     }
 }
 
@@ -102,9 +111,35 @@ fn name_key_compares_composed_and_decomposed_forms() {
     let b = draft(named("He\u{301}le\u{300}ne", "b@example.com"));
     let c = draft(named("He\u{301}lène", "c@example.com"));
     assert_eq!(name_key(&a, &FakeNfc), name_key(&c, &FakeNfc));
-    // Seul « e » + aigu est composé par le faux : la normalisation est bien
-    // celle du port.
+    // Seul « é » est décomposé par le faux : « è » composé n'est pas
+    // ramené à « e », la décomposition est bien celle du port.
     assert_ne!(name_key(&a, &FakeNfc), name_key(&b, &FakeNfc));
+}
+
+#[test]
+fn name_key_ignores_accents() {
+    let a = draft(named("Élodie Cézanne", "a@example.com"));
+    let b = draft(named("Elodie Cezanne", "b@example.com"));
+    let c = draft(named("e\u{301}lodie CE\u{301}ZANNE", "c@example.com"));
+    assert_eq!(name_key(&a, &FakeNfc).as_deref(), Some("cezanne elodie"));
+    assert_eq!(name_key(&a, &FakeNfc), name_key(&b, &FakeNfc));
+    assert_eq!(name_key(&a, &FakeNfc), name_key(&c, &FakeNfc));
+}
+
+#[test]
+fn name_key_keeps_marks_that_are_not_accents() {
+    // Le virama (U+094D) n'est pas un accent : sans lui, ce n'est plus la
+    // même syllabe.
+    let a = draft(named("\u{915}\u{94D}\u{937}", "a@example.com"));
+    let b = draft(named("\u{915}\u{937}", "b@example.com"));
+    assert_ne!(name_key(&a, &FakeNfc), name_key(&b, &FakeNfc));
+    // Le résultat est recomposé : un accent hors du bloc des diacritiques
+    // latins n'est pas retiré.
+    let hebrew = draft(named("\u{5D1}\u{5BC}", "h@example.com"));
+    assert_eq!(
+        name_key(&hebrew, &FakeNfc).as_deref(),
+        Some("\u{5D1}\u{5BC}")
+    );
 }
 
 #[test]
@@ -137,6 +172,19 @@ fn a_card_without_name_or_with_an_address_like_name_has_no_name_key() {
     assert_eq!(name_key(&imitation, &FakeNfc), None);
 }
 
+#[test]
+fn name_key_is_recomposed_after_removing_accents() {
+    // Une syllabe hangûl décomposée en NFD redevient une syllabe.
+    let a = draft(named("\u{AC00}", "a@example.com"));
+    assert_eq!(name_key(&a, &FakeNfc).as_deref(), Some("\u{AC00}"));
+}
+
+#[test]
+fn a_name_imitating_an_address_once_accents_are_removed_has_no_name_key() {
+    let imitation = stored(1, named("support (àt) banque.fr", "s@example.com"));
+    assert_eq!(name_key(imitation.draft(), &FakeNfc), None);
+}
+
 // --- Détection ---------------------------------------------------------------
 
 #[test]
@@ -149,6 +197,18 @@ fn contacts_of_the_same_name_form_a_group() {
     assert_eq!(
         groups(&book),
         [(vec![1, 3], vec![DuplicateReason::SameName])]
+    );
+}
+
+#[test]
+fn contacts_whose_names_differ_only_by_accents_form_a_group() {
+    let book = [
+        stored(1, named("Célia Dupré", "celia@perso.example")),
+        stored(2, named("Celia Dupre", "celia@travail.example")),
+    ];
+    assert_eq!(
+        groups(&book),
+        [(vec![1, 2], vec![DuplicateReason::SameName])]
     );
 }
 
@@ -652,6 +712,46 @@ fn a_card_is_suggested_as_kept_only_for_a_group_of_the_same_name() {
         found,
         [(vec![1, 2], true), (vec![3, 4], false), (vec![5, 6], false)]
     );
+}
+
+#[test]
+fn no_card_is_suggested_for_names_that_differ_only_by_accents() {
+    // « й » et « и » ne sont pas la même lettre : rapprochées pour que
+    // l'utilisateur en juge, mais aucune fiche n'est cochée d'office.
+    let book = [
+        stored(1, named("Célia Dupré", "celia@perso.example")),
+        stored(
+            2,
+            with_phone("Celia Dupre", "celia@import.example", "06 12 34 56 78"),
+        ),
+    ];
+    let found: Vec<(Vec<i64>, bool)> = find_duplicates(&book, &[], &FakeNfc)
+        .iter()
+        .map(|g| (ids(g), g.suggest_keep))
+        .collect();
+    assert_eq!(found, [(vec![2, 1], false)]);
+}
+
+#[test]
+fn a_card_with_an_exact_namesake_is_suggested_among_accent_variants() {
+    let book = [
+        stored(1, named("Célia Dupré", "celia@perso.example")),
+        stored(
+            2,
+            with_phone("Célia Dupré", "celia@travail.example", "06 12 34 56 78"),
+        ),
+        stored(3, named("Celia Dupre", "celia@import.example")),
+    ];
+    let suggested = |dismissed: &[DismissedPair]| -> Vec<(Vec<i64>, bool)> {
+        find_duplicates(&book, dismissed, &FakeNfc)
+            .iter()
+            .map(|g| (ids(g), g.suggest_keep))
+            .collect()
+    };
+    assert_eq!(suggested(&[]), [(vec![2, 1, 3], true)]);
+    // Le seul homonyme exact écarté : la fiche n'est plus rapprochée que
+    // par les accents.
+    assert_eq!(suggested(&[pair(1, 2)]), [(vec![2, 1, 3], false)]);
 }
 
 // --- Groupes écartés ---------------------------------------------------------

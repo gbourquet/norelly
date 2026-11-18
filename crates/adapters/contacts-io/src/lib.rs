@@ -12,7 +12,7 @@
 //! d'une fiche ([`MAX_VALUES_PER_CARD`]) ; au-delà, le fichier ou la
 //! fiche est refusé, jamais tronqué.
 
-use icu_normalizer::ComposingNormalizerBorrowed;
+use icu_normalizer::{ComposingNormalizerBorrowed, DecomposingNormalizerBorrowed};
 use norelly_domain::contact_export::{ExportCard, ExportFormat, MAX_EXPORT_CONTACTS};
 use norelly_domain::contact_import::{ContactFormat, DecodedContacts, MAX_IMPORT_FILE_BYTES};
 use norelly_domain::ports::{ContactCodec, ContactCodecError, TextNormalizer};
@@ -80,13 +80,20 @@ impl ContactCodec for ContactsIo {
     }
 }
 
-/// Normalisation NFC par `icu_normalizer` (données Unicode compilées).
+/// Normalisation NFC et NFD par `icu_normalizer` (données Unicode
+/// compilées).
 #[derive(Debug, Default, Clone, Copy)]
 pub struct IcuNfc;
 
 impl TextNormalizer for IcuNfc {
     fn nfc(&self, text: &str) -> String {
         ComposingNormalizerBorrowed::new_nfc()
+            .normalize(text)
+            .into_owned()
+    }
+
+    fn nfd(&self, text: &str) -> String {
+        DecomposingNormalizerBorrowed::new_nfd()
             .normalize(text)
             .into_owned()
     }

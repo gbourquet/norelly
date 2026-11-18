@@ -2,12 +2,16 @@ use super::*;
 use crate::contacts::ContactId;
 
 /// Normalisation de test : compose les seuls « e » et « E » suivis d'un
-/// accent aigu combinant (U+0301).
+/// accent aigu combinant (U+0301), et ne décompose qu'eux.
 struct FakeNfc;
 
 impl TextNormalizer for FakeNfc {
     fn nfc(&self, text: &str) -> String {
         text.replace("e\u{301}", "é").replace("E\u{301}", "É")
+    }
+
+    fn nfd(&self, text: &str) -> String {
+        text.replace('é', "e\u{301}").replace('É', "E\u{301}")
     }
 }
 

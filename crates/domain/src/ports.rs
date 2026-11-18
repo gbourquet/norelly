@@ -1713,11 +1713,15 @@ pub trait ContactCodec: Send + Sync {
     ) -> Result<Vec<u8>, ContactCodecError>;
 }
 
-/// Normalisation Unicode d'un texte (forme NFC), fournie au domaine qui
-/// n'embarque pas les tables Unicode.
+/// Normalisation Unicode d'un texte (formes NFC et NFD), fournie au
+/// domaine qui n'embarque pas les tables Unicode.
 pub trait TextNormalizer: Send + Sync {
     /// Le texte en forme normalisée NFC (composée).
     fn nfc(&self, text: &str) -> String;
+    /// Le texte en forme normalisée NFD (décomposée) : une lettre
+    /// accentuée devient la lettre de base suivie de ses accents
+    /// combinants.
+    fn nfd(&self, text: &str) -> String;
 }
 
 /// Position dans la liste des contacts, triée par [`ContactDraft::sort_key`]

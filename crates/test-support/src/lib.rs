@@ -9,6 +9,7 @@
 //! - [`search_contracts`] : recherche plein texte ;
 //! - [`contacts_contracts`] : carnet d'adresses ;
 //! - [`contact_lists_contracts`] : listes de diffusion du carnet ;
+//! - [`contact_dismissals_contracts`] : groupes de doublons écartés ;
 //! - [`contact_import_contracts`] : import du carnet (NFC, fichiers) ;
 //! - [`synthetic`] : générateur de boîtes synthétiques (bench) ;
 //! - [`imap_control`] et [`session_contract`] : contrat de la session IMAP
@@ -21,6 +22,7 @@
 pub mod actions_contracts;
 pub mod certs;
 pub mod compose_contracts;
+pub mod contact_dismissals_contracts;
 pub mod contact_import_contracts;
 pub mod contact_lists_contracts;
 pub mod contacts_contracts;

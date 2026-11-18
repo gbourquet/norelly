@@ -17,11 +17,20 @@ const alices: ContactDuplicateGroupDto = {
   contacts: [card(3, "Alice"), card(1, "alice"), card(7, "Alice M.")],
   reasons: ["same_name", "same_phone"],
   truncated: false,
+  suggest_keep: true,
 };
 const bobs: ContactDuplicateGroupDto = {
   contacts: [card(4, "Bob"), card(5, "bob")],
   reasons: ["same_name"],
   truncated: false,
+  suggest_keep: true,
+};
+/** Rapprochés par le seul téléphone : aucune fiche proposée d'office. */
+const phones: ContactDuplicateGroupDto = {
+  contacts: [card(8, "Carole"), card(9, "Banque")],
+  reasons: ["same_phone"],
+  truncated: false,
+  suggest_keep: false,
 };
 
 /** Aperçu factice : le nom de la fiche gardée suivi des fiches réunies. */
@@ -31,7 +40,7 @@ function previewOf(keep: number, others: number[]): ContactMergePreviewDto {
 
 function fakeApi(
   groups: ContactDuplicateGroupDto[] | Error,
-  options: { merge?: Error; preview?: Error } = {},
+  options: { merge?: Error; preview?: Error; dismiss?: Error } = {},
 ) {
   return {
     findContactDuplicates: vi.fn(async () => {
@@ -41,6 +50,11 @@ function fakeApi(
     previewContactMerge: vi.fn(async (keep: number, others: number[]) => {
       if (options.preview) throw options.preview;
       return previewOf(keep, others);
+    }),
+    dismissContactDuplicates: vi.fn(async (contacts: number[]) => {
+      expect(contacts.length).toBeGreaterThan(1);
+      if (options.dismiss) throw options.dismiss;
+      return null;
     }),
     mergeContacts: vi.fn(async (keep: number) => {
       if (options.merge) throw options.merge;
@@ -182,11 +196,12 @@ describe("doublons du carnet", () => {
     expect(state.busy).toBe(false);
   });
 
-  it("passer un groupe présente le suivant sans rien écrire", async () => {
+  it("passer un groupe le fait retenir par Rust puis présente le suivant, sans fusion", async () => {
     const api = fakeApi([alices, bobs]);
     const state = new ContactDuplicatesState(api);
     await state.open();
     await state.skip();
+    expect(api.dismissContactDuplicates).toHaveBeenLastCalledWith([3, 1, 7]);
     expect(state.current).toEqual(bobs);
     expect([state.position, state.total]).toEqual([2, 2]);
     expect(state.keep).toBe(4);
@@ -194,6 +209,41 @@ describe("doublons du carnet", () => {
     await state.skip();
     expect(state.finished).toBe(true);
     expect(api.mergeContacts).not.toHaveBeenCalled();
+  });
+
+  it("un groupe tronqué passé n'est pas retenu : ses fiches cachées le reformeraient", async () => {
+    const api = fakeApi([{ ...alices, truncated: true }, bobs]);
+    const state = new ContactDuplicatesState(api);
+    await state.open();
+    await state.skip();
+    expect(api.dismissContactDuplicates).not.toHaveBeenCalled();
+    expect(state.current).toEqual(bobs);
+  });
+
+  it("échec de l'écart d'un groupe : message traduit, groupe gardé", async () => {
+    const api = fakeApi([alices, bobs], { dismiss: new IpcFailure("storage") });
+    const state = new ContactDuplicatesState(api);
+    await state.open();
+    await state.skip();
+    expect(state.error).toBeTruthy();
+    expect(state.current).toEqual(alices);
+    expect(state.busy).toBe(false);
+  });
+
+  it("groupe sans fiche proposée : aucune gardée, fusion impossible avant le choix", async () => {
+    const api = fakeApi([phones]);
+    const state = new ContactDuplicatesState(api);
+    await state.open();
+    expect(state.current).toEqual(phones);
+    expect(state.keep).toBeNull();
+    expect(state.isChecked(8) && state.isChecked(9)).toBe(true);
+    expect(state.preview).toBeNull();
+    expect(state.canMerge).toBe(false);
+    expect(api.previewContactMerge).not.toHaveBeenCalled();
+    await state.choose(9);
+    expect(state.keep).toBe(9);
+    expect(api.previewContactMerge).toHaveBeenLastCalledWith(9, [8]);
+    expect(state.canMerge).toBe(true);
   });
 
   it("rouvrir relance la recherche et remet le bilan à zéro", async () => {

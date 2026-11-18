@@ -1,5 +1,6 @@
 //! Commandes IPC des doublons du carnet (ADR-012) : chercher les groupes
-//! de doublons, prévoir et faire la fusion de fiches.
+//! de doublons, écarter un groupe passé, prévoir et faire la fusion de
+//! fiches.
 //!
 //! La fusion est recalculée en Rust d'après les fiches enregistrées :
 //! l'interface ne désigne que la fiche gardée et les fiches absorbées
@@ -7,10 +8,11 @@
 //! des codes ; aucun texte destiné à l'utilisateur.
 
 use norelly_application::contact_duplicates::{
-    DuplicateCandidates, DuplicateScanFailure, FindDuplicates, MergeContacts, PreviewMerge,
+    DismissDuplicates, DuplicateCandidates, DuplicateScanFailure, FindDuplicates, MergeContacts,
+    PreviewMerge,
 };
 use norelly_application::contacts::ContactFailure;
-use norelly_domain::contact_duplicates::{DuplicateReason, MergeSelection};
+use norelly_domain::contact_duplicates::{Dismissal, DuplicateReason, MergeSelection};
 use norelly_domain::contacts::{Contact, ContactError, ContactField};
 use tauri::State;
 
@@ -76,12 +78,14 @@ fn group_dto(group: &DuplicateCandidates) -> Result<ContactDuplicateGroupDto, Ip
             .map(card_dto)
             .collect::<Result<_, _>>()?,
         truncated: group.truncated,
+        suggest_keep: group.suggest_keep,
         reasons: group
             .reasons
             .iter()
             .map(|r| match r {
                 DuplicateReason::SameName => DuplicateReasonDto::SameName,
                 DuplicateReason::SamePhone => DuplicateReasonDto::SamePhone,
+                DuplicateReason::SameGmailAddress => DuplicateReasonDto::SameGmailAddress,
             })
             .collect(),
     })
@@ -96,12 +100,30 @@ pub async fn find_contact_duplicates(
 ) -> Result<Vec<ContactDuplicateGroupDto>, IpcError> {
     let groups = FindDuplicates {
         directory: &state.contacts,
+        dismissals: &state.contacts,
         normalizer: &state.imports.nfc,
     }
     .execute()
     .await
     .map_err(scan_error)?;
     groups.iter().map(group_dto).collect()
+}
+
+/// Retient le groupe passé `contacts` (fiches présentées) : il n'est plus
+/// proposé tant qu'aucune de ses fiches ne change.
+#[tauri::command]
+#[specta::specta]
+pub async fn dismiss_contact_duplicates(
+    state: State<'_, AppState>,
+    contacts: Vec<u32>,
+) -> Result<(), IpcError> {
+    let dismissal = Dismissal::new(&contacts).map_err(|_| IpcError::invalid(FieldDto::Contact))?;
+    DismissDuplicates {
+        dismissals: &state.contacts,
+    }
+    .execute(&dismissal)
+    .await
+    .map_err(IpcError::storage)
 }
 
 /// Ce que garderait la fiche `keep` si les fiches `others` y étaient

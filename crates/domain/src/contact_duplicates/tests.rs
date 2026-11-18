@@ -55,10 +55,35 @@ fn ids(group: &DuplicateGroup) -> Vec<i64> {
 }
 
 fn groups(contacts: &[Contact]) -> Vec<(Vec<i64>, Vec<DuplicateReason>)> {
-    find_duplicates(contacts, &FakeNfc)
+    find_duplicates(contacts, &[], &FakeNfc)
         .iter()
         .map(|g| (ids(g), g.reasons.clone()))
         .collect()
+}
+
+fn pair(a: i64, b: i64) -> DismissedPair {
+    DismissedPair::new(id(a), id(b)).unwrap_or_else(|| panic!("paire {a}, {b}"))
+}
+
+fn groups_without(
+    contacts: &[Contact],
+    dismissed: &[DismissedPair],
+) -> Vec<(Vec<i64>, Vec<DuplicateReason>)> {
+    find_duplicates(contacts, dismissed, &FakeNfc)
+        .iter()
+        .map(|g| (ids(g), g.reasons.clone()))
+        .collect()
+}
+
+fn with_phone(name: &str, address: &str, number: &str) -> ContactInput {
+    ContactInput {
+        phones: vec![phone(number)],
+        ..named(name, address)
+    }
+}
+
+fn akey(raw: &str) -> AddressKey {
+    AddressKey::parse(raw).unwrap_or_else(|e| panic!("{raw} : {e}"))
 }
 
 // --- Clé de nom --------------------------------------------------------------
@@ -514,7 +539,7 @@ fn a_group_keeps_at_most_the_most_complete_cards_and_says_so() {
             )
         })
         .collect();
-    let found = find_duplicates(&book, &FakeNfc);
+    let found = find_duplicates(&book, &[], &FakeNfc);
     assert_eq!(found.len(), 1);
     assert!(found[0].truncated);
     assert_eq!(found[0].contacts.len(), MAX_DUPLICATE_GROUP_SIZE);
@@ -529,7 +554,7 @@ fn a_group_keeps_at_most_the_most_complete_cards_and_says_so() {
         stored(1, named("Alice", "a@example.com")),
         stored(2, named("Alice", "b@example.com")),
     ];
-    assert!(!find_duplicates(&small, &FakeNfc)[0].truncated);
+    assert!(!find_duplicates(&small, &[], &FakeNfc)[0].truncated);
 }
 
 #[test]
@@ -544,8 +569,246 @@ fn a_search_returns_at_most_a_bounded_number_of_groups() {
             ]
         })
         .collect();
-    let found = find_duplicates(&book, &FakeNfc);
+    let found = find_duplicates(&book, &[], &FakeNfc);
     assert_eq!(found.len(), MAX_DUPLICATE_GROUPS);
     // Les premiers dans l'ordre des noms.
     assert_eq!(found[0].contacts[0].get(), 1);
+}
+
+// --- Adresses Gmail ----------------------------------------------------------
+
+#[test]
+fn gmail_key_ignores_dots_and_the_googlemail_domain() {
+    assert_eq!(
+        gmail_key(&akey("Jean.Dupont@gmail.com")).as_deref(),
+        Some("jeandupont@gmail.com")
+    );
+    assert_eq!(
+        gmail_key(&akey("j.e.a.n.dupont@googlemail.com")).as_deref(),
+        Some("jeandupont@gmail.com")
+    );
+    assert_eq!(
+        gmail_key(&akey("jeandupont@GoogleMail.com")).as_deref(),
+        Some("jeandupont@gmail.com")
+    );
+}
+
+#[test]
+fn gmail_key_leaves_other_providers_aside() {
+    assert_eq!(gmail_key(&akey("jean.dupont@example.com")), None);
+    assert_eq!(gmail_key(&akey("jean.dupont@gmail.com.example")), None);
+    assert_eq!(gmail_key(&akey("jean.dupont@mail.gmail.com")), None);
+}
+
+#[test]
+fn gmail_addresses_of_the_same_mailbox_form_a_group() {
+    let book = [
+        stored(1, named("Jean", "jean.dupont@gmail.com")),
+        stored(2, named("JD", "jeandupont@googlemail.com")),
+        stored(3, named("Autre", "jean.dupont@example.com")),
+        stored(4, named("Encore", "jeandupont@example.com")),
+    ];
+    assert_eq!(
+        groups(&book),
+        [(vec![1, 2], vec![DuplicateReason::SameGmailAddress])]
+    );
+}
+
+#[test]
+fn a_card_with_two_spellings_of_its_gmail_address_is_not_its_own_duplicate() {
+    let book = [stored(
+        1,
+        ContactInput {
+            emails: vec![
+                email("jean.dupont@gmail.com"),
+                email("jeandupont@gmail.com"),
+            ],
+            ..named("Jean", "x@example.com")
+        },
+    )];
+    assert!(groups(&book).is_empty());
+}
+
+// --- Fiche proposée d'office -------------------------------------------------
+
+#[test]
+fn a_card_is_suggested_as_kept_only_for_a_group_of_the_same_name() {
+    let book = [
+        stored(1, with_phone("Alice", "a1@example.com", "06 12 34 56 78")),
+        stored(2, with_phone("Alice", "a2@example.com", "06 12 34 56 78")),
+        stored(3, with_phone("Bob", "bob@example.com", "01 23 45 67 89")),
+        stored(
+            4,
+            with_phone("Robert", "robert@example.com", "01 23 45 67 89"),
+        ),
+        stored(5, named("Carole", "carole.x@gmail.com")),
+        stored(6, named("Caro", "carolex@gmail.com")),
+    ];
+    let found: Vec<(Vec<i64>, bool)> = find_duplicates(&book, &[], &FakeNfc)
+        .iter()
+        .map(|g| (ids(g), g.suggest_keep))
+        .collect();
+    assert_eq!(
+        found,
+        [(vec![1, 2], true), (vec![3, 4], false), (vec![5, 6], false)]
+    );
+}
+
+// --- Groupes écartés ---------------------------------------------------------
+
+#[test]
+fn a_dismissed_group_is_no_longer_proposed() {
+    let book = [
+        stored(1, with_phone("Alice", "a1@example.com", "06 12 34 56 78")),
+        stored(2, with_phone("Alice", "a2@example.com", "06 12 34 56 78")),
+        stored(3, named("Bob", "b1@example.com")),
+        stored(4, named("Bob", "b2@example.com")),
+    ];
+    assert_eq!(
+        groups_without(&book, &[pair(2, 1)]),
+        [(vec![3, 4], vec![DuplicateReason::SameName])]
+    );
+}
+
+#[test]
+fn only_the_dismissed_links_are_removed_before_forming_groups() {
+    let book = [
+        stored(1, named("Alice", "a1@example.com")),
+        stored(2, named("Alice", "a2@example.com")),
+        stored(3, named("Alice", "a3@example.com")),
+    ];
+    let same_name = vec![DuplicateReason::SameName];
+    // 1 et 2 restent réunies par 3, qui n'a été écartée de personne.
+    assert_eq!(
+        groups_without(&book, &[pair(1, 2)]),
+        [(vec![1, 2, 3], same_name.clone())]
+    );
+    assert_eq!(
+        groups_without(&book, &[pair(1, 2), pair(1, 3)]),
+        [(vec![2, 3], same_name)]
+    );
+    assert!(groups_without(&book, &[pair(1, 2), pair(1, 3), pair(2, 3)]).is_empty());
+}
+
+#[test]
+fn the_reasons_of_a_group_come_from_its_remaining_links() {
+    let book = [
+        stored(1, named("Alice", "a1@example.com")),
+        stored(2, with_phone("Alice", "a2@example.com", "06 12 34 56 78")),
+        stored(3, with_phone("Bob", "b@example.com", "06 12 34 56 78")),
+    ];
+    let found = find_duplicates(&book, &[pair(1, 2)], &FakeNfc);
+    assert_eq!(found.len(), 1);
+    assert_eq!(ids(&found[0]), [2, 3]);
+    assert_eq!(found[0].reasons, [DuplicateReason::SamePhone]);
+    assert!(!found[0].suggest_keep);
+}
+
+#[test]
+fn dismissed_links_are_removed_whatever_their_reason() {
+    let book = [
+        stored(1, with_phone("Alice", "a1@example.com", "06 12 34 56 78")),
+        stored(
+            2,
+            with_phone("Alice", "alice.x@gmail.com", "06 12 34 56 78"),
+        ),
+        stored(3, named("Lili", "alicex@gmail.com")),
+    ];
+    assert!(groups_without(&book, &[pair(1, 2), pair(1, 3), pair(2, 3)]).is_empty());
+    assert_eq!(
+        groups_without(&book, &[pair(1, 2)]),
+        [(vec![2, 3], vec![DuplicateReason::SameGmailAddress])]
+    );
+}
+
+#[test]
+fn dismissed_pairs_of_unknown_cards_are_ignored() {
+    let book = [
+        stored(1, named("Alice", "a1@example.com")),
+        stored(2, named("Alice", "a2@example.com")),
+    ];
+    assert_eq!(groups_without(&book, &[pair(1, 9), pair(7, 8)]).len(), 1);
+}
+
+#[test]
+fn a_dismissed_pair_is_ordered_and_joins_two_distinct_cards() {
+    assert_eq!(pair(3, 1).low(), id(1));
+    assert_eq!(pair(3, 1).high(), id(3));
+    assert_eq!(pair(3, 1), pair(1, 3));
+    assert_eq!(DismissedPair::new(id(2), id(2)), None);
+}
+
+#[test]
+fn a_dismissal_holds_every_pair_of_the_group_once() {
+    let dismissal = Dismissal::new(&[3_u32, 1, 2, 1]).unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(dismissal.pairs(), [pair(1, 2), pair(1, 3), pair(2, 3)]);
+}
+
+#[test]
+fn a_dismissal_is_refused_when_invalid() {
+    let size = u32::try_from(MAX_DUPLICATE_GROUP_SIZE).unwrap_or(u32::MAX);
+    assert_eq!(Dismissal::new(&[0_u32, 1]), Err(DismissalError::InvalidId));
+    assert_eq!(Dismissal::new(&[1_u32]), Err(DismissalError::TooFew));
+    assert_eq!(Dismissal::new(&[1_u32, 1]), Err(DismissalError::TooFew));
+    let over: Vec<u32> = (1..=size + 1).collect();
+    assert_eq!(Dismissal::new(&over), Err(DismissalError::TooMany));
+    let repeated = vec![1_u32; 3 * MAX_DUPLICATE_GROUP_SIZE];
+    assert_eq!(Dismissal::new(&repeated), Err(DismissalError::TooMany));
+    let full: Vec<u32> = (1..=size).collect();
+    assert_eq!(
+        Dismissal::new(&full).map(|d| d.pairs().len()),
+        Ok(MAX_DUPLICATE_GROUP_SIZE * (MAX_DUPLICATE_GROUP_SIZE - 1) / 2)
+    );
+}
+
+#[test]
+fn a_card_joined_without_its_name_is_never_suggested_as_kept() {
+    // Alice (1) et Alice (2) portent le même nom ; la fiche 3, la plus
+    // remplie, ne les rejoint que par le téléphone de 2 : elle n'est pas
+    // proposée d'office.
+    let hostile = ContactInput {
+        organization: "Banque".into(),
+        notes: "Rappeler".into(),
+        emails: vec![email("x0@example.com"), email("x1@example.com")],
+        phones: vec![phone("06 12 34 56 78"), phone("01 99 99 99 99")],
+        ..named("Banque", "x0@example.com")
+    };
+    let book = [
+        stored(1, named("Alice", "a1@example.com")),
+        stored(2, with_phone("Alice", "a2@example.com", "06 12 34 56 78")),
+        stored(3, hostile),
+    ];
+    let found = find_duplicates(&book, &[], &FakeNfc);
+    assert_eq!(found.len(), 1);
+    assert_eq!(found[0].contacts[0], id(3), "la plus complète d'abord");
+    assert!(
+        !found[0].suggest_keep,
+        "fiche rapprochée sans le nom proposée"
+    );
+}
+
+#[test]
+fn many_dismissed_pairs_in_one_bucket_still_form_the_right_groups() {
+    // Dix fiches de même nom : les paires entre pairs et impairs sont
+    // écartées, il reste deux groupes (pairs, impairs).
+    let book: Vec<Contact> = (1..=10)
+        .map(|i| stored(i, named("Alice", &format!("a{i}@example.com"))))
+        .collect();
+    let mut dismissed = Vec::new();
+    for a in 1..=10 {
+        for b in (a + 1)..=10 {
+            if (a + b) % 2 == 1 {
+                dismissed.push(pair(a, b));
+            }
+        }
+    }
+    let mut found: Vec<Vec<i64>> = groups_without(&book, &dismissed)
+        .into_iter()
+        .map(|(mut ids, _)| {
+            ids.sort_unstable();
+            ids
+        })
+        .collect();
+    found.sort();
+    assert_eq!(found, [vec![1, 3, 5, 7, 9], vec![2, 4, 6, 8, 10]]);
 }

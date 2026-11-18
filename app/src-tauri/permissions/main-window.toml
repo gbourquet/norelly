@@ -72,6 +72,7 @@ permissions = [
   "allow-apply-contact-import",
   "allow-export-contacts",
   "allow-find-contact-duplicates",
+  "allow-dismiss-contact-duplicates",
   "allow-merge-contacts",
   "allow-preview-contact-merge",
   "allow-list-contact-lists",

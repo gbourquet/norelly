@@ -34,6 +34,7 @@ async fn duplicates_of_the_book_are_found_with_their_cards()
     .await?;
     let groups = FindDuplicates {
         directory: &book,
+        dismissals: &book,
         normalizer: &FakeNfc,
     }
     .execute()
@@ -84,11 +85,73 @@ impl ContactDirectory for HugeBook {
 async fn a_book_beyond_the_scan_bound_is_refused() {
     let result = FindDuplicates {
         directory: &HugeBook,
+        dismissals: &InMemoryContactBook::default(),
         normalizer: &FakeNfc,
     }
     .execute()
     .await;
     assert_eq!(result, Err(DuplicateScanFailure::TooMany));
+}
+
+#[tokio::test]
+async fn a_dismissed_group_is_found_again_once_a_card_changes()
+-> Result<(), Box<dyn std::error::Error>> {
+    let book = InMemoryContactBook::default();
+    let a = book
+        .create(&sample_contact("Alice", &["a1@example.com"]))
+        .await?;
+    let b = book
+        .create(&sample_contact("Alice", &["a2@example.com"]))
+        .await?;
+    let find = FindDuplicates {
+        directory: &book,
+        dismissals: &book,
+        normalizer: &FakeNfc,
+    };
+    assert_eq!(find.execute().await?.len(), 1);
+    let dismissal = Dismissal::new(&[a.id().get(), b.id().get()])?;
+    DismissDuplicates { dismissals: &book }
+        .execute(&dismissal)
+        .await?;
+    assert!(find.execute().await?.is_empty(), "groupe passé reproposé");
+    book.update(b.id(), &sample_contact("Alice", &["a2@example.org"]))
+        .await?;
+    assert_eq!(
+        find.execute().await?.len(),
+        1,
+        "fiche modifiée, groupe oublié"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_group_of_the_same_phone_suggests_no_card() -> Result<(), Box<dyn std::error::Error>> {
+    let book = InMemoryContactBook::default();
+    for (name, address) in [("Alice", "a@example.com"), ("Bob", "b@example.com")] {
+        book.create(&ContactDraft::new(ContactInput {
+            display_name: name.into(),
+            emails: vec![EmailInput {
+                address: address.into(),
+                ..EmailInput::default()
+            }],
+            phones: vec![norelly_domain::contacts::PhoneInput {
+                number: "06 12 34 56 78".into(),
+                ..Default::default()
+            }],
+            ..ContactInput::default()
+        })?)
+        .await?;
+    }
+    let groups = FindDuplicates {
+        directory: &book,
+        dismissals: &book,
+        normalizer: &FakeNfc,
+    }
+    .execute()
+    .await?;
+    assert_eq!(groups.len(), 1);
+    assert!(!groups[0].suggest_keep);
+    Ok(())
 }
 
 fn ok<T, E: std::fmt::Display>(r: Result<T, E>) -> T {

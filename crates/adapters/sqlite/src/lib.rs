@@ -15,6 +15,7 @@
 
 pub mod actions;
 pub mod compose;
+pub mod contact_dismissals;
 pub mod contact_lists;
 pub mod contacts;
 pub mod conversations;
@@ -75,6 +76,7 @@ fn migrations() -> Migrations<'static> {
         ),
         M::up(include_str!("../migrations/0020_sender_auth.sql")),
         M::up(include_str!("../migrations/0021_labels.sql")),
+        M::up(include_str!("../migrations/0022_contact_dismissals.sql")),
     ])
 }
 
@@ -705,6 +707,8 @@ mod tests {
          INSERT INTO pending_ops (account_id, message_id, mailbox, uid_validity, uid, kind, flag, \
          value, previous, keyword, not_before) \
          VALUES (1, 1, 'INBOX', 42, 7, 'flag', 'keyword', 1, 0, 'Projet', 0);",
+        // v22 : les contacts des versions 11 et 18 écartés comme doublons.
+        "INSERT INTO contact_duplicate_dismissals (low_id, high_id, batch) VALUES (1, 2, 1);",
     ];
 
     /// Base de version 20 : à la montée en version 21, la file d'opérations

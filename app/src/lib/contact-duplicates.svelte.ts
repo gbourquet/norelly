@@ -2,14 +2,17 @@
 // présentés un par un ; l'utilisateur choisit la fiche gardée et les
 // fiches à y réunir, voit ce que gardera la fiche (aperçu calculé par
 // Rust), puis fusionne ou passe. La fusion est recalculée par Rust
-// d'après les fiches enregistrées (ADR-012).
+// d'après les fiches enregistrées (ADR-012) ; un groupe passé est retenu
+// par Rust, qui ne le propose plus tant que ses fiches ne changent pas.
+// Rust décide aussi si la première fiche est proposée d'office comme
+// fiche gardée (`suggest_keep`).
 
 import type { Api, ContactDto, ContactDuplicateGroupDto, ContactMergePreviewDto } from "./ipc/api";
 import { errorText } from "./errors";
 
 export type ContactDuplicatesApi = Pick<
   Api,
-  "findContactDuplicates" | "previewContactMerge" | "mergeContacts"
+  "findContactDuplicates" | "previewContactMerge" | "mergeContacts" | "dismissContactDuplicates"
 >;
 
 export class ContactDuplicatesState {
@@ -18,7 +21,7 @@ export class ContactDuplicatesState {
   groups = $state<ContactDuplicateGroupDto[]>([]);
   /** Rang du groupe présenté parmi `groups`. */
   index = $state(0);
-  /** Fiche gardée du groupe présenté. */
+  /** Fiche gardée du groupe présenté (`null` : à choisir). */
   keep = $state<number | null>(null);
   /** Fiches cochées du groupe présenté (la fiche gardée toujours). */
   checked = $state<number[]>([]);
@@ -106,11 +109,26 @@ export class ContactDuplicatesState {
     return kept;
   }
 
-  /** Passe au groupe suivant sans rien écrire. */
+  /** Passe au groupe suivant sans fusion ; Rust retient le groupe pour
+   * ne plus le proposer, sauf un groupe tronqué (ses fiches non
+   * présentées le reformeraient). En cas d'échec, message affiché, groupe
+   * gardé. */
   async skip(): Promise<void> {
-    if (this.current === null || this.busy) return;
-    this.index += 1;
+    const group = this.current;
+    if (group === null || this.busy) return;
     this.error = null;
+    if (!group.truncated) {
+      this.busy = true;
+      try {
+        await this.#api.dismissContactDuplicates(group.contacts.map((c) => c.id));
+      } catch (e) {
+        this.error = errorText(e);
+        return;
+      } finally {
+        this.busy = false;
+      }
+    }
+    this.index += 1;
     await this.#present();
   }
 
@@ -137,10 +155,11 @@ export class ContactDuplicatesState {
   }
 
   /** Présente le groupe `index` : toutes ses fiches cochées, la première
-   * (la plus complète) gardée. */
+   * (la plus complète) gardée si Rust la propose ; sinon aucune, au choix
+   * de l'utilisateur. */
   async #present(): Promise<void> {
     const group = this.groups[this.index];
-    this.keep = group?.contacts[0]?.id ?? null;
+    this.keep = group?.suggest_keep ? (group.contacts[0]?.id ?? null) : null;
     this.checked = group?.contacts.map((c) => c.id) ?? [];
     await this.#refresh();
   }

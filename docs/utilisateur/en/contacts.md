@@ -205,12 +205,17 @@ import, for example):
 1. In **Contacts**, click **More…** at the top of the list, then **Find
    duplicates…**.
 2. Norelly shows, one group at a time, the contacts that share the same
-   name or the same phone number. Check that they really are the same
-   person; uncheck a card to leave it out.
+   name, the same phone number or the same Gmail address (Gmail ignores
+   dots: "jean.dupont@gmail.com" and "jeandupont@gmail.com" are the same
+   mailbox). Check that they really are the same person; uncheck a card
+   to leave it out.
 3. Choose the card to keep (**Keep this card**), then click **Merge**.
-   Under the kept card, Norelly shows the name and preferred address the
-   contact will have after merging. Or click **Skip** to see the next
-   group without changing anything.
+   When the cards do not have the same name, Norelly does not choose for
+   you: select the card to keep yourself. Under the kept card, Norelly
+   shows the name and preferred address the contact will have after
+   merging. Or click **Skip** to see the next group without changing
+   anything: that group will not be suggested again, unless you edit one
+   of its cards.
 
 ![Finding duplicates: two cards for Alice Martin](captures/contacts-duplicates.png)
 

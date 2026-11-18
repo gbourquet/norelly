@@ -2347,6 +2347,9 @@ pub enum ContactExportFormatDto {
 pub enum DuplicateReasonDto {
     SameName,
     SamePhone,
+    /// Adresses Gmail qui mènent à la même boîte (points et
+    /// `googlemail.com` ignorés).
+    SameGmailAddress,
 }
 
 /// Fiche d'un groupe de doublons : les seuls champs affichés.
@@ -2369,6 +2372,9 @@ pub struct ContactDuplicateGroupDto {
     /// Groupe plus grand que ce qu'une fusion peut réunir : seules les
     /// fiches les plus complètes sont présentées.
     pub truncated: bool,
+    /// La première fiche est proposée d'office comme fiche gardée ; sinon
+    /// l'utilisateur la choisit (groupe rapproché sans le nom).
+    pub suggest_keep: bool,
 }
 
 /// Ce que garderait la fiche après une fusion.

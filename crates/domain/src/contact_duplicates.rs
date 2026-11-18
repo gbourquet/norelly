@@ -3,9 +3,12 @@
 //! fiches ([`merge_contacts`]).
 //!
 //! Deux contacts ne partagent jamais une adresse (le carnet le refuse) :
-//! sont proposés comme doublons les contacts de même nom ou de même
-//! numéro de téléphone. Ce ne sont que des suggestions, que l'utilisateur
-//! confirme groupe par groupe.
+//! sont proposés comme doublons les contacts de même nom, de même numéro
+//! de téléphone ou dont les adresses Gmail mènent à la même boîte
+//! ([`gmail_key`]). Ce ne sont que des suggestions, que l'utilisateur
+//! confirme groupe par groupe ; un groupe qu'il passe est retenu
+//! ([`Dismissal`]) et n'est plus proposé tant que ses fiches ne changent
+//! pas.
 
 use std::collections::{HashMap, HashSet};
 
@@ -43,6 +46,8 @@ pub enum DuplicateReason {
     SameName,
     /// Même numéro de téléphone.
     SamePhone,
+    /// Adresses Gmail qui mènent à la même boîte ([`gmail_key`]).
+    SameGmailAddress,
 }
 
 /// Groupe de contacts qui semblent désigner la même personne.
@@ -57,51 +62,81 @@ pub struct DuplicateGroup {
     /// Le groupe comptait plus de [`MAX_DUPLICATE_GROUP_SIZE`] fiches :
     /// seules les plus complètes sont présentées.
     pub truncated: bool,
+    /// La première fiche est proposée d'office comme fiche gardée.
+    pub suggest_keep: bool,
 }
 
-/// Groupes de doublons parmi `contacts` : contacts de même [`name_key`]
-/// ou qui partagent un numéro d'au moins [`MIN_DUPLICATE_PHONE_DIGITS`]
-/// chiffres, regroupés par transitivité. Groupes dans l'ordre du nom de
-/// leur première fiche ([`ContactDraft::sort_key`]), puis de son
-/// identifiant ; au plus [`MAX_DUPLICATE_GROUPS`] groupes, de
+/// Groupes de doublons parmi `contacts` : contacts de même [`name_key`],
+/// qui partagent un numéro d'au moins [`MIN_DUPLICATE_PHONE_DIGITS`]
+/// chiffres ou une boîte Gmail ([`gmail_key`]), regroupés par
+/// transitivité. Le lien entre deux contacts d'une paire de `dismissed`
+/// est retiré avant de former les groupes : un groupe passé n'est plus
+/// proposé, sauf si une autre fiche le rapproche de nouveau. Groupes dans
+/// l'ordre du nom de leur première fiche ([`ContactDraft::sort_key`]),
+/// puis de son identifiant ; au plus [`MAX_DUPLICATE_GROUPS`] groupes, de
 /// [`MAX_DUPLICATE_GROUP_SIZE`] fiches au plus chacun.
 #[must_use]
 pub fn find_duplicates(
     contacts: &[Contact],
+    dismissed: &[DismissedPair],
     normalizer: &impl TextNormalizer,
 ) -> Vec<DuplicateGroup> {
-    let mut sets = DisjointSets::new(contacts.len());
-    let mut names: HashMap<String, usize> = HashMap::new();
-    let mut numbers: HashMap<String, usize> = HashMap::new();
-    // Paires rapprochées, avec leur raison (pour les raisons du groupe).
-    let mut links: Vec<(usize, DuplicateReason)> = Vec::new();
+    // Fiches de même clé, par raison, dans l'ordre du carnet.
+    let mut buckets: HashMap<(DuplicateReason, String), Vec<usize>> = HashMap::new();
     for (index, contact) in contacts.iter().enumerate() {
         let draft = contact.draft();
+        let mut keys: HashSet<(DuplicateReason, String)> = HashSet::new();
         if let Some(key) = name_key(draft, normalizer) {
-            match names.get(&key) {
-                Some(&first) => {
-                    sets.union(first, index);
-                    links.push((index, DuplicateReason::SameName));
-                }
-                None => {
-                    names.insert(key, index);
-                }
-            }
+            keys.insert((DuplicateReason::SameName, key));
         }
-        let mut own = HashSet::new();
         for p in draft.phones() {
             let key = phone_key(p.number());
             let digits = key.chars().filter(char::is_ascii_digit).count();
-            if digits < MIN_DUPLICATE_PHONE_DIGITS || !own.insert(key.clone()) {
-                continue;
+            if digits >= MIN_DUPLICATE_PHONE_DIGITS {
+                keys.insert((DuplicateReason::SamePhone, key));
             }
-            match numbers.get(&key) {
-                Some(&first) => {
-                    sets.union(first, index);
-                    links.push((index, DuplicateReason::SamePhone));
-                }
-                None => {
-                    numbers.insert(key, index);
+        }
+        for e in draft.emails() {
+            if let Some(key) = gmail_key(e.key()) {
+                keys.insert((DuplicateReason::SameGmailAddress, key));
+            }
+        }
+        for key in keys {
+            buckets.entry(key).or_default().push(index);
+        }
+    }
+
+    let dismissed: HashSet<DismissedPair> = dismissed.iter().copied().collect();
+    let mut sets = DisjointSets::new(contacts.len());
+    // Fiches rapprochées, avec leur raison (pour les raisons du groupe).
+    let mut links: Vec<(usize, DuplicateReason)> = Vec::new();
+    // Fiches rapprochées d'une autre par leur nom.
+    let mut named: HashSet<usize> = HashSet::new();
+    for ((reason, _), indexes) in buckets {
+        if indexes.len() < 2 {
+            continue;
+        }
+        // Les fiches d'une même clé sont toutes liées, sauf les paires
+        // écartées : parcours en largeur de ce graphe. Une fiche non
+        // encore atteinte est soit atteinte (et retirée), soit gardée à
+        // cause d'une paire écartée : le parcours coûte autant que les
+        // fiches et les paires écartées de la clé.
+        let mut pending: Vec<usize> = indexes;
+        while let Some(start) = pending.pop() {
+            let mut queue = vec![start];
+            while let Some(a) = queue.pop() {
+                let (reached, kept): (Vec<usize>, Vec<usize>) = pending.iter().partition(|&&b| {
+                    DismissedPair::new(contacts[a].id(), contacts[b].id())
+                        .is_some_and(|p| !dismissed.contains(&p))
+                });
+                pending = kept;
+                for b in reached {
+                    sets.union(a, b);
+                    links.push((b, reason));
+                    if reason == DuplicateReason::SameName {
+                        named.extend([a, b]);
+                    }
+                    queue.push(b);
                 }
             }
         }
@@ -123,11 +158,12 @@ pub fn find_duplicates(
         .into_iter()
         .filter(|(_, indexes)| indexes.len() > 1)
         .map(|(root, indexes)| {
-            let mut group: Vec<&Contact> = indexes.iter().map(|&i| &contacts[i]).collect();
+            let mut group: Vec<usize> = indexes;
             // Les plus complètes d'abord (puis favorite, puis la plus
             // ancienne) : la première est proposée, les suivantes gardées
             // dans la borne, puis rangées par identifiant.
-            group.sort_by_key(|c| {
+            group.sort_by_key(|&i| {
+                let c = &contacts[i];
                 std::cmp::Reverse((
                     completeness(c.draft()),
                     c.draft().favorite(),
@@ -137,13 +173,18 @@ pub fn find_duplicates(
             let truncated = group.len() > MAX_DUPLICATE_GROUP_SIZE;
             group.truncate(MAX_DUPLICATE_GROUP_SIZE);
             let first = group.remove(0);
-            group.sort_by_key(|c| c.id());
+            group.sort_by_key(|&i| contacts[i].id());
             let mut reasons = reasons.remove(&root).unwrap_or_default();
             reasons.sort();
-            let sort_key = first.draft().sort_key();
+            // Seul un même nom désigne assez sûrement la même personne
+            // pour proposer une fiche : rapprochée par un téléphone ou une
+            // boîte Gmail seulement, une fiche importée très remplie
+            // serait proposée à la place de la fiche de l'utilisateur.
+            let suggest_keep = named.contains(&first);
+            let sort_key = contacts[first].draft().sort_key();
             let contacts = std::iter::once(first)
                 .chain(group)
-                .map(Contact::id)
+                .map(|i| contacts[i].id())
                 .collect();
             (
                 sort_key,
@@ -151,6 +192,7 @@ pub fn find_duplicates(
                     contacts,
                     reasons,
                     truncated,
+                    suggest_keep,
                 },
             )
         })
@@ -161,6 +203,19 @@ pub fn find_duplicates(
         .take(MAX_DUPLICATE_GROUPS)
         .map(|(_, group)| group)
         .collect()
+}
+
+/// Clé Gmail d'une adresse : pour `gmail.com` et `googlemail.com`, la
+/// boîte désignée (partie locale sans ses points, domaine `gmail.com`) ;
+/// `None` pour une autre adresse.
+#[must_use]
+pub fn gmail_key(key: &AddressKey) -> Option<String> {
+    let (local, domain) = key.as_str().rsplit_once('@')?;
+    if !matches!(domain, "gmail.com" | "googlemail.com") {
+        return None;
+    }
+    let local: String = local.chars().filter(|&c| c != '.').collect();
+    (!local.is_empty()).then(|| format!("{local}@gmail.com"))
 }
 
 /// Ensembles disjoints (union-find) sur les rangs `0..n`.
@@ -347,6 +402,95 @@ impl MergeSelection {
     #[must_use]
     pub fn others(&self) -> &[ContactId] {
         &self.others
+    }
+}
+
+/// Nombre maximal de paires écartées retenues : au-delà, les plus
+/// anciennes sont oubliées (leur groupe peut être reproposé).
+pub const MAX_DISMISSED_PAIRS: usize = 10_000;
+
+/// Deux contacts distincts que l'utilisateur ne veut plus voir proposés
+/// ensemble, du plus petit identifiant au plus grand.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct DismissedPair {
+    low: ContactId,
+    high: ContactId,
+}
+
+impl DismissedPair {
+    /// Paire de `a` et `b`, dans n'importe quel ordre ; `None` si c'est le
+    /// même contact.
+    #[must_use]
+    pub fn new(a: ContactId, b: ContactId) -> Option<Self> {
+        (a != b).then(|| Self {
+            low: a.min(b),
+            high: a.max(b),
+        })
+    }
+
+    #[must_use]
+    pub fn low(&self) -> ContactId {
+        self.low
+    }
+
+    #[must_use]
+    pub fn high(&self) -> ContactId {
+        self.high
+    }
+}
+
+/// Groupe passé refusé.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum DismissalError {
+    #[error("identifiant de contact invalide")]
+    InvalidId,
+    #[error("moins de deux fiches à écarter")]
+    TooFew,
+    #[error("plus de {MAX_DUPLICATE_GROUP_SIZE} fiches à écarter")]
+    TooMany,
+}
+
+/// Groupe passé par l'utilisateur : toutes les paires de ses fiches.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Dismissal {
+    pairs: Vec<DismissedPair>,
+}
+
+impl Dismissal {
+    /// Valide un groupe reçu de l'interface : identifiants valides, de
+    /// deux à [`MAX_DUPLICATE_GROUP_SIZE`] fiches distinctes.
+    pub fn new<T: Copy + Into<i64>>(contacts: &[T]) -> Result<Self, DismissalError> {
+        if contacts.len() > 2 * MAX_DUPLICATE_GROUP_SIZE {
+            return Err(DismissalError::TooMany);
+        }
+        let mut ids: Vec<ContactId> = contacts
+            .iter()
+            .map(|&raw| ContactId::new(raw.into()).ok_or(DismissalError::InvalidId))
+            .collect::<Result<_, _>>()?;
+        ids.sort_unstable();
+        ids.dedup();
+        if ids.len() < 2 {
+            return Err(DismissalError::TooFew);
+        }
+        if ids.len() > MAX_DUPLICATE_GROUP_SIZE {
+            return Err(DismissalError::TooMany);
+        }
+        let pairs = ids
+            .iter()
+            .enumerate()
+            .flat_map(|(at, &a)| {
+                ids[at + 1..]
+                    .iter()
+                    .filter_map(move |&b| DismissedPair::new(a, b))
+            })
+            .collect();
+        Ok(Self { pairs })
+    }
+
+    /// Paires du groupe, chacune une fois, dans l'ordre.
+    #[must_use]
+    pub fn pairs(&self) -> &[DismissedPair] {
+        &self.pairs
     }
 }
 

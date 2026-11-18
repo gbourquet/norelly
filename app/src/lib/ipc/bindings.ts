@@ -300,6 +300,11 @@ export const commands = {
 	 */
 	findContactDuplicates: () => typedError<ContactDuplicateGroupDto_Serialize[], IpcError_Serialize>(__TAURI_INVOKE("find_contact_duplicates")),
 	/**
+	 *  Retient le groupe passé `contacts` (fiches présentées) : il n'est plus
+	 *  proposé tant qu'aucune de ses fiches ne change.
+	 */
+	dismissContactDuplicates: (contacts: number[]) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("dismiss_contact_duplicates", { contacts })),
+	/**
 	 *  Fusionne les fiches `others` dans la fiche `keep` ; renvoie la fiche
 	 *  gardée. Refusée si une fiche a changé depuis la recherche.
 	 */
@@ -598,6 +603,11 @@ export type ContactDuplicateGroupDto_Deserialize = {
 	 *  fiches les plus complètes sont présentées.
 	 */
 	truncated: boolean,
+	/**
+	 *  La première fiche est proposée d'office comme fiche gardée ; sinon
+	 *  l'utilisateur la choisit (groupe rapproché sans le nom).
+	 */
+	suggest_keep: boolean,
 };
 
 /**  Groupe de doublons : la fiche proposée à garder d'abord. */
@@ -609,6 +619,11 @@ export type ContactDuplicateGroupDto_Serialize = {
 	 *  fiches les plus complètes sont présentées.
 	 */
 	truncated: boolean,
+	/**
+	 *  La première fiche est proposée d'office comme fiche gardée ; sinon
+	 *  l'utilisateur la choisit (groupe rapproché sans le nom).
+	 */
+	suggest_keep: boolean,
 };
 
 /**  Adresse d'une fiche contact (saisie, ou fiche relue). */
@@ -1131,7 +1146,12 @@ export type DuplicatePolicyDto =
 "complete";
 
 /**  Ce qui rapproche les contacts d'un groupe de doublons. */
-export type DuplicateReasonDto = "same_name" | "same_phone";
+export type DuplicateReasonDto = "same_name" | "same_phone" | 
+/**
+ *  Adresses Gmail qui mènent à la même boîte (points et
+ *  `googlemail.com` ignorés).
+ */
+"same_gmail_address";
 
 /**  Point de connexion (consentement au clair, exception de certificat). */
 export type EndpointDto = {

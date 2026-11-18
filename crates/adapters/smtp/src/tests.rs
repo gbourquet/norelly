@@ -315,6 +315,146 @@ async fn send_message() -> TestResult {
     Ok(())
 }
 
+/// Un point seul sur une ligne terminée par un LF ou un CR isolé est
+/// doublé lui aussi : sinon un serveur qui accepte ces fins de ligne
+/// clôt les données au milieu du message et lit la suite comme des
+/// commandes (contrebande SMTP).
+#[tokio::test]
+async fn a_dot_after_a_bare_line_feed_or_carriage_return_is_doubled() -> TestResult {
+    let ca = TestCa::new()?;
+    let cert = ca.issue(&["localhost"])?;
+    let script = ehlo_once(Script::new().send(smtp::greeting()), &["AUTH PLAIN"])
+        .expect("AUTH PLAIN")
+        .send("235 ok\r\n")
+        .expect("MAIL FROM:<alice@example.com>")
+        .send("250 ok\r\n")
+        .expect("RCPT TO:<bob@example.com>")
+        .send("250 ok\r\n")
+        .expect("DATA")
+        .send("354 go\r\n")
+        .expect_data_until(".")
+        .send("250 queued\r\n")
+        .expect("QUIT")
+        .send("221 bye\r\n")
+        .expect_eof();
+    let server = ScriptedServer::start_tls(script, cert.server_config()?).await?;
+    let message = OutgoingMessage {
+        from: "alice@example.com".into(),
+        recipients: vec!["bob@example.com".into()],
+        raw: b"Subject: essai\r\n\r\nligne\n.\nMAIL FROM:<mallory@example.com>\r\n\
+               suite\r.\rRCPT TO:<eve@example.com>\r\nfin\r\n"
+            .to_vec(),
+    };
+    sender(&ca)
+        .send(
+            &request(server.port(), Security::Tls, PlaintextPolicy::deny_all()),
+            &message,
+        )
+        .await?;
+    let outcome = server.finish().await;
+    outcome.result?;
+    assert!(outcome.transcript.contains(b"ligne\n..\nMAIL"));
+    assert!(outcome.transcript.contains(b"suite\r..\rRCPT"));
+    Ok(())
+}
+
+/// Bannière sans fin de ligne : la lecture est bornée par la taille, pas
+/// seulement par le délai, et la mémoire ne gonfle pas jusqu'à lui.
+#[tokio::test]
+async fn an_endless_reply_line_is_refused_before_the_delay() -> TestResult {
+    let ca = TestCa::new()?;
+    let cert = ca.issue(&["localhost"])?;
+    let mut banner = b"220 ".to_vec();
+    banner.resize(200 * 1024, b'a');
+    let script = Script::new().send_raw(banner).expect_eof();
+    let server = ScriptedServer::start_tls(script, cert.server_config()?).await?;
+    let result = quick_opening(&ca)
+        .verify(&request(
+            server.port(),
+            Security::Tls,
+            PlaintextPolicy::deny_all(),
+        ))
+        .await;
+    assert!(
+        matches!(result, Err(ConnectionError::Protocol(_))),
+        "{result:?}"
+    );
+    Ok(())
+}
+
+/// Ligne de réponse de 2 000 octets (Microsoft 365 en envoie) : acceptée.
+#[tokio::test]
+async fn a_long_reply_line_is_accepted() -> TestResult {
+    let ca = TestCa::new()?;
+    let cert = ca.issue(&["localhost"])?;
+    let long = format!("X-LONGUE {}", "a".repeat(2000));
+    let script = ehlo_once(
+        Script::new().send(smtp::greeting()),
+        &[long.as_str(), "AUTH PLAIN"],
+    );
+    let server = ScriptedServer::start_tls(auth_and_quit(script), cert.server_config()?).await?;
+    let caps = sender(&ca)
+        .verify(&request(
+            server.port(),
+            Security::Tls,
+            PlaintextPolicy::deny_all(),
+        ))
+        .await?;
+    assert!(caps.has("AUTH=PLAIN"));
+    server.finish().await.result?;
+    Ok(())
+}
+
+/// Ligne de l'EHLO faite d'espaces sur le canal final : ignorée, sans
+/// panique de la tâche d'envoi.
+#[tokio::test]
+async fn a_blank_ehlo_line_does_not_panic() -> TestResult {
+    let ca = TestCa::new()?;
+    let cert = ca.issue(&["localhost"])?;
+    let script = Script::new()
+        .send(smtp::greeting())
+        .expect("EHLO [127.0.0.1]")
+        .send("250-faux.serveur bonjour\r\n250-   \r\n250 AUTH PLAIN\r\n");
+    let server = ScriptedServer::start_tls(auth_and_quit(script), cert.server_config()?).await?;
+    let caps = sender(&ca)
+        .verify(&request(
+            server.port(),
+            Security::Tls,
+            PlaintextPolicy::deny_all(),
+        ))
+        .await?;
+    assert!(caps.has("AUTH=PLAIN"));
+    server.finish().await.result?;
+    Ok(())
+}
+
+/// Réponse de 16 000 lignes : refusée ou lue sans coût quadratique, bien
+/// avant le délai de transmission de [`quick_opening`] (10 s), que la
+/// lecture quadratique atteignait.
+#[tokio::test]
+async fn a_reply_of_many_lines_is_handled_quickly() -> TestResult {
+    let ca = TestCa::new()?;
+    let cert = ca.issue(&["localhost"])?;
+    let mut banner = "220-a\r\n".repeat(16_000);
+    banner.push_str("220 fin\r\n");
+    let script = Script::new().send(banner).expect_eof();
+    let server = ScriptedServer::start_tls(script, cert.server_config()?).await?;
+    let started = std::time::Instant::now();
+    let _ = quick_opening(&ca)
+        .verify(&request(
+            server.port(),
+            Security::Tls,
+            PlaintextPolicy::deny_all(),
+        ))
+        .await;
+    assert!(
+        started.elapsed() < ABANDONED_WITHIN,
+        "{:?}",
+        started.elapsed()
+    );
+    Ok(())
+}
+
 /// Expéditeur au délai d'ouverture court et au délai de transmission long.
 fn quick_opening(ca: &TestCa) -> SmtpSender {
     let tls = TlsClientFactory::new(TrustRoots::Custom(vec![ca.root()]))

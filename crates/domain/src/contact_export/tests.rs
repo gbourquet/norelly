@@ -476,3 +476,99 @@ proptest! {
         prop_assert!(!out.starts_with(FORMULA_LIKE));
     }
 }
+
+#[test]
+fn the_proposed_file_name_is_the_translated_stem_with_the_format_extension() {
+    assert_eq!(
+        export_file_name("carnet", ExportFormat::VCard4),
+        "carnet.vcf"
+    );
+    assert_eq!(
+        export_file_name("Mes contacts", ExportFormat::VCard3),
+        "Mes contacts.vcf"
+    );
+    assert_eq!(
+        export_file_name("Kontakte", ExportFormat::GoogleCsv),
+        "Kontakte.csv"
+    );
+    assert_eq!(
+        export_file_name("Adressbuch", ExportFormat::Ldif),
+        "Adressbuch.ldif"
+    );
+}
+
+#[test]
+fn an_empty_or_unusable_stem_falls_back_to_contacts() {
+    for raw in ["", "   ", "...", " . ", "\u{3000}.."] {
+        assert_eq!(
+            export_file_name(raw, ExportFormat::VCard4),
+            "contacts.vcf",
+            "{raw:?}"
+        );
+    }
+    assert_eq!(export_file_name("", ExportFormat::Ldif), "contacts.ldif");
+    assert_eq!(
+        export_file_name(" .. ", ExportFormat::GoogleCsv),
+        "contacts.csv"
+    );
+}
+
+#[test]
+fn the_proposed_file_name_never_leaves_the_chosen_folder() {
+    assert_eq!(
+        export_file_name("../../.ssh/authorized_keys", ExportFormat::VCard4),
+        "_____ssh_authorized_keys.vcf"
+    );
+    assert_eq!(
+        export_file_name("C:\\Windows\\carnet", ExportFormat::Ldif),
+        "C__Windows_carnet.ldif"
+    );
+    // Nom réservé de Windows : préfixé.
+    assert_eq!(export_file_name("CON", ExportFormat::VCard4), "_CON.vcf");
+    // Le format décide de l'extension, pas l'interface : aucune extension
+    // intermédiaire (« carnet.exe » affiché quand les extensions sont
+    // masquées).
+    assert_eq!(
+        export_file_name("carnet.exe", ExportFormat::GoogleCsv),
+        "carnet_exe.csv"
+    );
+    assert_eq!(
+        export_file_name("con.vcf", ExportFormat::VCard4),
+        "_con_vcf.vcf"
+    );
+}
+
+proptest! {
+    #[test]
+    fn the_proposed_file_name_is_safe_bounded_and_keeps_the_extension(stem in "\\PC{0,400}") {
+        for format in [
+            ExportFormat::VCard4,
+            ExportFormat::VCard3,
+            ExportFormat::GoogleCsv,
+            ExportFormat::Ldif,
+        ] {
+            let name = export_file_name(&stem, format);
+            prop_assert!(name.len() <= crate::reading::MAX_FILE_NAME_BYTES, "{name:?}");
+            let suffix = format!(".{}", format.extension());
+            prop_assert!(name.ends_with(&suffix), "{name:?}");
+            prop_assert!(name.len() > suffix.len(), "{name:?}");
+            prop_assert_eq!(crate::reading::safe_file_name(&name), name.clone());
+        }
+    }
+}
+
+#[test]
+fn an_export_label_is_bounded_before_any_processing() {
+    assert_eq!(export_label("Enregistrer"), "Enregistrer");
+    let long = "é".repeat(MAX_EXPORT_LABEL_BYTES);
+    let bounded = export_label(&long);
+    assert!(bounded.len() <= MAX_EXPORT_LABEL_BYTES, "{}", bounded.len());
+    assert!(
+        bounded.len() >= MAX_EXPORT_LABEL_BYTES - 1,
+        "{}",
+        bounded.len()
+    );
+    assert!(long.starts_with(bounded));
+    let ascii = "a".repeat(MAX_EXPORT_LABEL_BYTES + 10);
+    assert_eq!(export_label(&ascii).len(), MAX_EXPORT_LABEL_BYTES);
+}

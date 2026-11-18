@@ -277,6 +277,9 @@ l'ordinateur** : rien n'est envoyé à un serveur.
   les étiquettes personnelles des Contacts d'Apple ; les étiquettes
   prédéfinies d'Apple deviennent les étiquettes courantes
   correspondantes.
+- Un contact marqué favori dans le fichier (les favoris de Google, en
+  vCard comme en CSV, et ceux qu'exporte Norelly) est importé en favori.
+  Les autres catégories ou groupes du fichier ne sont pas repris.
 - Rien n'est écrit avant confirmation. Une fenêtre résume d'abord ce que
   l'import va faire : le fichier et son format, le nombre de nouveaux
   contacts, de fiches déjà dans le carnet, de fiches impossibles à
@@ -335,17 +338,20 @@ l'ordinateur** : rien n'est envoyé à un serveur.
   effacé. Rien d'autre dans le dossier n'est touché.
 - Un fichier exporté par Norelly se réimporte dans Norelly et redonne le
   même carnet : noms, accents, notes sur plusieurs lignes, toutes les
-  adresses et la préférée, téléphones, organisation. Ce que chaque format
-  ne sait pas porter :
+  adresses et la préférée, téléphones, organisation, favori. Ce que chaque
+  format ne sait pas porter :
   - vCard : le nom complet est toujours écrit (un contact sans nom affiché
     reçoit son prénom et son nom) ; les étiquettes sont écrites en
     minuscules ;
   - LDIF : les adresses n'ont pas d'étiquette, les téléphones sont rangés
-    en travail, domicile, portable, fax ou bipeur ;
+    en travail, domicile, portable, fax ou bipeur ; le favori n'est pas
+    porté ;
   - dans tous les formats, l'adresse préférée est écrite en premier ; les
-    favoris et les listes de diffusion ne sont pas exportés.
+    listes de diffusion ne sont pas exportées.
 - Un CSV importé dans Google Contacts y range les contacts dans « Mes
-  contacts », comme ceux créés directement chez Google.
+  contacts », comme ceux créés directement chez Google, et les favoris
+  aussi dans ses favoris. Un favori exporté en vCard porte la même marque
+  que dans les exports de Google.
 - Dans le CSV, une valeur qui commence par `=`, `+`, `-` ou `@` (un
   numéro « +33… » par exemple), ou par l'une de leurs variantes
   typographiques (formes larges, petites, en exposant ou en indice, signe
@@ -451,5 +457,5 @@ l'ordinateur** : rien n'est envoyé à un serveur.
   permet ni de la voir, ni de la réparer, ni de la supprimer. Une très
   longue suite de fiches abîmées peut arrêter la liste avant sa fin.
 - Un groupe passé n'est pas retenu : il est proposé de nouveau à chaque
-  recherche. Les listes ne s'importent ni ne s'exportent, les favoris ne s'exportent pas. Photos,
+  recherche. Les listes ne s'importent ni ne s'exportent, les favoris ne s'exportent pas en LDIF. Photos,
   adresses postales et anniversaires d'un fichier importé sont ignorés.

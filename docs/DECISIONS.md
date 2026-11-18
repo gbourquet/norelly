@@ -613,7 +613,13 @@ est majoritairement écrit par Claude et relu par le mainteneur.
     en LDIF, téléphones rangés dans les attributs de Thunderbird
     (étiquette inconnue → `telephoneNumber`) ; `FN` vCard toujours écrit
     (nom composé à défaut de nom affiché, vide sans nom ou trop long :
-    règle validée **après coup**). Le favori n'est pas exporté.
+    règle validée **après coup**). Le favori est écrit et relu en vCard
+    (catégorie `CATEGORIES:starred`) et en CSV (étiquette « * starred »
+    de la colonne `Labels`, à côté de « * myContacts »), comme dans les
+    exports de Google ; pas en LDIF, que Thunderbird ne sait pas porter
+    (décision du mainteneur du 2026-11-18, qui remplace « le favori n'est
+    pas exporté »). Les autres catégories et étiquettes lues ne sont pas
+    reprises.
     Toute cellule CSV qui commence par `=`, `+`, `-`, `@`, tabulation ou
     CR, téléphones compris, est préfixée d'une apostrophe ; de même, à
     titre préventif (décision du mainteneur), pour le signe moins `−` et

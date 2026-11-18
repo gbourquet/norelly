@@ -20,8 +20,10 @@ const ACCOUNT: &str =
 const CURRENT_BOOK: &str = "SELECT server, book_url FROM carddav_account WHERE id = 1";
 const SAVE_ACCOUNT: &str = "INSERT OR REPLACE INTO carddav_account \
      (id, server, username, book_url, book_name) VALUES (1, ?1, ?2, ?3, ?4)";
+/// Ressources connues, sans leur fiche distante (lue à la demande).
 const LINKS: &str =
-    "SELECT href, etag, contact_id, deleted_at, synced, remote FROM carddav_links ORDER BY href";
+    "SELECT href, etag, contact_id, deleted_at, synced, '' FROM carddav_links ORDER BY href";
+const LINK_REMOTE: &str = "SELECT remote FROM carddav_links WHERE href = ?1";
 const SAVE_LINK: &str = "INSERT INTO carddav_links \
      (href, etag, contact_id, deleted_at, synced, remote) VALUES (?1, ?2, ?3, ?4, ?5, ?6) \
      ON CONFLICT (href) DO UPDATE SET etag = excluded.etag, contact_id = excluded.contact_id, \
@@ -174,6 +176,17 @@ impl CardDavStore for SqliteCardDavStore {
                     }
                 }
                 Ok(links)
+            })
+            .await
+    }
+
+    async fn link_remote(&self, href: &Href) -> Result<Option<String>, StoreError> {
+        let href = href.as_str().to_owned();
+        self.db
+            .read(move |c| {
+                c.query_row(LINK_REMOTE, params![href], |row| row.get(0))
+                    .optional()
+                    .map_err(store_error)
             })
             .await
     }

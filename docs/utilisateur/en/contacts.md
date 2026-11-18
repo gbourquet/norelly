@@ -266,6 +266,8 @@ Good to know:
   the server.
 - **Disconnect** stops syncing; your contacts stay in Norelly, and nothing
   is deleted on the server.
+- As a precaution, if many contacts disappear from the server at once,
+  Norelly does not delete them: delete them yourself in Norelly.
 - Google Contacts and iCloud are not supported yet.
 
 ## Deleting contacts

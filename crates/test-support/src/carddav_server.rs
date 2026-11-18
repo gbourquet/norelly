@@ -122,7 +122,7 @@ pub fn base64(input: &[u8]) -> String {
 }
 
 /// Réponse imposée.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RawResponse {
     pub status: u16,
     pub headers: Vec<(String, String)>,

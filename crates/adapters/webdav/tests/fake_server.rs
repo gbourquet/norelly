@@ -117,13 +117,14 @@ async fn redirects_and_resources_outside_the_server_are_not_followed() {
             server.book_path()
         )),
     );
-    let entries = client
+    let listing = client
         .entries(&book, &creds)
         .await
         .unwrap_or_else(|e| panic!("{e}"));
-    assert_eq!(entries.len(), 1);
+    assert_eq!(listing.entries.len(), 1);
+    assert_eq!(listing.omitted, 2, "réponses omises comptées");
     assert_eq!(
-        entries[0].href.as_str(),
+        listing.entries[0].href.as_str(),
         format!("{}b.vcf", server.book_path())
     );
 }
@@ -213,7 +214,10 @@ async fn a_card_without_etag_after_writing_is_still_written() {
         )
         .await;
     assert_eq!(created, Ok(None));
-    assert_eq!(client.entries(&book, &creds).await.map(|e| e.len()), Ok(1));
+    assert_eq!(
+        client.entries(&book, &creds).await.map(|e| e.entries.len()),
+        Ok(1)
+    );
     let stale = ETag::parse("\"x\"").unwrap_or_else(|| panic!("etag"));
     assert_eq!(
         client.delete(&book, &creds, &href, &stale).await,
@@ -222,12 +226,72 @@ async fn a_card_without_etag_after_writing_is_still_written() {
 }
 
 #[tokio::test]
-async fn every_request_carries_the_credentials_only_over_tls() {
+async fn the_password_waits_for_the_server_to_ask_for_it() {
     let (_ca, server, client) = setup().await;
-    let _ = client
+    let books = client
         .address_books(&url(&server.url()), &credentials("alice", "mot-de-passe"))
         .await;
+    assert!(books.is_ok(), "{books:?}");
+    let requests = server.requests();
+    // Première requête sans identifiants ; le serveur les demande (401,
+    // Basic) : toutes les suivantes les portent.
+    assert!(!requests[0].authorized, "{requests:?}");
+    assert!(requests[1..].iter().all(|r| r.authorized), "{requests:?}");
+}
+
+#[tokio::test]
+async fn a_server_that_never_asks_never_receives_the_password() {
+    let (_ca, server, client) = setup().await;
+    let not_found = RawResponse {
+        status: 404,
+        headers: Vec::new(),
+        body: Vec::new(),
+    };
+    server.override_response("PROPFIND", "/.well-known/carddav", not_found.clone());
+    server.override_response("PROPFIND", "/", not_found);
+    let books = client
+        .address_books(&url(&server.url()), &credentials("alice", "mot-de-passe"))
+        .await;
+    assert_eq!(books, Err(CardDavError::NoAddressBook));
     let requests = server.requests();
     assert!(!requests.is_empty());
-    assert!(requests.iter().all(|r| r.authorized), "{requests:?}");
+    assert!(requests.iter().all(|r| !r.authorized), "{requests:?}");
+}
+
+#[tokio::test]
+async fn resources_outside_the_book_are_neither_listed_nor_written() {
+    let (_ca, server, client) = setup().await;
+    let creds = credentials("alice", "mot-de-passe");
+    let book = url(&format!(
+        "{}{}",
+        server.url().trim_end_matches('/'),
+        server.book_path()
+    ));
+    server.override_response(
+        "PROPFIND",
+        &server.book_path(),
+        multistatus(&format!(
+            "<d:response><d:href>/dav/calendars/alice/perso/evt.ics</d:href><d:propstat><d:prop><d:getetag>\"1\"</d:getetag></d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response>\
+             <d:response><d:href>{0}a.vcf</d:href><d:propstat><d:prop><d:getetag>\"2\"</d:getetag></d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response>",
+            server.book_path()
+        )),
+    );
+    let listing = client
+        .entries(&book, &creds)
+        .await
+        .unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(listing.entries.len(), 1);
+    assert_eq!(listing.omitted, 1, "réponse hors du carnet comptée");
+    let outside =
+        Href::parse("/dav/calendars/alice/perso/evt.ics").unwrap_or_else(|e| panic!("{e}"));
+    let tag = ETag::parse("\"1\"").unwrap_or_else(|| panic!("etag"));
+    assert!(matches!(
+        client.delete(&book, &creds, &outside, &tag).await,
+        Err(CardDavError::Protocol(_))
+    ));
+    assert!(matches!(
+        client.update(&book, &creds, &outside, &tag, "x").await,
+        Err(CardDavError::Protocol(_))
+    ));
+    assert!(server.requests().iter().all(|r| r.path != outside.as_str()));
 }

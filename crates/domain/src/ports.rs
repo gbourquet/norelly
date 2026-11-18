@@ -2267,13 +2267,14 @@ pub trait CardDavClient: Send + Sync {
         credentials: &crate::carddav::DavCredentials,
     ) -> impl Future<Output = Result<Vec<crate::carddav::AddressBook>, CardDavError>> + Send;
 
-    /// Ressources du carnet et leur ETag (au plus
-    /// [`crate::carddav::MAX_REMOTE_CARDS`], sinon `TooLarge`).
+    /// Fiches du carnet et leur ETag (au plus
+    /// [`crate::carddav::MAX_REMOTE_CARDS`], sinon `TooLarge`) ; une
+    /// réponse illisible (sans ETag, hors du carnet) est omise et comptée.
     fn entries(
         &self,
         book: &crate::carddav::DavUrl,
         credentials: &crate::carddav::DavCredentials,
-    ) -> impl Future<Output = Result<Vec<crate::carddav::RemoteEntry>, CardDavError>> + Send;
+    ) -> impl Future<Output = Result<RemoteListing, CardDavError>> + Send;
 
     /// Fiches `hrefs` du carnet (au plus
     /// [`crate::carddav::MAX_MULTIGET_HREFS`]) ; une fiche absente ou plus
@@ -2321,6 +2322,15 @@ pub trait CardDavClient: Send + Sync {
     fn new_uid(&self) -> crate::carddav::CardUid;
 }
 
+/// Liste d'un carnet distant.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct RemoteListing {
+    pub entries: Vec<crate::carddav::RemoteEntry>,
+    /// Réponses omises (illisibles, hors du carnet) : la liste est
+    /// incomplète, aucune fiche ne doit être tenue pour supprimée.
+    pub omitted: usize,
+}
+
 /// Synchronisation enregistrée.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CardDavSyncRecord {
@@ -2349,10 +2359,18 @@ pub trait CardDavStore: Send + Sync {
     /// synchronisation (les contacts restent).
     fn remove_account(&self) -> impl Future<Output = Result<(), StoreError>> + Send;
 
-    /// Ressources connues.
+    /// Ressources connues, **sans** leur fiche distante
+    /// ([`crate::carddav::SyncLink::remote`] vide : lue à la demande par
+    /// [`Self::link_remote`], pour ne pas charger tout le carnet distant).
     fn links(
         &self,
     ) -> impl Future<Output = Result<Vec<crate::carddav::SyncLink>, StoreError>> + Send;
+
+    /// Fiche distante enregistrée d'une ressource connue.
+    fn link_remote(
+        &self,
+        href: &crate::carddav::Href,
+    ) -> impl Future<Output = Result<Option<String>, StoreError>> + Send;
 
     /// Enregistre ou remplace une ressource connue. Un contact supprimé du
     /// carnet fait passer sa ressource à

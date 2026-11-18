@@ -89,6 +89,17 @@ fn fetched(path: &str, tag: &str, card: Option<ContactDraft>, rev: Option<&str>)
     }
 }
 
+/// Plan sans fiche remise à plus tard.
+fn sync_plan(
+    links: &[SyncLink],
+    local: &[LocalCard],
+    remote: &[RemoteEntry],
+    fetched: &[FetchedCard],
+    now: i64,
+) -> Vec<SyncAction> {
+    plan_sync(links, local, remote, fetched, &[], now)
+}
+
 fn kinds(actions: &[SyncAction]) -> Vec<&'static str> {
     actions.iter().map(SyncAction::kind).collect()
 }
@@ -490,7 +501,7 @@ fn only_new_or_changed_resources_are_downloaded() {
 fn nothing_to_do_when_nothing_changed() {
     let links = [link("/c/a.vcf", "1", linked(1), "Alice|alice@example.com")];
     let local = [local(1, "Alice", "alice@example.com", 10)];
-    let plan = plan_sync(&links, &local, &[entry("/c/a.vcf", "1")], &[], 100);
+    let plan = sync_plan(&links, &local, &[entry("/c/a.vcf", "1")], &[], 100);
     assert!(plan.is_empty(), "{plan:?}");
 }
 
@@ -501,7 +512,7 @@ fn local_changes_are_pushed_and_new_contacts_created() {
         local(1, "Alice", "alice@example.com", 10),
         local(2, "Bob", "bob@example.com", 10),
     ];
-    let plan = plan_sync(&links, &local, &[entry("/c/a.vcf", "1")], &[], 100);
+    let plan = sync_plan(&links, &local, &[entry("/c/a.vcf", "1")], &[], 100);
     assert_eq!(kinds(&plan), ["push-update", "push-create"]);
     match &plan[0] {
         SyncAction::PushUpdate {
@@ -512,7 +523,7 @@ fn local_changes_are_pushed_and_new_contacts_created() {
         } => {
             assert_eq!(h, &href("/c/a.vcf"));
             assert_eq!(e, &etag("1"));
-            assert_eq!(base, "remote:/c/a.vcf");
+            assert_eq!(base, &None, "fiche distante enregistrée");
             assert_eq!(contact.id().get(), 1);
         }
         other => panic!("{other:?}"),
@@ -534,7 +545,7 @@ fn remote_changes_are_pulled_and_keep_the_local_favorite() {
         Some(draft("Alice M.", "alice@example.com")),
         None,
     );
-    let plan = plan_sync(&links, &[mine], &[entry("/c/a.vcf", "2")], &[card], 100);
+    let plan = sync_plan(&links, &[mine], &[entry("/c/a.vcf", "2")], &[card], 100);
     assert_eq!(kinds(&plan), ["pull-update"]);
     match &plan[0] {
         SyncAction::PullUpdate { draft, card, .. } => {
@@ -557,7 +568,7 @@ fn a_conflict_goes_to_the_latest_modification() {
         Some(draft("Distant", "alice@example.com")),
         Some("19700101T000640Z"),
     );
-    let plan = plan_sync(
+    let plan = sync_plan(
         &links,
         &[local(1, "Alice", "alice@example.com", 500)],
         &remote,
@@ -568,12 +579,16 @@ fn a_conflict_goes_to_the_latest_modification() {
     match &plan[0] {
         SyncAction::PushUpdate { etag: e, base, .. } => {
             assert_eq!(e, &etag("2"), "contre la version lue");
-            assert_eq!(base, &card.raw, "fusionnée sur la version distante");
+            assert_eq!(
+                base.as_ref(),
+                Some(&card.raw),
+                "fusionnée sur la version distante"
+            );
         }
         other => panic!("{other:?}"),
     }
     // Local modifié à 300 : la version distante l'emporte.
-    let plan = plan_sync(
+    let plan = sync_plan(
         &links,
         &[local(1, "Alice", "alice@example.com", 300)],
         &remote,
@@ -587,7 +602,7 @@ fn a_conflict_goes_to_the_latest_modification() {
 fn deletions_follow_the_other_side_unless_it_changed() {
     // Supprimée sur le serveur, inchangée ici : supprimée ici.
     let links = [link("/c/a.vcf", "1", linked(1), "Alice|alice@example.com")];
-    let plan = plan_sync(
+    let plan = sync_plan(
         &links,
         &[local(1, "Alice", "alice@example.com", 10)],
         &[],
@@ -597,7 +612,7 @@ fn deletions_follow_the_other_side_unless_it_changed() {
     assert_eq!(kinds(&plan), ["delete-local"]);
     // Supprimée sur le serveur, modifiée ici depuis : recréée sur le serveur.
     let links = [link("/c/a.vcf", "1", linked(1), "ancien")];
-    let plan = plan_sync(
+    let plan = sync_plan(
         &links,
         &[local(1, "Alice", "alice@example.com", 10)],
         &[],
@@ -607,10 +622,10 @@ fn deletions_follow_the_other_side_unless_it_changed() {
     assert_eq!(kinds(&plan), ["forget", "push-create"]);
     // Supprimée ici, inchangée sur le serveur : supprimée sur le serveur.
     let links = [link("/c/a.vcf", "1", LinkState::Deleted { at: 50 }, "s")];
-    let plan = plan_sync(&links, &[], &[entry("/c/a.vcf", "1")], &[], 100);
+    let plan = sync_plan(&links, &[], &[entry("/c/a.vcf", "1")], &[], 100);
     assert_eq!(kinds(&plan), ["delete-remote"]);
     // Supprimée des deux côtés : oubliée.
-    let plan = plan_sync(&links, &[], &[], &[], 100);
+    let plan = sync_plan(&links, &[], &[], &[], 100);
     assert_eq!(kinds(&plan), ["forget"]);
     // Supprimée ici à 50, modifiée sur le serveur à 80 : recréée ici.
     let card = fetched(
@@ -619,11 +634,17 @@ fn deletions_follow_the_other_side_unless_it_changed() {
         Some(draft("Alice", "alice@example.com")),
         Some("19700101T000120Z"),
     );
-    let plan = plan_sync(&links, &[], &[entry("/c/a.vcf", "2")], std::slice::from_ref(&card), 100);
+    let plan = sync_plan(
+        &links,
+        &[],
+        &[entry("/c/a.vcf", "2")],
+        std::slice::from_ref(&card),
+        100,
+    );
     assert_eq!(kinds(&plan), ["pull-create"]);
     // Supprimée ici à 90 : la suppression, plus récente, part.
     let links = [link("/c/a.vcf", "1", LinkState::Deleted { at: 90 }, "s")];
-    let plan = plan_sync(&links, &[], &[entry("/c/a.vcf", "2")], &[card], 100);
+    let plan = sync_plan(&links, &[], &[entry("/c/a.vcf", "2")], &[card], 100);
     assert_eq!(kinds(&plan), ["delete-remote"]);
     match &plan[0] {
         SyncAction::DeleteRemote { etag: e, .. } => assert_eq!(e, &etag("2")),
@@ -671,7 +692,7 @@ fn new_remote_cards_are_created_matched_or_ignored() {
         local(2, "Bob", "bob@example.com", 10),
         local(3, "Carole", "carole@example.com", 10),
     ];
-    let plan = plan_sync(&[], &local, &remote, &fetched_cards, 100);
+    let plan = sync_plan(&[], &local, &remote, &fetched_cards, 100);
     // Même fiche des deux côtés : reliées ; fiche différente : la plus
     // récente gagne (ici la locale) ; fiche illisible ou adresse déjà
     // prise : ignorées.
@@ -685,7 +706,7 @@ fn new_remote_cards_are_created_matched_or_ignored() {
 fn an_unusable_remote_change_keeps_the_local_contact() {
     let links = [link("/c/a.vcf", "1", linked(1), "Alice|alice@example.com")];
     let card = fetched("/c/a.vcf", "2", None, None);
-    let plan = plan_sync(
+    let plan = sync_plan(
         &links,
         &[local(1, "Alice", "alice@example.com", 10)],
         &[entry("/c/a.vcf", "2")],
@@ -693,12 +714,23 @@ fn an_unusable_remote_change_keeps_the_local_contact() {
         100,
     );
     assert_eq!(kinds(&plan), ["refresh"]);
+    // Modifiée des deux côtés : la plus récente gagne (sans date, la
+    // version distante, qui ne peut pas être reprise, fait attendre).
     let links = [link("/c/a.vcf", "1", linked(1), "ancien")];
-    let plan = plan_sync(
+    let plan = sync_plan(
         &links,
         &[local(1, "Alice", "alice@example.com", 10)],
         &[entry("/c/a.vcf", "2")],
-        &[card],
+        std::slice::from_ref(&card),
+        100,
+    );
+    assert_eq!(kinds(&plan), ["defer"]);
+    let old = fetched("/c/a.vcf", "2", None, Some("19700101T000005Z"));
+    let plan = sync_plan(
+        &links,
+        &[local(1, "Alice", "alice@example.com", 10)],
+        &[entry("/c/a.vcf", "2")],
+        &[old],
         100,
     );
     assert_eq!(kinds(&plan), ["push-update"]);
@@ -707,27 +739,27 @@ fn an_unusable_remote_change_keeps_the_local_contact() {
 #[test]
 fn ignored_resources_are_reconsidered_when_they_change() {
     let links = [link("/c/a.vcf", "1", LinkState::Ignored, "")];
-    assert!(plan_sync(&links, &[], &[entry("/c/a.vcf", "1")], &[], 100).is_empty());
+    assert!(sync_plan(&links, &[], &[entry("/c/a.vcf", "1")], &[], 100).is_empty());
     let card = fetched(
         "/c/a.vcf",
         "2",
         Some(draft("Alice", "alice@example.com")),
         None,
     );
-    let plan = plan_sync(&links, &[], &[entry("/c/a.vcf", "2")], &[card], 100);
+    let plan = sync_plan(&links, &[], &[entry("/c/a.vcf", "2")], &[card], 100);
     assert_eq!(kinds(&plan), ["pull-create"]);
-    assert_eq!(kinds(&plan_sync(&links, &[], &[], &[], 100)), ["forget"]);
+    assert_eq!(kinds(&sync_plan(&links, &[], &[], &[], 100)), ["forget"]);
 }
 
 #[test]
 fn a_resource_not_returned_by_the_server_is_left_for_later() {
     // Nouvelle : laissée de côté jusqu'à son prochain changement (elle
     // n'est plus redemandée à chaque synchronisation).
-    let plan = plan_sync(&[], &[], &[entry("/c/a.vcf", "1")], &[], 100);
+    let plan = sync_plan(&[], &[], &[entry("/c/a.vcf", "1")], &[], 100);
     assert_eq!(kinds(&plan), ["ignore"]);
     // Reliée : remise à plus tard, sans rien écrire ni la délier.
     let links = [link("/c/a.vcf", "1", linked(1), "ancien")];
-    let plan = plan_sync(
+    let plan = sync_plan(
         &links,
         &[local(1, "Alice", "alice@example.com", 10)],
         &[entry("/c/a.vcf", "2")],
@@ -745,7 +777,7 @@ fn an_unreadable_remote_card_keeps_its_addresses() {
     card.keys = vec![
         crate::contacts::AddressKey::parse("BOB@example.com").unwrap_or_else(|e| panic!("{e}")),
     ];
-    let plan = plan_sync(
+    let plan = sync_plan(
         &[],
         &[local(2, "Bob", "bob@example.com", 10)],
         &[entry("/c/bob.vcf", "1")],
@@ -780,4 +812,146 @@ fn a_failure_has_a_stable_code() {
         assert_eq!(SyncFailure::parse(failure.as_str()), Some(failure));
     }
     assert_eq!(SyncFailure::parse("autre"), None);
+}
+
+#[test]
+fn hrefs_are_compared_in_a_canonical_form() {
+    let book = url("https://dav.example.com/c/");
+    let path = |raw: &str| book.join(raw).map(|u| u.path().to_owned());
+    assert_eq!(
+        path("/c/%7ealice/a%2dx.vcf"),
+        Some("/c/~alice/a-x.vcf".into())
+    );
+    assert_eq!(path("/c/%c3%a9.vcf"), Some("/c/%C3%A9.vcf".into()));
+    // Adresse citée par le serveur sans encodage : encodée.
+    assert_eq!(path("/c/é b.vcf"), Some("/c/%C3%A9%20b.vcf".into()));
+    assert_eq!(path("/c/%2e%2E/x.vcf"), None);
+    assert_eq!(
+        Href::parse("/c/a%7E%41").map(|h| h.as_str().to_owned()),
+        Ok("/c/a~A".into())
+    );
+}
+
+#[test]
+fn a_book_contains_only_its_own_cards() {
+    let book = url("https://dav.example.com/books/alice/contacts");
+    assert!(book.contains(&href("/books/alice/contacts/a.vcf")));
+    assert!(!book.contains(&href("/books/alice/contacts/")));
+    assert!(!book.contains(&href("/books/alice/contacts-bis/a.vcf")));
+    assert!(!book.contains(&href("/calendars/alice/perso/evt.ics")));
+    // Ressources hors du carnet : ni plan, ni écriture.
+    let links = [link(
+        "/calendars/alice/evt.ics",
+        "1",
+        linked(1),
+        "Alice|alice@example.com",
+    )];
+    let actions = plan_sync(
+        &links,
+        &[local(1, "Alice", "alice@example.com", 10)],
+        &[],
+        &[],
+        &[],
+        100,
+    );
+    let actions = guard_deletions(actions, &links, &book, true);
+    assert!(
+        actions
+            .iter()
+            .all(|a| !matches!(a, SyncAction::DeleteLocal { .. })),
+        "{actions:?}"
+    );
+}
+
+#[test]
+fn etags_are_visible_ascii() {
+    assert!(ETag::parse("\"é\"").is_none());
+    assert!(ETag::parse("W/\"a-b\"").is_some());
+}
+
+#[test]
+fn cards_postponed_for_the_budget_wait_without_any_write() {
+    let links = [link("/c/a.vcf", "1", linked(1), "ancien")];
+    let later = [href("/c/a.vcf"), href("/c/n.vcf")];
+    let actions = plan_sync(
+        &links,
+        &[local(1, "Alice", "alice@example.com", 10)],
+        &[entry("/c/a.vcf", "2"), entry("/c/n.vcf", "1")],
+        &[],
+        &later,
+        100,
+    );
+    assert_eq!(kinds(&actions), ["defer", "defer"]);
+}
+
+#[test]
+fn a_card_moved_on_the_server_stays_linked_to_its_contact() {
+    let links = [link(
+        "/c/old.vcf",
+        "1",
+        linked(1),
+        "Alice|alice@example.com",
+    )];
+    let card = fetched(
+        "/c/new.vcf",
+        "1",
+        Some(draft("Alice", "alice@example.com")),
+        None,
+    );
+    let actions = sync_plan(
+        &links,
+        &[local(1, "Alice", "alice@example.com", 10)],
+        &[entry("/c/new.vcf", "1")],
+        &[card],
+        100,
+    );
+    assert_eq!(kinds(&actions), ["link", "forget"]);
+}
+
+fn linked_links(n: i64) -> Vec<SyncLink> {
+    (1..=n)
+        .map(|i| link(&format!("/c/{i}.vcf"), "1", linked(i), "s"))
+        .collect()
+}
+
+#[test]
+fn mass_local_deletions_are_held_back() {
+    let book = url("https://dav.example.com/c/");
+    let deletions = |n: i64| -> Vec<SyncAction> {
+        (1..=n)
+            .map(|i| SyncAction::DeleteLocal {
+                href: href(&format!("/c/{i}.vcf")),
+                contact: contact(i, "X", &format!("x{i}@example.com")),
+            })
+            .collect()
+    };
+    // Quelques suppressions : appliquées.
+    let links = linked_links(40);
+    let kept = guard_deletions(deletions(3), &links, &book, true);
+    assert_eq!(kinds(&kept), ["delete-local"; 3]);
+    // Liste du serveur pas sûre (réponses omises, liste vide) : aucune.
+    let held = guard_deletions(deletions(3), &links, &book, false);
+    assert!(held.iter().all(|a| a.kind() == "defer"), "{held:?}");
+    // Plus de la moitié des fiches reliées, au-delà de 10 : retenues.
+    let held = guard_deletions(deletions(25), &links, &book, true);
+    assert!(held.iter().all(|a| a.kind() == "defer"), "{held:?}");
+    // Petit carnet : la proportion ne joue pas sous le seuil.
+    let small = linked_links(3);
+    let kept = guard_deletions(deletions(2), &small, &book, true);
+    assert_eq!(kinds(&kept), ["delete-local"; 2]);
+}
+
+#[test]
+fn a_pushed_change_keeps_name_and_organization_components() {
+    let remote = "BEGIN:VCARD\r\nVERSION:3.0\r\nN:Ancien;Paul;Marie;Dr;Jr\r\nORG:Ancienne;Service\\; compta;Bureau\r\nEND:VCARD\r\n";
+    let ours = "BEGIN:VCARD\r\nVERSION:3.0\r\nN:Martin;Alice;;;\r\nORG:ACME\r\nEND:VCARD\r\n";
+    let merged = merge_card(remote, ours, 0);
+    assert!(
+        merged.contains("N:Martin;Alice;Marie;Dr;Jr\r\n"),
+        "{merged}"
+    );
+    assert!(
+        merged.contains("ORG:ACME;Service\\; compta;Bureau\r\n"),
+        "{merged}"
+    );
 }

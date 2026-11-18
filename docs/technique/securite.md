@@ -358,12 +358,22 @@ reçus de l'interface ; types MIME recalculés.
   clé `carddav:password`), jamais en base, dans les journaux, les erreurs
   ni au retour de l'IPC ; présenté en HTTP Basic (`reqwest::basic_auth`,
   en-tête marqué sensible). Identifiant sans `:` (RFC 7617) ; adresse
-  sans identifiants (`https://user:pass@…` refusé).
+  sans identifiants (`https://user:pass@…` refusé). Pendant la
+  découverte, le mot de passe ne part qu'une fois **demandé** par le
+  serveur (`401` avec `WWW-Authenticate: Basic`) : un nom de domaine saisi
+  qui désigne un site web tiers ne le reçoit jamais. Limites acceptées :
+  la valeur base64 de l'en-tête, construite par `reqwest`, n'est pas
+  effacée de la mémoire à la fin de la requête ; la recherche des carnets
+  accepte toute adresse, réseau local compris (choisie par l'utilisateur,
+  commande réservée à la fenêtre principale).
 - Destination du mot de passe : la seule **origine** (hôte et port) de
   l'adresse saisie. Toute adresse citée par le serveur (redirection,
   principal, dossier, carnet, fiche) passe par `DavUrl::join`, qui refuse
   une autre origine, un autre schéma, `//hôte`, `..`, requête ou fragment ;
-  une fiche citée hors du carnet est omise. Les redirections ne sont
+  adresses comparées en forme canonique (`%XX` des caractères non
+  réservés décodés, autres en majuscules) ; une fiche n'est reprise,
+  écrite ou supprimée que sous le chemin du carnet (`DavUrl::contains`),
+  les autres réponses sont omises et comptées. Les redirections ne sont
   jamais suivies par le client HTTP ; la découverte les suit elle-même,
   sur la même origine, 3 au plus. Le carnet relié doit être l'un de ceux
   que la dernière recherche a proposés pour ce serveur et cet identifiant
@@ -376,11 +386,26 @@ reçus de l'interface ; types MIME recalculés.
   références de caractère admises ; nom de carnet nettoyé (caractères de
   contrôle et de mise en forme) et borné ; fiche distante revalidée comme
   une fiche importée (`plan_import` : NFC, nom imitant une adresse
-  retiré, caractères invisibles refusés).
+  retiré, caractères invisibles refusés) ; ETag en ASCII visible seulement.
+  Mémoire : au plus 64 Mio de fiches téléchargées par synchronisation (les
+  suivantes sont remises à la synchronisation suivante), fiches distantes
+  enregistrées lues une à une, à la demande, pas de fiche gardée pour une
+  ressource laissée de côté.
+- Intégrité du carnet : aucune suppression dans le carnet quand la liste
+  du serveur n'est pas sûre (réponse omise, liste vide) ou qu'elle en
+  emporterait plus de la moitié au-delà de 10 (`guard_deletions`) ; une
+  fiche déplacée sur le serveur (nouvelle ressource aux mêmes adresses)
+  reste reliée à son contact au lieu d'être supprimée puis ignorée.
 - Écritures : conditionnelles (`If-Match`, `If-None-Match: *`), jamais
-  inconditionnelles : une fiche changée sur le serveur n'est pas écrasée.
-  Une fiche modifiée dans Norelly ne remplace que les propriétés connues
-  du carnet : rien d'autre n'est perdu sur le serveur.
+  inconditionnelles : une fiche changée sur le serveur n'est pas écrasée
+  (partie opaque d'une ETag faible en `If-Match`). Une fiche modifiée dans
+  Norelly ne remplace que les propriétés connues du carnet (`FN`, `N`,
+  `NICKNAME`, `ORG`, `EMAIL`, `TEL`, `NOTE`, et leur groupe), en gardant
+  les composantes de `N` et d'`ORG` qu'il ne connaît pas ; une version
+  distante illisible plus récente que le contact n'est pas écrasée.
+  Limites : les paramètres `TYPE` inconnus du carnet des adresses et des
+  téléphones remplacés sont perdus, et une fiche vCard 2.1 est récrite en
+  3.0.
 
 ## Fichiers sensibles
 

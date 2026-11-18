@@ -276,6 +276,8 @@ Bon à savoir :
   reste sur le serveur.
 - **Déconnecter** arrête la synchronisation ; vos contacts restent dans
   Norelly, et rien n'est supprimé sur le serveur.
+- Par prudence, si beaucoup de contacts disparaissent d'un coup du serveur,
+  Norelly ne les supprime pas : supprimez-les vous-même dans Norelly.
 - Google Contacts et iCloud ne sont pas encore pris en charge.
 
 ## Supprimer des contacts

@@ -43,6 +43,10 @@ pub const MAX_CARD_BYTES: usize = 1024 * 1024;
 pub const MAX_MULTIGET_HREFS: usize = 20;
 /// Taille maximale d'une réponse de fiches, en octets.
 pub const MAX_MULTIGET_BYTES: usize = MAX_MULTIGET_HREFS * MAX_CARD_BYTES + 1024 * 1024;
+/// Fiches téléchargées au plus par synchronisation, en octets : au-delà,
+/// les suivantes sont remises à la synchronisation suivante (un carnet
+/// plein de photos se reprend en plusieurs fois, sans tout charger).
+pub const MAX_SYNC_FETCH_BYTES: usize = 64 * 1024 * 1024;
 /// Profondeur maximale d'une réponse XML.
 pub const MAX_XML_DEPTH: usize = 32;
 /// Redirections suivies au plus pendant la découverte.
@@ -95,7 +99,23 @@ pub struct DavUrl {
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Href(String);
 
-fn valid_path(path: &str) -> Result<(), DavUrlError> {
+/// Caractère non réservé (RFC 3986) : son encodage `%XX` est retiré.
+fn unreserved(b: u8) -> bool {
+    b.is_ascii_alphanumeric() || matches!(b, b'-' | b'.' | b'_' | b'~')
+}
+
+fn hex_value(b: u8) -> Option<u8> {
+    char::from(b)
+        .to_digit(16)
+        .and_then(|d| u8::try_from(d).ok())
+}
+
+/// Chemin absolu validé, sous sa forme canonique : `%XX` des caractères non
+/// réservés décodés, autres en majuscules, pour qu'une ressource ait une
+/// seule écriture quelle que soit celle du serveur. `encode` : espace et
+/// caractères hors ASCII encodés (adresse citée par un serveur) ; sinon
+/// refusés (adresse saisie). Sans `.` ni `..`, même encodés.
+fn canonical_path(path: &str, encode: bool) -> Result<String, DavUrlError> {
     if path.chars().count() > MAX_DAV_URL_CHARS {
         return Err(DavUrlError::TooLong);
     }
@@ -103,28 +123,46 @@ fn valid_path(path: &str) -> Result<(), DavUrlError> {
         return Err(DavUrlError::InvalidPath);
     }
     let bytes = path.as_bytes();
-    for (i, &b) in bytes.iter().enumerate() {
-        let allowed = b.is_ascii_graphic() && !matches!(b, b'?' | b'#' | b'\\');
-        if !allowed {
+    let mut out = String::with_capacity(path.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        let b = bytes[i];
+        if b == b'%' {
+            let (Some(hi), Some(lo)) = (
+                bytes.get(i + 1).copied().and_then(hex_value),
+                bytes.get(i + 2).copied().and_then(hex_value),
+            ) else {
+                return Err(DavUrlError::InvalidPath);
+            };
+            let decoded = hi * 16 + lo;
+            if unreserved(decoded) {
+                out.push(char::from(decoded));
+            } else {
+                out.push_str(&format!("%{decoded:02X}"));
+            }
+            i += 3;
+            continue;
+        }
+        let printable = b.is_ascii_graphic() && !matches!(b, b'?' | b'#' | b'\\');
+        if printable {
+            out.push(char::from(b));
+        } else if encode && (b == b' ' || !b.is_ascii()) {
+            out.push_str(&format!("%{b:02X}"));
+        } else {
             return Err(DavUrlError::InvalidPath);
         }
-        if b == b'%'
-            && !bytes
-                .get(i + 1..i + 3)
-                .is_some_and(|hex| hex.iter().all(u8::is_ascii_hexdigit))
-        {
-            return Err(DavUrlError::InvalidPath);
-        }
+        i += 1;
     }
-    // `.` et `..`, même encodés : un chemin désigne une seule ressource.
-    let dots = path.split('/').any(|segment| {
-        let segment = segment.to_ascii_lowercase().replace("%2e", ".");
-        segment == "." || segment == ".."
-    });
-    if dots {
+    if out.chars().count() > MAX_DAV_URL_CHARS {
+        return Err(DavUrlError::TooLong);
+    }
+    if out
+        .split('/')
+        .any(|segment| segment == "." || segment == "..")
+    {
         return Err(DavUrlError::InvalidPath);
     }
-    Ok(())
+    Ok(out)
 }
 
 /// Hôte et port d'une autorité (`hôte`, `hôte:port`, `[ipv6]:port`).
@@ -172,8 +210,7 @@ fn split_authority(authority: &str) -> Result<(Host, Option<u16>), DavUrlError> 
 impl Href {
     /// Chemin absolu valide (voir [`DavUrl`]).
     pub fn parse(raw: &str) -> Result<Self, DavUrlError> {
-        valid_path(raw)?;
-        Ok(Self(raw.to_owned()))
+        canonical_path(raw, false).map(Self)
     }
 
     #[must_use]
@@ -205,11 +242,10 @@ impl DavUrl {
             None => (rest, "/"),
         };
         let (host, port) = split_authority(authority)?;
-        valid_path(path)?;
         Ok(Self {
             host,
             port,
-            path: path.to_owned(),
+            path: canonical_path(path, false)?,
         })
     }
 
@@ -243,8 +279,17 @@ impl DavUrl {
         if href.is_empty() || href.starts_with("//") {
             return None;
         }
-        if href.contains("://") {
-            let url = Self::parse(href).ok()?;
+        if let Some((scheme, rest)) = href.split_once("://") {
+            if !scheme.eq_ignore_ascii_case("https") || rest.contains(['?', '#']) {
+                return None;
+            }
+            let (authority, path) = rest.split_at(rest.find('/').unwrap_or(rest.len()));
+            let (host, port) = split_authority(authority).ok()?;
+            let url = Self {
+                host,
+                port,
+                path: canonical_path(if path.is_empty() { "/" } else { path }, true).ok()?,
+            };
             return self.same_origin(&url).then_some(url);
         }
         if href.contains(['?', '#']) {
@@ -256,12 +301,19 @@ impl DavUrl {
             let dir = &self.path[..=self.path.rfind('/')?];
             format!("{dir}{href}")
         };
-        valid_path(&path).ok()?;
         Some(Self {
             host: self.host.clone(),
             port: self.port,
-            path,
+            path: canonical_path(&path, true).ok()?,
         })
+    }
+
+    /// `href` est une fiche de ce carnet : sous son chemin, sans être le
+    /// carnet lui-même.
+    #[must_use]
+    pub fn contains(&self, href: &Href) -> bool {
+        let book = self.collection();
+        href.0.len() > book.path.len() && href.0.starts_with(&book.path)
     }
 
     /// La même adresse en collection (chemin terminé par `/`).
@@ -327,8 +379,8 @@ pub fn redirect_target(from: &DavUrl, location: &str, followed: usize) -> Option
     from.join(location)
 }
 
-/// Étiquette de version d'une ressource (`ETag`), sans caractère de
-/// contrôle, bornée.
+/// Étiquette de version d'une ressource (`ETag`), en ASCII visible,
+/// bornée.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ETag(String);
 
@@ -336,9 +388,11 @@ impl ETag {
     #[must_use]
     pub fn parse(raw: &str) -> Option<Self> {
         let raw = raw.trim();
+        // ASCII visible seulement (RFC 9110) : une ETag passe telle quelle
+        // dans un en-tête `If-Match`.
         let valid = !raw.is_empty()
-            && raw.chars().count() <= MAX_ETAG_CHARS
-            && !raw.chars().any(char::is_control);
+            && raw.len() <= MAX_ETAG_CHARS
+            && raw.bytes().all(|b| b.is_ascii_graphic());
         valid.then(|| Self(raw.to_owned()))
     }
 
@@ -765,14 +819,76 @@ fn version_line(version: CardVersion) -> &'static str {
 /// Lignes de notre fiche à écrire : ses propriétés, sans cadre ni
 /// identité (UID et PRODID viennent de la fiche distante ou de la
 /// création).
-fn push_ours(out: &mut String, ours: &str) {
+fn push_ours(out: &mut String, ours: &str, remote: Option<&[Line<'_>]>) {
     for line in card_body(&lines(ours)) {
         let (_, name) = property_name(&line.logical);
-        if !FRAME_PROPERTIES.contains(&name.as_str()) && !matches!(name.as_str(), "UID" | "PRODID")
-        {
-            push_physical(out, line);
+        if FRAME_PROPERTIES.contains(&name.as_str()) || matches!(name.as_str(), "UID" | "PRODID") {
+            continue;
+        }
+        // Nom et organisation : les composantes que le carnet ne connaît
+        // pas (second prénom, civilité, suffixe ; services) sont reprises
+        // de la fiche du serveur.
+        let known = match name.as_str() {
+            "N" => Some(2),
+            "ORG" => Some(1),
+            _ => None,
+        };
+        let remote_value = known.zip(remote).and_then(|(_, body)| {
+            body.iter()
+                .find(|l| property_name(&l.logical).1 == name)
+                .and_then(|l| property_value(&l.logical))
+        });
+        match (known, remote_value, property_value(&line.logical)) {
+            (Some(kept), Some(theirs), Some(value)) => {
+                let head = &line.logical[..line.logical.len() - value.len()];
+                let mut parts = components(value);
+                let theirs = components(theirs);
+                if theirs.len() > kept {
+                    parts.truncate(kept);
+                    parts.extend(theirs.into_iter().skip(kept));
+                }
+                let merged = format!("{head}{}", parts.join(";"));
+                out.push_str(&fold_line(&merged));
+            }
+            _ => push_physical(out, line),
         }
     }
+}
+
+/// Composantes d'une valeur structurée, séparées par `;` hors
+/// échappement (`\\;`), échappements gardés.
+fn components(value: &str) -> Vec<&str> {
+    let mut out = Vec::new();
+    let mut start = 0;
+    let mut escaped = false;
+    for (i, c) in value.char_indices() {
+        match c {
+            '\\' if !escaped => escaped = true,
+            ';' if !escaped => {
+                out.push(&value[start..i]);
+                start = i + 1;
+            }
+            _ => escaped = false,
+        }
+    }
+    out.push(&value[start..]);
+    out
+}
+
+/// Ligne logique repliée à 75 octets (RFC 6350 § 3.2), CRLF final.
+fn fold_line(line: &str) -> String {
+    let mut out = String::with_capacity(line.len() + 8);
+    let mut room = 75;
+    for c in line.chars() {
+        if c.len_utf8() > room {
+            out.push_str("\r\n ");
+            room = 74;
+        }
+        out.push(c);
+        room -= c.len_utf8();
+    }
+    out.push_str("\r\n");
+    out
 }
 
 /// Valeur de la première propriété `name` (sans groupe ni casse).
@@ -826,7 +942,7 @@ pub fn merge_card(remote: &str, ours: &str, rev: i64) -> String {
         }
     }
     out.push_str(&format!("REV:{}\r\n", format_rev(rev)));
-    push_ours(&mut out, ours);
+    push_ours(&mut out, ours, Some(body));
     out.push_str("END:VCARD\r\n");
     out
 }
@@ -837,7 +953,7 @@ pub fn new_card(ours: &str, uid: &CardUid, rev: i64) -> String {
     let mut out = String::from("BEGIN:VCARD\r\n");
     out.push_str(version_line(card_version(ours)));
     out.push_str(&format!("UID:{}\r\nREV:{}\r\n", uid.0, format_rev(rev)));
-    push_ours(&mut out, ours);
+    push_ours(&mut out, ours, None);
     out.push_str("END:VCARD\r\n");
     out
 }
@@ -891,7 +1007,8 @@ pub struct SyncLink {
     /// (vCard 4.0 du carnet) : un écart dit qu'elle a changé ici depuis.
     pub synced: String,
     /// Fiche distante telle que lue ou écrite à la dernière
-    /// synchronisation.
+    /// synchronisation (vide à la relecture de toutes les ressources : lue
+    /// à la demande, `CardDavStore::link_remote`).
     pub remote: String,
 }
 
@@ -953,12 +1070,13 @@ pub enum SyncAction {
     DeleteLocal { href: Href, contact: Contact },
     /// Nouveau contact : créé sur le serveur.
     PushCreate { contact: Contact },
-    /// Contact plus récent : écrit sur le serveur, fusionné dans `base`,
-    /// si la ressource est toujours à la version `etag`.
+    /// Contact plus récent : écrit sur le serveur, fusionné dans `base`
+    /// (`None` : la fiche distante enregistrée à la dernière
+    /// synchronisation), si la ressource est toujours à la version `etag`.
     PushUpdate {
         href: Href,
         etag: ETag,
-        base: String,
+        base: Option<String>,
         contact: Contact,
     },
     /// Contact supprimé ici : supprimé sur le serveur, s'il est toujours à
@@ -966,9 +1084,11 @@ pub enum SyncAction {
     DeleteRemote { href: Href, etag: ETag },
     /// Ressource disparue, ou dont le contact est recréé : oubliée.
     Forget { href: Href },
-    /// Fiche reliée changée que le serveur n'a pas renvoyée (trop grosse,
-    /// disparue entre-temps) : rien n'est écrit, elle est revue la
-    /// prochaine fois.
+    /// Rien n'est écrit, la ressource est revue la prochaine fois : fiche
+    /// reliée changée que le serveur n'a pas renvoyée (trop grosse,
+    /// disparue entre-temps), fiche remise à plus tard faute de place dans
+    /// la synchronisation, version distante illisible plus récente que le
+    /// contact, ou suppression retenue ([`guard_deletions`]).
     Defer { href: Href },
 }
 
@@ -1006,7 +1126,9 @@ pub fn hrefs_to_fetch(links: &[SyncLink], remote: &[RemoteEntry]) -> Vec<Href> {
 
 /// Plan de synchronisation entre les ressources connues `links`, le
 /// carnet `local`, le carnet distant `remote` et ses fiches téléchargées
-/// `fetched` ([`hrefs_to_fetch`]), à l'heure `now`.
+/// `fetched` ([`hrefs_to_fetch`]) ; les fiches `postponed`, à télécharger
+/// mais remises à plus tard (budget de la synchronisation), attendent sans
+/// rien écrire. À l'heure `now`.
 ///
 /// - Modifiée d'un seul côté : l'autre suit (création, modification,
 ///   suppression).
@@ -1023,6 +1145,8 @@ pub fn hrefs_to_fetch(links: &[SyncLink], remote: &[RemoteEntry]) -> Vec<Href> {
 /// - Une ressource changée que le serveur n'a pas renvoyée (trop grosse,
 ///   disparue entre-temps) : reliée, elle est remise à plus tard ;
 ///   nouvelle, elle est laissée de côté jusqu'à son prochain changement.
+/// - Une fiche déplacée sur le serveur (ancienne ressource disparue,
+///   nouvelle aux mêmes adresses) reste reliée à son contact.
 /// - Une fiche distante illisible garde ses adresses ([`FetchedCard::keys`]) :
 ///   un contact non relié qui les porte n'est pas envoyé en double.
 #[must_use]
@@ -1031,9 +1155,86 @@ pub fn plan_sync(
     local: &[LocalCard],
     remote: &[RemoteEntry],
     fetched: &[FetchedCard],
+    postponed: &[Href],
     now: i64,
 ) -> Vec<SyncAction> {
-    Planner::new(links, local, fetched, now).run(remote)
+    let mut planner = Planner::new(links, local, fetched, now);
+    planner.postponed = postponed.iter().collect();
+    let present: HashSet<&Href> = remote.iter().map(|e| &e.href).collect();
+    for link in links {
+        if let LinkState::Linked(id) = link.state
+            && !present.contains(&link.href)
+            && let Some(card) = planner.local.get(&id).copied()
+        {
+            for email in card.contact.draft().emails() {
+                planner.gone_by_key.insert(email.key(), link);
+            }
+        }
+    }
+    planner.run(remote)
+}
+
+/// Suppressions dans le carnet au plus, en nombre, avant d'en vérifier la
+/// proportion.
+pub const MAX_UNCHECKED_LOCAL_DELETIONS: usize = 10;
+
+/// Garde-fou du plan : une écriture qui vise une ressource hors du carnet
+/// `book` est retenue ; les suppressions dans le carnet aussi, toutes,
+/// quand la liste du serveur n'est pas sûre (`listing_complete` faux :
+/// réponses illisibles omises, ou liste vide) ou qu'elles emporteraient
+/// plus de la
+/// moitié (au-delà de [`MAX_UNCHECKED_LOCAL_DELETIONS`]) : une liste vide
+/// ou tronquée par le serveur ne doit pas vider le carnet. Elles restent
+/// alors en attente ([`SyncAction::Defer`]), sans rien écrire.
+#[must_use]
+pub fn guard_deletions(
+    actions: Vec<SyncAction>,
+    links: &[SyncLink],
+    book: &DavUrl,
+    listing_complete: bool,
+) -> Vec<SyncAction> {
+    let linked = links
+        .iter()
+        .filter(|l| matches!(l.state, LinkState::Linked(_)))
+        .count();
+    let deletions = actions
+        .iter()
+        .filter(|a| matches!(a, SyncAction::DeleteLocal { .. }))
+        .count();
+    let massive = deletions > 0
+        && (!listing_complete
+            || (deletions > MAX_UNCHECKED_LOCAL_DELETIONS && deletions * 2 > linked));
+    actions
+        .into_iter()
+        .map(|action| {
+            let outside = action_href(&action).is_some_and(|h| !book.contains(h));
+            let held = massive && matches!(action, SyncAction::DeleteLocal { .. });
+            if outside || held {
+                SyncAction::Defer {
+                    href: action_href(&action).cloned().unwrap_or_else(|| book.href()),
+                }
+            } else {
+                action
+            }
+        })
+        .collect()
+}
+
+/// Ressource visée par une écriture.
+fn action_href(action: &SyncAction) -> Option<&Href> {
+    match action {
+        SyncAction::PullCreate { card }
+        | SyncAction::PullUpdate { card, .. }
+        | SyncAction::Link { card, .. }
+        | SyncAction::Refresh { card, .. }
+        | SyncAction::Ignore { card } => Some(&card.entry.href),
+        SyncAction::DeleteLocal { href, .. }
+        | SyncAction::PushUpdate { href, .. }
+        | SyncAction::DeleteRemote { href, .. }
+        | SyncAction::Forget { href }
+        | SyncAction::Defer { href } => Some(href),
+        SyncAction::PushCreate { .. } => None,
+    }
 }
 
 /// La fiche distante `draft` avec le favori du contact local.
@@ -1060,6 +1261,13 @@ struct Planner<'a> {
     unlinked: HashMap<&'a AddressKey, ContactId>,
     /// Adresses déjà portées par un contact relié ou une fiche reprise.
     claimed: HashSet<AddressKey>,
+    /// Ressources remises à plus tard (budget).
+    postponed: HashSet<&'a Href>,
+    /// Ressources reliées disparues du serveur, par adresse de leur
+    /// contact : une nouvelle ressource aux mêmes adresses les remplace.
+    gone_by_key: HashMap<&'a AddressKey, &'a SyncLink>,
+    /// Ressources disparues remplacées par une nouvelle.
+    moved: HashSet<&'a Href>,
     actions: Vec<SyncAction>,
 }
 
@@ -1099,6 +1307,9 @@ impl<'a> Planner<'a> {
             taken,
             unlinked,
             claimed,
+            postponed: HashSet::new(),
+            gone_by_key: HashMap::new(),
+            moved: HashSet::new(),
             actions: Vec::new(),
         }
     }
@@ -1134,6 +1345,12 @@ impl<'a> Planner<'a> {
     fn entry(&mut self, entry: &RemoteEntry) {
         let link = self.links.get(&entry.href).copied();
         let changed = link.is_none_or(|l| l.etag != entry.etag);
+        if changed && self.postponed.contains(&entry.href) {
+            self.actions.push(SyncAction::Defer {
+                href: entry.href.clone(),
+            });
+            return;
+        }
         let card = if changed {
             let Some(card) = self.fetched.get(&entry.href).copied() else {
                 self.not_returned(link, entry);
@@ -1190,7 +1407,7 @@ impl<'a> Planner<'a> {
                     self.actions.push(SyncAction::PushUpdate {
                         href: link.href.clone(),
                         etag: link.etag.clone(),
-                        base: link.remote.clone(),
+                        base: None,
                         contact: local.contact.clone(),
                     });
                 }
@@ -1205,16 +1422,21 @@ impl<'a> Planner<'a> {
     /// Fiche changée sur le serveur, reliée à un contact du carnet.
     fn both(&mut self, link: &SyncLink, local: &LocalCard, card: &FetchedCard) {
         let local_changed = local.snapshot != link.synced;
+        let remote_newer =
+            newest_side(local.modified_at, card_rev(&card.raw), self.now) == Side::Remote;
         let action = match &card.draft {
+            // Version distante illisible pour le carnet, plus récente : le
+            // contact attend, rien n'est écrasé sur le serveur.
+            None if local_changed && remote_newer => SyncAction::Defer {
+                href: card.entry.href.clone(),
+            },
             None if local_changed => push_over(card, local),
             None => SyncAction::Refresh {
                 card: card.clone(),
                 contact: local.contact.clone(),
             },
             Some(draft) => {
-                let remote_wins = !local_changed
-                    || newest_side(local.modified_at, card_rev(&card.raw), self.now)
-                        == Side::Remote;
+                let remote_wins = !local_changed || remote_newer;
                 if remote_wins {
                     pull(card, local, draft)
                 } else {
@@ -1253,6 +1475,21 @@ impl<'a> Planner<'a> {
             return;
         };
         let keys: Vec<&AddressKey> = draft.emails().iter().map(|e| e.key()).collect();
+        // Fiche déplacée sur le serveur : elle reprend le lien de
+        // l'ancienne ressource, disparue, de son contact.
+        let moved = keys
+            .iter()
+            .find_map(|k| self.gone_by_key.get(*k).copied())
+            .filter(|old| !self.moved.contains(&old.href));
+        if let Some(old) = moved
+            && let LinkState::Linked(id) = old.state
+            && let Some(local) = self.local.get(&id).copied()
+        {
+            self.moved.insert(&old.href);
+            self.claimed.extend(keys.into_iter().cloned());
+            self.both(old, local, card);
+            return;
+        }
         if keys.iter().any(|k| self.claimed.contains(*k)) {
             self.actions.push(SyncAction::Ignore { card: card.clone() });
             return;
@@ -1285,6 +1522,10 @@ impl<'a> Planner<'a> {
     /// Ressource connue disparue du serveur.
     fn gone(&mut self, link: &SyncLink) {
         let href = link.href.clone();
+        if self.moved.contains(&link.href) {
+            self.actions.push(SyncAction::Forget { href });
+            return;
+        }
         match link.state {
             LinkState::Linked(id) => match self.local.get(&id).copied() {
                 Some(local) if local.snapshot == link.synced => {
@@ -1330,7 +1571,7 @@ fn push_over(card: &FetchedCard, local: &LocalCard) -> SyncAction {
     SyncAction::PushUpdate {
         href: card.entry.href.clone(),
         etag: card.entry.etag.clone(),
-        base: card.raw.clone(),
+        base: Some(card.raw.clone()),
         contact: local.contact.clone(),
     }
 }

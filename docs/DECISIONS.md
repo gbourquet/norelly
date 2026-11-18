@@ -879,6 +879,15 @@ est majoritairement écrit par Claude et relu par le mainteneur.
     adresse déjà portée par un autre contact, invalide) est **laissée de
     côté** et comptée, revue quand elle change ; elle n'est jamais
     supprimée du serveur ;
+  - **garde-fous** (revue de sécurité, 2026-11-19) : pendant la
+    découverte, le mot de passe ne part qu'une fois demandé par le serveur
+    (401 Basic) ; une fiche n'est reprise ou écrite que sous le chemin du
+    carnet ; adresses comparées en forme canonique ; aucune suppression
+    dans le carnet si la liste du serveur n'est pas sûre (réponse omise,
+    liste vide) ou si elle en emporterait plus de la moitié au-delà de 10
+    (elles attendent, sans rien écrire) ; une fiche déplacée sur le serveur
+    reste reliée à son contact ; au plus 64 Mio de fiches téléchargées par
+    synchronisation, les suivantes à la fois suivante ;
   - **bornes** : 25 000 fiches (celles d'un import), liste de 16 Mio,
     fiche de 1 Mio, réponse de découverte de 1 Mio, 100 carnets,
     profondeur XML de 32, DTD refusée (aucune entité externe ni expansion

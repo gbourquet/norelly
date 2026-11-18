@@ -10,9 +10,10 @@
 use std::collections::HashMap;
 
 use norelly_domain::carddav::{
-    AddressBook, CardDavAccount, CardVersion, DavCredentials, DavUrl, ETag, FetchedCard, LinkState,
-    LocalCard, MAX_MULTIGET_HREFS, RemoteEntry, SyncAction, SyncFailure, SyncLink, SyncReport,
-    card_version, hrefs_to_fetch, merge_card, new_card, new_card_href, plan_sync, remote_draft,
+    AddressBook, CardDavAccount, CardVersion, DavCredentials, DavUrl, ETag, FetchedCard, Href,
+    LinkState, LocalCard, MAX_MULTIGET_HREFS, MAX_SYNC_FETCH_BYTES, RemoteEntry, SyncAction,
+    SyncFailure, SyncLink, SyncReport, card_version, guard_deletions, hrefs_to_fetch, merge_card,
+    new_card, new_card_href, plan_sync, remote_draft,
 };
 use norelly_domain::contact_export::{
     ContactSelection, ExportFormat, MAX_EXPORT_CONTACTS, export_card,
@@ -126,8 +127,10 @@ pub struct RemoveCardDav<'a, S, K> {
 
 impl<S: CardDavStore, K: SecretStore> RemoveCardDav<'_, S, K> {
     pub async fn execute(&self) -> Result<(), CardDavSetupError> {
-        self.store.remove_account().await?;
+        // Le mot de passe d'abord : s'il ne peut pas être effacé, le compte
+        // reste affiché et la déconnexion peut être reprise.
         self.secrets.delete(&secret_key()).await?;
+        self.store.remove_account().await?;
         Ok(())
     }
 }
@@ -175,9 +178,9 @@ fn rank(action: &SyncAction) -> u8 {
 /// identifiants, eux, ont été acceptés par la lecture du carnet.
 fn remote_step(error: CardDavError) -> Result<Step, SyncFailure> {
     match error {
-        CardDavError::PreconditionFailed
-        | CardDavError::NotFound
-        | CardDavError::Unauthorized => Ok(Step::Skipped),
+        CardDavError::PreconditionFailed | CardDavError::NotFound | CardDavError::Unauthorized => {
+            Ok(Step::Skipped)
+        }
         CardDavError::Server(code) if (400..500).contains(&code) => Ok(Step::Skipped),
         other => Err(failure_of(&other)),
     }
@@ -249,15 +252,19 @@ where
             password,
         };
         let book = account.book().url();
-        let remote = self
+        let listing = self
             .client
             .entries(book, &credentials)
             .await
             .map_err(|e| failure_of(&e))?;
+        let remote = listing.entries;
         let links = self.store.links().await.map_err(|_| SyncFailure::Storage)?;
         let local = self.local_cards().await?;
-        let fetched = self.fetch(book, &credentials, &links, &remote).await?;
-        let mut plan = plan_sync(&links, &local, &remote, &fetched, now);
+        let (fetched, postponed) = self.fetch(book, &credentials, &links, &remote).await?;
+        let plan = plan_sync(&links, &local, &remote, &fetched, &postponed, now);
+        // Liste sûre pour des suppressions : complète et non vide.
+        let complete = listing.omitted == 0 && !remote.is_empty();
+        let mut plan = guard_deletions(plan, &links, book, complete);
         plan.sort_by_key(rank);
         let mut report = SyncReport::default();
         for action in &plan {
@@ -298,23 +305,32 @@ where
             .collect()
     }
 
-    /// Fiches distantes nouvelles ou changées, téléchargées et lues.
+    /// Fiches distantes nouvelles ou changées, téléchargées et lues, dans
+    /// la limite de [`MAX_SYNC_FETCH_BYTES`] ; les autres sont remises à
+    /// plus tard (renvoyées à part).
     async fn fetch(
         &self,
         book: &DavUrl,
         credentials: &DavCredentials,
         links: &[SyncLink],
         remote: &[RemoteEntry],
-    ) -> Result<Vec<FetchedCard>, SyncFailure> {
+    ) -> Result<(Vec<FetchedCard>, Vec<Href>), SyncFailure> {
         let wanted = hrefs_to_fetch(links, remote);
         let mut fetched = Vec::with_capacity(wanted.len());
+        let mut postponed = Vec::new();
+        let mut total = 0usize;
         for chunk in wanted.chunks(MAX_MULTIGET_HREFS) {
+            if total >= MAX_SYNC_FETCH_BYTES {
+                postponed.extend_from_slice(chunk);
+                continue;
+            }
             let cards = self
                 .client
                 .cards(book, credentials, chunk)
                 .await
                 .map_err(|e| failure_of(&e))?;
             for card in cards {
+                total = total.saturating_add(card.data.len());
                 let decoded = self.codec.decode(card.data.as_bytes()).ok();
                 let draft = decoded
                     .as_ref()
@@ -334,7 +350,7 @@ where
                 });
             }
         }
-        Ok(fetched)
+        Ok((fetched, postponed))
     }
 
     async fn save_link(&self, link: SyncLink) -> Result<Step, SyncFailure> {
@@ -407,7 +423,8 @@ where
                     etag: card.entry.etag.clone(),
                     state: LinkState::Ignored,
                     synced: String::new(),
-                    remote: card.raw.clone(),
+                    // Jamais servie de base à une écriture : pas gardée.
+                    remote: String::new(),
                 })
                 .await
             }
@@ -463,8 +480,17 @@ where
                 base,
                 contact,
             } => {
-                let ours = self.encode(contact.draft(), card_version(base))?;
-                let card = merge_card(base, &ours, now);
+                let base = match base {
+                    Some(base) => base.clone(),
+                    None => self
+                        .store
+                        .link_remote(href)
+                        .await
+                        .map_err(|_| SyncFailure::Storage)?
+                        .unwrap_or_default(),
+                };
+                let ours = self.encode(contact.draft(), card_version(&base))?;
+                let card = merge_card(&base, &ours, now);
                 match self
                     .client
                     .update(book, credentials, href, etag, &card)

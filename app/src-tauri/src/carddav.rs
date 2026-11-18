@@ -14,8 +14,8 @@ use norelly_application::carddav::{
     SyncError,
 };
 use norelly_domain::carddav::{
-    AddressBook, CardDavAccount, DavCredentials, DavUrl, DavUsername,
-    SyncFailure, SyncReport, validate_password,
+    AddressBook, CardDavAccount, DavCredentials, DavUrl, DavUsername, SyncFailure, SyncReport,
+    validate_password,
 };
 use norelly_domain::credentials::Secret;
 use norelly_domain::ports::{CardDavError, CardDavStore, CardDavSyncRecord, StoreError};

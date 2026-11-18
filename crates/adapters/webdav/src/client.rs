@@ -12,7 +12,7 @@ use norelly_domain::carddav::{
     MAX_DISCOVERY_RESPONSE_BYTES, MAX_LISTING_BYTES, MAX_MULTIGET_BYTES, MAX_MULTIGET_HREFS,
     MAX_REMOTE_CARDS, RemoteCard, RemoteEntry, discovery_candidates, redirect_target,
 };
-use norelly_domain::ports::{CardDavClient, CardDavError};
+use norelly_domain::ports::{CardDavClient, CardDavError, RemoteListing};
 use norelly_tls::TlsClientFactory;
 use reqwest::{Method, StatusCode};
 
@@ -46,7 +46,19 @@ struct Answer {
     status: StatusCode,
     location: Option<String>,
     etag: Option<String>,
+    /// Le serveur demande des identifiants HTTP Basic (401 avec
+    /// `WWW-Authenticate: Basic`).
+    basic_challenge: bool,
     body: Vec<u8>,
+}
+
+/// Envoi des identifiants : toujours (carnet relié, origine confirmée),
+/// ou seulement une fois que le serveur les a demandés (découverte : un
+/// nom de domaine saisi peut désigner un site web qui n'est pas le serveur
+/// de contacts ; il ne reçoit jamais le mot de passe).
+enum Auth<'a> {
+    Always,
+    OnChallenge(&'a mut bool),
 }
 
 fn method(name: &str) -> Result<Method, CardDavError> {
@@ -129,8 +141,9 @@ impl WebDavClient {
         Ok(Self { http })
     }
 
-    /// Envoie une requête vers `url` (validée par le domaine) et lit au
-    /// plus `max_bytes` octets de réponse (`TooLarge` au-delà).
+    /// Envoie une requête vers `url` (validée par le domaine), avec ou sans
+    /// identifiants selon `auth`, et lit au plus `max_bytes` octets de
+    /// réponse (`TooLarge` au-delà).
     async fn send(
         &self,
         verb: &str,
@@ -140,13 +153,69 @@ impl WebDavClient {
         body: Option<String>,
         max_bytes: usize,
     ) -> Result<Answer, CardDavError> {
-        let mut request = self
-            .http
-            .request(method(verb)?, url.to_string())
-            .basic_auth(
+        self.send_with(
+            verb,
+            url,
+            credentials,
+            Auth::Always,
+            headers,
+            body,
+            max_bytes,
+        )
+        .await
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn send_with(
+        &self,
+        verb: &str,
+        url: &DavUrl,
+        credentials: &DavCredentials,
+        auth: Auth<'_>,
+        headers: &[(&str, &str)],
+        body: Option<String>,
+        max_bytes: usize,
+    ) -> Result<Answer, CardDavError> {
+        match auth {
+            Auth::Always => {
+                self.send_once(verb, url, Some(credentials), headers, body, max_bytes)
+                    .await
+            }
+            Auth::OnChallenge(confirmed) => {
+                if *confirmed {
+                    return self
+                        .send_once(verb, url, Some(credentials), headers, body, max_bytes)
+                        .await;
+                }
+                let answer = self
+                    .send_once(verb, url, None, headers, body.clone(), max_bytes)
+                    .await?;
+                if !answer.basic_challenge {
+                    return Ok(answer);
+                }
+                *confirmed = true;
+                self.send_once(verb, url, Some(credentials), headers, body, max_bytes)
+                    .await
+            }
+        }
+    }
+
+    async fn send_once(
+        &self,
+        verb: &str,
+        url: &DavUrl,
+        credentials: Option<&DavCredentials>,
+        headers: &[(&str, &str)],
+        body: Option<String>,
+        max_bytes: usize,
+    ) -> Result<Answer, CardDavError> {
+        let mut request = self.http.request(method(verb)?, url.to_string());
+        if let Some(credentials) = credentials {
+            request = request.basic_auth(
                 credentials.username.as_str(),
                 Some(credentials.password.expose()),
             );
+        }
         for (name, value) in headers {
             request = request.header(*name, *value);
         }
@@ -164,6 +233,17 @@ impl WebDavClient {
         };
         let location = header("location");
         let etag = header("etag");
+        let basic_challenge = status == StatusCode::UNAUTHORIZED
+            && response
+                .headers()
+                .get_all("www-authenticate")
+                .iter()
+                .filter_map(|v| v.to_str().ok())
+                .any(|v| {
+                    v.trim_start()
+                        .get(..5)
+                        .is_some_and(|scheme| scheme.eq_ignore_ascii_case("basic"))
+                });
         if response
             .content_length()
             .is_some_and(|n| n > max_bytes as u64)
@@ -181,25 +261,29 @@ impl WebDavClient {
             status,
             location,
             etag,
+            basic_challenge,
             body,
         })
     }
 
     /// `PROPFIND` lu en `207 Multi-Status`.
+    #[allow(clippy::too_many_arguments)]
     async fn propfind(
         &self,
         url: &DavUrl,
         credentials: &DavCredentials,
+        auth: Auth<'_>,
         depth: &str,
         body: &str,
         max_bytes: usize,
         max_responses: usize,
     ) -> Result<Vec<DavResponse>, CardDavError> {
         let answer = self
-            .send(
+            .send_with(
                 "PROPFIND",
                 url,
                 credentials,
+                auth,
                 &[
                     ("Depth", depth),
                     ("Content-Type", "application/xml; charset=utf-8"),
@@ -220,15 +304,17 @@ impl WebDavClient {
         &self,
         start: &DavUrl,
         credentials: &DavCredentials,
+        confirmed: &mut bool,
     ) -> Result<(DavUrl, DavResponse), CardDavError> {
         let mut url = start.clone();
         let mut followed = 0;
         loop {
             let answer = self
-                .send(
+                .send_with(
                     "PROPFIND",
                     &url,
                     credentials,
+                    Auth::OnChallenge(&mut *confirmed),
                     &[
                         ("Depth", "0"),
                         ("Content-Type", "application/xml; charset=utf-8"),
@@ -264,8 +350,9 @@ impl WebDavClient {
         &self,
         start: &DavUrl,
         credentials: &DavCredentials,
+        confirmed: &mut bool,
     ) -> Result<Vec<AddressBook>, CardDavError> {
-        let (url, found) = self.discover_at(start, credentials).await?;
+        let (url, found) = self.discover_at(start, credentials, confirmed).await?;
         if found.addressbook {
             return Ok(vec![AddressBook::new(
                 url,
@@ -278,7 +365,7 @@ impl WebDavClient {
             let principal = url
                 .join(principal)
                 .ok_or_else(|| CardDavError::Protocol("principal hors du serveur".into()))?;
-            let (principal, props) = self.discover_at(&principal, credentials).await?;
+            let (principal, props) = self.discover_at(&principal, credentials, confirmed).await?;
             props
                 .addressbook_home_set
                 .as_deref()
@@ -292,6 +379,7 @@ impl WebDavClient {
             .propfind(
                 &home,
                 credentials,
+                Auth::OnChallenge(confirmed),
                 "1",
                 xml::DISCOVERY_PROPFIND,
                 MAX_DISCOVERY_RESPONSE_BYTES,
@@ -321,6 +409,9 @@ impl WebDavClient {
         condition: (&str, &str),
         card: &str,
     ) -> Result<Option<ETag>, CardDavError> {
+        if !book.contains(href) {
+            return Err(CardDavError::Protocol("fiche hors du carnet".into()));
+        }
         let answer = self
             .send(
                 "PUT",
@@ -345,8 +436,13 @@ impl CardDavClient for WebDavClient {
         credentials: &DavCredentials,
     ) -> Result<Vec<AddressBook>, CardDavError> {
         let mut last = CardDavError::NoAddressBook;
+        // Le mot de passe ne part qu'une fois demandé par le serveur.
+        let mut confirmed = false;
         for candidate in discovery_candidates(server) {
-            match self.books_from(&candidate, credentials).await {
+            match self
+                .books_from(&candidate, credentials, &mut confirmed)
+                .await
+            {
                 Ok(books) if !books.is_empty() => return Ok(books),
                 Ok(_) => last = CardDavError::NoAddressBook,
                 // Serveur injoignable, certificat ou identifiants refusés :
@@ -370,12 +466,13 @@ impl CardDavClient for WebDavClient {
         &self,
         book: &DavUrl,
         credentials: &DavCredentials,
-    ) -> Result<Vec<RemoteEntry>, CardDavError> {
+    ) -> Result<RemoteListing, CardDavError> {
         let book = book.collection();
         let responses = self
             .propfind(
                 &book,
                 credentials,
+                Auth::Always,
                 "1",
                 xml::ENTRIES_PROPFIND,
                 MAX_LISTING_BYTES,
@@ -383,29 +480,28 @@ impl CardDavClient for WebDavClient {
             )
             .await?;
         let mut entries = Vec::new();
+        let mut omitted = 0;
         for response in responses {
             if response.collection {
                 continue;
             }
-            // Ressource hors du carnet, sans ETag ou illisible : omise.
-            let Some(url) = book.join(&response.href) else {
+            // Ressource hors du carnet, sans ETag ou illisible : omise, et
+            // comptée (la liste n'est plus sûre pour des suppressions).
+            let entry = book
+                .join(&response.href)
+                .map(|url| url.href())
+                .filter(|href| book.contains(href))
+                .zip(response.etag.as_deref().and_then(ETag::parse));
+            let Some((href, etag)) = entry else {
+                omitted += 1;
                 continue;
             };
-            let Some(etag) = response.etag.as_deref().and_then(ETag::parse) else {
-                continue;
-            };
-            if url.path() == book.path() {
-                continue;
-            }
             if entries.len() >= MAX_REMOTE_CARDS {
                 return Err(CardDavError::TooLarge);
             }
-            entries.push(RemoteEntry {
-                href: url.href(),
-                etag,
-            });
+            entries.push(RemoteEntry { href, etag });
         }
-        Ok(entries)
+        Ok(RemoteListing { entries, omitted })
     }
 
     async fn cards(
@@ -442,8 +538,8 @@ impl CardDavClient for WebDavClient {
             .into_iter()
             .filter_map(|r| {
                 let href = book.join(&r.href)?.href();
-                // Seules les fiches demandées sont reprises.
-                if !hrefs.contains(&href) {
+                // Seules les fiches demandées, du carnet, sont reprises.
+                if !hrefs.contains(&href) || !book.contains(&href) {
                     return None;
                 }
                 let data = r.address_data?;
@@ -489,6 +585,9 @@ impl CardDavClient for WebDavClient {
         href: &Href,
         etag: &ETag,
     ) -> Result<(), CardDavError> {
+        if !book.contains(href) {
+            return Err(CardDavError::Protocol("fiche hors du carnet".into()));
+        }
         let answer = self
             .send(
                 "DELETE",

@@ -72,6 +72,13 @@ côté l'est aussi de l'autre.
   revue si elle change.
 - Une fiche changée sur le serveur pendant la synchronisation n'est pas
   écrasée : elle est revue à la synchronisation suivante.
+- Par prudence, si le serveur ne renvoie qu'une liste incomplète ou vide,
+  ou si plus de la moitié des contacts reliés disparaissaient d'un coup,
+  rien n'est supprimé dans Norelly : ces suppressions attendent. Pour
+  vider tout le carnet, supprimez les contacts dans Norelly.
+- Un très grand carnet (photos nombreuses) se reprend en plusieurs
+  synchronisations.
+- Le mot de passe n'est envoyé au serveur que lorsqu'il le demande.
 
 ## Cas limites
 

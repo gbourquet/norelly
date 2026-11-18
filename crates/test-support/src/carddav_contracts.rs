@@ -20,7 +20,7 @@ use norelly_domain::contacts::{ContactDraft, ContactId};
 use norelly_domain::credentials::Secret;
 use norelly_domain::ports::{
     CardDavClient, CardDavError, CardDavStore, CardDavSyncRecord, ContactBook, ContactDirectory,
-    ContactStoreError, StoreError,
+    ContactStoreError, RemoteListing, StoreError,
 };
 
 use crate::carddav_server::{CardDavModel, ModelError};
@@ -150,10 +150,11 @@ impl CardDavClient for FakeCardDavClient {
         &self,
         book: &DavUrl,
         credentials: &DavCredentials,
-    ) -> Result<Vec<RemoteEntry>, CardDavError> {
+    ) -> Result<RemoteListing, CardDavError> {
         self.check(credentials)?;
         self.in_book(book)?;
-        Ok(lock(&self.model)
+        let model = lock(&self.model);
+        let entries: Vec<RemoteEntry> = model
             .cards
             .iter()
             .filter_map(|(path, card)| {
@@ -162,7 +163,11 @@ impl CardDavClient for FakeCardDavClient {
                     etag: ETag::parse(&card.etag)?,
                 })
             })
-            .collect())
+            .collect();
+        Ok(RemoteListing {
+            omitted: model.cards.len() - entries.len(),
+            entries,
+        })
     }
 
     async fn cards(
@@ -271,7 +276,10 @@ pub async fn carddav_client_contract<C: CardDavClient>(
         .url()
         .clone();
     assert!(book.same_origin(server));
-    assert!(client.entries(&book, &ok).await?.is_empty(), "carnet vide");
+    assert!(
+        client.entries(&book, &ok).await?.entries.is_empty(),
+        "carnet vide"
+    );
 
     // Création.
     let uid = client.new_uid();
@@ -284,7 +292,9 @@ pub async fn carddav_client_contract<C: CardDavClient>(
         Err(CardDavError::PreconditionFailed),
         "création sur une fiche existante"
     );
-    let entries = client.entries(&book, &ok).await?;
+    let listing = client.entries(&book, &ok).await?;
+    assert_eq!(listing.omitted, 0);
+    let entries = listing.entries;
     assert_eq!(entries.len(), 1);
     assert_eq!(entries[0].href, href);
     let first = entries[0].etag.clone();
@@ -316,7 +326,7 @@ pub async fn carddav_client_contract<C: CardDavClient>(
         Err(CardDavError::PreconditionFailed)
     );
     client.update(&book, &ok, &href, &first, &changed).await?;
-    let second = client.entries(&book, &ok).await?[0].etag.clone();
+    let second = client.entries(&book, &ok).await?.entries[0].etag.clone();
     assert_ne!(second, first);
 
     // Suppression conditionnelle ; déjà absente : succès.
@@ -325,7 +335,7 @@ pub async fn carddav_client_contract<C: CardDavClient>(
         Err(CardDavError::PreconditionFailed)
     );
     client.delete(&book, &ok, &href, &second).await?;
-    assert!(client.entries(&book, &ok).await?.is_empty());
+    assert!(client.entries(&book, &ok).await?.entries.is_empty());
     client.delete(&book, &ok, &href, &second).await?;
     Ok(())
 }
@@ -433,7 +443,18 @@ impl<B: ContactDirectory> CardDavStore for InMemoryCardDavStore<'_, B> {
 
     async fn links(&self) -> Result<Vec<SyncLink>, StoreError> {
         self.observe().await?;
-        Ok(lock(&self.state).links.values().cloned().collect())
+        Ok(lock(&self.state)
+            .links
+            .values()
+            .map(|l| SyncLink {
+                remote: String::new(),
+                ..l.clone()
+            })
+            .collect())
+    }
+
+    async fn link_remote(&self, href: &Href) -> Result<Option<String>, StoreError> {
+        Ok(lock(&self.state).links.get(href).map(|l| l.remote.clone()))
     }
 
     async fn save_link(&self, link: &SyncLink) -> Result<(), StoreError> {
@@ -539,9 +560,17 @@ where
     for l in [&a, &b, &ignored, &gone] {
         store.save_link(l).await?;
     }
+    // Relues sans leur fiche distante, lue à la demande.
+    let bare = |l: &SyncLink| SyncLink {
+        remote: String::new(),
+        ..l.clone()
+    };
     let mut links = store.links().await?;
     links.sort_by(|x, y| x.href.cmp(&y.href));
-    assert_eq!(links, [a.clone(), b.clone(), gone.clone(), ignored.clone()]);
+    assert_eq!(links, [bare(&a), bare(&b), bare(&gone), bare(&ignored)]);
+    assert_eq!(store.link_remote(&a.href).await?, Some(a.remote.clone()));
+    let unknown = Href::parse("/dav/alice/contacts/inconnue.vcf").unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(store.link_remote(&unknown).await?, None);
     // Remplacée.
     let a2 = SyncLink {
         etag: etag("\"2\""),
@@ -549,8 +578,8 @@ where
         ..a.clone()
     };
     store.save_link(&a2).await?;
-    assert!(store.links().await?.contains(&a2));
-    assert!(!store.links().await?.contains(&a));
+    assert!(store.links().await?.contains(&bare(&a2)));
+    assert!(!store.links().await?.contains(&bare(&a)));
     // Un contact n'est relié qu'à une ressource.
     let twice = link(
         "/dav/alice/contacts/a-bis.vcf",

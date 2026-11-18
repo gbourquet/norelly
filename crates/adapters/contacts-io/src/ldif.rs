@@ -5,10 +5,12 @@
 //! sont ignorées : rien n'est lu hors du fichier.
 
 use norelly_domain::contact_import::{ImportedCard, MAX_IMPORT_CARDS};
-use norelly_domain::contacts::{ContactInput, EmailInput, PhoneInput};
+use norelly_domain::contacts::{
+    ContactInput, EmailInput, PhoneInput, PostalAddressInput, WebsiteInput,
+};
 use norelly_domain::ports::ContactCodecError;
 
-use crate::{MAX_FIELD_BYTES, MAX_VALUES_PER_CARD, text};
+use crate::{MAX_FIELD_BYTES, MAX_VALUES_PER_CARD, birthday_text, street_lines, text};
 
 /// Le texte commence-t-il comme un fichier LDIF (`dn:` ou `version:`) ?
 pub(crate) fn looks_like(text: &str) -> bool {
@@ -96,6 +98,39 @@ fn phone_label(attribute: &str) -> Option<&'static str> {
     })
 }
 
+/// Attribut d'une adresse postale de Thunderbird : emplacement (0 :
+/// domicile, 1 : travail) et élément (rue, suite de la rue, ville, région,
+/// code postal, pays).
+fn place_attribute(attribute: &str) -> Option<(usize, usize)> {
+    Some(match attribute {
+        "mozillahomestreet" => (0, 0),
+        "mozillahomestreet2" => (0, 1),
+        "mozillahomelocalityname" => (0, 2),
+        "mozillahomestate" => (0, 3),
+        "mozillahomepostalcode" => (0, 4),
+        "mozillahomecountryname" => (0, 5),
+        "street" | "streetaddress" => (1, 0),
+        "mozillaworkstreet2" => (1, 1),
+        "l" | "locality" => (1, 2),
+        "st" => (1, 3),
+        "postalcode" => (1, 4),
+        "c" | "countryname" => (1, 5),
+        _ => return None,
+    })
+}
+
+/// Étiquette d'un emplacement d'adresse ou de site.
+const PLACE_LABELS: [&str; 2] = ["home", "work"];
+
+/// Emplacement d'un attribut de site web (0 : domicile, 1 : travail).
+fn website_attribute(attribute: &str) -> Option<usize> {
+    match attribute {
+        "mozillahomeurl" | "homeurl" => Some(0),
+        "mozillaworkurl" | "workurl" => Some(1),
+        _ => None,
+    }
+}
+
 fn card(record: &[(String, Value)]) -> Option<ImportedCard> {
     let is_group = record.iter().any(|(name, value)| {
         name == "objectclass"
@@ -114,6 +149,10 @@ fn card(record: &[(String, Value)]) -> Option<ImportedCard> {
     let mut input = ContactInput::default();
     let mut notes = Vec::new();
     let mut primary_seen = false;
+    // Adresses postales (domicile, travail) dans l'ordre de leur premier
+    // attribut, et éléments de l'anniversaire (année, mois, jour).
+    let mut places: Vec<(usize, [String; 6])> = Vec::new();
+    let mut birth: [String; 3] = Default::default();
     for (name, value) in record {
         let known = matches!(
             name.as_str(),
@@ -127,7 +166,13 @@ fn card(record: &[(String, Value)]) -> Option<ImportedCard> {
                 | "mail"
                 | "mozillasecondemail"
                 | "xmozillasecondemail"
-        ) || phone_label(name).is_some();
+                | "title"
+                | "birthyear"
+                | "birthmonth"
+                | "birthday"
+        ) || phone_label(name).is_some()
+            || place_attribute(name).is_some()
+            || website_attribute(name).is_some();
         if !known {
             continue;
         }
@@ -145,6 +190,33 @@ fn card(record: &[(String, Value)]) -> Option<ImportedCard> {
             "sn" | "surname" => set(&mut input.family_name),
             "mozillanickname" | "xmozillanickname" => set(&mut input.nickname),
             "o" => set(&mut input.organization),
+            "title" => set(&mut input.title),
+            "birthyear" => set(&mut birth[0]),
+            "birthmonth" => set(&mut birth[1]),
+            "birthday" => set(&mut birth[2]),
+            other if place_attribute(other).is_some() => {
+                if let Some((slot, part)) = place_attribute(other) {
+                    let index = match places.iter().position(|(s, _)| *s == slot) {
+                        Some(index) => index,
+                        None => {
+                            places.push((slot, Default::default()));
+                            places.len() - 1
+                        }
+                    };
+                    if let Some(field) = places.get_mut(index).and_then(|(_, p)| p.get_mut(part)) {
+                        set(field);
+                    }
+                }
+            }
+            other if website_attribute(other).is_some() => {
+                let url = value.trim();
+                if let (Some(slot), false) = (website_attribute(other), url.is_empty()) {
+                    input.websites.push(WebsiteInput {
+                        url: url.to_owned(),
+                        label: PLACE_LABELS[slot].to_owned(),
+                    });
+                }
+            }
             "description" => notes.push(value.clone()),
             "mail" | "mozillasecondemail" | "xmozillasecondemail" => {
                 let address = value.trim();
@@ -168,12 +240,47 @@ fn card(record: &[(String, Value)]) -> Option<ImportedCard> {
                 }
             }
         }
-        if input.emails.len() > MAX_VALUES_PER_CARD || input.phones.len() > MAX_VALUES_PER_CARD {
+        if input.emails.len() > MAX_VALUES_PER_CARD
+            || input.phones.len() > MAX_VALUES_PER_CARD
+            || input.websites.len() > MAX_VALUES_PER_CARD
+        {
             return Some(ImportedCard::Unreadable);
         }
     }
     input.notes = notes.join("\n");
+    input.postal_addresses = places
+        .into_iter()
+        .map(
+            |(slot, [street, street2, locality, region, postal_code, country])| {
+                PostalAddressInput {
+                    street: street_lines([street.as_str(), street2.as_str()]),
+                    locality: locality.trim().to_owned(),
+                    region: region.trim().to_owned(),
+                    postal_code: postal_code.trim().to_owned(),
+                    country: country.trim().to_owned(),
+                    label: PLACE_LABELS[slot].to_owned(),
+                }
+            },
+        )
+        .collect();
+    input.birthday = birth_text(&birth);
     Some(ImportedCard::Contact(input))
+}
+
+/// Anniversaire tiré de `birthyear` (facultatif), `birthmonth` et
+/// `birthday`, dans la forme du domaine ; vide sans mois ni jour, tel
+/// quel s'ils ne sont pas des nombres.
+fn birth_text([year, month, day]: &[String; 3]) -> String {
+    let (year, month, day) = (year.trim(), month.trim(), day.trim());
+    if month.is_empty() && day.is_empty() {
+        return String::new();
+    }
+    let number = |text: &str| text.parse::<u32>().ok();
+    match (number(year), number(month), number(day)) {
+        (Some(y), Some(m), Some(d)) => birthday_text(&format!("{y:04}-{m:02}-{d:02}")),
+        (None, Some(m), Some(d)) if year.is_empty() => birthday_text(&format!("--{m:02}-{d:02}")),
+        _ => format!("{year}-{month}-{day}"),
+    }
 }
 
 /// Fiches d'un fichier LDIF, dans son ordre.
@@ -239,6 +346,61 @@ mod tests {
             cards("dn: cn=x\njpegPhoto:: ***\nmail: a@example.com\n")[..],
             [ImportedCard::Contact(_)]
         ));
+    }
+
+    #[test]
+    fn thunderbird_details_are_read() {
+        let c = cards(
+            "dn: cn=x\nmail: a@example.com\ntitle: Chef\nbirthyear: 1985\nbirthmonth: 4\n\
+             birthday: 12\nstreet: 1 rue A\nmozillaWorkStreet2: Bat. B\nl: Paris\nst: IDF\n\
+             postalCode: 75001\nc: France\nmozillaHomeStreet: 2 rue B\n\
+             mozillaHomeLocalityName: Lyon\nmozillaHomePostalCode: 69001\n\
+             mozillaWorkUrl: https://work.example\nmozillaHomeUrl: https://home.example\n",
+        );
+        let [ImportedCard::Contact(a)] = &c[..] else {
+            panic!("{c:?}")
+        };
+        assert_eq!(a.title, "Chef");
+        assert_eq!(a.birthday, "1985-04-12");
+        let places: Vec<_> = a
+            .postal_addresses
+            .iter()
+            .map(|p| {
+                (
+                    p.street.as_str(),
+                    p.locality.as_str(),
+                    p.region.as_str(),
+                    p.postal_code.as_str(),
+                    p.country.as_str(),
+                    p.label.as_str(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            places,
+            [
+                ("1 rue A\nBat. B", "Paris", "IDF", "75001", "France", "work"),
+                ("2 rue B", "Lyon", "", "69001", "", "home"),
+            ]
+        );
+        let sites: Vec<_> = a
+            .websites
+            .iter()
+            .map(|w| (w.url.as_str(), w.label.as_str()))
+            .collect();
+        assert_eq!(
+            sites,
+            [
+                ("https://work.example", "work"),
+                ("https://home.example", "home")
+            ]
+        );
+        let c = cards("dn: cn=x\nbirthmonth: 02\nbirthday: 29\n");
+        let [ImportedCard::Contact(a)] = &c[..] else {
+            panic!("{c:?}")
+        };
+        assert_eq!(a.birthday, "--02-29");
+        assert!(a.postal_addresses.is_empty());
     }
 
     #[test]

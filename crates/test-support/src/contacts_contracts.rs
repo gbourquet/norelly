@@ -11,7 +11,7 @@ use norelly_domain::contact_import::ContactCompletion;
 use norelly_domain::contact_lists::{ContactList, ContactListDraft, ContactListInput};
 use norelly_domain::contacts::{
     AddressKey, Contact, ContactDraft, ContactFilter, ContactId, ContactInput, EmailInput,
-    PhoneInput,
+    PhoneInput, PostalAddressInput, WebsiteInput,
 };
 use norelly_domain::ports::{
     ContactBook, ContactCursor, ContactDirectory, ContactListItem, ContactPage, ContactStoreError,
@@ -65,6 +65,32 @@ pub fn full_contact() -> ContactDraft {
             },
             PhoneInput {
                 number: "06 12 34 56 78".into(),
+                label: String::new(),
+            },
+        ],
+        title: "Directrice commerciale".into(),
+        birthday: "--02-29".into(),
+        postal_addresses: vec![
+            PostalAddressInput {
+                street: "1 rue des Lilas\nBât. B".into(),
+                locality: "Lyon".into(),
+                postal_code: "69001".into(),
+                country: "France".into(),
+                label: "maison".into(),
+                ..PostalAddressInput::default()
+            },
+            PostalAddressInput {
+                region: "Bretagne".into(),
+                ..PostalAddressInput::default()
+            },
+        ],
+        websites: vec![
+            WebsiteInput {
+                url: "https://example.com/alice".into(),
+                label: "blog".into(),
+            },
+            WebsiteInput {
+                url: "http://acme.example".into(),
                 label: String::new(),
             },
         ],
@@ -124,6 +150,12 @@ pub async fn contact_book_contract<B: ContactBook + ContactDirectory>(
     let alice = book.create(&full_contact()).await?;
     assert_eq!(alice.draft(), &full_contact(), "fiche relue différente");
     assert_eq!(book.get(alice.id()).await?, Some(alice.clone()));
+    // Le titre est cherché comme les noms.
+    let by_title = all_pages(book, &ContactFilter::new("COMMERCIALE", false), 10).await?;
+    assert_eq!(
+        by_title.iter().map(|i| i.id).collect::<Vec<_>>(),
+        [alice.id()]
+    );
     let bob = book
         .create(&sample_contact("Bob", &["bob@example.net"]))
         .await?;

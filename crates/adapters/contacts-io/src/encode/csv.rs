@@ -12,6 +12,16 @@ use norelly_domain::ports::ContactCodecError;
 
 use super::Output;
 
+/// Colonnes d'une adresse postale Google, dans l'ordre écrit.
+const PLACE_PARTS: [&str; 6] = [
+    "Label",
+    "Street",
+    "City",
+    "Region",
+    "Postal Code",
+    "Country",
+];
+
 /// Fiches `cards` dans `out`.
 pub(crate) fn encode(cards: &[ExportCard], out: &mut Output) -> Result<(), ContactCodecError> {
     out.push("\u{FEFF}")?;
@@ -40,6 +50,30 @@ pub(crate) fn encode(cards: &[ExportCard], out: &mut Output) -> Result<(), Conta
     for n in 1..=phones {
         header.push(format!("Phone {n} - Label"));
         header.push(format!("Phone {n} - Value"));
+    }
+    // Colonnes des détails, seulement si une fiche en a.
+    let titles = cards.iter().any(|c| c.title.is_some());
+    let birthdays = cards.iter().any(|c| c.birthday.is_some());
+    let places = cards
+        .iter()
+        .map(|c| c.postal_addresses.len())
+        .max()
+        .unwrap_or(0);
+    let sites = cards.iter().map(|c| c.websites.len()).max().unwrap_or(0);
+    if titles {
+        header.push("Organization Title".to_owned());
+    }
+    if birthdays {
+        header.push("Birthday".to_owned());
+    }
+    for n in 1..=places {
+        for part in PLACE_PARTS {
+            header.push(format!("Address {n} - {part}"));
+        }
+    }
+    for n in 1..=sites {
+        header.push(format!("Website {n} - Label"));
+        header.push(format!("Website {n} - Value"));
     }
 
     let mut writer = ::csv::WriterBuilder::new()
@@ -77,6 +111,37 @@ pub(crate) fn encode(cards: &[ExportCard], out: &mut Output) -> Result<(), Conta
                 Some(phone) => {
                     row.push(text(&phone.label));
                     row.push(phone.number.clone());
+                }
+                None => row.extend([String::new(), String::new()]),
+            }
+        }
+        if titles {
+            row.push(text(&card.title));
+        }
+        if birthdays {
+            row.push(card.birthday.map(|b| b.iso()).unwrap_or_default());
+        }
+        for n in 0..places {
+            match card.postal_addresses.get(n) {
+                Some(place) => row.extend(
+                    [
+                        &place.label,
+                        &place.street,
+                        &place.locality,
+                        &place.region,
+                        &place.postal_code,
+                        &place.country,
+                    ]
+                    .map(text),
+                ),
+                None => row.extend(PLACE_PARTS.map(|_| String::new())),
+            }
+        }
+        for n in 0..sites {
+            match card.websites.get(n) {
+                Some(site) => {
+                    row.push(text(&site.label));
+                    row.push(site.url.clone());
                 }
                 None => row.extend([String::new(), String::new()]),
             }
@@ -146,6 +211,41 @@ mod tests {
              Anne,,,,,,* myContacts,*,anne@example.com,,,,\r\n\
              ,Bob,Durand,Bobby,ACME,\"Ligne 1\nLigne 2, \"\"citée\"\"\",* myContacts,\
              * Work,bob@example.com,Home,bob@example.org,Mobile,'+33 6 12\r\n"
+        );
+    }
+
+    #[test]
+    fn details_get_google_columns_only_when_a_card_has_them() {
+        use norelly_domain::contact_details::Birthday;
+        use norelly_domain::contact_export::{ExportPostalAddress, ExportWebsite};
+        let card = ExportCard {
+            title: Some("Cheffe".into()),
+            birthday: Birthday::new(None, 4, 12),
+            emails: vec![email("a@example.com", None, true)],
+            postal_addresses: vec![ExportPostalAddress {
+                street: Some("1 rue A\nBât. B".into()),
+                locality: Some("Lyon".into()),
+                region: Some("Rhône".into()),
+                postal_code: Some("69001".into()),
+                country: Some("-France".into()),
+                label: Some("Home".into()),
+            }],
+            websites: vec![ExportWebsite {
+                url: "https://example.com".into(),
+                label: Some("Blog".into()),
+            }],
+            ..ExportCard::default()
+        };
+        assert_eq!(
+            written(&[card]),
+            "Name,First Name,Last Name,Nickname,Organization Name,Notes,Labels,\
+             E-mail 1 - Label,E-mail 1 - Value,Organization Title,Birthday,\
+             Address 1 - Label,Address 1 - Street,Address 1 - City,Address 1 - Region,\
+             Address 1 - Postal Code,Address 1 - Country,\
+             Website 1 - Label,Website 1 - Value\r\n\
+             ,,,,,,* myContacts,*,a@example.com,Cheffe,'--04-12,\
+             Home,\"1 rue A\nBât. B\",Lyon,Rhône,69001,'-France,\
+             Blog,https://example.com\r\n"
         );
     }
 

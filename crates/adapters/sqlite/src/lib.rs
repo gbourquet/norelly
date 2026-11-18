@@ -14,6 +14,7 @@
 //! une base modifiée à la main ne peut pas produire un compte invalide.
 
 pub mod actions;
+pub mod carddav;
 pub mod compose;
 pub mod contact_dismissals;
 pub mod contact_lists;
@@ -83,6 +84,7 @@ fn migrations() -> Migrations<'static> {
                 contacts::index_full_names(tx).map_err(|e| rusqlite_migration::HookError::Hook(e.0))
             },
         ),
+        M::up(include_str!("../migrations/0024_carddav.sql")),
     ])
 }
 
@@ -719,7 +721,77 @@ mod tests {
         // famille au contact de la version 18, clés à jour.
         "UPDATE contacts SET family_name = 'V22', sort_key = 'v18 v22', \
          search_text = 'v18\nv22\nv18 v22\nv18@example.com' WHERE id = 2;",
+        // v24 : un compte CardDAV, le contact de la version 11 relié à une
+        // fiche distante, une synchronisation enregistrée.
+        "INSERT INTO carddav_account (id, server, username, book_url, book_name) \
+         VALUES (1, 'https://dav.example.com/', 'alice', 'https://dav.example.com/c/', 'Contacts'); \
+         INSERT INTO carddav_links (href, etag, contact_id, deleted_at, synced, remote) \
+         VALUES ('/c/a.vcf', '\"1\"', 1, NULL, 's', 'r'); \
+         INSERT INTO carddav_sync (id, at, pulled, pushed, skipped, failure) \
+         VALUES (1, 10, 1, 2, 3, NULL);",
     ];
+
+    /// Montée vers la version 24 : les fiches existantes sont datées de la
+    /// migration ; une écriture redate la fiche ; supprimer un contact
+    /// relié date la suppression de sa ressource.
+    #[test]
+    fn upgrading_to_v24_dates_contacts_and_deletions() -> Result<(), StoreError> {
+        let mut conn = Connection::open_in_memory().map_err(store_error)?;
+        conn.pragma_update(None, "foreign_keys", "ON")
+            .map_err(store_error)?;
+        let m = migrations();
+        for (version, fixture) in FIXTURES.iter().enumerate().take(23) {
+            m.to_version(&mut conn, version + 1)
+                .map_err(|e| StoreError(e.to_string()))?;
+            conn.execute_batch(fixture).map_err(store_error)?;
+        }
+        m.to_version(&mut conn, 24)
+            .map_err(|e| StoreError(e.to_string()))?;
+        conn.execute_batch(FIXTURES[23]).map_err(store_error)?;
+        let undated: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM contacts WHERE modified_at < 1700000000",
+                [],
+                |r| r.get(0),
+            )
+            .map_err(store_error)?;
+        assert_eq!(undated, 0, "fiche existante sans date");
+        conn.execute_batch(
+            "UPDATE contacts SET modified_at = 5 WHERE id = 1; \
+             UPDATE contacts SET notes = 'note' WHERE id = 1;",
+        )
+        .map_err(store_error)?;
+        let redated: i64 = conn
+            .query_row("SELECT modified_at FROM contacts WHERE id = 1", [], |r| {
+                r.get(0)
+            })
+            .map_err(store_error)?;
+        assert!(redated > 5);
+        conn.execute_batch(
+            "INSERT INTO carddav_links (href, etag, contact_id, deleted_at, synced, remote) \
+             VALUES ('/c/b.vcf', '\"1\"', 2, NULL, 's', 'r'); \
+             DELETE FROM contacts WHERE id = 2;",
+        )
+        .map_err(store_error)?;
+        let (contact, deleted_at): (Option<i64>, Option<i64>) = conn
+            .query_row(
+                "SELECT contact_id, deleted_at FROM carddav_links WHERE href = '/c/b.vcf'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .map_err(store_error)?;
+        assert_eq!(contact, None);
+        assert!(deleted_at.is_some_and(|at| at > 1_700_000_000));
+        let untouched: Option<i64> = conn
+            .query_row(
+                "SELECT deleted_at FROM carddav_links WHERE href = '/c/a.vcf'",
+                [],
+                |r| r.get(0),
+            )
+            .map_err(store_error)?;
+        assert_eq!(untouched, None);
+        Ok(())
+    }
 
     /// Base de la version précédente : à la montée vers la migration 23
     /// (la dernière de la liste, d'où les indices relatifs), le texte cherché des
@@ -735,7 +807,9 @@ mod tests {
         conn.pragma_update(None, "foreign_keys", "ON")
             .map_err(store_error)?;
         let m = migrations();
-        let target = FIXTURES.len();
+        // Montée vers la version 23 elle-même, quelles que soient les
+        // suivantes.
+        let target = 23;
         for (version, fixture) in FIXTURES.iter().enumerate().take(target - 1) {
             m.to_version(&mut conn, version + 1)
                 .map_err(|e| StoreError(e.to_string()))?;

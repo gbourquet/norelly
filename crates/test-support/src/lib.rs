@@ -11,6 +11,8 @@
 //! - [`contact_lists_contracts`] : listes de diffusion du carnet ;
 //! - [`contact_dismissals_contracts`] : groupes de doublons écartés ;
 //! - [`contact_import_contracts`] : import du carnet (NFC, fichiers) ;
+//! - [`carddav_server`] et [`carddav_contracts`] : faux serveur CardDAV,
+//!   faux client et état de synchronisation, suites de contrat ;
 //! - [`synthetic`] : générateur de boîtes synthétiques (bench) ;
 //! - [`imap_control`] et [`session_contract`] : contrat de la session IMAP
 //!   (faux serveur et Dovecot).
@@ -20,6 +22,8 @@
 //! lancés par `cargo nextest run --workspace --profile integration`.
 
 pub mod actions_contracts;
+pub mod carddav_contracts;
+pub mod carddav_server;
 pub mod certs;
 pub mod compose_contracts;
 pub mod contact_dismissals_contracts;

@@ -198,10 +198,10 @@ carnet de Norelly sert à écrire des messages.
 
 Les listes de diffusion du fichier (les groupes d'un fichier vCard ou
 LDIF) sont importées avec leurs membres. Une liste qui porte le même nom
-qu'une de vos listes est laissée telle quelle, ou complétée des membres
-qui lui manquent si vous choisissez **Les compléter avec le fichier**. Un
-membre qui n'est ni dans le fichier ni dans votre carnet est laissé de
-côté : l'aperçu indique combien.
+qu'une de vos listes n'est pas importée, et votre liste ne change pas :
+un fichier n'ajoute jamais personne à vos listes. Un membre qui n'est ni
+dans le fichier ni dans votre carnet est laissé de côté : l'aperçu
+indique combien.
 
 Les étiquettes courantes des adresses et des téléphones (travail,
 domicile, mobile, fax…) s'affichent en français, quelle que soit la

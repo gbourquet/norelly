@@ -3,7 +3,7 @@ use std::io::Write;
 use norelly_application::contact_import::ImportPreview;
 use norelly_domain::contact_import::{
     ContactCompletion, ContactFormat, DuplicatePolicy, ImportPlan, ImportRejection, ImportedList,
-    MAX_IMPORT_FILE_BYTES, RejectReason, plan_import,
+    ImportedMember, MAX_IMPORT_FILE_BYTES, RejectReason, plan_import,
 };
 use norelly_domain::contact_lists::{ContactListError, ContactListField};
 use norelly_domain::contacts::{ContactError, ContactField, ContactId};
@@ -32,7 +32,7 @@ fn preview(rejected: Vec<ImportRejection>) -> ImportPreview {
         &[
             ImportedCard::List(ImportedList {
                 name: "Club".into(),
-                members: vec!["inconnu@example.com".into()],
+                members: vec![ImportedMember::Address("inconnu@example.com".into())],
                 ..ImportedList::default()
             }),
             ImportedCard::List(ImportedList {
@@ -61,7 +61,6 @@ fn preview(rejected: Vec<ImportRejection>) -> ImportPreview {
             rejected,
             lists: lists.lists,
             missing_members: lists.missing_members,
-            ..ImportPlan::default()
         },
     }
 }
@@ -77,6 +76,14 @@ fn preview_counts_both_policies_and_lists_reasons() -> Result<(), IpcError> {
         ),
         (
             RejectReason::InvalidList(ContactListError::TooManyMembers),
+            ImportRejectReasonDto::ListTooManyMembers,
+        ),
+        (
+            RejectReason::ListNameLooksLikeAddress,
+            ImportRejectReasonDto::ListNameLooksLikeAddress,
+        ),
+        (
+            RejectReason::ListMergeTooLarge,
             ImportRejectReasonDto::ListTooManyMembers,
         ),
         (
@@ -142,7 +149,6 @@ fn preview_counts_both_policies_and_lists_reasons() -> Result<(), IpcError> {
             complete: 0,
             duplicates: 4,
             lists: 0,
-            lists_complete: 0,
             missing_members: 0,
         }
     );
@@ -153,12 +159,11 @@ fn preview_counts_both_policies_and_lists_reasons() -> Result<(), IpcError> {
             complete: 1,
             duplicates: 2,
             lists: 2,
-            lists_complete: 0,
             missing_members: 1,
         }
     );
     assert_eq!(dto.renamed, 1);
-    assert_eq!(dto.rejected_total, 14);
+    assert_eq!(dto.rejected_total, 16);
     let got: Vec<_> = dto.rejected.iter().map(|r| (r.card, r.reason)).collect();
     let expected: Vec<_> = (1..).zip(reasons.iter().map(|(_, d)| *d)).collect();
     assert_eq!(got, expected);

@@ -192,10 +192,9 @@ address book is for writing messages.
 
 Mailing lists in the file (the groups of a vCard or LDIF file) are
 imported with their members. A list with the same name as one of your
-lists is left as it is, or completed with the members it lacks if you
-choose **Complete them from the file**. A member who is neither in the
-file nor in your address book is left aside: the preview tells you how
-many.
+lists is not imported, and your list does not change: a file never adds
+anyone to your lists. A member who is neither in the file nor in your
+address book is left aside: the preview tells you how many.
 
 Common labels on addresses and phone numbers (work, home, mobile, fax…)
 are shown in English, whatever the language of the program they come

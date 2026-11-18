@@ -312,7 +312,6 @@ describe("personnes d'un message et carnet", () => {
         complete: 0,
         duplicates: 0,
         lists: 0,
-        lists_complete: 0,
         missing_members: 0,
       },
       complete: {
@@ -320,7 +319,6 @@ describe("personnes d'un message et carnet", () => {
         complete: 0,
         duplicates: 0,
         lists: 0,
-        lists_complete: 0,
         missing_members: 0,
       },
       renamed: 0,

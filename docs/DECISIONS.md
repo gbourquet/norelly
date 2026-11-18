@@ -652,14 +652,21 @@ est majoritairement écrit par Claude et relu par le mainteneur.
     le plan (`plan_import`) valide chaque liste comme la saisie
     (`ContactListDraft::new`, nom en NFC, caractères invisibles refusés
     comme pour une fiche importée) et retrouve ses membres par
-    `AddressKey` parmi le carnet et les fiches créées ; une liste du même
-    nom qu'une liste du carnet est un doublon, ignoré ou complété des
-    membres manquants selon la politique choisie ; tout est écrit dans la
-    transaction de l'import. La copie cachée est écrite dans une propriété
+    `AddressKey` ou par le rang de leur fiche (le contact où elle a fini)
+    parmi le carnet et les fiches créées ; un nom qui imite une adresse est
+    refusé ; une liste du même nom qu'une liste du carnet est toujours
+    laissée de côté (un fichier ne modifie jamais une liste existante : un
+    nom se devine, constat de la revue de sécurité) ; deux listes du même
+    nom dans le fichier sont réunies en complétant, refusées au-delà de la
+    borne ; tout est écrit dans la transaction de l'import. La copie cachée est écrite dans une propriété
     propre à Norelly (`X-NORELLY-BCC`, `x-norelly-bcc`) pour qu'un
     aller-retour ne la perde pas. Listes exportées avec tout le carnet
     seulement (pas avec une sélection), ni en CSV ; fiches et listes
-    comptent ensemble dans la borne de 25 000 ;
+    comptent ensemble dans la borne de 25 000. Les membres d'un groupe
+    vCard 3.0 sont écrits en `mailto:` : Contacts d'Apple attend
+    l'identifiant d'une carte (`urn:uuid:`), que l'export n'écrit pas (un
+    identifiant stable et unique demanderait un aléa ou un condensat) ; le
+    fichier se relit dans Norelly ;
   - doublons (lot 8) : **règles validées par le mainteneur le
     2026-11-08, avant le code**. Écart au plan : deux contacts ne
     partagent jamais une adresse (index unique, l'import « ignorer »

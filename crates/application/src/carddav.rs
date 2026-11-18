@@ -399,7 +399,7 @@ where
                 // lecture : une saisie faite pendant la synchronisation
                 // n'est jamais écrasée.
                 let completion = ContactCompletion::new(contact.clone(), draft.clone());
-                if let Err(e) = self.book.import(&[], &[completion], &[], &[]).await {
+                if let Err(e) = self.book.import(&[], &[completion], &[]).await {
                     return local_step(e);
                 }
                 // Fiche relue telle qu'enregistrée : c'est elle que la

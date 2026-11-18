@@ -3,7 +3,7 @@ import type { ContactImportPreviewDto } from "./ipc/api";
 import { IpcFailure } from "./errors";
 import { ContactImportState, type ContactImportApi } from "./contact-import.svelte";
 
-const noList = { lists: 0, lists_complete: 0, missing_members: 0 };
+const noList = { lists: 0, missing_members: 0 };
 
 function preview(over: Partial<ContactImportPreviewDto> = {}): ContactImportPreviewDto {
   return {
@@ -30,7 +30,6 @@ function fakeApi(result: ContactImportPreviewDto | null | Error = preview()) {
       created: 3,
       completed: 1,
       lists_created: 0,
-      lists_completed: 0,
     })),
   } satisfies ContactImportApi;
 }
@@ -104,23 +103,6 @@ describe("import de contacts", () => {
     expect(state.offersPolicy).toBe(false);
   });
 
-  it("une liste du carnet à compléter propose le choix", async () => {
-    const state = new ContactImportState(
-      fakeApi(
-        preview({
-          skip: { create: 0, complete: 0, duplicates: 0, ...noList },
-          complete: { create: 0, complete: 0, duplicates: 0, ...noList, lists_complete: 1 },
-        }),
-      ),
-    );
-    await state.choose("t", "f");
-    expect(state.offersPolicy).toBe(true);
-    expect(state.nothingToImport).toBe(true);
-    expect(state.canImport).toBe(false);
-    state.policy = "complete";
-    expect(state.canImport).toBe(true);
-  });
-
   it("confirme avec le jeton et la politique choisie, puis oublie l'aperçu", async () => {
     const api = fakeApi();
     const state = new ContactImportState(api);
@@ -128,7 +110,7 @@ describe("import de contacts", () => {
     state.policy = "complete";
     const done = state.confirm();
     expect(state.busy).toBe(true);
-    expect(await done).toEqual({ created: 3, completed: 1, lists_created: 0, lists_completed: 0 });
+    expect(await done).toEqual({ created: 3, completed: 1, lists_created: 0 });
     expect(api.applyContactImport).toHaveBeenCalledWith(4, "complete");
     expect(state.busy).toBe(false);
     expect(state.preview).toBeNull();

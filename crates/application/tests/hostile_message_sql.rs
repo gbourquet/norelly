@@ -1284,9 +1284,10 @@ fn mailto(address: &str) -> String {
     out
 }
 
-/// Nom de la liste piégée n° `n`.
+/// Nom de la liste piégée n° `n` (un nom de liste ne peut pas imiter une
+/// adresse : voir [`as_name`]).
 fn trapped_list_name(n: usize) -> String {
-    format!("{n} {}", PAYLOADS[n % PAYLOADS.len()])
+    format!("{n} {}", as_name(PAYLOADS[n % PAYLOADS.len()]))
 }
 
 /// Fichier vCard 4.0 piégé : une fiche par charge (adresses à `'`, nom et
@@ -1427,7 +1428,8 @@ async fn trapped_list_import_and_export_cannot_alter_the_database()
         assert_eq!(sent, expected, "{:?}", trapped_list_name(n));
     }
 
-    // Second import piégé : les mêmes listes complétées d'un membre.
+    // Second import piégé, en complétant : les listes du carnet ne sont
+    // jamais touchées par un fichier ; les nouvelles fiches sont créées.
     let second = preview(trapped_lists_vcard(true)).await?;
     assert!(
         second.complete.rejected.is_empty(),
@@ -1438,18 +1440,15 @@ async fn trapped_list_import_and_export_cannot_alter_the_database()
         .execute(&second.cards, DuplicatePolicy::Complete)
         .await?;
     assert_eq!(
-        (
-            outcome.created,
-            outcome.lists_created,
-            outcome.lists_completed
-        ),
-        (PAYLOADS.len(), 0, PAYLOADS.len())
+        (outcome.created, outcome.lists_created),
+        (PAYLOADS.len(), 0)
     );
     for n in 0..PAYLOADS.len() {
-        assert_eq!(list_named(n).await?.draft().members().len(), 3);
+        assert_eq!(list_named(n).await?.draft().members().len(), 2);
     }
 
-    // Export piégé, puis relecture : les listes reviennent à l'identique.
+    // Export piégé, puis relecture : les listes reviennent à l'identique
+    // (membres, copie cachée), et s'importent dans un carnet vide.
     for format in [
         ExportFormat::VCard4,
         ExportFormat::VCard3,
@@ -1466,8 +1465,12 @@ async fn trapped_list_import_and_export_cannot_alter_the_database()
             .iter()
             .filter_map(|c| match c {
                 ImportedCard::List(list) => {
-                    assert_eq!(list.members.len(), 3, "{format:?} : {:?}", list.name);
+                    assert_eq!(list.members.len(), 2, "{format:?} : {:?}", list.name);
                     assert_eq!(list.unresolved, 0, "{format:?}");
+                    let n = (0..PAYLOADS.len())
+                        .find(|&n| trapped_list_name(n) == list.name)
+                        .unwrap_or_else(|| panic!("{format:?} : {:?}", list.name));
+                    assert_eq!(list.bcc, n.is_multiple_of(2), "{format:?}");
                     Some(list.name.clone())
                 }
                 _ => None,
@@ -1487,7 +1490,22 @@ async fn trapped_list_import_and_export_cannot_alter_the_database()
         .await?;
         assert!(again.skip.rejected.is_empty(), "{format:?}");
         assert!(again.complete.lists.is_empty(), "{format:?}");
-        assert!(again.complete.complete_lists.is_empty(), "{format:?}");
+        // Dans un carnet vide : listes et membres recréés.
+        let fresh = local(&format!("sql-injection-list-reimport-{format:?}")).await;
+        let fresh_schema = fresh.db.schema().await?;
+        let fresh_book = SqliteContactBook::new(fresh.db.clone());
+        let outcome = ApplyContactImport {
+            book: &fresh_book,
+            normalizer: &IcuNfc,
+        }
+        .execute(&again.cards, DuplicatePolicy::Skip)
+        .await?;
+        assert_eq!(outcome.lists_created, PAYLOADS.len(), "{format:?}");
+        for list in fresh_book.all_lists(100).await? {
+            assert_eq!(list.draft().members().len(), 2, "{format:?}");
+        }
+        assert_eq!(fresh.db.integrity_problems().await?, Vec::<String>::new());
+        assert_eq!(fresh.db.schema().await?, fresh_schema, "schéma modifié");
     }
     assert_eq!(book.all_lists(100).await?.len(), PAYLOADS.len());
 

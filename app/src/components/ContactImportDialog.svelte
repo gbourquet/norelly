@@ -50,6 +50,8 @@
         return m.contacts_import_reason_list_no_name();
       case "list_too_many_members":
         return m.contacts_import_reason_list_too_many_members();
+      case "list_name_looks_like_address":
+        return m.contacts_import_reason_list_name_looks_like_address();
       case "no_address":
         return m.contacts_import_reason_no_address();
       case "invalid_address":
@@ -97,12 +99,6 @@
           <li>
             <UsersIcon size={16} aria-hidden="true" />
             <span>{m.contacts_import_lists_create({ count: counts.lists })}</span>
-          </li>
-        {/if}
-        {#if counts.lists_complete > 0}
-          <li>
-            <UsersIcon size={16} aria-hidden="true" />
-            <span>{m.contacts_import_lists_complete({ count: counts.lists_complete })}</span>
           </li>
         {/if}
         {#if counts.duplicates > 0}

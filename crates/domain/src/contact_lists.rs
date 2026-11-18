@@ -101,7 +101,7 @@ pub struct ContactListDraft {
 }
 
 impl ContactListDraft {
-    /// Valide une liste. Le nom est mis en forme NFC par `normalizer`
+    /// Valide une liste. Le nom et la description sont mis en forme NFC par `normalizer`
     /// (casse et accents gardés) : deux noms au rendu identique ont la même
     /// clé ([`Self::name_key`]). Un membre cité plusieurs fois l'est une
     /// fois, à sa première place.
@@ -116,7 +116,7 @@ impl ContactListDraft {
         )?
         .ok_or(ContactListError::NoName)?;
         let description = text(
-            &input.description,
+            &normalizer.nfc(&input.description),
             ContactListField::Description,
             MAX_CONTACT_LIST_DESCRIPTION_CHARS,
         )?;

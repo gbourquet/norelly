@@ -21,7 +21,7 @@ use crate::compose::outbox::OutboxEntry;
 use crate::connection::ConnectionError;
 use crate::contact_duplicates::DismissedPair;
 use crate::contact_export::{ContactSelection, ExportCard, ExportFormat, ExportList};
-use crate::contact_import::{ContactCompletion, DecodedContacts, ListCompletion, ListImport};
+use crate::contact_import::{ContactCompletion, DecodedContacts, ListImport};
 use crate::contact_lists::{ContactList, ContactListDraft, ContactListFilter, ContactListId};
 use crate::contacts::{
     AddressKey, Contact, ContactDraft, ContactFilter, ContactId, MAX_CONTACT_NAME_CHARS,
@@ -1638,20 +1638,18 @@ pub trait ContactBook: Send + Sync {
 
     /// Importe en une transaction : enregistre les fiches `create`,
     /// remplace le contenu des contacts `complete` par leur nouveau
-    /// contenu, puis crée les listes `lists` et complète les listes
-    /// `complete_lists`, leurs membres créés désignés par leur rang dans
-    /// `create` ([`ListImport::resolve`]). Tout ou rien : une adresse déjà
-    /// portée par un autre contact (`DuplicateAddress`), un contact ou une
-    /// liste inconnus (`NotFound`, membre compris), un contact ou une liste
-    /// qui a changé depuis sa lecture ([`ContactCompletion::read`],
-    /// [`ListCompletion::read`], `Conflict`), ou un nom de liste pris
+    /// contenu, puis crée les listes `lists`, leurs membres créés désignés
+    /// par leur rang dans `create` ([`ListImport::resolve`]). Tout ou
+    /// rien : une adresse déjà portée par un autre contact
+    /// (`DuplicateAddress`), un contact inconnu (`NotFound`, membre
+    /// compris), un contact qui a changé depuis sa lecture
+    /// ([`ContactCompletion::read`], `Conflict`), ou un nom de liste pris
     /// entre-temps (`Conflict`) annule tout l'import.
     fn import(
         &self,
         create: &[ContactDraft],
         complete: &[ContactCompletion],
         lists: &[ListImport],
-        complete_lists: &[ListCompletion],
     ) -> impl Future<Output = Result<ImportOutcome, ContactStoreError>> + Send;
 
     /// Fusionne en une transaction ([`crate::contact_duplicates`]) : la
@@ -1680,8 +1678,6 @@ pub struct ImportOutcome {
     pub completed: usize,
     /// Listes créées.
     pub lists_created: usize,
-    /// Listes existantes complétées.
-    pub lists_completed: usize,
 }
 
 /// Fichier de contacts refusé en entier.

@@ -64,7 +64,7 @@ describe("import du carnet", () => {
     await expect(preview.$("p*=« gmail.vcf » (vCard) : 2 fiche(s)")).toBeDisplayed();
     await expect(preview.$("span=2 nouveau(x) contact(s) ajouté(s)")).toBeDisplayed();
     // Ni doublon ni rejet : rien à choisir.
-    await expect(preview.$("legend=Contacts et listes déjà dans le carnet")).not.toBeExisting();
+    await expect(preview.$("legend=Contacts déjà dans le carnet")).not.toBeExisting();
     await preview.$("button=Importer").click();
     await preview.waitForDisplayed({ reverse: true, timeout: 20000 });
     await expect(
@@ -99,7 +99,7 @@ describe("import du carnet", () => {
       preview.$("span=2 fiche(s) ou liste(s) déjà dans le carnet, laissée(s) de côté"),
     ).toBeDisplayed();
     await expect(preview.$("span=1 fiche(s) impossible(s) à importer")).toBeDisplayed();
-    await expect(preview.$("legend=Contacts et listes déjà dans le carnet")).toBeDisplayed();
+    await expect(preview.$("legend=Contacts déjà dans le carnet")).toBeDisplayed();
     await preview.$("summary=Voir les fiches impossibles à importer").click();
     await expect(
       preview.$("li=Fiche n° 4 (Jean Sansadresse) : aucune adresse électronique"),

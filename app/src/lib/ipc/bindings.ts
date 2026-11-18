@@ -841,7 +841,6 @@ export type ContactImportOutcomeDto = {
 	created: number,
 	completed: number,
 	lists_created: number,
-	lists_completed: number,
 };
 
 /**  Aperçu d'un import : à confirmer par `apply_contact_import(token, …)`. */
@@ -1756,8 +1755,6 @@ export type ImportCountsDto = {
 	duplicates: number,
 	/**  Listes créées. */
 	lists: number,
-	/**  Listes existantes complétées. */
-	lists_complete: number,
 	/**
 	 *  Membres de listes ni dans le fichier ni dans le carnet, laissés de
 	 *  côté.
@@ -1771,8 +1768,13 @@ export type ImportRejectReasonDto =
 "unreadable" | 
 /**  Liste de diffusion sans nom. */
 "list_no_name" | 
-/**  Liste de diffusion de plus de membres qu'un envoi ne permet. */
+/**
+ *  Liste de diffusion de plus de membres qu'un envoi ne permet (seule,
+ *  ou réunie à une liste du même nom du fichier).
+ */
 "list_too_many_members" | 
+/**  Liste de diffusion dont le nom imite une adresse. */
+"list_name_looks_like_address" | 
 /**  Fiche sans adresse électronique. */
 "no_address" | 
 /**  Adresse électronique invalide. */

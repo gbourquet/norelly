@@ -981,7 +981,9 @@ mod tests {
              (31, 'Été', 'été'), \
              (32, 'zz', 'été (2)'), \
              (33, 'Club', 'club'), \
-             (34, 'Club', char(1) || '34');",
+             (34, 'Club', char(1) || '34'), \
+             (35, char(2) || '36 ', char(2) || '36 '), \
+             (36, 'X ', 'x ');",
         )
         .map_err(store_error)?;
         m.to_version(&mut conn, target)
@@ -1000,6 +1002,10 @@ mod tests {
         assert_eq!(stored(32)?, pair("zz", "été (2)"));
         assert_eq!(stored(33)?, pair("Club", "club"));
         assert_eq!(stored(34)?, pair("Club", "\u{1}34"));
+        // Nom refusé par le domaine (caractère de contrôle) : écarté, sa clé
+        // réservée ; la clé provisoire de la liste 36 ne la heurte pas.
+        assert_eq!(stored(35)?, pair("\u{2}36 ", "\u{2}36 "));
+        assert_eq!(stored(36)?, pair("X", "x"));
 
         let db = Database::init(conn, nfc()).map_err(|e| StoreError(e.to_string()))?;
         let book = contacts::SqliteContactBook::new(db);

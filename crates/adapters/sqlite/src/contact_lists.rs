@@ -11,7 +11,7 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fmt;
 use std::sync::{Mutex, PoisonError};
 
-use norelly_domain::contact_import::{ListCompletion, ListImport};
+use norelly_domain::contact_import::ListImport;
 use norelly_domain::contact_lists::{
     ContactList, ContactListDraft, ContactListError, ContactListFilter, ContactListId,
     ContactListInput, MAX_CONTACT_LIST_MEMBERS, renormalized_list_names,
@@ -552,35 +552,41 @@ impl ContactListDirectory for SqliteContactBook {
     }
 
     async fn all_lists(&self, limit: usize) -> Result<Vec<ContactList>, StoreError> {
-        let mut lists = Vec::new();
-        let mut cursor = None;
-        while lists.len() < limit {
-            let page = self
-                .list_page(&ContactListFilter::default(), cursor, PageSize::MAX)
-                .await?;
-            let ids: Vec<i64> = page
-                .items
-                .iter()
-                .take(limit - lists.len())
-                .map(|item| item.id.get())
-                .collect();
-            let nfc = self.db.normalizer();
-            lists.extend(self.db.read(move |c| load(c, &*nfc, &ids)).await?);
-            match page.next {
-                Some(next) => cursor = Some(next),
-                None => break,
-            }
-        }
-        Ok(lists)
+        let nfc = self.db.normalizer();
+        // Une seule lecture (instantané cohérent), par lots dans l'ordre de
+        // la liste ; les listes écartées n'arrêtent pas la lecture.
+        self.db
+            .read(move |c| {
+                let batch = i64::from(PageSize::MAX.get());
+                let mut lists = Vec::new();
+                let mut offset = 0_i64;
+                while lists.len() < limit {
+                    let ids: Vec<i64> = c
+                        .prepare_cached(
+                            "SELECT id FROM contact_lists ORDER BY name_key, id LIMIT ?1 OFFSET ?2",
+                        )
+                        .and_then(|mut s| {
+                            s.query_map(params![batch, offset], |r| r.get(0))?.collect()
+                        })
+                        .map_err(store_error)?;
+                    let exhausted = (ids.len() as i64) < batch;
+                    offset += batch;
+                    lists.extend(load(c, &*nfc, &ids)?);
+                    if exhausted {
+                        break;
+                    }
+                }
+                lists.truncate(limit);
+                Ok(lists)
+            })
+            .await
     }
 }
 
 /// Listes d'un import, dans la transaction `tx` qui vient de créer les
-/// fiches `created` (dans l'ordre du plan) : chaque liste à compléter doit
-/// être celle lue pour le plan (`NotFound` si elle a disparu, `Conflict`
-/// si elle a changé), chaque liste à créer porter un nom libre (`Conflict`
-/// s'il a été pris entre-temps) ; un membre absent du carnet donne
-/// `NotFound`. Les listes sont revalidées par le domaine
+/// fiches `created` (dans l'ordre du plan) : chaque liste à créer doit
+/// porter un nom libre (`Conflict` s'il a été pris entre-temps) ; un
+/// membre absent du carnet donne `NotFound`. Les listes sont revalidées par le domaine
 /// ([`ListImport::resolve`]). Un refus est rendu sans rien écrire de plus :
 /// l'appelant annule la transaction.
 pub(crate) fn import_lists(
@@ -588,7 +594,6 @@ pub(crate) fn import_lists(
     normalizer: &dyn TextNormalizer,
     created: &[ContactId],
     lists: &[ListImport],
-    complete_lists: &[ListCompletion],
 ) -> Result<Result<(), ContactStoreError>, StoreError> {
     let corrupted = |e: ContactListError| StoreError(format!("liste importée : {e}"));
     let refusal = |e: ContactListStoreError| match e {
@@ -598,26 +603,6 @@ pub(crate) fn import_lists(
         }
         ContactListStoreError::Store(e) => Err(e),
     };
-    let ids: Vec<i64> = complete_lists.iter().map(|c| c.read().id().get()).collect();
-    let current: HashMap<i64, ContactList> = load(tx, normalizer, &ids)?
-        .into_iter()
-        .map(|l| (l.id().get(), l))
-        .collect();
-    for completion in complete_lists {
-        match current.get(&completion.read().id().get()) {
-            None => return Ok(Err(ContactStoreError::NotFound)),
-            Some(list) if list != completion.read() => return Ok(Err(ContactStoreError::Conflict)),
-            Some(_) => {}
-        }
-    }
-    for completion in complete_lists {
-        let id = completion.read().id();
-        let draft = completion.resolve(created).map_err(corrupted)?;
-        if let Err(e) = admit(tx, normalizer, &draft, Some(id))? {
-            return Ok(Err(refusal(e)?));
-        }
-        write(tx, id.get(), &draft)?;
-    }
     for list in lists {
         let draft = list.resolve(created).map_err(corrupted)?;
         if let Err(e) = admit(tx, normalizer, &draft, None)? {
@@ -634,13 +619,16 @@ pub(crate) fn import_lists(
     Ok(Ok(()))
 }
 
-/// Crochet de la migration 26 : noms des listes lisibles (clé stockée
-/// égale au nom en minuscules) mis en NFC par `normalizer`, la plus
-/// récente de deux listes devenues homonymes suffixée
-/// ([`renormalized_list_names`]). Une liste écartée (clé qui n'est pas
-/// celle de son nom, colonne d'un autre type) est laissée telle quelle,
-/// et sa clé n'est jamais prise. Les lignes réécrites passent d'abord par
-/// une clé provisoire libre (clé unique tenue à chaque instant).
+/// Crochet de la migration 26 : noms des listes lisibles (nom accepté par
+/// le domaine, clé stockée égale au nom en minuscules) mis en NFC par
+/// `normalizer`, la plus récente de deux listes devenues homonymes
+/// suffixée ([`renormalized_list_names`]). Une liste écartée (nom refusé,
+/// clé qui n'est pas celle de son nom, colonne d'un autre type) est
+/// laissée telle quelle, et sa clé n'est jamais prise. Les lignes
+/// réécrites passent d'abord par une clé provisoire libre commençant par
+/// un caractère de contrôle, qu'aucun nom accepté ne peut donner : la clé
+/// reste unique à chaque instant, et l'ouverture de la base n'échoue
+/// jamais faute de clé libre.
 pub(crate) fn normalize_list_names(
     tx: &Transaction<'_>,
     normalizer: &dyn TextNormalizer,
@@ -652,15 +640,28 @@ pub(crate) fn normalize_list_names(
                 .collect()
         })
         .map_err(store_error)?;
+    let rows_count = rows.len();
     let mut readable: Vec<(i64, String)> = Vec::new();
     let mut reserved: HashSet<String> = HashSet::new();
+    let accepted = |name: &str| {
+        ContactListDraft::new(
+            ContactListInput {
+                name: name.to_owned(),
+                ..ContactListInput::default()
+            },
+            normalizer,
+        )
+        .is_ok()
+    };
     for (id, name, key) in rows {
         let key = match key {
             RawKey::Text(bytes) => String::from_utf8(bytes).ok(),
             RawKey::Other(_) => None,
         };
         match (name, key) {
-            (Some(name), Some(key)) if key == name.to_lowercase() => readable.push((id, name)),
+            (Some(name), Some(key)) if key == name.to_lowercase() && accepted(&name) => {
+                readable.push((id, name));
+            }
             (_, Some(key)) => {
                 reserved.insert(key);
             }
@@ -676,7 +677,7 @@ pub(crate) fn normalize_list_names(
         .map(|((id, _), new)| (id, new))
         .collect();
     for (id, _) in &changed {
-        park(tx, *id)?;
+        park(tx, *id, rows_count)?;
     }
     for (id, name) in &changed {
         tx.execute(
@@ -690,18 +691,19 @@ pub(crate) fn normalize_list_names(
 
 /// Clé provisoire libre de la liste `id` pendant la migration 26 :
 /// commence par un caractère de contrôle (jamais la clé d'une liste
-/// lisible), contourne au plus [`MAX_RELEASE_ATTEMPTS`] lignes abîmées.
-fn park(tx: &Transaction<'_>, id: i64) -> Result<(), StoreError> {
+/// lisible) ; parmi `rows` lignes, une clé libre est trouvée en au plus
+/// `rows + 1` essais.
+fn park(tx: &Transaction<'_>, id: i64, rows: usize) -> Result<(), StoreError> {
     let mut key = format!("\u{2}{id}");
     let mut taken = tx
         .prepare_cached("SELECT 1 FROM contact_lists WHERE name_key = ?1")
         .map_err(store_error)?;
-    let mut attempts = 1;
+    let mut attempts = 0;
     while taken.exists(params![key]).map_err(store_error)? {
-        if attempts == MAX_RELEASE_ATTEMPTS {
+        attempts += 1;
+        if attempts > rows {
             return Err(StoreError(format!("aucune clé libre pour la liste {id}")));
         }
-        attempts += 1;
         key.push('\u{2}');
     }
     tx.execute(

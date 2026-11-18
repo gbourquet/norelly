@@ -151,12 +151,7 @@ impl<B: ContactBook + ContactDirectory + ContactListDirectory, N: TextNormalizer
             let plan = plan_import(&existing, &lists, cards, policy, self.normalizer);
             let written = self
                 .book
-                .import(
-                    &plan.create,
-                    &plan.complete,
-                    &plan.lists,
-                    &plan.complete_lists,
-                )
+                .import(&plan.create, &plan.complete, &plan.lists)
                 .await;
             match written {
                 // Le carnet a changé depuis sa lecture : rien n'est écrit,

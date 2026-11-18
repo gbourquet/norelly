@@ -27,15 +27,11 @@ export class ContactImportState {
    * carnet (ou en double dans le fichier) et pourraient le compléter. */
   readonly offersPolicy = $derived(
     this.preview !== null &&
-      (this.preview.skip.duplicates > 0 ||
-        this.preview.complete.complete > 0 ||
-        this.preview.complete.lists_complete > 0),
+      (this.preview.skip.duplicates > 0 || this.preview.complete.complete > 0),
   );
   /** Rien à écrire avec la politique choisie (ni contact ni liste). */
   readonly nothingToImport = $derived(
-    this.counts !== null &&
-      this.counts.create + this.counts.complete + this.counts.lists + this.counts.lists_complete ===
-        0,
+    this.counts !== null && this.counts.create + this.counts.complete + this.counts.lists === 0,
   );
   /** Quelque chose à écrire avec la politique choisie. */
   readonly canImport = $derived(this.counts !== null && !this.busy && !this.nothingToImport);

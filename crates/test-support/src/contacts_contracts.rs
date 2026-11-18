@@ -8,7 +8,7 @@ use crate::contact_import_contracts::FakeNfc;
 use norelly_domain::address::EmailAddress;
 use norelly_domain::contact_duplicates::{DismissedPair, MAX_DISMISSED_PAIRS};
 use norelly_domain::contact_export::ContactSelection;
-use norelly_domain::contact_import::{ContactCompletion, ListCompletion, ListImport};
+use norelly_domain::contact_import::{ContactCompletion, ListImport};
 use norelly_domain::contact_lists::{
     ContactList, ContactListDraft, ContactListError, ContactListId, ContactListInput,
 };
@@ -441,7 +441,7 @@ pub async fn contact_page_size_contract<B: ContactBook + ContactDirectory>(
     let drafts: Vec<ContactDraft> = (0..=MAX_PAGE_SIZE)
         .map(|i| sample_contact(&format!("c{i:04}"), &[&format!("c{i}@example.com")]))
         .collect();
-    book.import(&drafts, &[], &[], &[]).await?;
+    book.import(&drafts, &[], &[]).await?;
     let first = book
         .page(&all, None, PageSize::new(MAX_PAGE_SIZE + 1))
         .await?;
@@ -463,10 +463,7 @@ pub async fn contact_import_contract<B: ContactBook + ContactDirectory>(
     book: &B,
 ) -> Result<(), ContactStoreError> {
     let all = ContactFilter::default();
-    assert_eq!(
-        book.import(&[], &[], &[], &[]).await?,
-        ImportOutcome::default()
-    );
+    assert_eq!(book.import(&[], &[], &[]).await?, ImportOutcome::default());
 
     let outcome = book
         .import(
@@ -474,7 +471,6 @@ pub async fn contact_import_contract<B: ContactBook + ContactDirectory>(
                 sample_contact("Alice", &["alice@example.com"]),
                 full_contact(),
             ],
-            &[],
             &[],
             &[],
         )
@@ -497,7 +493,6 @@ pub async fn contact_import_contract<B: ContactBook + ContactDirectory>(
                 sample_contact("Alice", &["alice@example.com"]),
                 sample_contact("Bob", &["bob@example.net"]),
             ],
-            &[],
             &[],
             &[],
         )
@@ -533,7 +528,6 @@ pub async fn contact_import_contract<B: ContactBook + ContactDirectory>(
                 completed.draft().clone(),
             )],
             &[],
-            &[],
         )
         .await?;
     assert_eq!(
@@ -558,7 +552,6 @@ pub async fn contact_import_contract<B: ContactBook + ContactDirectory>(
             &[sample_contact("Denis", &["denis@example.org"])],
             &[stolen],
             &[],
-            &[]
         )
         .await,
         Err(ContactStoreError::DuplicateAddress(address(
@@ -576,7 +569,6 @@ pub async fn contact_import_contract<B: ContactBook + ContactDirectory>(
             &[sample_contact("Denis", &["denis@example.org"])],
             &[unknown],
             &[],
-            &[]
         )
         .await,
         Err(ContactStoreError::NotFound)
@@ -592,7 +584,6 @@ pub async fn contact_import_contract<B: ContactBook + ContactDirectory>(
             &[sample_contact("Autre", &["A3@example.com"])],
             &[again],
             &[],
-            &[]
         )
         .await,
         Err(ContactStoreError::DuplicateAddress(address(
@@ -610,7 +601,6 @@ pub async fn contact_import_contract<B: ContactBook + ContactDirectory>(
             &[sample_contact("Denis", &["denis@example.org"])],
             &[stale],
             &[],
-            &[]
         )
         .await,
         Err(ContactStoreError::Conflict)
@@ -627,7 +617,7 @@ pub async fn contact_import_contract<B: ContactBook + ContactDirectory>(
         sample_contact("Bob", &["bob@example.net", "b2@example.net"]),
     );
     assert_eq!(
-        book.import(&[], &[takes_carole, stale_bob], &[], &[]).await,
+        book.import(&[], &[takes_carole, stale_bob], &[]).await,
         Err(ContactStoreError::Conflict)
     );
     assert_eq!(book.get(alice.id()).await?, Some(completed));
@@ -887,7 +877,6 @@ impl ContactBook for InMemoryContactBook {
         create: &[ContactDraft],
         complete: &[ContactCompletion],
         lists: &[ListImport],
-        complete_lists: &[ListCompletion],
     ) -> Result<ImportOutcome, ContactStoreError> {
         let mut state = self.lock();
         let mut list_state = self.lock_lists();
@@ -931,20 +920,6 @@ impl ContactBook for InMemoryContactBook {
                 .all(|m| contacts.iter().any(|c| c.id() == *m))
         };
         let corrupted = |e: ContactListError| ContactStoreError::Corrupted(e.to_string());
-        for completion in complete_lists {
-            let id = completion.read().id();
-            let Some(index) = stored_lists.iter().position(|l| l.id() == id) else {
-                return Err(ContactStoreError::NotFound);
-            };
-            if &stored_lists[index] != completion.read() {
-                return Err(ContactStoreError::Conflict);
-            }
-            let draft = completion.resolve(&created).map_err(corrupted)?;
-            if !known(&draft) {
-                return Err(ContactStoreError::NotFound);
-            }
-            stored_lists[index] = draft.with_id(id);
-        }
         for list in lists {
             let draft = list.resolve(&created).map_err(corrupted)?;
             if stored_lists
@@ -969,7 +944,6 @@ impl ContactBook for InMemoryContactBook {
             created: create.len(),
             completed: complete.len(),
             lists_created: lists.len(),
-            lists_completed: complete_lists.len(),
         })
     }
 

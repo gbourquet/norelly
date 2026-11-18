@@ -2323,8 +2323,11 @@ pub enum ImportRejectReasonDto {
     Unreadable,
     /// Liste de diffusion sans nom.
     ListNoName,
-    /// Liste de diffusion de plus de membres qu'un envoi ne permet.
+    /// Liste de diffusion de plus de membres qu'un envoi ne permet (seule,
+    /// ou réunie à une liste du même nom du fichier).
     ListTooManyMembers,
+    /// Liste de diffusion dont le nom imite une adresse.
+    ListNameLooksLikeAddress,
     /// Fiche sans adresse électronique.
     NoAddress,
     /// Adresse électronique invalide.
@@ -2358,8 +2361,6 @@ pub struct ImportCountsDto {
     pub duplicates: u32,
     /// Listes créées.
     pub lists: u32,
-    /// Listes existantes complétées.
-    pub lists_complete: u32,
     /// Membres de listes ni dans le fichier ni dans le carnet, laissés de
     /// côté.
     pub missing_members: u32,
@@ -2392,7 +2393,6 @@ pub struct ContactImportOutcomeDto {
     pub created: u32,
     pub completed: u32,
     pub lists_created: u32,
-    pub lists_completed: u32,
 }
 
 /// Contacts à exporter.

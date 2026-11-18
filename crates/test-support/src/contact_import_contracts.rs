@@ -10,7 +10,7 @@ use norelly_domain::contact_export::{
     MAX_EXPORT_FILE_BYTES, export_card, exports_lists,
 };
 use norelly_domain::contact_import::{
-    ContactFormat, DecodedContacts, ImportedCard, ImportedList, MAX_IMPORT_CARDS,
+    ContactFormat, DecodedContacts, ImportedCard, ImportedList, ImportedMember, MAX_IMPORT_CARDS,
     MAX_IMPORT_FILE_BYTES,
 };
 use norelly_domain::contacts::{
@@ -253,19 +253,31 @@ pub fn imported(card: &ExportCard) -> ImportedCard {
     })
 }
 
-/// Liste qu'un traducteur fidèle relit dans l'export de `list` (membres :
-/// la première adresse, la préférée, de leur fiche dans `cards`).
+/// Liste qu'un traducteur fidèle relit dans l'export de `list` dans
+/// `format` : membres désignés par l'adresse préférée de leur fiche dans
+/// `cards` (vCard), ou par le rang de leur fiche (LDIF, nom distinctif).
 #[must_use]
-pub fn imported_list(list: &ExportList, cards: &[ExportCard]) -> ImportedCard {
+pub fn imported_list(
+    list: &ExportList,
+    cards: &[ExportCard],
+    format: ExportFormat,
+) -> ImportedCard {
     ImportedCard::List(ImportedList {
         name: list.name.clone(),
         description: list.description.clone().unwrap_or_default(),
         members: list
             .members
             .iter()
-            .filter_map(|&i| cards.get(i))
-            .filter_map(|card| card.emails.first())
-            .map(|e| e.address.clone())
+            .filter_map(|&i| {
+                let card = cards.get(i)?;
+                match format {
+                    ExportFormat::Ldif => Some(ImportedMember::Card(i)),
+                    _ => card
+                        .emails
+                        .first()
+                        .map(|e| ImportedMember::Address(e.address.clone())),
+                }
+            })
             .collect(),
         unresolved: 0,
         bcc: list.bcc,
@@ -283,7 +295,7 @@ pub fn imported_file(
 ) -> Vec<ImportedCard> {
     let mut out: Vec<ImportedCard> = cards.iter().map(imported).collect();
     if exports_lists(&ContactSelection::All, format) {
-        out.extend(lists.iter().map(|l| imported_list(l, cards)));
+        out.extend(lists.iter().map(|l| imported_list(l, cards, format)));
     }
     out
 }

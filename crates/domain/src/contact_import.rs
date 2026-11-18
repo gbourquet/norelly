@@ -11,8 +11,9 @@
 //! selon la [`DuplicatePolicy`]. Une liste est validée comme à la saisie
 //! ([`ContactListDraft::new`]), ses membres retrouvés par leur adresse
 //! parmi les contacts du carnet et les fiches importées ; une liste de
-//! même nom qu'une liste du carnet (ou du fichier) est un doublon, ignoré
-//! ou complété des membres qui lui manquent.
+//! même nom qu'une liste du carnet est laissée de côté (le fichier ne
+//! modifie jamais une liste existante) ; deux listes du même nom dans le
+//! fichier n'en font qu'une, ou la seconde est ignorée.
 
 use std::collections::{HashMap, HashSet};
 
@@ -28,6 +29,7 @@ use crate::contacts::{
     PostalAddressInput, WebsiteInput, is_invisible,
 };
 use crate::ports::{ContactStoreError, TextNormalizer};
+use crate::sender::imitates_address;
 
 /// Taille maximale d'un fichier de contacts importé, en octets.
 pub const MAX_IMPORT_FILE_BYTES: usize = 20 * 1024 * 1024;
@@ -61,15 +63,24 @@ pub enum ContactFormat {
 pub struct ImportedList {
     pub name: String,
     pub description: String,
-    /// Adresses des membres, telles que lues (celle d'un membre désigné
-    /// par une autre fiche du fichier : la première adresse de cette
-    /// fiche).
-    pub members: Vec<String>,
+    /// Membres, tels que le fichier les désigne, dans son ordre.
+    pub members: Vec<ImportedMember>,
     /// Membres désignés que le fichier ne permet pas de retrouver (fiche
-    /// absente ou sans adresse).
+    /// absente, désignation illisible).
     pub unresolved: usize,
     /// Membres à mettre en copie cachée (propriété propre à Norelly).
     pub bcc: bool,
+}
+
+/// Membre d'une liste lue.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ImportedMember {
+    /// Une adresse (`mailto:`, attribut `mail` d'un nom distinctif), telle
+    /// que lue.
+    Address(String),
+    /// Une autre fiche du fichier, par son rang (à partir de 0) dans
+    /// [`DecodedContacts::cards`].
+    Card(usize),
 }
 
 /// Fiche lue dans un fichier, non validée.
@@ -114,6 +125,12 @@ pub enum RejectReason {
     /// Liste refusée par le domaine (sans nom, nom trop long, trop de
     /// membres…).
     InvalidList(ContactListError),
+    /// Liste dont le nom imite une adresse : proposée à la saisie d'un
+    /// destinataire, elle pourrait passer pour cette adresse.
+    ListNameLooksLikeAddress,
+    /// Liste qui, réunie à une liste précédente du même nom dans le
+    /// fichier, compterait plus de [`MAX_CONTACT_LIST_MEMBERS`] membres.
+    ListMergeTooLarge,
     /// Fiche refusée par le domaine (sans adresse, adresse invalide, champ
     /// trop long…).
     Invalid(ContactError),
@@ -237,36 +254,6 @@ impl ListImport {
     }
 }
 
-/// Complément d'une liste du carnet : la liste telle qu'elle a été lue
-/// pour calculer le plan, et les membres à lui ajouter à la suite.
-/// L'import ne l'écrit que si elle n'a pas changé depuis cette lecture.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ListCompletion {
-    read: ContactList,
-    added: Vec<ListMember>,
-}
-
-impl ListCompletion {
-    /// Liste telle qu'elle a été lue pour calculer le complément.
-    #[must_use]
-    pub fn read(&self) -> &ContactList {
-        &self.read
-    }
-
-    /// Membres ajoutés, absents de la liste, dans la borne d'une liste.
-    #[must_use]
-    pub fn added(&self) -> &[ListMember] {
-        &self.added
-    }
-
-    /// Nouveau contenu de la liste (voir [`ListImport::resolve`]).
-    pub fn resolve(&self, created: &[ContactId]) -> Result<ContactListDraft, ContactListError> {
-        self.read
-            .draft()
-            .with_members(&member_ids(&self.added, created)?)
-    }
-}
-
 /// Plan d'import : ce que l'import écrira, et ce qu'il laisse de côté.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ImportPlan {
@@ -276,9 +263,8 @@ pub struct ImportPlan {
     pub complete: Vec<ContactCompletion>,
     /// Nouvelles listes, dans l'ordre du fichier.
     pub lists: Vec<ListImport>,
-    /// Listes du carnet complétées de membres.
-    pub complete_lists: Vec<ListCompletion>,
-    /// Fiches et listes en double ignorées (ou qui n'apportaient rien).
+    /// Fiches et listes en double ignorées (ou qui n'apportaient rien) ;
+    /// une liste du même nom qu'une liste du carnet en fait partie.
     pub duplicates: usize,
     /// Membres des listes gardées qui ne sont ni dans le carnet ni parmi
     /// les fiches importées : laissés de côté.
@@ -302,7 +288,10 @@ pub fn import_keys(cards: &[ImportedCard], normalizer: &impl TextNormalizer) -> 
                 ImportedCard::Contact(input) => {
                     Box::new(input.emails.iter().map(|e| e.address.as_str()))
                 }
-                ImportedCard::List(list) => Box::new(list.members.iter().map(String::as_str)),
+                ImportedCard::List(list) => Box::new(list.members.iter().filter_map(|m| match m {
+                    ImportedMember::Address(address) => Some(address.as_str()),
+                    ImportedMember::Card(_) => None,
+                })),
                 ImportedCard::Unreadable => Box::new(std::iter::empty()),
             }
         })
@@ -328,13 +317,15 @@ pub fn import_list_keys(cards: &[ImportedCard], normalizer: &impl TextNormalizer
         .collect()
 }
 
-/// Liste lue validée sans ses membres : nom et description en NFC, sans
-/// caractère invisible ([`is_invisible`], refusé à l'import comme pour une
-/// fiche), puis [`ContactListDraft::new`].
+/// Liste lue validée sans ses membres : sans caractère invisible
+/// ([`is_invisible`], refusé à l'import comme pour une fiche), description
+/// de plusieurs lignes ramenée à une ligne (lignes jointes par une
+/// espace), nom qui n'imite pas une adresse ([`imitates_address`], jugé en
+/// NFC), puis [`ContactListDraft::new`] (nom et description en NFC).
 fn list_draft(
     list: &ImportedList,
     normalizer: &impl TextNormalizer,
-) -> Result<ContactListDraft, ContactListError> {
+) -> Result<ContactListDraft, RejectReason> {
     let fields = [
         (&list.name, ContactListField::Name),
         (&list.description, ContactListField::Description),
@@ -343,17 +334,31 @@ fn list_draft(
         .iter()
         .find(|(text, _)| text.chars().any(is_invisible))
     {
-        return Err(ContactListError::InvalidCharacter(*field));
+        return Err(RejectReason::InvalidList(
+            ContactListError::InvalidCharacter(*field),
+        ));
     }
-    ContactListDraft::new(
+    let description = list
+        .description
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ");
+    let draft = ContactListDraft::new(
         ContactListInput {
             name: list.name.clone(),
-            description: normalizer.nfc(&list.description),
+            description,
             members: Vec::new(),
             bcc: list.bcc,
         },
         normalizer,
     )
+    .map_err(RejectReason::InvalidList)?;
+    if imitates_address(draft.name()) {
+        return Err(RejectReason::ListNameLooksLikeAddress);
+    }
+    Ok(draft)
 }
 
 /// Destination d'une adresse déjà rencontrée : un contact du carnet ou une
@@ -394,6 +399,9 @@ pub fn plan_import(
         }
     }
     let mut completed: Vec<Option<ContactDraft>> = vec![None; existing.len()];
+    // Contact où chaque fiche du fichier a fini (créée, ou doublon d'un
+    // contact) : un membre de liste désigné par sa fiche le retrouve.
+    let mut card_owner: Vec<Option<Owner>> = vec![None; cards.len()];
 
     for (index, card) in cards.iter().enumerate() {
         let reject = |hint: String, reason| ImportRejection {
@@ -451,9 +459,11 @@ pub fn plan_import(
             for e in draft.emails() {
                 owners.insert(e.key().clone(), Owner::New(plan.create.len()));
             }
+            card_owner[index] = Some(Owner::New(plan.create.len()));
             plan.create.push(draft);
             continue;
         };
+        card_owner[index] = Some(owner);
         if policy == DuplicatePolicy::Skip {
             plan.duplicates += 1;
             continue;
@@ -495,12 +505,17 @@ pub fn plan_import(
         }
     }
 
+    let resolver = Members {
+        existing,
+        owners: &owners,
+        card_owner: &card_owner,
+        normalizer,
+    };
     plan_lists(
         &mut plan,
-        existing,
         existing_lists,
         cards,
-        &owners,
+        &resolver,
         policy,
         normalizer,
     );
@@ -514,40 +529,60 @@ pub fn plan_import(
     plan
 }
 
-/// Destination d'une liste déjà rencontrée : une liste du carnet ou une
-/// liste créée par l'import (rang dans `existing_lists` ou dans
-/// `plan.lists`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ListOwner {
-    Existing(usize),
-    New(usize),
+/// Membres d'une liste retrouvés parmi les contacts du carnet (`existing`,
+/// `owners` : par adresse) et les fiches du fichier (`card_owner` : contact
+/// où chaque fiche a fini).
+struct Members<'a, N> {
+    existing: &'a [Contact],
+    owners: &'a HashMap<AddressKey, Owner>,
+    card_owner: &'a [Option<Owner>],
+    normalizer: &'a N,
+}
+
+impl<N: TextNormalizer> Members<'_, N> {
+    /// Contact désigné par `member`, ou `None` s'il n'est ni dans le carnet
+    /// ni parmi les fiches gardées (fiche rejetée, adresse inconnue ou
+    /// invalide).
+    fn resolve(&self, member: &ImportedMember) -> Option<ListMember> {
+        let owner = match member {
+            ImportedMember::Address(address) => {
+                AddressKey::parse(self.normalizer.nfc(address.trim()).as_str())
+                    .ok()
+                    .and_then(|key| self.owners.get(&key).copied())
+            }
+            ImportedMember::Card(i) => self.card_owner.get(*i).copied().flatten(),
+        }?;
+        Some(match owner {
+            Owner::Existing(i) => ListMember::Existing(self.existing[i].id()),
+            Owner::New(i) => ListMember::New(i),
+        })
+    }
 }
 
 /// Listes du plan, une fois les fiches traitées (une liste peut précéder
 /// ses membres dans le fichier) : chaque liste validée sans ses membres
-/// ([`list_draft`]), ses membres retrouvés par leur adresse (`owners` :
-/// contacts du carnet et fiches créées), chacun une fois ; une adresse
-/// introuvable compte dans `missing_members`. Une liste de même clé de nom
-/// qu'une liste du carnet ou qu'une liste précédente du fichier est un
-/// doublon : ignorée, ou complétée des membres qui lui manquent dans la
-/// borne d'une liste.
-fn plan_lists(
+/// ([`list_draft`]), ses membres retrouvés ([`Members`]), chacun une fois ;
+/// un membre introuvable compte dans `missing_members`. Une liste du même
+/// nom qu'une liste du carnet est un doublon, laissée de côté quelle que
+/// soit la politique : un fichier ne fait jamais entrer quelqu'un dans une
+/// liste existante sur la foi d'un nom. Une liste du même nom qu'une liste
+/// précédente du fichier est ignorée ([`DuplicatePolicy::Skip`]) ou lui
+/// apporte ses membres ([`DuplicatePolicy::Complete`]), refusée si la
+/// réunion dépasserait la borne d'une liste.
+fn plan_lists<N: TextNormalizer>(
     plan: &mut ImportPlan,
-    existing: &[Contact],
     existing_lists: &[ContactList],
     cards: &[ImportedCard],
-    owners: &HashMap<AddressKey, Owner>,
+    members_of: &Members<'_, N>,
     policy: DuplicatePolicy,
-    normalizer: &impl TextNormalizer,
+    normalizer: &N,
 ) {
-    let mut names: HashMap<String, ListOwner> = HashMap::new();
-    for (index, list) in existing_lists.iter().enumerate() {
-        names
-            .entry(list.draft().name_key())
-            .or_insert(ListOwner::Existing(index));
-    }
-    // Membres ajoutés à chaque liste du carnet.
-    let mut added: Vec<Vec<ListMember>> = vec![Vec::new(); existing_lists.len()];
+    let in_book: HashSet<String> = existing_lists
+        .iter()
+        .map(|l| l.draft().name_key())
+        .collect();
+    // Listes du fichier déjà planifiées, par clé de nom.
+    let mut planned: HashMap<String, usize> = HashMap::new();
 
     for (index, card) in cards.iter().enumerate() {
         let ImportedCard::List(list) = card else {
@@ -556,93 +591,67 @@ fn plan_lists(
         let reject = |reason| ImportRejection {
             card: index + 1,
             hint: clean_hint(&list.name),
-            reason: RejectReason::InvalidList(reason),
+            reason,
         };
         let draft = match list_draft(list, normalizer) {
             Ok(draft) => draft,
-            Err(e) => {
-                plan.rejected.push(reject(e));
+            Err(reason) => {
+                plan.rejected.push(reject(reason));
                 continue;
             }
         };
+        let key = draft.name_key();
+        if in_book.contains(&key) {
+            plan.duplicates += 1;
+            continue;
+        }
+        let earlier = planned.get(&key).copied();
+        if earlier.is_some() && policy == DuplicatePolicy::Skip {
+            plan.duplicates += 1;
+            continue;
+        }
         let mut missing = list.unresolved;
         let mut members: Vec<ListMember> = Vec::new();
         let mut seen = HashSet::new();
-        for address in &list.members {
-            let owner = AddressKey::parse(normalizer.nfc(address.trim()).as_str())
-                .ok()
-                .and_then(|key| owners.get(&key).copied());
-            let member = match owner {
-                Some(Owner::Existing(i)) => ListMember::Existing(existing[i].id()),
-                Some(Owner::New(i)) => ListMember::New(i),
-                None => {
-                    missing += 1;
+        for member in &list.members {
+            match members_of.resolve(member) {
+                Some(found) => {
+                    if seen.insert(found) {
+                        members.push(found);
+                    }
+                }
+                None => missing += 1,
+            }
+        }
+        match earlier {
+            None => {
+                if members.len() > MAX_CONTACT_LIST_MEMBERS {
+                    plan.rejected.push(reject(RejectReason::InvalidList(
+                        ContactListError::TooManyMembers,
+                    )));
                     continue;
                 }
-            };
-            if seen.insert(member) {
-                members.push(member);
+                planned.insert(key, plan.lists.len());
+                plan.lists.push(ListImport { draft, members });
+                plan.missing_members += missing;
             }
-        }
-        if members.len() > MAX_CONTACT_LIST_MEMBERS {
-            plan.rejected.push(reject(ContactListError::TooManyMembers));
-            continue;
-        }
-        let key = draft.name_key();
-        let Some(&owner) = names.get(&key) else {
-            names.insert(key, ListOwner::New(plan.lists.len()));
-            plan.lists.push(ListImport { draft, members });
-            plan.missing_members += missing;
-            continue;
-        };
-        if policy == DuplicatePolicy::Skip {
-            plan.duplicates += 1;
-            continue;
-        }
-        let (current, extra): (Vec<ListMember>, &mut Vec<ListMember>) = match owner {
-            ListOwner::Existing(i) => (
-                existing_lists[i]
-                    .draft()
-                    .members()
-                    .iter()
-                    .map(|&id| ListMember::Existing(id))
-                    .chain(added[i].iter().copied())
-                    .collect(),
-                &mut added[i],
-            ),
-            ListOwner::New(i) => (Vec::new(), &mut plan.lists[i].members),
-        };
-        let mut present: HashSet<ListMember> =
-            current.iter().chain(extra.iter()).copied().collect();
-        let mut count = present.len();
-        let before = extra.len();
-        for member in members {
-            if count >= MAX_CONTACT_LIST_MEMBERS {
-                break;
+            Some(i) => {
+                let target = &mut plan.lists[i].members;
+                let present: HashSet<ListMember> = target.iter().copied().collect();
+                let added: Vec<ListMember> = members
+                    .into_iter()
+                    .filter(|m| !present.contains(m))
+                    .collect();
+                if target.len() + added.len() > MAX_CONTACT_LIST_MEMBERS {
+                    plan.rejected.push(reject(RejectReason::ListMergeTooLarge));
+                    continue;
+                }
+                target.extend(added);
+                plan.missing_members += missing;
+                plan.duplicates += 1;
             }
-            if present.insert(member) {
-                extra.push(member);
-                count += 1;
-            }
-        }
-        let brought = extra.len() > before;
-        if brought {
-            plan.missing_members += missing;
-        }
-        if !brought || matches!(owner, ListOwner::New(_)) {
-            plan.duplicates += 1;
         }
     }
-
-    plan.complete_lists = existing_lists
-        .iter()
-        .zip(added)
-        .filter(|(_, added)| !added.is_empty())
-        .map(|(list, added)| ListCompletion {
-            read: list.clone(),
-            added,
-        })
-        .collect();
 }
 
 /// Fiche prête à valider : textes en NFC, nom imitant une adresse retiré

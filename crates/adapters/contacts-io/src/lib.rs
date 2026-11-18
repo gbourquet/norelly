@@ -20,6 +20,7 @@ use norelly_domain::contact_lists::MAX_CONTACT_LIST_MEMBERS;
 use norelly_domain::ports::{ContactCodec, ContactCodecError, TextNormalizer};
 
 mod encode;
+mod groups;
 mod ldif;
 mod tabular;
 mod text;

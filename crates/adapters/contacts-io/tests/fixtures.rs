@@ -4,8 +4,8 @@
 
 use norelly_contacts_io::{ContactsIo, IcuNfc};
 use norelly_domain::contact_import::{
-    ContactFormat, DecodedContacts, DuplicatePolicy, ImportedCard, ImportedList, ListMember,
-    RejectReason, plan_import,
+    ContactFormat, DecodedContacts, DuplicatePolicy, ImportedCard, ImportedList, ImportedMember,
+    ListMember, RejectReason, plan_import,
 };
 use norelly_domain::contacts::{
     ContactError, ContactInput, EmailInput, PhoneInput, PostalAddressInput,
@@ -175,7 +175,7 @@ fn apple_vcard() {
         d.cards[1],
         ImportedCard::List(ImportedList {
             name: "Famille".into(),
-            members: vec!["alice.martin@example.com".into()],
+            members: vec![ImportedMember::Card(0)],
             ..ImportedList::default()
         })
     );
@@ -320,7 +320,7 @@ fn thunderbird_ldif() {
         d.cards[2],
         ImportedCard::List(ImportedList {
             name: "Amis".into(),
-            members: vec!["paul.petit@example.com".into()],
+            members: vec![ImportedMember::Card(1)],
             ..ImportedList::default()
         })
     );

@@ -97,6 +97,8 @@ fn format_dto(format: ContactFormat) -> ContactImportFormatDto {
 fn reason_dto(reason: &RejectReason) -> ImportRejectReasonDto {
     match reason {
         RejectReason::Unreadable => ImportRejectReasonDto::Unreadable,
+        RejectReason::ListNameLooksLikeAddress => ImportRejectReasonDto::ListNameLooksLikeAddress,
+        RejectReason::ListMergeTooLarge => ImportRejectReasonDto::ListTooManyMembers,
         RejectReason::InvalidList(e) => match e {
             ContactListError::NoName => ImportRejectReasonDto::ListNoName,
             ContactListError::TooManyMembers => ImportRejectReasonDto::ListTooManyMembers,
@@ -131,7 +133,6 @@ fn counts(plan: &ImportPlan) -> ImportCountsDto {
         complete: count(plan.complete.len()),
         duplicates: count(plan.duplicates),
         lists: count(plan.lists.len()),
-        lists_complete: count(plan.complete_lists.len()),
         missing_members: count(plan.missing_members),
     }
 }
@@ -301,7 +302,6 @@ pub async fn apply_contact_import(
             created: count(outcome.created),
             completed: count(outcome.completed),
             lists_created: count(outcome.lists_created),
-            lists_completed: count(outcome.lists_completed),
         }),
         Err(e) => {
             imports.pending.restore(token, cards);

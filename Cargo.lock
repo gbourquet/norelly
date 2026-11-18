@@ -3344,6 +3344,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "norelly-webdav"
+version = "0.1.0"
+dependencies = [
+ "getrandom 0.3.4",
+ "norelly-domain",
+ "norelly-test-support",
+ "norelly-tls",
+ "quick-xml",
+ "reqwest",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "notify-rust"
 version = "4.18.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"

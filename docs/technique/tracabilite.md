@@ -631,8 +631,10 @@ Fiche : [contacts.md](../fonctionnel/contacts.md). Décision : ADR-012.
   et comme saisie d'un destinataire, et dans un fichier importé (export
   Thunderbird ; export Google dont les étiquettes d'adresse et de
   téléphone portent une charge, avec des adresses dont la partie locale
-  contient `'`), relu, importé puis complété
-  (`crates/application/tests/hostile_message_sql.rs`).
+  contient `'` ; vCard dont les listes de diffusion portent une charge
+  dans leur nom, leur description et l'identifiant de leurs membres),
+  relu, importé puis complété, listes exportées en vCard et LDIF puis
+  relues (`crates/application/tests/hostile_message_sql.rs`).
 - Commandes IPC sur l'application factice : aller-retour complet et
   entrées refusées (`app/src-tauri/src/command_tests.rs`).
 - Scénario de bout en bout à la souris (`app/e2e/specs/contacts.e2e.mjs`),

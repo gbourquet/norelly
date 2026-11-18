@@ -7,8 +7,10 @@
 //! fichiers ; puis dans tous les champs d'une fiche du carnet, comme filtre
 //! et comme saisie d'un destinataire, et dans un fichier de contacts
 //! importé (lecture, plan, import en une transaction, complément), dont les
-//! étiquettes d'adresse et de téléphone d'un export Google et des adresses
-//! dont la partie locale contient `'`. Elles doivent être stockées comme de
+//! étiquettes d'adresse et de téléphone d'un export Google, des adresses
+//! dont la partie locale contient `'` et les listes de diffusion d'un vCard
+//! (nom, description, membres désignés par identifiant et par `mailto:`,
+//! complément, export puis relecture en vCard et LDIF). Elles doivent être stockées comme de
 //! simples données : schéma inchangé, base intègre, aucune autre ligne touchée, valeurs relues à
 //! l'identique (une fois assainies pour l'affichage).
 //!
@@ -1257,5 +1259,240 @@ async fn trapped_keywords_cannot_alter_the_database() -> Result<(), Box<dyn std:
     assert_eq!(l.db.schema().await?, schema_before, "schéma modifié");
     assert_eq!(accounts.list().await?, accounts_before, "comptes modifiés");
     assert_eq!(l.store.tree(l.account).await?.len(), 1, "boîtes intactes");
+    Ok(())
+}
+
+/// Valeur texte vCard échappée (`\`, `,`, `;`, saut de ligne).
+fn vcard_text(text: &str) -> String {
+    text.replace('\\', "\\\\")
+        .replace(',', "\\,")
+        .replace(';', "\\;")
+        .replace('\n', "\\n")
+}
+
+/// Adresse en URI `mailto:`, pourcentages pour tout ce qui n'est ni
+/// lettre, ni chiffre, ni `-._~@+`.
+fn mailto(address: &str) -> String {
+    let mut out = String::from("mailto:");
+    for b in address.bytes() {
+        if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'.' | b'_' | b'~' | b'@' | b'+') {
+            out.push(char::from(b));
+        } else {
+            out.push_str(&format!("%{b:02X}"));
+        }
+    }
+    out
+}
+
+/// Nom de la liste piégée n° `n`.
+fn trapped_list_name(n: usize) -> String {
+    format!("{n} {}", PAYLOADS[n % PAYLOADS.len()])
+}
+
+/// Fichier vCard 4.0 piégé : une fiche par charge (adresses à `'`, nom et
+/// identifiant piégés), puis une liste par charge (nom, description et
+/// membres piégés : par `mailto:` et par identifiant) ; `extra` : chaque
+/// liste désigne aussi un membre de plus (complément).
+fn trapped_lists_vcard(extra: bool) -> Vec<u8> {
+    let mut out = String::new();
+    for (n, payload) in PAYLOADS.iter().enumerate() {
+        let [first, ..] = apostrophe_addresses(n);
+        out.push_str(&format!(
+            "BEGIN:VCARD\r\nVERSION:4.0\r\nUID:{}\r\nFN:{}\r\nEMAIL:{}\r\nEND:VCARD\r\n",
+            vcard_text(&format!("urn:uuid:{n}{payload}")),
+            vcard_text(&format!("Membre {n}")),
+            vcard_text(&first),
+        ));
+        if extra {
+            out.push_str(&format!(
+                "BEGIN:VCARD\r\nVERSION:4.0\r\nFN:Ajout {n}\r\nEMAIL:{}\r\nEND:VCARD\r\n",
+                vcard_text(&format!("ajout'{n}'--@example.org")),
+            ));
+        }
+    }
+    for (n, payload) in PAYLOADS.iter().enumerate() {
+        let next = (n + 1) % PAYLOADS.len();
+        let [second_member, ..] = apostrophe_addresses(next);
+        out.push_str("BEGIN:VCARD\r\nVERSION:4.0\r\nKIND:group\r\n");
+        out.push_str(&format!("FN:{}\r\n", vcard_text(&trapped_list_name(n))));
+        out.push_str(&format!("NOTE:{}\r\n", vcard_text(PAYLOADS[next])));
+        out.push_str(&format!(
+            "MEMBER:{}\r\n",
+            vcard_text(&format!("urn:uuid:{n}{payload}"))
+        ));
+        out.push_str(&format!("MEMBER:{}\r\n", mailto(&second_member)));
+        if extra {
+            out.push_str(&format!(
+                "MEMBER:{}\r\n",
+                mailto(&format!("ajout'{n}'--@example.org"))
+            ));
+        }
+        if n.is_multiple_of(2) {
+            out.push_str("X-NORELLY-BCC:TRUE\r\n");
+        }
+        out.push_str("END:VCARD\r\n");
+    }
+    out.into_bytes()
+}
+
+#[tokio::test]
+async fn trapped_list_import_and_export_cannot_alter_the_database()
+-> Result<(), Box<dyn std::error::Error>> {
+    use norelly_application::contact_export::PrepareContactExport;
+    use norelly_application::contact_import::{ApplyContactImport, PreviewContactImport};
+    use norelly_application::contact_lists::{ExpandContactList, ListContactLists};
+    use norelly_contacts_io::{ContactsIo, IcuNfc};
+    use norelly_domain::contact_export::{ContactSelection, ExportFormat};
+    use norelly_domain::contact_import::{DuplicatePolicy, ImportedCard};
+    use norelly_domain::ports::{ContactCodec, ContactListDirectory};
+    use norelly_sqlite::contacts::SqliteContactBook;
+
+    let l = local("sql-injection-list-import").await;
+    let schema_before = l.db.schema().await?;
+    let accounts = SqliteAccountRepository::new(l.db.clone());
+    let accounts_before = accounts.list().await?;
+    let book = SqliteContactBook::new(l.db.clone());
+    let preview = |bytes: Vec<u8>| {
+        let book = &book;
+        async move {
+            PreviewContactImport {
+                codec: &ContactsIo,
+                directory: book,
+                normalizer: &IcuNfc,
+            }
+            .execute(&bytes)
+            .await
+        }
+    };
+    let apply = ApplyContactImport {
+        book: &book,
+        normalizer: &IcuNfc,
+    };
+
+    // Fichier piégé lu, chiffré puis importé : listes et membres, de
+    // simples données.
+    let first = preview(trapped_lists_vcard(false)).await?;
+    assert!(first.skip.rejected.is_empty(), "{:?}", first.skip.rejected);
+    assert_eq!(first.skip.lists.len(), PAYLOADS.len());
+    assert_eq!(first.skip.missing_members, 0);
+    let outcome = apply.execute(&first.cards, DuplicatePolicy::Skip).await?;
+    assert_eq!(
+        (outcome.created, outcome.lists_created),
+        (PAYLOADS.len(), PAYLOADS.len())
+    );
+    // Chaque liste retrouvée par son nom piégé, relue à l'identique,
+    // dépliée vers ses deux membres.
+    let list_named = |n: usize| {
+        let book = &book;
+        async move {
+            let name = trapped_list_name(n);
+            let page = ListContactLists { directory: book }
+                .execute(&name, None, PageSize::new(50))
+                .await?;
+            let item = page
+                .items
+                .iter()
+                .find(|i| i.name == name)
+                .unwrap_or_else(|| panic!("{name:?} : liste non retrouvée"));
+            let list = book
+                .get_list(item.id)
+                .await?
+                .unwrap_or_else(|| panic!("{name:?} : liste illisible"));
+            Ok::<_, Box<dyn std::error::Error>>(list)
+        }
+    };
+    for n in 0..PAYLOADS.len() {
+        let list = list_named(n).await?;
+        let next = (n + 1) % PAYLOADS.len();
+        assert_eq!(list.draft().description(), Some(PAYLOADS[next]));
+        assert_eq!(list.draft().bcc(), n.is_multiple_of(2));
+        assert_eq!(list.draft().members().len(), 2);
+        let expanded = ExpandContactList {
+            lists: &book,
+            contacts: &book,
+        }
+        .execute(list.id())
+        .await?;
+        let mut sent: Vec<String> = expanded
+            .recipients
+            .iter()
+            .map(|r| r.address().to_string())
+            .collect();
+        sent.sort();
+        let mut expected = vec![
+            apostrophe_addresses(n)[0].clone(),
+            apostrophe_addresses(next)[0].clone(),
+        ];
+        expected.sort();
+        assert_eq!(sent, expected, "{:?}", trapped_list_name(n));
+    }
+
+    // Second import piégé : les mêmes listes complétées d'un membre.
+    let second = preview(trapped_lists_vcard(true)).await?;
+    assert!(
+        second.complete.rejected.is_empty(),
+        "{:?}",
+        second.complete.rejected
+    );
+    let outcome = apply
+        .execute(&second.cards, DuplicatePolicy::Complete)
+        .await?;
+    assert_eq!(
+        (
+            outcome.created,
+            outcome.lists_created,
+            outcome.lists_completed
+        ),
+        (PAYLOADS.len(), 0, PAYLOADS.len())
+    );
+    for n in 0..PAYLOADS.len() {
+        assert_eq!(list_named(n).await?.draft().members().len(), 3);
+    }
+
+    // Export piégé, puis relecture : les listes reviennent à l'identique.
+    for format in [
+        ExportFormat::VCard4,
+        ExportFormat::VCard3,
+        ExportFormat::Ldif,
+    ] {
+        let prepared = PrepareContactExport { directory: &book }
+            .execute(&ContactSelection::All, format)
+            .await?;
+        assert_eq!(prepared.lists.len(), PAYLOADS.len(), "{format:?}");
+        let bytes = ContactsIo.encode(&prepared.cards, &prepared.lists, format)?;
+        let decoded = ContactsIo.decode(&bytes)?;
+        let mut names: Vec<String> = decoded
+            .cards
+            .iter()
+            .filter_map(|c| match c {
+                ImportedCard::List(list) => {
+                    assert_eq!(list.members.len(), 3, "{format:?} : {:?}", list.name);
+                    assert_eq!(list.unresolved, 0, "{format:?}");
+                    Some(list.name.clone())
+                }
+                _ => None,
+            })
+            .collect();
+        names.sort();
+        let mut expected: Vec<String> = (0..PAYLOADS.len()).map(trapped_list_name).collect();
+        expected.sort();
+        assert_eq!(names, expected, "{format:?}");
+        // Réimporté dans le même carnet : tout est déjà là.
+        let again = PreviewContactImport {
+            codec: &ContactsIo,
+            directory: &book,
+            normalizer: &IcuNfc,
+        }
+        .plan(decoded)
+        .await?;
+        assert!(again.skip.rejected.is_empty(), "{format:?}");
+        assert!(again.complete.lists.is_empty(), "{format:?}");
+        assert!(again.complete.complete_lists.is_empty(), "{format:?}");
+    }
+    assert_eq!(book.all_lists(100).await?.len(), PAYLOADS.len());
+
+    assert_eq!(accounts.list().await?, accounts_before, "comptes modifiés");
+    assert_eq!(l.db.integrity_problems().await?, Vec::<String>::new());
+    assert_eq!(l.db.schema().await?, schema_before, "schéma modifié");
     Ok(())
 }

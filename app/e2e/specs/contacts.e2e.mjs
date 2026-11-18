@@ -1,6 +1,9 @@
 // Carnet d'adresses de bout en bout, à la souris :
 // - « Contacts » du panneau de gauche ouvre la vue ; « Nouveau contact »
 //   crée une fiche à deux adresses dont la seconde est préférée ;
+// - fonction, anniversaire sans année, adresse postale et site web ajoutés
+//   à la fiche ; un site au schéma refusé (javascript:) bloque
+//   l'enregistrement ;
 // - une adresse déjà dans le carnet (à la casse près) est refusée ;
 // - un nom qui imite une adresse est refusé, expliqué sous son champ,
 //   explication effacée dès que le champ est corrigé ;
@@ -115,6 +118,37 @@ describe("carnet d'adresses", () => {
     // Saisie affichée telle quelle, jamais interprétée.
     await expect(card.$('.//p[normalize-space()="<i>ACME</i>"]')).toBeDisplayed();
     await expect(card.$("i")).not.toBeExisting();
+  });
+
+  it("ajoute fonction, anniversaire, adresse postale et site web à la fiche", async () => {
+    await button("Modifier le contact").click();
+    const form = dialog("Modifier le contact");
+    await form.waitForDisplayed();
+    await field("Fonction").setValue("Directrice");
+    await $('[aria-label="Jour"]').setValue("29");
+    await $('select[aria-label="Mois"]').selectByAttribute("value", "2");
+    await button("Ajouter une adresse postale").click();
+    await $('[aria-label="Rue de l\'adresse postale 1"]').setValue("1 rue des Lilas");
+    await $('[aria-label="Code postal de l\'adresse postale 1"]').setValue("69001");
+    await $('[aria-label="Ville de l\'adresse postale 1"]').setValue("Lyon");
+    await $('[aria-label="Étiquette de l\'adresse postale 1"]').setValue("travail");
+    await button("Ajouter un site web").click();
+    // Schéma refusé par Rust : la fiche n'est pas enregistrée.
+    const site = $('[aria-label="Site web 1"]');
+    await site.setValue("javascript:alert(1)");
+    await button("Enregistrer").click();
+    await expect(form.$('[role="alert"]')).toHaveText(expect.stringContaining("site web"));
+    await site.setValue("www.zoe.example");
+    await button("Enregistrer").click();
+    await form.waitForDisplayed({ reverse: true, timeout: 10000 });
+
+    const card = $('article[aria-label="Fiche de Zoé Martin"]');
+    await expect(card.$('.//p[normalize-space()="Directrice"]')).toBeDisplayed();
+    await expect(card.$('.//p[normalize-space()="29 février"]')).toBeDisplayed();
+    await expect(card.$('.//span[normalize-space()="69001 Lyon"]')).toBeDisplayed();
+    await expect(card.$('.//span[normalize-space()="Travail"]')).toBeDisplayed();
+    // Le site, complété par Rust, est affiché en entier sur son bouton.
+    await expect(card.$('.//button[normalize-space()="https://www.zoe.example"]')).toBeDisplayed();
   });
 
   it("refuse une adresse déjà dans le carnet", async () => {

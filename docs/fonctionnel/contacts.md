@@ -34,7 +34,7 @@ serveur de contacts (voir [synchronisation-carnet.md](synchronisation-carnet.md)
   préférée, l'organisation éventuelle et une étoile pour un favori. Elle
   reste fluide quel que soit le nombre de contacts.
 - Un champ **Rechercher** filtre la liste au fil de la frappe, sur le nom,
-  le prénom, le surnom, l'organisation et les adresses, sans tenir compte
+  le prénom, le surnom, l'organisation, la fonction et les adresses, sans tenir compte
   des majuscules. Le prénom suivi du nom se cherche d'un trait : « alice
   mar » trouve Alice Martin. Les boutons **Tous** / **Favoris** limitent la liste aux
   favoris.
@@ -48,7 +48,22 @@ serveur de contacts (voir [synchronisation-carnet.md](synchronisation-carnet.md)
   courrier, le raccourci et la palette ouvrent d'abord le carnet.
 - Une fenêtre demande **Prénom**, **Nom**, **Nom affiché** (facultatif),
   **Surnom**, une ou plusieurs **adresses électroniques**, des
-  **téléphones**, l'**Organisation**, des **Notes** et **Favori**.
+  **téléphones**, l'**Organisation** et la **Fonction**, l'**Anniversaire**,
+  des **Adresses postales**, des **Sites web**, des **Notes** et **Favori**.
+- **Anniversaire** : un jour, un mois choisi dans la liste et une année
+  facultative (un anniversaire sans année s'affiche « 12 avril »). Une date
+  incomplète ou impossible (31 avril, 29 février d'une année non
+  bissextile) est refusée.
+- **Adresses postales** : chacune a une rue (sur plusieurs lignes), un
+  code postal, une ville, une région, un pays et une étiquette
+  facultative ; **Ajouter une adresse postale** en ajoute une, **Retirer
+  l'adresse postale** la retire. Une adresse sans aucun de ces éléments
+  est refusée.
+- **Sites web** : seuls les sites web (`http`, `https`) sont acceptés ;
+  « www.exemple.fr » devient « https://www.exemple.fr ». Tout autre lien
+  (`javascript:`, `file:`, adresse électronique…) est refusé. Sur la
+  fiche, le site s'affiche en entier ; un clic l'ouvre dans le navigateur
+  du système, avec les mêmes contrôles qu'un lien d'un message.
 - Chaque adresse a une étiquette facultative (« travail », « maison ») et
   l'une d'elles est **préférée** : c'est celle utilisée pour écrire au
   contact. **Ajouter une adresse** et **Ajouter un téléphone** ajoutent une
@@ -187,8 +202,8 @@ serveur de contacts (voir [synchronisation-carnet.md](synchronisation-carnet.md)
   **d'abord les contacts du carnet**, favoris en tête, sous le nom du
   carnet et marqués « Dans vos contacts » ; viennent ensuite les adresses
   déjà utilisées dans le courrier du compte.
-- La recherche porte sur le nom, le prénom, le surnom, l'organisation et
-  toutes les adresses d'une fiche, sans tenir compte des majuscules ; le
+- La recherche porte sur le nom, le prénom, le surnom, l'organisation, la
+  fonction et toutes les adresses d'une fiche, sans tenir compte des majuscules ; le
   prénom suivi du nom se cherche d'un trait, comme dans la liste. Un
   contact trouvé par son nom propose toutes ses adresses, la préférée
   d'abord ; trouvé par une adresse, seulement celle-ci.
@@ -274,6 +289,11 @@ serveur de contacts (voir [synchronisation-carnet.md](synchronisation-carnet.md)
   français, virgules ou points-virgules) et de Thunderbird, LDIF de
   Thunderbird. Le format est reconnu au contenu, pas au nom du fichier ;
   les accents sont gardés quel que soit l'encodage de l'export.
+- Sont repris : noms, adresses électroniques, téléphones, organisation et
+  fonction, anniversaire (avec ou sans année, y compris celui sans année
+  des Contacts d'Apple), adresses postales et sites web, notes. Un
+  anniversaire illisible, une adresse postale vide et un lien qui n'est
+  pas un site web sont laissés de côté, sans faire refuser la fiche.
 - Les étiquettes des adresses et des téléphones sont reprises, y compris
   les étiquettes personnelles des Contacts d'Apple ; les étiquettes
   prédéfinies d'Apple deviennent les étiquettes courantes
@@ -294,8 +314,8 @@ serveur de contacts (voir [synchronisation-carnet.md](synchronisation-carnet.md)
   majuscules comprises ; deux fiches du fichier qui partagent une adresse
   n'en font qu'une. Quand il y en a, la fenêtre propose : **Les laisser
   tels quels** (par défaut) ou **Les compléter avec le fichier** : les
-  champs vides du contact sont remplis, les adresses et téléphones qui
-  lui manquent ajoutés ; rien n'est effacé ni remplacé, l'adresse
+  champs vides du contact sont remplis, les adresses, téléphones,
+  adresses postales et sites qui lui manquent ajoutés ; rien n'est effacé ni remplacé, l'adresse
   préférée et le favori restent. Les chiffres suivent le choix.
 - Un nom (nom affiché, prénom, nom, surnom) qui ressemble à une adresse
   électronique n'est pas repris : l'adresse s'affiche à sa place. La
@@ -341,14 +361,16 @@ serveur de contacts (voir [synchronisation-carnet.md](synchronisation-carnet.md)
   effacé. Rien d'autre dans le dossier n'est touché.
 - Un fichier exporté par Norelly se réimporte dans Norelly et redonne le
   même carnet : noms, accents, notes sur plusieurs lignes, toutes les
-  adresses et la préférée, téléphones, organisation, favori. Ce que chaque
+  adresses et la préférée, téléphones, organisation, fonction,
+  anniversaire, adresses postales, sites web, favori. Ce que chaque
   format ne sait pas porter :
   - vCard : le nom complet est toujours écrit (un contact sans nom affiché
     reçoit son prénom et son nom) ; les étiquettes sont écrites en
     minuscules ;
   - LDIF : les adresses n'ont pas d'étiquette, les téléphones sont rangés
     en travail, domicile, portable, fax ou bipeur ; le favori n'est pas
-    porté ;
+    porté ; une seule adresse postale et un seul site au domicile, un
+    seul au travail sont écrits ;
   - dans tous les formats, l'adresse préférée est écrite en premier ; les
     listes de diffusion ne sont pas exportées.
 - Un CSV importé dans Google Contacts y range les contacts dans « Mes
@@ -402,8 +424,9 @@ serveur de contacts (voir [synchronisation-carnet.md](synchronisation-carnet.md)
   groupes : on la relance pour voir la suite.
 - **Fusionner** réunit les fiches cochées dans la fiche gardée : ses
   champs vides sont complétés par les autres fiches, sans rien remplacer ;
-  toutes les adresses et tous les téléphones sont gardés (un numéro écrit
-  deux fois ne l'est qu'une fois) ; l'adresse préférée reste celle de la
+  toutes les adresses, tous les téléphones, adresses postales et sites
+  sont gardés (un numéro, une adresse postale ou un site écrits deux fois
+  ne le sont qu'une fois) ; l'adresse préférée reste celle de la
   fiche gardée ; les notes différentes sont mises bout à bout ; le contact
   est favori si l'une des fiches l'était ; il remplace les autres fiches
   dans leurs listes de diffusion. Les autres fiches sont ensuite
@@ -422,7 +445,8 @@ serveur de contacts (voir [synchronisation-carnet.md](synchronisation-carnet.md)
   présentées le reformeraient) : la fenêtre le dit, et il revient à la
   prochaine recherche.
 - Fusion refusée, avec un message clair, si la fiche obtenue dépasserait
-  ce qu'une fiche peut contenir (adresses, téléphones ou notes) : il faut
+  ce qu'une fiche peut contenir (adresses, téléphones, adresses postales,
+  sites ou notes) : il faut
   alors décocher une fiche ou en alléger une.
 - En fermant la fenêtre, un message annonce le nombre de groupes
   fusionnés.

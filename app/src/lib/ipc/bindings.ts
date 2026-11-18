@@ -603,6 +603,11 @@ export type ContactDuplicateGroupDto_Deserialize = {
 	 *  fiches les plus complètes sont présentées.
 	 */
 	truncated: boolean,
+	/**
+	 *  La première fiche est proposée d'office comme fiche gardée ; sinon
+	 *  l'utilisateur la choisit (groupe rapproché sans le nom).
+	 */
+	suggest_keep: boolean,
 };
 
 /**  Groupe de doublons : la fiche proposée à garder d'abord. */

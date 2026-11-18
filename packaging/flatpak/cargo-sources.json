@@ -1666,14 +1666,14 @@
   {
     "type": "archive",
     "archive-type": "tar-gzip",
-    "url": "https://static.crates.io/crates/email-encoding/email-encoding-0.4.2.crate",
-    "sha256": "420b9da095f052ea597503e39073b5b3c522f7db933fbac202d91d24492693fd",
-    "dest": "cargo/vendor/email-encoding-0.4.2"
+    "url": "https://static.crates.io/crates/email-encoding/email-encoding-0.4.3.crate",
+    "sha256": "9f690ae2169f2ceb3f45b28b6fcd8fa16839f2f5c8818546774b9425f5f71004",
+    "dest": "cargo/vendor/email-encoding-0.4.3"
   },
   {
     "type": "inline",
-    "contents": "{\"package\": \"420b9da095f052ea597503e39073b5b3c522f7db933fbac202d91d24492693fd\", \"files\": {}}",
-    "dest": "cargo/vendor/email-encoding-0.4.2",
+    "contents": "{\"package\": \"9f690ae2169f2ceb3f45b28b6fcd8fa16839f2f5c8818546774b9425f5f71004\", \"files\": {}}",
+    "dest": "cargo/vendor/email-encoding-0.4.3",
     "dest-filename": ".cargo-checksum.json"
   },
   {
@@ -3382,14 +3382,14 @@
   {
     "type": "archive",
     "archive-type": "tar-gzip",
-    "url": "https://static.crates.io/crates/lettre/lettre-0.11.23.crate",
-    "sha256": "f2c646bd5cc763b1087b15493e29a64be6147ba8f19342004fa52048ee596eae",
-    "dest": "cargo/vendor/lettre-0.11.23"
+    "url": "https://static.crates.io/crates/lettre/lettre-0.11.24.crate",
+    "sha256": "f294f3d7cdb313e578acef7d7727d4e8d897e0fcd0d6d58c19959cec95073f19",
+    "dest": "cargo/vendor/lettre-0.11.24"
   },
   {
     "type": "inline",
-    "contents": "{\"package\": \"f2c646bd5cc763b1087b15493e29a64be6147ba8f19342004fa52048ee596eae\", \"files\": {}}",
-    "dest": "cargo/vendor/lettre-0.11.23",
+    "contents": "{\"package\": \"f294f3d7cdb313e578acef7d7727d4e8d897e0fcd0d6d58c19959cec95073f19\", \"files\": {}}",
+    "dest": "cargo/vendor/lettre-0.11.24",
     "dest-filename": ".cargo-checksum.json"
   },
   {

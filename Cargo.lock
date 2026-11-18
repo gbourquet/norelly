@@ -3165,6 +3165,7 @@ dependencies = [
  "norelly-sqlite",
  "norelly-test-support",
  "norelly-tls",
+ "norelly-webdav",
  "thiserror 2.0.21",
  "tokio",
  "tracing",

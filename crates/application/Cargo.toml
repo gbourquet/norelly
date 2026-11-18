@@ -27,6 +27,8 @@ norelly-render.workspace = true
 norelly-smtp.workspace = true
 # Import piégé de bout en bout (hostile_message_sql.rs).
 norelly-contacts-io.workspace = true
+# Synchronisation CardDAV de bout en bout (faux serveur HTTPS, SQLite).
+norelly-webdav.workspace = true
 
 [lints]
 workspace = true

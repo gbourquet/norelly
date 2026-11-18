@@ -88,6 +88,7 @@ choisissent une adresse proposée, `Entrée` ou `,` la valide.
 | Exporter les contacts… | palette |
 | Exporter les contacts choisis… | palette |
 | Rechercher les doublons… | palette |
+| Synchroniser avec un serveur… | palette |
 | Modifier le contact | `Maj+E` |
 | Écrire au contact | `W` |
 | Favori (ajouter ou retirer) | `Maj+S` |

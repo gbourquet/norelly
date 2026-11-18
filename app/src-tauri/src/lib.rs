@@ -4,6 +4,7 @@
 #[cfg(test)]
 mod acl_tests;
 pub mod actions;
+pub mod carddav;
 #[cfg(test)]
 mod command_tests;
 pub mod commands;
@@ -117,6 +118,11 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             contact_lists::add_to_contact_list,
             contact_lists::expand_contact_list,
             contact_lists::suggest_contact_lists,
+            carddav::find_carddav_books,
+            carddav::connect_carddav,
+            carddav::carddav_status,
+            carddav::sync_carddav,
+            carddav::disconnect_carddav,
             updates::update_status,
             updates::install_update,
         ])
@@ -222,6 +228,17 @@ pub fn run() {
                         }
                     }
                     Err(e) => tracing::error!(error = %e, "lecture des comptes"),
+                }
+            });
+            // Synchronisation du carnet distant, s'il est relié (bilan
+            // enregistré, affiché par la fenêtre CardDAV).
+            let handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                let state = handle.state::<state::AppState>();
+                if let Some(Err(e)) = carddav::sync_now(&state).await
+                    && e != norelly_application::carddav::SyncError::NotConfigured
+                {
+                    tracing::warn!(error = ?e, "synchronisation du carnet");
                 }
             });
             Ok(())

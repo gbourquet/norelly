@@ -27,6 +27,7 @@ vi.mock("./ipc/api", () => ({
     }),
     exportContacts: vi.fn(async () => null),
     findContactDuplicates: vi.fn(async () => []),
+    carddavStatus: vi.fn(async () => ({ account: null, last_sync: null, syncing: false })),
     getContact: vi.fn(async (id: number) => ({
       id,
       name: "Alice",
@@ -47,6 +48,7 @@ vi.mock("./ipc/api", () => ({
 
 const {
   app,
+  carddav,
   contactForm,
   contactDuplicates,
   contactExport,
@@ -379,6 +381,17 @@ describe("personnes d'un message et carnet", () => {
     expect(app.view).toBe("contacts");
     expect(app.dialog).toBe("contact-duplicates");
     expect(contactDuplicates.finished).toBe(true);
+    app.close();
+  });
+
+  it("synchroniser avec un serveur : ouvre la vue Contacts et la fenêtre, état relu", async () => {
+    app.showMail();
+    expect(enabled("contacts.carddav")).toBe(true);
+    await registry.execute("contacts.carddav", app.context());
+    expect(app.view).toBe("contacts");
+    expect(app.dialog).toBe("carddav");
+    expect(carddav.status).toEqual({ account: null, last_sync: null, syncing: false });
+    expect(carddav.connected).toBe(false);
     app.close();
   });
 

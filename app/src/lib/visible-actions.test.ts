@@ -183,8 +183,9 @@ describe("actions de la vue Contacts", () => {
   it("en-tête de la vue : nouvelle liste, importer, exporter ; exporter replié dans « Plus… » d'abord", () => {
     const { primary, more } = contactsHeaderActions();
     expect(ids(primary)).toEqual(["lists.new", "contacts.import", "contacts.export"]);
-    // Recherche des doublons : action rare, toujours dans « Plus… ».
-    expect(ids(more)).toEqual(["contacts.find-duplicates"]);
+    // Recherche des doublons et synchronisation avec un serveur : actions
+    // rares, toujours dans « Plus… ».
+    expect(ids(more)).toEqual(["contacts.find-duplicates", "contacts.carddav"]);
     const byPriority = [...primary].sort((a, b) => (a.priority ?? 0) - (b.priority ?? 0));
     expect(ids(byPriority)).toEqual(["lists.new", "contacts.import", "contacts.export"]);
     expect(primary[1]?.label?.()).toBe("Importer…");

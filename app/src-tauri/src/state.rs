@@ -29,6 +29,7 @@ use norelly_sqlite::contacts::SqliteContactBook;
 use norelly_sqlite::{Database, SqliteAccountRepository, SqliteCertificateExceptionStore};
 use norelly_tls::TlsClientFactory;
 
+use crate::carddav::{AppCardDavClient, CardDavServices};
 use crate::contact_import::PendingImport;
 use crate::mail::MailServices;
 use crate::remote_images::RemoteImageProxy;
@@ -269,6 +270,8 @@ pub struct AppState {
     /// Carnet d'adresses, commun à tous les comptes (ADR-012).
     pub contacts: SqliteContactBook,
     pub imports: ContactImports,
+    /// Synchronisation CardDAV du carnet (ADR-014).
+    pub carddav: CardDavServices,
     pub local_data: FsAccountDataStore,
     pub test: AppTestConnection,
     pub discover: AppDiscoverSettings,
@@ -388,8 +391,16 @@ impl AppState {
             proxy,
             open_dir,
         );
+        let carddav = CardDavServices::new(
+            match norelly_webdav::WebDavClient::new(&tls) {
+                Ok(c) => AppCardDavClient::Https(c),
+                Err(e) => AppCardDavClient::Unavailable(e.to_string()),
+            },
+            norelly_sqlite::carddav::SqliteCardDavStore::new(db.clone()),
+        );
         Ok(Self {
             mail,
+            carddav,
             contacts: SqliteContactBook::new(db.clone()),
             imports: ContactImports::default(),
             accounts: SqliteAccountRepository::new(db),

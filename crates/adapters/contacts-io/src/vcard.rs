@@ -6,19 +6,26 @@
 //! carte (`KIND`), les libellés d'Apple (`itemN.X-ABLabel`, étiquette de
 //! la valeur du même groupe) et la catégorie des favoris (`CATEGORIES`,
 //! rien d'autre des catégories) sont lus ; le reste (photos comprises)
-//! est ignoré sans être décodé.
+//! est ignoré sans être décodé. Une carte de groupe (`KIND:group`, ou
+//! `X-ADDRESSBOOKSERVER-KIND:group` d'Apple) est une liste : nom (`FN`),
+//! description (`NOTE`), membres (`MEMBER`, `X-ADDRESSBOOKSERVER-MEMBER`)
+//! désignés par une adresse (`mailto:`) ou par l'identifiant (`UID`,
+//! `X-ABUID` d'Apple) d'une autre carte du fichier, rendue par sa première
+//! adresse ; copie cachée (`X-NORELLY-BCC:TRUE`, propre à Norelly).
 
 use std::collections::HashMap;
 
 use norelly_domain::contact_export::is_favorite_category;
-use norelly_domain::contact_import::{ImportedCard, MAX_IMPORT_CARDS};
+use norelly_domain::contact_import::{ImportedCard, ImportedList, MAX_IMPORT_CARDS};
 use norelly_domain::contact_labels::apple_label;
 use norelly_domain::contacts::{
     ContactInput, EmailInput, PhoneInput, PostalAddressInput, WebsiteInput,
 };
 use norelly_domain::ports::ContactCodecError;
 
-use crate::{MAX_FIELD_BYTES, MAX_VALUES_PER_CARD, birthday_text, street_lines, text};
+use crate::{
+    MAX_FIELD_BYTES, MAX_LIST_MEMBERS_READ, MAX_VALUES_PER_CARD, birthday_text, street_lines, text,
+};
 
 /// Le texte commence-t-il par une carte vCard ?
 pub(crate) fn looks_like(text: &str) -> bool {
@@ -266,6 +273,12 @@ struct Card {
     notes: Vec<String>,
     list: bool,
     unreadable: bool,
+    /// Identifiant de la carte (`UID`, `X-ABUID`), comparé sans la casse
+    /// ni le préfixe `urn:uuid:`.
+    uid: Option<String>,
+    /// Membres d'une carte de groupe, tels que lus.
+    members: Vec<String>,
+    bcc: bool,
     /// Libellés Apple retenus, par groupe (le premier valable compte).
     group_labels: HashMap<String, String>,
     /// Adresses et téléphones d'un groupe.
@@ -297,6 +310,13 @@ impl Card {
         }
         if p.name == "CATEGORIES" {
             self.read_categories(p);
+            return;
+        }
+        if matches!(
+            p.name.as_str(),
+            "UID" | "X-ABUID" | "MEMBER" | "X-ADDRESSBOOKSERVER-MEMBER" | "X-NORELLY-BCC"
+        ) {
+            self.read_list_property(p);
             return;
         }
         if !kept {
@@ -413,6 +433,37 @@ impl Card {
         }
     }
 
+    /// Identifiant de la carte, membre d'un groupe, copie cachée. Une
+    /// valeur illisible rend la carte illisible ; plus de
+    /// [`MAX_LIST_MEMBERS_READ`] membres aussi.
+    fn read_list_property(&mut self, p: &Property<'_>) {
+        let Some(value) = p.text() else {
+            self.unreadable = true;
+            return;
+        };
+        let value = unescape(&value).trim().to_owned();
+        match p.name.as_str() {
+            "UID" | "X-ABUID" => {
+                if self.uid.is_none() && !value.is_empty() {
+                    // `X-ABUID` d'Apple : `<uuid>:ABPerson`.
+                    let id = value
+                        .rsplit_once(':')
+                        .filter(|(_, kind)| kind.eq_ignore_ascii_case("ABPerson"))
+                        .map_or(value.as_str(), |(id, _)| id);
+                    self.uid = Some(card_id(id));
+                }
+            }
+            "X-NORELLY-BCC" => self.bcc = value.eq_ignore_ascii_case("true"),
+            _ => {
+                if self.members.len() == MAX_LIST_MEMBERS_READ {
+                    self.unreadable = true;
+                } else {
+                    self.members.push(value);
+                }
+            }
+        }
+    }
+
     /// Libellé Apple d'un groupe (`item1.X-ABLabel`) : retenu s'il est
     /// lisible et qu'une fiche peut le garder ([`apple_label`]), dans la
     /// limite de [`MAX_GROUP_LABELS`] groupes ; sinon ignoré, sans rendre
@@ -445,11 +496,17 @@ impl Card {
         }
     }
 
-    fn finish(self) -> ImportedCard {
+    fn finish(self) -> Read {
         if self.unreadable {
-            ImportedCard::Unreadable
+            Read::Ready(ImportedCard::Unreadable)
         } else if self.list {
-            ImportedCard::List
+            Read::List(ImportedList {
+                name: self.input.display_name,
+                description: self.notes.join("\n"),
+                members: self.members,
+                unresolved: 0,
+                bcc: self.bcc,
+            })
         } else {
             let mut input = self.input;
             input.notes = self.notes.join("\n");
@@ -467,16 +524,100 @@ impl Card {
                     slot.clone_from(label);
                 }
             }
-            ImportedCard::Contact(input)
+            let id = self
+                .uid
+                .and_then(|uid| input.emails.first().map(|e| (uid, e.address.clone())));
+            Read::Contact(input, id)
         }
     }
+}
+
+/// Carte lue, avant que les membres des groupes soient retrouvés.
+#[derive(Debug)]
+enum Read {
+    Ready(ImportedCard),
+    /// Contact, et son identifiant avec sa première adresse s'il en a.
+    Contact(ContactInput, Option<(String, String)>),
+    /// Groupe, membres tels que lus.
+    List(ImportedList),
+}
+
+/// Identifiant de carte comparable : sans espaces de bord, sans le préfixe
+/// `urn:uuid:`, en minuscules.
+fn card_id(raw: &str) -> String {
+    let raw = raw.trim();
+    let id = raw
+        .get(..9)
+        .filter(|prefix| prefix.eq_ignore_ascii_case("urn:uuid:"))
+        .map_or(raw, |_| &raw[9..]);
+    id.to_lowercase()
+}
+
+/// Adresse d'un membre `mailto:` (RFC 6068) : partie avant `?`,
+/// pourcentages décodés (laissée telle quelle si un pourcentage est
+/// invalide ou ne donne pas de l'UTF-8) ; `None` si ce n'en est pas un.
+fn mailto(member: &str) -> Option<String> {
+    let rest = member
+        .get(..7)
+        .filter(|scheme| scheme.eq_ignore_ascii_case("mailto:"))
+        .map(|_| &member[7..])?;
+    let address = rest.split('?').next().unwrap_or_default();
+    Some(percent_decoded(address).unwrap_or_else(|| address.to_owned()))
+}
+
+/// Pourcentages décodés ; `None` si l'un est invalide ou si le résultat
+/// n'est pas de l'UTF-8.
+fn percent_decoded(text: &str) -> Option<String> {
+    let bytes = text.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' {
+            let hex = text.get(i + 1..i + 3)?;
+            out.push(u8::from_str_radix(hex, 16).ok()?);
+            i += 3;
+        } else {
+            out.push(bytes[i]);
+            i += 1;
+        }
+    }
+    String::from_utf8(out).ok()
+}
+
+/// Cartes lues, membres des groupes retrouvés : une adresse `mailto:`
+/// telle quelle, un identifiant par la première adresse de la carte de
+/// contact qui le porte ; sinon compté introuvable.
+fn resolve(read: Vec<Read>) -> Vec<ImportedCard> {
+    let mut ids: HashMap<String, String> = HashMap::new();
+    for card in &read {
+        if let Read::Contact(_, Some((uid, address))) = card {
+            ids.entry(uid.clone()).or_insert_with(|| address.clone());
+        }
+    }
+    read.into_iter()
+        .map(|card| match card {
+            Read::Ready(card) => card,
+            Read::Contact(input, _) => ImportedCard::Contact(input),
+            Read::List(mut list) => {
+                let raw = std::mem::take(&mut list.members);
+                for member in raw {
+                    let address = mailto(&member).or_else(|| ids.get(&card_id(&member)).cloned());
+                    match address {
+                        Some(address) if !address.trim().is_empty() => list.members.push(address),
+                        _ => list.unresolved += 1,
+                    }
+                }
+                ImportedCard::List(list)
+            }
+        })
+        .collect()
 }
 
 /// Cartes d'un fichier vCard, dans son ordre ; une carte non fermée en
 /// fin de fichier est gardée. Les cartes imbriquées (`AGENT`) sont
 /// ignorées.
 pub(crate) fn decode(text: &str) -> Result<Vec<ImportedCard>, ContactCodecError> {
-    let mut cards = Vec::new();
+    let mut cards: Vec<Read> = Vec::new();
     let mut current: Option<Card> = None;
     let mut depth = 0_usize;
     for line in logical_lines(text) {
@@ -511,7 +652,7 @@ pub(crate) fn decode(text: &str) -> Result<Vec<ImportedCard>, ContactCodecError>
     if cards.len() > MAX_IMPORT_CARDS {
         return Err(ContactCodecError::TooManyCards);
     }
-    Ok(cards)
+    Ok(resolve(cards))
 }
 
 #[cfg(test)]
@@ -846,5 +987,92 @@ mod tests {
     fn lines_without_colon_are_skipped() {
         let c = contact("BEGIN:VCARD\nn'importe quoi\nEMAIL:a@example.com\nEND:VCARD");
         assert_eq!(c.emails.len(), 1);
+    }
+
+    fn list(text: &str) -> ImportedList {
+        let cards = decode(text).unwrap_or_else(|e| panic!("{e}"));
+        let lists: Vec<_> = cards
+            .into_iter()
+            .filter_map(|c| match c {
+                ImportedCard::List(list) => Some(list),
+                _ => None,
+            })
+            .collect();
+        // La première liste du fichier.
+        lists
+            .into_iter()
+            .next()
+            .unwrap_or_else(|| panic!("aucune liste"))
+    }
+
+    #[test]
+    fn a_vcard_4_group_names_its_members_by_uid_or_mailto() {
+        let l = list(
+            "BEGIN:VCARD\nVERSION:4.0\nKIND:group\nFN:Club\\, lecture\nNOTE:Le jeudi\\n20 h\n\
+             MEMBER:urn:uuid:A1\nMEMBER:mailto:o%27brien@example.org?subject=x\n\
+             MEMBER:MAILTO:bob@example.net\nMEMBER:urn:uuid:inconnu\nMEMBER:urn:uuid:sans-adresse\n\
+             MEMBER:urn:uuid:groupe\nMEMBER:mailto:\nMEMBER:mailto:%ZZ@example.com\n\
+             X-NORELLY-BCC:TRUE\nEND:VCARD\n\
+             BEGIN:VCARD\nVERSION:4.0\nUID:urn:uuid:a1\nFN:Alice\n\
+             EMAIL:alice@example.com\nEMAIL:alice@work.example\nEND:VCARD\n\
+             BEGIN:VCARD\nVERSION:4.0\nUID:urn:uuid:sans-adresse\nFN:Sans\nEND:VCARD\n\
+             BEGIN:VCARD\nVERSION:4.0\nKIND:group\nUID:urn:uuid:groupe\nFN:Autre\nEND:VCARD\n",
+        );
+        // Dans l'ordre de la carte ; la carte désignée peut la suivre.
+        assert_eq!(
+            l,
+            ImportedList {
+                name: "Club, lecture".into(),
+                description: "Le jeudi\n20 h".into(),
+                members: vec![
+                    "alice@example.com".into(),
+                    "o'brien@example.org".into(),
+                    "bob@example.net".into(),
+                    "%ZZ@example.com".into(),
+                ],
+                unresolved: 4,
+                bcc: true,
+            }
+        );
+    }
+
+    #[test]
+    fn an_apple_group_names_its_members_by_their_card_id() {
+        let l = list(
+            "BEGIN:VCARD\nVERSION:3.0\nN:Martin;Alice;;;\nFN:Alice\nEMAIL:alice@example.com\n\
+             X-ABUID:5C1E7F2A-0001:ABPerson\nEND:VCARD\n\
+             BEGIN:VCARD\nVERSION:3.0\nUID:b2\nEMAIL:bob@example.net\nEND:VCARD\n\
+             BEGIN:VCARD\nVERSION:3.0\nN:\nFN:Famille\nX-ADDRESSBOOKSERVER-KIND:group\n\
+             X-ADDRESSBOOKSERVER-MEMBER:urn:uuid:5c1e7f2a-0001\n\
+             X-ADDRESSBOOKSERVER-MEMBER:urn:uuid:B2\nX-NORELLY-BCC:non\nEND:VCARD\n",
+        );
+        assert_eq!(l.name, "Famille");
+        assert_eq!(l.members, ["alice@example.com", "bob@example.net"]);
+        assert_eq!(l.unresolved, 0);
+        assert!(!l.bcc);
+    }
+
+    #[test]
+    fn a_group_with_too_many_members_is_unreadable() {
+        let members: String = (0..=MAX_LIST_MEMBERS_READ)
+            .map(|i| format!("MEMBER:mailto:m{i}@example.com\n"))
+            .collect();
+        assert_eq!(
+            one(&format!(
+                "BEGIN:VCARD\nKIND:group\nFN:L\n{members}END:VCARD"
+            )),
+            ImportedCard::Unreadable
+        );
+        let members: String = (0..MAX_LIST_MEMBERS_READ)
+            .map(|i| format!("MEMBER:mailto:m{i}@example.com\n"))
+            .collect();
+        assert_eq!(
+            list(&format!(
+                "BEGIN:VCARD\nKIND:group\nFN:L\n{members}END:VCARD"
+            ))
+            .members
+            .len(),
+            MAX_LIST_MEMBERS_READ
+        );
     }
 }

@@ -1,9 +1,12 @@
 //! Écriture LDIF (RFC 2849) telle que l'exporte Thunderbird : un
 //! enregistrement `inetOrgPerson` / `mozillaAbPersonAlpha` par fiche,
 //! séparés par une ligne vide ; valeur en base64 (`attr:: …`) quand elle
-//! n'est pas une chaîne sûre ; lignes repliées à 76 octets.
+//! n'est pas une chaîne sûre ; lignes repliées à 76 octets. Les listes
+//! suivent les fiches, en enregistrements `groupOfNames` dont chaque
+//! membre est le nom distinctif de sa fiche, copie cachée notée
+//! `x-norelly-bcc: TRUE`.
 
-use norelly_domain::contact_export::ExportCard;
+use norelly_domain::contact_export::{ExportCard, ExportList};
 use norelly_domain::ports::ContactCodecError;
 
 use super::Output;
@@ -98,15 +101,13 @@ const OBJECT_CLASSES: [&str; 5] = [
 ];
 
 /// Fiches `cards` dans `out`.
-pub(crate) fn encode(cards: &[ExportCard], out: &mut Output) -> Result<(), ContactCodecError> {
+pub(crate) fn encode(
+    cards: &[ExportCard],
+    lists: &[ExportList],
+    out: &mut Output,
+) -> Result<(), ContactCodecError> {
     for card in cards {
-        let preferred = card.emails.first().map_or("", |e| e.address.as_str());
-        let mail = format!("mail={}", rdn_value(preferred));
-        let dn = match &card.full_name {
-            Some(name) => format!("cn={},{mail}", rdn_value(name)),
-            None => mail,
-        };
-        out.push(&line("dn", &dn))?;
+        out.push(&line("dn", &dn(card)))?;
         for class in OBJECT_CLASSES {
             out.push(&line("objectclass", class))?;
         }
@@ -183,7 +184,34 @@ pub(crate) fn encode(cards: &[ExportCard], out: &mut Output) -> Result<(), Conta
         }
         out.push("\r\n")?;
     }
+    for list in lists {
+        out.push(&line("dn", &format!("cn={}", rdn_value(&list.name))))?;
+        out.push(&line("objectclass", "top"))?;
+        out.push(&line("objectclass", "groupOfNames"))?;
+        out.push(&line("cn", &list.name))?;
+        if let Some(description) = &list.description {
+            out.push(&line("description", description))?;
+        }
+        if list.bcc {
+            out.push(&line("x-norelly-bcc", "TRUE"))?;
+        }
+        for card in list.members.iter().filter_map(|&i| cards.get(i)) {
+            out.push(&line("member", &dn(card)))?;
+        }
+        out.push("\r\n")?;
+    }
     Ok(())
+}
+
+/// Nom distinctif d'une fiche, comme Thunderbird : `cn=<nom>,mail=<adresse
+/// préférée>`, ou `mail=<adresse>` sans nom.
+fn dn(card: &ExportCard) -> String {
+    let preferred = card.emails.first().map_or("", |e| e.address.as_str());
+    let mail = format!("mail={}", rdn_value(preferred));
+    match &card.full_name {
+        Some(name) => format!("cn={},{mail}", rdn_value(name)),
+        None => mail,
+    }
 }
 
 #[cfg(test)]
@@ -194,7 +222,7 @@ mod tests {
 
     fn written(cards: &[ExportCard]) -> String {
         let mut out = Output::new();
-        encode(cards, &mut out).unwrap_or_else(|e| panic!("{e}"));
+        encode(cards, &[], &mut out).unwrap_or_else(|e| panic!("{e}"));
         String::from_utf8(out.into_bytes()).unwrap_or_else(|e| panic!("{e}"))
     }
 
@@ -414,6 +442,9 @@ mod tests {
             ..ExportCard::default()
         };
         let mut out = Output::with_limit(20);
-        assert_eq!(encode(&[card], &mut out), Err(ContactCodecError::TooLarge));
+        assert_eq!(
+            encode(&[card], &[], &mut out),
+            Err(ContactCodecError::TooLarge)
+        );
     }
 }

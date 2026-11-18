@@ -1,15 +1,16 @@
 //! Cas d'usage de l'import d'un carnet (ADR-012) : aperçu d'un fichier
 //! ([`PreviewContactImport`]) puis import en une transaction
-//! ([`ApplyContactImport`]).
+//! ([`ApplyContactImport`]), listes de diffusion comprises.
 //!
 //! Le fichier est traduit par le port [`ContactCodec`] ; le plan (doublons,
 //! rejets, normalisation) est celui du domaine
 //! ([`norelly_domain::contact_import::plan_import`]), calculé contre les
-//! contacts du carnet qui portent les adresses du fichier. L'import
+//! contacts du carnet qui portent les adresses du fichier et les listes du
+//! carnet qui portent le nom d'une de ses listes. L'import
 //! recalcule le plan contre le carnet du moment : une fiche ajoutée entre
 //! l'aperçu et l'import devient un doublon. Un carnet qui change entre
-//! cette relecture et l'écriture (contact à compléter modifié ou supprimé,
-//! adresse prise entre-temps, voir
+//! cette relecture et l'écriture (contact ou liste à compléter modifié ou
+//! supprimé, adresse ou nom de liste pris entre-temps, voir
 //! [`norelly_domain::contact_import::plan_outdated`]) n'est pas écrasé :
 //! l'écriture est refusée, le carnet relu et le plan recalculé, au plus
 //! [`MAX_IMPORT_ATTEMPTS`] fois.
@@ -18,12 +19,13 @@ use std::collections::HashSet;
 
 use norelly_domain::contact_import::{
     ContactFormat, DecodedContacts, DuplicatePolicy, ImportPlan, ImportedCard, MAX_IMPORT_ATTEMPTS,
-    import_keys, plan_import, plan_outdated,
+    import_keys, import_list_keys, plan_import, plan_outdated,
 };
+use norelly_domain::contact_lists::ContactList;
 use norelly_domain::contacts::Contact;
 use norelly_domain::ports::{
-    ContactBook, ContactCodec, ContactCodecError, ContactDirectory, ContactStoreError,
-    ImportOutcome, MAX_CONTACT_LOOKUP, StoreError, TextNormalizer,
+    ContactBook, ContactCodec, ContactCodecError, ContactDirectory, ContactListDirectory,
+    ContactStoreError, ImportOutcome, MAX_CONTACT_LOOKUP, StoreError, TextNormalizer,
 };
 
 /// Échec d'un import.
@@ -56,12 +58,14 @@ pub struct ImportPreview {
     pub complete: ImportPlan,
 }
 
-/// Contacts du carnet qui portent une adresse des fiches.
+/// Contacts du carnet qui portent une adresse des fiches (membres des
+/// listes compris).
 async fn existing<D: ContactDirectory>(
     directory: &D,
     cards: &[ImportedCard],
+    normalizer: &impl TextNormalizer,
 ) -> Result<Vec<Contact>, StoreError> {
-    let keys = import_keys(cards);
+    let keys = import_keys(cards, normalizer);
     let mut contacts: Vec<Contact> = Vec::new();
     let mut seen = HashSet::new();
     for chunk in keys.chunks(MAX_CONTACT_LOOKUP) {
@@ -74,6 +78,25 @@ async fn existing<D: ContactDirectory>(
     Ok(contacts)
 }
 
+/// Listes du carnet qui portent le nom d'une liste du fichier.
+async fn existing_lists<D: ContactListDirectory>(
+    directory: &D,
+    cards: &[ImportedCard],
+    normalizer: &impl TextNormalizer,
+) -> Result<Vec<ContactList>, StoreError> {
+    let keys = import_list_keys(cards, normalizer);
+    let mut lists: Vec<ContactList> = Vec::new();
+    let mut seen = HashSet::new();
+    for chunk in keys.chunks(MAX_CONTACT_LOOKUP) {
+        for list in directory.lists_named(chunk).await? {
+            if seen.insert(list.id()) {
+                lists.push(list);
+            }
+        }
+    }
+    Ok(lists)
+}
+
 /// Cas d'usage : lire un fichier de contacts et en chiffrer l'import.
 #[derive(Debug)]
 pub struct PreviewContactImport<'a, C, D, N> {
@@ -82,7 +105,9 @@ pub struct PreviewContactImport<'a, C, D, N> {
     pub normalizer: &'a N,
 }
 
-impl<C: ContactCodec, D: ContactDirectory, N: TextNormalizer> PreviewContactImport<'_, C, D, N> {
+impl<C: ContactCodec, D: ContactDirectory + ContactListDirectory, N: TextNormalizer>
+    PreviewContactImport<'_, C, D, N>
+{
     pub async fn execute(&self, bytes: &[u8]) -> Result<ImportPreview, ImportFailure> {
         let decoded = self.codec.decode(bytes)?;
         self.plan(decoded).await
@@ -91,8 +116,9 @@ impl<C: ContactCodec, D: ContactDirectory, N: TextNormalizer> PreviewContactImpo
     /// Chiffre l'import de fiches déjà lues (lecture faite hors des fils
     /// asynchrones par l'appelant).
     pub async fn plan(&self, decoded: DecodedContacts) -> Result<ImportPreview, ImportFailure> {
-        let existing = existing(self.directory, &decoded.cards).await?;
-        let plan = |policy| plan_import(&existing, &decoded.cards, policy, self.normalizer);
+        let existing = existing(self.directory, &decoded.cards, self.normalizer).await?;
+        let lists = existing_lists(self.directory, &decoded.cards, self.normalizer).await?;
+        let plan = |policy| plan_import(&existing, &lists, &decoded.cards, policy, self.normalizer);
         Ok(ImportPreview {
             format: decoded.format,
             skip: plan(DuplicatePolicy::Skip),
@@ -110,7 +136,9 @@ pub struct ApplyContactImport<'a, B, N> {
     pub normalizer: &'a N,
 }
 
-impl<B: ContactBook + ContactDirectory, N: TextNormalizer> ApplyContactImport<'_, B, N> {
+impl<B: ContactBook + ContactDirectory + ContactListDirectory, N: TextNormalizer>
+    ApplyContactImport<'_, B, N>
+{
     pub async fn execute(
         &self,
         cards: &[ImportedCard],
@@ -118,9 +146,19 @@ impl<B: ContactBook + ContactDirectory, N: TextNormalizer> ApplyContactImport<'_
     ) -> Result<ImportOutcome, ImportFailure> {
         let mut attempt = 1;
         loop {
-            let existing = existing(self.book, cards).await?;
-            let plan = plan_import(&existing, cards, policy, self.normalizer);
-            match self.book.import(&plan.create, &plan.complete).await {
+            let existing = existing(self.book, cards, self.normalizer).await?;
+            let lists = existing_lists(self.book, cards, self.normalizer).await?;
+            let plan = plan_import(&existing, &lists, cards, policy, self.normalizer);
+            let written = self
+                .book
+                .import(
+                    &plan.create,
+                    &plan.complete,
+                    &plan.lists,
+                    &plan.complete_lists,
+                )
+                .await;
+            match written {
                 // Le carnet a changé depuis sa lecture : rien n'est écrit,
                 // le plan est recalculé sur le carnet relu.
                 Err(e) if plan_outdated(&e) && attempt < MAX_IMPORT_ATTEMPTS => {

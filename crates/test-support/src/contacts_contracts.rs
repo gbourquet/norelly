@@ -8,8 +8,10 @@ use crate::contact_import_contracts::FakeNfc;
 use norelly_domain::address::EmailAddress;
 use norelly_domain::contact_duplicates::{DismissedPair, MAX_DISMISSED_PAIRS};
 use norelly_domain::contact_export::ContactSelection;
-use norelly_domain::contact_import::ContactCompletion;
-use norelly_domain::contact_lists::{ContactList, ContactListDraft, ContactListInput};
+use norelly_domain::contact_import::{ContactCompletion, ListCompletion, ListImport};
+use norelly_domain::contact_lists::{
+    ContactList, ContactListDraft, ContactListError, ContactListId, ContactListInput,
+};
 use norelly_domain::contacts::{
     AddressKey, Contact, ContactDraft, ContactFilter, ContactId, ContactInput, EmailInput,
     PhoneInput, PostalAddressInput, WebsiteInput,
@@ -439,7 +441,7 @@ pub async fn contact_page_size_contract<B: ContactBook + ContactDirectory>(
     let drafts: Vec<ContactDraft> = (0..=MAX_PAGE_SIZE)
         .map(|i| sample_contact(&format!("c{i:04}"), &[&format!("c{i}@example.com")]))
         .collect();
-    book.import(&drafts, &[]).await?;
+    book.import(&drafts, &[], &[], &[]).await?;
     let first = book
         .page(&all, None, PageSize::new(MAX_PAGE_SIZE + 1))
         .await?;
@@ -461,7 +463,10 @@ pub async fn contact_import_contract<B: ContactBook + ContactDirectory>(
     book: &B,
 ) -> Result<(), ContactStoreError> {
     let all = ContactFilter::default();
-    assert_eq!(book.import(&[], &[]).await?, ImportOutcome::default());
+    assert_eq!(
+        book.import(&[], &[], &[], &[]).await?,
+        ImportOutcome::default()
+    );
 
     let outcome = book
         .import(
@@ -469,6 +474,8 @@ pub async fn contact_import_contract<B: ContactBook + ContactDirectory>(
                 sample_contact("Alice", &["alice@example.com"]),
                 full_contact(),
             ],
+            &[],
+            &[],
             &[],
         )
         .await;
@@ -491,13 +498,16 @@ pub async fn contact_import_contract<B: ContactBook + ContactDirectory>(
                 sample_contact("Bob", &["bob@example.net"]),
             ],
             &[],
+            &[],
+            &[],
         )
         .await?;
     assert_eq!(
         outcome,
         ImportOutcome {
             created: 2,
-            completed: 0
+            completed: 0,
+            ..ImportOutcome::default()
         }
     );
     let listed = all_pages(book, &all, 10).await?;
@@ -522,13 +532,16 @@ pub async fn contact_import_contract<B: ContactBook + ContactDirectory>(
                 alice.clone(),
                 completed.draft().clone(),
             )],
+            &[],
+            &[],
         )
         .await?;
     assert_eq!(
         outcome,
         ImportOutcome {
             created: 1,
-            completed: 1
+            completed: 1,
+            ..ImportOutcome::default()
         }
     );
     assert_eq!(book.get(alice.id()).await?, Some(completed.clone()));
@@ -543,7 +556,9 @@ pub async fn contact_import_contract<B: ContactBook + ContactDirectory>(
     assert_eq!(
         book.import(
             &[sample_contact("Denis", &["denis@example.org"])],
-            &[stolen]
+            &[stolen],
+            &[],
+            &[]
         )
         .await,
         Err(ContactStoreError::DuplicateAddress(address(
@@ -559,7 +574,9 @@ pub async fn contact_import_contract<B: ContactBook + ContactDirectory>(
     assert_eq!(
         book.import(
             &[sample_contact("Denis", &["denis@example.org"])],
-            &[unknown]
+            &[unknown],
+            &[],
+            &[]
         )
         .await,
         Err(ContactStoreError::NotFound)
@@ -571,8 +588,13 @@ pub async fn contact_import_contract<B: ContactBook + ContactDirectory>(
         sample_contact("Alice", &["alice@example.com", "a3@example.com"]),
     );
     assert_eq!(
-        book.import(&[sample_contact("Autre", &["A3@example.com"])], &[again])
-            .await,
+        book.import(
+            &[sample_contact("Autre", &["A3@example.com"])],
+            &[again],
+            &[],
+            &[]
+        )
+        .await,
         Err(ContactStoreError::DuplicateAddress(address(
             "A3@example.com"
         )))
@@ -584,8 +606,13 @@ pub async fn contact_import_contract<B: ContactBook + ContactDirectory>(
         sample_contact("Alice", &["alice@example.com", "a4@example.com"]),
     );
     assert_eq!(
-        book.import(&[sample_contact("Denis", &["denis@example.org"])], &[stale])
-            .await,
+        book.import(
+            &[sample_contact("Denis", &["denis@example.org"])],
+            &[stale],
+            &[],
+            &[]
+        )
+        .await,
         Err(ContactStoreError::Conflict)
     );
     // Les fiches lues sont toutes vérifiées avant toute écriture : un
@@ -600,7 +627,7 @@ pub async fn contact_import_contract<B: ContactBook + ContactDirectory>(
         sample_contact("Bob", &["bob@example.net", "b2@example.net"]),
     );
     assert_eq!(
-        book.import(&[], &[takes_carole, stale_bob]).await,
+        book.import(&[], &[takes_carole, stale_bob], &[], &[]).await,
         Err(ContactStoreError::Conflict)
     );
     assert_eq!(book.get(alice.id()).await?, Some(completed));
@@ -859,8 +886,11 @@ impl ContactBook for InMemoryContactBook {
         &self,
         create: &[ContactDraft],
         complete: &[ContactCompletion],
+        lists: &[ListImport],
+        complete_lists: &[ListCompletion],
     ) -> Result<ImportOutcome, ContactStoreError> {
         let mut state = self.lock();
+        let mut list_state = self.lock_lists();
         // Écrit sur une copie, gardée seulement si tout passe.
         let (mut last, mut contacts) = state.clone();
         // Chaque contact à compléter tel qu'il a été lu pour calculer le
@@ -881,6 +911,7 @@ impl ContactBook for InMemoryContactBook {
             }
             contacts[index] = contact.draft().clone().with_id(contact.id());
         }
+        let mut created = Vec::with_capacity(create.len());
         for draft in create {
             if let Some(address) = taken(&contacts, draft, None) {
                 return Err(ContactStoreError::DuplicateAddress(address));
@@ -889,13 +920,56 @@ impl ContactBook for InMemoryContactBook {
             let id = ContactId::new(last)
                 .ok_or_else(|| ContactStoreError::Corrupted("identifiant".into()))?;
             contacts.push(draft.clone().with_id(id));
+            created.push(id);
         }
+        // Listes : écrites sur une copie elles aussi.
+        let (mut last_list, mut stored_lists) = list_state.clone();
+        let known = |draft: &ContactListDraft| {
+            draft
+                .members()
+                .iter()
+                .all(|m| contacts.iter().any(|c| c.id() == *m))
+        };
+        let corrupted = |e: ContactListError| ContactStoreError::Corrupted(e.to_string());
+        for completion in complete_lists {
+            let id = completion.read().id();
+            let Some(index) = stored_lists.iter().position(|l| l.id() == id) else {
+                return Err(ContactStoreError::NotFound);
+            };
+            if &stored_lists[index] != completion.read() {
+                return Err(ContactStoreError::Conflict);
+            }
+            let draft = completion.resolve(&created).map_err(corrupted)?;
+            if !known(&draft) {
+                return Err(ContactStoreError::NotFound);
+            }
+            stored_lists[index] = draft.with_id(id);
+        }
+        for list in lists {
+            let draft = list.resolve(&created).map_err(corrupted)?;
+            if stored_lists
+                .iter()
+                .any(|l| l.draft().name_key() == draft.name_key())
+            {
+                return Err(ContactStoreError::Conflict);
+            }
+            if !known(&draft) {
+                return Err(ContactStoreError::NotFound);
+            }
+            last_list += 1;
+            let id = ContactListId::new(last_list)
+                .ok_or_else(|| ContactStoreError::Corrupted("identifiant".into()))?;
+            stored_lists.push(draft.with_id(id));
+        }
+        *list_state = (last_list, stored_lists);
         *state = (last, contacts);
         let completed: Vec<ContactId> = complete.iter().map(ContactCompletion::id).collect();
         self.forget_dismissed(&completed);
         Ok(ImportOutcome {
             created: create.len(),
             completed: complete.len(),
+            lists_created: lists.len(),
+            lists_completed: complete_lists.len(),
         })
     }
 

@@ -319,7 +319,19 @@ serveur de contacts (voir [synchronisation-carnet.md](synchronisation-carnet.md)
   importer. **Voir les fiches impossibles à importer** donne, pour
   chacune, son rang dans le fichier, son nom et la raison (illisible,
   sans adresse électronique, adresse invalide, champ trop long ou avec un
-  caractère interdit, trop d'adresses, liste de diffusion).
+  caractère interdit, trop d'adresses, liste sans nom ou de plus de
+  membres qu'un message ne peut avoir de destinataires).
+- Les **listes de diffusion** du fichier (groupes d'un vCard, dont ceux
+  des Contacts d'Apple, et groupes d'un LDIF de Thunderbird) sont
+  importées avec leur nom, leur description et leurs membres, comme une
+  liste créée à la main (mêmes limites, mêmes refus). Un membre est
+  retrouvé par son adresse, parmi les contacts du carnet et ceux du
+  fichier ; un membre qui n'est ni dans l'un ni dans l'autre est laissé de
+  côté, et la fenêtre dit combien. Une liste du même nom qu'une liste du
+  carnet est une liste **déjà dans le carnet** : laissée telle quelle, ou
+  complétée des membres qui lui manquent si l'on choisit de compléter
+  (dans la limite d'une liste ; son nom et ses autres membres ne changent
+  pas). Le CSV ne porte pas de listes.
 - Une fiche est **déjà dans le carnet** si l'une de ses adresses y est,
   majuscules comprises ; deux fiches du fichier qui partagent une adresse
   n'en font qu'une. Quand il y en a, la fenêtre propose : **Les laisser
@@ -332,7 +344,9 @@ serveur de contacts (voir [synchronisation-carnet.md](synchronisation-carnet.md)
   fenêtre le signale.
 - **Importer** écrit tout en une fois : soit tout l'import réussit, soit
   rien ne change. Un message annonce ensuite le nombre de contacts
-  ajoutés et complétés. Un contact ajouté entre l'aperçu et l'import est
+  ajoutés et complétés, et celui des listes s'il y en a. Une liste créée
+  par quelqu'un d'autre sous le même nom pendant l'import est traitée
+  comme une liste déjà dans le carnet. Un contact ajouté entre l'aperçu et l'import est
   traité comme un doublon. Un contact à compléter qui est modifié pendant
   l'import n'est jamais écrasé : l'import repart du contact modifié et le
   complète. S'il change sans cesse, l'import s'arrête sans rien changer et
@@ -384,7 +398,11 @@ serveur de contacts (voir [synchronisation-carnet.md](synchronisation-carnet.md)
     porté ; une seule adresse postale et un seul site au domicile, un
     seul au travail sont écrits ;
   - dans tous les formats, l'adresse préférée est écrite en premier ; les
-    listes de diffusion ne sont pas exportées.
+    listes de diffusion sont exportées avec tout le carnet, en vCard et
+    en LDIF (nom, description, membres, envoi en copie cachée), et se
+    réimportent avec leurs membres ; elles ne le sont pas avec quelques
+    contacts cochés, ni en CSV. Contacts et listes comptent ensemble dans
+    la limite d'un export.
 - Un CSV importé dans Google Contacts y range les contacts dans « Mes
   contacts », comme ceux créés directement chez Google, et les favoris
   aussi dans ses favoris. Un favori exporté en vCard porte la même marque

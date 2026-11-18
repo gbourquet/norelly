@@ -190,6 +190,13 @@ A contact is recognised as already there if it has the same email
 address. A card without an email address is not imported: Norelly's
 address book is for writing messages.
 
+Mailing lists in the file (the groups of a vCard or LDIF file) are
+imported with their members. A list with the same name as one of your
+lists is left as it is, or completed with the members it lacks if you
+choose **Complete them from the file**. A member who is neither in the
+file nor in your address book is left aside: the preview tells you how
+many.
+
 Common labels on addresses and phone numbers (work, home, mobile, fax…)
 are shown in English, whatever the language of the program they come
 from. Personal labels, such as those created in Apple Contacts ("office",
@@ -214,7 +221,9 @@ To keep a copy of your address book, or move it to another program:
 
 Favorites are kept in vCard and CSV (Google Contacts puts them in its
 favorites, and Norelly finds them again on import), not in LDIF. Mailing
-lists are not exported. In a CSV file opened in a
+lists are exported with the whole address book, in vCard and LDIF; they
+are not exported in CSV, nor when you export only a few ticked contacts.
+In a CSV file opened in a
 spreadsheet, a number starting with “+” shows with an apostrophe in front:
 this is on purpose, so that the spreadsheet does not take it for a
 formula.

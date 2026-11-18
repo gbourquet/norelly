@@ -6,6 +6,8 @@
   // affiché échappé.
   import UserPlusIcon from "@lucide/svelte/icons/user-plus";
   import UserCheckIcon from "@lucide/svelte/icons/user-check";
+  import UsersIcon from "@lucide/svelte/icons/users";
+  import UserXIcon from "@lucide/svelte/icons/user-x";
   import CopyIcon from "@lucide/svelte/icons/copy";
   import TriangleAlertIcon from "@lucide/svelte/icons/triangle-alert";
   import Modal from "./Modal.svelte";
@@ -44,8 +46,10 @@
     switch (reason) {
       case "unreadable":
         return m.contacts_import_reason_unreadable();
-      case "list":
-        return m.contacts_import_reason_list();
+      case "list_no_name":
+        return m.contacts_import_reason_list_no_name();
+      case "list_too_many_members":
+        return m.contacts_import_reason_list_too_many_members();
       case "no_address":
         return m.contacts_import_reason_no_address();
       case "invalid_address":
@@ -89,10 +93,28 @@
             <span>{m.contacts_import_complete({ count: counts.complete })}</span>
           </li>
         {/if}
+        {#if counts.lists > 0}
+          <li>
+            <UsersIcon size={16} aria-hidden="true" />
+            <span>{m.contacts_import_lists_create({ count: counts.lists })}</span>
+          </li>
+        {/if}
+        {#if counts.lists_complete > 0}
+          <li>
+            <UsersIcon size={16} aria-hidden="true" />
+            <span>{m.contacts_import_lists_complete({ count: counts.lists_complete })}</span>
+          </li>
+        {/if}
         {#if counts.duplicates > 0}
           <li>
             <CopyIcon size={16} aria-hidden="true" />
             <span>{m.contacts_import_duplicates({ count: counts.duplicates })}</span>
+          </li>
+        {/if}
+        {#if counts.missing_members > 0}
+          <li class="warning">
+            <UserXIcon size={16} aria-hidden="true" />
+            <span>{m.contacts_import_missing_members({ count: counts.missing_members })}</span>
           </li>
         {/if}
         {#if preview.rejected_total > 0}
@@ -144,7 +166,7 @@
         {/if}
       </details>
     {/if}
-    {#if counts.create + counts.complete === 0}
+    {#if form.nothingToImport}
       <p class="note" role="status">{m.contacts_import_nothing()}</p>
     {/if}
     {#if form.error}

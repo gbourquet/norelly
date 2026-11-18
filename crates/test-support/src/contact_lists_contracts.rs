@@ -4,14 +4,21 @@
 //! carnet, à côté des contacts qu'elles regroupent.
 
 use norelly_domain::address::EmailAddress;
+use norelly_domain::contact_export::ContactSelection;
+use norelly_domain::contact_import::{
+    DuplicatePolicy, ImportPlan, ImportedCard, ImportedList, import_keys, import_list_keys,
+    plan_import,
+};
 use norelly_domain::contact_lists::{
     ContactList, ContactListDraft, ContactListFilter, ContactListId, ContactListInput,
 };
-use norelly_domain::contacts::{AddressKey, ContactId, MAX_CONTACT_NAME_CHARS};
+use norelly_domain::contacts::{
+    AddressKey, ContactId, ContactInput, EmailInput, MAX_CONTACT_NAME_CHARS,
+};
 use norelly_domain::ports::{
     ContactBook, ContactDirectory, ContactListBook, ContactListCursor, ContactListDirectory,
-    ContactListPage, ContactListStoreError, ContactListSummary, ContactStoreError,
-    MAX_CONTACT_LIST_SORT_KEY_CHARS, MAX_PAGE_SIZE, PageSize, StoreError,
+    ContactListPage, ContactListStoreError, ContactListSummary, ContactStoreError, ImportOutcome,
+    MAX_CONTACT_LIST_SORT_KEY_CHARS, MAX_CONTACT_LOOKUP, MAX_PAGE_SIZE, PageSize, StoreError,
 };
 
 use crate::contact_import_contracts::FakeNfc;
@@ -543,6 +550,176 @@ where
     Ok(())
 }
 
+/// Erreur du carnet vue comme une erreur des listes (contrats).
+fn store(e: ContactStoreError) -> ContactListStoreError {
+    ContactListStoreError::Store(StoreError(e.to_string()))
+}
+
+/// Liste lue dans un fichier.
+fn imported_list(name: &str, members: &[&str]) -> ImportedCard {
+    ImportedCard::List(ImportedList {
+        name: name.to_owned(),
+        description: "importée".into(),
+        members: members.iter().map(|&m| m.to_owned()).collect(),
+        unresolved: 0,
+        bcc: true,
+    })
+}
+
+/// Fiche lue dans un fichier.
+fn imported_contact(name: &str, address: &str) -> ImportedCard {
+    ImportedCard::Contact(ContactInput {
+        display_name: name.to_owned(),
+        emails: vec![EmailInput {
+            address: address.to_owned(),
+            ..EmailInput::default()
+        }],
+        ..ContactInput::default()
+    })
+}
+
+/// Plan d'import de `cards` contre le carnet `book` tel qu'il est.
+async fn plan_against<B>(
+    book: &B,
+    cards: &[ImportedCard],
+    policy: DuplicatePolicy,
+) -> Result<ImportPlan, ContactListStoreError>
+where
+    B: ContactDirectory + ContactListDirectory,
+{
+    let keys = import_keys(cards, &FakeNfc);
+    let existing = book.by_addresses(&keys).await?;
+    let lists = book.lists_named(&import_list_keys(cards, &FakeNfc)).await?;
+    Ok(plan_import(&existing, &lists, cards, policy, &FakeNfc))
+}
+
+async fn write<B: ContactBook>(
+    book: &B,
+    plan: &ImportPlan,
+) -> Result<ImportOutcome, ContactStoreError> {
+    book.import(
+        &plan.create,
+        &plan.complete,
+        &plan.lists,
+        &plan.complete_lists,
+    )
+    .await
+}
+
+/// Contrat de l'import des listes ([`ContactBook::import`],
+/// [`ContactListDirectory::lists_named`], [`ContactListDirectory::all_lists`]),
+/// carnet vide au départ : listes créées avec leurs membres (carnet et
+/// fiches créées), complétées, tout ou rien.
+pub async fn contact_list_import_contract<B>(book: &B) -> Result<(), ContactListStoreError>
+where
+    B: ContactBook + ContactDirectory + ContactListBook + ContactListDirectory,
+{
+    let alice = book
+        .create(&sample_contact("Alice", &["alice@example.com"]))
+        .await
+        .map_err(store)?;
+    assert_eq!(book.all_lists(10).await?, Vec::new());
+    assert_eq!(book.lists_named(&["club".into()]).await?, Vec::new());
+
+    // Création : un membre du carnet, une fiche créée par l'import.
+    let cards = [
+        imported_list("Club", &["alice@example.com", "bob@example.net"]),
+        imported_contact("Bob", "bob@example.net"),
+    ];
+    let plan = plan_against(book, &cards, DuplicatePolicy::Skip).await?;
+    assert_eq!(
+        write(book, &plan).await.map_err(store)?,
+        ImportOutcome {
+            created: 1,
+            completed: 0,
+            lists_created: 1,
+            lists_completed: 0,
+        }
+    );
+    let bob = book
+        .by_addresses(&[AddressKey::parse("bob@example.net").unwrap_or_else(|e| panic!("{e}"))])
+        .await?
+        .pop()
+        .unwrap_or_else(|| panic!("Bob créé"));
+    let [club] = &book.lists_named(&["club".into()]).await?[..] else {
+        panic!("liste Club");
+    };
+    assert_eq!(club.draft().name(), "Club");
+    assert_eq!(club.draft().description(), Some("importée"));
+    assert!(club.draft().bcc());
+    assert_eq!(club.draft().members(), [alice.id(), bob.id()]);
+    assert_eq!(book.get_list(club.id()).await?.as_ref(), Some(club));
+
+    // Complément : les membres absents ajoutés à la suite.
+    let cards = [
+        imported_contact("Carol", "carol@example.org"),
+        imported_list("CLUB", &["carol@example.org", "alice@example.com"]),
+    ];
+    let completion = plan_against(book, &cards, DuplicatePolicy::Complete).await?;
+    assert_eq!(
+        write(book, &completion).await.map_err(store)?,
+        ImportOutcome {
+            created: 1,
+            completed: 0,
+            lists_created: 0,
+            lists_completed: 1,
+        }
+    );
+    let completed = book
+        .get_list(club.id())
+        .await?
+        .unwrap_or_else(|| panic!("Club relue"));
+    assert_eq!(completed.draft().name(), "Club", "nom du carnet gardé");
+    assert_eq!(completed.draft().members().len(), 3);
+    assert_eq!(&completed.draft().members()[..2], [alice.id(), bob.id()]);
+
+    let contacts_before = book.contacts(&ContactSelection::All, 100).await?;
+    // Liste modifiée depuis la lecture qui a servi au complément : rien
+    // n'est écrit, fiches comprises.
+    let stale = ImportPlan {
+        create: vec![sample_contact("Denis", &["denis@example.org"])],
+        ..completion
+    };
+    assert_eq!(write(book, &stale).await, Err(ContactStoreError::Conflict));
+    // Nom pris entre le plan et l'écriture : de même.
+    let cards = [
+        imported_contact("Eve", "eve@example.org"),
+        imported_list("Famille", &["eve@example.org"]),
+    ];
+    let late = plan_against(book, &cards, DuplicatePolicy::Skip).await?;
+    let famille = book
+        .create_list(&sample_list("famille", &[alice.id()], false))
+        .await?;
+    assert_eq!(write(book, &late).await, Err(ContactStoreError::Conflict));
+    // Liste supprimée depuis la lecture : inconnue.
+    let cards = [imported_list("famille", &["bob@example.net"])];
+    let gone = plan_against(book, &cards, DuplicatePolicy::Complete).await?;
+    assert_eq!(gone.complete_lists.len(), 1);
+    assert_eq!(book.delete_lists(&[famille.id()]).await?, 1);
+    assert_eq!(write(book, &gone).await, Err(ContactStoreError::NotFound));
+    assert_eq!(
+        book.contacts(&ContactSelection::All, 100).await?,
+        contacts_before,
+        "fiches écrites malgré le refus"
+    );
+    assert_eq!(book.all_lists(10).await?, vec![completed.clone()]);
+
+    // Toutes les listes, dans l'ordre du nom, bornées.
+    let zeta = book.create_list(&sample_list("Zêta", &[], false)).await?;
+    let aa = book.create_list(&sample_list("aa", &[], false)).await?;
+    assert_eq!(
+        book.all_lists(10).await?,
+        vec![aa.clone(), completed.clone(), zeta.clone()]
+    );
+    assert_eq!(book.all_lists(2).await?, vec![aa.clone(), completed]);
+    assert_eq!(
+        book.lists_named(&["zêta".into(), "aa".into(), "inconnue".into()])
+            .await?,
+        vec![aa, zeta]
+    );
+    Ok(())
+}
+
 /// Refus d'une écriture : nom pris par une autre liste que `except`, ou
 /// membre absent du carnet.
 fn refused(
@@ -646,6 +823,21 @@ impl ContactListDirectory for InMemoryContactBook {
     async fn get_list(&self, id: ContactListId) -> Result<Option<ContactList>, StoreError> {
         Ok(self.lock_lists().1.iter().find(|l| l.id() == id).cloned())
     }
+
+    async fn lists_named(&self, keys: &[String]) -> Result<Vec<ContactList>, StoreError> {
+        let keys = &keys[..keys.len().min(MAX_CONTACT_LOOKUP)];
+        Ok(sorted(&self.lock_lists().1)
+            .into_iter()
+            .filter(|l| keys.contains(&l.draft().name_key()))
+            .collect())
+    }
+
+    async fn all_lists(&self, limit: usize) -> Result<Vec<ContactList>, StoreError> {
+        Ok(sorted(&self.lock_lists().1)
+            .into_iter()
+            .take(limit)
+            .collect())
+    }
 }
 
 #[cfg(test)]
@@ -665,6 +857,11 @@ mod tests {
             async move { book.delete_lists(&[id]).await.map(|_| ()) }
         })
         .await
+    }
+
+    #[tokio::test]
+    async fn in_memory_list_import_passes_contract() -> Result<(), ContactListStoreError> {
+        contact_list_import_contract(&InMemoryContactBook::default()).await
     }
 
     #[tokio::test]

@@ -605,7 +605,8 @@ est majoritairement écrit par Claude et relu par le mainteneur.
     saisie et les fiches existantes gardent la règle de
     `ContactDraft::new`. Les deux politiques de doublons (« ignorer »,
     « compléter » sans rien écraser) sont livrées, choisies dans
-    l'aperçu ; les listes d'un fichier ne sont pas importées ; jeux
+    l'aperçu ; les listes d'un fichier ne sont pas importées (levé
+    ensuite, voir plus bas : listes importées et exportées) ; jeux
     d'essai **reconstitués** dans la structure des exports réels avec des
     données fictives, et non de vrais exports anonymisés (écart validé
     par le mainteneur après coup, le 2026-11-08) ;
@@ -638,9 +639,27 @@ est majoritairement écrit par Claude et relu par le mainteneur.
     l'import (25 000 fiches, 20 Mio) : tout export se réimporte.
     « Exporter… » dans l'en-tête de la vue Contacts (repli dans
     « Plus… ») et dans la barre des contacts cochés, format choisi dans
-    une fenêtre ; listes de diffusion non exportées. Conséquence vue sur
+    une fenêtre ; listes de diffusion non exportées (levé ensuite, voir
+    plus bas). Conséquence vue sur
     les captures, validée **après coup** : à 1 280 px, « Importer… »
     passe aussi dans « Plus… » de l'en-tête (gardé tel quel) ;
+  - listes importées et exportées : groupes vCard (`KIND:group`, et
+    `X-ADDRESSBOOKSERVER-KIND:group` d'Apple) et LDIF (`groupOfNames`,
+    `groupOfUniqueNames`) lus et écrits par `contacts-io`, membres
+    désignés dans le fichier par une adresse (`MEMBER:mailto:`), par
+    l'identifiant d'une autre carte (`UID`, `X-ABUID`) ou par un nom
+    distinctif (`member: cn=…,mail=…`), rendus au domaine en adresses ;
+    le plan (`plan_import`) valide chaque liste comme la saisie
+    (`ContactListDraft::new`, nom en NFC, caractères invisibles refusés
+    comme pour une fiche importée) et retrouve ses membres par
+    `AddressKey` parmi le carnet et les fiches créées ; une liste du même
+    nom qu'une liste du carnet est un doublon, ignoré ou complété des
+    membres manquants selon la politique choisie ; tout est écrit dans la
+    transaction de l'import. La copie cachée est écrite dans une propriété
+    propre à Norelly (`X-NORELLY-BCC`, `x-norelly-bcc`) pour qu'un
+    aller-retour ne la perde pas. Listes exportées avec tout le carnet
+    seulement (pas avec une sélection), ni en CSV ; fiches et listes
+    comptent ensemble dans la borne de 25 000 ;
   - doublons (lot 8) : **règles validées par le mainteneur le
     2026-11-08, avant le code**. Écart au plan : deux contacts ne
     partagent jamais une adresse (index unique, l'import « ignorer »

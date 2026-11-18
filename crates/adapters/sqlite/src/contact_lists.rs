@@ -11,13 +11,16 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fmt;
 use std::sync::{Mutex, PoisonError};
 
+use norelly_domain::contact_import::{ListCompletion, ListImport};
 use norelly_domain::contact_lists::{
     ContactList, ContactListDraft, ContactListError, ContactListFilter, ContactListId,
     ContactListInput, MAX_CONTACT_LIST_MEMBERS, renormalized_list_names,
 };
+use norelly_domain::contacts::ContactId;
 use norelly_domain::ports::{
     ContactListBook, ContactListCursor, ContactListDirectory, ContactListPage,
-    ContactListStoreError, ContactListSummary, PageSize, StoreError, TextNormalizer,
+    ContactListStoreError, ContactListSummary, ContactStoreError, MAX_CONTACT_LOOKUP, PageSize,
+    StoreError, TextNormalizer,
 };
 use rusqlite::ToSql;
 use rusqlite::types::{FromSql, FromSqlResult, ToSqlOutput, Value, ValueRef};
@@ -525,6 +528,110 @@ impl ContactListDirectory for SqliteContactBook {
             .read(move |c| Ok(load(c, &*nfc, &[id.get()])?.pop()))
             .await
     }
+
+    async fn lists_named(&self, keys: &[String]) -> Result<Vec<ContactList>, StoreError> {
+        let keys = &keys[..keys.len().min(MAX_CONTACT_LOOKUP)];
+        if keys.is_empty() {
+            return Ok(Vec::new());
+        }
+        let keys = serde_json::to_string(keys).map_err(|e| StoreError(e.to_string()))?;
+        let nfc = self.db.normalizer();
+        self.db
+            .read(move |c| {
+                let ids: Vec<i64> = c
+                    .prepare_cached(
+                        "SELECT id FROM contact_lists \
+                         WHERE name_key IN (SELECT value FROM json_each(?1)) \
+                         ORDER BY name_key, id",
+                    )
+                    .and_then(|mut s| s.query_map(params![keys], |r| r.get(0))?.collect())
+                    .map_err(store_error)?;
+                load(c, &*nfc, &ids)
+            })
+            .await
+    }
+
+    async fn all_lists(&self, limit: usize) -> Result<Vec<ContactList>, StoreError> {
+        let mut lists = Vec::new();
+        let mut cursor = None;
+        while lists.len() < limit {
+            let page = self
+                .list_page(&ContactListFilter::default(), cursor, PageSize::MAX)
+                .await?;
+            let ids: Vec<i64> = page
+                .items
+                .iter()
+                .take(limit - lists.len())
+                .map(|item| item.id.get())
+                .collect();
+            let nfc = self.db.normalizer();
+            lists.extend(self.db.read(move |c| load(c, &*nfc, &ids)).await?);
+            match page.next {
+                Some(next) => cursor = Some(next),
+                None => break,
+            }
+        }
+        Ok(lists)
+    }
+}
+
+/// Listes d'un import, dans la transaction `tx` qui vient de créer les
+/// fiches `created` (dans l'ordre du plan) : chaque liste à compléter doit
+/// être celle lue pour le plan (`NotFound` si elle a disparu, `Conflict`
+/// si elle a changé), chaque liste à créer porter un nom libre (`Conflict`
+/// s'il a été pris entre-temps) ; un membre absent du carnet donne
+/// `NotFound`. Les listes sont revalidées par le domaine
+/// ([`ListImport::resolve`]). Un refus est rendu sans rien écrire de plus :
+/// l'appelant annule la transaction.
+pub(crate) fn import_lists(
+    tx: &Transaction<'_>,
+    normalizer: &dyn TextNormalizer,
+    created: &[ContactId],
+    lists: &[ListImport],
+    complete_lists: &[ListCompletion],
+) -> Result<Result<(), ContactStoreError>, StoreError> {
+    let corrupted = |e: ContactListError| StoreError(format!("liste importée : {e}"));
+    let refusal = |e: ContactListStoreError| match e {
+        ContactListStoreError::DuplicateName(_) => Ok(ContactStoreError::Conflict),
+        ContactListStoreError::UnknownContact(_) | ContactListStoreError::NotFound => {
+            Ok(ContactStoreError::NotFound)
+        }
+        ContactListStoreError::Store(e) => Err(e),
+    };
+    let ids: Vec<i64> = complete_lists.iter().map(|c| c.read().id().get()).collect();
+    let current: HashMap<i64, ContactList> = load(tx, normalizer, &ids)?
+        .into_iter()
+        .map(|l| (l.id().get(), l))
+        .collect();
+    for completion in complete_lists {
+        match current.get(&completion.read().id().get()) {
+            None => return Ok(Err(ContactStoreError::NotFound)),
+            Some(list) if list != completion.read() => return Ok(Err(ContactStoreError::Conflict)),
+            Some(_) => {}
+        }
+    }
+    for completion in complete_lists {
+        let id = completion.read().id();
+        let draft = completion.resolve(created).map_err(corrupted)?;
+        if let Err(e) = admit(tx, normalizer, &draft, Some(id))? {
+            return Ok(Err(refusal(e)?));
+        }
+        write(tx, id.get(), &draft)?;
+    }
+    for list in lists {
+        let draft = list.resolve(created).map_err(corrupted)?;
+        if let Err(e) = admit(tx, normalizer, &draft, None)? {
+            return Ok(Err(refusal(e)?));
+        }
+        tx.execute(
+            "INSERT INTO contact_lists (name, name_key) VALUES ('', ?1)",
+            params![draft.name_key()],
+        )
+        .map_err(store_error)?;
+        let raw = tx.last_insert_rowid();
+        write(tx, raw, &draft)?;
+    }
+    Ok(Ok(()))
 }
 
 /// Crochet de la migration 26 : noms des listes lisibles (clé stockée
@@ -609,8 +716,8 @@ fn park(tx: &Transaction<'_>, id: i64) -> Result<(), StoreError> {
 mod tests {
     use norelly_domain::ports::ContactBook;
     use norelly_test_support::contact_lists_contracts::{
-        contact_list_contract, contact_list_page_size_contract, contact_merge_contract,
-        corrupted_list_contract, sample_list,
+        contact_list_contract, contact_list_import_contract, contact_list_page_size_contract,
+        contact_merge_contract, corrupted_list_contract, sample_list,
     };
     use norelly_test_support::contacts_contracts::sample_contact;
 
@@ -627,6 +734,11 @@ mod tests {
     #[tokio::test]
     async fn contact_lists_pass_contract() -> Result<(), ContactListStoreError> {
         contact_list_contract(&book()).await
+    }
+
+    #[tokio::test]
+    async fn list_import_passes_contract() -> Result<(), ContactListStoreError> {
+        contact_list_import_contract(&book()).await
     }
 
     #[tokio::test]

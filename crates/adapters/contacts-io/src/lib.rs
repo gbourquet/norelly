@@ -14,8 +14,9 @@
 
 use icu_normalizer::{ComposingNormalizerBorrowed, DecomposingNormalizerBorrowed};
 use norelly_domain::contact_details::Birthday;
-use norelly_domain::contact_export::{ExportCard, ExportFormat, MAX_EXPORT_CONTACTS};
+use norelly_domain::contact_export::{ExportCard, ExportFormat, ExportList, MAX_EXPORT_CONTACTS};
 use norelly_domain::contact_import::{ContactFormat, DecodedContacts, MAX_IMPORT_FILE_BYTES};
+use norelly_domain::contact_lists::MAX_CONTACT_LIST_MEMBERS;
 use norelly_domain::ports::{ContactCodec, ContactCodecError, TextNormalizer};
 
 mod encode;
@@ -24,6 +25,10 @@ mod tabular;
 mod text;
 mod vcard;
 
+/// Membres lus au plus dans une liste (doublons compris) : au-delà, la
+/// liste est illisible ; le domaine refuse aussi une liste de plus de
+/// [`MAX_CONTACT_LIST_MEMBERS`] membres distincts.
+pub const MAX_LIST_MEMBERS_READ: usize = 2 * MAX_CONTACT_LIST_MEMBERS;
 /// Longueur maximale d'un champ lu, en octets : au-delà, la fiche est
 /// illisible (les notes, champ le plus long, tiennent en 40 Kio).
 pub const MAX_FIELD_BYTES: usize = 64 * 1024;
@@ -96,21 +101,23 @@ impl ContactCodec for ContactsIo {
     fn encode(
         &self,
         cards: &[ExportCard],
+        lists: &[ExportList],
         format: ExportFormat,
     ) -> Result<Vec<u8>, ContactCodecError> {
-        if cards.len() > MAX_EXPORT_CONTACTS {
+        if cards.len().saturating_add(lists.len()) > MAX_EXPORT_CONTACTS {
             return Err(ContactCodecError::TooManyCards);
         }
         let mut out = encode::Output::new();
         match format {
             ExportFormat::VCard4 => {
-                encode::vcard::encode(cards, encode::vcard::Version::V4, &mut out)
+                encode::vcard::encode(cards, lists, encode::vcard::Version::V4, &mut out)
             }
             ExportFormat::VCard3 => {
-                encode::vcard::encode(cards, encode::vcard::Version::V3, &mut out)
+                encode::vcard::encode(cards, lists, encode::vcard::Version::V3, &mut out)
             }
+            // Le CSV de Google ne porte pas de listes.
             ExportFormat::GoogleCsv => encode::csv::encode(cards, &mut out),
-            ExportFormat::Ldif => encode::ldif::encode(cards, &mut out),
+            ExportFormat::Ldif => encode::ldif::encode(cards, lists, &mut out),
         }?;
         Ok(out.into_bytes())
     }
@@ -152,6 +159,8 @@ mod tests {
             Just(&b"N;ENCODING=QUOTED-PRINTABLE;CHARSET=UTF-8:=C3=A9;="[..]),
             Just(&b"dn: cn=x\n"[..]),
             Just(&b"mail:: SMOp\n"[..]),
+            Just(&b"KIND:group\nUID:urn:uuid:a\nMEMBER:urn:uuid:A\nMEMBER:mailto:%4"[..]),
+            Just(&b"objectclass: groupOfNames\nmember: cn=x\\2,mail=\\"[..]),
             Just(&b"\n \t;:,\\\"="[..]),
             Just(&b"Primary Email,E-mail 1 - Value,Notes\n"[..]),
             Just(&b"\xEF\xBB\xBF\xFF\xFE\xE9"[..]),

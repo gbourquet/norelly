@@ -46,7 +46,7 @@ fn names(drafts: &[ContactDraft]) -> Vec<String> {
 }
 
 fn plan(existing: &[Contact], cards: &[ImportedCard], policy: DuplicatePolicy) -> ImportPlan {
-    plan_import(existing, cards, policy, &FakeNfc)
+    plan_import(existing, &[], cards, policy, &FakeNfc)
 }
 
 #[test]
@@ -72,7 +72,7 @@ fn unreadable_lists_and_invalid_cards_are_rejected_with_their_reason() {
         &[
             ImportedCard::Unreadable,
             card("Alice", &["alice@example.com"]),
-            ImportedCard::List,
+            ImportedCard::List(ImportedList::default()),
             card("Sans adresse", &[]),
             card("Mauvaise", &["pas-une-adresse"]),
         ],
@@ -86,7 +86,10 @@ fn unreadable_lists_and_invalid_cards_are_rejected_with_their_reason() {
         .collect();
     assert_eq!(reasons.len(), 4);
     assert_eq!(reasons[0], (1, "", RejectReason::Unreadable));
-    assert_eq!(reasons[1], (3, "", RejectReason::List));
+    assert_eq!(
+        reasons[1],
+        (3, "", RejectReason::InvalidList(ContactListError::NoName))
+    );
     assert_eq!(
         reasons[2],
         (
@@ -484,13 +487,28 @@ fn a_favorite_card_never_changes_the_favorite_of_a_contact_of_the_book() {
 
 #[test]
 fn import_keys_lists_each_valid_address_once_in_file_order() {
-    let keys = import_keys(&[
-        card("A", &["b@example.com", "pas-une-adresse", "A@example.com"]),
-        ImportedCard::List,
-        card("B", &["a@EXAMPLE.com", "c@example.com"]),
-    ]);
+    let keys = import_keys(
+        &[
+            card("A", &["b@example.com", "pas-une-adresse", "A@example.com"]),
+            ImportedCard::List(ImportedList {
+                name: "L".into(),
+                members: vec![" d@example.org ".into(), "c@example.com".into()],
+                ..ImportedList::default()
+            }),
+            card("B", &["a@EXAMPLE.com", "c@example.com"]),
+        ],
+        &FakeNfc,
+    );
     let keys: Vec<_> = keys.iter().map(AddressKey::as_str).collect();
-    assert_eq!(keys, ["b@example.com", "a@example.com", "c@example.com"]);
+    assert_eq!(
+        keys,
+        [
+            "b@example.com",
+            "a@example.com",
+            "d@example.org",
+            "c@example.com"
+        ]
+    );
 }
 
 #[test]
@@ -794,4 +812,278 @@ fn repeated_or_surplus_details_of_an_imported_card_are_dropped_not_the_card() {
     let urls: Vec<_> = d.websites().iter().map(|w| w.url()).collect();
     assert_eq!(urls.len(), MAX_CONTACT_WEBSITES);
     assert_eq!(urls[..2], ["https://www.example.com", "https://s1.example"]);
+}
+
+// ---------------------------------------------------------------------------
+// Listes de diffusion
+// ---------------------------------------------------------------------------
+
+fn list(name: &str, members: &[&str]) -> ImportedCard {
+    ImportedCard::List(ImportedList {
+        name: name.into(),
+        members: members.iter().map(|&m| m.to_owned()).collect(),
+        ..ImportedList::default()
+    })
+}
+
+fn cid(raw: i64) -> ContactId {
+    ContactId::new(raw).unwrap_or_else(|| panic!("id"))
+}
+
+fn stored_list(id: i64, name: &str, members: &[i64]) -> ContactList {
+    use crate::contact_lists::ContactListId;
+    ContactListDraft::new(
+        ContactListInput {
+            name: name.into(),
+            members: members.to_vec(),
+            ..ContactListInput::default()
+        },
+        &FakeNfc,
+    )
+    .unwrap_or_else(|e| panic!("{e}"))
+    .with_id(ContactListId::new(id).unwrap_or_else(|| panic!("id")))
+}
+
+fn plan_lists(
+    existing: &[Contact],
+    lists: &[ContactList],
+    cards: &[ImportedCard],
+    policy: DuplicatePolicy,
+) -> ImportPlan {
+    plan_import(existing, lists, cards, policy, &FakeNfc)
+}
+
+#[test]
+fn a_list_gathers_book_contacts_and_new_cards_by_address() {
+    let alice = stored(7, draft("Alice", &["alice@example.com"]));
+    let p = plan_lists(
+        &[alice],
+        &[],
+        &[
+            // Liste avant ses membres : retrouvés quand même.
+            ImportedCard::List(ImportedList {
+                name: " Club E\u{301}te\u{301} ".into(),
+                description: "Le jeudi".into(),
+                members: vec![
+                    "bob@example.net".into(),
+                    "ALICE@example.com".into(),
+                    "Bob@Example.net".into(),
+                    "inconnu@example.org".into(),
+                    "pas-une-adresse".into(),
+                ],
+                unresolved: 2,
+                bcc: true,
+            }),
+            card("Bob", &["bob@example.net"]),
+        ],
+        DuplicatePolicy::Skip,
+    );
+    assert_eq!(names(&p.create), ["Bob"]);
+    let [imported] = &p.lists[..] else {
+        panic!("{:?}", p.lists)
+    };
+    assert_eq!(imported.draft().name(), "Club Été");
+    assert_eq!(imported.draft().description(), Some("Le jeudi"));
+    assert!(imported.draft().bcc());
+    assert_eq!(
+        imported.members(),
+        [ListMember::New(0), ListMember::Existing(cid(7))]
+    );
+    // Deux introuvables dans le fichier, deux adresses hors du carnet.
+    assert_eq!(p.missing_members, 4);
+    let written = imported
+        .resolve(&[cid(12)])
+        .unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(written.members(), [cid(12), cid(7)]);
+    assert_eq!(written.name(), "Club Été");
+    assert_eq!(
+        imported.resolve(&[]),
+        Err(ContactListError::InvalidMember),
+        "fiche créée inconnue"
+    );
+    assert!(p.rejected.is_empty(), "{:?}", p.rejected);
+}
+
+#[test]
+fn a_member_whose_card_is_rejected_is_missing() {
+    let p = plan(
+        &[],
+        &[
+            card("Bob", &["bob@example.net", "pas-une-adresse"]),
+            list("Club", &["bob@example.net"]),
+        ],
+        DuplicatePolicy::Skip,
+    );
+    assert_eq!(p.lists[0].members(), []);
+    assert_eq!(p.missing_members, 1);
+}
+
+#[test]
+fn invalid_lists_are_rejected_like_a_typed_list() {
+    let many: Vec<String> = (0..=MAX_CONTACT_LIST_MEMBERS)
+        .map(|i| format!("m{i}@example.com"))
+        .collect();
+    let mut cards: Vec<ImportedCard> = many.iter().map(|a| card("", &[a.as_str()])).collect();
+    let refs: Vec<&str> = many.iter().map(String::as_str).collect();
+    cards.push(list("Trop", &refs));
+    cards.push(list("   ", &[]));
+    cards.push(list("Fa\u{200B}mille", &[]));
+    cards.push(ImportedCard::List(ImportedList {
+        name: "Notes".into(),
+        description: "a\nb".into(),
+        ..ImportedList::default()
+    }));
+    cards.push(list(&"n".repeat(500), &[]));
+    let p = plan(&[], &cards, DuplicatePolicy::Skip);
+    assert!(p.lists.is_empty(), "{:?}", p.lists);
+    let reasons: Vec<_> = p
+        .rejected
+        .iter()
+        .map(|r| (r.card, r.hint.clone(), r.reason.clone()))
+        .collect();
+    let first = MAX_CONTACT_LIST_MEMBERS + 2;
+    assert_eq!(
+        reasons,
+        [
+            (
+                first,
+                "Trop".to_owned(),
+                RejectReason::InvalidList(ContactListError::TooManyMembers)
+            ),
+            (
+                first + 1,
+                String::new(),
+                RejectReason::InvalidList(ContactListError::NoName)
+            ),
+            (
+                first + 2,
+                "Famille".to_owned(),
+                RejectReason::InvalidList(ContactListError::InvalidCharacter(
+                    ContactListField::Name
+                ))
+            ),
+            (
+                first + 3,
+                "Notes".to_owned(),
+                RejectReason::InvalidList(ContactListError::InvalidCharacter(
+                    ContactListField::Description
+                ))
+            ),
+            (
+                first + 4,
+                "n".repeat(MAX_IMPORT_HINT_CHARS),
+                RejectReason::InvalidList(ContactListError::TooLong(ContactListField::Name))
+            ),
+        ]
+    );
+}
+
+#[test]
+fn a_list_named_like_a_book_list_is_skipped_or_completed() {
+    let alice = stored(1, draft("Alice", &["alice@example.com"]));
+    let bob = stored(2, draft("Bob", &["bob@example.net"]));
+    let book_list = stored_list(5, "Famille", &[1]);
+    let cards = [
+        card("Carol", &["carol@example.org"]),
+        list(
+            "FAMILLE",
+            &["alice@example.com", "bob@example.net", "carol@example.org"],
+        ),
+    ];
+    let existing = [alice, bob];
+    let skip = plan_lists(
+        &existing,
+        std::slice::from_ref(&book_list),
+        &cards,
+        DuplicatePolicy::Skip,
+    );
+    assert!(skip.lists.is_empty() && skip.complete_lists.is_empty());
+    assert_eq!(skip.duplicates, 1);
+    assert_eq!(skip.missing_members, 0);
+
+    let complete = plan_lists(
+        &existing,
+        std::slice::from_ref(&book_list),
+        &cards,
+        DuplicatePolicy::Complete,
+    );
+    assert!(complete.lists.is_empty());
+    assert_eq!(complete.duplicates, 0);
+    let [completion] = &complete.complete_lists[..] else {
+        panic!("{:?}", complete.complete_lists)
+    };
+    assert_eq!(completion.read(), &book_list);
+    assert_eq!(
+        completion.added(),
+        [ListMember::Existing(cid(2)), ListMember::New(0)]
+    );
+    let written = completion
+        .resolve(&[cid(9)])
+        .unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(written.members(), [cid(1), cid(2), cid(9)]);
+    assert_eq!(written.name(), "Famille", "nom du carnet gardé");
+
+    // Rien de nouveau : un doublon.
+    let nothing = plan_lists(
+        &existing,
+        &[book_list],
+        &[list("famille", &["alice@example.com"])],
+        DuplicatePolicy::Complete,
+    );
+    assert!(nothing.complete_lists.is_empty());
+    assert_eq!(nothing.duplicates, 1);
+}
+
+#[test]
+fn lists_of_the_same_name_in_the_file_are_merged_or_skipped() {
+    let cards = [
+        card("Alice", &["alice@example.com"]),
+        card("Bob", &["bob@example.net"]),
+        list("Club", &["alice@example.com"]),
+        list("CLUB", &["bob@example.net", "alice@example.com"]),
+    ];
+    let skip = plan(&[], &cards, DuplicatePolicy::Skip);
+    assert_eq!(skip.lists.len(), 1);
+    assert_eq!(skip.lists[0].members(), [ListMember::New(0)]);
+    assert_eq!(skip.duplicates, 1);
+    let complete = plan(&[], &cards, DuplicatePolicy::Complete);
+    assert_eq!(complete.lists.len(), 1);
+    assert_eq!(complete.lists[0].draft().name(), "Club");
+    assert_eq!(
+        complete.lists[0].members(),
+        [ListMember::New(0), ListMember::New(1)]
+    );
+    assert_eq!(complete.duplicates, 1);
+}
+
+#[test]
+fn completing_a_list_stays_within_its_bound() {
+    let members: Vec<i64> = (1..=MAX_CONTACT_LIST_MEMBERS as i64 - 1).collect();
+    let book_list = stored_list(5, "Grande", &members);
+    let cards = [
+        card("X", &["x@example.com"]),
+        card("Y", &["y@example.com"]),
+        list("Grande", &["x@example.com", "y@example.com"]),
+    ];
+    let p = plan_lists(&[], &[book_list], &cards, DuplicatePolicy::Complete);
+    assert_eq!(p.complete_lists[0].added(), [ListMember::New(0)]);
+    let written = p.complete_lists[0]
+        .resolve(&[cid(500), cid(501)])
+        .unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(written.members().len(), MAX_CONTACT_LIST_MEMBERS);
+}
+
+#[test]
+fn import_list_keys_gives_each_valid_name_once() {
+    let keys = import_list_keys(
+        &[
+            list("Club E\u{301}te\u{301}", &[]),
+            card("A", &["a@example.com"]),
+            list("club été", &[]),
+            list("  ", &[]),
+            list("Famille", &[]),
+        ],
+        &FakeNfc,
+    );
+    assert_eq!(keys, ["club été", "famille"]);
 }

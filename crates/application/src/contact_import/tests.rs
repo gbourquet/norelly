@@ -4,13 +4,19 @@ use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use norelly_domain::contact_export::ContactSelection;
 use norelly_domain::contact_import::{
-    ContactCompletion, DecodedContacts, MAX_IMPORT_ATTEMPTS, RejectReason,
+    ContactCompletion, DecodedContacts, ImportedList, ListCompletion, ListImport,
+    MAX_IMPORT_ATTEMPTS, RejectReason,
 };
+use norelly_domain::contact_lists::{ContactListFilter, ContactListId};
 use norelly_domain::contacts::{
     AddressKey, ContactDraft, ContactFilter, ContactId, ContactInput, EmailInput,
 };
-use norelly_domain::ports::{ContactCursor, ContactPage, MAX_CONTACT_LOOKUP, PageSize};
+use norelly_domain::ports::{
+    ContactCursor, ContactListBook, ContactListCursor, ContactListPage, ContactPage,
+    MAX_CONTACT_LOOKUP, PageSize,
+};
 use norelly_test_support::contact_import_contracts::{FakeContactCodec, FakeNfc};
+use norelly_test_support::contact_lists_contracts::sample_list;
 use norelly_test_support::contacts_contracts::{InMemoryContactBook, sample_contact};
 
 use super::*;
@@ -179,6 +185,9 @@ struct EditedMeanwhile {
     delete: bool,
     edits: Mutex<usize>,
     imports: Mutex<usize>,
+    /// Liste créée par un tiers juste avant le premier import (nom pris
+    /// entre la lecture et l'écriture).
+    list_meanwhile: Mutex<Option<String>>,
 }
 
 fn count(cell: &Mutex<usize>) -> MutexGuard<'_, usize> {
@@ -212,6 +221,29 @@ impl ContactDirectory for EditedMeanwhile {
     }
 }
 
+impl ContactListDirectory for EditedMeanwhile {
+    async fn list_page(
+        &self,
+        filter: &ContactListFilter,
+        cursor: Option<ContactListCursor>,
+        limit: PageSize,
+    ) -> Result<ContactListPage, StoreError> {
+        self.inner.list_page(filter, cursor, limit).await
+    }
+
+    async fn get_list(&self, id: ContactListId) -> Result<Option<ContactList>, StoreError> {
+        self.inner.get_list(id).await
+    }
+
+    async fn lists_named(&self, keys: &[String]) -> Result<Vec<ContactList>, StoreError> {
+        self.inner.lists_named(keys).await
+    }
+
+    async fn all_lists(&self, limit: usize) -> Result<Vec<ContactList>, StoreError> {
+        self.inner.all_lists(limit).await
+    }
+}
+
 impl ContactBook for EditedMeanwhile {
     async fn create(&self, draft: &ContactDraft) -> Result<Contact, ContactStoreError> {
         self.inner.create(draft).await
@@ -237,8 +269,21 @@ impl ContactBook for EditedMeanwhile {
         &self,
         create: &[ContactDraft],
         complete: &[ContactCompletion],
+        lists: &[ListImport],
+        complete_lists: &[ListCompletion],
     ) -> Result<ImportOutcome, ContactStoreError> {
         *count(&self.imports) += 1;
+        let meanwhile = self
+            .list_meanwhile
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .take();
+        if let Some(name) = meanwhile {
+            self.inner
+                .create_list(&sample_list(&name, &[self.target], false))
+                .await
+                .map_err(|e| ContactStoreError::Store(StoreError(e.to_string())))?;
+        }
         let edit = {
             let mut edits = count(&self.edits);
             let edit = *edits > 0;
@@ -259,7 +304,9 @@ impl ContactBook for EditedMeanwhile {
                 .map_err(|e| ContactStoreError::Corrupted(e.to_string()))?;
             self.inner.update(self.target, &draft).await?;
         }
-        self.inner.import(create, complete).await
+        self.inner
+            .import(create, complete, lists, complete_lists)
+            .await
     }
 
     async fn merge(
@@ -283,6 +330,7 @@ async fn edited_meanwhile(edits: usize) -> Result<EditedMeanwhile, ImportFailure
         delete: false,
         edits: Mutex::new(edits),
         imports: Mutex::new(0),
+        list_meanwhile: Mutex::new(None),
     })
 }
 
@@ -353,9 +401,108 @@ async fn a_contact_deleted_meanwhile_is_created_again() -> Result<(), ImportFail
         outcome,
         ImportOutcome {
             created: 1,
-            completed: 0
+            completed: 0,
+            ..ImportOutcome::default()
         }
     );
     assert_eq!(names(&book.inner).await?, ["Alice"]);
+    Ok(())
+}
+
+fn list(name: &str, members: &[&str]) -> ImportedCard {
+    ImportedCard::List(ImportedList {
+        name: name.to_owned(),
+        members: members.iter().map(|&m| m.to_owned()).collect(),
+        ..ImportedList::default()
+    })
+}
+
+#[tokio::test]
+async fn preview_plans_lists_against_the_book_lists() -> Result<(), ImportFailure> {
+    let book = InMemoryContactBook::default();
+    let alice = book
+        .create(&sample_contact("Alice", &["alice@example.com"]))
+        .await?;
+    book.create_list(&sample_list("Famille", &[alice.id()], false))
+        .await
+        .map_err(|e| StoreError(e.to_string()))?;
+    let codec = codec(vec![
+        card("Bob", &["bob@example.net"]),
+        list("famille", &["bob@example.net", "alice@example.com"]),
+        list("Club", &["alice@example.com", "inconnu@example.org"]),
+    ]);
+    let preview = PreviewContactImport {
+        codec: &codec,
+        directory: &book,
+        normalizer: &FakeNfc,
+    }
+    .execute(b"fichier")
+    .await?;
+    assert_eq!(preview.skip.lists.len(), 1);
+    assert_eq!(preview.skip.duplicates, 1);
+    assert_eq!(preview.skip.missing_members, 1);
+    assert_eq!(preview.complete.lists.len(), 1);
+    assert_eq!(preview.complete.complete_lists.len(), 1);
+    assert_eq!(preview.complete.complete_lists[0].added().len(), 1);
+    Ok(())
+}
+
+#[tokio::test]
+async fn apply_writes_lists_with_their_new_and_existing_members() -> Result<(), ImportFailure> {
+    let book = InMemoryContactBook::default();
+    let alice = book
+        .create(&sample_contact("Alice", &["alice@example.com"]))
+        .await?;
+    let cards = vec![
+        list("Club", &["bob@example.net", "alice@example.com"]),
+        card("Bob", &["bob@example.net"]),
+    ];
+    let outcome = ApplyContactImport {
+        book: &book,
+        normalizer: &FakeNfc,
+    }
+    .execute(&cards, DuplicatePolicy::Skip)
+    .await?;
+    assert_eq!((outcome.created, outcome.lists_created), (1, 1));
+    let [club] = &book.all_lists(10).await?[..] else {
+        panic!("liste Club")
+    };
+    assert_eq!(club.draft().name(), "Club");
+    assert_eq!(club.draft().members().len(), 2);
+    assert_eq!(club.draft().members()[1], alice.id());
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_list_name_taken_meanwhile_is_replanned_as_a_completion() -> Result<(), ImportFailure> {
+    let book = edited_meanwhile(0).await?;
+    *book
+        .list_meanwhile
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner) = Some("Club".into());
+    let cards = vec![
+        card("Bob", &["bob@example.net"]),
+        list("CLUB", &["bob@example.net"]),
+    ];
+    let outcome = ApplyContactImport {
+        book: &book,
+        normalizer: &FakeNfc,
+    }
+    .execute(&cards, DuplicatePolicy::Complete)
+    .await?;
+    assert_eq!(*count(&book.imports), 2, "plan recalculé une fois");
+    assert_eq!(
+        (
+            outcome.created,
+            outcome.lists_created,
+            outcome.lists_completed
+        ),
+        (1, 0, 1)
+    );
+    let [club] = &book.inner.all_lists(10).await?[..] else {
+        panic!("liste Club")
+    };
+    assert_eq!(club.draft().name(), "Club");
+    assert_eq!(club.draft().members().len(), 2);
     Ok(())
 }

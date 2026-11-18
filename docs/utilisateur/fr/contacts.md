@@ -196,6 +196,13 @@ Un contact est reconnu comme déjà présent s'il a la même adresse
 électronique. Une fiche sans adresse électronique n'est pas importée : le
 carnet de Norelly sert à écrire des messages.
 
+Les listes de diffusion du fichier (les groupes d'un fichier vCard ou
+LDIF) sont importées avec leurs membres. Une liste qui porte le même nom
+qu'une de vos listes est laissée telle quelle, ou complétée des membres
+qui lui manquent si vous choisissez **Les compléter avec le fichier**. Un
+membre qui n'est ni dans le fichier ni dans votre carnet est laissé de
+côté : l'aperçu indique combien.
+
 Les étiquettes courantes des adresses et des téléphones (travail,
 domicile, mobile, fax…) s'affichent en français, quelle que soit la
 langue du logiciel d'origine. Les étiquettes personnelles, comme celles
@@ -223,7 +230,9 @@ logiciel :
 
 Les favoris sont gardés en vCard et en CSV (Google Contacts les range
 dans ses favoris, et Norelly les retrouve à l'import), pas en LDIF. Les
-listes de diffusion ne sont pas exportées. Dans un
+listes de diffusion sont exportées avec tout le carnet, en vCard et en
+LDIF ; elles ne le sont pas en CSV, ni quand vous n'exportez que quelques
+contacts cochés. Dans un
 fichier CSV ouvert avec un tableur, un numéro commençant par « + »
 apparaît précédé d'une apostrophe : c'est voulu, pour que le tableur ne le
 prenne pas pour un calcul.

@@ -1,5 +1,5 @@
 use super::*;
-use crate::contact_import::{ContactFormat, DecodedContacts, ImportedCard};
+use crate::contact_import::{ContactFormat, DecodedContacts, ImportedCard, ImportedList};
 use crate::contacts::{ContactInput, EmailInput};
 
 struct SameText;
@@ -516,7 +516,7 @@ fn a_remote_card_becomes_a_contact_only_when_valid() {
     );
     let list = DecodedContacts {
         format: ContactFormat::VCard,
-        cards: vec![ImportedCard::List],
+        cards: vec![ImportedCard::List(ImportedList::default())],
     };
     assert_eq!(remote_draft(&list, &SameText), None);
 }

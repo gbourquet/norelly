@@ -840,6 +840,8 @@ export type ContactImportFormatDto = "vcard" | "google_csv" | "outlook_csv" | "t
 export type ContactImportOutcomeDto = {
 	created: number,
 	completed: number,
+	lists_created: number,
+	lists_completed: number,
 };
 
 /**  Aperçu d'un import : à confirmer par `apply_contact_import(token, …)`. */
@@ -1750,16 +1752,27 @@ export type ImportCountsDto = {
 	create: number,
 	/**  Contacts existants complétés. */
 	complete: number,
-	/**  Fiches en double laissées de côté. */
+	/**  Fiches et listes en double laissées de côté. */
 	duplicates: number,
+	/**  Listes créées. */
+	lists: number,
+	/**  Listes existantes complétées. */
+	lists_complete: number,
+	/**
+	 *  Membres de listes ni dans le fichier ni dans le carnet, laissés de
+	 *  côté.
+	 */
+	missing_members: number,
 };
 
 /**  Raison du rejet d'une fiche importée. */
 export type ImportRejectReasonDto = 
 /**  Fiche illisible (encodage, champ démesuré). */
 "unreadable" | 
-/**  Liste de diffusion : non importée. */
-"list" | 
+/**  Liste de diffusion sans nom. */
+"list_no_name" | 
+/**  Liste de diffusion de plus de membres qu'un envoi ne permet. */
+"list_too_many_members" | 
 /**  Fiche sans adresse électronique. */
 "no_address" | 
 /**  Adresse électronique invalide. */

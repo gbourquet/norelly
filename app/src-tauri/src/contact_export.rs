@@ -246,19 +246,20 @@ pub async fn export_contacts(
 ) -> Result<Option<ContactExportOutcomeDto>, IpcError> {
     let selection = selection_of(&selection)?;
     let format = format_of(format);
-    let cards = PrepareContactExport {
+    let prepared = PrepareContactExport {
         directory: &state.contacts,
     }
     .execute(&selection, format)
     .await
     .map_err(export_error)?;
-    let exported = u32::try_from(cards.len()).unwrap_or(u32::MAX);
+    let exported = u32::try_from(prepared.cards.len()).unwrap_or(u32::MAX);
     let codec = state.imports.codec;
     // Mise en forme hors des fils asynchrones : tout un carnet.
-    let bytes = tokio::task::spawn_blocking(move || codec.encode(&cards, format))
-        .await
-        .map_err(IpcError::internal)?
-        .map_err(codec_error)?;
+    let bytes =
+        tokio::task::spawn_blocking(move || codec.encode(&prepared.cards, &prepared.lists, format))
+            .await
+            .map_err(IpcError::internal)?
+            .map_err(codec_error)?;
 
     let extension = format.extension();
     let proposed = export_file_name(&file_name, format);

@@ -990,6 +990,7 @@ pub fn remote_draft(
     };
     plan_import(
         &[],
+        &[],
         std::slice::from_ref(card),
         DuplicatePolicy::Skip,
         normalizer,

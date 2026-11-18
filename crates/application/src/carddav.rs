@@ -230,7 +230,7 @@ where
         };
         let bytes = self
             .codec
-            .encode(&[export_card(draft, format)], format)
+            .encode(&[export_card(draft, format)], &[], format)
             .map_err(|_| SyncFailure::Storage)?;
         String::from_utf8(bytes).map_err(|_| SyncFailure::Storage)
     }
@@ -337,7 +337,7 @@ where
                     .and_then(|decoded| remote_draft(decoded, self.normalizer));
                 let keys = decoded
                     .as_ref()
-                    .map(|decoded| import_keys(&decoded.cards))
+                    .map(|decoded| import_keys(&decoded.cards, self.normalizer))
                     .unwrap_or_default();
                 fetched.push(FetchedCard {
                     entry: RemoteEntry {
@@ -399,7 +399,7 @@ where
                 // lecture : une saisie faite pendant la synchronisation
                 // n'est jamais écrasée.
                 let completion = ContactCompletion::new(contact.clone(), draft.clone());
-                if let Err(e) = self.book.import(&[], &[completion]).await {
+                if let Err(e) = self.book.import(&[], &[completion], &[], &[]).await {
                     return local_step(e);
                 }
                 // Fiche relue telle qu'enregistrée : c'est elle que la

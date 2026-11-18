@@ -375,3 +375,27 @@ fn every_fixture_plans_without_surprise() {
     assert_eq!(plan.renamed, 1);
     assert_eq!(plan.rejected[0].reason, RejectReason::List);
 }
+
+/// Export CSV de Google versé dans le carnet issu de l'export vCard de
+/// Google (scénario de bout en bout de l'import) : les fiches communes
+/// sont reconnues, ou complétées, détails compris.
+#[test]
+fn google_csv_completes_the_book_imported_from_google_vcard() {
+    use norelly_domain::contacts::ContactId;
+    let first = plan_import(
+        &[],
+        &decode("gmail.vcf").cards,
+        DuplicatePolicy::Skip,
+        &IcuNfc,
+    );
+    let book: Vec<_> = (1_i64..)
+        .zip(first.create)
+        .map(|(id, d)| d.with_id(ContactId::new(id).unwrap_or_else(|| panic!("id"))))
+        .collect();
+    let csv = decode("gmail.csv");
+    for policy in [DuplicatePolicy::Skip, DuplicatePolicy::Complete] {
+        let plan = plan_import(&book, &csv.cards, policy, &IcuNfc);
+        assert_eq!(plan.create.len(), 1, "{policy:?} : {:?}", plan.rejected);
+        assert_eq!(plan.rejected.len(), 1, "{policy:?} : {:?}", plan.rejected);
+    }
+}

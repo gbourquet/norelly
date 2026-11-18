@@ -560,8 +560,12 @@ fn as_name(payload: &str) -> String {
 
 /// Fiche dont chaque champ texte porte une charge (décalée de `n`).
 fn trapped_contact(n: usize) -> norelly_domain::contacts::ContactInput {
-    use norelly_domain::contacts::{ContactInput, EmailInput, PhoneInput};
+    use norelly_domain::contacts::{
+        ContactInput, EmailInput, PhoneInput, PostalAddressInput, WebsiteInput,
+    };
     let p = |i: usize| PAYLOADS[(n + i) % PAYLOADS.len()].to_owned();
+    // Éléments d'adresse postale : au plus 200 caractères.
+    let part = |i: usize| p(i).chars().take(200).collect::<String>();
     let name = |i: usize| as_name(&p(i));
     // Étiquettes et numéros : au plus 64 caractères.
     let short = |i: usize| p(i).chars().take(64).collect::<String>();
@@ -588,8 +592,40 @@ fn trapped_contact(n: usize) -> norelly_domain::contacts::ContactInput {
             number: short(7),
             label: short(0),
         }],
+        title: p(5),
+        birthday: if n.is_multiple_of(2) {
+            "1985-04-12".into()
+        } else {
+            "--02-29".into()
+        },
+        postal_addresses: vec![PostalAddressInput {
+            street: format!("{}\n{}", part(6), part(7)),
+            locality: part(0),
+            region: part(1),
+            postal_code: part(2),
+            country: part(3),
+            label: short(4),
+        }],
+        websites: vec![WebsiteInput {
+            // Charge dans le chemin, encodée : seule forme qu'un site admet.
+            url: format!("https://example.com/{n}?q={}", encoded(&p(5))),
+            label: short(6),
+        }],
         favorite: n.is_multiple_of(2),
     }
+}
+
+/// Texte en pourcentages (octets hors lettres et chiffres ASCII).
+fn encoded(text: &str) -> String {
+    text.bytes()
+        .map(|b| {
+            if b.is_ascii_alphanumeric() {
+                char::from(b).to_string()
+            } else {
+                format!("%{b:02X}")
+            }
+        })
+        .collect()
 }
 
 #[tokio::test]

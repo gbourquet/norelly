@@ -72,7 +72,11 @@ fn fixture() -> Fixture {
     let dir = std::env::temp_dir().join(format!("norelly-bench-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap_or_else(|e| panic!("{e}"));
-    let db = Database::open(&dir.join("bench.sqlite3")).unwrap_or_else(|e| panic!("{e}"));
+    let db = Database::open(
+        &dir.join("bench.sqlite3"),
+        norelly_test_support::contact_import_contracts::FakeNfc,
+    )
+    .unwrap_or_else(|e| panic!("{e}"));
     let store = SqliteMailStore::new(db.clone());
     let (inbox, other) = rt.block_on(async {
         let account: AccountId = SqliteAccountRepository::new(db)

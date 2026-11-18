@@ -17,7 +17,7 @@ use norelly_domain::contact_lists::{
 use norelly_domain::contacts::{Contact, ContactId};
 use norelly_domain::ports::{
     ContactDirectory, ContactListBook, ContactListCursor, ContactListDirectory, ContactListPage,
-    ContactListStoreError, ContactListSummary, PageSize, StoreError,
+    ContactListStoreError, ContactListSummary, PageSize, StoreError, TextNormalizer,
 };
 
 /// Échec d'un cas d'usage des listes.
@@ -45,35 +45,39 @@ pub struct ContactListView {
     pub members: Vec<Contact>,
 }
 
-/// Cas d'usage : enregistrer une nouvelle liste.
+/// Cas d'usage : enregistrer une nouvelle liste (nom en NFC par
+/// `normalizer`).
 #[derive(Debug)]
-pub struct CreateContactList<'a, B> {
+pub struct CreateContactList<'a, B, N> {
     pub book: &'a B,
+    pub normalizer: &'a N,
 }
 
-impl<B: ContactListBook> CreateContactList<'_, B> {
+impl<B: ContactListBook, N: TextNormalizer> CreateContactList<'_, B, N> {
     pub async fn execute(
         &self,
         input: ContactListInput,
     ) -> Result<ContactList, ContactListFailure> {
-        let draft = ContactListDraft::new(input)?;
+        let draft = ContactListDraft::new(input, self.normalizer)?;
         Ok(self.book.create_list(&draft).await?)
     }
 }
 
-/// Cas d'usage : remplacer le contenu de la liste `id`.
+/// Cas d'usage : remplacer le contenu de la liste `id` (nom en NFC par
+/// `normalizer`).
 #[derive(Debug)]
-pub struct UpdateContactList<'a, B> {
+pub struct UpdateContactList<'a, B, N> {
     pub book: &'a B,
+    pub normalizer: &'a N,
 }
 
-impl<B: ContactListBook> UpdateContactList<'_, B> {
+impl<B: ContactListBook, N: TextNormalizer> UpdateContactList<'_, B, N> {
     pub async fn execute(
         &self,
         id: ContactListId,
         input: ContactListInput,
     ) -> Result<ContactList, ContactListFailure> {
-        let draft = ContactListDraft::new(input)?;
+        let draft = ContactListDraft::new(input, self.normalizer)?;
         Ok(self.book.update_list(id, &draft).await?)
     }
 }

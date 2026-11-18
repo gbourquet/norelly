@@ -93,7 +93,8 @@ pub async fn local(name: &str) -> Local {
             .map_or(0, |d| d.as_nanos())
     ));
     std::fs::create_dir_all(&dir).unwrap_or_else(|e| panic!("{e}"));
-    let db = Database::open(&dir.join("norelly.sqlite3")).unwrap_or_else(|e| panic!("{e}"));
+    let db = Database::open(&dir.join("norelly.sqlite3"), norelly_contacts_io::IcuNfc)
+        .unwrap_or_else(|e| panic!("{e}"));
     let account = SqliteAccountRepository::new(db.clone())
         .insert(&sample_account("it@example.com", false))
         .await

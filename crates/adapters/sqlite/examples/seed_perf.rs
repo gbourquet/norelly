@@ -30,7 +30,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if let Some(dir) = std::path::Path::new(&path).parent() {
         std::fs::create_dir_all(dir)?;
     }
-    let db = Database::open(std::path::Path::new(&path))?;
+    let db = Database::open(
+        std::path::Path::new(&path),
+        norelly_test_support::contact_import_contracts::FakeNfc,
+    )?;
     let account = SqliteAccountRepository::new(db.clone())
         .insert(&sample_account("perf@norelly.invalid", false))
         .await?

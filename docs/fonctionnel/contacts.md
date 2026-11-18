@@ -248,6 +248,11 @@ serveur de contacts (voir [synchronisation-carnet.md](synchronisation-carnet.md)
   retire d'un clic. Une liste peut être enregistrée vide.
 - Deux listes ne peuvent pas porter le même nom, majuscules comprises
   (« Famille » et « FAMILLE ») : la fenêtre reste ouverte et l'explique.
+  Deux noms qui s'affichent de la même façon sont le même nom, même si
+  leurs lettres accentuées ont été tapées ou collées autrement ; les
+  accents comptent toujours (« Été » et « Ete » sont deux noms). Si deux
+  listes existantes se retrouvent ainsi homonymes, aucune n'est fusionnée :
+  la plus récente prend la mention « (2) » à la fin de son nom.
   Une liste compte au plus autant de membres qu'un message peut avoir de
   destinataires.
 - Sur la liste ouverte : **Écrire à la liste**, **Modifier la liste**,

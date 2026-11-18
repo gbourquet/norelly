@@ -2,6 +2,7 @@
 
 use norelly_domain::contact_lists::{ContactListField, MAX_CONTACT_LIST_MEMBERS};
 use norelly_domain::ports::ContactBook;
+use norelly_test_support::contact_import_contracts::FakeNfc;
 use norelly_test_support::contact_lists_contracts::sample_list;
 use norelly_test_support::contacts_contracts::{InMemoryContactBook, sample_contact};
 
@@ -26,9 +27,12 @@ async fn contact(book: &InMemoryContactBook, name: &str, address: &str) -> Conta
 async fn create_validates_then_stores() -> Result<(), ContactListFailure> {
     let book = InMemoryContactBook::default();
     let alice = contact(&book, "Alice", "alice@example.com").await;
-    let created = CreateContactList { book: &book }
-        .execute(input(" Famille ", &[alice.id()], true))
-        .await?;
+    let created = CreateContactList {
+        book: &book,
+        normalizer: &FakeNfc,
+    }
+    .execute(input(" Famille ", &[alice.id()], true))
+    .await?;
     assert_eq!(created.draft().name(), "Famille");
     assert_eq!(book.get_list(created.id()).await?, Some(created));
     Ok(())
@@ -38,15 +42,21 @@ async fn create_validates_then_stores() -> Result<(), ContactListFailure> {
 async fn invalid_input_writes_nothing() -> Result<(), ContactListFailure> {
     let book = InMemoryContactBook::default();
     assert_eq!(
-        CreateContactList { book: &book }
-            .execute(input(" ", &[], false))
-            .await,
+        CreateContactList {
+            book: &book,
+            normalizer: &FakeNfc
+        }
+        .execute(input(" ", &[], false))
+        .await,
         Err(ContactListFailure::Invalid(ContactListError::NoName))
     );
     assert_eq!(
-        CreateContactList { book: &book }
-            .execute(input(&"x".repeat(1000), &[], false))
-            .await,
+        CreateContactList {
+            book: &book,
+            normalizer: &FakeNfc
+        }
+        .execute(input(&"x".repeat(1000), &[], false))
+        .await,
         Err(ContactListFailure::Invalid(ContactListError::TooLong(
             ContactListField::Name
         )))
@@ -64,10 +74,16 @@ async fn invalid_input_writes_nothing() -> Result<(), ContactListFailure> {
 async fn update_validates_then_replaces_and_reports_refusals() -> Result<(), ContactListFailure> {
     let book = InMemoryContactBook::default();
     let alice = contact(&book, "Alice", "alice@example.com").await;
-    let create = CreateContactList { book: &book };
+    let create = CreateContactList {
+        book: &book,
+        normalizer: &FakeNfc,
+    };
     let list = create.execute(input("Famille", &[], false)).await?;
     create.execute(input("Club", &[], false)).await?;
-    let update = UpdateContactList { book: &book };
+    let update = UpdateContactList {
+        book: &book,
+        normalizer: &FakeNfc,
+    };
     let updated = update
         .execute(list.id(), input("Famille proche", &[alice.id()], false))
         .await?;
@@ -89,7 +105,10 @@ async fn update_validates_then_replaces_and_reports_refusals() -> Result<(), Con
 async fn list_filters_on_the_name_and_delete_keeps_contacts() -> Result<(), ContactListFailure> {
     let book = InMemoryContactBook::default();
     let alice = contact(&book, "Alice", "alice@example.com").await;
-    let create = CreateContactList { book: &book };
+    let create = CreateContactList {
+        book: &book,
+        normalizer: &FakeNfc,
+    };
     let a = create
         .execute(input("Famille", &[alice.id()], false))
         .await?;

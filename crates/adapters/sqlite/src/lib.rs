@@ -34,15 +34,17 @@ use norelly_domain::credentials::Username;
 use norelly_domain::endpoint::{Host, Protocol, Security, ServerEndpoint};
 use norelly_domain::oauth::{OAuthProvider, OAuthSubject};
 use norelly_domain::ports::{
-    AccountRepository, AccountStoreError, CertificateExceptionStore, StoreError,
+    AccountRepository, AccountStoreError, CertificateExceptionStore, StoreError, TextNormalizer,
 };
 use norelly_domain::security::{CertificateException, CertificateFingerprint};
 use rusqlite::{Connection, OpenFlags, Row, params};
 use rusqlite_migration::{M, Migrations};
 
 /// Migrations, dans l'ordre. Ne jamais modifier une migration publiée :
-/// en ajouter une nouvelle.
-fn migrations() -> Migrations<'static> {
+/// en ajouter une nouvelle. `normalizer` met en NFC les noms des listes
+/// (version 26).
+fn migrations(normalizer: &Arc<dyn TextNormalizer>) -> Migrations<'static> {
+    let nfc = Arc::clone(normalizer);
     Migrations::new(vec![
         M::up(include_str!("../migrations/0001_accounts.sql")),
         M::up(include_str!("../migrations/0002_mail.sql")),
@@ -86,6 +88,13 @@ fn migrations() -> Migrations<'static> {
         ),
         M::up(include_str!("../migrations/0024_carddav.sql")),
         M::up(include_str!("../migrations/0025_contact_details.sql")),
+        M::up_with_hook(
+            include_str!("../migrations/0026_contact_list_names_nfc.sql"),
+            move |tx: &rusqlite::Transaction<'_>| {
+                contact_lists::normalize_list_names(tx, &*nfc)
+                    .map_err(|e| rusqlite_migration::HookError::Hook(e.0))
+            },
+        ),
     ])
 }
 
@@ -111,20 +120,32 @@ pub enum OpenError {
 }
 
 /// Base SQLite partagée par les dépôts.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Database {
     conn: Arc<Mutex<Connection>>,
     readers: Option<Arc<Readers>>,
+    /// Normalisation Unicode des noms de liste (revalidation à la lecture,
+    /// migration), choisie au point d'assemblage.
+    normalizer: Arc<dyn TextNormalizer>,
+}
+
+impl std::fmt::Debug for Database {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Database")
+            .field("readers", &self.readers)
+            .finish_non_exhaustive()
+    }
 }
 
 impl Database {
     /// Ouvre (ou crée) la base, en mode WAL, applique les migrations et
-    /// ouvre [`READERS`] connexions de lecture.
-    pub fn open(path: &Path) -> Result<Self, OpenError> {
+    /// ouvre [`READERS`] connexions de lecture. `normalizer` met en NFC les
+    /// noms des listes de diffusion.
+    pub fn open(path: &Path, normalizer: impl TextNormalizer + 'static) -> Result<Self, OpenError> {
         let conn = Connection::open(path)?;
         conn.pragma_update(None, "journal_mode", "WAL")?;
         conn.pragma_update(None, "synchronous", "NORMAL")?;
-        let mut db = Self::init(conn)?;
+        let mut db = Self::init(conn, Arc::new(normalizer))?;
         let mut readers = Vec::with_capacity(READERS);
         for _ in 0..READERS {
             let reader = Connection::open_with_flags(
@@ -143,21 +164,27 @@ impl Database {
     }
 
     /// Base en mémoire (tests).
-    pub fn open_in_memory() -> Result<Self, OpenError> {
-        Self::init(Connection::open_in_memory()?)
+    pub fn open_in_memory(normalizer: impl TextNormalizer + 'static) -> Result<Self, OpenError> {
+        Self::init(Connection::open_in_memory()?, Arc::new(normalizer))
     }
 
-    fn init(mut conn: Connection) -> Result<Self, OpenError> {
+    fn init(mut conn: Connection, normalizer: Arc<dyn TextNormalizer>) -> Result<Self, OpenError> {
         conn.pragma_update(None, "foreign_keys", "ON")?;
         conn.busy_timeout(std::time::Duration::from_secs(5))?;
-        migrations().to_latest(&mut conn)?;
+        migrations(&normalizer).to_latest(&mut conn)?;
         // Messages d'une base antérieure à la version 3 : rattachés à leur
         // conversation une fois pour toutes.
         conversations::backfill(&mut conn).map_err(|e| OpenError::Backfill(e.0))?;
         Ok(Self {
             conn: Arc::new(Mutex::new(conn)),
             readers: None,
+            normalizer,
         })
+    }
+
+    /// Normalisation Unicode reçue à l'ouverture.
+    pub(crate) fn normalizer(&self) -> Arc<dyn TextNormalizer> {
+        Arc::clone(&self.normalizer)
     }
 
     /// Exécute `f` sur la connexion du rédacteur, hors du fil asynchrone.
@@ -607,15 +634,21 @@ mod tests {
         account_repository_contract, certificate_exception_store_contract, sample_account,
     };
 
+    use norelly_test_support::contact_import_contracts::FakeNfc;
+
     use super::*;
 
+    fn nfc() -> Arc<dyn TextNormalizer> {
+        Arc::new(FakeNfc)
+    }
+
     fn db() -> Database {
-        Database::open_in_memory().unwrap_or_else(|e| panic!("{e}"))
+        Database::open_in_memory(FakeNfc).unwrap_or_else(|e| panic!("{e}"))
     }
 
     #[test]
     fn migrations_are_valid() {
-        assert!(migrations().validate().is_ok());
+        assert!(migrations(&nfc()).validate().is_ok());
     }
 
     /// Données représentatives de chaque version du schéma, insérées juste
@@ -739,6 +772,9 @@ mod tests {
          VALUES (1, 0, '1 rue V25', 'Lyon', NULL, '69001', NULL, 'maison'); \
          INSERT INTO contact_websites (contact_id, position, url, label) \
          VALUES (1, 0, 'https://v25.example', NULL);",
+        // v26 : schéma inchangé (noms des listes en NFC) ; une liste de
+        // plus.
+        "INSERT INTO contact_lists (name, name_key) VALUES ('V26', 'v26');",
     ];
 
     /// Montée vers la version 24 : les fiches existantes ne sont pas
@@ -749,7 +785,7 @@ mod tests {
         let mut conn = Connection::open_in_memory().map_err(store_error)?;
         conn.pragma_update(None, "foreign_keys", "ON")
             .map_err(store_error)?;
-        let m = migrations();
+        let m = migrations(&nfc());
         for (version, fixture) in FIXTURES.iter().enumerate().take(23) {
             m.to_version(&mut conn, version + 1)
                 .map_err(|e| StoreError(e.to_string()))?;
@@ -818,7 +854,7 @@ mod tests {
         let mut conn = Connection::open_in_memory().map_err(store_error)?;
         conn.pragma_update(None, "foreign_keys", "ON")
             .map_err(store_error)?;
-        let m = migrations();
+        let m = migrations(&nfc());
         // Montée vers la version 23 elle-même, quelles que soient les
         // suivantes.
         let target = 23;
@@ -896,7 +932,7 @@ mod tests {
             "max\ndupont\nmax dupont\nceo@bank.example\nmax@example.com"
         );
 
-        let db = Database::init(conn).map_err(|e| StoreError(e.to_string()))?;
+        let db = Database::init(conn, nfc()).map_err(|e| StoreError(e.to_string()))?;
         let book = contacts::SqliteContactBook::new(db);
         let id = ContactId::new(30).ok_or_else(|| StoreError("id".into()))?;
         assert!(book.get(id).await?.is_some(), "fiche 30 relue");
@@ -914,6 +950,75 @@ mod tests {
         Ok(())
     }
 
+    /// Base de version 25 : à la montée en version 26, les noms des listes
+    /// sont mis en NFC ; deux listes devenues homonymes ne sont pas
+    /// fusionnées, la plus récente reçoit le suffixe « (2) » (sans prendre
+    /// la clé d'une autre liste, même écartée). Une liste écartée à la
+    /// lecture est laissée telle quelle ; les autres se relisent.
+    #[tokio::test]
+    async fn upgrading_to_v26_puts_list_names_in_nfc() -> Result<(), StoreError> {
+        use norelly_domain::contact_lists::{ContactListFilter, ContactListId};
+        use norelly_domain::ports::{ContactListDirectory, PageSize};
+        let mut conn = Connection::open_in_memory().map_err(store_error)?;
+        conn.pragma_update(None, "foreign_keys", "ON")
+            .map_err(store_error)?;
+        let m = migrations(&nfc());
+        let target = 26;
+        for (version, fixture) in FIXTURES.iter().enumerate().take(target - 1) {
+            m.to_version(&mut conn, version + 1)
+                .map_err(|e| StoreError(e.to_string()))?;
+            conn.execute_batch(fixture).map_err(store_error)?;
+        }
+        // Liste 30 : « Été » décomposé, clé d'avant (minuscules seules).
+        // Liste 31 : « Été » précomposé, plus récente.
+        // Liste 32 : corrompue (clé qui n'est pas celle de son nom) ; sa
+        // clé « été (2) » ne doit pas être prise.
+        // Liste 33 : nom déjà en NFC, inchangée.
+        // Liste 34 : clé déjà libérée (liste écartée).
+        conn.execute_batch(
+            "INSERT INTO contact_lists (id, name, name_key) VALUES \
+             (30, 'E' || char(769) || 'te' || char(769), 'e' || char(769) || 'te' || char(769)), \
+             (31, 'Été', 'été'), \
+             (32, 'zz', 'été (2)'), \
+             (33, 'Club', 'club'), \
+             (34, 'Club', char(1) || '34');",
+        )
+        .map_err(store_error)?;
+        m.to_version(&mut conn, target)
+            .map_err(|e| StoreError(e.to_string()))?;
+        let stored = |id: i64| -> Result<(String, String), StoreError> {
+            conn.query_row(
+                "SELECT name, name_key FROM contact_lists WHERE id = ?1",
+                [id],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .map_err(store_error)
+        };
+        let pair = |a: &str, b: &str| (a.to_owned(), b.to_owned());
+        assert_eq!(stored(30)?, pair("Été", "été"));
+        assert_eq!(stored(31)?, pair("Été (3)", "été (3)"));
+        assert_eq!(stored(32)?, pair("zz", "été (2)"));
+        assert_eq!(stored(33)?, pair("Club", "club"));
+        assert_eq!(stored(34)?, pair("Club", "\u{1}34"));
+
+        let db = Database::init(conn, nfc()).map_err(|e| StoreError(e.to_string()))?;
+        let book = contacts::SqliteContactBook::new(db);
+        for id in [30, 31, 33] {
+            let id = ContactListId::new(id).ok_or_else(|| StoreError("id".into()))?;
+            assert!(book.get_list(id).await?.is_some(), "liste {id} relue");
+        }
+        for id in [32, 34] {
+            let id = ContactListId::new(id).ok_or_else(|| StoreError("id".into()))?;
+            assert_eq!(book.get_list(id).await?, None, "liste {id} écartée");
+        }
+        let page = book
+            .list_page(&ContactListFilter::new("été"), None, PageSize::new(10))
+            .await?;
+        let names: Vec<&str> = page.items.iter().map(|l| l.name.as_str()).collect();
+        assert_eq!(names, ["Été", "Été (3)"]);
+        Ok(())
+    }
+
     /// Base de version 20 : à la montée en version 21, la file d'opérations
     /// est reconstruite sans rien perdre (opérations et compteur des
     /// identifiants, que désignent les copies provisoires) ; une opération
@@ -923,7 +1028,7 @@ mod tests {
         let mut conn = Connection::open_in_memory().map_err(store_error)?;
         conn.pragma_update(None, "foreign_keys", "ON")
             .map_err(store_error)?;
-        let m = migrations();
+        let m = migrations(&nfc());
         for (version, fixture) in FIXTURES.iter().enumerate().take(20) {
             m.to_version(&mut conn, version + 1)
                 .map_err(|e| StoreError(e.to_string()))?;
@@ -980,7 +1085,7 @@ mod tests {
         let mut conn = Connection::open_in_memory().map_err(store_error)?;
         conn.pragma_update(None, "foreign_keys", "ON")
             .map_err(store_error)?;
-        let m = migrations();
+        let m = migrations(&nfc());
         for (version, fixture) in FIXTURES.iter().enumerate().take(19) {
             m.to_version(&mut conn, version + 1)
                 .map_err(|e| StoreError(e.to_string()))?;
@@ -1014,7 +1119,7 @@ mod tests {
         let mut conn = Connection::open_in_memory().map_err(store_error)?;
         conn.pragma_update(None, "foreign_keys", "ON")
             .map_err(store_error)?;
-        let m = migrations();
+        let m = migrations(&nfc());
         for (version, fixture) in FIXTURES.iter().enumerate().take(17) {
             m.to_version(&mut conn, version + 1)
                 .map_err(|e| StoreError(e.to_string()))?;
@@ -1045,7 +1150,7 @@ mod tests {
              INSERT INTO contact_list_members (list_id, position, contact_id) VALUES (1, 1, 3);",
         )
         .map_err(store_error)?;
-        let db = Database::init(conn).map_err(|e| StoreError(e.to_string()))?;
+        let db = Database::init(conn, nfc()).map_err(|e| StoreError(e.to_string()))?;
         let book = contacts::SqliteContactBook::new(db);
         let id = |raw| ContactId::new(raw).ok_or_else(|| StoreError("id".into()));
 
@@ -1119,7 +1224,7 @@ mod tests {
         let mut conn = Connection::open_in_memory().map_err(store_error)?;
         conn.pragma_update(None, "foreign_keys", "ON")
             .map_err(store_error)?;
-        let m = migrations();
+        let m = migrations(&nfc());
         for (version, fixture) in FIXTURES.iter().enumerate().take(17) {
             m.to_version(&mut conn, version + 1)
                 .map_err(|e| StoreError(e.to_string()))?;
@@ -1164,7 +1269,7 @@ mod tests {
         let mut conn = Connection::open_in_memory().map_err(store_error)?;
         conn.pragma_update(None, "foreign_keys", "ON")
             .map_err(store_error)?;
-        let m = migrations();
+        let m = migrations(&nfc());
         for (version, fixture) in FIXTURES.iter().enumerate().take(17) {
             m.to_version(&mut conn, version + 1)
                 .map_err(|e| StoreError(e.to_string()))?;
@@ -1253,13 +1358,13 @@ mod tests {
         let mut conn = Connection::open_in_memory().map_err(store_error)?;
         conn.pragma_update(None, "foreign_keys", "ON")
             .map_err(store_error)?;
-        let m = migrations();
+        let m = migrations(&nfc());
         for (version, fixture) in FIXTURES.iter().enumerate() {
             m.to_version(&mut conn, version + 1)
                 .map_err(|e| StoreError(e.to_string()))?;
             conn.execute_batch(fixture).map_err(store_error)?;
         }
-        let db = Database::init(conn).map_err(|e| StoreError(e.to_string()))?;
+        let db = Database::init(conn, nfc()).map_err(|e| StoreError(e.to_string()))?;
         let book = contacts::SqliteContactBook::new(db);
         let id = |n| ContactId::new(n).ok_or_else(|| StoreError("id".into()));
         let v18 = book
@@ -1288,16 +1393,18 @@ mod tests {
         let latest = FIXTURES.len();
         // Une fixture par migration : il n'existe pas de version au-delà.
         let mut fresh = Connection::open_in_memory().unwrap_or_else(|e| panic!("{e}"));
-        assert!(migrations().to_version(&mut fresh, latest).is_ok());
+        assert!(migrations(&nfc()).to_version(&mut fresh, latest).is_ok());
         assert!(
-            migrations().to_version(&mut fresh, latest + 1).is_err(),
+            migrations(&nfc())
+                .to_version(&mut fresh, latest + 1)
+                .is_err(),
             "migration sans fixture dans FIXTURES"
         );
         for start in 0..latest {
             let mut conn = Connection::open_in_memory().unwrap_or_else(|e| panic!("{e}"));
             conn.pragma_update(None, "foreign_keys", "ON")
                 .unwrap_or_else(|e| panic!("{e}"));
-            let m = migrations();
+            let m = migrations(&nfc());
             for (version, fixture) in FIXTURES.iter().enumerate().take(start + 1) {
                 m.to_version(&mut conn, version + 1)
                     .unwrap_or_else(|e| panic!("vers v{} : {e}", version + 1));
@@ -1362,7 +1469,7 @@ mod tests {
         let mut conn = Connection::open_in_memory().map_err(store_error)?;
         conn.pragma_update(None, "foreign_keys", "ON")
             .map_err(store_error)?;
-        let m = migrations();
+        let m = migrations(&nfc());
         for (version, fixture) in FIXTURES.iter().enumerate().take(18) {
             m.to_version(&mut conn, version + 1)
                 .map_err(|e| StoreError(e.to_string()))?;
@@ -1447,7 +1554,7 @@ mod tests {
             .map_err(store_error)?;
         assert_eq!(blob, ("w@v".to_owned(), vec![0x00, 0xFF]));
 
-        let db = Database::init(conn).map_err(|e| StoreError(e.to_string()))?;
+        let db = Database::init(conn, nfc()).map_err(|e| StoreError(e.to_string()))?;
         let book = contacts::SqliteContactBook::new(db);
         let id = ContactId::new(10).ok_or_else(|| StoreError("id".into()))?;
         let bob = book.get(id).await?.ok_or_else(|| StoreError("10".into()))?;
@@ -1467,7 +1574,7 @@ mod tests {
         let mut conn = Connection::open_in_memory().map_err(store_error)?;
         conn.pragma_update(None, "foreign_keys", "ON")
             .map_err(store_error)?;
-        let m = migrations();
+        let m = migrations(&nfc());
         for (version, fixture) in FIXTURES.iter().enumerate().take(17) {
             m.to_version(&mut conn, version + 1)
                 .map_err(|e| StoreError(e.to_string()))?;
@@ -1491,7 +1598,7 @@ mod tests {
         assert_eq!(sort_key, "alice");
         assert!(!search_text.contains("bank"), "{search_text}");
 
-        let db = Database::init(conn).map_err(|e| StoreError(e.to_string()))?;
+        let db = Database::init(conn, nfc()).map_err(|e| StoreError(e.to_string()))?;
         let book = contacts::SqliteContactBook::new(db);
         let id = ContactId::new(20).ok_or_else(|| StoreError("id".into()))?;
         let alice = book.get(id).await?.ok_or_else(|| StoreError("20".into()))?;
@@ -1509,7 +1616,7 @@ mod tests {
     #[test]
     fn upgrading_to_v14_keeps_microsoft_accounts_and_accepts_google() {
         let mut conn = Connection::open_in_memory().unwrap_or_else(|e| panic!("{e}"));
-        let m = migrations();
+        let m = migrations(&nfc());
         for (version, fixture) in FIXTURES.iter().enumerate().take(13) {
             m.to_version(&mut conn, version + 1)
                 .unwrap_or_else(|e| panic!("vers v{} : {e}", version + 1));
@@ -1549,7 +1656,7 @@ mod tests {
     #[test]
     fn upgrading_to_v17_keeps_accounts_without_a_stable_subject() {
         let mut conn = Connection::open_in_memory().unwrap_or_else(|e| panic!("{e}"));
-        let m = migrations();
+        let m = migrations(&nfc());
         for (version, fixture) in FIXTURES.iter().enumerate().take(16) {
             m.to_version(&mut conn, version + 1)
                 .unwrap_or_else(|e| panic!("vers v{} : {e}", version + 1));
@@ -1615,7 +1722,7 @@ mod tests {
         let mut conn = Connection::open_in_memory().unwrap_or_else(|e| panic!("{e}"));
         conn.pragma_update(None, "foreign_keys", "ON")
             .unwrap_or_else(|e| panic!("{e}"));
-        let m = migrations();
+        let m = migrations(&nfc());
         for (version, fixture) in FIXTURES.iter().enumerate().take(14) {
             m.to_version(&mut conn, version + 1)
                 .unwrap_or_else(|e| panic!("vers v{} : {e}", version + 1));
@@ -1699,7 +1806,7 @@ mod tests {
         let mut conn = Connection::open_in_memory().unwrap_or_else(|e| panic!("{e}"));
         conn.pragma_update(None, "foreign_keys", "ON")
             .unwrap_or_else(|e| panic!("{e}"));
-        let m = migrations();
+        let m = migrations(&nfc());
         for (version, fixture) in FIXTURES.iter().enumerate().take(15) {
             m.to_version(&mut conn, version + 1)
                 .unwrap_or_else(|e| panic!("vers v{} : {e}", version + 1));
@@ -1775,7 +1882,7 @@ mod tests {
     async fn upgrading_to_v8_attaches_remote_copies_to_their_mailbox() -> Result<(), StoreError> {
         use norelly_domain::ports::DraftStore;
         let mut conn = Connection::open_in_memory().map_err(store_error)?;
-        migrations()
+        migrations(&nfc())
             .to_version(&mut conn, 7)
             .map_err(|e| StoreError(e.to_string()))?;
         for fixture in FIXTURES.iter().take(7) {
@@ -1795,7 +1902,7 @@ mod tests {
              INSERT INTO draft_remote_trash (account_id, validity, uid) VALUES (2, 9, 3);",
         )
         .map_err(store_error)?;
-        migrations()
+        migrations(&nfc())
             .to_latest(&mut conn)
             .map_err(|e| StoreError(e.to_string()))?;
         // Compte 1 : aucun dossier « Brouillons », copie oubliée.
@@ -1810,6 +1917,7 @@ mod tests {
         let db = Database {
             conn: Arc::new(Mutex::new(conn)),
             readers: None,
+            normalizer: nfc(),
         };
         let store = compose::SqliteComposeStore::new(db);
         let two = AccountId::new(2).map_err(|e| StoreError(e.to_string()))?;
@@ -1843,7 +1951,7 @@ mod tests {
         let path = dir.join("v6.sqlite3");
         {
             let mut conn = Connection::open(&path).map_err(store_error)?;
-            migrations()
+            migrations(&nfc())
                 .to_version(&mut conn, 6)
                 .map_err(|e| StoreError(e.to_string()))?;
             for fixture in FIXTURES.iter().take(6) {
@@ -1858,7 +1966,7 @@ mod tests {
             )
             .map_err(store_error)?;
         }
-        let db = Database::open(&path).map_err(|e| StoreError(e.to_string()))?;
+        let db = Database::open(&path, FakeNfc).map_err(|e| StoreError(e.to_string()))?;
         let store = mail::SqliteMailStore::new(db);
         let search = |text: &str| SearchRequest {
             query: norelly_domain::search::parse_query(text).unwrap_or_default(),
@@ -1891,7 +1999,7 @@ mod tests {
         let path = dir.join("v2.sqlite3");
         {
             let mut conn = Connection::open(&path).map_err(store_error)?;
-            migrations()
+            migrations(&nfc())
                 .to_version(&mut conn, 2)
                 .map_err(|e| StoreError(e.to_string()))?;
             for fixture in FIXTURES.iter().take(2) {
@@ -1905,7 +2013,7 @@ mod tests {
             )
             .map_err(store_error)?;
         }
-        let db = Database::open(&path).map_err(|e| StoreError(e.to_string()))?;
+        let db = Database::open(&path, FakeNfc).map_err(|e| StoreError(e.to_string()))?;
         let store = mail::SqliteMailStore::new(db);
         let inbox =
             norelly_domain::mailbox::MailboxId::new(1).ok_or_else(|| StoreError("id".into()))?;
@@ -1940,13 +2048,14 @@ mod tests {
         let _ = std::fs::remove_file(&path);
         let stored = {
             let repo = SqliteAccountRepository::new(
-                Database::open(&path).unwrap_or_else(|e| panic!("{e}")),
+                Database::open(&path, FakeNfc).unwrap_or_else(|e| panic!("{e}")),
             );
             repo.insert(&sample_account("alice@example.com", true))
                 .await?
         };
-        let reopened =
-            SqliteAccountRepository::new(Database::open(&path).unwrap_or_else(|e| panic!("{e}")));
+        let reopened = SqliteAccountRepository::new(
+            Database::open(&path, FakeNfc).unwrap_or_else(|e| panic!("{e}")),
+        );
         assert_eq!(reopened.list().await?, vec![stored]);
         let _ = std::fs::remove_dir_all(&dir);
         Ok(())
@@ -1961,7 +2070,8 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("norelly-readers-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).map_err(|e| StoreError(e.to_string()))?;
-        let db = Database::open(&dir.join("t.sqlite3")).map_err(|e| StoreError(e.to_string()))?;
+        let db = Database::open(&dir.join("t.sqlite3"), FakeNfc)
+            .map_err(|e| StoreError(e.to_string()))?;
         let repo = SqliteAccountRepository::new(db.clone());
         let stored = repo
             .insert(&sample_account("alice@example.com", false))

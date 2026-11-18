@@ -585,7 +585,14 @@ est majoritairement écrit par Claude et relu par le mainteneur.
     jamais une adresse périmée dans une liste). L'envoi en Cci est une
     propriété de la liste, choisie dans son dialogue ; les listes sont
     proposées par une commande à part (`suggest_contact_lists`),
-    `suggest_contacts` restant inchangé ;
+    `suggest_contacts` restant inchangé. Unicité du nom (**décision du
+    mainteneur, 2026-11-18**) : le nom est mis en **NFC seul** (casse et
+    accents gardés dans le nom, clé en minuscules comme avant) par le
+    port `TextNormalizer` reçu en paramètre, sans dépendance nouvelle
+    dans le domaine ; l'adaptateur SQLite le reçoit à l'ouverture de la
+    base (revalidation à la lecture, migration 26). Deux listes
+    existantes devenues homonymes : la plus récente reçoit le suffixe
+    « (2) », aucune fusion ;
   - import (lot 6) : **écarts au plan validés par le mainteneur le
     2026-11-08**. La forme NFC des noms importés est décidée par
     `plan_import` à travers un port `TextNormalizer` (le domaine

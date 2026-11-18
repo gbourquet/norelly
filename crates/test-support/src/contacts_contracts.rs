@@ -4,6 +4,7 @@
 
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
+use crate::contact_import_contracts::FakeNfc;
 use norelly_domain::address::EmailAddress;
 use norelly_domain::contact_duplicates::{DismissedPair, MAX_DISMISSED_PAIRS};
 use norelly_domain::contact_export::ContactSelection;
@@ -948,10 +949,13 @@ impl ContactBook for InMemoryContactBook {
                 }
             }
             if members != list.draft().members() {
-                let draft = ContactListDraft::new(ContactListInput {
-                    members: members.iter().map(|m| m.get()).collect(),
-                    ..list.draft().to_input()
-                })
+                let draft = ContactListDraft::new(
+                    ContactListInput {
+                        members: members.iter().map(|m| m.get()).collect(),
+                        ..list.draft().to_input()
+                    },
+                    &FakeNfc,
+                )
                 .map_err(|e| ContactStoreError::Corrupted(e.to_string()))?;
                 *list = draft.with_id(list.id());
             }
@@ -981,10 +985,13 @@ impl ContactBook for InMemoryContactBook {
                 .map(|m| m.get())
                 .collect();
             if kept.len() != list.draft().members().len() {
-                let draft = ContactListDraft::new(ContactListInput {
-                    members: kept,
-                    ..list.draft().to_input()
-                })
+                let draft = ContactListDraft::new(
+                    ContactListInput {
+                        members: kept,
+                        ..list.draft().to_input()
+                    },
+                    &FakeNfc,
+                )
                 .map_err(|e| ContactStoreError::Corrupted(e.to_string()))?;
                 *list = draft.with_id(list.id());
             }

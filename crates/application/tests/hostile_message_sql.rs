@@ -755,14 +755,17 @@ async fn trapped_contact_lists_cannot_alter_the_database() -> Result<(), Box<dyn
     // l'identique, retrouvées par leur nom, dépliées.
     let mut created = Vec::new();
     for (n, payload) in PAYLOADS.iter().enumerate() {
-        let list = CreateContactList { book: &book }
-            .execute(ContactListInput {
-                name: format!("{n} {payload}"),
-                description: PAYLOADS[(n + 1) % PAYLOADS.len()].to_owned(),
-                members: vec![member.id().get()],
-                bcc: n.is_multiple_of(2),
-            })
-            .await?;
+        let list = CreateContactList {
+            book: &book,
+            normalizer: &norelly_contacts_io::IcuNfc,
+        }
+        .execute(ContactListInput {
+            name: format!("{n} {payload}"),
+            description: PAYLOADS[(n + 1) % PAYLOADS.len()].to_owned(),
+            members: vec![member.id().get()],
+            bcc: n.is_multiple_of(2),
+        })
+        .await?;
         assert_eq!(book.get_list(list.id()).await?.as_ref(), Some(&list));
         created.push(list);
     }
@@ -789,15 +792,18 @@ async fn trapped_contact_lists_cannot_alter_the_database() -> Result<(), Box<dyn
     }
 
     // Modification et suppression piégées.
-    let renamed = UpdateContactList { book: &book }
-        .execute(
-            created[0].id(),
-            ContactListInput {
-                name: PAYLOADS[3].to_owned(),
-                ..created[0].draft().to_input()
-            },
-        )
-        .await?;
+    let renamed = UpdateContactList {
+        book: &book,
+        normalizer: &norelly_contacts_io::IcuNfc,
+    }
+    .execute(
+        created[0].id(),
+        ContactListInput {
+            name: PAYLOADS[3].to_owned(),
+            ..created[0].draft().to_input()
+        },
+    )
+    .await?;
     assert_eq!(book.get_list(renamed.id()).await?, Some(renamed));
     let ids: Vec<_> = created.iter().map(|c| c.id()).collect();
     assert_eq!(book.delete_lists(&ids).await?, PAYLOADS.len());

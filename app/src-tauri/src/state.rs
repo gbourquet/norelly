@@ -346,7 +346,8 @@ impl AppState {
         create_private_dir(data_dir).map_err(|e| format!("{}: {e}", data_dir.display()))?;
         let open_dir = cache_dir.join("pieces-jointes");
         create_private_dir(&open_dir).map_err(|e| format!("{}: {e}", open_dir.display()))?;
-        let db = Database::open(&data_dir.join("norelly.sqlite3")).map_err(|e| e.to_string())?;
+        let db =
+            Database::open(&data_dir.join("norelly.sqlite3"), IcuNfc).map_err(|e| e.to_string())?;
         let tls = TlsClientFactory::platform();
         let exceptions = SqliteCertificateExceptionStore::new(db.clone());
         let autoconfig = match HttpAutoconfigClient::new(&tls) {

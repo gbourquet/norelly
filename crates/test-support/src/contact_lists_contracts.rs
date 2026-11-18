@@ -14,17 +14,21 @@ use norelly_domain::ports::{
     MAX_CONTACT_LIST_SORT_KEY_CHARS, MAX_PAGE_SIZE, PageSize, StoreError,
 };
 
+use crate::contact_import_contracts::FakeNfc;
 use crate::contacts_contracts::{InMemoryContactBook, sample_contact};
 
 /// Liste de test : `name` et ses membres, dans cet ordre.
 #[must_use]
 pub fn sample_list(name: &str, members: &[ContactId], bcc: bool) -> ContactListDraft {
-    ContactListDraft::new(ContactListInput {
-        name: name.to_owned(),
-        description: String::new(),
-        members: members.iter().map(|id| id.get()).collect(),
-        bcc,
-    })
+    ContactListDraft::new(
+        ContactListInput {
+            name: name.to_owned(),
+            description: String::new(),
+            members: members.iter().map(|id| id.get()).collect(),
+            bcc,
+        },
+        &FakeNfc,
+    )
     .unwrap_or_else(|e| panic!("liste de test refusée : {e}"))
 }
 
@@ -109,12 +113,15 @@ where
 
     // Création et relecture : nom, description, Cci, membres dans leur
     // ordre.
-    let family = ContactListDraft::new(ContactListInput {
-        name: "Famille".into(),
-        description: "Les cousins aussi".into(),
-        members: vec![bob.get(), alice.get()],
-        bcc: true,
-    })
+    let family = ContactListDraft::new(
+        ContactListInput {
+            name: "Famille".into(),
+            description: "Les cousins aussi".into(),
+            members: vec![bob.get(), alice.get()],
+            bcc: true,
+        },
+        &FakeNfc,
+    )
     .unwrap_or_else(|e| panic!("{e}"));
     let famille = book.create_list(&family).await?;
     assert_eq!(famille.draft(), &family, "liste relue différente");

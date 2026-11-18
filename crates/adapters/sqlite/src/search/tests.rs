@@ -29,7 +29,8 @@ async fn two_accounts(db: &Database) -> Result<(AccountId, AccountId), StoreErro
 
 #[tokio::test]
 async fn search_passes_contract() -> Result<(), StoreError> {
-    let db = Database::open_in_memory().map_err(|e| StoreError(e.to_string()))?;
+    let db = Database::open_in_memory(norelly_test_support::contact_import_contracts::FakeNfc)
+        .map_err(|e| StoreError(e.to_string()))?;
     let (a, b) = two_accounts(&db).await?;
     search_index_contract(&SqliteMailStore::new(db), a, b).await
 }
@@ -39,7 +40,11 @@ async fn file_search_with_reader_pool_passes_contract() -> Result<(), StoreError
     let dir = std::env::temp_dir().join(format!("norelly-sqlite-search-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).map_err(|e| StoreError(e.to_string()))?;
-    let db = Database::open(&dir.join("test.sqlite3")).map_err(|e| StoreError(e.to_string()))?;
+    let db = Database::open(
+        &dir.join("test.sqlite3"),
+        norelly_test_support::contact_import_contracts::FakeNfc,
+    )
+    .map_err(|e| StoreError(e.to_string()))?;
     let (a, b) = two_accounts(&db).await?;
     search_index_contract(&SqliteMailStore::new(db.clone()), a, b).await?;
     assert_eq!(db.integrity_problems().await?, Vec::<String>::new());
@@ -60,7 +65,8 @@ fn request(text: &str) -> SearchRequest {
 /// Base avec un compte, une boîte et le message `sample_message(1)`
 /// (« Sujet 1 »).
 async fn one_message() -> Result<(Database, SqliteMailStore), StoreError> {
-    let db = Database::open_in_memory().map_err(|e| StoreError(e.to_string()))?;
+    let db = Database::open_in_memory(norelly_test_support::contact_import_contracts::FakeNfc)
+        .map_err(|e| StoreError(e.to_string()))?;
     let (a, _) = two_accounts(&db).await?;
     let store = SqliteMailStore::new(db.clone());
     let boxes = store

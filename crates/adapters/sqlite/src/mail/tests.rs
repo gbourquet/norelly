@@ -31,14 +31,16 @@ async fn two_accounts(db: &Database) -> Result<(AccountId, AccountId), StoreErro
 
 #[tokio::test]
 async fn in_memory_store_passes_contract() -> Result<(), StoreError> {
-    let db = Database::open_in_memory().map_err(|e| StoreError(e.to_string()))?;
+    let db = Database::open_in_memory(norelly_test_support::contact_import_contracts::FakeNfc)
+        .map_err(|e| StoreError(e.to_string()))?;
     let (a, b) = two_accounts(&db).await?;
     mail_store_contract(&SqliteMailStore::new(db), a, b).await
 }
 
 #[tokio::test]
 async fn pending_ops_pass_contract() -> Result<(), StoreError> {
-    let db = Database::open_in_memory().map_err(|e| StoreError(e.to_string()))?;
+    let db = Database::open_in_memory(norelly_test_support::contact_import_contracts::FakeNfc)
+        .map_err(|e| StoreError(e.to_string()))?;
     let (a, b) = two_accounts(&db).await?;
     pending_op_store_contract(&SqliteMailStore::new(db), a, b).await
 }
@@ -46,7 +48,11 @@ async fn pending_ops_pass_contract() -> Result<(), StoreError> {
 #[tokio::test]
 async fn labels_pass_contract() -> Result<(), StoreError> {
     let path = temp_path("labels");
-    let db = Database::open(&path).map_err(|e| StoreError(e.to_string()))?;
+    let db = Database::open(
+        &path,
+        norelly_test_support::contact_import_contracts::FakeNfc,
+    )
+    .map_err(|e| StoreError(e.to_string()))?;
     let (a, b) = two_accounts(&db).await?;
     label_store_contract(&SqliteMailStore::new(db.clone()), a, b).await?;
     assert_eq!(db.integrity_problems().await?, Vec::<String>::new());
@@ -57,7 +63,11 @@ async fn labels_pass_contract() -> Result<(), StoreError> {
 #[tokio::test]
 async fn file_pending_ops_with_reader_pool_pass_contract() -> Result<(), StoreError> {
     let path = temp_path("pending-ops");
-    let db = Database::open(&path).map_err(|e| StoreError(e.to_string()))?;
+    let db = Database::open(
+        &path,
+        norelly_test_support::contact_import_contracts::FakeNfc,
+    )
+    .map_err(|e| StoreError(e.to_string()))?;
     let (a, b) = two_accounts(&db).await?;
     pending_op_store_contract(&SqliteMailStore::new(db.clone()), a, b).await?;
     // Base saine après les écritures (clés étrangères, déclencheurs).
@@ -68,14 +78,16 @@ async fn file_pending_ops_with_reader_pool_pass_contract() -> Result<(), StoreEr
 
 #[tokio::test]
 async fn conversations_pass_contract() -> Result<(), StoreError> {
-    let db = Database::open_in_memory().map_err(|e| StoreError(e.to_string()))?;
+    let db = Database::open_in_memory(norelly_test_support::contact_import_contracts::FakeNfc)
+        .map_err(|e| StoreError(e.to_string()))?;
     let (a, b) = two_accounts(&db).await?;
     conversation_query_contract(&SqliteMailStore::new(db), a, b).await
 }
 
 #[tokio::test]
 async fn forged_copies_pass_contract() -> Result<(), StoreError> {
-    let db = Database::open_in_memory().map_err(|e| StoreError(e.to_string()))?;
+    let db = Database::open_in_memory(norelly_test_support::contact_import_contracts::FakeNfc)
+        .map_err(|e| StoreError(e.to_string()))?;
     let (a, _) = two_accounts(&db).await?;
     forged_copy_contract(&SqliteMailStore::new(db), a).await
 }
@@ -83,7 +95,11 @@ async fn forged_copies_pass_contract() -> Result<(), StoreError> {
 #[tokio::test]
 async fn file_conversations_with_reader_pool_pass_contract() -> Result<(), StoreError> {
     let path = temp_path("conversations");
-    let db = Database::open(&path).map_err(|e| StoreError(e.to_string()))?;
+    let db = Database::open(
+        &path,
+        norelly_test_support::contact_import_contracts::FakeNfc,
+    )
+    .map_err(|e| StoreError(e.to_string()))?;
     let (a, b) = two_accounts(&db).await?;
     conversation_query_contract(&SqliteMailStore::new(db), a, b).await?;
     let _ = std::fs::remove_dir_all(path.parent().unwrap_or(&path));
@@ -93,7 +109,11 @@ async fn file_conversations_with_reader_pool_pass_contract() -> Result<(), Store
 #[tokio::test]
 async fn file_store_with_reader_pool_passes_contract() -> Result<(), StoreError> {
     let path = temp_path("contract");
-    let db = Database::open(&path).map_err(|e| StoreError(e.to_string()))?;
+    let db = Database::open(
+        &path,
+        norelly_test_support::contact_import_contracts::FakeNfc,
+    )
+    .map_err(|e| StoreError(e.to_string()))?;
     let (a, b) = two_accounts(&db).await?;
     mail_store_contract(&SqliteMailStore::new(db), a, b).await?;
     let _ = std::fs::remove_dir_all(path.parent().unwrap_or(&path));
@@ -102,7 +122,8 @@ async fn file_store_with_reader_pool_passes_contract() -> Result<(), StoreError>
 
 #[tokio::test]
 async fn deleting_an_account_removes_its_mailboxes_and_messages() -> Result<(), StoreError> {
-    let db = Database::open_in_memory().map_err(|e| StoreError(e.to_string()))?;
+    let db = Database::open_in_memory(norelly_test_support::contact_import_contracts::FakeNfc)
+        .map_err(|e| StoreError(e.to_string()))?;
     let (a, _) = two_accounts(&db).await?;
     let store = SqliteMailStore::new(db.clone());
     let boxes = store
@@ -146,7 +167,8 @@ async fn deleting_an_account_removes_its_mailboxes_and_messages() -> Result<(), 
 
 #[tokio::test]
 async fn bodies_roundtrip() -> Result<(), StoreError> {
-    let db = Database::open_in_memory().map_err(|e| StoreError(e.to_string()))?;
+    let db = Database::open_in_memory(norelly_test_support::contact_import_contracts::FakeNfc)
+        .map_err(|e| StoreError(e.to_string()))?;
     let (a, _) = two_accounts(&db).await?;
     let store = SqliteMailStore::new(db);
     let inbox = store
@@ -194,7 +216,8 @@ async fn bodies_roundtrip() -> Result<(), StoreError> {
 
 #[tokio::test]
 async fn hand_edited_rows_are_revalidated() -> Result<(), StoreError> {
-    let db = Database::open_in_memory().map_err(|e| StoreError(e.to_string()))?;
+    let db = Database::open_in_memory(norelly_test_support::contact_import_contracts::FakeNfc)
+        .map_err(|e| StoreError(e.to_string()))?;
     let (a, _) = two_accounts(&db).await?;
     let store = SqliteMailStore::new(db.clone());
     let inbox = store
@@ -256,7 +279,11 @@ async fn hand_edited_rows_are_revalidated() -> Result<(), StoreError> {
 #[tokio::test]
 async fn readers_see_committed_writes() -> Result<(), StoreError> {
     let path = temp_path("readers");
-    let db = Database::open(&path).map_err(|e| StoreError(e.to_string()))?;
+    let db = Database::open(
+        &path,
+        norelly_test_support::contact_import_contracts::FakeNfc,
+    )
+    .map_err(|e| StoreError(e.to_string()))?;
     let (a, _) = two_accounts(&db).await?;
     let store = SqliteMailStore::new(db);
     let inbox = store
@@ -304,7 +331,8 @@ async fn record_all_is_all_or_nothing() -> Result<(), StoreError> {
     use norelly_domain::actions::{OpKind, PendingOp, QueueChange};
     use norelly_domain::mailbox::{MailboxName, Uid, UidValidity};
     use norelly_domain::ports::PendingOpStore;
-    let db = Database::open_in_memory().map_err(|e| StoreError(e.to_string()))?;
+    let db = Database::open_in_memory(norelly_test_support::contact_import_contracts::FakeNfc)
+        .map_err(|e| StoreError(e.to_string()))?;
     let (a, _) = two_accounts(&db).await?;
     let store = SqliteMailStore::new(db);
     let op = |account: AccountId| -> Result<PendingOp, StoreError> {
@@ -332,7 +360,8 @@ async fn record_all_is_all_or_nothing() -> Result<(), StoreError> {
 /// se lisent dans un index couvrant, sans parcourir la table des messages.
 #[tokio::test]
 async fn folder_counts_use_a_covering_index() -> Result<(), StoreError> {
-    let db = Database::open_in_memory().map_err(|e| StoreError(e.to_string()))?;
+    let db = Database::open_in_memory(norelly_test_support::contact_import_contracts::FakeNfc)
+        .map_err(|e| StoreError(e.to_string()))?;
     let plan = db
         .read_for_tests(|c| {
             let mut stmt = c
@@ -361,7 +390,8 @@ async fn a_hand_edited_sender_auth_reads_as_unknown() -> Result<(), StoreError> 
     use norelly_domain::conversation::ConversationScope;
     use norelly_domain::ports::ConversationQuery;
     use norelly_domain::sender_auth::SenderAuth;
-    let db = Database::open_in_memory().map_err(|e| StoreError(e.to_string()))?;
+    let db = Database::open_in_memory(norelly_test_support::contact_import_contracts::FakeNfc)
+        .map_err(|e| StoreError(e.to_string()))?;
     let (a, _) = two_accounts(&db).await?;
     let store = SqliteMailStore::new(db.clone());
     let inbox = store

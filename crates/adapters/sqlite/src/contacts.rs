@@ -1155,7 +1155,10 @@ mod tests {
     use super::*;
 
     fn book() -> SqliteContactBook {
-        SqliteContactBook::new(Database::open_in_memory().unwrap_or_else(|e| panic!("{e}")))
+        SqliteContactBook::new(
+            Database::open_in_memory(norelly_test_support::contact_import_contracts::FakeNfc)
+                .unwrap_or_else(|e| panic!("{e}")),
+        )
     }
 
     #[tokio::test]

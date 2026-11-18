@@ -317,7 +317,8 @@ mod tests {
 
     #[tokio::test]
     async fn the_store_passes_the_contract() -> Result<(), ContactStoreError> {
-        let db = Database::open_in_memory().unwrap_or_else(|e| panic!("{e}"));
+        let db = Database::open_in_memory(norelly_test_support::contact_import_contracts::FakeNfc)
+            .unwrap_or_else(|e| panic!("{e}"));
         let book = SqliteContactBook::new(db.clone());
         carddav_store_contract(&SqliteCardDavStore::new(db), &book).await
     }
@@ -325,7 +326,8 @@ mod tests {
     /// Les déclencheurs datent les écritures quel que soit leur chemin.
     #[tokio::test]
     async fn modification_times_come_from_the_schema() -> Result<(), ContactStoreError> {
-        let db = Database::open_in_memory().unwrap_or_else(|e| panic!("{e}"));
+        let db = Database::open_in_memory(norelly_test_support::contact_import_contracts::FakeNfc)
+            .unwrap_or_else(|e| panic!("{e}"));
         let book = SqliteContactBook::new(db.clone());
         let store = SqliteCardDavStore::new(db.clone());
         let alice = book

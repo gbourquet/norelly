@@ -1,4 +1,5 @@
 use super::*;
+use crate::contact_details::MAX_POSTAL_ADDRESSES;
 use crate::contacts::ContactInput;
 
 /// Normalisation de test : compose les seuls « e » suivis d'un accent aigu
@@ -370,6 +371,69 @@ fn completeness_counts_filled_fields_addresses_and_phones() {
     });
     assert_eq!(completeness(&bare), 1);
     assert_eq!(completeness(&full), 6 + 2 + 3);
+    let detailed = draft(ContactInput {
+        title: "Directrice".into(),
+        birthday: "--04-12".into(),
+        postal_addresses: vec![postal("1 rue des Lilas"), postal("2 rue des Lilas")],
+        websites: vec![site("https://example.com")],
+        ..named("", "a@example.com")
+    });
+    assert_eq!(completeness(&detailed), 1 + 2 + 2 + 1);
+}
+
+fn postal(street: &str) -> crate::contacts::PostalAddressInput {
+    crate::contacts::PostalAddressInput {
+        street: street.into(),
+        ..Default::default()
+    }
+}
+
+fn site(url: &str) -> crate::contacts::WebsiteInput {
+    crate::contacts::WebsiteInput {
+        url: url.into(),
+        label: String::new(),
+    }
+}
+
+#[test]
+fn merge_gathers_details_once_without_overwriting() {
+    let keep = draft(ContactInput {
+        birthday: "1985-04-12".into(),
+        postal_addresses: vec![postal("1 rue des Lilas")],
+        websites: vec![site("https://example.com")],
+        ..named("Alice", "a@example.com")
+    });
+    let other = draft(ContactInput {
+        title: "Directrice".into(),
+        birthday: "--01-01".into(),
+        postal_addresses: vec![postal("1 RUE DES LILAS"), postal("2 rue des Lilas")],
+        websites: vec![site("HTTPS://EXAMPLE.COM"), site("https://example.org")],
+        ..named("Alice", "b@example.com")
+    });
+    let merged = merge_contacts(&keep, &[&other]).unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(merged.title(), Some("Directrice"));
+    assert_eq!(merged.birthday(), keep.birthday());
+    let streets: Vec<_> = merged
+        .postal_addresses()
+        .iter()
+        .map(|p| p.street())
+        .collect();
+    assert_eq!(streets, [Some("1 rue des Lilas"), Some("2 rue des Lilas")]);
+    let urls: Vec<_> = merged.websites().iter().map(|w| w.url()).collect();
+    assert_eq!(urls, ["https://example.com", "https://example.org"]);
+    // Trop d'adresses postales réunies : la fusion est refusée.
+    let crowded = |first: usize| {
+        draft(ContactInput {
+            postal_addresses: (first..first + MAX_POSTAL_ADDRESSES)
+                .map(|n| postal(&format!("{n} rue")))
+                .collect(),
+            ..named("Alice", &format!("x{first}@example.com"))
+        })
+    };
+    assert_eq!(
+        merge_contacts(&crowded(0), &[&crowded(100)]),
+        Err(ContactError::TooManyPostalAddresses)
+    );
 }
 
 // --- Fusion ------------------------------------------------------------------

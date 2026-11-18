@@ -12,9 +12,12 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::address::EmailAddressError;
+use crate::contact_details::{Birthday, MAX_CONTACT_WEBSITES, MAX_POSTAL_ADDRESSES, website_url};
 use crate::contacts::{
     AddressKey, Contact, ContactDraft, ContactError, ContactField, ContactId, ContactInput,
-    EmailInput, MAX_CONTACT_EMAILS, MAX_CONTACT_PHONES, PhoneInput, is_invisible,
+    ContactPostalAddress, EmailInput, MAX_CONTACT_EMAILS, MAX_CONTACT_PHONES, PhoneInput,
+    PostalAddressInput,
+    WebsiteInput, is_invisible,
 };
 use crate::ports::{ContactStoreError, TextNormalizer};
 
@@ -377,10 +380,49 @@ fn prepare(input: &ContactInput, normalizer: &impl TextNormalizer) -> (ContactIn
         nickname: nfc(&input.nickname),
         organization: nfc(&input.organization),
         notes: nfc(&input.notes),
+        title: nfc(&input.title),
+        // Date illisible d'un autre logiciel : écartée, la fiche gardée.
+        birthday: Birthday::parse(&input.birthday)
+            .map(|b| b.iso())
+            .unwrap_or_default(),
         emails,
         phones,
+        postal_addresses: input
+            .postal_addresses
+            .iter()
+            .map(|a| PostalAddressInput {
+                street: nfc(&a.street),
+                locality: nfc(&a.locality),
+                region: nfc(&a.region),
+                postal_code: nfc(&a.postal_code),
+                country: nfc(&a.country),
+                label: nfc(&a.label),
+            })
+            // Adresse sans aucun élément (étiquette seule) : écartée.
+            .filter(|a| {
+                [
+                    &a.street,
+                    &a.locality,
+                    &a.region,
+                    &a.postal_code,
+                    &a.country,
+                ]
+                .iter()
+                .any(|part| !part.trim().is_empty())
+            })
+            .collect(),
+        // Site d'un schéma refusé ou mal formé : écarté, la fiche gardée ;
+        // un caractère invisible rejette la fiche, comme ailleurs.
+        websites: input
+            .websites
+            .iter()
+            .map(|w| WebsiteInput {
+                url: nfc(&w.url),
+                label: nfc(&w.label),
+            })
+            .filter(|w| w.url.chars().any(is_invisible) || website_url(&w.url).is_some())
+            .collect(),
         favorite: input.favorite,
-        ..ContactInput::default()
     };
     // Vérifié sur les noms normalisés, comme à la relecture d'une fiche.
     let renamed = prepared.drop_names_imitating_address();
@@ -397,8 +439,29 @@ fn invisible_field(input: &ContactInput) -> Option<ContactField> {
         (&input.family_name, ContactField::FamilyName),
         (&input.nickname, ContactField::Nickname),
         (&input.organization, ContactField::Organization),
+        (&input.title, ContactField::Title),
         (&input.notes, ContactField::Notes),
     ];
+    let postal = input
+        .postal_addresses
+        .iter()
+        .enumerate()
+        .flat_map(|(i, a)| {
+            [
+                (&a.street, ContactField::PostalAddress(i)),
+                (&a.locality, ContactField::PostalAddress(i)),
+                (&a.region, ContactField::PostalAddress(i)),
+                (&a.postal_code, ContactField::PostalAddress(i)),
+                (&a.country, ContactField::PostalAddress(i)),
+                (&a.label, ContactField::PostalAddressLabel(i)),
+            ]
+        });
+    let websites = input.websites.iter().enumerate().flat_map(|(i, w)| {
+        [
+            (&w.url, ContactField::Website(i)),
+            (&w.label, ContactField::WebsiteLabel(i)),
+        ]
+    });
     let emails = input
         .emails
         .iter()
@@ -414,6 +477,8 @@ fn invisible_field(input: &ContactInput) -> Option<ContactField> {
         .into_iter()
         .chain(emails)
         .chain(phones)
+        .chain(postal)
+        .chain(websites)
         .find(|(text, _)| has(text))
         .map(|(_, field)| field)
 }
@@ -460,8 +525,9 @@ pub(crate) fn phone_key(number: &str) -> String {
 
 /// `base` complété par `extra` : champs vides de `base` remplis, adresses
 /// de `extra` absentes de `base` et non `taken` ajoutées (non préférées),
-/// téléphones absents ajoutés, dans les limites d'une fiche ; rien n'est
-/// écrasé. `None` si `extra` n'apporte rien.
+/// téléphones absents ajoutés, détails versés ([`DetailsMerge`]), dans les
+/// limites d'une fiche ; rien n'est écrasé. `None` si `extra` n'apporte
+/// rien.
 #[must_use]
 pub fn complete_contact(
     base: &ContactDraft,
@@ -517,10 +583,90 @@ pub fn complete_contact(
         });
         changed = true;
     }
+    changed |= DetailsMerge::new(base).add(&mut input, extra, true);
     if !changed {
         return None;
     }
     ContactDraft::new(input).ok()
+}
+
+/// Réunion des détails de plusieurs fiches dans une saisie : titre et
+/// anniversaire manquants remplis, adresses postales (même lieu, casse et
+/// étiquette ignorées) et sites web (même adresse, casse ignorée) absents
+/// ajoutés ; rien n'est écrasé.
+pub(crate) struct DetailsMerge {
+    places: Vec<ContactPostalAddress>,
+    sites: HashSet<String>,
+}
+
+impl DetailsMerge {
+    /// Réunion partant des détails de `base`.
+    pub(crate) fn new(base: &ContactDraft) -> Self {
+        Self {
+            places: base.postal_addresses().to_vec(),
+            sites: base
+                .websites()
+                .iter()
+                .map(|w| w.url().to_lowercase())
+                .collect(),
+        }
+    }
+
+    /// Verse les détails de `extra` dans `input` ; avec `bounded`, sans
+    /// dépasser les bornes d'une fiche (le surplus est laissé). Vrai si
+    /// `input` a changé.
+    pub(crate) fn add(
+        &mut self,
+        input: &mut ContactInput,
+        extra: &ContactDraft,
+        bounded: bool,
+    ) -> bool {
+        let mut changed = false;
+        if input.title.is_empty()
+            && let Some(title) = extra.title()
+        {
+            title.clone_into(&mut input.title);
+            changed = true;
+        }
+        if input.birthday.is_empty()
+            && let Some(birthday) = extra.birthday()
+        {
+            input.birthday = birthday.iso();
+            changed = true;
+        }
+        for place in extra.postal_addresses() {
+            if bounded && input.postal_addresses.len() >= MAX_POSTAL_ADDRESSES {
+                break;
+            }
+            if self.places.iter().any(|known| known.same_place(place)) {
+                continue;
+            }
+            self.places.push(place.clone());
+            input.postal_addresses.push(PostalAddressInput {
+                street: place.street().unwrap_or_default().to_owned(),
+                locality: place.locality().unwrap_or_default().to_owned(),
+                region: place.region().unwrap_or_default().to_owned(),
+                postal_code: place.postal_code().unwrap_or_default().to_owned(),
+                country: place.country().unwrap_or_default().to_owned(),
+                label: place.label().unwrap_or_default().to_owned(),
+            });
+            changed = true;
+        }
+        for site in extra.websites() {
+            if bounded && input.websites.len() >= MAX_CONTACT_WEBSITES {
+                break;
+            }
+            if !self.sites.insert(site.url().to_lowercase()) {
+                continue;
+            }
+            input.websites.push(WebsiteInput {
+                url: site.url().to_owned(),
+                label: site.label().unwrap_or_default().to_owned(),
+            });
+            changed = true;
+        }
+        changed
+    }
 }
 
 #[cfg(test)]

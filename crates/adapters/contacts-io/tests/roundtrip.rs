@@ -3,7 +3,8 @@
 //! près (fixé par le domaine, `export_card`) : adresse préférée en tête,
 //! étiquettes vCard en minuscules, pas d'étiquette d'adresse en LDIF,
 //! téléphones LDIF rangés dans les attributs de Thunderbird, nom complet
-//! d'une vCard toujours écrit. Le favori n'est porté par aucun format.
+//! d'une vCard toujours écrit, favori porté par la vCard et le CSV de
+//! Google mais pas par le LDIF.
 
 use std::collections::HashSet;
 
@@ -155,16 +156,29 @@ fn ldif_round_trip_keeps_the_book() {
 }
 
 #[test]
-fn favorites_are_not_exported() {
+fn favorites_survive_vcard_and_google_csv_but_not_ldif() {
     let favorite = draft(ContactInput {
         display_name: "Zoé".into(),
         emails: vec![email("zoe@example.com", "", false)],
         favorite: true,
         ..ContactInput::default()
     });
+    let plain = draft(ContactInput {
+        display_name: "Yann".into(),
+        emails: vec![email("yann@example.com", "", false)],
+        ..ContactInput::default()
+    });
     for format in EXPORT_FORMATS {
-        let plan = round_trip(std::slice::from_ref(&favorite), format);
-        assert!(!plan.create[0].favorite(), "{format:?}");
+        let plan = round_trip(&[favorite.clone(), plain.clone()], format);
+        assert_clean(&plan);
+        let favorites: Vec<bool> = plan.create.iter().map(ContactDraft::favorite).collect();
+        // Thunderbird n'a pas de favori.
+        let kept = format != ExportFormat::Ldif;
+        assert_eq!(favorites, [kept, false], "{format:?}");
+        // Le favori ne laisse aucune autre trace dans la fiche.
+        let mut want = favorite.to_input();
+        want.favorite = kept;
+        assert_eq!(plan.create[0].to_input(), want, "{format:?}");
     }
 }
 
@@ -208,10 +222,11 @@ fn contact() -> impl Strategy<Value = ContactDraft> {
         emails,
         any::<prop::sample::Index>(),
         phones,
+        any::<bool>(),
     )
         .prop_filter_map(
             "fiche refusée par le domaine",
-            |(names, organization, notes, emails, preferred, phones)| {
+            |(names, organization, notes, emails, preferred, phones, favorite)| {
                 let [display_name, given_name, family_name, nickname] = names;
                 let preferred = preferred.index(emails.len());
                 ContactDraft::new(ContactInput {
@@ -234,7 +249,7 @@ fn contact() -> impl Strategy<Value = ContactDraft> {
                         .into_iter()
                         .map(|(number, label)| PhoneInput { number, label })
                         .collect(),
-                    favorite: false,
+                    favorite,
                 })
                 .ok()
             },

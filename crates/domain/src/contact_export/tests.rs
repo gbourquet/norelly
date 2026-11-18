@@ -255,6 +255,65 @@ fn google_labels_keep_their_case_without_a_leading_star() {
 }
 
 #[test]
+fn the_favorite_is_kept_in_vcard_and_google_csv_but_not_in_ldif() {
+    for format in [
+        ExportFormat::VCard4,
+        ExportFormat::VCard3,
+        ExportFormat::GoogleCsv,
+    ] {
+        assert!(export_card(&full(), format).favorite, "{format:?}");
+    }
+    // Thunderbird n'a pas de favori.
+    assert!(!export_card(&full(), ExportFormat::Ldif).favorite);
+    let mut plain = full().to_input();
+    plain.favorite = false;
+    for format in ALL_FORMATS {
+        assert!(
+            !export_card(&draft(plain.clone()), format).favorite,
+            "{format:?}"
+        );
+    }
+}
+
+#[test]
+fn the_favorite_category_is_recognized_whatever_its_case() {
+    assert!(is_favorite_category(VCARD_FAVORITE_CATEGORY));
+    for category in ["starred", "Starred", " STARRED "] {
+        assert!(is_favorite_category(category), "{category:?}");
+    }
+    for category in [
+        "",
+        "myContacts",
+        "starred2",
+        "* starred",
+        "star red",
+        "favoris",
+    ] {
+        assert!(!is_favorite_category(category), "{category:?}");
+    }
+}
+
+#[test]
+fn the_favorite_google_label_is_the_starred_system_group() {
+    assert!(is_favorite_google_label(GOOGLE_FAVORITE_LABEL));
+    // Ancien export de Google : « * Starred » (colonne « Group Membership »).
+    for label in ["* starred", "* Starred", "  *starred ", "*  STARRED"] {
+        assert!(is_favorite_google_label(label), "{label:?}");
+    }
+    // Sans « * », c'est une étiquette créée par l'utilisateur.
+    for label in [
+        "",
+        "starred",
+        "Starred",
+        "* myContacts",
+        "** starred",
+        "* starred x",
+    ] {
+        assert!(!is_favorite_google_label(label), "{label:?}");
+    }
+}
+
+#[test]
 fn ldif_has_no_address_labels_and_maps_phones_to_thunderbird_attributes() {
     let d = draft(ContactInput {
         emails: vec![email("a@example.com", "Travail", false)],

@@ -1,9 +1,10 @@
 //! Écriture vCard 4.0 (RFC 6350) et 3.0 (RFC 2426) : `FN`, `N`,
-//! `NICKNAME`, `ORG`, `EMAIL` (type, préférence), `TEL`, `NOTE` ;
+//! `NICKNAME`, `ORG`, `EMAIL` (type, préférence), `TEL`, `CATEGORIES`
+//! (favori seulement), `NOTE` ;
 //! échappements des valeurs texte, lignes repliées à 75 octets sans couper
 //! un caractère, fins de ligne CRLF.
 
-use norelly_domain::contact_export::ExportCard;
+use norelly_domain::contact_export::{ExportCard, VCARD_FAVORITE_CATEGORY};
 use norelly_domain::ports::ContactCodecError;
 
 use super::Output;
@@ -113,6 +114,9 @@ pub(crate) fn encode(
                 .map_or_else(String::new, |label| format!(";TYPE={label}"));
             lines.push(format!("TEL{params}:{}", escape(&phone.number)));
         }
+        if card.favorite {
+            lines.push(format!("CATEGORIES:{VCARD_FAVORITE_CATEGORY}"));
+        }
         if let Some(notes) = &card.notes {
             lines.push(format!("NOTE:{}", escape(notes)));
         }
@@ -160,6 +164,23 @@ mod tests {
                 number: "+33 6 12".into(),
                 label: Some("portable".into()),
             }],
+            favorite: false,
+        }
+    }
+
+    #[test]
+    fn the_favorite_is_written_as_a_category() {
+        let favorite = ExportCard {
+            favorite: true,
+            ..card()
+        };
+        for version in [Version::V4, Version::V3] {
+            let text = written(std::slice::from_ref(&favorite), version);
+            assert!(
+                text.contains("\r\nCATEGORIES:starred\r\nNOTE:"),
+                "{version:?} : {text}"
+            );
+            assert!(!written(&[card()], version).contains("CATEGORIES"));
         }
     }
 

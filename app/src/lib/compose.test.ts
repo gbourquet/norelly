@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { ConversationMessage, Draft } from "./ipc/api";
+import type { ConversationMessage, Draft, RecipientDto } from "./ipc/api";
 import { AUTOSAVE_MS, ComposeState, SUGGEST_MS, type ComposeApi } from "./compose.svelte";
 import { IpcFailure } from "./errors";
 import { setLocale } from "./paraglide/runtime.js";
@@ -25,6 +25,17 @@ const attachment = {
   content_type: "application/pdf",
   size: 3,
 };
+
+/** Limite de destinataires du faux (celle du domaine). */
+const LIMIT = 100;
+
+/** Membres `from`..`to` (exclu) d'une liste, `<prefix><n>@example.com`. */
+function people(prefix: string, from: number, to: number): RecipientDto[] {
+  return Array.from({ length: to - from }, (_, i) => ({
+    name: "",
+    address: `${prefix}${from + i}@example.com`,
+  }));
+}
 
 function fakeApi(): ComposeApi & { saved: Draft[] } {
   const saved: Draft[] = [];
@@ -53,9 +64,18 @@ function fakeApi(): ComposeApi & { saved: Draft[] } {
     suggestContactLists: vi.fn(async (text: string) =>
       text.startsWith("fa") ? [{ id: 5, name: "Famille", members: 2, bcc: false }] : [],
     ),
-    // Champ décidé par Rust : la liste 6 est « en Cci ».
+    // Limite décidée par Rust (check_recipient_count) : ici, un faux qui
+    // imite son contrat.
+    checkRecipients: vi.fn(async (count: number) => {
+      if (count > LIMIT) throw new IpcFailure("too_many_recipients");
+    }),
+    // Champ décidé par Rust : la liste 6 est « en Cci » ; les listes 7, 8
+    // et 9 comptent 60 membres (9 en partage 50 avec 7).
     expandContactList: vi.fn(async (id: number, field: "to" | "cc" | "bcc") => {
       if (id === 404) throw new IpcFailure("contact_list_empty");
+      if (id === 7) return { recipients: people("sept", 0, 60), field };
+      if (id === 8) return { recipients: people("huit", 0, 60), field };
+      if (id === 9) return { recipients: people("sept", 10, 70), field };
       return {
         recipients: [
           { name: "Bo", address: "bo@example.net" },
@@ -249,6 +269,87 @@ describe("rédaction", () => {
       { name: "", address: "zoe@example.com" },
       { name: "", address: "pirate@exemple.net" },
     ]);
+  });
+
+  it("prévient dès l'insertion qu'une liste ferait dépasser la limite, sans l'insérer", async () => {
+    const api = fakeApi();
+    const c = new ComposeState(api);
+    await c.open(1, "new", null);
+    expect(await c.addList("to", 7)).toBe(true);
+    expect(c.recipientWarning).toBeNull();
+    expect(await c.addList("cc", 8)).toBe(false);
+    expect(api.checkRecipients).toHaveBeenLastCalledWith(120);
+    expect(c.recipientWarning).toBe(
+      "Destinataires non ajoutés : le message en compterait 120, au-delà de la limite de 100.",
+    );
+    expect(c.draft?.to).toHaveLength(60);
+    expect(c.draft?.cc).toEqual([]);
+    // Le brouillon reste enregistrable.
+    await vi.advanceTimersByTimeAsync(AUTOSAVE_MS);
+    expect(c.error).toBeNull();
+    expect(api.saved.at(-1)?.to).toHaveLength(60);
+  });
+
+  it("compte une adresse partagée par deux listes une seule fois", async () => {
+    const api = fakeApi();
+    const c = new ComposeState(api);
+    await c.open(1, "new", null);
+    await c.addList("to", 7);
+    expect(await c.addList("to", 9)).toBe(true);
+    expect(api.checkRecipients).toHaveBeenLastCalledWith(70);
+    expect(c.draft?.to).toHaveLength(70);
+    expect(c.recipientWarning).toBeNull();
+  });
+
+  it("refuse aussi une adresse saisie au-delà de la limite, et efface l'avertissement au retrait", async () => {
+    const api = fakeApi();
+    const c = new ComposeState(api);
+    await c.open(1, "new", null);
+    await c.addList("to", 7);
+    await c.addList("cc", 9);
+    await c.addRecipients("bcc", people("cci", 0, 30));
+    expect(c.draft?.bcc).toHaveLength(30);
+    expect(await c.addRecipient("to", "un-de-trop@example.com")).toBe(false);
+    expect(api.checkRecipients).toHaveBeenLastCalledWith(101);
+    expect(c.recipientWarning).toBe(
+      "Destinataires non ajoutés : le message en compterait 101, au-delà de la limite de 100.",
+    );
+    c.removeRecipient("bcc", 0);
+    expect(c.recipientWarning).toBeNull();
+    expect(await c.addRecipient("to", "un-de-trop@example.com")).toBe(true);
+  });
+
+  it("revérifie la limite quand deux listes sont ajoutées en même temps", async () => {
+    const api = fakeApi();
+    const c = new ComposeState(api);
+    await c.open(1, "new", null);
+    await c.addRecipients("cc", people("p", 0, 40));
+    const results = await Promise.all([c.addList("to", 7), c.addList("bcc", 8)]);
+    expect(results.filter(Boolean)).toHaveLength(1);
+    const d = c.draft;
+    expect((d?.to.length ?? 0) + (d?.cc.length ?? 0) + (d?.bcc.length ?? 0)).toBe(100);
+    expect(c.recipientWarning).toContain("160");
+  });
+
+  it("efface l'avertissement à la tentative suivante", async () => {
+    const api = fakeApi();
+    const c = new ComposeState(api);
+    await c.open(1, "new", null);
+    await c.addList("to", 7);
+    expect(await c.addList("to", 8)).toBe(false);
+    expect(c.recipientWarning).not.toBeNull();
+    // Adresse déjà présente : refusée pour une autre raison.
+    expect(await c.addRecipient("to", "sept0@example.com")).toBe(false);
+    expect(c.recipientWarning).toBeNull();
+  });
+
+  it("n'ajoute aucun destinataire préparé (« Écrire à ») au-delà de la limite", async () => {
+    const api = fakeApi();
+    const c = new ComposeState(api);
+    await c.open(1, "new", null);
+    expect(await c.addRecipients("to", people("p", 0, 150))).toBe(false);
+    expect(c.draft?.to).toEqual([]);
+    expect(c.recipientWarning).toContain("150");
   });
 
   it("joint des fichiers par le sélecteur et par dépôt", async () => {

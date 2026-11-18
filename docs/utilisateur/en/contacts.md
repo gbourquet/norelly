@@ -138,6 +138,10 @@ chosen list is shown on the right with its members.
 - While writing a message, type the start of the list's name in **To**:
   it is suggested first; pick it and each member appears as a recipient.
   A “Bcc” list puts its members in **Bcc**.
+- A message can only have a limited number of recipients. If a list would
+  go over that limit, it is not added and a notice under the recipients
+  tells you how many there would be and what the limit is: remove a few
+  recipients, or split your message.
 - To add someone to a list from their card: **More…**, then **Add to a
   list…**.
 - **Edit list** and **Delete list** are on the open list and in the

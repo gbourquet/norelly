@@ -118,6 +118,7 @@ vi.mock("./lib/ipc/api", () => ({
     })),
     openDraft: vi.fn(async () => ({ ...savedDraft(7), subject: "Repris" })),
     discardDraft: vi.fn(),
+    checkRecipients: vi.fn(async () => undefined),
     // Faux de la lecture Rust d'un destinataire (Recipient::parse).
     parseRecipient: vi.fn(async (raw: string) => {
       const angle = /^(.*)<([^<>\s]+)>$/.exec(raw.trim());
@@ -856,7 +857,7 @@ describe("App", () => {
     expect(within(dialog).getAllByRole("button").at(-1)).toHaveAccessibleName("Fermer");
     await fireEvent.input(to, { target: { value: "bob@example.com" } });
     await fireEvent.keyDown(to, { key: "Enter" });
-    expect(within(dialog).getByText("bob@example.com")).toBeInTheDocument();
+    expect(await within(dialog).findByText("bob@example.com")).toBeInTheDocument();
     const subject = within(dialog).getByRole("textbox", { name: "Objet" });
     await fireEvent.input(subject, { target: { value: "Bonjour" } });
     await fireEvent.keyDown(subject, { key: "Enter", ctrlKey: true });

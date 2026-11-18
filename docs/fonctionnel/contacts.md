@@ -243,6 +243,12 @@ l'ordinateur** : rien n'est envoyé à un serveur.
   Choisie, la liste est remplacée par une pastille par membre (chacun une
   fois, même s'il figurait déjà parmi les destinataires), comme si chaque
   adresse avait été saisie.
+- Si la liste ferait dépasser le nombre de destinataires qu'un message
+  peut avoir (toutes les adresses déjà présentes comptées, chacune une
+  fois), elle n'est pas insérée et un avertissement s'affiche aussitôt
+  sous les destinataires, avec le nombre atteint et la limite : la
+  personne le sait avant d'écrire son message, et le brouillon continue
+  d'être enregistré. Retirer une pastille efface l'avertissement.
 - Une liste « en Cci » range toujours ses membres en **copie cachée**,
   même choisie dans le champ À : aucun membre ne voit l'adresse des
   autres. Les pastilles se modifient ensuite comme les autres

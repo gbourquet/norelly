@@ -5,6 +5,7 @@
   import PaperclipIcon from "@lucide/svelte/icons/paperclip";
   import SendIcon from "@lucide/svelte/icons/send";
   import TrashIcon from "@lucide/svelte/icons/trash-2";
+  import TriangleAlertIcon from "@lucide/svelte/icons/triangle-alert";
   import XIcon from "@lucide/svelte/icons/x";
   import Modal from "./Modal.svelte";
   import Editor from "./Editor.svelte";
@@ -70,6 +71,12 @@
           />
         {/if}
       {/each}
+      {#if compose.recipientWarning}
+        <p class="recipient-warning" role="alert">
+          <TriangleAlertIcon size={16} aria-hidden="true" />
+          <span>{compose.recipientWarning}</span>
+        </p>
+      {/if}
       {#if !showCopies && draft.cc.length === 0 && draft.bcc.length === 0}
         <button class="link-button" type="button" onclick={() => (showCopies = true)}
           >{m.compose_show_cc()}</button
@@ -230,6 +237,24 @@
   .hint {
     color: var(--color-text-muted);
     font-size: var(--font-size-sm);
+  }
+
+  /* Sous les champs de destinataires, aligné sur leur contenu. */
+  .recipient-warning {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-2);
+    margin: 0 0 0 calc(4rem + var(--space-2));
+    padding: var(--space-1) var(--space-2);
+    border-radius: var(--radius-md);
+    background: var(--color-warning-bg);
+    color: var(--color-warning);
+    font-size: var(--font-size-sm);
+  }
+
+  .recipient-warning :global(svg) {
+    flex: none;
+    margin-top: 1px;
   }
 
   .error {

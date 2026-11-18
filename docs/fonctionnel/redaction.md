@@ -26,6 +26,11 @@ puisse devenir dangereux.
   Entrée, virgule ou Tab pour valider. Une saisie ou un collage de la
   forme « Nom <adresse> » est accepté ; si le nom ressemble lui-même à une
   adresse, seule l'adresse réelle est gardée.
+- **Limite de destinataires prévenue à l'ajout** : un destinataire, une
+  liste de diffusion ou des contacts (« Écrire à ») qui feraient dépasser
+  le nombre de destinataires permis ne sont pas ajoutés ; un avertissement
+  s'affiche aussitôt sous les destinataires, avec le nombre atteint et la
+  limite. Le brouillon reste ainsi toujours enregistrable.
 - La fenêtre se ferme par son bouton **Fermer**, Échap ou un clic à
   l'extérieur, en gardant le brouillon.
 - Mise en forme : gras, italique, barré, lien, listes à puces et
@@ -82,6 +87,7 @@ puisse devenir dangereux.
 | Transfert | Message transféré de {name}, le {date} : |
 | Aucun destinataire | Ajoutez au moins un destinataire. |
 | Trop de destinataires | Trop de destinataires. |
+| Ajout qui dépasserait la limite | Destinataires non ajoutés : le message en compterait {count}, au-delà de la limite de {max}. |
 | Sujet invalide | Le sujet contient un caractère interdit ou est trop long. |
 | Texte trop long | Le message est trop long. |
 | Pièces trop lourdes | Les pièces jointes dépassent 25 Mio. |

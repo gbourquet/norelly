@@ -48,6 +48,7 @@ vi.mock("./ipc/api", () => ({
       recipients: [{ name: "Alice", address: "alice@example.com" }],
       field,
     })),
+    checkRecipients: vi.fn(async () => undefined),
     parseRecipient: vi.fn(async (raw: string) => ({
       name: raw.includes("<") ? raw.split("<")[0]?.trim() : "",
       address: raw.includes("<") ? (raw.split("<")[1]?.replace(">", "") ?? "") : raw,

@@ -58,6 +58,7 @@ const APP_COMMANDS: &[&str] = &[
     "retry_send",
     "cancel_send",
     "parse_recipient",
+    "check_recipients",
     "suggest_contacts",
     "pick_attachments",
     "attach_dropped",

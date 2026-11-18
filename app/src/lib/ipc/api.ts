@@ -397,6 +397,11 @@ export const api = {
    * adresse écarté) ; `IpcFailure` si la saisie n'est pas une adresse. */
   parseRecipient: (raw: string): Promise<RecipientDto> => unwrap(commands.parseRecipient(raw)),
 
+  /** Un message peut-il compter `count` destinataires, décidé en Rust ;
+   * `IpcFailure` `too_many_recipients` sinon. */
+  checkRecipients: (count: number): Promise<void> =>
+    unwrap(commands.checkRecipients(count)).then(() => undefined),
+
   suggestContacts: (account: number, text: string): Promise<RecipientSuggestion[]> =>
     unwrap(commands.suggestContacts(account, text)),
 

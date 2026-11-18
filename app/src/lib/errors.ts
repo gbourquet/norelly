@@ -4,7 +4,7 @@
 // traduit. Aucune décision de sécurité ici.
 
 import type { ErrorCodeDto, FailureKindDto, FieldDto } from "./ipc/bindings";
-import { MAX_CONTACT_SELECTION } from "./ipc/bindings";
+import { MAX_CONTACT_SELECTION, MAX_RECIPIENTS } from "./ipc/bindings";
 import { activeLocale } from "./i18n";
 import { m } from "./paraglide/messages.js";
 
@@ -13,6 +13,16 @@ import { m } from "./paraglide/messages.js";
 export function contactSelectionLimitText(): string {
   const max = new Intl.NumberFormat(activeLocale()).format(MAX_CONTACT_SELECTION);
   return m.err_contact_selection_too_many({ max });
+}
+
+/** Destinataires refusés à l'ajout : le message en compterait `count`,
+ * au-delà de la limite du domaine, nombres écrits dans la langue active. */
+export function recipientLimitText(count: number): string {
+  const format = new Intl.NumberFormat(activeLocale());
+  return m.compose_too_many_recipients({
+    count: format.format(count),
+    max: format.format(MAX_RECIPIENTS),
+  });
 }
 
 /** Erreur IPC structurée (voir `IpcError` côté Rust). */

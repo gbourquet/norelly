@@ -141,6 +141,11 @@ listes ; la liste choisie s'affiche à droite avec ses membres.
 - En écrivant un message, tapez le début du nom de la liste dans **À** :
   elle est proposée en tête, choisissez-la et chaque membre apparaît
   comme destinataire. Une liste « Cci » range ses membres dans **Cci**.
+- Un message ne peut pas avoir plus d'un certain nombre de destinataires.
+  Si une liste ferait dépasser cette limite, elle n'est pas ajoutée et un
+  avertissement sous les destinataires indique combien il y en aurait et
+  quelle est la limite : retirez quelques destinataires, ou partagez
+  l'envoi en plusieurs messages.
 - Pour ajouter quelqu'un à une liste depuis sa fiche : **Plus…**, puis
   **Ajouter à une liste…**.
 - **Modifier la liste** et **Supprimer la liste** sont sur la liste

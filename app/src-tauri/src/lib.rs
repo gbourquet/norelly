@@ -93,6 +93,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             compose::retry_send,
             compose::cancel_send,
             compose::parse_recipient,
+            compose::check_recipients,
             compose::suggest_contacts,
             compose::pick_attachments,
             compose::attach_dropped,
@@ -129,6 +130,13 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         .constant(
             "MAX_CONTACT_SELECTION",
             norelly_domain::contacts::MAX_CONTACT_SELECTION,
+        )
+        // Limite de destinataires d'un message, pour le texte de
+        // l'avertissement de l'éditeur ; la décision passe par
+        // `check_recipients`.
+        .constant(
+            "MAX_RECIPIENTS",
+            norelly_domain::compose::draft::MAX_RECIPIENTS,
         )
 }
 

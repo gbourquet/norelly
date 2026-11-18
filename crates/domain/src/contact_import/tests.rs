@@ -747,3 +747,51 @@ fn completing_a_contact_fills_details_without_overwriting() {
     let again = ContactDraft::new(again).unwrap_or_else(|e| panic!("{e}"));
     assert_eq!(complete_contact(&full, &again, |_| false), None);
 }
+
+#[test]
+fn repeated_or_surplus_details_of_an_imported_card_are_dropped_not_the_card() {
+    use crate::contact_details::{MAX_CONTACT_WEBSITES, MAX_POSTAL_ADDRESSES};
+    use crate::contacts::{PostalAddressInput, WebsiteInput};
+    let place = |street: String| PostalAddressInput {
+        street,
+        ..PostalAddressInput::default()
+    };
+    let site = |url: String| WebsiteInput {
+        url,
+        label: String::new(),
+    };
+    let mut card = details_card("a@example.com");
+    card.postal_addresses = std::iter::once(place("1 RUE A".into()))
+        .chain((0..MAX_POSTAL_ADDRESSES + 5).map(|n| {
+            place(if n == 0 {
+                "1 rue a".into()
+            } else {
+                format!("{n} rue")
+            })
+        }))
+        .collect();
+    card.websites = std::iter::once(site("www.example.com".into()))
+        .chain((0..MAX_CONTACT_WEBSITES + 5).map(|n| {
+            site(if n == 0 {
+                "HTTPS://WWW.EXAMPLE.COM".into()
+            } else {
+                format!("https://s{n}.example")
+            })
+        }))
+        .collect();
+    let p = plan(&[], &[ImportedCard::Contact(card)], DuplicatePolicy::Skip);
+    assert!(p.rejected.is_empty(), "{:?}", p.rejected);
+    let [d] = &p.create[..] else {
+        panic!("{:?}", p.create)
+    };
+    let streets: Vec<_> = d
+        .postal_addresses()
+        .iter()
+        .filter_map(|a| a.street())
+        .collect();
+    assert_eq!(streets.len(), MAX_POSTAL_ADDRESSES);
+    assert_eq!(streets[..2], ["1 RUE A", "1 rue"]);
+    let urls: Vec<_> = d.websites().iter().map(|w| w.url()).collect();
+    assert_eq!(urls.len(), MAX_CONTACT_WEBSITES);
+    assert_eq!(urls[..2], ["https://www.example.com", "https://s1.example"]);
+}

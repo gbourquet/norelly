@@ -412,6 +412,24 @@ fn prepare(input: &ContactInput, normalizer: &impl TextNormalizer) -> (ContactIn
                 .iter()
                 .any(|part| !part.trim().is_empty())
             })
+            // Même lieu répété (casse et étiquette ignorées) : une fois.
+            .filter({
+                let mut seen = HashSet::new();
+                move |a| {
+                    seen.insert(
+                        [
+                            &a.street,
+                            &a.locality,
+                            &a.region,
+                            &a.postal_code,
+                            &a.country,
+                        ]
+                        .map(|part| part.trim().to_lowercase()),
+                    )
+                }
+            })
+            // Au-delà de ce qu'une fiche admet : le surplus est laissé.
+            .take(MAX_POSTAL_ADDRESSES)
             .collect(),
         // Site d'un schéma refusé ou mal formé : écarté, la fiche gardée ;
         // un caractère invisible rejette la fiche, comme ailleurs.
@@ -422,7 +440,17 @@ fn prepare(input: &ContactInput, normalizer: &impl TextNormalizer) -> (ContactIn
                 url: nfc(&w.url),
                 label: nfc(&w.label),
             })
-            .filter(|w| w.url.chars().any(is_invisible) || website_url(&w.url).is_some())
+            .filter({
+                let mut seen = HashSet::new();
+                move |w| {
+                    if w.url.chars().any(is_invisible) {
+                        return true;
+                    }
+                    // Même site répété (casse ignorée) : une fois.
+                    website_url(&w.url).is_some_and(|url| seen.insert(url.to_lowercase()))
+                }
+            })
+            .take(MAX_CONTACT_WEBSITES)
             .collect(),
         favorite: input.favorite,
     };
@@ -644,14 +672,7 @@ impl DetailsMerge {
                 continue;
             }
             self.places.push(place.clone());
-            input.postal_addresses.push(PostalAddressInput {
-                street: place.street().unwrap_or_default().to_owned(),
-                locality: place.locality().unwrap_or_default().to_owned(),
-                region: place.region().unwrap_or_default().to_owned(),
-                postal_code: place.postal_code().unwrap_or_default().to_owned(),
-                country: place.country().unwrap_or_default().to_owned(),
-                label: place.label().unwrap_or_default().to_owned(),
-            });
+            input.postal_addresses.push(place.to_input());
             changed = true;
         }
         for site in extra.websites() {

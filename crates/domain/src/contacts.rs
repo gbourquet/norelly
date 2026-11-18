@@ -362,7 +362,7 @@ impl ContactPostalAddress {
         key(self) == key(other)
     }
 
-    fn to_input(&self) -> PostalAddressInput {
+    pub(crate) fn to_input(&self) -> PostalAddressInput {
         let owned = |v: &Option<String>| v.clone().unwrap_or_default();
         PostalAddressInput {
             street: owned(&self.street),

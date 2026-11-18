@@ -123,7 +123,8 @@ impl fmt::Display for Birthday {
 /// `http` ou `https` seulement, selon les règles d'un lien externe
 /// ([`ExternalLink`] : sans espace, caractère de contrôle ni identifiants,
 /// au plus [`MAX_WEBSITE_CHARS`] octets). Sans schéma
-/// (`www.example.com`), `https://` est ajouté ; tout autre schéma
+/// (`www.example.com`), `https://` est ajouté ; un hôte non ASCII (sosies
+/// d'une autre écriture) est refusé, sa forme punycode admise ; tout autre schéma
 /// (`javascript:`, `file:`, `mailto:`) est refusé. `None` si refusé.
 #[must_use]
 pub fn website_url(raw: &str) -> Option<String> {
@@ -137,7 +138,13 @@ pub fn website_url(raw: &str) -> Option<String> {
         ExternalLink::parse(&format!("https://{raw}"))
     }
     .ok()?;
-    matches!(link.scheme(), LinkScheme::Http | LinkScheme::Https).then(|| link.as_str().to_owned())
+    // Hôte en ASCII seulement : une lettre d'une autre écriture peut
+    // imiter un domaine connu (« раураl » cyrillique) sur la fiche. Un nom
+    // de domaine international s'écrit sous sa forme punycode (`xn--…`).
+    let after = link.as_str().split_once("//").map_or("", |(_, rest)| rest);
+    let host = after.split(['/', '?', '#']).next().unwrap_or_default();
+    (host.is_ascii() && matches!(link.scheme(), LinkScheme::Http | LinkScheme::Https))
+        .then(|| link.as_str().to_owned())
 }
 
 /// Le texte commence-t-il par un schéma (`lettre (lettre|chiffre|+|-|.)* :`)
@@ -242,6 +249,7 @@ mod tests {
             ("www.example.com", "https://www.example.com"),
             ("example.com:8080/x", "https://example.com:8080/x"),
             ("example.com/a:b", "https://example.com/a:b"),
+            ("https://xn--caf-dma.fr/é", "https://xn--caf-dma.fr/é"),
         ] {
             assert_eq!(website_url(raw).as_deref(), Some(expected), "{raw:?}");
         }
@@ -260,6 +268,10 @@ mod tests {
             "https://",
             "https://example.com\\x",
             "www.exa\u{0}mple.com",
+            // Hôte non ASCII (sosies cyrilliques de « paypal ») : refusé,
+            // la forme punycode (`xn--…`) est admise.
+            "https://раураl.com/login",
+            "www.café.fr",
         ] {
             assert_eq!(website_url(raw), None, "{raw:?}");
         }

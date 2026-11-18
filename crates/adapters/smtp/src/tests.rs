@@ -428,7 +428,9 @@ async fn a_blank_ehlo_line_does_not_panic() -> TestResult {
     Ok(())
 }
 
-/// Réponse de 16 000 lignes : refusée ou lue, mais sans coût quadratique.
+/// Réponse de 16 000 lignes : refusée ou lue sans coût quadratique, bien
+/// avant le délai de transmission de [`quick_opening`] (10 s), que la
+/// lecture quadratique atteignait.
 #[tokio::test]
 async fn a_reply_of_many_lines_is_handled_quickly() -> TestResult {
     let ca = TestCa::new()?;
@@ -446,7 +448,7 @@ async fn a_reply_of_many_lines_is_handled_quickly() -> TestResult {
         ))
         .await;
     assert!(
-        started.elapsed() < Duration::from_secs(2),
+        started.elapsed() < ABANDONED_WITHIN,
         "{:?}",
         started.elapsed()
     );

@@ -137,6 +137,16 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             "MAX_CONTACT_SELECTION",
             norelly_domain::contacts::MAX_CONTACT_SELECTION,
         )
+        // Bornes d'une fiche : lignes d'adresses postales et de sites
+        // proposées par le formulaire ; Rust revalide.
+        .constant(
+            "MAX_POSTAL_ADDRESSES",
+            norelly_domain::contact_details::MAX_POSTAL_ADDRESSES,
+        )
+        .constant(
+            "MAX_CONTACT_WEBSITES",
+            norelly_domain::contact_details::MAX_CONTACT_WEBSITES,
+        )
         // Limite de destinataires d'un message, pour le texte de
         // l'avertissement de l'éditeur ; la décision passe par
         // `check_recipients`.

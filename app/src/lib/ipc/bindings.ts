@@ -388,6 +388,10 @@ export const events = {
 /* Constants */
 export const MAX_CONTACT_SELECTION = 1000 as const;
 
+export const MAX_CONTACT_WEBSITES = 10 as const;
+
+export const MAX_POSTAL_ADDRESSES = 10 as const;
+
 export const MAX_RECIPIENTS = 100 as const;
 
 /* Types */

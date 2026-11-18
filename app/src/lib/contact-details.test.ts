@@ -22,6 +22,9 @@ describe("anniversaire d'une fiche", () => {
     expect(composeBirthday({ day: "", month: "", year: "  " })).toBe("");
     expect(composeBirthday({ day: "12", month: "", year: "" })).toBe("--00-12");
     expect(composeBirthday({ day: "", month: "", year: "1985" })).toBe("1985-00-00");
+    // Année à deux chiffres : envoyée telle quelle, Rust la refuse (jamais
+    // complétée en une année de l'Antiquité).
+    expect(composeBirthday({ day: "12", month: "4", year: "85" })).toBe("85-04-12");
   });
 
   it("s'affiche en toutes lettres, sans année si elle manque", () => {

@@ -33,7 +33,9 @@ export function composeBirthday(parts: BirthdayParts): string {
   const year = parts.year.trim();
   if (day === "" && month === "" && year === "") return "";
   const two = (text: string) => text.padStart(2, "0");
-  return `${year === "" ? "-" : year.padStart(4, "0")}-${two(month)}-${two(day)}`;
+  // L'année part telle que saisie : « 85 » est refusée par Rust plutôt que
+  // lue comme l'an 85.
+  return `${year === "" ? "-" : year}-${two(month)}-${two(day)}`;
 }
 
 /** Anniversaire en toutes lettres dans la langue `locale` (forme

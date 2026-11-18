@@ -72,8 +72,13 @@ describe("import du carnet", () => {
     await expect(card.$("p*=Rencontrée à Lyon, France.")).toBeDisplayed();
     // Étiquettes de l'export (`work`, `home`, `cell`) traduites.
     await expect(card.$$("span.tag=Travail")).toBeElementsArrayOfSize(2);
-    await expect(card.$("span.tag=Domicile")).toBeDisplayed();
+    // Adresse électronique et adresse postale au domicile.
+    await expect(card.$$("span.tag=Domicile")).toBeElementsArrayOfSize(2);
     await expect(card.$("span.tag=Mobile")).toBeDisplayed();
+    // Fonction, anniversaire et adresse postale de l'export repris.
+    await expect(card.$('.//p[normalize-space()="Gérante"]')).toBeDisplayed();
+    await expect(card.$('.//p[normalize-space()="2 avril 1980"]')).toBeDisplayed();
+    await expect(card.$('.//span[normalize-space()="69001 Lyon"]')).toBeDisplayed();
     await expect(card.$("span.tag=work")).not.toBeExisting();
     await expect(card.$("span.tag=cell")).not.toBeExisting();
   });

@@ -19,7 +19,12 @@ import { labelKindText } from "./contact-label";
 import { type BirthdayParts, birthdayParts, composeBirthday } from "./contact-details";
 // Constante générée depuis le domaine, lue dans les bindings eux-mêmes
 // (et non via `api.ts`, simulé par les tests de l'application).
-import { MAX_CONTACT_SELECTION, type FieldDto } from "./ipc/bindings";
+import {
+  MAX_CONTACT_SELECTION,
+  MAX_CONTACT_WEBSITES,
+  MAX_POSTAL_ADDRESSES,
+  type FieldDto,
+} from "./ipc/bindings";
 import { SvelteMap, SvelteSet } from "svelte/reactivity";
 import { IpcFailure, errorText } from "./errors";
 
@@ -41,10 +46,6 @@ const RECIPIENT_READS = 20;
 /** Lignes d'adresses et de téléphones proposées au plus (Rust refuse
  * au-delà). */
 const MAX_ROWS = 20;
-
-/** Adresses postales et sites web proposés au plus (Rust refuse
- * au-delà). */
-const MAX_DETAIL_ROWS = 10;
 
 /** Fiche vide. */
 export function emptyFields(): ContactFieldsDto {
@@ -350,8 +351,10 @@ export class ContactFormState {
   );
   readonly canAddEmail = $derived(this.fields.emails.length < MAX_ROWS);
   readonly canAddPhone = $derived(this.fields.phones.length < MAX_ROWS);
-  readonly canAddPostalAddress = $derived(this.fields.postal_addresses.length < MAX_DETAIL_ROWS);
-  readonly canAddWebsite = $derived(this.fields.websites.length < MAX_DETAIL_ROWS);
+  readonly canAddPostalAddress = $derived(
+    this.fields.postal_addresses.length < MAX_POSTAL_ADDRESSES,
+  );
+  readonly canAddWebsite = $derived(this.fields.websites.length < MAX_CONTACT_WEBSITES);
 
   constructor(api: ContactsApi) {
     this.#api = api;

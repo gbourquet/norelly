@@ -394,7 +394,8 @@
         <div class="row">
           <input
             class="input address"
-            type="url"
+            type="text"
+            inputmode="url"
             autocomplete="off"
             placeholder={m.contact_website_placeholder()}
             aria-label={m.contact_website_n({ n: i + 1 })}

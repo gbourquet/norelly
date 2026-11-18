@@ -1003,6 +1003,8 @@ fn notes(raw: &str) -> Result<Option<String>, ContactError> {
 
 /// Sort d'une fiche enregistrée avant que les caractères [`INVISIBLE`]
 /// ne soient refusés à la saisie ([`clean_invisible`]).
+// Valeur passagère, rendue fiche par fiche pendant une migration.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InvisibleCleanup {
     /// Rien à changer : la fiche n'en contient pas, ou elle est invalide

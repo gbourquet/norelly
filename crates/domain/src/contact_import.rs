@@ -16,8 +16,7 @@ use crate::contact_details::{Birthday, MAX_CONTACT_WEBSITES, MAX_POSTAL_ADDRESSE
 use crate::contacts::{
     AddressKey, Contact, ContactDraft, ContactError, ContactField, ContactId, ContactInput,
     ContactPostalAddress, EmailInput, MAX_CONTACT_EMAILS, MAX_CONTACT_PHONES, PhoneInput,
-    PostalAddressInput,
-    WebsiteInput, is_invisible,
+    PostalAddressInput, WebsiteInput, is_invisible,
 };
 use crate::ports::{ContactStoreError, TextNormalizer};
 
@@ -48,6 +47,9 @@ pub enum ContactFormat {
 }
 
 /// Fiche lue dans un fichier, non validée.
+// Presque toutes les fiches lues sont des contacts : mettre le contact en
+// boîte ajouterait une allocation par fiche sans rien économiser.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ImportedCard {
     /// Un contact.

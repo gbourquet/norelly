@@ -53,6 +53,10 @@ fn fold(line: &str) -> String {
     out
 }
 
+/// Année fictive d'un anniversaire sans année en vCard 3.0, comme l'écrit
+/// Apple (`X-APPLE-OMIT-YEAR`).
+const APPLE_NO_YEAR: u16 = 1604;
+
 /// Paramètre `;TYPE=…` d'une étiquette (fixée par le domaine), vide sans
 /// étiquette.
 fn type_param(label: Option<&str>) -> String {
@@ -94,11 +98,17 @@ pub(crate) fn encode(
             lines.push(format!("TITLE:{}", escape(title)));
         }
         if let Some(birthday) = card.birthday {
-            let date = match version {
-                Version::V4 => birthday.basic(),
-                Version::V3 => birthday.iso(),
-            };
-            lines.push(format!("BDAY:{date}"));
+            lines.push(match (version, birthday.year()) {
+                (Version::V4, _) => format!("BDAY:{}", birthday.basic()),
+                (Version::V3, Some(_)) => format!("BDAY:{}", birthday.iso()),
+                // vCard 3.0 n'admet qu'une date complète : année fictive
+                // d'Apple (bissextile), retirée à la lecture.
+                (Version::V3, None) => format!(
+                    "BDAY;X-APPLE-OMIT-YEAR={APPLE_NO_YEAR}:{APPLE_NO_YEAR}-{:02}-{:02}",
+                    birthday.month(),
+                    birthday.day()
+                ),
+            });
         }
         for email in &card.emails {
             let label = email.label.as_deref();
@@ -248,7 +258,11 @@ mod tests {
             ..ExportCard::default()
         };
         assert!(written(std::slice::from_ref(&card), Version::V4).contains("\r\nBDAY:--0229\r\n"));
-        assert!(written(&[card], Version::V3).contains("\r\nBDAY:--02-29\r\n"));
+        // vCard 3.0 n'a pas de date sans année : année fictive d'Apple.
+        assert!(
+            written(&[card], Version::V3)
+                .contains("\r\nBDAY;X-APPLE-OMIT-YEAR=1604:1604-02-29\r\n")
+        );
     }
 
     #[test]

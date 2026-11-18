@@ -37,6 +37,23 @@ pub(crate) fn birthday_text(raw: &str) -> String {
     Birthday::parse(raw).map_or_else(|| raw.to_owned(), |b| b.iso())
 }
 
+/// Anniversaire tiré d'une année (facultative), d'un mois et d'un jour
+/// séparés (Thunderbird : CSV et LDIF), dans la forme du domaine ; vide
+/// sans mois ni jour, tel quel s'ils ne sont pas des nombres (le domaine
+/// l'écarte alors).
+pub(crate) fn birthday_of_parts(year: &str, month: &str, day: &str) -> String {
+    let (year, month, day) = (year.trim(), month.trim(), day.trim());
+    if month.is_empty() && day.is_empty() {
+        return String::new();
+    }
+    let number = |text: &str| text.parse::<u32>().ok();
+    match (number(year), number(month), number(day)) {
+        (Some(y), Some(m), Some(d)) => birthday_text(&format!("{y:04}-{m:02}-{d:02}")),
+        (None, Some(m), Some(d)) if year.is_empty() => birthday_text(&format!("--{m:02}-{d:02}")),
+        _ => format!("{year}-{month}-{day}"),
+    }
+}
+
 /// Lignes d'une rue (rue, complément, boîte postale…) réunies, vides
 /// omises.
 pub(crate) fn street_lines<'a>(lines: impl IntoIterator<Item = &'a str>) -> String {

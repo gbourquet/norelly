@@ -10,7 +10,7 @@ use norelly_domain::contacts::{
 };
 use norelly_domain::ports::ContactCodecError;
 
-use crate::{MAX_FIELD_BYTES, MAX_VALUES_PER_CARD, birthday_text, street_lines, text};
+use crate::{MAX_FIELD_BYTES, MAX_VALUES_PER_CARD, birthday_of_parts, street_lines, text};
 
 /// Le texte commence-t-il comme un fichier LDIF (`dn:` ou `version:`) ?
 pub(crate) fn looks_like(text: &str) -> bool {
@@ -263,24 +263,8 @@ fn card(record: &[(String, Value)]) -> Option<ImportedCard> {
             },
         )
         .collect();
-    input.birthday = birth_text(&birth);
+    input.birthday = birthday_of_parts(&birth[0], &birth[1], &birth[2]);
     Some(ImportedCard::Contact(input))
-}
-
-/// Anniversaire tiré de `birthyear` (facultatif), `birthmonth` et
-/// `birthday`, dans la forme du domaine ; vide sans mois ni jour, tel
-/// quel s'ils ne sont pas des nombres.
-fn birth_text([year, month, day]: &[String; 3]) -> String {
-    let (year, month, day) = (year.trim(), month.trim(), day.trim());
-    if month.is_empty() && day.is_empty() {
-        return String::new();
-    }
-    let number = |text: &str| text.parse::<u32>().ok();
-    match (number(year), number(month), number(day)) {
-        (Some(y), Some(m), Some(d)) => birthday_text(&format!("{y:04}-{m:02}-{d:02}")),
-        (None, Some(m), Some(d)) if year.is_empty() => birthday_text(&format!("--{m:02}-{d:02}")),
-        _ => format!("{year}-{month}-{day}"),
-    }
 }
 
 /// Fiches d'un fichier LDIF, dans son ordre.

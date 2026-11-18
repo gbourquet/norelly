@@ -16,7 +16,9 @@ use norelly_domain::contacts::{
 };
 use norelly_domain::ports::ContactCodecError;
 
-use crate::{MAX_FIELD_BYTES, MAX_VALUES_PER_CARD, birthday_text, street_lines};
+use crate::{
+    MAX_FIELD_BYTES, MAX_VALUES_PER_CARD, birthday_of_parts, birthday_text, street_lines,
+};
 
 /// Rôle d'une colonne.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -152,8 +154,12 @@ struct Place {
 impl Place {
     fn set(&mut self, part: PlacePart, cell: &str) {
         let field = match part {
+            // Ligne de rue d'un rang déjà lu (colonne répétée) : ignorée,
+            // comme les autres éléments, le premier gardé.
             PlacePart::Street(n) => {
-                self.streets.push((n, cell.to_owned()));
+                if !self.streets.iter().any(|(rank, _)| *rank == n) {
+                    self.streets.push((n, cell.to_owned()));
+                }
                 return;
             }
             PlacePart::Locality => &mut self.locality,
@@ -194,24 +200,6 @@ impl Place {
             country: self.country,
             label,
         })
-    }
-}
-
-/// Anniversaire tiré de l'année (facultative), du mois et du jour de
-/// Thunderbird, dans la forme du domaine ; vide sans mois ni jour, tel
-/// quel s'ils ne sont pas des nombres.
-fn birth_parts([year, month, day]: [&str; 3]) -> String {
-    if month.is_empty() && day.is_empty() {
-        return String::new();
-    }
-    let number = |text: &str| text.trim().parse::<u32>().ok();
-    match (number(month), number(day), year.trim()) {
-        (Some(month), Some(day), "") => birthday_text(&format!("--{month:02}-{day:02}")),
-        (Some(month), Some(day), year) => match number(year) {
-            Some(year) => birthday_text(&format!("{year:04}-{month:02}-{day:02}")),
-            None => format!("{year}-{month}-{day}"),
-        },
-        _ => format!("{year}-{month}-{day}"),
     }
 }
 
@@ -530,7 +518,7 @@ fn card(columns: &[Option<Column>], record: &csv::StringRecord) -> ImportedCard 
         .filter_map(|(_, place)| place.finish())
         .collect();
     if input.birthday.is_empty() {
-        input.birthday = birth_parts(birth);
+        input.birthday = birthday_of_parts(birth[0], birth[1], birth[2]);
     }
     ImportedCard::Contact(input)
 }
@@ -768,6 +756,17 @@ mod tests {
         // Date vide d'Outlook : aucun anniversaire.
         let c = only("E-mail Address,Birthday\na@example.com,0/0/00\n");
         assert_eq!(c.birthday, "0/0/00");
+    }
+
+    #[test]
+    fn a_repeated_street_column_keeps_its_first_value() {
+        let header = vec!["home street"; 1000].join(",");
+        let cells = (0..1000)
+            .map(|n| format!("rue {n}"))
+            .collect::<Vec<_>>()
+            .join(",");
+        let c = only(&format!("E-mail Address,{header}\na@example.com,{cells}\n"));
+        assert_eq!(places(&c), [["rue 0", "", "", "", "", "home"]]);
     }
 
     #[test]

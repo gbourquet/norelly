@@ -269,6 +269,14 @@ Risques résiduels, acceptés avec la décision du mainteneur :
 - les comptes Microsoft 365 et Outlook.com, dont l'en-tête n'a pas
   d'`authserv-id`, restent en `Unknown` (ni pastille, ni avertissement).
 
+Un fichier de contacts importé peut marquer ses nouvelles fiches comme
+favorites (catégorie vCard « starred », étiquette Google « * starred »,
+`crates/domain/src/contact_export.rs`) : elles passent alors devant les
+autres dans les suggestions de destinataires. Risque faible, accepté :
+l'utilisateur importe lui-même le fichier, l'adresse reste affichée, et
+un fichier ne change jamais le favori d'un contact déjà au carnet, même
+en le complétant (`plan_import`).
+
 ### Données
 
 - SQL : paramètres liés uniquement (`scripts/check-sql.sh`) ; requêtes de

@@ -277,9 +277,11 @@ l'ordinateur** : rien n'est envoyé à un serveur.
   les étiquettes personnelles des Contacts d'Apple ; les étiquettes
   prédéfinies d'Apple deviennent les étiquettes courantes
   correspondantes.
-- Un contact marqué favori dans le fichier (les favoris de Google, en
-  vCard comme en CSV, et ceux qu'exporte Norelly) est importé en favori.
-  Les autres catégories ou groupes du fichier ne sont pas repris.
+- Un nouveau contact marqué favori dans le fichier (les favoris de
+  Google, en vCard comme en CSV, et ceux qu'exporte Norelly) est importé
+  en favori. Les autres catégories ou groupes du fichier ne sont pas
+  repris, et le fichier ne change jamais le favori d'un contact déjà dans
+  le carnet.
 - Rien n'est écrit avant confirmation. Une fenêtre résume d'abord ce que
   l'import va faire : le fichier et son format, le nombre de nouveaux
   contacts, de fiches déjà dans le carnet, de fiches impossibles à

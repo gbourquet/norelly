@@ -85,6 +85,7 @@ fn migrations() -> Migrations<'static> {
             },
         ),
         M::up(include_str!("../migrations/0024_carddav.sql")),
+        M::up(include_str!("../migrations/0025_contact_details.sql")),
     ])
 }
 
@@ -729,6 +730,15 @@ mod tests {
          VALUES ('/c/a.vcf', '\"1\"', 1, NULL, 's', 'r'); \
          INSERT INTO carddav_sync (id, at, pulled, pushed, skipped, failure) \
          VALUES (1, 10, 1, 2, 3, NULL);",
+        // v25 : titre et anniversaire, une adresse postale et un site au
+        // contact de la version 11.
+        "UPDATE contacts SET title = 'V25', birthday = '--04-12', \
+         search_text = 'v11\nv19\nv25\nv11@example.com' WHERE id = 1; \
+         INSERT INTO contact_postal_addresses (contact_id, position, street, locality, \
+         region, postal_code, country, label) \
+         VALUES (1, 0, '1 rue V25', 'Lyon', NULL, '69001', NULL, 'maison'); \
+         INSERT INTO contact_websites (contact_id, position, url, label) \
+         VALUES (1, 0, 'https://v25.example', NULL);",
     ];
 
     /// Montée vers la version 24 : les fiches existantes ne sont pas
@@ -796,9 +806,8 @@ mod tests {
         Ok(())
     }
 
-    /// Base de la version précédente : à la montée vers la migration 23
-    /// (la dernière de la liste, d'où les indices relatifs), le texte cherché des
-    /// fiches est recalculé (nom complet composé compris), sans toucher au
+    /// Base de la version 22 : à la montée vers la migration 23, le texte
+    /// cherché des fiches est recalculé (nom complet composé compris), sans toucher au
     /// reste ; les fiches se relisent et « alice mar » trouve Alice
     /// Martin. Une fiche dont la clé de tri stockée n'est pas celle du
     /// domaine (corrompue) ou illisible est laissée telle quelle.
@@ -1232,6 +1241,43 @@ mod tests {
             fiche(&conn, 30)?,
             ("Bo\u{2800}b".to_owned(), "zzz@x.example".to_owned())
         );
+        Ok(())
+    }
+
+    /// Base de la version 24 : après la montée en version 25, les fiches
+    /// d'avant se relisent sans détail, et les détails écrits se relisent.
+    #[tokio::test]
+    async fn upgrading_to_v25_keeps_contacts_and_reads_their_details() -> Result<(), StoreError> {
+        use norelly_domain::contacts::ContactId;
+        use norelly_domain::ports::ContactDirectory;
+        let mut conn = Connection::open_in_memory().map_err(store_error)?;
+        conn.pragma_update(None, "foreign_keys", "ON")
+            .map_err(store_error)?;
+        let m = migrations();
+        for (version, fixture) in FIXTURES.iter().enumerate() {
+            m.to_version(&mut conn, version + 1)
+                .map_err(|e| StoreError(e.to_string()))?;
+            conn.execute_batch(fixture).map_err(store_error)?;
+        }
+        let db = Database::init(conn).map_err(|e| StoreError(e.to_string()))?;
+        let book = contacts::SqliteContactBook::new(db);
+        let id = |n| ContactId::new(n).ok_or_else(|| StoreError("id".into()));
+        let v18 = book
+            .get(id(2)?)
+            .await?
+            .ok_or_else(|| StoreError("v18".into()))?;
+        assert_eq!(v18.draft().title(), None);
+        assert!(v18.draft().postal_addresses().is_empty());
+        let v25 = book
+            .get(id(1)?)
+            .await?
+            .ok_or_else(|| StoreError("v25".into()))?;
+        let d = v25.draft();
+        assert_eq!(d.title(), Some("V25"));
+        assert_eq!(d.birthday().map(|b| b.iso()), Some("--04-12".into()));
+        assert_eq!(d.postal_addresses()[0].street(), Some("1 rue V25"));
+        assert_eq!(d.postal_addresses()[0].label(), Some("maison"));
+        assert_eq!(d.websites()[0].url(), "https://v25.example");
         Ok(())
     }
 

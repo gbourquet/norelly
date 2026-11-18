@@ -5,7 +5,13 @@
 //   Contacts : un groupe, rapproché par le nom et le téléphone, la fiche
 //   la plus complète proposée à garder ;
 // - Bob décoché, « Fusionner » : une seule Alice, aux deux adresses ; Bob
-//   reste ; une nouvelle recherche ne trouve plus rien.
+//   reste ;
+// - une nouvelle recherche rapproche Bob et Alice par le seul téléphone :
+//   aucune fiche gardée d'office, « Fusionner » indisponible ; « Passer » ;
+// - la recherche suivante ne les propose plus ; Bob modifié, ils
+//   reviennent ;
+// - deux adresses Gmail de la même boîte (points, googlemail.com) forment
+//   un groupe.
 import { $, $$, browser, expect } from "@wdio/globals";
 import { addTestAccount, barAction, removeTestAccount } from "./helpers.mjs";
 
@@ -102,12 +108,52 @@ describe("doublons du carnet", () => {
     await expect(card.$("span=alice.pro@norelly.test")).toBeDisplayed();
   });
 
-  it("une nouvelle recherche ne propose plus que Bob et Alice, rapprochés par le téléphone", async () => {
+  it("une nouvelle recherche rapproche Bob et Alice par le téléphone, sans fiche gardée d'office", async () => {
     const window = await findDuplicates();
     await expect(window.$("li=Même téléphone")).toBeDisplayed();
     await expect(window.$("li=Même nom")).not.toBeExisting();
+    await expect(window.$("p*=choisissez vous-même la fiche à garder")).toBeDisplayed();
+    for (const radio of await window.$$('input[type="radio"]')) {
+      await expect(radio).not.toBeSelected();
+    }
+    await expect(window.$("button=Fusionner")).toBeDisabled();
     await window.$("button=Passer").click();
     await expect(window.$("p=Tous les doublons ont été examinés.")).toBeDisplayed();
+    await window.$("button=Fermer").click();
+    await window.waitForDisplayed({ reverse: true, timeout: 10000 });
+  });
+
+  it("un groupe passé n'est plus proposé, sauf si l'une de ses fiches change", async () => {
+    let window = await findDuplicates();
+    await expect(window.$("p*=Aucun doublon trouvé")).toBeDisplayed();
+    await window.$("button=Fermer").click();
+    await window.waitForDisplayed({ reverse: true, timeout: 10000 });
+
+    await rows("Bob")[0].click();
+    await button("Modifier le contact").click();
+    const form = dialog("Modifier le contact");
+    await form.waitForDisplayed();
+    await field("Surnom").setValue("Bobby");
+    await button("Enregistrer").click();
+    await form.waitForDisplayed({ reverse: true, timeout: 10000 });
+
+    window = await findDuplicates();
+    await expect(window.$("p=Groupe 1 sur 1")).toBeDisplayed();
+    await expect(window.$("li=Même téléphone")).toBeDisplayed();
+    await window.$("button=Passer").click();
+    await expect(window.$("p=Tous les doublons ont été examinés.")).toBeDisplayed();
+    await window.$("button=Fermer").click();
+    await window.waitForDisplayed({ reverse: true, timeout: 10000 });
+  });
+
+  it("rapproche deux adresses Gmail de la même boîte", async () => {
+    await create("Carole", "Dupont", "carole.dupont@gmail.com");
+    await create("Caro", "", "caroledupont@googlemail.com");
+    const window = await findDuplicates();
+    await expect(window.$("p=Groupe 1 sur 1")).toBeDisplayed();
+    await expect(window.$("li=Même adresse Gmail")).toBeDisplayed();
+    await expect(window.$$("li.card")).toBeElementsArrayOfSize(2);
+    await expect(window.$("button=Fusionner")).toBeDisabled();
     await window.$("button=Fermer").click();
     await window.waitForDisplayed({ reverse: true, timeout: 10000 });
   });

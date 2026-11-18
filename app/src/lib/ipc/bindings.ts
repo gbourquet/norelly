@@ -276,11 +276,11 @@ export const commands = {
 	 */
 	listContacts: (text: string, favoritesOnly: boolean, cursor: ContactCursorDto | null, limit: number) => typedError<ContactPageDto_Serialize, IpcError_Serialize>(__TAURI_INVOKE("list_contacts", { text, favoritesOnly, cursor, limit })),
 	/**  Fiche complète `id`. */
-	getContact: (id: number) => typedError<ContactDto, IpcError_Serialize>(__TAURI_INVOKE("get_contact", { id })),
+	getContact: (id: number) => typedError<ContactDto_Serialize, IpcError_Serialize>(__TAURI_INVOKE("get_contact", { id })),
 	/**  Enregistre une nouvelle fiche. */
-	createContact: (contact: ContactFieldsDto) => typedError<ContactDto, IpcError_Serialize>(__TAURI_INVOKE("create_contact", { contact })),
+	createContact: (contact: ContactFieldsDto_Deserialize) => typedError<ContactDto_Serialize, IpcError_Serialize>(__TAURI_INVOKE("create_contact", { contact })),
 	/**  Remplace le contenu de la fiche `id`. */
-	updateContact: (id: number, contact: ContactFieldsDto) => typedError<ContactDto, IpcError_Serialize>(__TAURI_INVOKE("update_contact", { id, contact })),
+	updateContact: (id: number, contact: ContactFieldsDto_Deserialize) => typedError<ContactDto_Serialize, IpcError_Serialize>(__TAURI_INVOKE("update_contact", { id, contact })),
 	/**
 	 *  Supprime des fiches (chaque identifiant une fois) ; renvoie le nombre
 	 *  de fiches supprimées.
@@ -307,12 +307,17 @@ export const commands = {
 	 *  Groupes de doublons du carnet, dans l'ordre du nom de leur première
 	 *  fiche.
 	 */
-	findContactDuplicates: () => typedError<ContactDuplicateGroupDto[], IpcError_Serialize>(__TAURI_INVOKE("find_contact_duplicates")),
+	findContactDuplicates: () => typedError<ContactDuplicateGroupDto_Serialize[], IpcError_Serialize>(__TAURI_INVOKE("find_contact_duplicates")),
+	/**
+	 *  Retient le groupe passé `contacts` (fiches présentées) : il n'est plus
+	 *  proposé tant qu'aucune de ses fiches ne change.
+	 */
+	dismissContactDuplicates: (contacts: number[]) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("dismiss_contact_duplicates", { contacts })),
 	/**
 	 *  Fusionne les fiches `others` dans la fiche `keep` ; renvoie la fiche
 	 *  gardée. Refusée si une fiche a changé depuis la recherche.
 	 */
-	mergeContacts: (keep: number, others: number[]) => typedError<ContactDto, IpcError_Serialize>(__TAURI_INVOKE("merge_contacts", { keep, others })),
+	mergeContacts: (keep: number, others: number[]) => typedError<ContactDto_Serialize, IpcError_Serialize>(__TAURI_INVOKE("merge_contacts", { keep, others })),
 	/**
 	 *  Ce que garderait la fiche `keep` si les fiches `others` y étaient
 	 *  fusionnées (nom, adresse préférée), sans rien écrire.
@@ -579,28 +584,77 @@ export type ContactCursorDto = {
 };
 
 /**  Fiche contact enregistrée. */
-export type ContactDto = {
+export type ContactDto = ContactDto_Serialize | ContactDto_Deserialize;
+
+/**  Fiche contact enregistrée. */
+export type ContactDto_Deserialize = {
 	id: number,
 	/**  Nom à afficher (règle du domaine). */
 	name: string,
-	fields: ContactFieldsDto,
+	fields: ContactFieldsDto_Deserialize,
+};
+
+/**  Fiche contact enregistrée. */
+export type ContactDto_Serialize = {
+	id: number,
+	/**  Nom à afficher (règle du domaine). */
+	name: string,
+	fields: ContactFieldsDto_Serialize,
 };
 
 /**  Groupe de doublons : la fiche proposée à garder d'abord. */
-export type ContactDuplicateGroupDto = {
-	contacts: DuplicateCardDto[],
+export type ContactDuplicateGroupDto = ContactDuplicateGroupDto_Serialize | ContactDuplicateGroupDto_Deserialize;
+
+/**  Groupe de doublons : la fiche proposée à garder d'abord. */
+export type ContactDuplicateGroupDto_Deserialize = {
+	contacts: DuplicateCardDto_Deserialize[],
 	reasons: DuplicateReasonDto[],
 	/**
 	 *  Groupe plus grand que ce qu'une fusion peut réunir : seules les
 	 *  fiches les plus complètes sont présentées.
 	 */
 	truncated: boolean,
+	/**
+	 *  La première fiche est proposée d'office comme fiche gardée ; sinon
+	 *  l'utilisateur la choisit (groupe rapproché sans le nom).
+	 */
+	suggest_keep: boolean,
+};
+
+/**  Groupe de doublons : la fiche proposée à garder d'abord. */
+export type ContactDuplicateGroupDto_Serialize = {
+	contacts: DuplicateCardDto_Serialize[],
+	reasons: DuplicateReasonDto[],
+	/**
+	 *  Groupe plus grand que ce qu'une fusion peut réunir : seules les
+	 *  fiches les plus complètes sont présentées.
+	 */
+	truncated: boolean,
+	/**
+	 *  La première fiche est proposée d'office comme fiche gardée ; sinon
+	 *  l'utilisateur la choisit (groupe rapproché sans le nom).
+	 */
+	suggest_keep: boolean,
 };
 
 /**  Adresse d'une fiche contact (saisie, ou fiche relue). */
-export type ContactEmailDto = {
+export type ContactEmailDto = ContactEmailDto_Serialize | ContactEmailDto_Deserialize;
+
+/**  Adresse d'une fiche contact (saisie, ou fiche relue). */
+export type ContactEmailDto_Deserialize = {
 	address: string,
 	label: string,
+	/**  Genre de l'étiquette, sur une fiche relue ; ignoré en saisie. */
+	label_kind?: ContactLabelKindDto | null,
+	preferred: boolean,
+};
+
+/**  Adresse d'une fiche contact (saisie, ou fiche relue). */
+export type ContactEmailDto_Serialize = {
+	address: string,
+	label: string,
+	/**  Genre de l'étiquette, sur une fiche relue ; ignoré en saisie. */
+	label_kind?: ContactLabelKindDto | null,
 	preferred: boolean,
 };
 
@@ -627,15 +681,39 @@ export type ContactExportSelectionDto =
  *  par le domaine) ou fiche relue (formulaire pré-rempli). Champ vide :
  *  absent.
  */
-export type ContactFieldsDto = {
+export type ContactFieldsDto = ContactFieldsDto_Serialize | ContactFieldsDto_Deserialize;
+
+/**
+ *  Champs d'une fiche contact : saisie envoyée par l'interface (revalidée
+ *  par le domaine) ou fiche relue (formulaire pré-rempli). Champ vide :
+ *  absent.
+ */
+export type ContactFieldsDto_Deserialize = {
 	display_name: string,
 	given_name: string,
 	family_name: string,
 	nickname: string,
 	organization: string,
 	notes: string,
-	emails: ContactEmailDto[],
-	phones: ContactPhoneDto[],
+	emails: ContactEmailDto_Deserialize[],
+	phones: ContactPhoneDto_Deserialize[],
+	favorite: boolean,
+};
+
+/**
+ *  Champs d'une fiche contact : saisie envoyée par l'interface (revalidée
+ *  par le domaine) ou fiche relue (formulaire pré-rempli). Champ vide :
+ *  absent.
+ */
+export type ContactFieldsDto_Serialize = {
+	display_name: string,
+	given_name: string,
+	family_name: string,
+	nickname: string,
+	organization: string,
+	notes: string,
+	emails: ContactEmailDto_Serialize[],
+	phones: ContactPhoneDto_Serialize[],
 	favorite: boolean,
 };
 
@@ -690,6 +768,12 @@ export type ContactItemDto_Serialize = {
 	organization: string | null,
 	favorite: boolean,
 };
+
+/**
+ *  Genre d'une étiquette connue (règle du domaine) : l'interface affiche
+ *  sa traduction à la place du texte enregistré.
+ */
+export type ContactLabelKindDto = "work" | "home" | "mobile" | "fax" | "pager" | "main" | "other";
 
 /**  Position dans la liste des listes (rendue telle quelle). */
 export type ContactListCursorDto = {
@@ -776,9 +860,22 @@ export type ContactPageDto_Serialize = {
 };
 
 /**  Téléphone d'une fiche contact. */
-export type ContactPhoneDto = {
+export type ContactPhoneDto = ContactPhoneDto_Serialize | ContactPhoneDto_Deserialize;
+
+/**  Téléphone d'une fiche contact. */
+export type ContactPhoneDto_Deserialize = {
 	number: string,
 	label: string,
+	/**  Genre de l'étiquette, sur une fiche relue ; ignoré en saisie. */
+	label_kind?: ContactLabelKindDto | null,
+};
+
+/**  Téléphone d'une fiche contact. */
+export type ContactPhoneDto_Serialize = {
+	number: string,
+	label: string,
+	/**  Genre de l'étiquette, sur une fiche relue ; ignoré en saisie. */
+	label_kind?: ContactLabelKindDto | null,
 };
 
 export type ConversationCursorDto = {
@@ -1028,11 +1125,25 @@ export type DraftsDto = {
 };
 
 /**  Fiche d'un groupe de doublons : les seuls champs affichés. */
-export type DuplicateCardDto = {
+export type DuplicateCardDto = DuplicateCardDto_Serialize | DuplicateCardDto_Deserialize;
+
+/**  Fiche d'un groupe de doublons : les seuls champs affichés. */
+export type DuplicateCardDto_Deserialize = {
 	id: number,
 	/**  Nom à afficher (règle du domaine). */
 	name: string,
-	emails: ContactEmailDto[],
+	emails: ContactEmailDto_Deserialize[],
+	phones: string[],
+	/**  Vide : absente. */
+	organization: string,
+};
+
+/**  Fiche d'un groupe de doublons : les seuls champs affichés. */
+export type DuplicateCardDto_Serialize = {
+	id: number,
+	/**  Nom à afficher (règle du domaine). */
+	name: string,
+	emails: ContactEmailDto_Serialize[],
 	phones: string[],
 	/**  Vide : absente. */
 	organization: string,
@@ -1046,7 +1157,12 @@ export type DuplicatePolicyDto =
 "complete";
 
 /**  Ce qui rapproche les contacts d'un groupe de doublons. */
-export type DuplicateReasonDto = "same_name" | "same_phone";
+export type DuplicateReasonDto = "same_name" | "same_phone" | 
+/**
+ *  Adresses Gmail qui mènent à la même boîte (points et
+ *  `googlemail.com` ignorés).
+ */
+"same_gmail_address";
 
 /**  Point de connexion (consentement au clair, exception de certificat). */
 export type EndpointDto = {

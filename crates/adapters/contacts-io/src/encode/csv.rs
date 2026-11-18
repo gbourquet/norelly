@@ -3,12 +3,18 @@
 //! quand il le faut (crate `csv`). Une adresse ou un téléphone par paire
 //! de colonnes « E-mail n - Label / Value », l'adresse préférée marquée
 //! « * » ; chaque cellule neutralisée contre les formules
-//! (`neutralize_csv_cell`).
+//! (`neutralize_csv_cell`). La colonne « Labels » range chaque fiche dans
+//! « Mes contacts » à l'import Google, au lieu d'un libellé propre à
+//! l'import.
 
 use norelly_domain::contact_export::{ExportCard, neutralize_csv_cell};
 use norelly_domain::ports::ContactCodecError;
 
 use super::Output;
+
+/// Valeur de la colonne « Labels » : le groupe système « Mes contacts »
+/// de Google, sous la forme qu'écrit son propre export.
+const MY_CONTACTS: &str = "* myContacts";
 
 /// Fiches `cards` dans `out`.
 pub(crate) fn encode(cards: &[ExportCard], out: &mut Output) -> Result<(), ContactCodecError> {
@@ -27,6 +33,7 @@ pub(crate) fn encode(cards: &[ExportCard], out: &mut Output) -> Result<(), Conta
         "Nickname",
         "Organization Name",
         "Notes",
+        "Labels",
     ]
     .map(str::to_owned)
     .to_vec();
@@ -53,6 +60,7 @@ pub(crate) fn encode(cards: &[ExportCard], out: &mut Output) -> Result<(), Conta
             text(&card.nickname),
             text(&card.organization),
             text(&card.notes),
+            MY_CONTACTS.to_owned(),
         ];
         for n in 0..emails {
             match card.emails.get(n) {
@@ -136,11 +144,11 @@ mod tests {
         };
         assert_eq!(
             written(&[one, two]),
-            "Name,First Name,Last Name,Nickname,Organization Name,Notes,\
+            "Name,First Name,Last Name,Nickname,Organization Name,Notes,Labels,\
              E-mail 1 - Label,E-mail 1 - Value,E-mail 2 - Label,E-mail 2 - Value,\
              Phone 1 - Label,Phone 1 - Value\r\n\
-             Anne,,,,,,*,anne@example.com,,,,\r\n\
-             ,Bob,Durand,Bobby,ACME,\"Ligne 1\nLigne 2, \"\"citée\"\"\",\
+             Anne,,,,,,* myContacts,*,anne@example.com,,,,\r\n\
+             ,Bob,Durand,Bobby,ACME,\"Ligne 1\nLigne 2, \"\"citée\"\"\",* myContacts,\
              * Work,bob@example.com,Home,bob@example.org,Mobile,'+33 6 12\r\n"
         );
     }
@@ -159,7 +167,7 @@ mod tests {
         let row = text.lines().nth(1).unwrap_or_default();
         assert_eq!(
             row,
-            "'=1+1,,,'\u{FE62}1,'@SUM(A1),'-x,'\u{2212}lab,a@example.com"
+            "'=1+1,,,'\u{FE62}1,'@SUM(A1),'-x,* myContacts,'\u{2212}lab,a@example.com"
         );
     }
 
@@ -167,7 +175,7 @@ mod tests {
     fn no_card_still_writes_a_recognizable_header() {
         assert_eq!(
             written(&[]),
-            "Name,First Name,Last Name,Nickname,Organization Name,Notes,\
+            "Name,First Name,Last Name,Nickname,Organization Name,Notes,Labels,\
              E-mail 1 - Label,E-mail 1 - Value\r\n"
         );
     }

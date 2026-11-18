@@ -161,12 +161,12 @@ fn apple_vcard() {
             organization: "ACME".into(),
             notes: "Collègue, bureau 4".into(),
             emails: vec![
-                email("alice.martin@example.com", "", true),
+                email("alice.martin@example.com", "other", true),
                 email("alice@example.org", "home", false),
             ],
             phones: vec![
                 phone("+33 6 98 76 54 32", "cell"),
-                phone("01 02 03 04 05", "")
+                phone("01 02 03 04 05", "bureau")
             ],
             ..ContactInput::default()
         }

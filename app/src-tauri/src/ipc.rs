@@ -2060,11 +2060,51 @@ mod reading_tests {
     }
 }
 
+/// Genre d'une étiquette connue (règle du domaine) : l'interface affiche
+/// sa traduction à la place du texte enregistré.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum ContactLabelKindDto {
+    Work,
+    Home,
+    Mobile,
+    Fax,
+    Pager,
+    Main,
+    Other,
+}
+
+impl From<norelly_domain::contact_labels::ContactLabelKind> for ContactLabelKindDto {
+    fn from(kind: norelly_domain::contact_labels::ContactLabelKind) -> Self {
+        use norelly_domain::contact_labels::ContactLabelKind as K;
+        match kind {
+            K::Work => Self::Work,
+            K::Home => Self::Home,
+            K::Mobile => Self::Mobile,
+            K::Fax => Self::Fax,
+            K::Pager => Self::Pager,
+            K::Main => Self::Main,
+            K::Other => Self::Other,
+        }
+    }
+}
+
+impl ContactLabelKindDto {
+    /// Genre de l'étiquette `label`, s'il est connu.
+    #[must_use]
+    pub fn of(label: &str) -> Option<Self> {
+        norelly_domain::contact_labels::ContactLabelKind::of(label).map(Self::from)
+    }
+}
+
 /// Adresse d'une fiche contact (saisie, ou fiche relue).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
 pub struct ContactEmailDto {
     pub address: String,
     pub label: String,
+    /// Genre de l'étiquette, sur une fiche relue ; ignoré en saisie.
+    #[specta(optional)]
+    pub label_kind: Option<ContactLabelKindDto>,
     pub preferred: bool,
 }
 
@@ -2073,6 +2113,9 @@ pub struct ContactEmailDto {
 pub struct ContactPhoneDto {
     pub number: String,
     pub label: String,
+    /// Genre de l'étiquette, sur une fiche relue ; ignoré en saisie.
+    #[specta(optional)]
+    pub label_kind: Option<ContactLabelKindDto>,
 }
 
 /// Champs d'une fiche contact : saisie envoyée par l'interface (revalidée
@@ -2304,6 +2347,9 @@ pub enum ContactExportFormatDto {
 pub enum DuplicateReasonDto {
     SameName,
     SamePhone,
+    /// Adresses Gmail qui mènent à la même boîte (points et
+    /// `googlemail.com` ignorés).
+    SameGmailAddress,
 }
 
 /// Fiche d'un groupe de doublons : les seuls champs affichés.
@@ -2326,6 +2372,9 @@ pub struct ContactDuplicateGroupDto {
     /// Groupe plus grand que ce qu'une fusion peut réunir : seules les
     /// fiches les plus complètes sont présentées.
     pub truncated: bool,
+    /// La première fiche est proposée d'office comme fiche gardée ; sinon
+    /// l'utilisateur la choisit (groupe rapproché sans le nom).
+    pub suggest_keep: bool,
 }
 
 /// Ce que garderait la fiche après une fusion.

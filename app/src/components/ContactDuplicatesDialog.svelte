@@ -22,6 +22,8 @@
         return m.contacts_duplicates_reason_same_name();
       case "same_phone":
         return m.contacts_duplicates_reason_same_phone();
+      case "same_gmail_address":
+        return m.contacts_duplicates_reason_same_gmail_address();
     }
   }
 
@@ -49,6 +51,9 @@
     <p class="help">{m.contacts_duplicates_help()}</p>
     {#if group.truncated}
       <p class="help">{m.contacts_duplicates_truncated()}</p>
+    {/if}
+    {#if form.keep === null}
+      <p class="choose" role="status">{m.contacts_duplicates_choose()}</p>
     {/if}
     <ul class="cards">
       {#each group.contacts as contact (contact.id)}
@@ -97,6 +102,9 @@
         </li>
       {/each}
     </ul>
+    <p class="help skip-help">
+      {group.truncated ? m.contacts_duplicates_skip_truncated() : m.contacts_duplicates_skip_help()}
+    </p>
   {:else if form.error === null}
     <p class="status" role="status">
       {form.merged > 0 || form.total > 0
@@ -138,6 +146,15 @@
   .help,
   .muted {
     color: var(--color-text-muted);
+  }
+
+  .choose {
+    margin: 0 0 var(--space-3);
+    font-weight: var(--font-weight-medium);
+  }
+
+  .skip-help {
+    margin: var(--space-3) 0 0;
   }
 
   .heading {

@@ -362,4 +362,21 @@ mod tests {
         assert_eq!(c.phones[0].number, "+33 6 12");
         assert_eq!(c.notes, "'=garde une apostrophe");
     }
+
+    #[test]
+    fn google_labels_column_is_ignored() {
+        // « Labels » en premier : rattachée à un champ, elle le remplirait
+        // avant toute autre colonne.
+        let without = decoded("Name,E-mail 1 - Value\nAnne,anne@example.com\n");
+        for labels in [
+            "* myContacts",
+            "* myContacts ::: Famille",
+            "=cmd|' /C calc'!A0",
+        ] {
+            let with = decoded(&format!(
+                "Labels,Name,E-mail 1 - Value\n\"{labels}\",Anne,anne@example.com\n"
+            ));
+            assert_eq!(with, without, "{labels}");
+        }
+    }
 }

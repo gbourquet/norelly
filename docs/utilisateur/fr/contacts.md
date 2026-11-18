@@ -180,6 +180,12 @@ Un contact est reconnu comme déjà présent s'il a la même adresse
 électronique. Une fiche sans adresse électronique n'est pas importée : le
 carnet de Norelly sert à écrire des messages.
 
+Les étiquettes courantes des adresses et des téléphones (travail,
+domicile, mobile, fax…) s'affichent en français, quelle que soit la
+langue du logiciel d'origine. Les étiquettes personnelles, comme celles
+créées dans Contacts d'Apple (« bureau », « chalet »), sont reprises telles
+quelles.
+
 ## Exporter vos contacts
 
 Pour garder une copie de votre carnet, ou le reprendre dans un autre
@@ -192,7 +198,8 @@ logiciel :
    dans la barre qui apparaît.
 2. Choisissez le format : **vCard 4.0** convient presque partout (Gmail,
    iPhone, Android, Thunderbird) ; **vCard 3.0** pour un logiciel ancien ;
-   **CSV** pour Outlook ou un tableur ; **LDIF** pour Thunderbird.
+   **CSV** pour Outlook, un tableur ou Google Contacts (les contacts y
+   arrivent dans « Mes contacts ») ; **LDIF** pour Thunderbird.
 3. Cliquez sur **Exporter…**, choisissez le dossier et le nom du fichier,
    puis **Enregistrer**.
 
@@ -211,12 +218,17 @@ import, par exemple) :
 1. Dans **Contacts**, cliquez sur **Plus…**, en haut de la liste, puis
    sur **Rechercher les doublons…**.
 2. Norelly présente, un groupe à la fois, les contacts qui portent le même
-   nom ou le même numéro de téléphone. Vérifiez qu'il s'agit bien de la
-   même personne ; décochez une fiche pour la laisser de côté.
+   nom, le même numéro de téléphone ou la même adresse Gmail (Gmail
+   ignore les points : « jean.dupont@gmail.com » et
+   « jeandupont@gmail.com » sont la même boîte). Vérifiez qu'il s'agit
+   bien de la même personne ; décochez une fiche pour la laisser de côté.
 3. Choisissez la fiche à garder (**Garder cette fiche**), puis cliquez sur
-   **Fusionner**. Sous la fiche gardée, Norelly indique le nom et
-   l'adresse préférée que le contact aura après la fusion. Ou cliquez sur
-   **Passer** pour voir le groupe suivant sans rien changer.
+   **Fusionner**. Quand les fiches ne portent pas le même nom, Norelly ne
+   choisit pas à votre place : sélectionnez vous-même la fiche à garder.
+   Sous la fiche gardée, Norelly indique le nom et l'adresse préférée que
+   le contact aura après la fusion. Ou cliquez sur **Passer** pour voir le
+   groupe suivant sans rien changer : ce groupe ne vous sera plus
+   proposé, sauf si vous modifiez l'une de ses fiches.
 
 ![La recherche des doublons : deux fiches d'Alice Martin](captures/contacts-duplicates.png)
 

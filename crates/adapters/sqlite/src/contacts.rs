@@ -11,6 +11,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex, PoisonError};
 
 use norelly_domain::address::EmailAddress;
+use norelly_domain::contact_details::{MAX_CONTACT_WEBSITES, MAX_POSTAL_ADDRESSES};
 use norelly_domain::contact_export::ContactSelection;
 use norelly_domain::contact_import::ContactCompletion;
 use norelly_domain::contacts::{
@@ -493,6 +494,11 @@ fn details(
         let (id, place) = place.map_err(store_error)?;
         if let Some(row) = rows.get_mut(&id) {
             match place {
+                // Au-delà de ce qu'une fiche admet : invalide, sans garder le
+                // surplus en mémoire.
+                Some(_) if row.postal_addresses.len() >= MAX_POSTAL_ADDRESSES => {
+                    row.unreadable = true;
+                }
                 Some(place) => row.postal_addresses.push(place),
                 None => row.unreadable = true,
             }
@@ -521,6 +527,7 @@ fn details(
         let (id, site) = site.map_err(store_error)?;
         if let Some(row) = rows.get_mut(&id) {
             match site {
+                Some(_) if row.websites.len() >= MAX_CONTACT_WEBSITES => row.unreadable = true,
                 Some(site) => row.websites.push(site),
                 None => row.unreadable = true,
             }
@@ -1579,6 +1586,30 @@ mod tests {
                 &[
                     "UPDATE contacts SET sort_key = CAST(x'ff' AS TEXT) WHERE id = ?1",
                     "UPDATE contact_emails SET address = x'00' WHERE contact_id = ?1",
+                ],
+            ],
+        )
+        .await
+    }
+
+    /// Détails modifiés à la main (site `javascript:`, valeur d'un type
+    /// inattendu, anniversaire illisible, trop d'adresses postales) : ils
+    /// sont revalidés à la relecture, seule leur fiche est écartée.
+    #[tokio::test]
+    async fn contact_book_passes_corruption_contract_with_bad_details()
+    -> Result<(), ContactStoreError> {
+        corrupt_with(
+            &book(),
+            &[
+                &["INSERT INTO contact_websites (contact_id, position, url) \
+                   VALUES (?1, 0, 'javascript:alert(1)')"],
+                &["INSERT INTO contact_websites (contact_id, position, url) \
+                   VALUES (?1, 0, 'file:///etc/passwd')"],
+                &["INSERT INTO contact_websites (contact_id, position, url) VALUES (?1, 0, x'00')"],
+                &["UPDATE contacts SET birthday = 'n''importe quoi' WHERE id = ?1"],
+                &[
+                    "INSERT INTO contact_postal_addresses (contact_id, position, street) \
+                   SELECT ?1, value, 'rue' FROM generate_series(0, 10)",
                 ],
             ],
         )

@@ -606,11 +606,23 @@ fn trapped_contact(n: usize) -> norelly_domain::contacts::ContactInput {
             country: part(3),
             label: short(4),
         }],
-        websites: vec![WebsiteInput {
-            // Charge dans le chemin, encodée : seule forme qu'un site admet.
-            url: format!("https://example.com/{n}?q={}", encoded(&p(5))),
-            label: short(6),
-        }],
+        websites: vec![
+            // Charge entière, encodée (elle contient des espaces, qu'un
+            // site n'admet pas)…
+            WebsiteInput {
+                url: format!("https://example.com/{n}?q={}", encoded(&p(5))),
+                label: short(6),
+            },
+            // … et charges brutes sans espace, admises telles quelles.
+            WebsiteInput {
+                url: format!("https://example.com/{n}');DROP/**/TABLE/**/contacts;--"),
+                label: String::new(),
+            },
+            WebsiteInput {
+                url: format!("https://example.com/{n}'||sqlite_version()||'\"%00"),
+                label: String::new(),
+            },
+        ],
         favorite: n.is_multiple_of(2),
     }
 }

@@ -294,6 +294,15 @@ fn the_favorite_category_is_recognized_whatever_its_case() {
 }
 
 #[test]
+fn google_labels_put_every_card_in_my_contacts_and_favorites_in_starred() {
+    assert_eq!(google_labels(false), "* myContacts");
+    let favorite: Vec<&str> = google_labels(true).split(":::").map(str::trim).collect();
+    assert_eq!(favorite, ["* myContacts", GOOGLE_FAVORITE_LABEL]);
+    assert!(favorite.iter().any(|l| is_favorite_google_label(l)));
+    assert!(!is_favorite_google_label(google_labels(false)));
+}
+
+#[test]
 fn the_favorite_google_label_is_the_starred_system_group() {
     assert!(is_favorite_google_label(GOOGLE_FAVORITE_LABEL));
     // Ancien export de Google : « * Starred » (colonne « Group Membership »).

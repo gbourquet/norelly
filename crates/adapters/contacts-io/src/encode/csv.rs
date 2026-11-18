@@ -3,21 +3,14 @@
 //! quand il le faut (crate `csv`). Une adresse ou un téléphone par paire
 //! de colonnes « E-mail n - Label / Value », l'adresse préférée marquée
 //! « * » ; chaque cellule neutralisée contre les formules
-//! (`neutralize_csv_cell`). La colonne « Labels » range chaque fiche dans
-//! « Mes contacts » à l'import Google, au lieu d'un libellé propre à
-//! l'import, et un favori aussi dans « Favoris » (« * starred »).
+//! (`neutralize_csv_cell`). La colonne « Labels » (`google_labels`) range
+//! chaque fiche dans « Mes contacts » à l'import Google, au lieu d'un
+//! libellé propre à l'import, et un favori aussi dans ses favoris.
 
-use norelly_domain::contact_export::{ExportCard, GOOGLE_FAVORITE_LABEL, neutralize_csv_cell};
+use norelly_domain::contact_export::{ExportCard, google_labels, neutralize_csv_cell};
 use norelly_domain::ports::ContactCodecError;
 
 use super::Output;
-
-/// Valeur de la colonne « Labels » : le groupe système « Mes contacts »
-/// de Google, sous la forme qu'écrit son propre export.
-const MY_CONTACTS: &str = "* myContacts";
-
-/// Séparateur des valeurs d'une cellule Google.
-const VALUES_SEPARATOR: &str = " ::: ";
 
 /// Fiches `cards` dans `out`.
 pub(crate) fn encode(cards: &[ExportCard], out: &mut Output) -> Result<(), ContactCodecError> {
@@ -63,11 +56,7 @@ pub(crate) fn encode(cards: &[ExportCard], out: &mut Output) -> Result<(), Conta
             text(&card.nickname),
             text(&card.organization),
             text(&card.notes),
-            if card.favorite {
-                [MY_CONTACTS, GOOGLE_FAVORITE_LABEL].join(VALUES_SEPARATOR)
-            } else {
-                MY_CONTACTS.to_owned()
-            },
+            google_labels(card.favorite).to_owned(),
         ];
         for n in 0..emails {
             match card.emails.get(n) {

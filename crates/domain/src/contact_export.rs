@@ -214,14 +214,27 @@ pub const VCARD_FAVORITE_CATEGORY: &str = "starred";
 /// système « Favoris » de Google, sous la forme de son propre export.
 pub const GOOGLE_FAVORITE_LABEL: &str = "* starred";
 
-/// Nom du groupe des favoris, sans la marque « * » des groupes système.
-const FAVORITE_GROUP: &str = "starred";
+/// Étiquettes de la colonne « Labels » : « Mes contacts » pour toute
+/// fiche (le groupe système où Google range ses propres contacts),
+/// « Favoris » en plus pour un favori, séparées comme dans son export.
+#[must_use]
+pub fn google_labels(favorite: bool) -> &'static str {
+    if favorite {
+        "* myContacts ::: * starred"
+    } else {
+        "* myContacts"
+    }
+}
 
 /// La catégorie vCard `category` marque-t-elle un favori ? Oui pour
-/// « starred », à la casse et aux espaces de bord près.
+/// « starred », à la casse et aux espaces de bord près. Une vCard n'a
+/// pas de marque des groupes système : une catégorie « Starred » créée
+/// par l'utilisateur d'un autre logiciel compte aussi.
 #[must_use]
 pub fn is_favorite_category(category: &str) -> bool {
-    category.trim().eq_ignore_ascii_case(FAVORITE_GROUP)
+    category
+        .trim()
+        .eq_ignore_ascii_case(VCARD_FAVORITE_CATEGORY)
 }
 
 /// L'étiquette Google `label` (une valeur de la colonne « Labels »)
@@ -230,10 +243,11 @@ pub fn is_favorite_category(category: &str) -> bool {
 /// de l'utilisateur.
 #[must_use]
 pub fn is_favorite_google_label(label: &str) -> bool {
-    label
-        .trim()
-        .strip_prefix('*')
-        .is_some_and(|group| group.trim_start().eq_ignore_ascii_case(FAVORITE_GROUP))
+    label.trim().strip_prefix('*').is_some_and(|group| {
+        group
+            .trim_start()
+            .eq_ignore_ascii_case(VCARD_FAVORITE_CATEGORY)
+    })
 }
 
 /// Nom complet d'une vCard (propriété obligatoire) : le nom affiché de la

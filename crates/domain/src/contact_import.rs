@@ -310,6 +310,19 @@ pub fn plan_import(
             }
             None => plan.duplicates += 1,
         }
+        // Un nouveau contact est favori si l'une de ses fiches du fichier
+        // l'est ; celui d'un contact du carnet ne change pas.
+        if let Owner::New(i) = owner
+            && draft.favorite()
+            && let Some(created) = plan.create.get_mut(i)
+            && !created.favorite()
+        {
+            let mut input = created.to_input();
+            input.favorite = true;
+            if let Ok(favorite) = ContactDraft::new(input) {
+                *created = favorite;
+            }
+        }
     }
 
     plan.complete = existing

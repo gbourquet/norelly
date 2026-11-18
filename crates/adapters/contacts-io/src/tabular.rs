@@ -2,7 +2,7 @@
 //! Thunderbird (en-têtes anglais, et français pour Outlook et
 //! Thunderbird), par la crate `csv`. Le format est reconnu à l'en-tête,
 //! le séparateur (`,`, `;` ou tabulation) à la première ligne. Des
-//! étiquettes de Google (colonne « Labels », « Group Membership » dans ses
+//! étiquettes d'un CSV de Google (colonne « Labels », « Group Membership » dans ses
 //! anciens exports), seule celle des favoris est lue.
 
 use std::collections::HashMap;
@@ -265,8 +265,16 @@ pub(crate) fn decode(text: &str) -> Result<DecodedContacts, ContactCodecError> {
         Some(Ok(record)) => record.iter().map(|h| h.trim().to_lowercase()).collect(),
         _ => return Err(ContactCodecError::UnknownFormat),
     };
-    let columns: Vec<Option<Column>> = headers.iter().map(|h| column(h)).collect();
+    let mut columns: Vec<Option<Column>> = headers.iter().map(|h| column(h)).collect();
     let format = format(&headers, &columns).ok_or(ContactCodecError::UnknownFormat)?;
+    // Les étiquettes ne sont celles de Google que dans un CSV de Google.
+    if format != ContactFormat::GoogleCsv {
+        for c in &mut columns {
+            if *c == Some(Column::GoogleLabels) {
+                *c = None;
+            }
+        }
+    }
     let mut cards = Vec::new();
     for record in records {
         let card = match record {
@@ -398,9 +406,25 @@ mod tests {
     }
 
     #[test]
-    fn google_labels_column_is_ignored() {
-        // « Labels » en premier : rattachée à un champ, elle le remplirait
-        // avant toute autre colonne.
+    fn labels_of_other_programs_never_mark_a_favorite() {
+        // Une colonne « Labels » d'Outlook ou de Thunderbird est une
+        // donnée de l'utilisateur, pas le groupe système de Google.
+        for header in ["E-mail Address", "Primary Email"] {
+            let d = decoded(&format!(
+                "Labels,{header}\n\"* starred\",anne@example.com\n"
+            ));
+            assert_ne!(d.format, ContactFormat::GoogleCsv);
+            let [ImportedCard::Contact(c)] = &d.cards[..] else {
+                panic!("{:?}", d.cards)
+            };
+            assert!(!c.favorite, "{header}");
+        }
+    }
+
+    #[test]
+    fn non_favorite_google_labels_leave_the_card_unchanged() {
+        // « Labels » en premier : seule l'étiquette des favoris y est lue ;
+        // toute autre valeur ne laisse aucune trace dans la fiche.
         let without = decoded("Name,E-mail 1 - Value\nAnne,anne@example.com\n");
         for labels in [
             "* myContacts",

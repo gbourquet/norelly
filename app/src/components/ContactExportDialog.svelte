@@ -55,6 +55,7 @@
     const outcome = await form.confirm((format) => ({
       title: m.contacts_export_pick_title(),
       filter: filterName(format),
+      fileName: m.contacts_export_file_name(),
     }));
     if (outcome !== null) onExported(outcome);
   }

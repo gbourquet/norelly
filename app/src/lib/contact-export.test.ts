@@ -34,6 +34,7 @@ describe("export de contacts", () => {
     const labels = vi.fn((format: string) => ({
       title: "Enregistrer",
       filter: `filtre ${format}`,
+      fileName: "carnet",
     }));
     expect(await state.confirm(labels)).toEqual(written);
     expect(labels).toHaveBeenCalledWith("google_csv");
@@ -42,6 +43,7 @@ describe("export de contacts", () => {
       "google_csv",
       "Enregistrer",
       "filtre google_csv",
+      "carnet",
     );
     // Écrit : la fenêtre se ferme.
     expect(state.selection).toBeNull();
@@ -51,7 +53,7 @@ describe("export de contacts", () => {
   it("enregistrement annulé : la fenêtre reste ouverte, sans erreur", async () => {
     const state = new ContactExportState(fakeApi(null));
     state.open({ kind: "all" });
-    expect(await state.confirm(() => ({ title: "t", filter: "f" }))).toBeNull();
+    expect(await state.confirm(() => ({ title: "t", filter: "f", fileName: "n" }))).toBeNull();
     expect(state.selection).toEqual({ kind: "all" });
     expect(state.error).toBeNull();
   });
@@ -59,7 +61,7 @@ describe("export de contacts", () => {
   it("échec : message traduit, fenêtre gardée pour réessayer", async () => {
     const state = new ContactExportState(fakeApi(new IpcFailure("contact_export_too_large")));
     state.open({ kind: "all" });
-    expect(await state.confirm(() => ({ title: "t", filter: "f" }))).toBeNull();
+    expect(await state.confirm(() => ({ title: "t", filter: "f", fileName: "n" }))).toBeNull();
     expect(state.error).toContain("Trop de contacts");
     expect(state.selection).toEqual({ kind: "all" });
     expect(state.busy).toBe(false);
@@ -80,7 +82,7 @@ describe("export de contacts", () => {
   it("rien à exporter sans sélection", async () => {
     const api = fakeApi(written);
     const state = new ContactExportState(api);
-    expect(await state.confirm(() => ({ title: "t", filter: "f" }))).toBeNull();
+    expect(await state.confirm(() => ({ title: "t", filter: "f", fileName: "n" }))).toBeNull();
     expect(api.exportContacts).not.toHaveBeenCalled();
   });
 });

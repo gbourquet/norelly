@@ -13,8 +13,13 @@ import { errorText } from "./errors";
 
 export type ContactExportApi = Pick<Api, "exportContacts">;
 
-/** Libellés du sélecteur d'enregistrement pour un format. */
-export type SaveLabels = (format: ContactExportFormatDto) => { title: string; filter: string };
+/** Libellés du sélecteur d'enregistrement pour un format : titre, nom du
+ * filtre et nom de base du fichier proposé (Rust y ajoute l'extension). */
+export type SaveLabels = (format: ContactExportFormatDto) => {
+  title: string;
+  filter: string;
+  fileName: string;
+};
 
 export class ContactExportState {
   readonly #api: ContactExportApi;
@@ -46,8 +51,14 @@ export class ContactExportState {
     this.busy = true;
     this.error = null;
     try {
-      const { title, filter } = labels(this.format);
-      const outcome = await this.#api.exportContacts(selection, this.format, title, filter);
+      const { title, filter, fileName } = labels(this.format);
+      const outcome = await this.#api.exportContacts(
+        selection,
+        this.format,
+        title,
+        filter,
+        fileName,
+      );
       if (outcome !== null) this.selection = null;
       return outcome;
     } catch (e) {

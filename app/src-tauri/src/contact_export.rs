@@ -17,7 +17,8 @@ use norelly_application::contact_export::{ExportFailure, PrepareContactExport};
 use norelly_domain::connection::server_text;
 use norelly_domain::contact_export::{
     ContactSelection, ExportFormat, MAX_EXPORT_FILE_BYTES, MAX_EXPORT_FOLDER_SCAN, SelectionError,
-    TemporaryLock, is_export_temporary_of, is_stale_export_temporary,
+    TemporaryLock, export_file_name, export_label, is_export_temporary_of,
+    is_stale_export_temporary,
 };
 use norelly_domain::ports::{ContactCodec, ContactCodecError};
 use tauri::{AppHandle, State};
@@ -229,7 +230,8 @@ fn open_temporary(path: &Path) -> std::io::Result<std::fs::File> {
 }
 
 /// Prépare et produit le fichier, ouvre le sélecteur d'enregistrement du
-/// système (titre et nom du filtre localisés par l'interface) et écrit le
+/// système (titre, nom du filtre et nom de base du fichier proposé
+/// localisés par l'interface, le nom revalidé par le domaine) et écrit le
 /// fichier choisi ; `None` si l'utilisateur annule.
 #[tauri::command]
 #[specta::specta]
@@ -240,6 +242,7 @@ pub async fn export_contacts(
     format: ContactExportFormatDto,
     title: String,
     filter: String,
+    file_name: String,
 ) -> Result<Option<ContactExportOutcomeDto>, IpcError> {
     let selection = selection_of(&selection)?;
     let format = format_of(format);
@@ -258,12 +261,13 @@ pub async fn export_contacts(
         .map_err(codec_error)?;
 
     let extension = format.extension();
+    let proposed = export_file_name(&file_name, format);
     let (tx, rx) = tokio::sync::oneshot::channel();
     app.dialog()
         .file()
-        .set_title(server_text(title.as_bytes()))
-        .add_filter(server_text(filter.as_bytes()), &[extension])
-        .set_file_name(format!("contacts.{extension}"))
+        .set_title(server_text(export_label(&title).as_bytes()))
+        .add_filter(server_text(export_label(&filter).as_bytes()), &[extension])
+        .set_file_name(proposed)
         .save_file(move |file| {
             let _ = tx.send(file);
         });

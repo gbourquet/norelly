@@ -18,6 +18,7 @@ use crate::contacts::{
     ContactDraft, ContactEmail, ContactId, ContactSelectionError, MAX_CONTACT_NAME_CHARS,
     MAX_CONTACT_SELECTION, contact_selection,
 };
+use crate::reading::safe_file_name_or;
 
 /// Nombre maximal de contacts d'un export (celui d'un import).
 pub const MAX_EXPORT_CONTACTS: usize = MAX_IMPORT_CARDS;
@@ -47,6 +48,43 @@ impl ExportFormat {
             Self::Ldif => "ldif",
         }
     }
+}
+
+/// Longueur maximale, en octets, d'un libellé reçu de l'interface pour le
+/// sélecteur d'enregistrement (titre, nom du filtre, nom de base du fichier).
+pub const MAX_EXPORT_LABEL_BYTES: usize = 1024;
+
+/// Libellé du sélecteur d'enregistrement borné à [`MAX_EXPORT_LABEL_BYTES`]
+/// (coupé à une frontière de caractère), avant tout autre traitement.
+#[must_use]
+pub fn export_label(raw: &str) -> &str {
+    let mut cut = raw.len().min(MAX_EXPORT_LABEL_BYTES);
+    while !raw.is_char_boundary(cut) {
+        cut -= 1;
+    }
+    raw.get(..cut).unwrap_or_default()
+}
+
+/// Nom de base proposé quand celui de l'interface est vide ou inutilisable.
+pub const DEFAULT_EXPORT_FILE_STEM: &str = "contacts";
+
+/// Nom de fichier proposé dans le sélecteur d'enregistrement : le nom de
+/// base traduit par l'interface, rendu sûr, suivi de l'extension du format.
+///
+/// Le nom de base est borné ([`export_label`]), nettoyé comme un nom de
+/// pièce jointe ([`safe_file_name`](crate::reading::safe_file_name) : ni
+/// séparateur, ni caractère interdit, ni nom réservé de Windows) et ses
+/// points intérieurs deviennent `_` (aucune extension intermédiaire) ; vide
+/// ou inutilisable, il devient [`DEFAULT_EXPORT_FILE_STEM`]. L'extension
+/// vient toujours du format et le nom complet reste borné.
+#[must_use]
+pub fn export_file_name(stem: &str, format: ExportFormat) -> String {
+    let extension = format.extension();
+    let stem = safe_file_name_or(export_label(stem), DEFAULT_EXPORT_FILE_STEM).replace('.', "_");
+    safe_file_name_or(
+        &format!("{stem}.{extension}"),
+        &format!("{DEFAULT_EXPORT_FILE_STEM}.{extension}"),
+    )
 }
 
 /// Contacts à exporter.

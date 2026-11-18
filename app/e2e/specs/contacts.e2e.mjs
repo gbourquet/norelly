@@ -5,7 +5,7 @@
 // - un nom qui imite une adresse est refusé, expliqué sous son champ,
 //   explication effacée dès que le champ est corrigé ;
 // - « Modifier le contact », le favori (« Plus… ») et le filtre des
-//   favoris ;
+//   favoris ; le filtre trouve le prénom suivi du début du nom ;
 // - « Écrire au contact » ouvre la rédaction avec l'adresse préférée ;
 // - un texte saisi qui ressemble à du HTML est affiché comme du texte ;
 // - le nom du carnet remplace celui de l'en-tête dans la liste et le
@@ -176,6 +176,20 @@ describe("carnet d'adresses", () => {
     await button("Favoris").click();
     await expect(row("Zoé Martin")).toBeDisplayed();
     await button("Tous").click();
+
+    // Prénom suivi du début du nom, deux champs de la fiche : trouvé.
+    const search = $('input[aria-label="Rechercher un contact"]');
+    await search.setValue("zoé dur");
+    await expect(row("Zoé Martin")).not.toBeExisting({ wait: 10000 });
+    await search.click();
+    await browser.keys(["Control", "a"]);
+    await browser.keys("Backspace");
+    await search.setValue("zoé mar");
+    await expect(row("Zoé Martin")).toBeDisplayed({ wait: 10000 });
+    await search.click();
+    await browser.keys(["Control", "a"]);
+    await browser.keys("Backspace");
+    await expect(row("Zoé Martin")).toBeDisplayed({ wait: 10000 });
   });
 
   it("écrit au contact depuis sa fiche", async () => {

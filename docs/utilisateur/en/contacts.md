@@ -15,7 +15,8 @@ appears on the right.
 ![Contacts: the list in the middle, Alice Martin's card on the right](captures/contacts.png)
 
 - To find someone, type a few letters of their name, address or
-  organization in **Search**.
+  organization in **Search**. You can type the first name followed by
+  the start of the last name: "alice mar" finds Alice Martin.
 - Click **Favorites** to see only your favorites, **All** to see everyone
   again.
 - To go back to your messages, click **Unified inbox** or a folder, on the

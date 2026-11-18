@@ -169,20 +169,21 @@ impl ContactRow {
     }
 }
 
-/// Nombre de fiches relues à la fois par [`clean_invisible_contacts`].
+/// Nombre de fiches relues à la fois par [`for_each_stored_contact`].
 const CLEANUP_BATCH: i64 = 500;
 
-/// Étape de la migration 18 : retire des fiches enregistrées les
-/// caractères invisibles que la saisie refuse désormais, selon
-/// [`clean_invisible`] (fiche réécrite, ou retirée sans adresse
-/// restante). Une fiche illisible (type ou encodage d'une colonne) est
-/// laissée telle quelle : elle ne doit pas empêcher d'ouvrir la base. De
-/// même, comme à la migration 19, pour une fiche dont une adresse gardée
-/// n'a pas pour clé stockée celle que calcule le domaine (clé modifiée à
-/// la main) : la réécrire pourrait heurter l'unicité des clés.
-pub(crate) fn clean_invisible_contacts(tx: &Transaction<'_>) -> Result<(), StoreError> {
-    let (mut rewritten, mut removed, mut unreadable) = (0_usize, 0_usize, 0_usize);
-    let mut invalid = 0_usize;
+/// Passe à `step` chaque fiche enregistrée lisible, par lots de
+/// [`CLEANUP_BATCH`] dans l'ordre des identifiants (`step` peut réécrire ou
+/// retirer la fiche qu'il reçoit). Rend le nombre de fiches illisibles,
+/// laissées telles quelles : un lot illisible est relu fiche par fiche, les
+/// illisibles passées ; une valeur d'un type inattendu donne des champs lus
+/// incomplets, la fiche n'est donc pas passée à `step` (ni réécrite vide,
+/// ni retirée). Une fiche illisible ne doit pas empêcher d'ouvrir la base.
+fn for_each_stored_contact(
+    tx: &Transaction<'_>,
+    mut step: impl FnMut(i64, ContactRow) -> Result<(), StoreError>,
+) -> Result<usize, StoreError> {
+    let mut unreadable = 0_usize;
     let mut after = 0_i64;
     loop {
         let ids: Vec<i64> = tx
@@ -196,7 +197,6 @@ pub(crate) fn clean_invisible_contacts(tx: &Transaction<'_>) -> Result<(), Store
             break;
         };
         after = last;
-        // Lot illisible : fiches relues une à une, les illisibles passées.
         let mut batch = match rows(tx, &ids) {
             Ok(batch) => batch,
             Err(_) => {
@@ -214,38 +214,65 @@ pub(crate) fn clean_invisible_contacts(tx: &Transaction<'_>) -> Result<(), Store
             let Some(row) = batch.remove(&id) else {
                 continue;
             };
-            // Valeur d'un type inattendu : champs lus incomplets, la fiche
-            // est laissée telle quelle (ni réécrite vide, ni retirée).
             if row.unreadable {
                 unreadable += 1;
                 continue;
             }
-            let (input, keys) = row.into_input();
-            match clean_invisible(input) {
-                InvisibleCleanup::Keep => {}
-                InvisibleCleanup::Rewrite(draft) => {
-                    // Les clés stockées sont uniques dans le carnet : une clé
-                    // recalculée déjà portée par cette fiche ne peut heurter
-                    // aucune autre fiche, quel que soit l'ordre de passage.
-                    let owned = draft
-                        .emails()
-                        .iter()
-                        .all(|e| keys.iter().any(|k| k == e.key().as_str()));
-                    if !owned {
-                        invalid += 1;
-                        continue;
-                    }
-                    write(tx, id, &draft)?;
-                    rewritten += 1;
-                }
-                InvisibleCleanup::Remove => {
-                    tx.execute("DELETE FROM contacts WHERE id = ?1", params![id])
-                        .map_err(store_error)?;
-                    removed += 1;
-                }
-            }
+            step(id, row)?;
         }
     }
+    Ok(unreadable)
+}
+
+/// Chaque adresse de la fiche a-t-elle pour clé stockée celle que calcule
+/// le domaine ? Sinon (clé modifiée à la main), la réécrire pourrait
+/// heurter l'unicité des clés.
+fn keys_consistent(input: &ContactInput, keys: &[String]) -> bool {
+    input.emails.len() == keys.len()
+        && input
+            .emails
+            .iter()
+            .zip(keys)
+            .all(|(e, key)| AddressKey::parse(&e.address).is_ok_and(|k| k.as_str() == key))
+}
+
+/// Étape de la migration 18 : retire des fiches enregistrées les
+/// caractères invisibles que la saisie refuse désormais, selon
+/// [`clean_invisible`] (fiche réécrite, ou retirée sans adresse
+/// restante). Une fiche illisible (type ou encodage d'une colonne) est
+/// laissée telle quelle : elle ne doit pas empêcher d'ouvrir la base. De
+/// même, comme à la migration 19, pour une fiche dont une adresse gardée
+/// n'a pas pour clé stockée celle que calcule le domaine (clé modifiée à
+/// la main) : la réécrire pourrait heurter l'unicité des clés.
+pub(crate) fn clean_invisible_contacts(tx: &Transaction<'_>) -> Result<(), StoreError> {
+    let (mut rewritten, mut removed, mut invalid) = (0_usize, 0_usize, 0_usize);
+    let unreadable = for_each_stored_contact(tx, |id, row| {
+        let (input, keys) = row.into_input();
+        match clean_invisible(input) {
+            InvisibleCleanup::Keep => {}
+            InvisibleCleanup::Rewrite(draft) => {
+                // Les clés stockées sont uniques dans le carnet : une clé
+                // recalculée déjà portée par cette fiche ne peut heurter
+                // aucune autre fiche, quel que soit l'ordre de passage.
+                let owned = draft
+                    .emails()
+                    .iter()
+                    .all(|e| keys.iter().any(|k| k == e.key().as_str()));
+                if !owned {
+                    invalid += 1;
+                    return Ok(());
+                }
+                write(tx, id, &draft)?;
+                rewritten += 1;
+            }
+            InvisibleCleanup::Remove => {
+                tx.execute("DELETE FROM contacts WHERE id = ?1", params![id])
+                    .map_err(store_error)?;
+                removed += 1;
+            }
+        }
+        Ok(())
+    })?;
     // Des nombres seulement : aucune donnée de fiche dans le journal.
     tracing::info!(
         rewritten,
@@ -266,69 +293,27 @@ pub(crate) fn clean_invisible_contacts(tx: &Transaction<'_>) -> Result<(), Store
 /// d'une fiche dont une clé d'adresse stockée n'est pas celle de son
 /// adresse : la réécrire pourrait heurter l'unicité des clés.
 pub(crate) fn drop_names_imitating_address(tx: &Transaction<'_>) -> Result<(), StoreError> {
-    let (mut rewritten, mut removed, mut unreadable) = (0_usize, 0_usize, 0_usize);
-    let mut invalid = 0_usize;
-    let mut after = 0_i64;
-    loop {
-        let ids: Vec<i64> = tx
-            .prepare_cached("SELECT id FROM contacts WHERE id > ?1 ORDER BY id LIMIT ?2")
-            .and_then(|mut s| {
-                s.query_map(params![after, CLEANUP_BATCH], |r| r.get(0))?
-                    .collect()
-            })
-            .map_err(store_error)?;
-        let Some(&last) = ids.last() else {
-            break;
-        };
-        after = last;
-        // Lot illisible : fiches relues une à une, les illisibles passées.
-        let mut batch = match rows(tx, &ids) {
-            Ok(batch) => batch,
-            Err(_) => {
-                let mut batch = HashMap::new();
-                for &id in &ids {
-                    match rows(tx, &[id]) {
-                        Ok(one) => batch.extend(one),
-                        Err(_) => unreadable += 1,
-                    }
-                }
-                batch
+    let (mut rewritten, mut removed, mut invalid) = (0_usize, 0_usize, 0_usize);
+    let unreadable = for_each_stored_contact(tx, |id, row| {
+        let (input, keys) = row.into_input();
+        if !keys_consistent(&input, &keys) {
+            invalid += 1;
+            return Ok(());
+        }
+        match clean_names_imitating_address(input) {
+            InvisibleCleanup::Keep => {}
+            InvisibleCleanup::Rewrite(draft) => {
+                write(tx, id, &draft)?;
+                rewritten += 1;
             }
-        };
-        for id in ids {
-            let Some(row) = batch.remove(&id) else {
-                continue;
-            };
-            // Valeur d'un type inattendu : champs lus incomplets, la fiche
-            // est laissée telle quelle, comme à la migration 18.
-            if row.unreadable {
-                unreadable += 1;
-                continue;
-            }
-            let (input, keys) = row.into_input();
-            let consistent =
-                input.emails.len() == keys.len()
-                    && input.emails.iter().zip(&keys).all(|(e, key)| {
-                        AddressKey::parse(&e.address).is_ok_and(|k| k.as_str() == key)
-                    });
-            if !consistent {
-                invalid += 1;
-                continue;
-            }
-            match clean_names_imitating_address(input) {
-                InvisibleCleanup::Keep => {}
-                InvisibleCleanup::Rewrite(draft) => {
-                    write(tx, id, &draft)?;
-                    rewritten += 1;
-                }
-                InvisibleCleanup::Remove => {
-                    tx.execute("DELETE FROM contacts WHERE id = ?1", params![id])
-                        .map_err(store_error)?;
-                    removed += 1;
-                }
+            InvisibleCleanup::Remove => {
+                tx.execute("DELETE FROM contacts WHERE id = ?1", params![id])
+                    .map_err(store_error)?;
+                removed += 1;
             }
         }
-    }
+        Ok(())
+    })?;
     // Des nombres seulement : aucune donnée de fiche dans le journal.
     tracing::info!(
         rewritten,
@@ -336,6 +321,48 @@ pub(crate) fn drop_names_imitating_address(tx: &Transaction<'_>) -> Result<(), S
         unreadable,
         invalid,
         "carnet : noms imitant une adresse retirés"
+    );
+    Ok(())
+}
+
+/// Étape de la migration 23 : recalcule le texte cherché des fiches
+/// enregistrées, qui contient désormais le nom complet composé, selon
+/// [`ContactDraft::full_name_reindex`]. Seule cette colonne est réécrite,
+/// et seulement pour une fiche dont les clés de tri et de recherche
+/// stockées sont celles que calculait le domaine avant. Une fiche
+/// illisible, invalide, aux clés retouchées ou dont une clé d'adresse
+/// stockée n'est pas celle de son adresse reste telle quelle : écartée à
+/// la relecture comme avant, ni réparée ni masquée, elle n'empêche pas
+/// d'ouvrir la base.
+pub(crate) fn index_full_names(tx: &Transaction<'_>) -> Result<(), StoreError> {
+    let (mut rewritten, mut invalid) = (0_usize, 0_usize);
+    let unreadable = for_each_stored_contact(tx, |id, row| {
+        let stored = row.derived.clone();
+        let (input, keys) = row.into_input();
+        let text = keys_consistent(&input, &keys)
+            .then(|| ContactDraft::from_stored(input.clone()).ok())
+            .flatten()
+            .and_then(|read| read.full_name_reindex(&input, &stored));
+        let Some(text) = text else {
+            invalid += 1;
+            return Ok(());
+        };
+        if text != stored.1 {
+            tx.execute(
+                "UPDATE contacts SET search_text = ?2 WHERE id = ?1",
+                params![id, text],
+            )
+            .map_err(store_error)?;
+            rewritten += 1;
+        }
+        Ok(())
+    })?;
+    // Des nombres seulement : aucune donnée de fiche dans le journal.
+    tracing::info!(
+        rewritten,
+        unreadable,
+        invalid,
+        "carnet : nom complet ajouté au texte cherché"
     );
     Ok(())
 }

@@ -24,9 +24,9 @@ pub struct RecipientSuggestion {
 ///
 /// - D'abord les `contacts` qui correspondent : favoris en tête, puis dans
 ///   l'ordre du carnet ([`ContactDraft::sort_key`]). Un contact dont un nom
-///   (affiché, prénom, nom, surnom, organisation) contient `text` propose
-///   toutes ses adresses, la préférée d'abord ; sinon, seules ses adresses
-///   qui contiennent `text`. Le nom proposé est celui du carnet.
+///   (affiché, prénom, nom, « prénom nom », surnom, organisation) contient
+///   `text` propose toutes ses adresses, la préférée d'abord ; sinon,
+///   seules ses adresses qui contiennent `text`. Le nom proposé est celui du carnet.
 /// - Puis les adresses `collected` (déjà filtrées, dans leur ordre), sous
 ///   le nom de l'en-tête ; une adresse invalide est écartée.
 /// - Chaque adresse une seule fois ([`AddressKey`]) : le carnet l'emporte.
@@ -107,16 +107,18 @@ pub fn recipient_suggestions(
     found
 }
 
-/// Un nom de la fiche (champs, ou nom affiché « prénom nom ») contient-il
-/// `needle` (déjà en minuscules) ?
-fn names_contain(draft: &ContactDraft, full_name: &str, needle: &str) -> bool {
+/// Un nom de la fiche (champs, nom affiché, ou nom complet « prénom nom »)
+/// contient-il `needle` (déjà en minuscules) ?
+fn names_contain(draft: &ContactDraft, display: &str, needle: &str) -> bool {
+    let full_name = draft.full_name();
     [
         draft.display_name_field(),
         draft.given_name(),
         draft.family_name(),
         draft.nickname(),
         draft.organization(),
-        Some(full_name),
+        Some(display),
+        full_name.as_deref(),
     ]
     .into_iter()
     .flatten()
@@ -178,6 +180,24 @@ mod tests {
 
     fn id(raw: i64) -> Option<ContactId> {
         ContactId::new(raw)
+    }
+
+    /// Prénom suivi du nom, même sous un autre nom affiché : toutes les
+    /// adresses de la fiche sont proposées.
+    #[test]
+    fn a_contact_is_found_by_its_full_name() {
+        let lili = contact(
+            1,
+            ContactInput {
+                display_name: "Lili".into(),
+                given_name: "Alice".into(),
+                family_name: "Martin".into(),
+                ..ContactInput::default()
+            },
+            &["lili@example.com", "perso@exemple.fr"],
+        );
+        let found = recipient_suggestions("alice mar", &[lili], &[], 10);
+        assert_eq!(addresses(&found), ["lili@example.com", "perso@exemple.fr"]);
     }
 
     #[test]

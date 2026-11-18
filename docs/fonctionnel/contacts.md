@@ -34,7 +34,8 @@ l'ordinateur** : rien n'est envoyé à un serveur.
   reste fluide quel que soit le nombre de contacts.
 - Un champ **Rechercher** filtre la liste au fil de la frappe, sur le nom,
   le prénom, le surnom, l'organisation et les adresses, sans tenir compte
-  des majuscules. Les boutons **Tous** / **Favoris** limitent la liste aux
+  des majuscules. Le prénom suivi du nom se cherche d'un trait : « alice
+  mar » trouve Alice Martin. Les boutons **Tous** / **Favoris** limitent la liste aux
   favoris.
 - Carnet vide : un message invite à cliquer sur **Nouveau contact**.
   Aucun résultat : « Aucun contact ne correspond. ».
@@ -186,7 +187,8 @@ l'ordinateur** : rien n'est envoyé à un serveur.
   carnet et marqués « Dans vos contacts » ; viennent ensuite les adresses
   déjà utilisées dans le courrier du compte.
 - La recherche porte sur le nom, le prénom, le surnom, l'organisation et
-  toutes les adresses d'une fiche, sans tenir compte des majuscules. Un
+  toutes les adresses d'une fiche, sans tenir compte des majuscules ; le
+  prénom suivi du nom se cherche d'un trait, comme dans la liste. Un
   contact trouvé par son nom propose toutes ses adresses, la préférée
   d'abord ; trouvé par une adresse, seulement celle-ci.
 - Une adresse n'est proposée qu'une fois : présente dans le carnet et

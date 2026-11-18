@@ -16,9 +16,7 @@ use norelly_domain::contacts::{
 };
 use norelly_domain::ports::ContactCodecError;
 
-use crate::{
-    MAX_FIELD_BYTES, MAX_VALUES_PER_CARD, birthday_of_parts, birthday_text, street_lines,
-};
+use crate::{MAX_FIELD_BYTES, MAX_VALUES_PER_CARD, birthday_of_parts, birthday_text, street_lines};
 
 /// Rôle d'une colonne.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

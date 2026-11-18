@@ -66,7 +66,7 @@ ammonia = "4.2"
 # Aléa du système (Message-ID des messages rédigés).
 getrandom = "0.3.4"
 sha2 = "0.10"
-lettre = { version = "0.11.23", default-features = false, features = ["smtp-transport", "tokio1"] }
+lettre = { version = "0.11.24", default-features = false, features = ["smtp-transport", "tokio1"] }
 # Réponses SASL XOAUTH2 en SMTP (déjà présent par imap-codec).
 base64 = { version = "0.22.1", default-features = false, features = ["std"] }
 # Trousseau : keyring-core et magasins natifs choisis explicitement (le

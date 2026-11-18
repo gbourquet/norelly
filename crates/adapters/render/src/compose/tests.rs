@@ -285,6 +285,36 @@ fn attachments_make_a_mixed_message() {
     );
 }
 
+/// Aucune fin de ligne isolée dans le message produit : une pièce jointe
+/// ou un corps qui en contient est encodé, sinon un serveur qui les
+/// accepte lirait « \n.\n » comme la fin des données et la suite comme
+/// des commandes (contrebande SMTP).
+#[test]
+fn bare_line_endings_never_reach_the_message() {
+    let from = me();
+    let mut d = draft();
+    d.text = "ligne\r.\rRCPT TO:<eve@example.com>".into();
+    let hostile = b"a\n.\nMAIL FROM:<pdg@example.com>\r\nDATA\r\n".to_vec();
+    let files = [ComposedAttachment {
+        file_name: "transfere.txt".into(),
+        content_type: "text/plain".into(),
+        bytes: hostile.clone(),
+    }];
+    let raw = built(&composition(&from, &d, &files), BccHeader::Omit);
+    for (i, &b) in raw.iter().enumerate() {
+        match b {
+            b'\n' => assert!(i > 0 && raw[i - 1] == b'\r', "LF isolé à l'octet {i}"),
+            b'\r' => assert_eq!(raw.get(i + 1), Some(&b'\n'), "CR isolé à l'octet {i}"),
+            _ => {}
+        }
+    }
+    let m = MessageParser::default()
+        .parse(&raw)
+        .unwrap_or_else(|| panic!("illisible"));
+    let parts: Vec<_> = m.attachments().collect();
+    assert_eq!(parts[0].contents(), hostile.as_slice());
+}
+
 #[test]
 fn envelope_lists_every_recipient_but_the_message_hides_bcc() {
     let from = me();

@@ -774,3 +774,128 @@ est majoritairement écrit par Claude et relu par le mainteneur.
     Google ; une connexion Google annulée à l'ajout (refus, abandon, délai)
     devient `GoogleSignInRefused`, qui oriente vers le mot de passe
     d'application, toujours proposé à côté.
+
+## ADR-014 : synchronisation CardDAV du carnet (adaptateur `webdav`)
+
+- **Statut** : Proposée (2026-11-18), **à valider par le mainteneur**.
+  Décisions du mainteneur avant le code : mot de passe d'application en
+  HTTP Basic sur TLS, gardé dans le trousseau (OAuth reporté) ; conflits
+  tranchés par la dernière modification. Le reste (configuration du
+  compte, choix du carnet, bornes) a été fixé par l'agent sur délégation
+  du mainteneur, pour l'utilisateur grand public, et attend sa
+  validation.
+- **Contexte** : le carnet est local (ADR-012), calqué sur vCard pour
+  qu'une synchronisation CardDAV s'ajoute sans reprise du schéma.
+  L'utilisateur veut retrouver ses contacts sur ses autres appareils
+  (Nextcloud, Fastmail, Synology, Baïkal, iCloud…), dans les deux sens.
+- **Options** :
+  - client : bibliothèque CardDAV ou WebDAV ; client écrit pour le projet
+    sur les dépendances existantes ;
+  - compte : lié à un compte mail ; indépendant ; plusieurs carnets
+    distants ;
+  - adresse : saisie de l'URL du carnet ; découverte (enregistrement SRV
+    `_carddavs._tcp`, `/.well-known/carddav`, `current-user-principal`,
+    `addressbook-home-set`) ;
+  - suivi des changements : `sync-token` (RFC 6578) ; `getctag` ; ETag de
+    chaque fiche ;
+  - écriture d'une fiche modifiée : fiche réécrite ; fiche du serveur
+    complétée.
+- **Décision** :
+  - adaptateur **`crates/adapters/webdav`** écrit pour le projet sur
+    `reqwest`, `quick-xml`, `norelly-tls` et `getrandom`, **déjà au
+    workspace : aucune dépendance nouvelle** ; il ne dépend que du domaine
+    et de `tls` ;
+  - **un seul compte CardDAV**, indépendant des comptes mail, relié au
+    carnet unique : un serveur, un identifiant, un mot de passe
+    d'application, **un** carnet distant. Pas de lien avec un compte mail
+    (les serveurs et identifiants diffèrent souvent) ;
+  - **adresse saisie, puis découverte** : l'utilisateur tape l'adresse de
+    son serveur (nom de domaine seul accepté, HTTPS supposé) ou celle du
+    carnet. Depuis la racine d'un serveur, `/.well-known/carddav` est
+    essayé d'abord (RFC 6764), puis la racine ; sinon l'adresse saisie
+    seule. La découverte suit `current-user-principal` puis
+    `addressbook-home-set` et liste les carnets (`resourcetype`
+    `addressbook`, `displayname`). Pas d'enregistrement SRV : il demande
+    une résolution DNS dans cet adaptateur (le résolveur est dans
+    `discovery`, qu'un adaptateur ne peut pas utiliser), pour un gain
+    faible (les fournisseurs grand public publient `.well-known`) ;
+  - **choix du carnet** : les carnets trouvés sont proposés dans une
+    liste, le premier choisi d'office ; un seul carnet trouvé est choisi
+    sans question. Le carnet relié doit être l'un de ceux que la dernière
+    recherche a proposés pour ce serveur et cet identifiant (mémoire en
+    Rust) : l'interface ne peut pas désigner une autre adresse ;
+  - **sécurité du transport** : HTTPS seulement (adresse `http://`
+    refusée), vérification des certificats de la plateforme **sans
+    exception** (pas d'exception de certificat comme pour IMAP : un
+    certificat refusé est expliqué, rien n'est envoyé), pas de cookies, ni
+    `Referer`, User-Agent neutre ; identifiants absents de l'adresse
+    (`https://user:pass@…` refusé). Le mot de passe ne part qu'à
+    l'**origine** (hôte et port) de l'adresse saisie : toute adresse citée
+    par le serveur (principal, dossier, carnet, fiche) est revalidée par le
+    domaine et refusée hors de cette origine ; les redirections ne sont
+    jamais suivies automatiquement, seulement pendant la découverte, sur
+    la même origine, 3 au plus ;
+  - **mot de passe** dans le trousseau (`SecretStore`, clé
+    `carddav:password`), jamais en base, dans les journaux, les erreurs ni
+    l'IPC au retour ; sans trousseau, le repli consenti du fichier
+    (ADR-002) s'applique comme aux comptes mail ;
+  - **suivi par ETag** : la liste du carnet (`PROPFIND`, profondeur 1,
+    `getetag`) donne les fiches nouvelles ou changées, téléchargées par
+    `addressbook-multiget` (20 par requête). `sync-token` et `getctag` ne
+    sont pas utilisés : l'ETag est le seul mécanisme que tous les serveurs
+    offrent, et la liste reste bornée ;
+  - **écritures conditionnelles** : création `If-None-Match: *`,
+    modification et suppression `If-Match` : une fiche changée sur le
+    serveur entre la lecture et l'écriture n'est jamais écrasée, elle est
+    revue à la synchronisation suivante ;
+  - **fiche du serveur complétée** : une modification faite dans Norelly
+    remplace, dans la vCard du serveur, les seules propriétés que le carnet
+    connaît (`FN`, `N`, `NICKNAME`, `ORG`, `EMAIL`, `TEL`, `NOTE`, avec
+    leur groupe Apple `itemN.`) et date la fiche (`REV`) ; le reste (photo,
+    adresse postale, anniversaire, UID…) est gardé tel quel. Une fiche
+    créée dans Norelly est écrite en vCard 3.0 (version que tout serveur
+    CardDAV accepte), avec un UID aléatoire qui nomme sa ressource ;
+  - **conflits** : modifiée d'un seul côté, l'autre suit (création,
+    modification, suppression) ; modifiée des deux côtés, la modification
+    la plus récente gagne : date d'écriture du contact ici (posée par la
+    base à chaque écriture), `REV` de la fiche sur le serveur (absent :
+    la modification vient d'être constatée ; future : ramenée à
+    maintenant ; égalité : le serveur gagne). Un contact supprimé ici est
+    daté ; une suppression sur le serveur ne l'est pas : un contact
+    modifié ici depuis la dernière synchronisation est recréé sur le
+    serveur. Règle pure dans le domaine, horloge en paramètre ;
+  - **première synchronisation** : une fiche distante qui porte l'adresse
+    d'un contact non relié lui est reliée (rien n'est écrit si elles sont
+    égales, sinon la plus récente gagne) ; les autres contacts sont créés
+    sur le serveur, les autres fiches dans Norelly ;
+  - le **favori**, absent des vCard, reste propre au carnet ; les listes
+    de diffusion ne sont pas synchronisées ;
+  - une fiche distante que le carnet ne peut pas reprendre (sans adresse,
+    adresse déjà portée par un autre contact, invalide) est **laissée de
+    côté** et comptée, revue quand elle change ; elle n'est jamais
+    supprimée du serveur ;
+  - **bornes** : 25 000 fiches (celles d'un import), liste de 16 Mio,
+    fiche de 1 Mio, réponse de découverte de 1 Mio, 100 carnets,
+    profondeur XML de 32, DTD refusée (aucune entité externe ni expansion
+    d'entités), délais de 10 s à la connexion et 120 s par requête ;
+  - **quand** : à l'ouverture de l'application et à la demande
+    (« Synchroniser maintenant »), une synchronisation à la fois. Pas de
+    synchronisation périodique pour l'instant.
+- **Conséquences** :
+  - une migration (24) : date de modification des contacts et de
+    suppression d'un contact relié posées par déclencheurs, quel que soit
+    le chemin d'écriture ; compte, ressources connues (ETag, fiche locale
+    et fiche distante à la dernière synchronisation), dernière
+    synchronisation ;
+  - un serveur dont le carnet est sur un autre hôte que l'adresse saisie
+    (iCloud renvoie vers `pNN-contacts.icloud.com`) n'est pas suivi : la
+    règle de même origine l'écarte. L'accepter demande de décider quels
+    hôtes cités par le serveur reçoivent le mot de passe : **à trancher
+    par le mainteneur** ;
+  - Google Contacts exige OAuth : hors de ce lot ;
+  - tests : suite de contrat du client jouée contre un faux client et
+    contre l'adaptateur réel branché sur un faux serveur CardDAV en HTTPS
+    (`test-support`, CA de test) ; pas de conteneur de serveur réel
+    (Radicale, Baïkal, Xandikos sont sous GPL) ; l'e2e utilise un faux
+    serveur CardDAV en Node.js sur le réseau interne, de certificat signé
+    par une autorité de test limitée à son nom.

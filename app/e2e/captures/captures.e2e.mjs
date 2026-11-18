@@ -909,6 +909,24 @@ describe(`captures d'écran (${lang})`, () => {
     await window.waitForDisplayed({ reverse: true, timeout: 10000 });
   });
 
+  it("synchronisation du carnet avec un serveur (à la souris)", async () => {
+    // Carnet trouvé sur le faux serveur CardDAV, capturé avant d'être
+    // relié, puis fenêtre fermée : les captures suivantes gardent le
+    // carnet de la démonstration.
+    const field = (key) => $(`//label[span[normalize-space()="${msg(key)}"]]//input`);
+    await headerAction(msg("cmd_contacts_carddav"));
+    const window = dialogTitled(msg("carddav_title"));
+    await window.waitForDisplayed({ timeout: 10000 });
+    await field("carddav_server").setValue("carddav.norelly.test");
+    await field("carddav_username").setValue("norelly");
+    await field("carddav_password").setValue(password);
+    await window.$(`button=${msg("carddav_search")}`).click();
+    await window.$('input[type="radio"][name="carddav-book"]').waitForDisplayed({ timeout: 15000 });
+    await capture("contacts-carddav");
+    await button(msg("common_cancel")).click();
+    await window.waitForDisplayed({ reverse: true, timeout: 10000 });
+  });
+
   it("listes de diffusion (à la souris)", async () => {
     const field = (key) =>
       $(`//label[span[normalize-space()="${msg(key)}"]]//*[self::input or self::textarea]`);

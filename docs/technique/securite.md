@@ -348,6 +348,40 @@ reçus de l'interface ; types MIME recalculés.
   `target/` empoisonné depuis `master` (build script compromis) servirait
   jusqu'à la semaine suivante, dans un job sans secret.
 
+## Synchronisation CardDAV (ADR-014)
+
+- Transport : HTTPS seulement (une adresse `http://` est refusée par le
+  domaine, `https_only` côté client), vérification des certificats de la
+  plateforme **sans exception** : un certificat refusé arrête tout, rien
+  n'est envoyé. Pas de cookies, ni `Referer`, User-Agent neutre.
+- Identifiants : mot de passe d'application au trousseau (`SecretStore`,
+  clé `carddav:password`), jamais en base, dans les journaux, les erreurs
+  ni au retour de l'IPC ; présenté en HTTP Basic (`reqwest::basic_auth`,
+  en-tête marqué sensible). Identifiant sans `:` (RFC 7617) ; adresse
+  sans identifiants (`https://user:pass@…` refusé).
+- Destination du mot de passe : la seule **origine** (hôte et port) de
+  l'adresse saisie. Toute adresse citée par le serveur (redirection,
+  principal, dossier, carnet, fiche) passe par `DavUrl::join`, qui refuse
+  une autre origine, un autre schéma, `//hôte`, `..`, requête ou fragment ;
+  une fiche citée hors du carnet est omise. Les redirections ne sont
+  jamais suivies par le client HTTP ; la découverte les suit elle-même,
+  sur la même origine, 3 au plus. Le carnet relié doit être l'un de ceux
+  que la dernière recherche a proposés pour ce serveur et cet identifiant
+  (`CardDavServices::proposed`) : l'interface ne peut pas désigner une
+  autre adresse.
+- Réponses hostiles : tailles bornées avant et pendant la lecture (liste
+  16 Mio, fiches 21 Mio par lot de 20, fiche 1 Mio, découverte 1 Mio),
+  25 000 fiches, 100 carnets, profondeur XML 32, DTD refusée (aucune
+  entité externe ni expansion), seules les cinq entités prédéfinies et les
+  références de caractère admises ; nom de carnet nettoyé (caractères de
+  contrôle et de mise en forme) et borné ; fiche distante revalidée comme
+  une fiche importée (`plan_import` : NFC, nom imitant une adresse
+  retiré, caractères invisibles refusés).
+- Écritures : conditionnelles (`If-Match`, `If-None-Match: *`), jamais
+  inconditionnelles : une fiche changée sur le serveur n'est pas écrasée.
+  Une fiche modifiée dans Norelly ne remplace que les propriétés connues
+  du carnet : rien d'autre n'est perdu sur le serveur.
+
 ## Fichiers sensibles
 
 Signalés au mainteneur dans chaque PR qui les touche (ADR-008) :
@@ -356,6 +390,10 @@ Signalés au mainteneur dans chaque PR qui les touche (ADR-008) :
   `credentials.rs`, `oauth.rs`, `auth.rs`, `sender_auth.rs`, `labels.rs`
   (encodage des mots-clés, couleurs) ;
 - `crates/adapters/oauth/src/lib.rs`, `crates/application/src/oauth.rs` ;
+- synchronisation CardDAV : `crates/domain/src/carddav.rs` (adresses,
+  même origine, fusion des fiches), `crates/adapters/webdav/src/`,
+  `crates/application/src/carddav.rs`, `app/src-tauri/src/carddav.rs`,
+  `app/e2e/carddav.mjs` et `app/e2e/run.sh` (autorités de test) ;
 - `crates/adapters/tls/src/lib.rs`, `crates/adapters/imap/src/connection.rs`,
   `crates/adapters/smtp/src/stream.rs` ;
 - `crates/adapters/render/src/sanitize.rs`, `css.rs`, `compose.rs`,

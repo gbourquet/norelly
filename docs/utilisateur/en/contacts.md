@@ -4,7 +4,8 @@
 
 The **address book** keeps the people you often write to: their name,
 their email addresses, their phone numbers. It is shared by all your
-addresses and stays on your computer.
+addresses and stays on your computer, unless you sync it with a contacts
+server (see below).
 
 ## Opening your contacts
 
@@ -232,6 +233,40 @@ The kept card receives the addresses, phone numbers and notes of the
 others, and fills in its empty fields; nothing it already held is
 replaced. It takes their place in your mailing lists, then the other
 cards are deleted.
+
+## Finding your contacts on your other devices
+
+If your provider offers a contacts server (CardDAV: Nextcloud, Fastmail,
+Synology, Baïkal…), Norelly can keep your address book up to date with
+it, both ways: a contact added, edited or deleted on your phone is also
+added, edited or deleted in Norelly, and the other way round.
+
+1. Create an **app password** in your provider's security settings.
+2. In **Contacts**, click **More…** at the top of the list, then **Sync
+   with a server…**.
+3. Enter the server address (its name is enough, for example
+   `nextcloud.example.com`), your username and the app password, then
+   click **Find address books**.
+4. Choose the address book to sync, then click **Sync this address book**.
+
+![Choosing the address book to sync](captures/contacts-carddav.png)
+
+The password is kept in your system keyring. The address book is synced
+each time Norelly starts; **Sync now**, in the same window, does it right
+away.
+
+Good to know:
+
+- A card changed on both sides keeps the most recent change.
+- Norelly only changes on the server what it knows (names, organization,
+  addresses, phone numbers, notes): the photo or birthday entered on your
+  phone are kept.
+- Favorites and mailing lists stay in Norelly only.
+- A card without an email address is not brought into Norelly; it stays on
+  the server.
+- **Disconnect** stops syncing; your contacts stay in Norelly, and nothing
+  is deleted on the server.
+- Google Contacts and iCloud are not supported yet.
 
 ## Deleting contacts
 

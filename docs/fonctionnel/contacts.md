@@ -61,7 +61,10 @@ serveur de contacts (voir [synchronisation-carnet.md](synchronisation-carnet.md)
   est refusée.
 - **Sites web** : seuls les sites web (`http`, `https`) sont acceptés ;
   « www.exemple.fr » devient « https://www.exemple.fr ». Tout autre lien
-  (`javascript:`, `file:`, adresse électronique…) est refusé. Sur la
+  (`javascript:`, `file:`, adresse électronique…) est refusé, de même
+  qu'un nom de site écrit avec des lettres d'une autre écriture, qui
+  pourrait imiter un site connu (la forme « xn--… » de ces noms est
+  acceptée). Sur la
   fiche, le site s'affiche en entier ; un clic l'ouvre dans le navigateur
   du système, avec les mêmes contrôles qu'un lien d'un message.
 - Chaque adresse a une étiquette facultative (« travail », « maison ») et
@@ -293,7 +296,9 @@ serveur de contacts (voir [synchronisation-carnet.md](synchronisation-carnet.md)
   fonction, anniversaire (avec ou sans année, y compris celui sans année
   des Contacts d'Apple), adresses postales et sites web, notes. Un
   anniversaire illisible, une adresse postale vide et un lien qui n'est
-  pas un site web sont laissés de côté, sans faire refuser la fiche.
+  pas un site web sont laissés de côté, sans faire refuser la fiche ;
+  une adresse postale ou un site répétés ne sont repris qu'une fois, et
+  au-delà de dix, les suivants sont laissés de côté.
 - Les étiquettes des adresses et des téléphones sont reprises, y compris
   les étiquettes personnelles des Contacts d'Apple ; les étiquettes
   prédéfinies d'Apple deviennent les étiquettes courantes
@@ -364,6 +369,8 @@ serveur de contacts (voir [synchronisation-carnet.md](synchronisation-carnet.md)
   adresses et la préférée, téléphones, organisation, fonction,
   anniversaire, adresses postales, sites web, favori. Ce que chaque
   format ne sait pas porter :
+  - vCard 3.0 : un anniversaire sans année est écrit comme le fait
+    Apple (année fictive), et relu sans année ;
   - vCard : le nom complet est toujours écrit (un contact sans nom affiché
     reçoit son prénom et son nom) ; les étiquettes sont écrites en
     minuscules ;

@@ -193,7 +193,8 @@ logiciel :
    dans la barre qui apparaît.
 2. Choisissez le format : **vCard 4.0** convient presque partout (Gmail,
    iPhone, Android, Thunderbird) ; **vCard 3.0** pour un logiciel ancien ;
-   **CSV** pour Outlook ou un tableur ; **LDIF** pour Thunderbird.
+   **CSV** pour Outlook, un tableur ou Google Contacts (les contacts y
+   arrivent dans « Mes contacts ») ; **LDIF** pour Thunderbird.
 3. Cliquez sur **Exporter…**, choisissez le dossier et le nom du fichier,
    puis **Enregistrer**.
 

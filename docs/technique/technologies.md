@@ -24,7 +24,7 @@ Les versions exactes font foi dans `Cargo.toml` (workspace),
 | Brique | Version | Pourquoi | ADR |
 |---|---|---|---|
 | `imap-codec` + `imap-next` | 2.0.0-alpha.9 / 0.3.4 | Codec IMAP strict, fuzzé, extensions modélisées (IDLE, CONDSTORE, QRESYNC, UIDPLUS, MOVE) ; session maison au-dessus | ADR-002 |
-| `lettre` | 0.11.23 (sans backend TLS) | SMTP et construction MIME ; TLS fourni par `norelly-tls` via `connect_with_transport` | ADR-002 |
+| `lettre` | 0.11.24 (sans backend TLS) | SMTP et construction MIME ; TLS fourni par `norelly-tls` via `connect_with_transport` | ADR-002 |
 | `mail-parser` | 0.11 | Analyse MIME tolérante des messages reçus | ADR-002 |
 | `rustls` + `rustls-platform-verifier` | 0.23 / 0.7 (`ring`) | TLS sans OpenSSL ; vérificateur de la plateforme combiné aux exceptions par empreinte ; TLS 1.2 minimum | ADR-002 |
 | `ammonia` | 4.2 | Assainissement HTML par liste blanche | ADR-004 |

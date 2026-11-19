@@ -2,7 +2,8 @@
 //! d'adresse, filtre et ordre de la liste.
 //!
 //! Le modèle suit vCard (nom affiché, prénom, nom, surnom, plusieurs
-//! adresses dont une préférée, téléphones, organisation, notes) pour qu'une
+//! adresses dont une préférée, téléphones, organisation, titre, notes,
+//! anniversaire, adresses postales, sites web) pour qu'une
 //! synchronisation CardDAV puisse s'ajouter plus tard. Une fiche saisie ou
 //! importée ([`ContactInput`]) devient une fiche valide ([`ContactDraft`])
 //! par [`ContactDraft::new`] ; le carnet lui attribue un identifiant
@@ -12,6 +13,10 @@ use std::fmt;
 
 use crate::address::{EmailAddress, EmailAddressError};
 use crate::connection::is_format_char;
+use crate::contact_details::{
+    Birthday, MAX_CONTACT_WEBSITES, MAX_POSTAL_ADDRESSES, MAX_POSTAL_FIELD_CHARS,
+    MAX_POSTAL_STREET_CHARS, website_url,
+};
 use crate::mailbox::{MAX_ADDRESS_CHARS, header_text};
 use crate::sender::imitates_address;
 
@@ -100,7 +105,19 @@ pub enum ContactField {
     FamilyName,
     Nickname,
     Organization,
+    /// Titre ou fonction (`TITLE`).
+    Title,
     Notes,
+    /// Anniversaire.
+    Birthday,
+    /// Adresse postale `n` (un de ses éléments).
+    PostalAddress(usize),
+    /// Étiquette de l'adresse postale `n`.
+    PostalAddressLabel(usize),
+    /// Site web `n`.
+    Website(usize),
+    /// Étiquette du site web `n`.
+    WebsiteLabel(usize),
     /// Étiquette de l'adresse numéro `n` (à partir de 0).
     EmailLabel(usize),
     /// Numéro de téléphone `n`.
@@ -118,6 +135,16 @@ pub enum ContactError {
     TooManyAddresses,
     #[error("plus de {MAX_CONTACT_PHONES} téléphones")]
     TooManyPhones,
+    #[error("plus de {MAX_POSTAL_ADDRESSES} adresses postales")]
+    TooManyPostalAddresses,
+    #[error("plus de {MAX_CONTACT_WEBSITES} sites web")]
+    TooManyWebsites,
+    #[error("adresse postale n° {index} vide")]
+    EmptyPostalAddress { index: usize },
+    #[error("anniversaire invalide")]
+    InvalidBirthday,
+    #[error("site web n° {index} refusé (http ou https seulement)")]
+    InvalidWebsite { index: usize },
     #[error("adresse n° {index} invalide : {error}")]
     InvalidAddress {
         index: usize,
@@ -152,6 +179,26 @@ pub struct PhoneInput {
     pub label: String,
 }
 
+/// Adresse postale saisie ou importée, non validée (`ADR` vCard, sans
+/// boîte postale ni complément, versés dans la rue).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct PostalAddressInput {
+    /// Rue, sur une ou plusieurs lignes.
+    pub street: String,
+    pub locality: String,
+    pub region: String,
+    pub postal_code: String,
+    pub country: String,
+    pub label: String,
+}
+
+/// Site web saisi ou importé, non validé.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct WebsiteInput {
+    pub url: String,
+    pub label: String,
+}
+
 /// Fiche saisie ou importée, non validée. Un champ vide (ou fait
 /// d'espaces) est absent.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -161,9 +208,15 @@ pub struct ContactInput {
     pub family_name: String,
     pub nickname: String,
     pub organization: String,
+    /// Titre ou fonction (`TITLE`).
+    pub title: String,
     pub notes: String,
+    /// Anniversaire, forme lue par [`Birthday::parse`].
+    pub birthday: String,
     pub emails: Vec<EmailInput>,
     pub phones: Vec<PhoneInput>,
+    pub postal_addresses: Vec<PostalAddressInput>,
+    pub websites: Vec<WebsiteInput>,
     pub favorite: bool,
 }
 
@@ -250,6 +303,98 @@ impl ContactPhone {
     }
 }
 
+/// Adresse postale d'un contact : au moins un élément renseigné.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ContactPostalAddress {
+    street: Option<String>,
+    locality: Option<String>,
+    region: Option<String>,
+    postal_code: Option<String>,
+    country: Option<String>,
+    label: Option<String>,
+}
+
+impl ContactPostalAddress {
+    /// Rue : lignes sans espaces de bord, séparées par `\n`.
+    #[must_use]
+    pub fn street(&self) -> Option<&str> {
+        self.street.as_deref()
+    }
+
+    #[must_use]
+    pub fn locality(&self) -> Option<&str> {
+        self.locality.as_deref()
+    }
+
+    #[must_use]
+    pub fn region(&self) -> Option<&str> {
+        self.region.as_deref()
+    }
+
+    #[must_use]
+    pub fn postal_code(&self) -> Option<&str> {
+        self.postal_code.as_deref()
+    }
+
+    #[must_use]
+    pub fn country(&self) -> Option<&str> {
+        self.country.as_deref()
+    }
+
+    #[must_use]
+    pub fn label(&self) -> Option<&str> {
+        self.label.as_deref()
+    }
+
+    /// Même adresse, étiquette et casse ignorées.
+    #[must_use]
+    pub fn same_place(&self, other: &Self) -> bool {
+        let key = |a: &Self| {
+            [
+                &a.street,
+                &a.locality,
+                &a.region,
+                &a.postal_code,
+                &a.country,
+            ]
+            .map(|v| v.as_deref().unwrap_or_default().to_lowercase())
+        };
+        key(self) == key(other)
+    }
+
+    pub(crate) fn to_input(&self) -> PostalAddressInput {
+        let owned = |v: &Option<String>| v.clone().unwrap_or_default();
+        PostalAddressInput {
+            street: owned(&self.street),
+            locality: owned(&self.locality),
+            region: owned(&self.region),
+            postal_code: owned(&self.postal_code),
+            country: owned(&self.country),
+            label: owned(&self.label),
+        }
+    }
+}
+
+/// Site web d'un contact : adresse `http` ou `https` acceptée par
+/// [`website_url`].
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ContactWebsite {
+    url: String,
+    label: Option<String>,
+}
+
+impl ContactWebsite {
+    #[must_use]
+    pub fn url(&self) -> &str {
+        &self.url
+    }
+
+    #[must_use]
+    pub fn label(&self) -> Option<&str> {
+        self.label.as_deref()
+    }
+}
+
 /// Sort d'un nom qui imite une adresse lors de la validation d'une fiche.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum NameRule {
@@ -276,9 +421,13 @@ pub struct ContactDraft {
     family_name: Option<String>,
     nickname: Option<String>,
     organization: Option<String>,
+    title: Option<String>,
     notes: Option<String>,
+    birthday: Option<Birthday>,
     emails: Vec<ContactEmail>,
     phones: Vec<ContactPhone>,
+    postal_addresses: Vec<ContactPostalAddress>,
+    websites: Vec<ContactWebsite>,
     favorite: bool,
 }
 
@@ -421,15 +570,21 @@ impl ContactDraft {
             });
         }
 
+        let (title, birthday, postal_addresses, websites) = details(&input)?;
+
         Ok(Self {
             display_name,
             given_name,
             family_name,
             nickname,
             organization,
+            title,
             notes,
+            birthday,
             emails,
             phones,
+            postal_addresses,
+            websites,
             favorite: input.favorite,
         })
     }
@@ -459,9 +614,32 @@ impl ContactDraft {
         self.organization.as_deref()
     }
 
+    /// Titre ou fonction.
+    #[must_use]
+    pub fn title(&self) -> Option<&str> {
+        self.title.as_deref()
+    }
+
     #[must_use]
     pub fn notes(&self) -> Option<&str> {
         self.notes.as_deref()
+    }
+
+    #[must_use]
+    pub fn birthday(&self) -> Option<Birthday> {
+        self.birthday
+    }
+
+    /// Adresses postales, dans l'ordre de la fiche.
+    #[must_use]
+    pub fn postal_addresses(&self) -> &[ContactPostalAddress] {
+        &self.postal_addresses
+    }
+
+    /// Sites web, dans l'ordre de la fiche.
+    #[must_use]
+    pub fn websites(&self) -> &[ContactWebsite] {
+        &self.websites
     }
 
     /// Adresses, dans l'ordre de la fiche.
@@ -519,7 +697,7 @@ impl ContactDraft {
     }
 
     /// Texte dans lequel cherche un filtre : noms, nom complet
-    /// ([`Self::full_name`]), organisation et adresses, en minuscules,
+    /// ([`Self::full_name`]), organisation, titre et adresses, en minuscules,
     /// séparés par des sauts de ligne.
     #[must_use]
     pub fn search_text(&self) -> String {
@@ -536,6 +714,7 @@ impl ContactDraft {
             full_name.as_ref(),
             self.nickname.as_ref(),
             self.organization.as_ref(),
+            self.title.as_ref(),
         ];
         names
             .into_iter()
@@ -563,7 +742,9 @@ impl ContactDraft {
             family_name: owned(&self.family_name),
             nickname: owned(&self.nickname),
             organization: owned(&self.organization),
+            title: owned(&self.title),
             notes: owned(&self.notes),
+            birthday: self.birthday.map(|b| b.iso()).unwrap_or_default(),
             emails: self
                 .emails
                 .iter()
@@ -579,6 +760,19 @@ impl ContactDraft {
                 .map(|p| PhoneInput {
                     number: p.number.clone(),
                     label: owned(&p.label),
+                })
+                .collect(),
+            postal_addresses: self
+                .postal_addresses
+                .iter()
+                .map(ContactPostalAddress::to_input)
+                .collect(),
+            websites: self
+                .websites
+                .iter()
+                .map(|w| WebsiteInput {
+                    url: w.url.clone(),
+                    label: owned(&w.label),
                 })
                 .collect(),
             favorite: self.favorite,
@@ -701,6 +895,95 @@ fn text(raw: &str, field: ContactField, max: usize) -> Result<Option<String>, Co
     Ok((!value.is_empty()).then(|| value.to_owned()))
 }
 
+/// Titre, anniversaire, adresses postales et sites web d'une fiche.
+type Details = (
+    Option<String>,
+    Option<Birthday>,
+    Vec<ContactPostalAddress>,
+    Vec<ContactWebsite>,
+);
+
+/// Valide le titre, l'anniversaire, les adresses postales et les sites
+/// web de `input`.
+fn details(input: &ContactInput) -> Result<Details, ContactError> {
+    if input.postal_addresses.len() > MAX_POSTAL_ADDRESSES {
+        return Err(ContactError::TooManyPostalAddresses);
+    }
+    if input.websites.len() > MAX_CONTACT_WEBSITES {
+        return Err(ContactError::TooManyWebsites);
+    }
+    let title = text(&input.title, ContactField::Title, MAX_CONTACT_NAME_CHARS)?;
+    let birthday = match input.birthday.trim() {
+        "" => None,
+        raw => Some(Birthday::parse(raw).ok_or(ContactError::InvalidBirthday)?),
+    };
+
+    let mut postal_addresses = Vec::with_capacity(input.postal_addresses.len());
+    for (index, a) in input.postal_addresses.iter().enumerate() {
+        let field = ContactField::PostalAddress(index);
+        let part = |raw: &str| text(raw, field, MAX_POSTAL_FIELD_CHARS);
+        let address = ContactPostalAddress {
+            street: street(&a.street, field)?,
+            locality: part(&a.locality)?,
+            region: part(&a.region)?,
+            postal_code: part(&a.postal_code)?,
+            country: part(&a.country)?,
+            label: text(
+                &a.label,
+                ContactField::PostalAddressLabel(index),
+                MAX_CONTACT_LABEL_CHARS,
+            )?,
+        };
+        let parts = [
+            &address.street,
+            &address.locality,
+            &address.region,
+            &address.postal_code,
+            &address.country,
+        ];
+        if parts.iter().all(|p| p.is_none()) {
+            return Err(ContactError::EmptyPostalAddress { index });
+        }
+        postal_addresses.push(address);
+    }
+
+    let mut websites = Vec::with_capacity(input.websites.len());
+    for (index, w) in input.websites.iter().enumerate() {
+        let label = text(
+            &w.label,
+            ContactField::WebsiteLabel(index),
+            MAX_CONTACT_LABEL_CHARS,
+        )?;
+        // Caractère invisible ou de contrôle : refusé comme dans un autre
+        // champ, avant la règle du lien.
+        if w.url.trim().chars().any(forbidden) {
+            return Err(ContactError::InvalidCharacter(ContactField::Website(index)));
+        }
+        let url = website_url(&w.url).ok_or(ContactError::InvalidWebsite { index })?;
+        websites.push(ContactWebsite { url, label });
+    }
+    Ok((title, birthday, postal_addresses, websites))
+}
+
+/// Rue : comme [`text`] ligne à ligne (sauts de ligne admis, `\r\n` ramené
+/// à `\n`), lignes vides retirées, bornée à [`MAX_POSTAL_STREET_CHARS`].
+fn street(raw: &str, field: ContactField) -> Result<Option<String>, ContactError> {
+    let normalized = raw.replace("\r\n", "\n");
+    let lines: Vec<&str> = normalized
+        .split('\n')
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .collect();
+    if lines.iter().any(|line| line.chars().any(forbidden)) {
+        return Err(ContactError::InvalidCharacter(field));
+    }
+    let value = lines.join("\n");
+    if value.chars().count() > MAX_POSTAL_STREET_CHARS {
+        return Err(ContactError::TooLong(field));
+    }
+    Ok((!value.is_empty()).then_some(value))
+}
+
 /// Notes : comme [`text`], sauts de ligne (`\r\n` ramené à `\n`) et
 /// tabulations admis.
 fn notes(raw: &str) -> Result<Option<String>, ContactError> {
@@ -720,6 +1003,8 @@ fn notes(raw: &str) -> Result<Option<String>, ContactError> {
 
 /// Sort d'une fiche enregistrée avant que les caractères [`INVISIBLE`]
 /// ne soient refusés à la saisie ([`clean_invisible`]).
+// Valeur passagère, rendue fiche par fiche pendant une migration.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InvisibleCleanup {
     /// Rien à changer : la fiche n'en contient pas, ou elle est invalide
@@ -807,6 +1092,11 @@ pub fn clean_invisible(input: ContactInput) -> InvisibleCleanup {
         notes: replace(&input.notes, '\n'),
         emails,
         phones,
+        // Champs apparus après ce nettoyage (migration 18) : vides alors.
+        title: input.title.clone(),
+        birthday: input.birthday.clone(),
+        postal_addresses: input.postal_addresses.clone(),
+        websites: input.websites.clone(),
         favorite: input.favorite,
     };
     // Retirer des caractères ne rend invalide aucune fiche qui suivait les
@@ -1011,6 +1301,7 @@ mod tests {
                 label: "  ".into(),
             }],
             favorite: true,
+            ..ContactInput::default()
         });
         assert_eq!(d.display_name_field(), Some("Alice Martin"));
         assert_eq!(d.given_name(), Some("Alice"));
@@ -1715,6 +2006,19 @@ mod tests {
                 number: "01 02".into(),
                 label: "maison".into(),
             }],
+            title: "Directrice".into(),
+            birthday: "--02-29".into(),
+            postal_addresses: vec![PostalAddressInput {
+                street: "1 rue des Lilas\nBât. B".into(),
+                locality: "Lyon".into(),
+                postal_code: "69001".into(),
+                label: "maison".into(),
+                ..PostalAddressInput::default()
+            }],
+            websites: vec![WebsiteInput {
+                url: "https://example.com/alice".into(),
+                label: "blog".into(),
+            }],
             favorite: true,
         };
         i.emails[1].preferred = true;
@@ -1836,5 +2140,224 @@ mod tests {
             ..ContactInput::default()
         });
         assert!(ContactCursor::parse(d.sort_key(), 1).is_some());
+    }
+
+    fn postal(street: &str, locality: &str) -> PostalAddressInput {
+        PostalAddressInput {
+            street: street.into(),
+            locality: locality.into(),
+            ..PostalAddressInput::default()
+        }
+    }
+
+    fn website(url: &str) -> WebsiteInput {
+        WebsiteInput {
+            url: url.into(),
+            label: String::new(),
+        }
+    }
+
+    #[test]
+    fn details_are_trimmed_validated_and_kept() {
+        let mut i = input(&["a@example.com"]);
+        i.title = "  Directrice commerciale ".into();
+        i.birthday = " 19850412 ".into();
+        i.postal_addresses = vec![PostalAddressInput {
+            street: "  1 rue des Lilas \r\n\n  Bât. B  ".into(),
+            locality: " Lyon ".into(),
+            region: "  ".into(),
+            postal_code: "69001".into(),
+            country: "France".into(),
+            label: " maison ".into(),
+        }];
+        i.websites = vec![WebsiteInput {
+            url: " www.example.com ".into(),
+            label: " blog ".into(),
+        }];
+        let d = draft(i);
+        assert_eq!(d.title(), Some("Directrice commerciale"));
+        assert_eq!(d.birthday().map(|b| b.iso()), Some("1985-04-12".into()));
+        let [a] = d.postal_addresses() else {
+            panic!("{:?}", d.postal_addresses())
+        };
+        assert_eq!(a.street(), Some("1 rue des Lilas\nBât. B"));
+        assert_eq!(a.locality(), Some("Lyon"));
+        assert_eq!(a.region(), None);
+        assert_eq!(a.postal_code(), Some("69001"));
+        assert_eq!(a.country(), Some("France"));
+        assert_eq!(a.label(), Some("maison"));
+        let [w] = d.websites() else {
+            panic!("{:?}", d.websites())
+        };
+        assert_eq!(w.url(), "https://www.example.com");
+        assert_eq!(w.label(), Some("blog"));
+        // Champs absents.
+        let bare = draft(input(&["a@example.com"]));
+        assert_eq!(bare.title(), None);
+        assert_eq!(bare.birthday(), None);
+        assert!(bare.postal_addresses().is_empty());
+        assert!(bare.websites().is_empty());
+    }
+
+    #[test]
+    fn invalid_details_are_refused_and_located() {
+        let mut i = input(&["a@example.com"]);
+        i.birthday = "1985-02-30".into();
+        assert_eq!(ContactDraft::new(i), Err(ContactError::InvalidBirthday));
+
+        let mut i = input(&["a@example.com"]);
+        i.websites = vec![
+            website("https://example.com"),
+            website("javascript:alert(1)"),
+        ];
+        assert_eq!(
+            ContactDraft::new(i),
+            Err(ContactError::InvalidWebsite { index: 1 })
+        );
+
+        let mut i = input(&["a@example.com"]);
+        i.postal_addresses = vec![
+            postal("", "Lyon"),
+            PostalAddressInput {
+                label: "maison".into(),
+                ..PostalAddressInput::default()
+            },
+        ];
+        assert_eq!(
+            ContactDraft::new(i),
+            Err(ContactError::EmptyPostalAddress { index: 1 })
+        );
+
+        let mut i = input(&["a@example.com"]);
+        i.postal_addresses = vec![postal("1 rue\tdes Lilas", "")];
+        assert_eq!(
+            ContactDraft::new(i),
+            Err(ContactError::InvalidCharacter(ContactField::PostalAddress(
+                0
+            )))
+        );
+        let mut i = input(&["a@example.com"]);
+        i.postal_addresses = vec![postal("", "Ly\non")];
+        assert_eq!(
+            ContactDraft::new(i),
+            Err(ContactError::InvalidCharacter(ContactField::PostalAddress(
+                0
+            )))
+        );
+        let mut i = input(&["a@example.com"]);
+        i.postal_addresses = vec![postal("1 rue\u{202E}", "")];
+        assert_eq!(
+            ContactDraft::new(i),
+            Err(ContactError::InvalidCharacter(ContactField::PostalAddress(
+                0
+            )))
+        );
+        let mut i = input(&["a@example.com"]);
+        i.title = "Dir\u{200B}ectrice".into();
+        assert_eq!(
+            ContactDraft::new(i),
+            Err(ContactError::InvalidCharacter(ContactField::Title))
+        );
+    }
+
+    #[test]
+    fn details_are_bounded() {
+        let mut i = input(&["a@example.com"]);
+        i.postal_addresses = vec![postal("rue", ""); MAX_POSTAL_ADDRESSES + 1];
+        assert_eq!(
+            ContactDraft::new(i.clone()),
+            Err(ContactError::TooManyPostalAddresses)
+        );
+        i.postal_addresses.pop();
+        assert!(ContactDraft::new(i).is_ok());
+
+        let mut i = input(&["a@example.com"]);
+        i.websites = vec![website("https://example.com"); MAX_CONTACT_WEBSITES + 1];
+        assert_eq!(
+            ContactDraft::new(i.clone()),
+            Err(ContactError::TooManyWebsites)
+        );
+        i.websites.pop();
+        assert!(ContactDraft::new(i).is_ok());
+
+        let long = |n: usize| "é".repeat(n);
+        type Setter = Box<dyn Fn(&mut ContactInput, String)>;
+        let cases: Vec<(ContactField, Setter, usize)> = vec![
+            (
+                ContactField::Title,
+                Box::new(|i, s| i.title = s),
+                MAX_CONTACT_NAME_CHARS,
+            ),
+            (
+                ContactField::PostalAddress(0),
+                Box::new(|i, s| i.postal_addresses[0].street = s),
+                MAX_POSTAL_STREET_CHARS,
+            ),
+            (
+                ContactField::PostalAddress(0),
+                Box::new(|i, s| i.postal_addresses[0].country = s),
+                MAX_POSTAL_FIELD_CHARS,
+            ),
+            (
+                ContactField::PostalAddressLabel(0),
+                Box::new(|i, s| i.postal_addresses[0].label = s),
+                MAX_CONTACT_LABEL_CHARS,
+            ),
+            (
+                ContactField::WebsiteLabel(0),
+                Box::new(|i, s| i.websites[0].label = s),
+                MAX_CONTACT_LABEL_CHARS,
+            ),
+        ];
+        for (field, set, max) in cases {
+            let mut i = input(&["a@example.com"]);
+            i.postal_addresses = vec![postal("rue", "")];
+            i.websites = vec![website("https://example.com")];
+            set(&mut i, long(max));
+            assert!(
+                ContactDraft::new(i.clone()).is_ok(),
+                "{field:?} à la limite"
+            );
+            set(&mut i, long(max + 1));
+            assert_eq!(
+                ContactDraft::new(i),
+                Err(ContactError::TooLong(field)),
+                "{field:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn search_text_includes_the_title() {
+        let mut i = input(&["a@example.com"]);
+        i.given_name = "Alice".into();
+        let before = draft(i.clone()).search_text();
+        i.title = "Directrice".into();
+        let d = draft(i);
+        assert!(
+            d.search_text().contains("directrice"),
+            "{}",
+            d.search_text()
+        );
+        assert!(ContactFilter::new("DIRECT", false).matches(&d));
+        // Sans titre, le texte cherché est celui d'avant (fiches enregistrées
+        // inchangées).
+        assert_eq!(before, "alice\na@example.com");
+    }
+
+    #[test]
+    fn same_place_ignores_case_and_label() {
+        let mut a = input(&["a@example.com"]);
+        a.postal_addresses = vec![PostalAddressInput {
+            label: "maison".into(),
+            ..postal("1 rue des Lilas", "Lyon")
+        }];
+        let mut b = input(&["b@example.com"]);
+        b.postal_addresses = vec![postal("1 RUE DES LILAS", "lyon")];
+        let (a, b) = (draft(a), draft(b));
+        assert!(a.postal_addresses()[0].same_place(&b.postal_addresses()[0]));
+        let mut c = input(&["c@example.com"]);
+        c.postal_addresses = vec![postal("2 rue des Lilas", "Lyon")];
+        assert!(!a.postal_addresses()[0].same_place(&draft(c).postal_addresses()[0]));
     }
 }

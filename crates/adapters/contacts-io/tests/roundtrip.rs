@@ -11,7 +11,9 @@ use std::collections::HashSet;
 use norelly_contacts_io::{ContactsIo, IcuNfc};
 use norelly_domain::contact_export::{ExportCard, ExportFormat, export_card};
 use norelly_domain::contact_import::{DuplicatePolicy, ImportPlan, plan_import};
-use norelly_domain::contacts::{ContactDraft, ContactInput, EmailInput, PhoneInput};
+use norelly_domain::contacts::{
+    ContactDraft, ContactInput, EmailInput, PhoneInput, PostalAddressInput, WebsiteInput,
+};
 use norelly_domain::ports::ContactCodec;
 use norelly_test_support::contact_import_contracts::{EXPORT_FORMATS, imported};
 use proptest::prelude::*;
@@ -69,7 +71,44 @@ fn book() -> Vec<ContactDraft> {
                 phone("+33 6 11 22 33 44", "Portable"),
                 phone("04 77 00 00 00", "Bureau"),
             ],
+            title: "Adjointe, culture ; « intérim »".into(),
+            birthday: "1985-04-12".into(),
+            postal_addresses: vec![
+                PostalAddressInput {
+                    street: "Hôtel de ville\n1 place; Bât. \"B\"".into(),
+                    locality: "Saint-Étienne".into(),
+                    region: "Loire".into(),
+                    postal_code: "42000".into(),
+                    country: "France".into(),
+                    label: "Travail".into(),
+                },
+                PostalAddressInput {
+                    street: "12 rue des Roses".into(),
+                    locality: "Firminy".into(),
+                    label: "Maison".into(),
+                    ..PostalAddressInput::default()
+                },
+            ],
+            websites: vec![
+                WebsiteInput {
+                    url: "https://example.fr/a?b=1,2;c".into(),
+                    label: "Travail".into(),
+                },
+                WebsiteInput {
+                    url: "http://helene.example".into(),
+                    label: "Perso".into(),
+                },
+            ],
             favorite: false,
+        }),
+        draft(ContactInput {
+            birthday: "--02-29".into(),
+            emails: vec![email("sans-annee@example.com", "", false)],
+            postal_addresses: vec![PostalAddressInput {
+                country: "=Belgique".into(),
+                ..PostalAddressInput::default()
+            }],
+            ..ContactInput::default()
         }),
         draft(ContactInput {
             given_name: "Seán".into(),
@@ -120,6 +159,12 @@ fn vcard_round_trip_keeps_the_book() {
             for p in &mut c.phones {
                 p.label = p.label.to_lowercase();
             }
+            for a in &mut c.postal_addresses {
+                a.label = a.label.to_lowercase();
+            }
+            for w in &mut c.websites {
+                w.label = w.label.to_lowercase();
+            }
             // Nom complet obligatoire : le nom composé s'écrit.
             if c.display_name.is_empty() && !c.given_name.is_empty() {
                 c.display_name = format!("{} {}", c.given_name, c.family_name);
@@ -150,6 +195,21 @@ fn ldif_round_trip_keeps_the_book() {
                 _ => "work",
             }
             .into();
+        }
+        // Un emplacement « domicile » et un « travail » (les étiquettes
+        // d'essai en remplissent chacun un au plus).
+        let slot = |label: &str| {
+            match label {
+                "Maison" | "Perso" => "home",
+                _ => "work",
+            }
+            .to_owned()
+        };
+        for a in &mut c.postal_addresses {
+            a.label = slot(&a.label);
+        }
+        for w in &mut c.websites {
+            w.label = slot(&w.label);
         }
     });
     assert_eq!(plan.create, want);
@@ -212,6 +272,48 @@ fn label() -> impl Strategy<Value = String> {
     ]
 }
 
+/// Détails d'une fiche : titre, anniversaire, adresses postales, sites.
+type Details = (String, String, Vec<PostalAddressInput>, Vec<WebsiteInput>);
+
+fn details() -> impl Strategy<Value = Details> {
+    let birthday = prop_oneof![
+        Just(String::new()),
+        Just("1985-04-12".to_owned()),
+        Just("--02-29".to_owned()),
+        Just("0001-01-01".to_owned()),
+    ];
+    let street = "[a-zé ,;:\\\\\"'=+@<>-]{0,15}(\n[a-zé ,;=-]{1,10}){0,2}";
+    let place = (
+        street,
+        line_text(),
+        line_text(),
+        line_text(),
+        line_text(),
+        label(),
+    )
+        .prop_map(|(street, locality, region, postal_code, country, label)| {
+            PostalAddressInput {
+                street,
+                locality,
+                region,
+                postal_code,
+                country,
+                label,
+            }
+        });
+    let site = (
+        "(https?://)?[a-z]{1,8}\\.(fr|com)(:8080)?(/[a-zA-Z0-9,;=&?%._~-]{0,12})?",
+        label(),
+    )
+        .prop_map(|(url, label)| WebsiteInput { url, label });
+    (
+        line_text(),
+        birthday,
+        prop::collection::vec(place, 0..3),
+        prop::collection::vec(site, 0..3),
+    )
+}
+
 fn contact() -> impl Strategy<Value = ContactDraft> {
     let emails = prop::collection::vec((address(), label()), 1..5);
     let phones = prop::collection::vec(("[+0-9(-][0-9 ().-]{0,19}", label()), 0..4);
@@ -223,10 +325,12 @@ fn contact() -> impl Strategy<Value = ContactDraft> {
         any::<prop::sample::Index>(),
         phones,
         any::<bool>(),
+        details(),
     )
         .prop_filter_map(
             "fiche refusée par le domaine",
-            |(names, organization, notes, emails, preferred, phones, favorite)| {
+            |(names, organization, notes, emails, preferred, phones, favorite, details)| {
+                let (title, birthday, postal_addresses, websites) = details;
                 let [display_name, given_name, family_name, nickname] = names;
                 let preferred = preferred.index(emails.len());
                 ContactDraft::new(ContactInput {
@@ -249,6 +353,10 @@ fn contact() -> impl Strategy<Value = ContactDraft> {
                         .into_iter()
                         .map(|(number, label)| PhoneInput { number, label })
                         .collect(),
+                    title,
+                    birthday,
+                    postal_addresses,
+                    websites,
                     favorite,
                 })
                 .ok()

@@ -510,7 +510,12 @@
       {/if}
     {:else if app.view === "contacts"}
       {#if contacts.selected !== null}
-        <ContactCard contact={contacts.selected} {registry} context={app.context()} />
+        <ContactCard
+          contact={contacts.selected}
+          {registry}
+          context={app.context()}
+          openWebsite={(url) => api.openExternal(url)}
+        />
       {:else}
         <div class="placeholder">
           <BookUserIcon size={40} aria-hidden="true" />

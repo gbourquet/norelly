@@ -1,4 +1,5 @@
-//! Écriture vCard 4.0 (RFC 6350) et 3.0 (RFC 2426) : `FN`, `N`,
+//! Écriture vCard 4.0 (RFC 6350) et 3.0 (RFC 2426) : `FN`, `N`, `TITLE`,
+//! `BDAY` (forme de base en 4.0, étendue en 3.0), `ADR`, `URL`,
 //! `NICKNAME`, `ORG`, `EMAIL` (type, préférence), `TEL`, `CATEGORIES`
 //! (favori seulement), `NOTE` ;
 //! échappements des valeurs texte, lignes repliées à 75 octets sans couper
@@ -52,6 +53,16 @@ fn fold(line: &str) -> String {
     out
 }
 
+/// Année fictive d'un anniversaire sans année en vCard 3.0, comme l'écrit
+/// Apple (`X-APPLE-OMIT-YEAR`).
+const APPLE_NO_YEAR: u16 = 1604;
+
+/// Paramètre `;TYPE=…` d'une étiquette (fixée par le domaine), vide sans
+/// étiquette.
+fn type_param(label: Option<&str>) -> String {
+    label.map_or_else(String::new, |label| format!(";TYPE={label}"))
+}
+
 fn optional(value: Option<&String>) -> String {
     value.map_or_else(String::new, |v| escape(v))
 }
@@ -82,6 +93,22 @@ pub(crate) fn encode(
         }
         if let Some(organization) = &card.organization {
             lines.push(format!("ORG:{}", escape(organization)));
+        }
+        if let Some(title) = &card.title {
+            lines.push(format!("TITLE:{}", escape(title)));
+        }
+        if let Some(birthday) = card.birthday {
+            lines.push(match (version, birthday.year()) {
+                (Version::V4, _) => format!("BDAY:{}", birthday.basic()),
+                (Version::V3, Some(_)) => format!("BDAY:{}", birthday.iso()),
+                // vCard 3.0 n'admet qu'une date complète : année fictive
+                // d'Apple (bissextile), retirée à la lecture.
+                (Version::V3, None) => format!(
+                    "BDAY;X-APPLE-OMIT-YEAR={APPLE_NO_YEAR}:{APPLE_NO_YEAR}-{:02}-{:02}",
+                    birthday.month(),
+                    birthday.day()
+                ),
+            });
         }
         for email in &card.emails {
             let label = email.label.as_deref();
@@ -114,6 +141,30 @@ pub(crate) fn encode(
                 .map_or_else(String::new, |label| format!(";TYPE={label}"));
             lines.push(format!("TEL{params}:{}", escape(&phone.number)));
         }
+        for place in &card.postal_addresses {
+            let parts = [
+                &place.street,
+                &place.locality,
+                &place.region,
+                &place.postal_code,
+                &place.country,
+            ]
+            .map(|part| optional(part.as_ref()));
+            lines.push(format!(
+                "ADR{}:;;{}",
+                type_param(place.label.as_deref()),
+                parts.join(";")
+            ));
+        }
+        // Valeur d'URI, écrite sans échappement texte (le domaine n'admet
+        // ni espace, ni contrôle, ni `\`).
+        for site in &card.websites {
+            lines.push(format!(
+                "URL{}:{}",
+                type_param(site.label.as_deref()),
+                site.url
+            ));
+        }
         if card.favorite {
             lines.push(format!("CATEGORIES:{VCARD_FAVORITE_CATEGORY}"));
         }
@@ -130,7 +181,10 @@ pub(crate) fn encode(
 
 #[cfg(test)]
 mod tests {
-    use norelly_domain::contact_export::{ExportEmail, ExportPhone};
+    use norelly_domain::contact_details::Birthday;
+    use norelly_domain::contact_export::{
+        ExportEmail, ExportPhone, ExportPostalAddress, ExportWebsite,
+    };
 
     use super::*;
 
@@ -164,6 +218,19 @@ mod tests {
                 number: "+33 6 12".into(),
                 label: Some("portable".into()),
             }],
+            title: Some("Cheffe, R&D".into()),
+            birthday: Birthday::new(Some(1985), 4, 12),
+            postal_addresses: vec![ExportPostalAddress {
+                street: Some("1 rue; A\nBât. B".into()),
+                locality: Some("Lyon".into()),
+                postal_code: Some("69001".into()),
+                label: Some("maison".into()),
+                ..ExportPostalAddress::default()
+            }],
+            websites: vec![ExportWebsite {
+                url: "https://example.com/?a=1,2;b".into(),
+                label: Some("blog".into()),
+            }],
             favorite: false,
         }
     }
@@ -182,6 +249,20 @@ mod tests {
             );
             assert!(!written(&[card()], version).contains("CATEGORIES"));
         }
+    }
+
+    #[test]
+    fn a_birthday_without_year_is_written_month_and_day() {
+        let card = ExportCard {
+            birthday: Birthday::new(None, 2, 29),
+            ..ExportCard::default()
+        };
+        assert!(written(std::slice::from_ref(&card), Version::V4).contains("\r\nBDAY:--0229\r\n"));
+        // vCard 3.0 n'a pas de date sans année : année fictive d'Apple.
+        assert!(
+            written(&[card], Version::V3)
+                .contains("\r\nBDAY;X-APPLE-OMIT-YEAR=1604:1604-02-29\r\n")
+        );
     }
 
     #[test]
@@ -222,9 +303,13 @@ mod tests {
              N:Martin;Anne;;;\r\n\
              NICKNAME:Nanou\\, Nan\r\n\
              ORG:ACME\\; R&D\r\n\
+             TITLE:Cheffe\\, R&D\r\n\
+             BDAY:19850412\r\n\
              EMAIL;TYPE=travail;PREF=1:anne@example.com\r\n\
              EMAIL:anne@example.org\r\n\
              TEL;TYPE=portable:+33 6 12\r\n\
+             ADR;TYPE=maison:;;1 rue\\; A\\nBât. B;Lyon;;69001;\r\n\
+             URL;TYPE=blog:https://example.com/?a=1,2;b\r\n\
              NOTE:a\\\\b\\nc\td\r\n\
              END:VCARD\r\n"
         );
@@ -240,9 +325,13 @@ mod tests {
              N:Martin;Anne;;;\r\n\
              NICKNAME:Nanou\\, Nan\r\n\
              ORG:ACME\\; R&D\r\n\
+             TITLE:Cheffe\\, R&D\r\n\
+             BDAY:1985-04-12\r\n\
              EMAIL;TYPE=INTERNET,travail,PREF:anne@example.com\r\n\
              EMAIL;TYPE=INTERNET:anne@example.org\r\n\
              TEL;TYPE=portable:+33 6 12\r\n\
+             ADR;TYPE=maison:;;1 rue\\; A\\nBât. B;Lyon;;69001;\r\n\
+             URL;TYPE=blog:https://example.com/?a=1,2;b\r\n\
              NOTE:a\\\\b\\nc\td\r\n\
              END:VCARD\r\n"
         );

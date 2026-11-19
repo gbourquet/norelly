@@ -41,6 +41,7 @@ fn full() -> ContactDraft {
             phone("04 72 00 00 00", ""),
         ],
         favorite: true,
+        ..ContactInput::default()
     })
 }
 
@@ -623,6 +624,130 @@ proptest! {
             prop_assert_eq!(crate::reading::safe_file_name(&name), name.clone());
         }
     }
+}
+
+fn detailed() -> ContactDraft {
+    use crate::contacts::{PostalAddressInput, WebsiteInput};
+    let place = |street: &str, label: &str| PostalAddressInput {
+        street: street.into(),
+        locality: "Lyon".into(),
+        postal_code: "69001".into(),
+        label: label.into(),
+        ..PostalAddressInput::default()
+    };
+    let site = |url: &str, label: &str| WebsiteInput {
+        url: url.into(),
+        label: label.into(),
+    };
+    draft(ContactInput {
+        display_name: "Élodie".into(),
+        title: "Régisseuse".into(),
+        birthday: "--04-12".into(),
+        emails: vec![email("e@example.com", "", false)],
+        postal_addresses: vec![
+            place("1 rue A\nBât. B", "Travail"),
+            place("2 rue B", "Maison"),
+            place("3 rue C", "*chalet; été"),
+            place("4 rue D", "home"),
+        ],
+        websites: vec![
+            site("https://example.com", "Perso"),
+            site("https://example.org", ""),
+            site("https://example.net", "work"),
+        ],
+        ..ContactInput::default()
+    })
+}
+
+fn place_labels(card: &ExportCard) -> Vec<(Option<&str>, Option<&str>)> {
+    card.postal_addresses
+        .iter()
+        .map(|p| (p.street.as_deref(), p.label.as_deref()))
+        .collect()
+}
+
+fn site_labels(card: &ExportCard) -> Vec<(&str, Option<&str>)> {
+    card.websites
+        .iter()
+        .map(|w| (w.url.as_str(), w.label.as_deref()))
+        .collect()
+}
+
+#[test]
+fn title_and_birthday_are_kept_in_every_format() {
+    for format in ALL_FORMATS {
+        let card = export_card(&detailed(), format);
+        assert_eq!(card.title.as_deref(), Some("Régisseuse"), "{format:?}");
+        assert_eq!(card.birthday.map(|b| b.iso()), Some("--04-12".into()));
+        let p = &card.postal_addresses[0];
+        assert_eq!(
+            (
+                p.locality.as_deref(),
+                p.postal_code.as_deref(),
+                p.region.as_deref()
+            ),
+            (Some("Lyon"), Some("69001"), None)
+        );
+    }
+}
+
+#[test]
+fn vcard_and_csv_keep_every_postal_address_and_website() {
+    for format in [ExportFormat::VCard4, ExportFormat::VCard3] {
+        let card = export_card(&detailed(), format);
+        assert_eq!(
+            place_labels(&card),
+            [
+                (Some("1 rue A\nBât. B"), Some("travail")),
+                (Some("2 rue B"), Some("maison")),
+                (Some("3 rue C"), Some("*chalet été")),
+                (Some("4 rue D"), Some("home")),
+            ],
+            "{format:?}"
+        );
+        assert_eq!(
+            site_labels(&card),
+            [
+                ("https://example.com", Some("perso")),
+                ("https://example.org", None),
+                ("https://example.net", Some("work")),
+            ]
+        );
+    }
+    let card = export_card(&detailed(), ExportFormat::GoogleCsv);
+    assert_eq!(
+        place_labels(&card),
+        [
+            (Some("1 rue A\nBât. B"), Some("Travail")),
+            (Some("2 rue B"), Some("Maison")),
+            (Some("3 rue C"), Some("chalet; été")),
+            (Some("4 rue D"), Some("home")),
+        ]
+    );
+    assert_eq!(
+        site_labels(&card)[0],
+        ("https://example.com", Some("Perso"))
+    );
+}
+
+#[test]
+fn ldif_keeps_one_home_and_one_work_place_and_website() {
+    let card = export_card(&detailed(), ExportFormat::Ldif);
+    assert_eq!(
+        place_labels(&card),
+        [
+            (Some("1 rue A\nBât. B"), Some("work")),
+            (Some("2 rue B"), Some("home")),
+        ]
+    );
+    assert_eq!(
+        site_labels(&card),
+        // « Perso » est une étiquette de domicile ; sans étiquette : travail.
+        [
+            ("https://example.com", Some("home")),
+            ("https://example.org", Some("work")),
+        ]
+    );
 }
 
 #[test]

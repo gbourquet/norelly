@@ -12,6 +12,7 @@
 use std::borrow::Cow;
 use std::time::Duration;
 
+use crate::contact_details::Birthday;
 use crate::contact_import::{MAX_IMPORT_CARDS, MAX_IMPORT_FILE_BYTES};
 use crate::contact_labels::ContactLabelKind;
 use crate::contacts::{
@@ -138,6 +139,25 @@ pub struct ExportPhone {
     pub label: Option<String>,
 }
 
+/// Adresse postale écrite dans un export.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ExportPostalAddress {
+    /// Rue, lignes séparées par `\n`.
+    pub street: Option<String>,
+    pub locality: Option<String>,
+    pub region: Option<String>,
+    pub postal_code: Option<String>,
+    pub country: Option<String>,
+    pub label: Option<String>,
+}
+
+/// Site web écrit dans un export.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExportWebsite {
+    pub url: String,
+    pub label: Option<String>,
+}
+
 /// Fiche prête à écrire dans un format : ce que le format retient de la
 /// fiche, adresse préférée en tête.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -148,13 +168,21 @@ pub struct ExportCard {
     pub family_name: Option<String>,
     pub nickname: Option<String>,
     pub organization: Option<String>,
+    /// Titre ou fonction (`TITLE` vCard, `title` LDIF).
+    pub title: Option<String>,
     pub notes: Option<String>,
+    pub birthday: Option<Birthday>,
     pub emails: Vec<ExportEmail>,
     pub phones: Vec<ExportPhone>,
     /// Contact favori, écrit en catégorie vCard
     /// ([`VCARD_FAVORITE_CATEGORY`]) ou en étiquette Google
     /// ([`GOOGLE_FAVORITE_LABEL`]).
     pub favorite: bool,
+    /// Adresses postales ; en LDIF, une `home` et une `work` au plus
+    /// (étiquettes fixées à ces deux valeurs).
+    pub postal_addresses: Vec<ExportPostalAddress>,
+    /// Sites web ; en LDIF, comme les adresses postales.
+    pub websites: Vec<ExportWebsite>,
 }
 
 /// Ce que `format` retient de `draft`.
@@ -203,6 +231,24 @@ pub fn export_card(draft: &ContactDraft, format: ExportFormat) -> ExportCard {
             .collect(),
         // Thunderbird n'a pas de favori.
         favorite: draft.favorite() && format != ExportFormat::Ldif,
+        title: owned(draft.title()),
+        birthday: draft.birthday(),
+        postal_addresses: placed(draft.postal_addresses(), format, |a| a.label())
+            .map(|(a, label)| ExportPostalAddress {
+                street: owned(a.street()),
+                locality: owned(a.locality()),
+                region: owned(a.region()),
+                postal_code: owned(a.postal_code()),
+                country: owned(a.country()),
+                label,
+            })
+            .collect(),
+        websites: placed(draft.websites(), format, |w| w.label())
+            .map(|(w, label)| ExportWebsite {
+                url: w.url().to_owned(),
+                label,
+            })
+            .collect(),
     }
 }
 
@@ -247,6 +293,36 @@ pub fn is_favorite_google_label(label: &str) -> bool {
         group
             .trim_start()
             .eq_ignore_ascii_case(VCARD_FAVORITE_CATEGORY)
+    })
+}
+
+/// Adresses postales ou sites web que `format` retient, avec l'étiquette
+/// écrite : tous en vCard et CSV (étiquette comme celle d'une adresse
+/// électronique) ; en LDIF, qui n'a qu'un emplacement « domicile » et un
+/// « travail », le premier d'étiquette de domicile ([`ContactLabelKind`])
+/// et le premier des autres, étiquetés `home` et `work`, dans l'ordre de
+/// la fiche.
+fn placed<'a, T>(
+    items: &'a [T],
+    format: ExportFormat,
+    label: impl Fn(&T) -> Option<&str> + 'a,
+) -> impl Iterator<Item = (&'a T, Option<String>)> + 'a {
+    let (mut home, mut work) = (false, false);
+    items.iter().filter_map(move |item| {
+        let label = label(item);
+        match format {
+            ExportFormat::VCard4 | ExportFormat::VCard3 => Some((item, label.and_then(vcard_type))),
+            ExportFormat::GoogleCsv => Some((item, label.and_then(google_label))),
+            ExportFormat::Ldif => {
+                let is_home = label.and_then(ContactLabelKind::of) == Some(ContactLabelKind::Home);
+                let slot = if is_home { &mut home } else { &mut work };
+                if *slot {
+                    return None;
+                }
+                *slot = true;
+                Some((item, Some(if is_home { "home" } else { "work" }.to_owned())))
+            }
+        }
     })
 }
 

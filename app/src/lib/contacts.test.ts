@@ -516,6 +516,67 @@ describe("formulaire d'un contact", () => {
     );
   });
 
+  it("pré-remplit et renvoie titre, anniversaire, adresses postales et sites", async () => {
+    const source = contact(4, "Alice");
+    source.fields.title = "Directrice";
+    source.fields.birthday = "--04-12";
+    source.fields.postal_addresses = [
+      {
+        street: "1 rue A",
+        locality: "Lyon",
+        region: "",
+        postal_code: "69001",
+        country: "",
+        label: "home",
+        label_kind: "home",
+      },
+    ];
+    source.fields.websites = [{ url: "https://example.com", label: "work", label_kind: "work" }];
+    const api = fakeApi([source]);
+    const f = new ContactFormState(api);
+    f.reset(source);
+    expect(f.birthday).toEqual({ day: "12", month: "4", year: "" });
+    expect(f.fields.postal_addresses.map((a) => a.label)).toEqual(["Domicile"]);
+    expect(f.fields.websites.map((w) => w.label)).toEqual(["Travail"]);
+    f.birthday.year = "1985";
+    // Lignes laissées vides : pas envoyées.
+    f.addPostalAddress();
+    f.addWebsite();
+    await f.submit();
+    const sent = vi.mocked(api.updateContact).mock.lastCall?.[1];
+    expect(sent?.title).toBe("Directrice");
+    expect(sent?.birthday).toBe("1985-04-12");
+    expect(sent?.postal_addresses).toEqual([
+      {
+        street: "1 rue A",
+        locality: "Lyon",
+        region: "",
+        postal_code: "69001",
+        country: "",
+        label: "home",
+      },
+    ]);
+    expect(sent?.websites).toEqual([{ url: "https://example.com", label: "work" }]);
+  });
+
+  it("ajoute et retire des adresses postales et des sites, dans la borne de Rust", () => {
+    const f = new ContactFormState(fakeApi());
+    f.reset(null);
+    expect(f.birthday).toEqual({ day: "", month: "", year: "" });
+    for (let i = 0; i < 15; i += 1) {
+      f.addPostalAddress();
+      f.addWebsite();
+    }
+    expect(f.fields.postal_addresses).toHaveLength(10);
+    expect(f.fields.websites).toHaveLength(10);
+    expect(f.canAddPostalAddress).toBe(false);
+    expect(f.canAddWebsite).toBe(false);
+    f.removePostalAddress(0);
+    f.removeWebsite(0);
+    expect(f.canAddPostalAddress).toBe(true);
+    expect(f.canAddWebsite).toBe(true);
+  });
+
   it("modifie la fiche existante", async () => {
     const api = fakeApi([contact(4, "Alice")]);
     const f = new ContactFormState(api);

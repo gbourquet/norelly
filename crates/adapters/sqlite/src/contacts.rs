@@ -11,11 +11,13 @@ use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex, PoisonError};
 
 use norelly_domain::address::EmailAddress;
+use norelly_domain::contact_details::{MAX_CONTACT_WEBSITES, MAX_POSTAL_ADDRESSES};
 use norelly_domain::contact_export::ContactSelection;
 use norelly_domain::contact_import::ContactCompletion;
 use norelly_domain::contacts::{
     AddressKey, Contact, ContactDraft, ContactFilter, ContactId, ContactInput, EmailInput,
-    InvisibleCleanup, MAX_CONTACT_ID, PhoneInput, clean_invisible, clean_names_imitating_address,
+    InvisibleCleanup, MAX_CONTACT_ID, PhoneInput, PostalAddressInput, WebsiteInput,
+    clean_invisible, clean_names_imitating_address,
 };
 use norelly_domain::ports::{
     ContactBook, ContactCursor, ContactDirectory, ContactListItem, ContactPage, ContactStoreError,
@@ -73,6 +75,12 @@ struct ContactRow {
     /// Clés stockées des adresses, dans le même ordre.
     keys: Vec<String>,
     phones: Vec<PhoneInput>,
+    /// Titre et anniversaire, adresses postales et sites (version 25) : lus
+    /// à part ([`details`]), absents des étapes de migration antérieures.
+    title: Option<String>,
+    birthday: Option<String>,
+    postal_addresses: Vec<PostalAddressInput>,
+    websites: Vec<WebsiteInput>,
     /// Une valeur de la fiche, de ses adresses ou de ses téléphones n'a pas
     /// le type attendu : la fiche est invalide.
     unreadable: bool,
@@ -109,6 +117,10 @@ impl ContactRow {
             emails: Vec::new(),
             keys: Vec::new(),
             phones: Vec::new(),
+            title: None,
+            birthday: None,
+            postal_addresses: Vec::new(),
+            websites: Vec::new(),
             unreadable,
         })
     }
@@ -130,8 +142,12 @@ impl ContactRow {
             nickname,
             organization,
             notes,
+            title: self.title.unwrap_or_default(),
+            birthday: self.birthday.unwrap_or_default(),
             emails: self.emails,
             phones: self.phones,
+            postal_addresses: self.postal_addresses,
+            websites: self.websites,
             favorite: self.favorite,
         };
         (input, self.keys)
@@ -407,7 +423,117 @@ fn load_rows(c: &Connection, ids: &[i64]) -> Result<Vec<ContactRow>, StoreError>
         return Ok(Vec::new());
     }
     let mut rows = rows(c, ids)?;
+    details(c, ids, &mut rows)?;
     Ok(ids.iter().filter_map(|id| rows.remove(id)).collect())
+}
+
+/// Titre, anniversaire, adresses postales et sites des fiches `rows`
+/// (schéma de la version 25) ; une valeur d'un type inattendu marque sa
+/// fiche illisible. Les étapes de migration antérieures lisent les fiches
+/// sans eux ([`rows`]) : leurs colonnes et tables n'existent pas encore.
+fn details(
+    c: &Connection,
+    ids: &[i64],
+    rows: &mut HashMap<i64, ContactRow>,
+) -> Result<(), StoreError> {
+    let list = json_list(ids)?;
+    let mut stmt = c
+        .prepare_cached(
+            "SELECT id, title, birthday FROM contacts \
+             WHERE id IN (SELECT value FROM json_each(?1))",
+        )
+        .map_err(store_error)?;
+    let texts = stmt
+        .query_map(params![list], |r| {
+            let texts = || -> rusqlite::Result<(Option<String>, Option<String>)> {
+                Ok((r.get(1)?, r.get(2)?))
+            };
+            Ok((r.get::<_, i64>(0)?, texts().ok()))
+        })
+        .map_err(store_error)?;
+    for text in texts {
+        let (id, text) = text.map_err(store_error)?;
+        if let Some(row) = rows.get_mut(&id) {
+            match text {
+                Some((title, birthday)) => {
+                    row.title = title;
+                    row.birthday = birthday;
+                }
+                None => row.unreadable = true,
+            }
+        }
+    }
+
+    let mut stmt = c
+        .prepare_cached(
+            "SELECT contact_id, street, locality, region, postal_code, country, label \
+             FROM contact_postal_addresses \
+             WHERE contact_id IN (SELECT value FROM json_each(?1)) \
+             ORDER BY contact_id, position",
+        )
+        .map_err(store_error)?;
+    let places = stmt
+        .query_map(params![list], |r| {
+            let place = || -> rusqlite::Result<_> {
+                let text = |i| -> rusqlite::Result<String> {
+                    Ok(r.get::<_, Option<String>>(i)?.unwrap_or_default())
+                };
+                Ok(PostalAddressInput {
+                    street: text(1)?,
+                    locality: text(2)?,
+                    region: text(3)?,
+                    postal_code: text(4)?,
+                    country: text(5)?,
+                    label: text(6)?,
+                })
+            };
+            Ok((r.get::<_, i64>(0)?, place().ok()))
+        })
+        .map_err(store_error)?;
+    for place in places {
+        let (id, place) = place.map_err(store_error)?;
+        if let Some(row) = rows.get_mut(&id) {
+            match place {
+                // Au-delà de ce qu'une fiche admet : invalide, sans garder le
+                // surplus en mémoire.
+                Some(_) if row.postal_addresses.len() >= MAX_POSTAL_ADDRESSES => {
+                    row.unreadable = true;
+                }
+                Some(place) => row.postal_addresses.push(place),
+                None => row.unreadable = true,
+            }
+        }
+    }
+
+    let mut stmt = c
+        .prepare_cached(
+            "SELECT contact_id, url, label FROM contact_websites \
+             WHERE contact_id IN (SELECT value FROM json_each(?1)) \
+             ORDER BY contact_id, position",
+        )
+        .map_err(store_error)?;
+    let sites = stmt
+        .query_map(params![list], |r| {
+            let site = || -> rusqlite::Result<_> {
+                Ok(WebsiteInput {
+                    url: r.get(1)?,
+                    label: r.get::<_, Option<String>>(2)?.unwrap_or_default(),
+                })
+            };
+            Ok((r.get::<_, i64>(0)?, site().ok()))
+        })
+        .map_err(store_error)?;
+    for site in sites {
+        let (id, site) = site.map_err(store_error)?;
+        if let Some(row) = rows.get_mut(&id) {
+            match site {
+                Some(_) if row.websites.len() >= MAX_CONTACT_WEBSITES => row.unreadable = true,
+                Some(site) => row.websites.push(site),
+                None => row.unreadable = true,
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Fiches brutes `ids`, par identifiant (inconnues omises). Une valeur
@@ -528,8 +654,60 @@ fn taken(
     Ok(None)
 }
 
-/// Écrit le contenu de la fiche `id` (ligne existante), adresses et
-/// téléphones remplacés.
+/// Écrit tout le contenu de la fiche `id` (ligne existante) : [`write`],
+/// puis titre, anniversaire, adresses postales et sites remplacés.
+fn write_all(tx: &Transaction<'_>, id: i64, draft: &ContactDraft) -> Result<(), StoreError> {
+    write(tx, id, draft)?;
+    tx.execute(
+        "UPDATE contacts SET title = ?2, birthday = ?3 WHERE id = ?1",
+        params![id, draft.title(), draft.birthday().map(|b| b.iso())],
+    )
+    .map_err(store_error)?;
+    tx.execute(
+        "DELETE FROM contact_postal_addresses WHERE contact_id = ?1",
+        params![id],
+    )
+    .map_err(store_error)?;
+    tx.execute(
+        "DELETE FROM contact_websites WHERE contact_id = ?1",
+        params![id],
+    )
+    .map_err(store_error)?;
+    let mut stmt = tx
+        .prepare_cached(
+            "INSERT INTO contact_postal_addresses (contact_id, position, street, locality, \
+             region, postal_code, country, label) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+        )
+        .map_err(store_error)?;
+    for (position, place) in (0_i64..).zip(draft.postal_addresses()) {
+        stmt.execute(params![
+            id,
+            position,
+            place.street(),
+            place.locality(),
+            place.region(),
+            place.postal_code(),
+            place.country(),
+            place.label(),
+        ])
+        .map_err(store_error)?;
+    }
+    let mut stmt = tx
+        .prepare_cached(
+            "INSERT INTO contact_websites (contact_id, position, url, label) \
+             VALUES (?1, ?2, ?3, ?4)",
+        )
+        .map_err(store_error)?;
+    for (position, site) in (0_i64..).zip(draft.websites()) {
+        stmt.execute(params![id, position, site.url(), site.label()])
+            .map_err(store_error)?;
+    }
+    Ok(())
+}
+
+/// Écrit le contenu de la fiche `id` (ligne existante) tel que le
+/// connaissent les étapes de migration d'avant la version 25 : noms,
+/// notes, favori, tri et filtre, adresses et téléphones remplacés.
 fn write(tx: &Transaction<'_>, id: i64, draft: &ContactDraft) -> Result<(), StoreError> {
     tx.execute(
         "UPDATE contacts SET display_name = ?2, given_name = ?3, family_name = ?4, \
@@ -604,7 +782,7 @@ impl ContactBook for SqliteContactBook {
                 )
                 .map_err(store_error)?;
                 let raw = new_id(&tx)?;
-                write(&tx, raw, &draft)?;
+                write_all(&tx, raw, &draft)?;
                 tx.commit().map_err(store_error)?;
                 Ok(ContactId::new(raw)
                     .map(|id| draft.with_id(id))
@@ -632,7 +810,7 @@ impl ContactBook for SqliteContactBook {
                 if let Some(address) = taken(&tx, &draft, Some(id))? {
                     return Ok(Err(ContactStoreError::DuplicateAddress(address)));
                 }
-                write(&tx, id.get(), &draft)?;
+                write_all(&tx, id.get(), &draft)?;
                 tx.commit().map_err(store_error)?;
                 Ok(Ok(draft.with_id(id)))
             })
@@ -675,7 +853,7 @@ impl ContactBook for SqliteContactBook {
                     if let Some(address) = taken(&tx, contact.draft(), Some(contact.id()))? {
                         return Ok(Err(ContactStoreError::DuplicateAddress(address)));
                     }
-                    write(&tx, contact.id().get(), contact.draft())?;
+                    write_all(&tx, contact.id().get(), contact.draft())?;
                 }
                 for draft in &create {
                     if let Some(address) = taken(&tx, draft, None)? {
@@ -687,7 +865,7 @@ impl ContactBook for SqliteContactBook {
                     )
                     .map_err(store_error)?;
                     let raw = new_id(&tx)?;
-                    write(&tx, raw, draft)?;
+                    write_all(&tx, raw, draft)?;
                 }
                 tx.commit().map_err(store_error)?;
                 Ok(Ok(ImportOutcome {
@@ -763,7 +941,7 @@ impl ContactBook for SqliteContactBook {
                     tx.execute("DELETE FROM contacts WHERE id = ?1", params![gone.get()])
                         .map_err(store_error)?;
                 }
-                write(&tx, keep.get(), &draft)?;
+                write_all(&tx, keep.get(), &draft)?;
                 tx.commit().map_err(store_error)?;
                 Ok(Ok(draft.with_id(keep)))
             })
@@ -1408,6 +1586,30 @@ mod tests {
                 &[
                     "UPDATE contacts SET sort_key = CAST(x'ff' AS TEXT) WHERE id = ?1",
                     "UPDATE contact_emails SET address = x'00' WHERE contact_id = ?1",
+                ],
+            ],
+        )
+        .await
+    }
+
+    /// Détails modifiés à la main (site `javascript:`, valeur d'un type
+    /// inattendu, anniversaire illisible, trop d'adresses postales) : ils
+    /// sont revalidés à la relecture, seule leur fiche est écartée.
+    #[tokio::test]
+    async fn contact_book_passes_corruption_contract_with_bad_details()
+    -> Result<(), ContactStoreError> {
+        corrupt_with(
+            &book(),
+            &[
+                &["INSERT INTO contact_websites (contact_id, position, url) \
+                   VALUES (?1, 0, 'javascript:alert(1)')"],
+                &["INSERT INTO contact_websites (contact_id, position, url) \
+                   VALUES (?1, 0, 'file:///etc/passwd')"],
+                &["INSERT INTO contact_websites (contact_id, position, url) VALUES (?1, 0, x'00')"],
+                &["UPDATE contacts SET birthday = 'n''importe quoi' WHERE id = ?1"],
+                &[
+                    "INSERT INTO contact_postal_addresses (contact_id, position, street) \
+                   SELECT ?1, value, 'rue' FROM generate_series(0, 10)",
                 ],
             ],
         )

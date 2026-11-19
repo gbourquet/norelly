@@ -12,7 +12,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use crate::contact_import::phone_key;
+use crate::contact_import::{DetailsMerge, phone_key};
 use crate::contacts::{
     AddressKey, Contact, ContactDraft, ContactError, ContactId, EmailInput, MAX_CONTACT_EMAILS,
     PhoneInput,
@@ -314,8 +314,9 @@ fn without_accents(text: &str, normalizer: &impl TextNormalizer) -> String {
     normalizer.nfc(&bare)
 }
 
-/// Degré de remplissage d'une fiche : champs de nom, organisation et notes
-/// renseignés, plus ses adresses et téléphones.
+/// Degré de remplissage d'une fiche : champs de nom, organisation, titre,
+/// notes et anniversaire
+/// renseignés, plus ses adresses, téléphones, adresses postales et sites.
 #[must_use]
 pub fn completeness(draft: &ContactDraft) -> usize {
     let fields = [
@@ -324,15 +325,22 @@ pub fn completeness(draft: &ContactDraft) -> usize {
         draft.family_name(),
         draft.nickname(),
         draft.organization(),
+        draft.title(),
         draft.notes(),
     ];
-    fields.iter().flatten().count() + draft.emails().len() + draft.phones().len()
+    fields.iter().flatten().count()
+        + usize::from(draft.birthday().is_some())
+        + draft.emails().len()
+        + draft.phones().len()
+        + draft.postal_addresses().len()
+        + draft.websites().len()
 }
 
 /// Fiche issue de la fusion de `others` dans `keep` : champs vides de
 /// `keep` complétés dans l'ordre de `others` (rien n'est écrasé), adresses
 /// réunies (la préférée de `keep` le reste), téléphones réunis au chiffre
-/// près, notes distinctes mises bout à bout (une ligne vide entre deux),
+/// près, détails réunis ([`DetailsMerge`]), notes distinctes mises bout à
+/// bout (une ligne vide entre deux),
 /// favori si l'une des fiches l'est. Refusée par [`ContactDraft::new`] si
 /// elle dépasse les bornes d'une fiche (adresses, téléphones, notes).
 pub fn merge_contacts(
@@ -354,7 +362,9 @@ pub fn merge_contacts(
         .map(|p| phone_key(p.number()))
         .collect();
     let mut keys: HashSet<AddressKey> = keep.emails().iter().map(|e| e.key().clone()).collect();
+    let mut details = DetailsMerge::new(keep);
     for other in others {
+        details.add(&mut input, other, false);
         fill(&mut input.display_name, other.display_name_field());
         fill(&mut input.given_name, other.given_name());
         fill(&mut input.family_name, other.family_name());

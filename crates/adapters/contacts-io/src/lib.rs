@@ -13,6 +13,7 @@
 //! fiche est refusé, jamais tronqué.
 
 use icu_normalizer::{ComposingNormalizerBorrowed, DecomposingNormalizerBorrowed};
+use norelly_domain::contact_details::Birthday;
 use norelly_domain::contact_export::{ExportCard, ExportFormat, MAX_EXPORT_CONTACTS};
 use norelly_domain::contact_import::{ContactFormat, DecodedContacts, MAX_IMPORT_FILE_BYTES};
 use norelly_domain::ports::{ContactCodec, ContactCodecError, TextNormalizer};
@@ -28,6 +29,41 @@ mod vcard;
 pub const MAX_FIELD_BYTES: usize = 64 * 1024;
 /// Nombre maximal d'adresses, et de téléphones, lus dans une fiche.
 pub const MAX_VALUES_PER_CARD: usize = 100;
+
+/// Anniversaire lu : dans la forme du domaine (`Birthday::iso`) s'il en
+/// a une forme reconnue, tel quel sinon (le domaine l'écarte alors).
+pub(crate) fn birthday_text(raw: &str) -> String {
+    let raw = raw.trim();
+    Birthday::parse(raw).map_or_else(|| raw.to_owned(), |b| b.iso())
+}
+
+/// Anniversaire tiré d'une année (facultative), d'un mois et d'un jour
+/// séparés (Thunderbird : CSV et LDIF), dans la forme du domaine ; vide
+/// sans mois ni jour, tel quel s'ils ne sont pas des nombres (le domaine
+/// l'écarte alors).
+pub(crate) fn birthday_of_parts(year: &str, month: &str, day: &str) -> String {
+    let (year, month, day) = (year.trim(), month.trim(), day.trim());
+    if month.is_empty() && day.is_empty() {
+        return String::new();
+    }
+    let number = |text: &str| text.parse::<u32>().ok();
+    match (number(year), number(month), number(day)) {
+        (Some(y), Some(m), Some(d)) => birthday_text(&format!("{y:04}-{m:02}-{d:02}")),
+        (None, Some(m), Some(d)) if year.is_empty() => birthday_text(&format!("--{m:02}-{d:02}")),
+        _ => format!("{year}-{month}-{day}"),
+    }
+}
+
+/// Lignes d'une rue (rue, complément, boîte postale…) réunies, vides
+/// omises.
+pub(crate) fn street_lines<'a>(lines: impl IntoIterator<Item = &'a str>) -> String {
+    lines
+        .into_iter()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n")
+}
 
 /// Lecteur des fichiers de contacts.
 #[derive(Debug, Default, Clone, Copy)]

@@ -63,8 +63,10 @@ côté l'est aussi de l'autre.
   contact déjà dans Norelly lui est reliée, sans doublon ; les autres
   contacts partent sur le serveur, les autres fiches arrivent dans Norelly.
 - Une fiche modifiée dans Norelly ne change sur le serveur que ce que
-  Norelly connaît (noms, organisation, adresses, téléphones, notes) : la
-  photo, l'adresse postale ou l'anniversaire saisis ailleurs sont gardés.
+  Norelly connaît (noms, organisation et fonction, adresses, téléphones,
+  anniversaire, adresses postales, sites web, notes) : la photo ou ce que
+  Norelly ne sait pas lire (un anniversaire écrit en toutes lettres, un
+  lien qui n'est pas un site web) saisis ailleurs sont gardés.
 - Les favoris et les listes de diffusion restent propres à Norelly.
 - Une fiche du serveur que Norelly ne peut pas reprendre (sans adresse
   électronique, adresse déjà portée par un autre contact) est laissée de

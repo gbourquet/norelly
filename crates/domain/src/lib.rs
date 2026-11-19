@@ -38,6 +38,7 @@ pub mod capabilities;
 pub mod carddav;
 pub mod compose;
 pub mod connection;
+pub mod contact_details;
 pub mod contact_duplicates;
 pub mod contact_export;
 pub mod contact_import;

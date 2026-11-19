@@ -11,12 +11,20 @@ import type {
   ContactItem,
   ContactLabelKindDto,
   ContactPhoneDto,
+  ContactPostalAddressDto,
+  ContactWebsiteDto,
   RecipientDto,
 } from "./ipc/api";
 import { labelKindText } from "./contact-label";
+import { type BirthdayParts, birthdayParts, composeBirthday } from "./contact-details";
 // Constante générée depuis le domaine, lue dans les bindings eux-mêmes
 // (et non via `api.ts`, simulé par les tests de l'application).
-import { MAX_CONTACT_SELECTION, type FieldDto } from "./ipc/bindings";
+import {
+  MAX_CONTACT_SELECTION,
+  MAX_CONTACT_WEBSITES,
+  MAX_POSTAL_ADDRESSES,
+  type FieldDto,
+} from "./ipc/bindings";
 import { SvelteMap, SvelteSet } from "svelte/reactivity";
 import { IpcFailure, errorText } from "./errors";
 
@@ -47,9 +55,13 @@ export function emptyFields(): ContactFieldsDto {
     family_name: "",
     nickname: "",
     organization: "",
+    title: "",
     notes: "",
+    birthday: "",
     emails: [],
     phones: [],
+    postal_addresses: [],
+    websites: [],
     favorite: false,
   };
 }
@@ -283,9 +295,14 @@ interface StoredLabel {
 }
 
 /** Champs du formulaire d'un contact. */
-export type ContactFormFields = Omit<ContactFieldsDto, "emails" | "phones"> & {
+export type ContactFormFields = Omit<
+  ContactFieldsDto,
+  "emails" | "phones" | "postal_addresses" | "websites"
+> & {
   emails: (ContactEmailDto & StoredLabel)[];
   phones: (ContactPhoneDto & StoredLabel)[];
+  postal_addresses: (ContactPostalAddressDto & StoredLabel)[];
+  websites: (ContactWebsiteDto & StoredLabel)[];
 };
 
 /** Ligne du formulaire : étiquette reconnue montrée traduite, texte
@@ -300,7 +317,13 @@ function shownRow<T extends { label: string; label_kind?: ContactLabelKindDto | 
 
 /** Formulaire d'une fiche relue. */
 function formFields(fields: ContactFieldsDto): ContactFormFields {
-  return { ...fields, emails: fields.emails.map(shownRow), phones: fields.phones.map(shownRow) };
+  return {
+    ...fields,
+    emails: fields.emails.map(shownRow),
+    phones: fields.phones.map(shownRow),
+    postal_addresses: fields.postal_addresses.map(shownRow),
+    websites: fields.websites.map(shownRow),
+  };
 }
 
 /** Étiquette envoyée : le texte enregistré si sa traduction montrée n'a
@@ -312,6 +335,9 @@ function sentLabel(row: { label: string } & StoredLabel): string {
 export class ContactFormState {
   readonly #api: ContactsApi;
   fields = $state<ContactFormFields>(emptyFields());
+  /** Anniversaire saisi (jour, mois, année facultative), recomposé à
+   * l'envoi. */
+  birthday = $state<BirthdayParts>({ day: "", month: "", year: "" });
   /** Fiche modifiée ; `null` : nouveau contact. */
   id = $state<number | null>(null);
   busy = $state(false);
@@ -325,6 +351,10 @@ export class ContactFormState {
   );
   readonly canAddEmail = $derived(this.fields.emails.length < MAX_ROWS);
   readonly canAddPhone = $derived(this.fields.phones.length < MAX_ROWS);
+  readonly canAddPostalAddress = $derived(
+    this.fields.postal_addresses.length < MAX_POSTAL_ADDRESSES,
+  );
+  readonly canAddWebsite = $derived(this.fields.websites.length < MAX_CONTACT_WEBSITES);
 
   constructor(api: ContactsApi) {
     this.#api = api;
@@ -339,6 +369,7 @@ export class ContactFormState {
         ? emptyFields()
         : formFields(structuredClone($state.snapshot(contact.fields)));
     if (this.fields.emails.length === 0) this.addEmail();
+    this.birthday = birthdayParts(this.fields.birthday);
     this.error = null;
     this.fieldError = null;
     this.busy = false;
@@ -389,6 +420,30 @@ export class ContactFormState {
     this.fields.phones.splice(index, 1);
   }
 
+  addPostalAddress(): void {
+    if (this.canAddPostalAddress)
+      this.fields.postal_addresses.push({
+        street: "",
+        locality: "",
+        region: "",
+        postal_code: "",
+        country: "",
+        label: "",
+      });
+  }
+
+  removePostalAddress(index: number): void {
+    this.fields.postal_addresses.splice(index, 1);
+  }
+
+  addWebsite(): void {
+    if (this.canAddWebsite) this.fields.websites.push({ url: "", label: "" });
+  }
+
+  removeWebsite(index: number): void {
+    this.fields.websites.splice(index, 1);
+  }
+
   /** Fiche envoyée : sans les lignes laissées vides. */
   #payload(): ContactFieldsDto {
     const fields = $state.snapshot(this.fields);
@@ -400,6 +455,24 @@ export class ContactFormState {
       phones: fields.phones
         .filter((p) => p.number.trim() !== "" || p.label.trim() !== "")
         .map((p) => ({ number: p.number, label: sentLabel(p) })),
+      birthday: composeBirthday(this.birthday),
+      postal_addresses: fields.postal_addresses
+        .filter((a) =>
+          [a.street, a.locality, a.region, a.postal_code, a.country, a.label].some(
+            (part) => part.trim() !== "",
+          ),
+        )
+        .map((a) => ({
+          street: a.street,
+          locality: a.locality,
+          region: a.region,
+          postal_code: a.postal_code,
+          country: a.country,
+          label: sentLabel(a),
+        })),
+      websites: fields.websites
+        .filter((w) => w.url.trim() !== "" || w.label.trim() !== "")
+        .map((w) => ({ url: w.url, label: sentLabel(w) })),
     };
   }
 

@@ -79,6 +79,15 @@ const content = {
       ["Paul", "Bernard", "paul@norelly.test", ""],
       ["Jeanne", "Leroy", "jeanne@norelly.test", "Cabinet médical Leroy"],
     ],
+    contactDetails: {
+      title: "Présidente",
+      street: "12 rue des Lilas",
+      code: "69003",
+      city: "Lyon",
+      country: "France",
+      label: "maison",
+      website: "www.ape-valfleuri.example",
+    },
     list: {
       name: "Famille",
       description: "Pour organiser les repas du dimanche",
@@ -126,6 +135,15 @@ const content = {
       ["Paul", "Brown", "paul@norelly.test", ""],
       ["Jane", "Lee", "jane@norelly.test", "Dr Lee's surgery"],
     ],
+    contactDetails: {
+      title: "Chair",
+      street: "12 Lilac Street",
+      code: "GL1 1AA",
+      city: "Greenfield",
+      country: "United Kingdom",
+      label: "home",
+      website: "www.greenfield-pta.example",
+    },
     list: {
       name: "Family",
       description: "To organise Sunday lunches",
@@ -828,6 +846,26 @@ describe(`captures d'écran (${lang})`, () => {
         await button(msg("contact_add_phone")).click();
         await $(`[aria-label="${msg("contact_phone_n", { n: 1 })}"]`).setValue("06 12 34 56 78");
         await capture("contact-dialog");
+        // Fonction, anniversaire, adresse postale et site web.
+        const d = content.contactDetails;
+        await field("contact_title").setValue(d.title);
+        await $(`[aria-label="${msg("contact_birthday_day")}"]`).setValue("12");
+        await $(`select[aria-label="${msg("contact_birthday_month")}"]`).selectByAttribute(
+          "value",
+          "4",
+        );
+        await $(`[aria-label="${msg("contact_birthday_year")}"]`).setValue("1985");
+        await button(msg("contact_add_postal")).click();
+        await $(`[aria-label="${msg("contact_street_n", { n: 1 })}"]`).setValue(d.street);
+        await $(`[aria-label="${msg("contact_postal_code_n", { n: 1 })}"]`).setValue(d.code);
+        await $(`[aria-label="${msg("contact_locality_n", { n: 1 })}"]`).setValue(d.city);
+        await $(`[aria-label="${msg("contact_country_n", { n: 1 })}"]`).setValue(d.country);
+        await $(`[aria-label="${msg("contact_postal_label_n", { n: 1 })}"]`).setValue(d.label);
+        await button(msg("contact_add_website")).click();
+        const website = $(`[aria-label="${msg("contact_website_n", { n: 1 })}"]`);
+        await website.setValue(d.website);
+        await website.scrollIntoView({ block: "center" });
+        await capture("contact-dialog-details");
         // Nom qui imite une adresse : refusé, message sous le champ.
         const displayName = field("contact_display_name");
         await displayName.setValue("support@banque.fr");

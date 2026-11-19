@@ -6,7 +6,9 @@ use norelly_contacts_io::{ContactsIo, IcuNfc};
 use norelly_domain::contact_import::{
     ContactFormat, DecodedContacts, DuplicatePolicy, ImportedCard, RejectReason, plan_import,
 };
-use norelly_domain::contacts::{ContactError, ContactInput, EmailInput, PhoneInput};
+use norelly_domain::contacts::{
+    ContactError, ContactInput, EmailInput, PhoneInput, PostalAddressInput,
+};
 use norelly_domain::ports::ContactCodec;
 use norelly_test_support::contact_import_contracts::{
     SAMPLE_VCARD, contact_codec_contract, contact_encoding_contract, sample_export_drafts,
@@ -97,6 +99,14 @@ fn gmail_csv() {
                 phone("+33 6 12 34 56 78", "Mobile"),
                 phone("+33 4 72 00 00 00", "Work"),
             ],
+            title: "Gérante".into(),
+            birthday: "1980-04-02".into(),
+            // Adresse complète seule : gardée comme rue.
+            postal_addresses: vec![PostalAddressInput {
+                street: "1 rue de la Paix\n69001 Lyon".into(),
+                label: "Home".into(),
+                ..PostalAddressInput::default()
+            }],
             ..ContactInput::default()
         }
     );
@@ -138,6 +148,16 @@ fn gmail_vcard() {
                 phone("+33 6 12 34 56 78", "cell"),
                 phone("+33 4 72 00 00 00", "work"),
             ],
+            title: "Gérante".into(),
+            birthday: "1980-04-02".into(),
+            postal_addresses: vec![PostalAddressInput {
+                street: "1 rue de la Paix".into(),
+                locality: "Lyon".into(),
+                postal_code: "69001".into(),
+                country: "France".into(),
+                label: "home".into(),
+                ..PostalAddressInput::default()
+            }],
             ..ContactInput::default()
         }
     );
@@ -354,4 +374,28 @@ fn every_fixture_plans_without_surprise() {
     );
     assert_eq!(plan.renamed, 1);
     assert_eq!(plan.rejected[0].reason, RejectReason::List);
+}
+
+/// Export CSV de Google versé dans le carnet issu de l'export vCard de
+/// Google (scénario de bout en bout de l'import) : les fiches communes
+/// sont reconnues, ou complétées, détails compris.
+#[test]
+fn google_csv_completes_the_book_imported_from_google_vcard() {
+    use norelly_domain::contacts::ContactId;
+    let first = plan_import(
+        &[],
+        &decode("gmail.vcf").cards,
+        DuplicatePolicy::Skip,
+        &IcuNfc,
+    );
+    let book: Vec<_> = (1_i64..)
+        .zip(first.create)
+        .map(|(id, d)| d.with_id(ContactId::new(id).unwrap_or_else(|| panic!("id"))))
+        .collect();
+    let csv = decode("gmail.csv");
+    for policy in [DuplicatePolicy::Skip, DuplicatePolicy::Complete] {
+        let plan = plan_import(&book, &csv.cards, policy, &IcuNfc);
+        assert_eq!(plan.create.len(), 1, "{policy:?} : {:?}", plan.rejected);
+        assert_eq!(plan.rejected.len(), 1, "{policy:?} : {:?}", plan.rejected);
+    }
 }

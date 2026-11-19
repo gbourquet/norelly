@@ -11,10 +11,12 @@ use norelly_domain::contact_export::{is_favorite_google_label, restore_csv_cell}
 use norelly_domain::contact_import::{
     ContactFormat, DecodedContacts, ImportedCard, MAX_IMPORT_CARDS,
 };
-use norelly_domain::contacts::{ContactInput, EmailInput, PhoneInput};
+use norelly_domain::contacts::{
+    ContactInput, EmailInput, PhoneInput, PostalAddressInput, WebsiteInput,
+};
 use norelly_domain::ports::ContactCodecError;
 
-use crate::{MAX_FIELD_BYTES, MAX_VALUES_PER_CARD};
+use crate::{MAX_FIELD_BYTES, MAX_VALUES_PER_CARD, birthday_of_parts, birthday_text, street_lines};
 
 /// Rôle d'une colonne.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -38,6 +40,182 @@ enum Column {
     GooglePhoneValue(u32),
     /// Google : étiquettes de la fiche, dont celle des favoris.
     GoogleLabels,
+    /// Titre ou fonction.
+    Title,
+    /// Anniversaire ; une date à barres obliques se lit dans cet ordre.
+    Birthday(DateOrder),
+    /// Élément de l'anniversaire de Thunderbird (année, mois, jour).
+    BirthPart(usize),
+    /// Élément d'une adresse postale.
+    Place(PlaceSlot, PlacePart),
+    /// Site web, avec son étiquette.
+    Website(&'static str),
+    /// Google : étiquette ou valeur du site n° `n`.
+    GoogleWebsiteLabel(u32),
+    GoogleWebsiteValue(u32),
+}
+
+/// Ordre d'une date `a/b/aaaa` : mois d'abord (Outlook en anglais) ou jour
+/// d'abord (Outlook en français).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DateOrder {
+    MonthFirst,
+    DayFirst,
+}
+
+/// Adresse postale d'une ligne : numérotée (Google) ou d'une étiquette
+/// fixe (Outlook, Thunderbird).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PlaceSlot {
+    Google(u32),
+    Fixed(&'static str),
+}
+
+/// Élément d'une adresse postale.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PlacePart {
+    /// Ligne `n` de la rue (rue, complément, boîte postale…).
+    Street(u8),
+    Locality,
+    Region,
+    PostalCode,
+    Country,
+    /// Google : adresse complète, gardée comme rue si rien d'autre.
+    Formatted,
+    /// Google : étiquette.
+    Label,
+}
+
+/// Colonne d'une adresse postale de Google (`Address n - …`).
+fn google_place(header: &str) -> Option<Column> {
+    let rest = header.strip_prefix("address ")?;
+    let (number, suffix) = rest.split_once(" - ")?;
+    let n: u32 = number.parse().ok()?;
+    let part = match suffix {
+        "label" | "type" => PlacePart::Label,
+        "street" => PlacePart::Street(0),
+        "extended address" => PlacePart::Street(1),
+        "po box" => PlacePart::Street(2),
+        "city" => PlacePart::Locality,
+        "region" => PlacePart::Region,
+        "postal code" => PlacePart::PostalCode,
+        "country" => PlacePart::Country,
+        "formatted" => PlacePart::Formatted,
+        _ => return None,
+    };
+    Some(Column::Place(PlaceSlot::Google(n), part))
+}
+
+/// Colonne d'une adresse postale d'Outlook ou de Thunderbird, en anglais
+/// et (Outlook) en français.
+fn fixed_place(header: &str) -> Option<Column> {
+    use PlacePart::{Country, Locality, PostalCode, Region, Street};
+    let (label, part) = match header {
+        "business street" | "work address" | "rue (bureau)" => ("work", Street(0)),
+        "business street 2" | "work address 2" | "rue (bureau) 2" => ("work", Street(1)),
+        "business street 3" | "rue (bureau) 3" => ("work", Street(2)),
+        "business city" | "work city" | "ville (bureau)" => ("work", Locality),
+        "business state" | "work state" | "dép/région (bureau)" => ("work", Region),
+        "business postal code" | "work zipcode" | "code postal (bureau)" => ("work", PostalCode),
+        "business country/region" | "work country" | "pays/région (bureau)" => ("work", Country),
+        "home street" | "home address" | "rue (domicile)" => ("home", Street(0)),
+        "home street 2" | "home address 2" | "rue (domicile) 2" => ("home", Street(1)),
+        "home street 3" | "rue (domicile) 3" => ("home", Street(2)),
+        "home city" | "ville (domicile)" => ("home", Locality),
+        "home state" | "dép/région (domicile)" => ("home", Region),
+        "home postal code" | "home zipcode" | "code postal (domicile)" => ("home", PostalCode),
+        "home country/region" | "home country" | "pays/région (domicile)" => ("home", Country),
+        "other street" | "rue (autre)" => ("other", Street(0)),
+        "other street 2" | "rue (autre) 2" => ("other", Street(1)),
+        "other street 3" | "rue (autre) 3" => ("other", Street(2)),
+        "other city" | "ville (autre)" => ("other", Locality),
+        "other state" | "dép/région (autre)" => ("other", Region),
+        "other postal code" | "code postal (autre)" => ("other", PostalCode),
+        "other country/region" | "pays/région (autre)" => ("other", Country),
+        _ => return None,
+    };
+    Some(Column::Place(PlaceSlot::Fixed(label), part))
+}
+
+/// Adresse postale en cours de lecture.
+#[derive(Debug, Default)]
+struct Place {
+    streets: Vec<(u8, String)>,
+    locality: String,
+    region: String,
+    postal_code: String,
+    country: String,
+    formatted: String,
+    label: String,
+}
+
+impl Place {
+    fn set(&mut self, part: PlacePart, cell: &str) {
+        let field = match part {
+            // Ligne de rue d'un rang déjà lu (colonne répétée) : ignorée,
+            // comme les autres éléments, le premier gardé.
+            PlacePart::Street(n) => {
+                if !self.streets.iter().any(|(rank, _)| *rank == n) {
+                    self.streets.push((n, cell.to_owned()));
+                }
+                return;
+            }
+            PlacePart::Locality => &mut self.locality,
+            PlacePart::Region => &mut self.region,
+            PlacePart::PostalCode => &mut self.postal_code,
+            PlacePart::Country => &mut self.country,
+            PlacePart::Formatted => &mut self.formatted,
+            PlacePart::Label => &mut self.label,
+        };
+        if field.is_empty() {
+            cell.clone_into(field);
+        }
+    }
+
+    /// Adresse lue ; `None` si la ligne n'en a aucun élément.
+    fn finish(mut self) -> Option<PostalAddressInput> {
+        self.streets.sort_by_key(|(n, _)| *n);
+        let mut street = street_lines(self.streets.iter().map(|(_, s)| s.as_str()));
+        let parts = [
+            &self.locality,
+            &self.region,
+            &self.postal_code,
+            &self.country,
+        ];
+        // Adresse complète de Google seule : gardée comme rue.
+        if street.is_empty() && parts.iter().all(|p| p.is_empty()) {
+            street = street_lines(self.formatted.lines());
+        }
+        if street.is_empty() && parts.iter().all(|p| p.is_empty()) {
+            return None;
+        }
+        let (label, _) = google_label(&self.label);
+        Some(PostalAddressInput {
+            street,
+            locality: self.locality,
+            region: self.region,
+            postal_code: self.postal_code,
+            country: self.country,
+            label,
+        })
+    }
+}
+
+/// Anniversaire d'une cellule : date `a/b/aaaa` remise dans la forme du
+/// domaine selon `order`, toute autre forme lue par [`birthday_text`].
+fn birthday_cell(cell: &str, order: DateOrder) -> String {
+    let parts: Vec<&str> = cell.trim().split('/').collect();
+    let numbers: Option<Vec<u32>> = parts.iter().map(|p| p.trim().parse().ok()).collect();
+    match (parts.len(), numbers.as_deref()) {
+        (3, Some(&[a, b, year])) if parts[2].trim().len() == 4 => {
+            let (month, day) = match order {
+                DateOrder::MonthFirst => (a, b),
+                DateOrder::DayFirst => (b, a),
+            };
+            birthday_text(&format!("{year:04}-{month:02}-{day:02}"))
+        }
+        _ => birthday_text(cell),
+    }
 }
 
 /// Colonne numérotée de Google : `<préfixe> <n> - <suffixe>`.
@@ -69,7 +247,26 @@ fn column(header: &str) -> Option<Column> {
     if let Some(n) = google_slot(header, "phone", &["label", "type"]) {
         return Some(GooglePhoneLabel(n));
     }
+    if let Some(n) = google_slot(header, "website", &["value"]) {
+        return Some(Column::GoogleWebsiteValue(n));
+    }
+    if let Some(n) = google_slot(header, "website", &["label", "type"]) {
+        return Some(Column::GoogleWebsiteLabel(n));
+    }
+    if let Some(place) = google_place(header).or_else(|| fixed_place(header)) {
+        return Some(place);
+    }
     Some(match header {
+        // « Title » seul est la civilité d'Outlook (M., Mme) : ignorée.
+        "organization title" | "organization 1 - title" | "job title" | "fonction" => Column::Title,
+        "birthday" => Column::Birthday(DateOrder::MonthFirst),
+        "anniversaire" => Column::Birthday(DateOrder::DayFirst),
+        "birth year" => Column::BirthPart(0),
+        "birth month" => Column::BirthPart(1),
+        "birth day" => Column::BirthPart(2),
+        "web page" | "page web" => Column::Website(""),
+        "web page 1" => Column::Website("work"),
+        "web page 2" | "personal web page" | "page web personnelle" => Column::Website("home"),
         "display name" | "nom à afficher" | "name" => DisplayName,
         "first name" | "given name" | "prénom" => GivenName,
         "last name" | "family name" | "nom de famille" | "nom" => FamilyName,
@@ -172,6 +369,7 @@ fn card(columns: &[Option<Column>], record: &csv::StringRecord) -> ImportedCard 
         .collect();
     let mut input = ContactInput::default();
     let mut labels: HashMap<(bool, u32), (String, bool)> = HashMap::new();
+    let mut site_labels: HashMap<u32, String> = HashMap::new();
     for (column, cell) in columns.iter().zip(cells.iter().copied()) {
         match column {
             Some(Column::GoogleEmailLabel(n)) => {
@@ -180,9 +378,16 @@ fn card(columns: &[Option<Column>], record: &csv::StringRecord) -> ImportedCard 
             Some(Column::GooglePhoneLabel(n)) => {
                 labels.insert((false, *n), google_label(cell));
             }
+            Some(Column::GoogleWebsiteLabel(n)) => {
+                site_labels.insert(*n, google_label(cell).0);
+            }
             _ => {}
         }
     }
+    // Adresses postales dans l'ordre de leur première colonne ; éléments
+    // de l'anniversaire de Thunderbird (année, mois, jour).
+    let mut places: Vec<(PlaceSlot, Place)> = Vec::new();
+    let mut birth: [&str; 3] = ["", "", ""];
     let set = |field: &mut String, cell: &str| {
         if field.is_empty() {
             cell.trim().clone_into(field);
@@ -242,11 +447,76 @@ fn card(columns: &[Option<Column>], record: &csv::StringRecord) -> ImportedCard 
             Column::GoogleLabels => {
                 input.favorite |= google_values(cell).any(is_favorite_google_label);
             }
-            Column::GoogleEmailLabel(_) | Column::GooglePhoneLabel(_) => {}
+            Column::Title => set(&mut input.title, cell),
+            Column::Birthday(order) => {
+                if input.birthday.is_empty() && !cell.is_empty() {
+                    input.birthday = birthday_cell(cell, order);
+                }
+            }
+            Column::BirthPart(i) => {
+                if let Some(part) = birth.get_mut(i) {
+                    *part = cell;
+                }
+            }
+            Column::Place(slot, part) => {
+                let index = match places.iter().position(|(s, _)| *s == slot) {
+                    Some(index) => index,
+                    None => {
+                        let label = match slot {
+                            PlaceSlot::Fixed(label) => label,
+                            PlaceSlot::Google(_) => "",
+                        };
+                        places.push((
+                            slot,
+                            Place {
+                                label: label.to_owned(),
+                                ..Place::default()
+                            },
+                        ));
+                        places.len() - 1
+                    }
+                };
+                if let Some((_, place)) = places.get_mut(index) {
+                    place.set(part, cell);
+                }
+            }
+            Column::Website(label) => {
+                if !cell.is_empty() {
+                    input.websites.push(WebsiteInput {
+                        url: cell.to_owned(),
+                        label: label.to_owned(),
+                    });
+                }
+            }
+            Column::GoogleWebsiteValue(n) => {
+                let label = site_labels.get(&n).cloned().unwrap_or_default();
+                for url in google_values(cell) {
+                    input.websites.push(WebsiteInput {
+                        url: url.to_owned(),
+                        label: label.clone(),
+                    });
+                }
+            }
+            Column::GoogleEmailLabel(_)
+            | Column::GooglePhoneLabel(_)
+            | Column::GoogleWebsiteLabel(_) => {}
         }
-        if input.emails.len() > MAX_VALUES_PER_CARD || input.phones.len() > MAX_VALUES_PER_CARD {
+        let counts = [
+            input.emails.len(),
+            input.phones.len(),
+            input.websites.len(),
+            places.len(),
+        ];
+        if counts.iter().any(|&n| n > MAX_VALUES_PER_CARD) {
             return ImportedCard::Unreadable;
         }
+    }
+    input.postal_addresses = places
+        .into_iter()
+        .filter_map(|(_, place)| place.finish())
+        .collect();
+    if input.birthday.is_empty() {
+        input.birthday = birthday_of_parts(birth[0], birth[1], birth[2]);
     }
     ImportedCard::Contact(input)
 }
@@ -379,6 +649,150 @@ mod tests {
         assert_eq!(c.emails[0].label, "\u{2212}x");
         assert_eq!(c.phones[0].number, "+33 6 12");
         assert_eq!(c.notes, "'=garde une apostrophe");
+    }
+
+    fn only(text: &str) -> ContactInput {
+        match &decoded(text).cards[..] {
+            [ImportedCard::Contact(c)] => c.clone(),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    fn places(c: &ContactInput) -> Vec<[&str; 6]> {
+        c.postal_addresses
+            .iter()
+            .map(|a| {
+                [
+                    a.street.as_str(),
+                    a.locality.as_str(),
+                    a.region.as_str(),
+                    a.postal_code.as_str(),
+                    a.country.as_str(),
+                    a.label.as_str(),
+                ]
+            })
+            .collect()
+    }
+
+    fn sites(c: &ContactInput) -> Vec<(&str, &str)> {
+        c.websites
+            .iter()
+            .map(|w| (w.url.as_str(), w.label.as_str()))
+            .collect()
+    }
+
+    #[test]
+    fn google_details_are_read() {
+        let c = only(
+            "Name,Organization Title,Birthday,E-mail 1 - Value,\
+             Address 1 - Label,Address 1 - Street,Address 1 - Extended Address,Address 1 - PO Box,\
+             Address 1 - City,Address 1 - Region,Address 1 - Postal Code,Address 1 - Country,\
+             Address 2 - Type,Address 2 - Formatted,\
+             Website 1 - Label,Website 1 - Value\n\
+             Anne,Cheffe,--04-12,anne@example.com,\
+             * Home,1 rue A,Bât. B,BP 3,Lyon,Rhône,69001,France,\
+             Work,\"2 rue B\n44000 Nantes\",\
+             Blog,https://example.com ::: https://example.org\n",
+        );
+        assert_eq!(c.title, "Cheffe");
+        assert_eq!(c.birthday, "--04-12");
+        assert_eq!(
+            places(&c),
+            [
+                [
+                    "1 rue A\nBât. B\nBP 3",
+                    "Lyon",
+                    "Rhône",
+                    "69001",
+                    "France",
+                    "Home"
+                ],
+                ["2 rue B\n44000 Nantes", "", "", "", "", "Work"],
+            ]
+        );
+        assert_eq!(
+            sites(&c),
+            [
+                ("https://example.com", "Blog"),
+                ("https://example.org", "Blog")
+            ]
+        );
+    }
+
+    #[test]
+    fn outlook_details_are_read_in_english_and_french() {
+        let c = only(
+            "First Name,Title,Job Title,E-mail Address,Business Street,Business Street 2,\
+             Business City,Business State,Business Postal Code,Business Country/Region,\
+             Home Street,Home City,Web Page,Birthday\n\
+             Paul,M.,Gérant,paul@example.com,1 rue A,Bât. B,Paris,IDF,75001,France,\
+             2 rue B,Lyon,www.example.com,4/12/1985\n",
+        );
+        assert_eq!(c.title, "Gérant");
+        assert_eq!(c.birthday, "1985-04-12");
+        assert_eq!(
+            places(&c),
+            [
+                ["1 rue A\nBât. B", "Paris", "IDF", "75001", "France", "work"],
+                ["2 rue B", "Lyon", "", "", "", "home"],
+            ]
+        );
+        assert_eq!(sites(&c), [("www.example.com", "")]);
+
+        let c = only(
+            "Prénom;Fonction;Adresse de messagerie;Rue (domicile);Ville (domicile);\
+             Code postal (domicile);Pays/Région (domicile);Page Web;Anniversaire\n\
+             François;Boulanger;f@example.fr;3 rue C;Brest;29200;France;example.fr;12/04/1985\n",
+        );
+        assert_eq!(c.title, "Boulanger");
+        assert_eq!(c.birthday, "1985-04-12");
+        assert_eq!(
+            places(&c),
+            [["3 rue C", "Brest", "", "29200", "France", "home"]]
+        );
+        assert_eq!(sites(&c), [("example.fr", "")]);
+        // Date vide d'Outlook : aucun anniversaire.
+        let c = only("E-mail Address,Birthday\na@example.com,0/0/00\n");
+        assert_eq!(c.birthday, "0/0/00");
+    }
+
+    #[test]
+    fn a_repeated_street_column_keeps_its_first_value() {
+        let header = vec!["home street"; 1000].join(",");
+        let cells = (0..1000)
+            .map(|n| format!("rue {n}"))
+            .collect::<Vec<_>>()
+            .join(",");
+        let c = only(&format!("E-mail Address,{header}\na@example.com,{cells}\n"));
+        assert_eq!(places(&c), [["rue 0", "", "", "", "", "home"]]);
+    }
+
+    #[test]
+    fn thunderbird_details_are_read() {
+        let c = only(
+            "Primary Email,Job Title,Home Address,Home Address 2,Home City,Home ZipCode,\
+             Work City,Web Page 1,Web Page 2,Birth Year,Birth Month,Birth Day\n\
+             a@example.com,Chef,1 rue A,Bât. B,Lyon,69001,Paris,https://work.example,\
+             https://home.example,,4,12\n",
+        );
+        assert_eq!(c.title, "Chef");
+        assert_eq!(c.birthday, "--04-12");
+        assert_eq!(
+            places(&c),
+            [
+                ["1 rue A\nBât. B", "Lyon", "", "69001", "", "home"],
+                ["", "Paris", "", "", "", "work"],
+            ]
+        );
+        assert_eq!(
+            sites(&c),
+            [
+                ("https://work.example", "work"),
+                ("https://home.example", "home")
+            ]
+        );
+        let c = only("Primary Email,Birth Year,Birth Month,Birth Day\na@example.com,1985,4,12\n");
+        assert_eq!(c.birthday, "1985-04-12");
     }
 
     #[test]

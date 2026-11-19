@@ -73,6 +73,22 @@ fn phone_attribute(label: Option<&str>) -> &'static str {
     }
 }
 
+/// Attributs Thunderbird d'une adresse postale au domicile : rue, suite de
+/// la rue, ville, région, code postal, pays (étiquette fixée par le
+/// domaine à `home`).
+const HOME_PLACE: [&str; 6] = [
+    "mozillaHomeStreet",
+    "mozillaHomeStreet2",
+    "mozillaHomeLocalityName",
+    "mozillaHomeState",
+    "mozillaHomePostalCode",
+    "mozillaHomeCountryName",
+];
+
+/// Attributs Thunderbird d'une adresse postale au travail, dans le même
+/// ordre.
+const WORK_PLACE: [&str; 6] = ["street", "mozillaWorkStreet2", "l", "st", "postalCode", "c"];
+
 const OBJECT_CLASSES: [&str; 5] = [
     "top",
     "person",
@@ -117,6 +133,50 @@ pub(crate) fn encode(cards: &[ExportCard], out: &mut Output) -> Result<(), Conta
         }
         if let Some(organization) = &card.organization {
             out.push(&line("o", organization))?;
+        }
+        if let Some(title) = &card.title {
+            out.push(&line("title", title))?;
+        }
+        if let Some(birthday) = card.birthday {
+            if let Some(year) = birthday.year() {
+                out.push(&line("birthyear", &year.to_string()))?;
+            }
+            out.push(&line("birthmonth", &format!("{:02}", birthday.month())))?;
+            out.push(&line("birthday", &format!("{:02}", birthday.day())))?;
+        }
+        for place in &card.postal_addresses {
+            let names = if place.label.as_deref() == Some("home") {
+                &HOME_PLACE
+            } else {
+                &WORK_PLACE
+            };
+            // Première ligne de la rue, puis les suivantes ensemble.
+            let (first, rest) = match place.street.as_deref().map(|s| s.split_once('\n')) {
+                Some(Some((first, rest))) => (Some(first), Some(rest)),
+                Some(None) => (place.street.as_deref(), None),
+                None => (None, None),
+            };
+            let values = [
+                first,
+                rest,
+                place.locality.as_deref(),
+                place.region.as_deref(),
+                place.postal_code.as_deref(),
+                place.country.as_deref(),
+            ];
+            for (attribute, value) in names.iter().zip(values) {
+                if let Some(value) = value {
+                    out.push(&line(attribute, value))?;
+                }
+            }
+        }
+        for site in &card.websites {
+            let attribute = if site.label.as_deref() == Some("home") {
+                "mozillaHomeUrl"
+            } else {
+                "mozillaWorkUrl"
+            };
+            out.push(&line(attribute, &site.url))?;
         }
         if let Some(notes) = &card.notes {
             out.push(&line("description", notes))?;
@@ -212,7 +272,7 @@ mod tests {
                     label: Some((*label).to_owned()),
                 })
                 .collect(),
-            favorite: false,
+            ..ExportCard::default()
         };
         assert_eq!(
             written(&[card]),
@@ -238,6 +298,85 @@ mod tests {
              description:: RGV1eApsaWduZXM=\r\n\
              \r\n"
         );
+    }
+
+    #[test]
+    fn details_use_thunderbird_attributes() {
+        use norelly_domain::contact_details::Birthday;
+        use norelly_domain::contact_export::{ExportPostalAddress, ExportWebsite};
+        let card = ExportCard {
+            title: Some("Chef".into()),
+            birthday: Birthday::new(Some(1985), 4, 12),
+            emails: vec![ExportEmail {
+                address: "x@example.com".into(),
+                label: None,
+                preferred: true,
+            }],
+            postal_addresses: vec![
+                ExportPostalAddress {
+                    street: Some("1 rue A\nBat. B\nEsc. 3".into()),
+                    locality: Some("Lyon".into()),
+                    region: Some("Rhone".into()),
+                    postal_code: Some("69001".into()),
+                    country: Some("France".into()),
+                    label: Some("work".into()),
+                },
+                ExportPostalAddress {
+                    street: Some("2 rue B".into()),
+                    locality: Some("Nantes".into()),
+                    label: Some("home".into()),
+                    ..ExportPostalAddress::default()
+                },
+            ],
+            websites: vec![
+                ExportWebsite {
+                    url: "https://example.org".into(),
+                    label: Some("home".into()),
+                },
+                ExportWebsite {
+                    url: "https://example.com".into(),
+                    label: Some("work".into()),
+                },
+            ],
+            ..ExportCard::default()
+        };
+        let text = written(&[card]);
+        let details: Vec<&str> = text
+            .split("\r\n")
+            .skip_while(|l| !l.starts_with("mail:"))
+            .skip(1)
+            .collect();
+        assert_eq!(
+            details,
+            [
+                "title: Chef",
+                "birthyear: 1985",
+                "birthmonth: 04",
+                "birthday: 12",
+                "street: 1 rue A",
+                "mozillaWorkStreet2:: QmF0LiBCCkVzYy4gMw==",
+                "l: Lyon",
+                "st: Rhone",
+                "postalCode: 69001",
+                "c: France",
+                "mozillaHomeStreet: 2 rue B",
+                "mozillaHomeLocalityName: Nantes",
+                "mozillaHomeUrl: https://example.org",
+                "mozillaWorkUrl: https://example.com",
+                "",
+                "",
+            ]
+        );
+        let no_year = ExportCard {
+            birthday: Birthday::new(None, 2, 29),
+            ..ExportCard::default()
+        };
+        let text = written(&[no_year]);
+        assert!(
+            text.contains("\r\nbirthmonth: 02\r\nbirthday: 29\r\n"),
+            "{text}"
+        );
+        assert!(!text.contains("birthyear"), "{text}");
     }
 
     #[test]

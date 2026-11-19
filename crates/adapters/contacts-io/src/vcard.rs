@@ -2,21 +2,23 @@
 //! projet : dépliage des lignes, sauts souples quoted-printable,
 //! paramètres (`TYPE`, `PREF`, `CHARSET`, `ENCODING`), échappements,
 //! plusieurs cartes par fichier. Seuls `FN`, `N`, `NICKNAME`, `ORG`,
-//! `NOTE`, `EMAIL`, `TEL`, la nature de la carte (`KIND`), les libellés
-//! d'Apple (`itemN.X-ABLabel`, étiquette de l'adresse ou du téléphone du
-//! même groupe) et la catégorie des favoris (`CATEGORIES`, rien d'autre
-//! des catégories) sont lus ; le reste (photos comprises) est ignoré sans
-//! être décodé.
+//! `TITLE`, `NOTE`, `BDAY`, `EMAIL`, `TEL`, `ADR`, `URL`, la nature de la
+//! carte (`KIND`), les libellés d'Apple (`itemN.X-ABLabel`, étiquette de
+//! la valeur du même groupe) et la catégorie des favoris (`CATEGORIES`,
+//! rien d'autre des catégories) sont lus ; le reste (photos comprises)
+//! est ignoré sans être décodé.
 
 use std::collections::HashMap;
 
 use norelly_domain::contact_export::is_favorite_category;
 use norelly_domain::contact_import::{ImportedCard, MAX_IMPORT_CARDS};
 use norelly_domain::contact_labels::apple_label;
-use norelly_domain::contacts::{ContactInput, EmailInput, PhoneInput};
+use norelly_domain::contacts::{
+    ContactInput, EmailInput, PhoneInput, PostalAddressInput, WebsiteInput,
+};
 use norelly_domain::ports::ContactCodecError;
 
-use crate::{MAX_FIELD_BYTES, MAX_VALUES_PER_CARD, text};
+use crate::{MAX_FIELD_BYTES, MAX_VALUES_PER_CARD, birthday_text, street_lines, text};
 
 /// Le texte commence-t-il par une carte vCard ?
 pub(crate) fn looks_like(text: &str) -> bool {
@@ -253,6 +255,8 @@ fn unescape(value: &str) -> String {
 enum Grouped {
     Email(usize),
     Phone(usize),
+    Postal(usize),
+    Website(usize),
 }
 
 /// Carte en cours de lecture.
@@ -272,7 +276,16 @@ impl Card {
     fn read(&mut self, p: &Property<'_>) {
         let kept = matches!(
             p.name.as_str(),
-            "FN" | "N" | "NICKNAME" | "ORG" | "NOTE" | "EMAIL" | "TEL"
+            "FN" | "N"
+                | "NICKNAME"
+                | "ORG"
+                | "TITLE"
+                | "NOTE"
+                | "BDAY"
+                | "EMAIL"
+                | "TEL"
+                | "ADR"
+                | "URL"
         );
         if p.name == "KIND" || p.name == "X-ADDRESSBOOKSERVER-KIND" {
             self.list |= p.value.trim().eq_ignore_ascii_case("group");
@@ -309,6 +322,51 @@ impl Card {
             }
             "NICKNAME" if input.nickname.is_empty() => input.nickname = first(','),
             "ORG" if input.organization.is_empty() => input.organization = first(';'),
+            "TITLE" if input.title.is_empty() => input.title = unescape(&value),
+            "BDAY" if input.birthday.is_empty() => {
+                let raw = unescape(&value);
+                let raw = raw.trim();
+                // Apple marque un anniversaire sans année par une année
+                // fictive (`X-APPLE-OMIT-YEAR=1604`, date `1604-04-12`).
+                let without_year = p
+                    .param("X-APPLE-OMIT-YEAR")
+                    .filter(|year| !year.is_empty())
+                    .and_then(|year| raw.strip_prefix(year))
+                    .map(|rest| format!("--{}", rest.trim_start_matches('-')));
+                input.birthday = birthday_text(without_year.as_deref().unwrap_or(raw));
+            }
+            "ADR" => {
+                let parts = components(&value, Some(';'));
+                let part = |i: usize| parts.get(i).map_or("", |s| s.trim()).to_owned();
+                if let Some(group) = &p.group {
+                    self.grouped
+                        .push((Grouped::Postal(input.postal_addresses.len()), group.clone()));
+                }
+                // Boîte postale et complément (`ADR` : boîte ; complément ;
+                // rue ; ville ; région ; code ; pays) suivent la rue.
+                let street = [2, 1, 0].map(|i| parts.get(i).map_or("", String::as_str));
+                input.postal_addresses.push(PostalAddressInput {
+                    street: street_lines(street),
+                    locality: part(3),
+                    region: part(4),
+                    postal_code: part(5),
+                    country: part(6),
+                    label: p.label(),
+                });
+            }
+            "URL" => {
+                let url = unescape(&value).trim().to_owned();
+                if !url.is_empty() {
+                    if let Some(group) = &p.group {
+                        self.grouped
+                            .push((Grouped::Website(input.websites.len()), group.clone()));
+                    }
+                    input.websites.push(WebsiteInput {
+                        url,
+                        label: p.label(),
+                    });
+                }
+            }
             "NOTE" => self.notes.push(unescape(&value)),
             "EMAIL" => {
                 let address = unescape(&value).trim().to_owned();
@@ -344,7 +402,13 @@ impl Card {
             }
             _ => {}
         }
-        if input.emails.len() > MAX_VALUES_PER_CARD || input.phones.len() > MAX_VALUES_PER_CARD {
+        let counts = [
+            input.emails.len(),
+            input.phones.len(),
+            input.postal_addresses.len(),
+            input.websites.len(),
+        ];
+        if counts.iter().any(|&n| n > MAX_VALUES_PER_CARD) {
             self.unreadable = true;
         }
     }
@@ -396,6 +460,8 @@ impl Card {
                 let slot = match *value {
                     Grouped::Email(i) => input.emails.get_mut(i).map(|e| &mut e.label),
                     Grouped::Phone(i) => input.phones.get_mut(i).map(|p| &mut p.label),
+                    Grouped::Postal(i) => input.postal_addresses.get_mut(i).map(|a| &mut a.label),
+                    Grouped::Website(i) => input.websites.get_mut(i).map(|w| &mut w.label),
                 };
                 if let Some(slot) = slot {
                     slot.clone_from(label);
@@ -686,6 +752,94 @@ mod tests {
             "dépliage trop lent : {:?}",
             start.elapsed()
         );
+    }
+
+    #[test]
+    fn title_birthday_postal_addresses_and_websites_are_read() {
+        let c = contact(
+            "BEGIN:VCARD\n\
+             VERSION:3.0\n\
+             TITLE:Directrice\\, ventes\n\
+             TITLE:Autre\n\
+             BDAY:1985-04-12\n\
+             ADR;TYPE=HOME:BP 12;Bât. B;1 rue des Lilas\\nEsc. 3;Lyon;Rhône;69001;France\n\
+             item1.ADR:;;2 rue\\, du Port;Nantes;;44000;\n\
+             item1.X-ABLabel:_$!<Work>!$_\n\
+             ADR;TYPE=work:;;;;;;\n\
+             URL;TYPE=work:https://example.com/a\\,b\n\
+             item2.URL:www.example.org\n\
+             item2.X-ABLabel:blog\n\
+             END:VCARD",
+        );
+        assert_eq!(c.title, "Directrice, ventes");
+        assert_eq!(c.birthday, "1985-04-12");
+        let places: Vec<_> = c
+            .postal_addresses
+            .iter()
+            .map(|a| {
+                (
+                    a.street.as_str(),
+                    a.locality.as_str(),
+                    a.region.as_str(),
+                    a.postal_code.as_str(),
+                    a.country.as_str(),
+                    a.label.as_str(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            places,
+            [
+                (
+                    "1 rue des Lilas\nEsc. 3\nBât. B\nBP 12",
+                    "Lyon",
+                    "Rhône",
+                    "69001",
+                    "France",
+                    "home"
+                ),
+                ("2 rue, du Port", "Nantes", "", "44000", "", "work"),
+                ("", "", "", "", "", "work"),
+            ]
+        );
+        let sites: Vec<_> = c
+            .websites
+            .iter()
+            .map(|w| (w.url.as_str(), w.label.as_str()))
+            .collect();
+        assert_eq!(
+            sites,
+            [
+                ("https://example.com/a,b", "work"),
+                ("www.example.org", "blog")
+            ]
+        );
+    }
+
+    #[test]
+    fn apple_birthdays_without_year_drop_the_placeholder_year() {
+        for (line, expected) in [
+            ("BDAY;X-APPLE-OMIT-YEAR=1604:1604-04-12", "--04-12"),
+            ("BDAY;X-APPLE-OMIT-YEAR=1604;VALUE=date:16040412", "--04-12"),
+            ("BDAY;X-APPLE-OMIT-YEAR=1604:1985-04-12", "1985-04-12"),
+            ("BDAY:--0412", "--04-12"),
+            ("BDAY;VALUE=text:vers 1950", "vers 1950"),
+        ] {
+            let c = contact(&format!("BEGIN:VCARD\n{line}\nEND:VCARD"));
+            assert_eq!(c.birthday, expected, "{line}");
+        }
+    }
+
+    #[test]
+    fn too_many_postal_addresses_or_websites_make_the_card_unreadable() {
+        for property in ["ADR:;;rue;;;;", "URL:https://example.com"] {
+            let lines = format!("{property}\n").repeat(MAX_VALUES_PER_CARD + 1);
+            assert_eq!(
+                one(&format!("BEGIN:VCARD\n{lines}END:VCARD")),
+                ImportedCard::Unreadable,
+                "{property}"
+            );
+        }
     }
 
     #[test]

@@ -638,3 +638,160 @@ fn only_a_book_changed_since_the_read_outdates_the_plan() {
         "disque plein".into()
     ))));
 }
+
+fn details_card(address: &str) -> ContactInput {
+    use crate::contacts::{PostalAddressInput, WebsiteInput};
+    ContactInput {
+        display_name: "Élodie".into(),
+        title: "Re\u{301}gisseuse".into(),
+        birthday: "--0412".into(),
+        emails: vec![email(address)],
+        postal_addresses: vec![
+            PostalAddressInput {
+                street: "1 rue de l'E\u{301}glise".into(),
+                locality: "Lyon".into(),
+                label: "home".into(),
+                ..PostalAddressInput::default()
+            },
+            // Vide : écartée.
+            PostalAddressInput {
+                label: "work".into(),
+                ..PostalAddressInput::default()
+            },
+        ],
+        websites: vec![
+            WebsiteInput {
+                url: "www.example.com".into(),
+                label: "work".into(),
+            },
+            // Schéma refusé : écarté, la fiche est gardée.
+            WebsiteInput {
+                url: "javascript:alert(1)".into(),
+                label: String::new(),
+            },
+        ],
+        ..ContactInput::default()
+    }
+}
+
+#[test]
+fn imported_details_are_normalized_and_unusable_ones_dropped() {
+    let mut odd = details_card("b@example.com");
+    // Date illisible : écartée, la fiche est gardée.
+    odd.birthday = "12/04/1985".into();
+    let p = plan(
+        &[],
+        &[
+            ImportedCard::Contact(details_card("a@example.com")),
+            ImportedCard::Contact(odd),
+        ],
+        DuplicatePolicy::Skip,
+    );
+    assert!(p.rejected.is_empty(), "{:?}", p.rejected);
+    let [a, b] = &p.create[..] else {
+        panic!("{:?}", p.create)
+    };
+    assert_eq!(a.title(), Some("Régisseuse"));
+    assert_eq!(a.birthday().map(|d| d.iso()), Some("--04-12".into()));
+    let streets: Vec<_> = a.postal_addresses().iter().map(|p| p.street()).collect();
+    assert_eq!(streets, [Some("1 rue de l'Église")]);
+    let urls: Vec<_> = a.websites().iter().map(|w| w.url()).collect();
+    assert_eq!(urls, ["https://www.example.com"]);
+    assert_eq!(b.birthday(), None);
+}
+
+#[test]
+fn invisible_characters_in_details_reject_an_imported_card() {
+    use crate::contacts::ContactField;
+    let mut card = details_card("a@example.com");
+    card.postal_addresses[0].locality = "Ly\u{2800}on".into();
+    let p = plan(&[], &[ImportedCard::Contact(card)], DuplicatePolicy::Skip);
+    assert_eq!(
+        p.rejected.first().map(|r| &r.reason),
+        Some(&RejectReason::Invalid(ContactError::InvalidCharacter(
+            ContactField::PostalAddress(0)
+        )))
+    );
+    let mut card = details_card("a@example.com");
+    card.title = "\u{FEFF}Chef".into();
+    let p = plan(&[], &[ImportedCard::Contact(card)], DuplicatePolicy::Skip);
+    assert_eq!(
+        p.rejected.first().map(|r| &r.reason),
+        Some(&RejectReason::Invalid(ContactError::InvalidCharacter(
+            ContactField::Title
+        )))
+    );
+}
+
+#[test]
+fn completing_a_contact_fills_details_without_overwriting() {
+    let base = draft("Alice", &["a@example.com"]);
+    let mut extra = details_card("a@example.com");
+    extra.websites.pop();
+    extra.postal_addresses.pop();
+    let extra = ContactDraft::new(extra).unwrap_or_else(|e| panic!("{e}"));
+    let full = complete_contact(&base, &extra, |_| false).unwrap_or_else(|| panic!("complété"));
+    assert_eq!(full.display_name(), "Alice");
+    assert_eq!(full.title(), Some("Re\u{301}gisseuse"));
+    assert_eq!(full.birthday(), extra.birthday());
+    assert_eq!(full.postal_addresses(), extra.postal_addresses());
+    assert_eq!(full.websites(), extra.websites());
+    // Déjà là (casse près pour l'adresse et le site) : rien n'est ajouté.
+    let mut again = details_card("a@example.com");
+    again.websites.pop();
+    again.postal_addresses.pop();
+    again.title = "Autre".into();
+    again.birthday = "1990-01-01".into();
+    again.postal_addresses[0].street = "1 RUE DE L'E\u{301}GLISE".into();
+    again.websites[0].url = "HTTPS://WWW.EXAMPLE.COM".into();
+    let again = ContactDraft::new(again).unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(complete_contact(&full, &again, |_| false), None);
+}
+
+#[test]
+fn repeated_or_surplus_details_of_an_imported_card_are_dropped_not_the_card() {
+    use crate::contact_details::{MAX_CONTACT_WEBSITES, MAX_POSTAL_ADDRESSES};
+    use crate::contacts::{PostalAddressInput, WebsiteInput};
+    let place = |street: String| PostalAddressInput {
+        street,
+        ..PostalAddressInput::default()
+    };
+    let site = |url: String| WebsiteInput {
+        url,
+        label: String::new(),
+    };
+    let mut card = details_card("a@example.com");
+    card.postal_addresses = std::iter::once(place("1 RUE A".into()))
+        .chain((0..MAX_POSTAL_ADDRESSES + 5).map(|n| {
+            place(if n == 0 {
+                "1 rue a".into()
+            } else {
+                format!("{n} rue")
+            })
+        }))
+        .collect();
+    card.websites = std::iter::once(site("www.example.com".into()))
+        .chain((0..MAX_CONTACT_WEBSITES + 5).map(|n| {
+            site(if n == 0 {
+                "HTTPS://WWW.EXAMPLE.COM".into()
+            } else {
+                format!("https://s{n}.example")
+            })
+        }))
+        .collect();
+    let p = plan(&[], &[ImportedCard::Contact(card)], DuplicatePolicy::Skip);
+    assert!(p.rejected.is_empty(), "{:?}", p.rejected);
+    let [d] = &p.create[..] else {
+        panic!("{:?}", p.create)
+    };
+    let streets: Vec<_> = d
+        .postal_addresses()
+        .iter()
+        .filter_map(|a| a.street())
+        .collect();
+    assert_eq!(streets.len(), MAX_POSTAL_ADDRESSES);
+    assert_eq!(streets[..2], ["1 RUE A", "1 rue"]);
+    let urls: Vec<_> = d.websites().iter().map(|w| w.url()).collect();
+    assert_eq!(urls.len(), MAX_CONTACT_WEBSITES);
+    assert_eq!(urls[..2], ["https://www.example.com", "https://s1.example"]);
+}

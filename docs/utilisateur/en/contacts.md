@@ -35,6 +35,19 @@ appears on the right.
 
 ![The new contact window](captures/contact-dialog.png)
 
+Further down in the same window, you can also note:
+
+- their **Job title**, next to the **Organization**;
+- their **Birthday**: the day, the month, and the year if you know it (it
+  is optional);
+- one or more **postal addresses**: click **Add a postal address**, then
+  fill in the street, postal code, city and country;
+- their **websites**: click **Add a website**. Typing "www.example.com" is
+  enough. On the contact card, clicking the website opens it in your
+  browser.
+
+![Job title, birthday, postal address and website](captures/contact-dialog-details.png)
+
 If Norelly refuses, the window stays open and explains why. The most
 common case: the address already belongs to another contact. An address
 can only belong to one contact; edit the one that already has it instead.

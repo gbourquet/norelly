@@ -100,6 +100,8 @@ export type {
   ContactLabelKindDto,
   ContactFieldsDto,
   ContactPhoneDto,
+  ContactPostalAddressDto,
+  ContactWebsiteDto,
   ComposeEventDto,
   ComposeKindDto,
   DraftAttachmentDto,

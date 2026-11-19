@@ -37,6 +37,8 @@ pub(crate) fn merge_error(e: ContactFailure) -> IpcError {
         ContactFailure::Invalid(
             ContactError::TooManyAddresses
             | ContactError::TooManyPhones
+            | ContactError::TooManyPostalAddresses
+            | ContactError::TooManyWebsites
             | ContactError::TooLong(ContactField::Notes),
         ) => IpcError::new(ErrorCodeDto::ContactMergeTooLarge),
         e => contact_error(e, &[]),

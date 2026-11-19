@@ -35,6 +35,20 @@ contacts remplace celle des messages ; la fiche du contact choisi s'affiche
 
 ![La fenêtre d'un nouveau contact](captures/contact-dialog.png)
 
+Plus bas dans la même fenêtre, vous pouvez aussi noter :
+
+- sa **Fonction**, à côté de l'**Organisation** ;
+- son **Anniversaire** : le jour, le mois, et l'année si vous la
+  connaissez (elle est facultative) ;
+- une ou plusieurs **adresses postales** : cliquez sur **Ajouter une
+  adresse postale**, puis remplissez la rue, le code postal, la ville et
+  le pays ;
+- ses **sites web** : cliquez sur **Ajouter un site web**. Écrire
+  « www.exemple.fr » suffit. Sur la fiche, un clic sur le site l'ouvre dans
+  votre navigateur.
+
+![Fonction, anniversaire, adresse postale et site web](captures/contact-dialog-details.png)
+
 Si Norelly refuse, la fenêtre reste ouverte et explique pourquoi. Le cas
 le plus courant : l'adresse appartient déjà à un autre contact. Une
 adresse ne peut appartenir qu'à un seul contact ; modifiez plutôt celui

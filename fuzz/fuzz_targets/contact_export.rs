@@ -9,7 +9,9 @@ use norelly_domain::contact_export::{
     ExportCard, ExportFormat, MAX_EXPORT_FILE_BYTES, export_card,
 };
 use norelly_domain::contact_import::{DuplicatePolicy, ImportedCard, plan_import};
-use norelly_domain::contacts::{ContactInput, EmailInput, PhoneInput};
+use norelly_domain::contacts::{
+    ContactInput, EmailInput, PhoneInput, PostalAddressInput, WebsiteInput,
+};
 use norelly_domain::ports::ContactCodec;
 
 const FORMATS: [ExportFormat; 4] = [
@@ -44,6 +46,28 @@ fn imported(card: &ExportCard) -> ImportedCard {
             .map(|p| PhoneInput {
                 number: p.number.clone(),
                 label: owned(&p.label),
+            })
+            .collect(),
+        title: owned(&card.title),
+        birthday: card.birthday.map(|b| b.iso()).unwrap_or_default(),
+        postal_addresses: card
+            .postal_addresses
+            .iter()
+            .map(|a| PostalAddressInput {
+                street: owned(&a.street),
+                locality: owned(&a.locality),
+                region: owned(&a.region),
+                postal_code: owned(&a.postal_code),
+                country: owned(&a.country),
+                label: owned(&a.label),
+            })
+            .collect(),
+        websites: card
+            .websites
+            .iter()
+            .map(|w| WebsiteInput {
+                url: w.url.clone(),
+                label: owned(&w.label),
             })
             .collect(),
         favorite: card.favorite,

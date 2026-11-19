@@ -246,7 +246,7 @@ async fn the_first_sync_merges_both_books_then_nothing_changes() {
 async fn changes_follow_in_both_directions_and_keep_unknown_properties() {
     world!(w);
     w.configure().await;
-    let card = "BEGIN:VCARD\r\nVERSION:3.0\r\nUID:bob\r\nFN:Bob\r\nEMAIL:bob@example.com\r\nBDAY:19800102\r\nEND:VCARD\r\n";
+    let card = "BEGIN:VCARD\r\nVERSION:3.0\r\nUID:bob\r\nFN:Bob\r\nEMAIL:bob@example.com\r\nBDAY:19800102\r\nPHOTO;ENCODING=b;TYPE=PNG:AAAA\r\nEND:VCARD\r\n";
     w.put_remote("bob.vcf", card);
     w.run(100).await.unwrap_or_else(|e| panic!("{e:?}"));
 
@@ -266,8 +266,17 @@ async fn changes_follow_in_both_directions_and_keep_unknown_properties() {
     assert_eq!(local.draft().display_name(), "Robert");
     assert!(local.draft().favorite(), "favori perdu");
 
-    // Modifiée ici : suivie sur le serveur, sans perdre l'anniversaire.
-    let edited = sample_contact("Bob Martin", &["bob@example.com"]);
+    // L'anniversaire du serveur est repris sur la fiche.
+    assert_eq!(
+        local.draft().birthday().map(|b| b.iso()),
+        Some("1980-01-02".into())
+    );
+
+    // Modifiée ici (formulaire pré-rempli) : suivie sur le serveur, sans
+    // perdre l'anniversaire ni la photo, que le carnet ne garde pas.
+    let mut input = local.draft().to_input();
+    input.display_name = "Bob Martin".into();
+    let edited = ContactDraft::new(input).unwrap_or_else(|e| panic!("{e}"));
     w.book
         .update(local.id(), &edited)
         .await
@@ -277,7 +286,10 @@ async fn changes_follow_in_both_directions_and_keep_unknown_properties() {
     let remote = w.remote();
     let data = &remote[&w.remote_path("bob.vcf")];
     assert!(data.contains("FN:Bob Martin"), "{data}");
-    assert!(data.contains("BDAY:19800102"), "{data}");
+    // Anniversaire écrit par le carnet (vCard 3.0, forme étendue), une fois.
+    assert!(data.contains("BDAY:1980-01-02"), "{data}");
+    assert_eq!(data.matches("BDAY").count(), 1, "{data}");
+    assert!(data.contains("PHOTO;ENCODING=b;TYPE=PNG:AAAA"), "{data}");
     assert!(data.contains("UID:bob"), "{data}");
     assert!(data.contains("VERSION:3.0"), "{data}");
     assert_eq!(w.run(400).await.map(|r| r.changes()), Ok(0));

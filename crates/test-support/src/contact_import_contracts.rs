@@ -11,7 +11,9 @@ use norelly_domain::contact_export::{
 use norelly_domain::contact_import::{
     ContactFormat, DecodedContacts, ImportedCard, MAX_IMPORT_CARDS, MAX_IMPORT_FILE_BYTES,
 };
-use norelly_domain::contacts::{ContactDraft, ContactInput, EmailInput, PhoneInput};
+use norelly_domain::contacts::{
+    ContactDraft, ContactInput, EmailInput, PhoneInput, PostalAddressInput, WebsiteInput,
+};
 use norelly_domain::ports::{ContactCodec, ContactCodecError, TextNormalizer};
 
 /// Compositions connues du faux : forme décomposée, forme NFC.
@@ -222,6 +224,28 @@ pub fn imported(card: &ExportCard) -> ImportedCard {
                 label: owned(&p.label),
             })
             .collect(),
+        title: owned(&card.title),
+        birthday: card.birthday.map(|b| b.iso()).unwrap_or_default(),
+        postal_addresses: card
+            .postal_addresses
+            .iter()
+            .map(|a| PostalAddressInput {
+                street: owned(&a.street),
+                locality: owned(&a.locality),
+                region: owned(&a.region),
+                postal_code: owned(&a.postal_code),
+                country: owned(&a.country),
+                label: owned(&a.label),
+            })
+            .collect(),
+        websites: card
+            .websites
+            .iter()
+            .map(|w| WebsiteInput {
+                url: w.url.clone(),
+                label: owned(&w.label),
+            })
+            .collect(),
         favorite: card.favorite,
     })
 }
@@ -271,7 +295,50 @@ pub fn sample_export_drafts() -> Vec<ContactDraft> {
                 phone("+33 6 11 22 33 44", "Portable"),
                 phone("04 77 00 00 00", ""),
             ],
+            title: "Secrétaire générale, adjointe ; « intérim »".into(),
+            birthday: "1985-04-12".into(),
+            postal_addresses: vec![
+                PostalAddressInput {
+                    street: "Hôtel de ville\n1 place de l'Hôtel-de-Ville; bureau 3, aile \"B\""
+                        .into(),
+                    locality: "Saint-Étienne".into(),
+                    region: "Loire".into(),
+                    postal_code: "42000".into(),
+                    country: "France".into(),
+                    label: "Travail".into(),
+                },
+                PostalAddressInput {
+                    street: "12 rue des Roses".into(),
+                    locality: "Firminy".into(),
+                    label: "Maison".into(),
+                    ..PostalAddressInput::default()
+                },
+            ],
+            websites: vec![
+                WebsiteInput {
+                    url: "https://www.saint-etienne.example/elus?id=3&x=a,b;c".into(),
+                    label: "Travail".into(),
+                },
+                WebsiteInput {
+                    url: "http://helene.example".into(),
+                    label: "Perso".into(),
+                },
+            ],
             favorite: true,
+        }),
+        draft(ContactInput {
+            title: "=SUM(A1)".into(),
+            birthday: "--02-29".into(),
+            emails: vec![email("sans-annee@example.com", "", false)],
+            postal_addresses: vec![PostalAddressInput {
+                country: "-Belgique".into(),
+                ..PostalAddressInput::default()
+            }],
+            websites: vec![WebsiteInput {
+                url: "https://example.org".into(),
+                label: String::new(),
+            }],
+            ..ContactInput::default()
         }),
         draft(ContactInput {
             given_name: "Seán".into(),

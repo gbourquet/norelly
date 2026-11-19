@@ -395,12 +395,12 @@ fn card_properties_are_read_after_unfolding() {
 #[test]
 fn a_pushed_change_keeps_what_norelly_does_not_know() {
     let merged = merge_card(REMOTE, OURS, 1_700_302_210);
-    // Propriétés inconnues du carnet : gardées telles quelles.
+    // Propriétés inconnues du carnet : gardées telles quelles. (Adresse
+    // postale et anniversaire sont tenus par le carnet : voir
+    // `a_pushed_change_replaces_the_details_the_book_holds`.)
     for kept in [
         "UID:urn:uuid:1",
-        "ADR:;;1 rue du Port;Brest;;29200;France",
         "PHOTO;MEDIATYPE=image/png:data:image/png;base64,AAAA\r\n BBBB",
-        "BDAY:19800102",
         "PRODID:-//Autre//FR",
     ] {
         assert!(merged.contains(kept), "{kept} perdu :\n{merged}");
@@ -428,6 +428,49 @@ fn a_pushed_change_keeps_what_norelly_does_not_know() {
     assert!(merged.contains("REV:20231118T101010Z\r\n"));
     assert_eq!(merged.matches("VERSION:").count(), 1);
     assert_eq!(merged.matches("BEGIN:VCARD").count(), 1);
+}
+
+/// Titre, anniversaire, adresses postales et sites : le carnet les tient
+/// (ADR-012) ; poussés, ils remplacent ceux du serveur (une fois chacun,
+/// une suppression ici suit sur le serveur). Une valeur que le carnet ne
+/// sait pas lire (anniversaire en texte, lien qui n'est pas un site) est
+/// gardée telle quelle : il ne l'a jamais eue, il ne peut pas l'effacer.
+#[test]
+fn a_pushed_change_replaces_the_details_the_book_holds() {
+    let remote = REMOTE.replace(
+        "BDAY:19800102\r\n",
+        "BDAY:19800102\r\nTITLE:Ancienne fonction\r\nitem2.URL:https://ancien.example\r\nitem2.X-ABLabel:blog\r\nURL:javascript:alert(1)\r\n",
+    );
+    let ours = OURS.replace(
+        "NOTE:Une note\r\n",
+        "NOTE:Une note\r\nTITLE:Directrice\r\nBDAY:--0412\r\nADR;TYPE=home:;;2 rue Neuve;Lyon;;69001;\r\nURL:https://neuf.example\r\n",
+    );
+    let merged = merge_card(&remote, &ours, 1_700_302_210);
+    for gone in [
+        "1 rue du Port",
+        "BDAY:19800102",
+        "Ancienne fonction",
+        "ancien.example",
+        "X-ABLabel:blog",
+    ] {
+        assert!(!merged.contains(gone), "{gone} resté :\n{merged}");
+    }
+    for kept in [
+        "TITLE:Directrice",
+        "BDAY:--0412",
+        "ADR;TYPE=home:;;2 rue Neuve;Lyon;;69001;",
+        "URL:https://neuf.example",
+        "URL:javascript:alert(1)",
+        "PHOTO;MEDIATYPE=image/png",
+    ] {
+        assert_eq!(merged.matches(kept).count(), 1, "{kept} :\n{merged}");
+    }
+    assert_eq!(merged.matches("BDAY:").count(), 1, "{merged}");
+
+    // Anniversaire illisible pour le carnet : gardé, même sans le nôtre.
+    let text = REMOTE.replace("BDAY:19800102", "BDAY;VALUE=text:vers 1950");
+    let merged = merge_card(&text, OURS, 1_700_302_210);
+    assert!(merged.contains("BDAY;VALUE=text:vers 1950"), "{merged}");
 }
 
 #[test]

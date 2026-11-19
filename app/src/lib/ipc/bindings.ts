@@ -388,6 +388,10 @@ export const events = {
 /* Constants */
 export const MAX_CONTACT_SELECTION = 1000 as const;
 
+export const MAX_CONTACT_WEBSITES = 10 as const;
+
+export const MAX_POSTAL_ADDRESSES = 10 as const;
+
 export const MAX_RECIPIENTS = 100 as const;
 
 /* Types */
@@ -788,9 +792,18 @@ export type ContactFieldsDto_Deserialize = {
 	family_name: string,
 	nickname: string,
 	organization: string,
+	/**  Titre ou fonction. */
+	title: string,
 	notes: string,
+	/**
+	 *  Anniversaire : `1985-04-12`, ou `--04-12` sans année ; vide :
+	 *  absent.
+	 */
+	birthday: string,
 	emails: ContactEmailDto_Deserialize[],
 	phones: ContactPhoneDto_Deserialize[],
+	postal_addresses: ContactPostalAddressDto_Deserialize[],
+	websites: ContactWebsiteDto_Deserialize[],
 	favorite: boolean,
 };
 
@@ -805,9 +818,18 @@ export type ContactFieldsDto_Serialize = {
 	family_name: string,
 	nickname: string,
 	organization: string,
+	/**  Titre ou fonction. */
+	title: string,
 	notes: string,
+	/**
+	 *  Anniversaire : `1985-04-12`, ou `--04-12` sans année ; vide :
+	 *  absent.
+	 */
+	birthday: string,
 	emails: ContactEmailDto_Serialize[],
 	phones: ContactPhoneDto_Serialize[],
+	postal_addresses: ContactPostalAddressDto_Serialize[],
+	websites: ContactWebsiteDto_Serialize[],
 	favorite: boolean,
 };
 
@@ -967,6 +989,63 @@ export type ContactPhoneDto_Deserialize = {
 /**  Téléphone d'une fiche contact. */
 export type ContactPhoneDto_Serialize = {
 	number: string,
+	label: string,
+	/**  Genre de l'étiquette, sur une fiche relue ; ignoré en saisie. */
+	label_kind?: ContactLabelKindDto | null,
+};
+
+/**  Adresse postale d'une fiche contact. Élément vide : absent. */
+export type ContactPostalAddressDto = ContactPostalAddressDto_Serialize | ContactPostalAddressDto_Deserialize;
+
+/**  Adresse postale d'une fiche contact. Élément vide : absent. */
+export type ContactPostalAddressDto_Deserialize = {
+	/**  Rue, lignes séparées par `\n`. */
+	street: string,
+	locality: string,
+	region: string,
+	postal_code: string,
+	country: string,
+	label: string,
+	/**  Genre de l'étiquette, sur une fiche relue ; ignoré en saisie. */
+	label_kind?: ContactLabelKindDto | null,
+};
+
+/**  Adresse postale d'une fiche contact. Élément vide : absent. */
+export type ContactPostalAddressDto_Serialize = {
+	/**  Rue, lignes séparées par `\n`. */
+	street: string,
+	locality: string,
+	region: string,
+	postal_code: string,
+	country: string,
+	label: string,
+	/**  Genre de l'étiquette, sur une fiche relue ; ignoré en saisie. */
+	label_kind?: ContactLabelKindDto | null,
+};
+
+/**
+ *  Site web d'une fiche contact : sur une fiche relue, adresse `http` ou
+ *  `https` acceptée par le domaine, ouverte par `open_external`.
+ */
+export type ContactWebsiteDto = ContactWebsiteDto_Serialize | ContactWebsiteDto_Deserialize;
+
+/**
+ *  Site web d'une fiche contact : sur une fiche relue, adresse `http` ou
+ *  `https` acceptée par le domaine, ouverte par `open_external`.
+ */
+export type ContactWebsiteDto_Deserialize = {
+	url: string,
+	label: string,
+	/**  Genre de l'étiquette, sur une fiche relue ; ignoré en saisie. */
+	label_kind?: ContactLabelKindDto | null,
+};
+
+/**
+ *  Site web d'une fiche contact : sur une fiche relue, adresse `http` ou
+ *  `https` acceptée par le domaine, ouverte par `open_external`.
+ */
+export type ContactWebsiteDto_Serialize = {
+	url: string,
 	label: string,
 	/**  Genre de l'étiquette, sur une fiche relue ; ignoré en saisie. */
 	label_kind?: ContactLabelKindDto | null,
@@ -1605,6 +1684,14 @@ export type FieldDto = "address" | "display_name" | "host" | "port" | "username"
 "contact_email" | 
 /**  Téléphone d'un contact. */
 "contact_phone" | "given_name" | "family_name" | "nickname" | "organization" | "notes" | 
+/**  Titre ou fonction d'un contact. */
+"title" | 
+/**  Anniversaire d'un contact. */
+"birthday" | 
+/**  Adresse postale d'un contact. */
+"postal_address" | 
+/**  Site web d'un contact. */
+"website" | 
 /**  Liste de diffusion (identifiant). */
 "contact_list" | 
 /**  Nom d'une liste de diffusion. */

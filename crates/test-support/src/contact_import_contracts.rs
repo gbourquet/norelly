@@ -222,7 +222,7 @@ pub fn imported(card: &ExportCard) -> ImportedCard {
                 label: owned(&p.label),
             })
             .collect(),
-        favorite: false,
+        favorite: card.favorite,
     })
 }
 

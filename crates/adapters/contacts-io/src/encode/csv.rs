@@ -3,18 +3,14 @@
 //! quand il le faut (crate `csv`). Une adresse ou un téléphone par paire
 //! de colonnes « E-mail n - Label / Value », l'adresse préférée marquée
 //! « * » ; chaque cellule neutralisée contre les formules
-//! (`neutralize_csv_cell`). La colonne « Labels » range chaque fiche dans
-//! « Mes contacts » à l'import Google, au lieu d'un libellé propre à
-//! l'import.
+//! (`neutralize_csv_cell`). La colonne « Labels » (`google_labels`) range
+//! chaque fiche dans « Mes contacts » à l'import Google, au lieu d'un
+//! libellé propre à l'import, et un favori aussi dans ses favoris.
 
-use norelly_domain::contact_export::{ExportCard, neutralize_csv_cell};
+use norelly_domain::contact_export::{ExportCard, google_labels, neutralize_csv_cell};
 use norelly_domain::ports::ContactCodecError;
 
 use super::Output;
-
-/// Valeur de la colonne « Labels » : le groupe système « Mes contacts »
-/// de Google, sous la forme qu'écrit son propre export.
-const MY_CONTACTS: &str = "* myContacts";
 
 /// Fiches `cards` dans `out`.
 pub(crate) fn encode(cards: &[ExportCard], out: &mut Output) -> Result<(), ContactCodecError> {
@@ -60,7 +56,7 @@ pub(crate) fn encode(cards: &[ExportCard], out: &mut Output) -> Result<(), Conta
             text(&card.nickname),
             text(&card.organization),
             text(&card.notes),
-            MY_CONTACTS.to_owned(),
+            google_labels(card.favorite).to_owned(),
         ];
         for n in 0..emails {
             match card.emails.get(n) {
@@ -169,6 +165,19 @@ mod tests {
             row,
             "'=1+1,,,'\u{FE62}1,'@SUM(A1),'-x,* myContacts,'\u{2212}lab,a@example.com"
         );
+    }
+
+    #[test]
+    fn the_favorite_joins_my_contacts_in_the_labels_column() {
+        let favorite = ExportCard {
+            full_name: Some("Zoé".into()),
+            emails: vec![email("zoe@example.com", None, true)],
+            favorite: true,
+            ..ExportCard::default()
+        };
+        let text = written(&[favorite]);
+        let row = text.lines().nth(1).unwrap_or_default();
+        assert_eq!(row, "Zoé,,,,,,* myContacts ::: * starred,*,zoe@example.com");
     }
 
     #[test]

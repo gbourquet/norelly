@@ -212,6 +212,7 @@ mod tests {
                     label: Some((*label).to_owned()),
                 })
                 .collect(),
+            favorite: false,
         };
         assert_eq!(
             written(&[card]),

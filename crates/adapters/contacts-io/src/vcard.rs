@@ -2,13 +2,15 @@
 //! projet : dépliage des lignes, sauts souples quoted-printable,
 //! paramètres (`TYPE`, `PREF`, `CHARSET`, `ENCODING`), échappements,
 //! plusieurs cartes par fichier. Seuls `FN`, `N`, `NICKNAME`, `ORG`,
-//! `NOTE`, `EMAIL`, `TEL`, la nature de la carte (`KIND`) et les libellés
+//! `NOTE`, `EMAIL`, `TEL`, la nature de la carte (`KIND`), les libellés
 //! d'Apple (`itemN.X-ABLabel`, étiquette de l'adresse ou du téléphone du
-//! même groupe) sont lus ; le reste (photos comprises) est ignoré sans
+//! même groupe) et la catégorie des favoris (`CATEGORIES`, rien d'autre
+//! des catégories) sont lus ; le reste (photos comprises) est ignoré sans
 //! être décodé.
 
 use std::collections::HashMap;
 
+use norelly_domain::contact_export::is_favorite_category;
 use norelly_domain::contact_import::{ImportedCard, MAX_IMPORT_CARDS};
 use norelly_domain::contact_labels::apple_label;
 use norelly_domain::contacts::{ContactInput, EmailInput, PhoneInput};
@@ -280,6 +282,10 @@ impl Card {
             self.read_apple_label(p);
             return;
         }
+        if p.name == "CATEGORIES" {
+            self.read_categories(p);
+            return;
+        }
         if !kept {
             return;
         }
@@ -357,6 +363,21 @@ impl Card {
         }
         if let Some(label) = p.text().and_then(|value| apple_label(&unescape(&value))) {
             self.group_labels.insert(group.clone(), label);
+        }
+    }
+
+    /// Catégories (`CATEGORIES`, séparées par des virgules non
+    /// échappées) : la fiche est favorite si l'une d'elles est celle des
+    /// favoris ([`is_favorite_category`]). Les autres sont ignorées, et
+    /// une valeur illisible ou démesurée aussi, sans rendre la carte
+    /// illisible.
+    fn read_categories(&mut self, p: &Property<'_>) {
+        if let Some(value) = p.text()
+            && components(&value, Some(','))
+                .iter()
+                .any(|category| is_favorite_category(category))
+        {
+            self.input.favorite = true;
         }
     }
 
@@ -541,6 +562,42 @@ mod tests {
             "BEGIN:VCARD\n{group}.TEL;type=CELL:01\n{group}.X-ABLabel:bureau\nEND:VCARD"
         ));
         assert_eq!(c.phones[0].label, "bureau");
+    }
+
+    #[test]
+    fn the_starred_category_marks_a_favorite() {
+        for categories in [
+            "CATEGORIES:myContacts,starred",
+            "CATEGORIES:Starred",
+            "CATEGORIES:Famille\nCATEGORIES:Amis, STARRED ",
+            "item1.CATEGORIES;CHARSET=UTF-8;ENCODING=QUOTED-PRINTABLE:Caf=C3=A9,starred",
+        ] {
+            let c = contact(&format!(
+                "BEGIN:VCARD\n{categories}\nEMAIL:a@example.com\nEND:VCARD"
+            ));
+            assert!(c.favorite, "{categories}");
+            // Aucune autre trace : ni étiquette, ni note.
+            assert_eq!(c.emails[0].label, "", "{categories}");
+            assert_eq!(c.notes, "", "{categories}");
+        }
+    }
+
+    #[test]
+    fn other_or_unreadable_categories_leave_the_card_as_it_is() {
+        for categories in [
+            "CATEGORIES:myContacts,Famille".to_owned(),
+            "CATEGORIES:starred2,star red".to_owned(),
+            // Virgule échappée : une seule catégorie, « a,starred ».
+            "CATEGORIES:a\\,starred".to_owned(),
+            "CATEGORIES;ENCODING=QUOTED-PRINTABLE:=ZZ".to_owned(),
+            format!("CATEGORIES:{},starred", "x".repeat(MAX_FIELD_BYTES)),
+        ] {
+            let c = contact(&format!(
+                "BEGIN:VCARD\n{categories}\nEMAIL:a@example.com\nEND:VCARD"
+            ));
+            assert!(!c.favorite, "{}", &categories[..categories.len().min(40)]);
+            assert_eq!(c.emails.len(), 1);
+        }
     }
 
     #[test]

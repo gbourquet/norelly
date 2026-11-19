@@ -151,6 +151,10 @@ pub struct ExportCard {
     pub notes: Option<String>,
     pub emails: Vec<ExportEmail>,
     pub phones: Vec<ExportPhone>,
+    /// Contact favori, écrit en catégorie vCard
+    /// ([`VCARD_FAVORITE_CATEGORY`]) ou en étiquette Google
+    /// ([`GOOGLE_FAVORITE_LABEL`]).
+    pub favorite: bool,
 }
 
 /// Ce que `format` retient de `draft`.
@@ -197,7 +201,53 @@ pub fn export_card(draft: &ContactDraft, format: ExportFormat) -> ExportCard {
                 label: phone_label(p.label()),
             })
             .collect(),
+        // Thunderbird n'a pas de favori.
+        favorite: draft.favorite() && format != ExportFormat::Ldif,
     }
+}
+
+/// Catégorie vCard (`CATEGORIES`) d'un contact favori, celle qu'écrit
+/// l'export vCard de Google.
+pub const VCARD_FAVORITE_CATEGORY: &str = "starred";
+
+/// Étiquette de la colonne « Labels » d'un contact favori : le groupe
+/// système « Favoris » de Google, sous la forme de son propre export.
+pub const GOOGLE_FAVORITE_LABEL: &str = "* starred";
+
+/// Étiquettes de la colonne « Labels » : « Mes contacts » pour toute
+/// fiche (le groupe système où Google range ses propres contacts),
+/// « Favoris » en plus pour un favori, séparées comme dans son export.
+#[must_use]
+pub fn google_labels(favorite: bool) -> &'static str {
+    if favorite {
+        "* myContacts ::: * starred"
+    } else {
+        "* myContacts"
+    }
+}
+
+/// La catégorie vCard `category` marque-t-elle un favori ? Oui pour
+/// « starred », à la casse et aux espaces de bord près. Une vCard n'a
+/// pas de marque des groupes système : une catégorie « Starred » créée
+/// par l'utilisateur d'un autre logiciel compte aussi.
+#[must_use]
+pub fn is_favorite_category(category: &str) -> bool {
+    category
+        .trim()
+        .eq_ignore_ascii_case(VCARD_FAVORITE_CATEGORY)
+}
+
+/// L'étiquette Google `label` (une valeur de la colonne « Labels »)
+/// marque-t-elle un favori ? Oui pour le groupe système « * starred », à
+/// la casse et aux espaces près ; « starred » sans « * » est une étiquette
+/// de l'utilisateur.
+#[must_use]
+pub fn is_favorite_google_label(label: &str) -> bool {
+    label.trim().strip_prefix('*').is_some_and(|group| {
+        group
+            .trim_start()
+            .eq_ignore_ascii_case(VCARD_FAVORITE_CATEGORY)
+    })
 }
 
 /// Nom complet d'une vCard (propriété obligatoire) : le nom affiché de la

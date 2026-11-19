@@ -198,7 +198,9 @@ To keep a copy of your address book, or move it to another program:
 
 ![Choosing the format of an export](captures/contacts-export.png)
 
-Favorites and mailing lists are not exported. In a CSV file opened in a
+Favorites are kept in vCard and CSV (Google Contacts puts them in its
+favorites, and Norelly finds them again on import), not in LDIF. Mailing
+lists are not exported. In a CSV file opened in a
 spreadsheet, a number starting with “+” shows with an apostrophe in front:
 this is on purpose, so that the spreadsheet does not take it for a
 formula.

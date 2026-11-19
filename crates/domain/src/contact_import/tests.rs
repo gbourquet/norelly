@@ -437,6 +437,52 @@ fn complete_stays_within_the_limits_of_a_card() {
 }
 
 #[test]
+fn a_favorite_card_of_the_file_makes_its_new_contact_a_favorite() {
+    let favorite_card = |name: &str, addresses: &[&str]| {
+        let mut input = draft(name, addresses).to_input();
+        input.favorite = true;
+        ImportedCard::Contact(input)
+    };
+    // Deux fiches du fichier pour un même nouveau contact : il est favori
+    // si l'une d'elles l'est, quel que soit leur ordre.
+    for cards in [
+        [
+            card("Anne", &["anne@example.com"]),
+            favorite_card("Anne", &["anne@example.com", "anne@example.org"]),
+        ],
+        [
+            card("Anne", &["anne@example.com"]),
+            favorite_card("Anne", &["anne@example.com"]),
+        ],
+        [
+            favorite_card("Anne", &["anne@example.com"]),
+            card("Anne", &["anne@example.com", "anne@example.org"]),
+        ],
+    ] {
+        let p = plan(&[], &cards, DuplicatePolicy::Complete);
+        assert_eq!(p.create.len(), 1);
+        assert!(p.create[0].favorite(), "{cards:?}");
+        assert_eq!(p.duplicates, 1);
+    }
+}
+
+#[test]
+fn a_favorite_card_never_changes_the_favorite_of_a_contact_of_the_book() {
+    // Le carnet décide du favori de ses contacts : un fichier ne le
+    // change pas, même en complétant.
+    let existing = [stored(7, draft("Alice", &["alice@example.com"]))];
+    let mut input = draft("Alice", &["alice@example.com", "alice@example.org"]).to_input();
+    input.favorite = true;
+    let p = plan(
+        &existing,
+        &[ImportedCard::Contact(input)],
+        DuplicatePolicy::Complete,
+    );
+    assert_eq!(p.complete.len(), 1);
+    assert!(!p.complete[0].draft().favorite());
+}
+
+#[test]
 fn import_keys_lists_each_valid_address_once_in_file_order() {
     let keys = import_keys(&[
         card("A", &["b@example.com", "pas-une-adresse", "A@example.com"]),

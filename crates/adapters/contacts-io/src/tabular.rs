@@ -1,11 +1,13 @@
 //! Lecture des exports CSV de Google Contacts, d'Outlook et de
 //! Thunderbird (en-têtes anglais, et français pour Outlook et
 //! Thunderbird), par la crate `csv`. Le format est reconnu à l'en-tête,
-//! le séparateur (`,`, `;` ou tabulation) à la première ligne.
+//! le séparateur (`,`, `;` ou tabulation) à la première ligne. Des
+//! étiquettes d'un CSV de Google (colonne « Labels », « Group Membership » dans ses
+//! anciens exports), seule celle des favoris est lue.
 
 use std::collections::HashMap;
 
-use norelly_domain::contact_export::restore_csv_cell;
+use norelly_domain::contact_export::{is_favorite_google_label, restore_csv_cell};
 use norelly_domain::contact_import::{
     ContactFormat, DecodedContacts, ImportedCard, MAX_IMPORT_CARDS,
 };
@@ -34,6 +36,8 @@ enum Column {
     GoogleEmailValue(u32),
     GooglePhoneLabel(u32),
     GooglePhoneValue(u32),
+    /// Google : étiquettes de la fiche, dont celle des favoris.
+    GoogleLabels,
 }
 
 /// Colonne numérotée de Google : `<préfixe> <n> - <suffixe>`.
@@ -51,7 +55,7 @@ fn google_slot(header: &str, prefix: &str, suffixes: &[&str]) -> Option<u32> {
 fn column(header: &str) -> Option<Column> {
     use Column::{
         DisplayName, Email, FamilyName, GivenName, GoogleEmailLabel, GoogleEmailValue,
-        GooglePhoneLabel, GooglePhoneValue, Nickname, Notes, Organization, Phone,
+        GoogleLabels, GooglePhoneLabel, GooglePhoneValue, Nickname, Notes, Organization, Phone,
     };
     if let Some(n) = google_slot(header, "e-mail", &["value"]) {
         return Some(GoogleEmailValue(n));
@@ -74,6 +78,7 @@ fn column(header: &str) -> Option<Column> {
             Organization
         }
         "notes" => Notes,
+        "labels" | "group membership" => GoogleLabels,
         "primary email" | "adresse électronique principale" => Email { preferred: true },
         "secondary email"
         | "adresse électronique secondaire"
@@ -232,6 +237,11 @@ fn card(columns: &[Option<Column>], record: &csv::StringRecord) -> ImportedCard 
                     });
                 }
             }
+            // Une seule étiquette compte, celle des favoris : les autres
+            // ne sont pas gardées.
+            Column::GoogleLabels => {
+                input.favorite |= google_values(cell).any(is_favorite_google_label);
+            }
             Column::GoogleEmailLabel(_) | Column::GooglePhoneLabel(_) => {}
         }
         if input.emails.len() > MAX_VALUES_PER_CARD || input.phones.len() > MAX_VALUES_PER_CARD {
@@ -255,8 +265,16 @@ pub(crate) fn decode(text: &str) -> Result<DecodedContacts, ContactCodecError> {
         Some(Ok(record)) => record.iter().map(|h| h.trim().to_lowercase()).collect(),
         _ => return Err(ContactCodecError::UnknownFormat),
     };
-    let columns: Vec<Option<Column>> = headers.iter().map(|h| column(h)).collect();
+    let mut columns: Vec<Option<Column>> = headers.iter().map(|h| column(h)).collect();
     let format = format(&headers, &columns).ok_or(ContactCodecError::UnknownFormat)?;
+    // Les étiquettes ne sont celles de Google que dans un CSV de Google.
+    if format != ContactFormat::GoogleCsv {
+        for c in &mut columns {
+            if *c == Some(Column::GoogleLabels) {
+                *c = None;
+            }
+        }
+    }
     let mut cards = Vec::new();
     for record in records {
         let card = match record {
@@ -364,13 +382,55 @@ mod tests {
     }
 
     #[test]
-    fn google_labels_column_is_ignored() {
-        // « Labels » en premier : rattachée à un champ, elle le remplirait
-        // avant toute autre colonne.
+    fn the_starred_label_marks_a_favorite() {
+        for (header, labels) in [
+            ("Labels", "* myContacts ::: * starred"),
+            ("Labels", "* starred"),
+            ("labels", "Famille ::: *  Starred ::: Amis"),
+            // Ancien export de Google.
+            ("Group Membership", "* myContacts ::: * Starred"),
+        ] {
+            let d = decoded(&format!(
+                "{header},Name,E-mail 1 - Label,E-mail 1 - Value,Notes\n\
+                 \"{labels}\",Anne,Home,anne@example.com,\n"
+            ));
+            let [ImportedCard::Contact(c)] = &d.cards[..] else {
+                panic!("{:?}", d.cards)
+            };
+            assert!(c.favorite, "{header} : {labels}");
+            // Le favori ne laisse aucune autre trace.
+            assert_eq!(c.display_name, "Anne");
+            assert_eq!(c.emails[0].label, "Home");
+            assert_eq!(c.notes, "");
+        }
+    }
+
+    #[test]
+    fn labels_of_other_programs_never_mark_a_favorite() {
+        // Une colonne « Labels » d'Outlook ou de Thunderbird est une
+        // donnée de l'utilisateur, pas le groupe système de Google.
+        for header in ["E-mail Address", "Primary Email"] {
+            let d = decoded(&format!(
+                "Labels,{header}\n\"* starred\",anne@example.com\n"
+            ));
+            assert_ne!(d.format, ContactFormat::GoogleCsv);
+            let [ImportedCard::Contact(c)] = &d.cards[..] else {
+                panic!("{:?}", d.cards)
+            };
+            assert!(!c.favorite, "{header}");
+        }
+    }
+
+    #[test]
+    fn non_favorite_google_labels_leave_the_card_unchanged() {
+        // « Labels » en premier : seule l'étiquette des favoris y est lue ;
+        // toute autre valeur ne laisse aucune trace dans la fiche.
         let without = decoded("Name,E-mail 1 - Value\nAnne,anne@example.com\n");
         for labels in [
             "* myContacts",
             "* myContacts ::: Famille",
+            "starred ::: Starred",
+            "* myContacts * starred",
             "=cmd|' /C calc'!A0",
         ] {
             let with = decoded(&format!(

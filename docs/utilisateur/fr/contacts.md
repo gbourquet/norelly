@@ -206,7 +206,9 @@ logiciel :
 
 ![Le choix du format d'un export](captures/contacts-export.png)
 
-Les favoris et les listes de diffusion ne sont pas exportés. Dans un
+Les favoris sont gardés en vCard et en CSV (Google Contacts les range
+dans ses favoris, et Norelly les retrouve à l'import), pas en LDIF. Les
+listes de diffusion ne sont pas exportées. Dans un
 fichier CSV ouvert avec un tableur, un numéro commençant par « + »
 apparaît précédé d'une apostrophe : c'est voulu, pour que le tableur ne le
 prenne pas pour un calcul.

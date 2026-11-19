@@ -5,8 +5,8 @@
 // - nom du serveur seul saisi : Rust trouve le carnet (adresse bien
 //   connue, principal, dossier des carnets) ; mauvais mot de passe refusé ;
 // - « Synchroniser ce carnet » : la fiche du serveur arrive, un contact
-//   saisi ici part sur le serveur sans effacer l'anniversaire d'une fiche
-//   du serveur ;
+//   saisi ici part sur le serveur ; l'anniversaire d'une fiche du serveur,
+//   repris sur la fiche, y est renvoyé une fois après une modification ;
 // - « Déconnecter » : les contacts restent.
 import { $, $$, browser, expect } from "@wdio/globals";
 import { addTestAccount, barAction, password, removeTestAccount } from "./helpers.mjs";
@@ -109,6 +109,8 @@ describe("synchronisation CardDAV du carnet", () => {
 
     // Fiche du serveur modifiée ici.
     await rows("Camille Durand")[0].click();
+    // L'anniversaire du serveur est sur la fiche.
+    await expect($('//article//p[normalize-space()="12 avril 1985"]')).toBeDisplayed();
     await button("Modifier le contact").click();
     const edit = dialog("Modifier le contact");
     await edit.waitForDisplayed();
@@ -128,8 +130,10 @@ describe("synchronisation CardDAV du carnet", () => {
     expect(dominique).toContain("UID:");
     const camille = cards.find((c) => c.includes("camille.durand@norelly.test"));
     expect(camille).toContain("ORG:Atelier Durand");
-    // Propriété que le carnet ne connaît pas : gardée.
-    expect(camille).toContain("BDAY:19850412");
+    // Anniversaire repris par le carnet, renvoyé une fois (vCard 3.0 :
+    // forme étendue).
+    expect(camille).toContain("BDAY:1985-04-12");
+    expect(camille.match(/BDAY/g)).toHaveLength(1);
   });
 
   it("déconnecte le carnet distant sans toucher aux contacts", async () => {

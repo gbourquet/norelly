@@ -95,6 +95,7 @@ fn migrations(normalizer: &Arc<dyn TextNormalizer>) -> Migrations<'static> {
                     .map_err(|e| rusqlite_migration::HookError::Hook(e.0))
             },
         ),
+        M::up(include_str!("../migrations/0027_contact_photos.sql")),
     ])
 }
 
@@ -775,6 +776,9 @@ mod tests {
         // v26 : schéma inchangé (noms des listes en NFC) ; une liste de
         // plus.
         "INSERT INTO contact_lists (name, name_key) VALUES ('V26', 'v26');",
+        // v27 : une photo au contact de la version 11.
+        "UPDATE contacts SET photo = \
+         'abababababababababababababababababababababababababababababababab' WHERE id = 1;",
     ];
 
     /// Montée vers la version 24 : les fiches existantes ne sont pas

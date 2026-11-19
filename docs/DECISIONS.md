@@ -705,7 +705,49 @@ est majoritairement écrit par Claude et relu par le mainteneur.
     en montant seuls la fenêtre des doublons et l'en-tête de la vue
     Contacts (vrais composants, données factices) dans Chrome sans
     interface, et non dans `tauri dev` ;
-  - photos de contact et CardDAV restent au backlog.
+  - photos de contact : **décisions du mainteneur du 2026-11-18, avant le
+    code**. Une photo n'est reprise que d'un fichier vCard et seulement
+    **intégrée** (`PHOTO` en base64 ou URI `data:`) ; une `PHOTO` donnée par
+    adresse est ignorée, sans aucune requête réseau (point validé par
+    l'utilisateur). PNG, JPEG ou WebP reconnus à leur signature, 1 Mio au
+    plus, type annoncé cohérent ; dimensions bornées avant décodage
+    (8 192 px de côté, 4 096² pixels). La photo est **décodée puis
+    réencodée** en JPEG d'au plus 256 px (orientation EXIF appliquée,
+    transparence sur fond blanc) : métadonnées et contenu piégé
+    disparaissent ; seule la vignette est gardée, dans un magasin de
+    fichiers par empreinte SHA-256 (`crates/adapters/blobs`,
+    `contact-photos/`), référencée par `contacts.photo` (migration 27).
+    Règles dans le domaine (`contact_photo`), réencodage derrière un port
+    `PhotoCodec` dans `contacts-io` par la crate **`image`** (MIT ou
+    Apache-2.0), réduite à ses décodeurs PNG, JPEG et WebP (dépendances
+    `zune-jpeg`, `image-webp`, `png`, `moxcms`, `pxfm`, toutes sous
+    licence permissive). Affichage par un protocole dédié **en lecture
+    seule**, `contact-photo://localhost/<contact>` : la photo est relue par
+    le carnet, jamais désignée par l'interface, servie seulement si c'est
+    un JPEG et un type matriciel accepté, comme les images du rendu ; à
+    défaut, l'initiale reste. L'import ne donne une photo qu'à une fiche
+    créée, ou à un contact complété qui n'en a pas (jamais remplacée) ;
+    modifier une fiche garde sa photo, la fusion celle de la fiche gardée,
+    sinon celle d'une fiche absorbée. Suites de la revue de sécurité et de
+    la relecture : un import réencode au plus 2 000 photos et décode au
+    plus 500 Mpx en tout (en-tête lu d'abord), une panique du décodeur
+    écarte la photo, pas l'import ; le protocole refuse une requête venue
+    d'un document de message ; l'export n'écrit que des JPEG relus, dans
+    un budget de 10 Mio de photos (au-delà, les contacts suivants sont
+    exportés sans photo).
+    **Export** (choix de l'agent, à valider) : les vCard 4.0 et 3.0
+    écrivent la photo réencodée, intégrée (`data:image/jpeg;base64` en
+    4.0, `ENCODING=b;TYPE=JPEG` en 3.0) ; CSV et LDIF ne l'écrivent pas.
+    Synchronisation CardDAV (ADR-014) : une `PHOTO` reçue du serveur est
+    ignorée, jamais stockée ni décodée ; la photo locale n'est pas envoyée
+    (seules les propriétés gérées sont écrites, la `PHOTO` distante reste)
+    et elle est gardée quand une fiche est mise à jour depuis le serveur
+    (colonne écrite par l'import seul) ; la migration des photos est la 27.
+    Les photos qu'aucun contact ne porte plus sont supprimées au
+    démarrage, après une suppression ou une fusion, jamais pendant un
+    import de l'instance, et seulement après dix minutes (import en cours
+    d'une autre instance) ;
+  - CardDAV reste au backlog.
 
 ## ADR-013 : connexion OAuth 2.0 (XOAUTH2)
 

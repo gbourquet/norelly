@@ -2,13 +2,14 @@
 //! [`ContactDirectory`]), jouée contre le faux en mémoire
 //! ([`InMemoryContactBook`]) et contre SQLite.
 
+use std::collections::BTreeSet;
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use crate::contact_import_contracts::FakeNfc;
 use norelly_domain::address::EmailAddress;
-use norelly_domain::contact_duplicates::{DismissedPair, MAX_DISMISSED_PAIRS};
+use norelly_domain::contact_duplicates::{DismissedPair, MAX_DISMISSED_PAIRS, merged_photo};
 use norelly_domain::contact_export::ContactSelection;
-use norelly_domain::contact_import::{ContactCompletion, ListImport};
+use norelly_domain::contact_import::{ContactCompletion, ListImport, PhotoTarget, PlacedPhoto};
 use norelly_domain::contact_lists::{
     ContactList, ContactListDraft, ContactListError, ContactListId, ContactListInput,
 };
@@ -17,8 +18,9 @@ use norelly_domain::contacts::{
     PhoneInput, PostalAddressInput, WebsiteInput,
 };
 use norelly_domain::ports::{
-    ContactBook, ContactCursor, ContactDirectory, ContactListItem, ContactPage, ContactStoreError,
-    DuplicateDismissals, ImportOutcome, MAX_CONTACT_LOOKUP, MAX_PAGE_SIZE, PageSize, StoreError,
+    BlobId, ContactBook, ContactCursor, ContactDirectory, ContactListItem, ContactPage,
+    ContactStoreError, DuplicateDismissals, ImportOutcome, MAX_CONTACT_LOOKUP, MAX_PAGE_SIZE,
+    PageSize, StoreError,
 };
 
 /// Fiche de test : `name` (nom affiché, vide : aucun) et ses adresses, la
@@ -431,6 +433,182 @@ pub async fn contact_selection_contract<B: ContactBook + ContactDirectory>(
     Ok(())
 }
 
+/// Identifiant de photo de test, fait de l'octet `n` répété.
+#[must_use]
+pub fn photo_id(n: u8) -> BlobId {
+    BlobId::parse(&format!("{n:02x}").repeat(32)).unwrap_or_else(|| panic!("identifiant"))
+}
+
+/// Contact relu de nom `name` (première page de la liste).
+async fn contact_named<B: ContactDirectory>(book: &B, name: &str) -> Result<Contact, StoreError> {
+    let page = book
+        .page(&ContactFilter::default(), None, PageSize::new(10))
+        .await?;
+    let item = page
+        .items
+        .into_iter()
+        .find(|i| i.name == name)
+        .unwrap_or_else(|| panic!("{name} absent"));
+    Ok(book
+        .get(item.id)
+        .await?
+        .unwrap_or_else(|| panic!("{name} illisible")))
+}
+
+/// Contrat des photos (carnet vide au départ) : l'import donne leur photo
+/// aux fiches créées et aux contacts complétés qui n'en avaient pas (une
+/// photo destinée à un contact non complété ou hors des fiches créées est
+/// ignorée) ; modifier une fiche garde sa photo ; la fusion garde celle de
+/// la fiche gardée, sinon prend celle d'une fiche absorbée
+/// ([`norelly_domain::contact_duplicates::merged_photo`]) ; un contact relu porte sa photo, comparée par l'import ;
+/// [`ContactDirectory::photo_ids`] liste les photos encore portées.
+pub async fn contact_photo_contract<B: ContactBook + ContactDirectory>(
+    book: &B,
+) -> Result<(), ContactStoreError> {
+    let alice = book
+        .create(&sample_contact("Alice", &["alice@example.com"]))
+        .await?;
+    let bob = book
+        .create(&sample_contact("Bob", &["bob@example.com"]))
+        .await?;
+    assert_eq!(alice.photo(), None);
+    assert!(book.photo_ids().await?.is_empty());
+
+    let outcome = book
+        .import(
+            &[
+                sample_contact("Carole", &["carole@example.com"]),
+                sample_contact("Denis", &["denis@example.com"]),
+            ],
+            &[ContactCompletion::new(alice.clone(), alice.draft().clone())],
+            &[],
+            &[
+                PlacedPhoto {
+                    target: PhotoTarget::Created(1),
+                    photo: photo_id(1),
+                },
+                PlacedPhoto {
+                    target: PhotoTarget::Existing(alice.id()),
+                    photo: photo_id(2),
+                },
+                // Bob n'est pas complété ; aucune troisième fiche créée.
+                PlacedPhoto {
+                    target: PhotoTarget::Existing(bob.id()),
+                    photo: photo_id(3),
+                },
+                PlacedPhoto {
+                    target: PhotoTarget::Created(2),
+                    photo: photo_id(4),
+                },
+            ],
+        )
+        .await?;
+    assert_eq!((outcome.created, outcome.completed), (2, 1));
+    let alice = contact_named(book, "Alice").await?;
+    assert_eq!(alice.photo(), Some(&photo_id(2)));
+    assert_eq!(contact_named(book, "Bob").await?.photo(), None);
+    assert_eq!(contact_named(book, "Carole").await?.photo(), None);
+    let denis = contact_named(book, "Denis").await?;
+    assert_eq!(denis.photo(), Some(&photo_id(1)));
+    assert_eq!(
+        book.photo_ids().await?.into_iter().collect::<Vec<_>>(),
+        [photo_id(1), photo_id(2)]
+    );
+
+    // Une fiche lue sans sa photo a changé depuis : l'import est refusé.
+    let stale = alice.clone().with_photo(None);
+    assert_eq!(
+        book.import(
+            &[],
+            &[ContactCompletion::new(stale, alice.draft().clone())],
+            &[],
+            &[]
+        )
+        .await,
+        Err(ContactStoreError::Conflict)
+    );
+
+    // Compléter la fiche sans lui donner de photo (mise à jour venue d'un
+    // serveur CardDAV) garde la sienne.
+    let completed = sample_contact("Alice", &["alice@example.com", "alice@example.org"]);
+    book.import(
+        &[],
+        &[ContactCompletion::new(alice.clone(), completed.clone())],
+        &[],
+        &[],
+    )
+    .await?;
+    let alice = contact_named(book, "Alice").await?;
+    assert_eq!(alice.draft(), &completed);
+    assert_eq!(alice.photo(), Some(&photo_id(2)));
+    assert_eq!(
+        book.photo_ids().await?.into_iter().collect::<Vec<_>>(),
+        [photo_id(1), photo_id(2)]
+    );
+
+    // Modifier la fiche garde sa photo, dans la fiche rendue comme relue.
+    let renamed = book
+        .update(
+            alice.id(),
+            &sample_contact("Alice M.", &["alice@example.com", "alice@example.org"]),
+        )
+        .await?;
+    assert_eq!(renamed.photo(), Some(&photo_id(2)));
+    assert_eq!(book.get(alice.id()).await?, Some(renamed.clone()));
+
+    // La fusion garde la photo de la fiche gardée.
+    let kept = book
+        .merge(
+            &renamed,
+            &sample_contact(
+                "Alice M.",
+                &[
+                    "alice@example.com",
+                    "alice@example.org",
+                    "denis@example.com",
+                ],
+            ),
+            std::slice::from_ref(&denis),
+        )
+        .await?;
+    assert_eq!(kept.photo(), Some(&photo_id(2)));
+    assert_eq!(book.get(alice.id()).await?, Some(kept));
+    assert_eq!(
+        book.photo_ids().await?.into_iter().collect::<Vec<_>>(),
+        [photo_id(2)]
+    );
+
+    // Une photo n'est plus portée par une fiche supprimée.
+    book.delete(alice.id()).await?;
+    assert!(book.photo_ids().await?.is_empty());
+
+    // Fiche gardée sans photo : elle prend celle de la fiche absorbée.
+    let eve = book
+        .create(&sample_contact("Eve", &["eve@example.com"]))
+        .await?;
+    book.import(
+        &[sample_contact("Frank", &["frank@example.com"])],
+        &[],
+        &[],
+        &[PlacedPhoto {
+            target: PhotoTarget::Created(0),
+            photo: photo_id(5),
+        }],
+    )
+    .await?;
+    let frank = contact_named(book, "Frank").await?;
+    let kept = book
+        .merge(
+            &eve,
+            &sample_contact("Eve", &["eve@example.com", "frank@example.com"]),
+            std::slice::from_ref(&frank),
+        )
+        .await?;
+    assert_eq!(kept.photo(), Some(&photo_id(5)));
+    assert_eq!(book.get(eve.id()).await?, Some(kept));
+    Ok(())
+}
+
 /// Contrat de la taille de page (carnet vide au départ) : une demande
 /// plus grande que [`MAX_PAGE_SIZE`] renvoie au plus [`MAX_PAGE_SIZE`]
 /// contacts, et la suite donne le reste.
@@ -441,7 +619,7 @@ pub async fn contact_page_size_contract<B: ContactBook + ContactDirectory>(
     let drafts: Vec<ContactDraft> = (0..=MAX_PAGE_SIZE)
         .map(|i| sample_contact(&format!("c{i:04}"), &[&format!("c{i}@example.com")]))
         .collect();
-    book.import(&drafts, &[], &[]).await?;
+    book.import(&drafts, &[], &[], &[]).await?;
     let first = book
         .page(&all, None, PageSize::new(MAX_PAGE_SIZE + 1))
         .await?;
@@ -463,7 +641,10 @@ pub async fn contact_import_contract<B: ContactBook + ContactDirectory>(
     book: &B,
 ) -> Result<(), ContactStoreError> {
     let all = ContactFilter::default();
-    assert_eq!(book.import(&[], &[], &[]).await?, ImportOutcome::default());
+    assert_eq!(
+        book.import(&[], &[], &[], &[]).await?,
+        ImportOutcome::default()
+    );
 
     let outcome = book
         .import(
@@ -471,6 +652,7 @@ pub async fn contact_import_contract<B: ContactBook + ContactDirectory>(
                 sample_contact("Alice", &["alice@example.com"]),
                 full_contact(),
             ],
+            &[],
             &[],
             &[],
         )
@@ -493,6 +675,7 @@ pub async fn contact_import_contract<B: ContactBook + ContactDirectory>(
                 sample_contact("Alice", &["alice@example.com"]),
                 sample_contact("Bob", &["bob@example.net"]),
             ],
+            &[],
             &[],
             &[],
         )
@@ -528,6 +711,7 @@ pub async fn contact_import_contract<B: ContactBook + ContactDirectory>(
                 completed.draft().clone(),
             )],
             &[],
+            &[],
         )
         .await?;
     assert_eq!(
@@ -552,6 +736,7 @@ pub async fn contact_import_contract<B: ContactBook + ContactDirectory>(
             &[sample_contact("Denis", &["denis@example.org"])],
             &[stolen],
             &[],
+            &[]
         )
         .await,
         Err(ContactStoreError::DuplicateAddress(address(
@@ -569,6 +754,7 @@ pub async fn contact_import_contract<B: ContactBook + ContactDirectory>(
             &[sample_contact("Denis", &["denis@example.org"])],
             &[unknown],
             &[],
+            &[]
         )
         .await,
         Err(ContactStoreError::NotFound)
@@ -584,6 +770,7 @@ pub async fn contact_import_contract<B: ContactBook + ContactDirectory>(
             &[sample_contact("Autre", &["A3@example.com"])],
             &[again],
             &[],
+            &[]
         )
         .await,
         Err(ContactStoreError::DuplicateAddress(address(
@@ -601,6 +788,7 @@ pub async fn contact_import_contract<B: ContactBook + ContactDirectory>(
             &[sample_contact("Denis", &["denis@example.org"])],
             &[stale],
             &[],
+            &[]
         )
         .await,
         Err(ContactStoreError::Conflict)
@@ -617,7 +805,7 @@ pub async fn contact_import_contract<B: ContactBook + ContactDirectory>(
         sample_contact("Bob", &["bob@example.net", "b2@example.net"]),
     );
     assert_eq!(
-        book.import(&[], &[takes_carole, stale_bob], &[]).await,
+        book.import(&[], &[takes_carole, stale_bob], &[], &[]).await,
         Err(ContactStoreError::Conflict)
     );
     assert_eq!(book.get(alice.id()).await?, Some(completed));
@@ -862,7 +1050,9 @@ impl ContactBook for InMemoryContactBook {
         if let Some(address) = taken(&state.1, draft, Some(id)) {
             return Err(ContactStoreError::DuplicateAddress(address));
         }
-        let contact = draft.clone().with_id(id);
+        // La photo n'est pas dans la fiche saisie : elle reste.
+        let photo = state.1[index].photo().cloned();
+        let contact = draft.clone().with_id(id).with_photo(photo);
         state.1[index] = contact.clone();
         self.forget_dismissed(&[id]);
         Ok(contact)
@@ -877,6 +1067,7 @@ impl ContactBook for InMemoryContactBook {
         create: &[ContactDraft],
         complete: &[ContactCompletion],
         lists: &[ListImport],
+        photos: &[PlacedPhoto],
     ) -> Result<ImportOutcome, ContactStoreError> {
         let mut state = self.lock();
         let mut list_state = self.lock_lists();
@@ -898,17 +1089,30 @@ impl ContactBook for InMemoryContactBook {
             if let Some(address) = taken(&contacts, contact.draft(), Some(contact.id())) {
                 return Err(ContactStoreError::DuplicateAddress(address));
             }
-            contacts[index] = contact.draft().clone().with_id(contact.id());
+            let photo = photos
+                .iter()
+                .find(|p| p.target == PhotoTarget::Existing(contact.id()))
+                .map(|p| p.photo.clone())
+                .or_else(|| contact.read().photo().cloned());
+            contacts[index] = contact
+                .draft()
+                .clone()
+                .with_id(contact.id())
+                .with_photo(photo);
         }
         let mut created = Vec::with_capacity(create.len());
-        for draft in create {
+        for (rank, draft) in create.iter().enumerate() {
             if let Some(address) = taken(&contacts, draft, None) {
                 return Err(ContactStoreError::DuplicateAddress(address));
             }
             last += 1;
             let id = ContactId::new(last)
                 .ok_or_else(|| ContactStoreError::Corrupted("identifiant".into()))?;
-            contacts.push(draft.clone().with_id(id));
+            let photo = photos
+                .iter()
+                .find(|p| p.target == PhotoTarget::Created(rank))
+                .map(|p| p.photo.clone());
+            contacts.push(draft.clone().with_id(id).with_photo(photo));
             created.push(id);
         }
         // Listes : écrites sur une copie elles aussi.
@@ -1009,7 +1213,10 @@ impl ContactBook for InMemoryContactBook {
             }
         }
         state.1.retain(|c| !absorbed.contains(&c.id()));
-        let contact = draft.clone().with_id(keep);
+        let photo = read
+            .split_first()
+            .and_then(|(keep, absorbed)| merged_photo(keep, absorbed).cloned());
+        let contact = draft.clone().with_id(keep).with_photo(photo);
         if let Some(slot) = state.1.iter_mut().find(|c| c.id() == keep) {
             *slot = contact.clone();
         }
@@ -1134,11 +1341,25 @@ impl ContactDirectory for InMemoryContactBook {
             .take(limit)
             .collect())
     }
+
+    async fn photo_ids(&self) -> Result<BTreeSet<BlobId>, StoreError> {
+        Ok(self
+            .lock()
+            .1
+            .iter()
+            .filter_map(|c| c.photo().cloned())
+            .collect())
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn in_memory_contact_book_passes_photo_contract() -> Result<(), ContactStoreError> {
+        contact_photo_contract(&InMemoryContactBook::default()).await
+    }
 
     #[tokio::test]
     async fn in_memory_contact_book_passes_contract() -> Result<(), ContactStoreError> {

@@ -51,6 +51,49 @@ impl ExportFormat {
             Self::Ldif => "ldif",
         }
     }
+
+    /// Le format écrit-il la photo d'un contact ?
+    #[must_use]
+    pub fn keeps_photos(self) -> bool {
+        matches!(self, Self::VCard4 | Self::VCard3)
+    }
+}
+
+/// Taille totale des photos écrites dans un export, en octets (avant
+/// base64) : la moitié de [`MAX_EXPORT_FILE_BYTES`], pour que les fiches
+/// elles-mêmes tiennent toujours dans le fichier. Au-delà, les photos
+/// suivantes sont omises ([`PhotoBudget`]), l'export continue.
+pub const MAX_EXPORT_PHOTO_BYTES: usize = MAX_EXPORT_FILE_BYTES / 2;
+
+/// Budget des photos d'un export, dans l'ordre des fiches.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct PhotoBudget {
+    used: usize,
+    exhausted: bool,
+}
+
+impl PhotoBudget {
+    /// Le budget est-il épuisé ? Plus aucune photo n'est alors lue.
+    #[must_use]
+    pub fn exhausted(&self) -> bool {
+        self.exhausted
+    }
+
+    /// Une photo de `size` octets tient-elle encore ? Sinon, elle et toutes
+    /// les suivantes sont omises (le budget est épuisé).
+    pub fn take(&mut self, size: usize) -> bool {
+        let fits = !self.exhausted
+            && self
+                .used
+                .checked_add(size)
+                .is_some_and(|total| total <= MAX_EXPORT_PHOTO_BYTES);
+        if fits {
+            self.used += size;
+        } else {
+            self.exhausted = true;
+        }
+        fits
+    }
 }
 
 /// Longueur maximale, en octets, d'un libellé reçu de l'interface pour le
@@ -185,6 +228,10 @@ pub struct ExportCard {
     pub postal_addresses: Vec<ExportPostalAddress>,
     /// Sites web ; en LDIF, comme les adresses postales.
     pub websites: Vec<ExportWebsite>,
+    /// Photo réencodée ([`crate::contact_photo::PHOTO_MEDIA_TYPE`]), écrite
+    /// intégrée par les formats qui la gardent
+    /// ([`ExportFormat::keeps_photos`]).
+    pub photo: Option<Vec<u8>>,
 }
 
 /// Liste de diffusion prête à écrire : ses membres sont désignés par leur
@@ -302,6 +349,7 @@ pub fn export_card(draft: &ContactDraft, format: ExportFormat) -> ExportCard {
                 label,
             })
             .collect(),
+        photo: None,
     }
 }
 

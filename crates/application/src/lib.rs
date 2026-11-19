@@ -10,6 +10,7 @@ pub mod contact_duplicates;
 pub mod contact_export;
 pub mod contact_import;
 pub mod contact_lists;
+pub mod contact_photos;
 pub mod contacts;
 pub mod discover_settings;
 pub mod folders;

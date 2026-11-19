@@ -489,6 +489,7 @@ fn a_remote_card_becomes_a_contact_only_when_valid() {
     let one = DecodedContacts {
         format: ContactFormat::VCard,
         cards: vec![ImportedCard::Contact(input("Alice", "alice@example.com"))],
+        photos: crate::contact_photo::CardPhotos::new(),
     };
     assert_eq!(
         remote_draft(&one, &SameText),
@@ -500,6 +501,7 @@ fn a_remote_card_becomes_a_contact_only_when_valid() {
             display_name: "Sans adresse".into(),
             ..ContactInput::default()
         })],
+        photos: crate::contact_photo::CardPhotos::new(),
     };
     assert_eq!(remote_draft(&without_address, &SameText), None);
     let two = DecodedContacts {
@@ -508,6 +510,7 @@ fn a_remote_card_becomes_a_contact_only_when_valid() {
             ImportedCard::Contact(input("A", "a@example.com")),
             ImportedCard::Contact(input("B", "b@example.com")),
         ],
+        photos: crate::contact_photo::CardPhotos::new(),
     };
     assert_eq!(
         remote_draft(&two, &SameText),
@@ -517,6 +520,7 @@ fn a_remote_card_becomes_a_contact_only_when_valid() {
     let list = DecodedContacts {
         format: ContactFormat::VCard,
         cards: vec![ImportedCard::List(ImportedList::default())],
+        photos: crate::contact_photo::CardPhotos::new(),
     };
     assert_eq!(remote_draft(&list, &SameText), None);
 }

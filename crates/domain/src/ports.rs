@@ -21,8 +21,9 @@ use crate::compose::outbox::OutboxEntry;
 use crate::connection::ConnectionError;
 use crate::contact_duplicates::DismissedPair;
 use crate::contact_export::{ContactSelection, ExportCard, ExportFormat, ExportList};
-use crate::contact_import::{ContactCompletion, DecodedContacts, ListImport};
+use crate::contact_import::{ContactCompletion, DecodedContacts, ListImport, PlacedPhoto};
 use crate::contact_lists::{ContactList, ContactListDraft, ContactListFilter, ContactListId};
+use crate::contact_photo::{PhotoFormat, PhotoRefusal};
 use crate::contacts::{
     AddressKey, Contact, ContactDraft, ContactFilter, ContactId, MAX_CONTACT_NAME_CHARS,
 };
@@ -1639,17 +1640,21 @@ pub trait ContactBook: Send + Sync {
     /// Importe en une transaction : enregistre les fiches `create`,
     /// remplace le contenu des contacts `complete` par leur nouveau
     /// contenu, puis crée les listes `lists`, leurs membres créés désignés
-    /// par leur rang dans `create` ([`ListImport::resolve`]). Tout ou
-    /// rien : une adresse déjà portée par un autre contact
-    /// (`DuplicateAddress`), un contact inconnu (`NotFound`, membre
-    /// compris), un contact qui a changé depuis sa lecture
-    /// ([`ContactCompletion::read`], `Conflict`), ou un nom de liste pris
-    /// entre-temps (`Conflict`) annule tout l'import.
+    /// par leur rang dans `create` ([`ListImport::resolve`]), et donne à
+    /// chaque contact visé par `photos` sa photo (enregistrée au préalable
+    /// dans le [`ContactPhotoStore`]). Tout ou rien : une adresse déjà
+    /// portée par un autre contact (`DuplicateAddress`), un contact inconnu
+    /// (`NotFound`, membre compris), un contact qui a changé depuis sa
+    /// lecture ([`ContactCompletion::read`], photo comprise, `Conflict`),
+    /// ou un nom de liste pris entre-temps (`Conflict`) annule tout
+    /// l'import. Une photo destinée à un contact du carnet qui n'est pas
+    /// complété, ou à une fiche hors de `create`, est ignorée.
     fn import(
         &self,
         create: &[ContactDraft],
         complete: &[ContactCompletion],
         lists: &[ListImport],
+        photos: &[PlacedPhoto],
     ) -> impl Future<Output = Result<ImportOutcome, ContactStoreError>> + Send;
 
     /// Fusionne en une transaction ([`crate::contact_duplicates`]) : la
@@ -1836,6 +1841,65 @@ pub trait ContactDirectory: Send + Sync {
         selection: &ContactSelection,
         limit: usize,
     ) -> impl Future<Output = Result<Vec<Contact>, StoreError>> + Send;
+
+    /// Photos portées par au moins un contact du carnet (ménage du
+    /// [`ContactPhotoStore`]).
+    fn photo_ids(&self) -> impl Future<Output = Result<BTreeSet<BlobId>, StoreError>> + Send;
+}
+
+/// Échec du réencodage d'une photo de contact.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum PhotoCodecError {
+    /// Refusée par une règle du domaine (dimensions).
+    #[error(transparent)]
+    Refused(#[from] PhotoRefusal),
+    /// Contenu illisible pour le décodeur de son format (tronqué, piégé).
+    #[error("photo illisible")]
+    Undecodable,
+}
+
+/// Réencodage des photos de contact (adaptateur `contacts-io`), selon les
+/// règles de [`crate::contact_photo`].
+pub trait PhotoCodec: Send + Sync {
+    /// Dimensions annoncées par l'en-tête de la photo `bytes` au format
+    /// `format`, lu par le seul décodeur de ce format, sans décoder ses
+    /// pixels ; refusées par [`crate::contact_photo::check_dimensions`]
+    /// au-delà des bornes. Sert au budget de décodage d'un import
+    /// ([`crate::contact_photo::DecodeBudget`]).
+    fn dimensions(&self, bytes: &[u8], format: PhotoFormat) -> Result<(u32, u32), PhotoCodecError>;
+
+    /// Photo `bytes`, déjà acceptée par
+    /// [`crate::contact_photo::check_embedded`] au format `format`,
+    /// décodée par le seul décodeur de ce format, dimensions contrôlées par
+    /// [`crate::contact_photo::check_dimensions`] avant le décodage des
+    /// pixels, réduite à [`crate::contact_photo::thumbnail_size`] et
+    /// réencodée en JPEG ([`crate::contact_photo::PHOTO_JPEG_QUALITY`],
+    /// transparence sur [`crate::contact_photo::PHOTO_BACKGROUND`]), sans
+    /// aucune métadonnée. Calcul lourd : à appeler hors des fils
+    /// asynchrones.
+    fn thumbnail(&self, bytes: &[u8], format: PhotoFormat) -> Result<Vec<u8>, PhotoCodecError>;
+}
+
+/// Magasin des photos de contact réencodées (adaptateur `blobs`), commun à
+/// tous les comptes comme le carnet, adressé par l'empreinte SHA-256 du
+/// contenu.
+pub trait ContactPhotoStore: Send + Sync {
+    /// Enregistre une photo (idempotent : même contenu, même identifiant) ;
+    /// écriture atomique. Refusée au-delà de
+    /// [`crate::contact_photo::MAX_PHOTO_BYTES`] octets.
+    fn put(&self, bytes: Vec<u8>) -> impl Future<Output = Result<BlobId, StoreError>> + Send;
+
+    /// Photo `id` ; `None` si elle est absente. Un contenu dont
+    /// l'empreinte n'est pas `id` est une erreur.
+    fn get(&self, id: &BlobId) -> impl Future<Output = Result<Option<Vec<u8>>, StoreError>> + Send;
+
+    /// Supprime les photos absentes de `keep` enregistrées depuis au moins
+    /// `min_age` (âge inconnu : gardée) ; renvoie leur nombre.
+    fn retain(
+        &self,
+        keep: &BTreeSet<BlobId>,
+        min_age: Duration,
+    ) -> impl Future<Output = Result<usize, StoreError>> + Send;
 }
 
 /// Groupes de doublons passés par l'utilisateur

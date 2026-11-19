@@ -965,6 +965,56 @@ describe(`captures d'écran (${lang})`, () => {
     await window.waitForDisplayed({ reverse: true, timeout: 10000 });
   });
 
+  it("photo d'un contact (à la souris)", async () => {
+    // vCard des jeux d'essai : une fiche avec photo intégrée, une avec photo
+    // par adresse (jamais chargée), une avec photo piégée (écartée). La
+    // fiche avec photo est capturée (l'initiale l'est par « contacts ») ; les
+    // trois contacts sont ensuite supprimés (carnet de la démonstration
+    // inchangé).
+    const file = path.resolve(
+      path.dirname(fileURLToPath(import.meta.url)),
+      "../../../crates/adapters/contacts-io/tests/data/photo.vcf",
+    );
+    await headerAction(msg("contacts_import_button"));
+    await pickFile(msg("contacts_import_pick_title"), file);
+    const preview = dialogTitled(msg("contacts_import_title"));
+    await preview.waitForDisplayed({ timeout: 20000 });
+    await preview.$(`button=${msg("contacts_import_confirm")}`).click();
+    await preview.waitForDisplayed({ reverse: true, timeout: 20000 });
+    const row = (name) => $(`//*[@role="option"][.//*[normalize-space()="${name}"]]`);
+    await row("Camille Rousseau").click();
+    await $(
+      `article[aria-label="${msg("contacts_card", { name: "Camille Rousseau" })}"]`,
+    ).waitForDisplayed();
+    await browser.waitUntil(
+      () =>
+        browser.execute(() => {
+          const img = document.querySelector("article .avatar img");
+          return img instanceof HTMLImageElement && img.complete && img.naturalWidth > 0;
+        }),
+      { timeout: 10000, timeoutMsg: "photo non chargée" },
+    );
+    await capture("contacts-photo");
+    for (const name of ["Camille Rousseau", "Hugo Lemaire", "Inès Faure"]) {
+      await row(name).$('input[type="checkbox"]').click();
+    }
+    const selection = $(`section[aria-label="${msg("contacts_selection")}"]`);
+    const visible = `[not(ancestor::*[@aria-hidden="true"])]`;
+    const direct = selection.$(
+      `.//button[normalize-space()="${msg("cmd_contact_delete")}"]${visible}`,
+    );
+    if (await direct.isDisplayed().catch(() => false)) {
+      await direct.click();
+    } else {
+      await openMenu(selection.$(`.//button[normalize-space()="${msg("action_more")}"]${visible}`));
+      await menuItem(msg("cmd_contact_delete")).click();
+    }
+    const confirm = dialogTitled(msg("delete_contacts_title_many"));
+    await confirm.waitForDisplayed();
+    await confirm.$(`button=${msg("delete_contacts_confirm")}`).click();
+    await confirm.waitForDisplayed({ reverse: true, timeout: 10000 });
+  });
+
   it("listes de diffusion (à la souris)", async () => {
     const field = (key) =>
       $(`//label[span[normalize-space()="${msg(key)}"]]//*[self::input or self::textarea]`);

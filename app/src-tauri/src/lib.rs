@@ -215,6 +215,11 @@ pub fn run() {
                     }
                 });
             }
+            // Ménage des photos de contact qu'aucun contact ne porte plus.
+            let handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                state::sweep_contact_photos(&handle.state::<state::AppState>()).await;
+            });
             // Synchronisation de chaque compte enregistré.
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {

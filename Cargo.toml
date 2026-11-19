@@ -87,6 +87,9 @@ rusqlite_migration = "2.6"
 # Unlicense) ; NFC par icu_normalizer (Unicode-3.0), déjà tirée par idna.
 csv = "1.4"
 icu_normalizer = { version = "2.4", default-features = false, features = ["compiled_data"] }
+# Photos de contact (ADR-012) : décodage PNG, JPEG et WebP, réencodage JPEG.
+# Formats limités à ces trois (pas de GIF, TIFF, AVIF…), sans rayon.
+image = { version = "0.25.10", default-features = false, features = ["png", "jpeg", "webp"] }
 # Messages bruts compressés (.eml.zst, ADR-003).
 zstd = "0.13"
 criterion = { version = "0.7", default-features = false, features = ["cargo_bench_support"] }

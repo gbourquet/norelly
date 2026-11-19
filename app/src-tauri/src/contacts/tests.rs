@@ -268,3 +268,16 @@ fn details_go_through_the_interface_both_ways() {
         }]
     );
 }
+
+#[test]
+fn the_contact_says_whether_it_has_a_photo() {
+    let id = ContactId::new(1).unwrap_or_else(|| panic!("id"));
+    let draft =
+        norelly_test_support::contacts_contracts::sample_contact("Alice", &["alice@example.com"]);
+    let without = contact_dto(&draft.clone().with_id(id)).unwrap_or_else(|e| panic!("{e:?}"));
+    assert!(!without.photo);
+    let photo = norelly_test_support::contacts_contracts::photo_id(1);
+    let with =
+        contact_dto(&draft.with_id(id).with_photo(Some(photo))).unwrap_or_else(|e| panic!("{e:?}"));
+    assert!(with.photo);
+}

@@ -461,3 +461,98 @@ async fn an_unreadable_remote_card_is_not_duplicated_by_a_local_contact() {
     assert_eq!(report.pushed, 0, "{report:?}");
     assert_eq!(w.remote().len(), 1, "doublon envoyé sur le serveur");
 }
+
+#[tokio::test]
+async fn a_photo_from_the_server_is_ignored_and_ours_is_kept() {
+    use norelly_domain::contact_import::{ContactCompletion, PhotoTarget, PlacedPhoto};
+    use norelly_test_support::contacts_contracts::photo_id;
+
+    world!(w);
+    w.configure().await;
+    // Photo de la fiche distante : jamais reprise telle quelle ni
+    // réencodée par la synchronisation.
+    let card = "BEGIN:VCARD\r\nVERSION:3.0\r\nUID:bob\r\nFN:Bob\r\nEMAIL:bob@example.com\r\n\
+                PHOTO;ENCODING=b;TYPE=JPEG:/9j/4AAQSkZJRgABAQ==\r\nEND:VCARD\r\n";
+    w.put_remote("bob.vcf", card);
+    w.run(100).await.unwrap_or_else(|e| panic!("{e:?}"));
+    let bob = w.local().await.remove(0);
+    assert_eq!(bob.photo(), None);
+    assert!(
+        w.book
+            .photo_ids()
+            .await
+            .unwrap_or_else(|e| panic!("{e}"))
+            .is_empty()
+    );
+
+    // Photo donnée ici (import) : gardée quand la fiche distante change.
+    w.book
+        .import(
+            &[],
+            &[ContactCompletion::new(bob.clone(), bob.draft().clone())],
+            &[],
+            &[PlacedPhoto {
+                target: PhotoTarget::Existing(bob.id()),
+                photo: photo_id(7),
+            }],
+        )
+        .await
+        .unwrap_or_else(|e| panic!("{e}"));
+    w.put_remote("bob.vcf", &card.replace("FN:Bob", "FN:Robert"));
+    let report = w.run(200).await.unwrap_or_else(|e| panic!("{e:?}"));
+    assert_eq!(report.pulled, 1, "{report:?}");
+    let local = w.local().await.remove(0);
+    assert_eq!(local.draft().display_name(), "Robert");
+    assert_eq!(local.photo(), Some(&photo_id(7)), "photo perdue");
+
+    // Modifiée ici : la fiche distante garde sa propre photo, la nôtre
+    // n'est pas envoyée.
+    w.book
+        .update(
+            local.id(),
+            &sample_contact("Bob Martin", &["bob@example.com"]),
+        )
+        .await
+        .unwrap_or_else(|e| panic!("{e}"));
+    w.run(300).await.unwrap_or_else(|e| panic!("{e:?}"));
+    let remote = w.remote();
+    let data = &remote[&w.remote_path("bob.vcf")];
+    assert!(data.contains("FN:Bob Martin"), "{data}");
+    assert!(
+        data.contains("PHOTO;ENCODING=b;TYPE=JPEG:/9j/4AAQSkZJRgABAQ=="),
+        "{data}"
+    );
+    assert_eq!(data.matches("PHOTO").count(), 1, "{data}");
+    let local = w.local().await.remove(0);
+    assert_eq!(local.photo(), Some(&photo_id(7)));
+    assert_eq!(w.run(400).await.map(|r| r.changes()), Ok(0));
+}
+
+#[tokio::test]
+async fn a_contact_photo_never_leaves_for_the_server() {
+    use norelly_domain::contact_import::{PhotoTarget, PlacedPhoto};
+    use norelly_test_support::contacts_contracts::photo_id;
+
+    world!(w);
+    w.configure().await;
+    w.book
+        .import(
+            &[sample_contact("Carole", &["carole@example.com"])],
+            &[],
+            &[],
+            &[PlacedPhoto {
+                target: PhotoTarget::Created(0),
+                photo: photo_id(3),
+            }],
+        )
+        .await
+        .unwrap_or_else(|e| panic!("{e}"));
+    let report = w.run(100).await.unwrap_or_else(|e| panic!("{e:?}"));
+    assert_eq!(report.pushed, 1, "{report:?}");
+    let remote = w.remote();
+    assert_eq!(remote.len(), 1);
+    for data in remote.values() {
+        assert!(data.contains("FN:Carole"), "{data}");
+        assert!(!data.contains("PHOTO"), "{data}");
+    }
+}

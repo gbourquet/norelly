@@ -2,15 +2,25 @@
 //! écrire ([`PrepareContactExport`]), préparées par les règles du domaine
 //! ([`export_card`], [`export_lists`]) pour le format choisi.
 //!
+//! La photo d'un contact, réencodée à l'import, est lue dans le
+//! [`ContactPhotoStore`] pour les formats qui la gardent
+//! ([`ExportFormat::keeps_photos`]) ; une photo absente, illisible ou qui
+//! n'est pas un JPEG est omise, sans empêcher l'export, comme toutes les
+//! photos au-delà du budget de l'export
+//! ([`norelly_domain::contact_export::MAX_EXPORT_PHOTO_BYTES`]).
+//!
 //! L'écriture du fichier (port [`norelly_domain::ports::ContactCodec`],
 //! puis disque) est faite par l'appelant hors des fils asynchrones : elle
 //! peut porter sur tout un carnet.
 
 use norelly_domain::contact_export::{
-    ContactSelection, ExportCard, ExportFormat, ExportList, MAX_EXPORT_CONTACTS, export_card,
-    export_lists, exports_lists,
+    ContactSelection, ExportCard, ExportFormat, ExportList, MAX_EXPORT_CONTACTS, PhotoBudget,
+    export_card, export_lists, exports_lists,
 };
-use norelly_domain::ports::{ContactDirectory, ContactListDirectory, StoreError};
+use norelly_domain::contact_photo::is_kept_photo;
+use norelly_domain::ports::{
+    ContactDirectory, ContactListDirectory, ContactPhotoStore, StoreError,
+};
 
 /// Échec d'un export.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -38,11 +48,14 @@ pub struct PreparedExport {
 /// Cas d'usage : lire les contacts visés (et les listes avec tout le
 /// carnet) et les préparer pour `format`.
 #[derive(Debug)]
-pub struct PrepareContactExport<'a, D> {
+pub struct PrepareContactExport<'a, D, S> {
     pub directory: &'a D,
+    pub photos: &'a S,
 }
 
-impl<D: ContactDirectory + ContactListDirectory> PrepareContactExport<'_, D> {
+impl<D: ContactDirectory + ContactListDirectory, S: ContactPhotoStore>
+    PrepareContactExport<'_, D, S>
+{
     /// Fiches et listes à écrire ; ensemble au plus
     /// [`MAX_EXPORT_CONTACTS`].
     pub async fn execute(
@@ -73,13 +86,31 @@ impl<D: ContactDirectory + ContactListDirectory> PrepareContactExport<'_, D> {
         } else {
             Vec::new()
         };
-        Ok(PreparedExport {
-            cards: contacts
-                .iter()
-                .map(|c| export_card(c.draft(), format))
-                .collect(),
-            lists,
-        })
+        let mut cards = Vec::with_capacity(contacts.len());
+        let mut budget = PhotoBudget::default();
+        for contact in &contacts {
+            let mut card = export_card(contact.draft(), format);
+            if format.keeps_photos()
+                && !budget.exhausted()
+                && let Some(photo) = contact.photo()
+            {
+                card.photo = match self.photos.get(photo).await {
+                    // Seule une photo gardée (JPEG) est écrite, dans la
+                    // limite du budget des photos.
+                    Ok(Some(bytes)) if is_kept_photo(&bytes) && budget.take(bytes.len()) => {
+                        Some(bytes)
+                    }
+                    Ok(_) => None,
+                    Err(e) => {
+                        // Ni le contenu ni la fiche dans le journal.
+                        tracing::warn!(error = %e, "photo de contact illisible, omise de l'export");
+                        None
+                    }
+                };
+            }
+            cards.push(card);
+        }
+        Ok(PreparedExport { cards, lists })
     }
 }
 

@@ -39,6 +39,7 @@ function api(groups: ContactDuplicateGroupDto[], merge?: Error) {
       return {
         id: keep,
         name: "Alice Martin",
+        photo: false,
         fields: {
           display_name: "",
           given_name: "",

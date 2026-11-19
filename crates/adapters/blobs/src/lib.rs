@@ -2,6 +2,8 @@
 //!
 //! - [`FsAccountDataStore`] : purge des données d'un compte à sa
 //!   suppression ;
+//! - [`FsContactPhotoStore`] : photos de contact réencodées, hors des
+//!   répertoires des comptes (le carnet est commun à tous) ;
 //! - [`FsBlobStore`] : messages bruts compressés, `blobs/<aa>/<empreinte>.eml.zst`
 //!   sous le répertoire du compte, nommés par l'empreinte SHA-256 de leur
 //!   contenu (non compressé). Écriture atomique : fichier temporaire dans
@@ -17,6 +19,10 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use norelly_domain::account::AccountId;
 use norelly_domain::ports::{AccountDataStore, BlobId, BlobStore, StoreError};
+
+mod photos;
+
+pub use photos::FsContactPhotoStore;
 
 /// Taille maximale d'un contenu (identique à la limite de réponse IMAP).
 pub const MAX_BLOB_SIZE: u64 = 64 * 1024 * 1024;
@@ -69,12 +75,12 @@ pub struct FsBlobStore {
 /// Compteur des fichiers temporaires (unicité dans le processus).
 static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 
-fn io(what: &str, e: &std::io::Error) -> StoreError {
+pub(crate) fn io(what: &str, e: &std::io::Error) -> StoreError {
     StoreError(format!("{what} : {e}"))
 }
 
 /// Empreinte SHA-256 en hexadécimal minuscule.
-fn digest(bytes: &[u8]) -> Result<BlobId, StoreError> {
+pub(crate) fn digest(bytes: &[u8]) -> Result<BlobId, StoreError> {
     let hash = ring::digest::digest(&ring::digest::SHA256, bytes);
     let hex: String = hash.as_ref().iter().map(|b| format!("{b:02x}")).collect();
     BlobId::parse(&hex).ok_or_else(|| StoreError("empreinte invalide".into()))
@@ -101,7 +107,26 @@ impl FsBlobStore {
     }
 }
 
+/// Écrit `bytes` compressé, de façon atomique ([`write_file_atomic`]).
 fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), StoreError> {
+    write_file_atomic(path, |file| {
+        let mut encoder =
+            zstd::Encoder::new(file, ZSTD_LEVEL).map_err(|e| io("compression", &e))?;
+        encoder
+            .write_all(bytes)
+            .map_err(|e| io("compression", &e))?;
+        encoder.finish().map_err(|e| io("compression", &e))?;
+        Ok(())
+    })
+}
+
+/// Écrit le fichier `path` par `write` de façon atomique : fichier
+/// temporaire dans le même répertoire, synchronisé sur disque, puis
+/// renommé (répertoire synchronisé aussi).
+pub(crate) fn write_file_atomic(
+    path: &Path,
+    write: impl FnOnce(&mut std::fs::File) -> Result<(), StoreError>,
+) -> Result<(), StoreError> {
     let dir = path
         .parent()
         .ok_or_else(|| StoreError("chemin de contenu sans parent".into()))?;
@@ -114,12 +139,7 @@ fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), StoreError> {
             .create_new(true)
             .open(&temp)
             .map_err(|e| io("création du fichier temporaire", &e))?;
-        let mut encoder =
-            zstd::Encoder::new(&mut file, ZSTD_LEVEL).map_err(|e| io("compression", &e))?;
-        encoder
-            .write_all(bytes)
-            .map_err(|e| io("compression", &e))?;
-        encoder.finish().map_err(|e| io("compression", &e))?;
+        write(&mut file)?;
         file.sync_all().map_err(|e| io("synchronisation", &e))?;
         drop(file);
         std::fs::rename(&temp, path).map_err(|e| io("renommage", &e))?;

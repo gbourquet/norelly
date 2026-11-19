@@ -1,10 +1,11 @@
 <script lang="ts" generics="C">
   import { m } from "../lib/paraglide/messages.js";
-  // Fiche d'un contact, en lecture : barre d'actions (écrire, modifier,
-  // supprimer, favori), adresses, téléphones, organisation et fonction,
-  // anniversaire, adresses postales, sites web et notes. Tout est affiché
-  // en texte ; un site s'ouvre par Rust (open_external, qui le revalide),
-  // son adresse entière visible sur le bouton.
+  // Fiche d'un contact, en lecture : photo (ou initiale), barre d'actions
+  // (écrire, modifier, supprimer, favori), adresses, téléphones,
+  // organisation et fonction, anniversaire, adresses postales, sites web et
+  // notes. Tout est affiché en texte ; un site s'ouvre par Rust
+  // (open_external, qui le revalide), son adresse entière visible sur le
+  // bouton.
   import StarIcon from "@lucide/svelte/icons/star";
   import MailIcon from "@lucide/svelte/icons/mail";
   import PhoneIcon from "@lucide/svelte/icons/phone";
@@ -20,6 +21,7 @@
   import type { CommandRegistry } from "../lib/commands/registry";
   import { contactsToolbar } from "../lib/visible-actions";
   import { contactLabel } from "../lib/contact-label";
+  import { contactInitial, contactPhotoUrl } from "../lib/contact-photo";
   import ActionBar from "./ActionBar.svelte";
 
   interface Props {
@@ -51,6 +53,9 @@
 
   const actions = $derived(contactsToolbar({ favorite: contact.fields.favorite }));
   const f = $derived(contact.fields);
+  /** Contact dont la photo n'a pas pu être chargée : initiale à la place. */
+  let failedPhoto = $state<number | null>(null);
+  const showPhoto = $derived(contact.photo && failedPhoto !== contact.id);
   /** Prénom et nom, s'ils diffèrent du nom affiché. */
   const fullName = $derived([f.given_name, f.family_name].filter((x) => x !== "").join(" "));
 </script>
@@ -67,7 +72,17 @@
   </div>
   <div class="body">
     <header>
-      <div class="avatar" aria-hidden="true">{contact.name.trim().charAt(0).toUpperCase()}</div>
+      <div class="avatar" aria-hidden="true">
+        {#if showPhoto}
+          <img
+            src={contactPhotoUrl(contact.id)}
+            alt=""
+            onerror={() => (failedPhoto = contact.id)}
+          />
+        {:else}
+          {contactInitial(contact.name)}
+        {/if}
+      </div>
       <div class="titles">
         <h2>
           {contact.name}
@@ -213,6 +228,13 @@
     color: var(--color-accent);
     font-size: var(--font-size-xl);
     font-weight: var(--font-weight-bold);
+    overflow: hidden;
+  }
+
+  .avatar img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
   }
 
   .titles {

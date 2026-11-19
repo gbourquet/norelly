@@ -13,6 +13,7 @@ use norelly_domain::contact_import::{
     ContactFormat, DecodedContacts, ImportedCard, ImportedList, ImportedMember, MAX_IMPORT_CARDS,
     MAX_IMPORT_FILE_BYTES,
 };
+use norelly_domain::contact_photo::{CardPhotos, EmbeddedPhoto};
 use norelly_domain::contacts::{
     ContactDraft, ContactInput, EmailInput, PhoneInput, PostalAddressInput, WebsiteInput,
 };
@@ -160,6 +161,7 @@ impl ContactCodec for FakeContactCodec {
             DecodedContacts {
                 format: import_format(format),
                 cards: imported_file(cards, lists, format),
+                photos: imported_photos(cards, format),
             },
         ));
         Ok(bytes)
@@ -187,6 +189,7 @@ fn card_size(card: &ExportCard) -> usize {
             .iter()
             .map(|p| p.number.len() + p.label.as_ref().map_or(0, String::len))
             .sum::<usize>()
+        + card.photo.as_ref().map_or(0, Vec::len)
 }
 
 /// Format reconnu à la lecture d'un export dans `format`.
@@ -321,6 +324,44 @@ pub fn sample_export_lists(cards: usize) -> Vec<ExportList> {
     ]
 }
 
+/// Photos qu'un traducteur fidèle relit dans l'export de `cards` au
+/// format `format` : celles des formats qui les gardent
+/// ([`ExportFormat::keeps_photos`]), au type JPEG de la version écrite
+/// (`image/jpeg` en vCard 4.0, `JPEG` en 3.0).
+#[must_use]
+pub fn imported_photos(cards: &[ExportCard], format: ExportFormat) -> CardPhotos {
+    let declared = match format {
+        ExportFormat::VCard4 => "image/jpeg",
+        ExportFormat::VCard3 => "JPEG",
+        ExportFormat::GoogleCsv | ExportFormat::Ldif => return CardPhotos::new(),
+    };
+    cards
+        .iter()
+        .enumerate()
+        .filter_map(|(i, card)| {
+            card.photo.as_ref().map(|bytes| {
+                (
+                    i,
+                    EmbeddedPhoto {
+                        declared: Some(declared.to_owned()),
+                        bytes: bytes.clone(),
+                    },
+                )
+            })
+        })
+        .collect()
+}
+
+/// Photo d'exemple de l'export : signature JPEG puis des octets de toutes
+/// les valeurs (le base64 doit les rendre tous), assez pour replier les
+/// lignes.
+#[must_use]
+pub fn sample_export_photo() -> Vec<u8> {
+    let mut photo = vec![0xFF, 0xD8, 0xFF, 0xE0];
+    photo.extend((0..=255_u8).cycle().take(1000));
+    photo
+}
+
 /// Formats d'export, tous.
 pub const EXPORT_FORMATS: [ExportFormat; 4] = [
     ExportFormat::VCard4,
@@ -442,12 +483,16 @@ pub fn sample_export_drafts() -> Vec<ContactDraft> {
 }
 
 /// Contrat de l'écriture : ce que `codec` écrit dans chaque format, il le
-/// relit à l'identique ([`imported`]) ; trop de fiches ou un fichier trop
-/// gros sont refusés.
+/// relit à l'identique ([`imported`], photo de la première fiche comprise
+/// pour les formats qui la gardent, [`imported_photos`]) ; trop de fiches
+/// ou un fichier trop gros sont refusés.
 pub fn contact_encoding_contract(codec: &impl ContactCodec, drafts: &[ContactDraft]) {
     let lists = sample_export_lists(drafts.len());
     for format in EXPORT_FORMATS {
-        let cards: Vec<ExportCard> = drafts.iter().map(|d| export_card(d, format)).collect();
+        let mut cards: Vec<ExportCard> = drafts.iter().map(|d| export_card(d, format)).collect();
+        if let Some(first) = cards.first_mut() {
+            first.photo = Some(sample_export_photo());
+        }
         let bytes = codec
             .encode(&cards, &lists, format)
             .unwrap_or_else(|e| panic!("{format:?} : {e}"));
@@ -457,6 +502,7 @@ pub fn contact_encoding_contract(codec: &impl ContactCodec, drafts: &[ContactDra
             Ok(DecodedContacts {
                 format: import_format(format),
                 cards: imported_file(&cards, &lists, format),
+                photos: imported_photos(&cards, format),
             }),
             "{format:?}"
         );
@@ -539,6 +585,7 @@ mod tests {
                 }],
                 ..ContactInput::default()
             })],
+            photos: CardPhotos::new(),
         };
         let codec = FakeContactCodec::new(SAMPLE_VCARD.to_vec(), decoded.clone());
         contact_codec_contract(&codec, SAMPLE_VCARD, &decoded);
@@ -551,6 +598,7 @@ mod tests {
             DecodedContacts {
                 format: ContactFormat::VCard,
                 cards: Vec::new(),
+                photos: CardPhotos::new(),
             },
         );
         contact_encoding_contract(&codec, &sample_export_drafts());

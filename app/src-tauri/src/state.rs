@@ -8,8 +8,8 @@ use std::sync::{Arc, Mutex, PoisonError};
 use norelly_application::discover_settings::DiscoverSettings;
 use norelly_application::oauth::{FreshTokens, TokenBroker};
 use norelly_application::test_connection::TestConnection;
-use norelly_blobs::{FsAccountDataStore, FsBlobStore};
-use norelly_contacts_io::{ContactsIo, IcuNfc};
+use norelly_blobs::{FsAccountDataStore, FsBlobStore, FsContactPhotoStore};
+use norelly_contacts_io::{ContactsIo, IcuNfc, ImagePhotos};
 use norelly_discovery::{HickorySrvResolver, HttpAutoconfigClient, TcpPortProber};
 use norelly_domain::address::EmailAddress;
 use norelly_domain::credentials::{Secret, SecretDestination};
@@ -253,12 +253,18 @@ fn wall_clock() -> u64 {
 pub type AppDiscoverSettings = DiscoverSettings<AppAutoconfig, AppSrvResolver, TcpPortProber>;
 
 /// Import et export d'un carnet (ADR-012) : lecture et écriture des
-/// fichiers, normalisation NFC, aperçu en attente de confirmation.
+/// fichiers, normalisation NFC, réencodage des photos, aperçu en attente
+/// de confirmation.
 #[derive(Debug, Default)]
 pub struct ContactImports {
     pub codec: ContactsIo,
     pub nfc: IcuNfc,
+    pub photo_codec: ImagePhotos,
     pub pending: PendingImport,
+    /// Tenu par un import et par le ménage des photos : le ménage ne
+    /// supprime jamais une photo enregistrée par un import en cours, pas
+    /// encore donnée à son contact.
+    pub photo_writes: tokio::sync::Mutex<()>,
 }
 
 /// État partagé par les commandes.
@@ -269,6 +275,8 @@ pub struct AppState {
     pub exceptions: SqliteCertificateExceptionStore,
     /// Carnet d'adresses, commun à tous les comptes (ADR-012).
     pub contacts: SqliteContactBook,
+    /// Photos de contact réencodées, communes à tous les comptes.
+    pub contact_photos: FsContactPhotoStore,
     pub imports: ContactImports,
     /// Synchronisation CardDAV du carnet (ADR-014).
     pub carddav: CardDavServices,
@@ -339,6 +347,21 @@ const MAX_PENDING_REJECTIONS: usize = 16;
 /// actions au plus grand nombre de messages.
 const MAX_UNDOABLE_OPS: usize = 2 * norelly_domain::actions::MAX_ACTION_TARGETS;
 
+/// Ménage des photos de contact qu'aucun contact ne porte plus (au
+/// démarrage, après une suppression ou une fusion), jamais pendant un
+/// import de cette instance ; un échec est journalisé.
+pub async fn sweep_contact_photos(state: &AppState) {
+    let _photos = state.imports.photo_writes.lock().await;
+    let sweep = norelly_application::contact_photos::SweepContactPhotos {
+        directory: &state.contacts,
+        photos: &state.contact_photos,
+    };
+    match sweep.execute().await {
+        Ok(removed) => tracing::info!(removed, "photos de contact orphelines supprimées"),
+        Err(e) => tracing::warn!(error = %e, "ménage des photos de contact"),
+    }
+}
+
 impl AppState {
     /// Assemble l'application à partir du répertoire de données
     /// (`cache_dir` : pièces jointes ouvertes, effaçable).
@@ -400,6 +423,7 @@ impl AppState {
             mail,
             carddav,
             contacts: SqliteContactBook::new(db.clone()),
+            contact_photos: FsContactPhotoStore::new(data_dir.join("contact-photos")),
             imports: ContactImports::default(),
             accounts: SqliteAccountRepository::new(db),
             test: connection_test(&tls, exceptions.clone()),

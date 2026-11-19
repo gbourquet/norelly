@@ -6,11 +6,17 @@
 //! - `remote-img://localhost/<message>/<index>` : image distante via le
 //!   proxy, seulement si l'expéditeur est autorisé (vérifié à chaque
 //!   requête : l'index renvoie à la liste établie par le dernier rendu,
-//!   qui n'en contient que pour un expéditeur autorisé).
+//!   qui n'en contient que pour un expéditeur autorisé) ;
+//! - `contact-photo://localhost/<contact>` : photo d'un contact du carnet,
+//!   en lecture seule, telle que l'import l'a réencodée (JPEG seulement,
+//!   revérifié à chaque requête).
 //!
 //! Seule la fenêtre principale peut s'en servir. Aucune réponse n'est mise
 //! en cache par la webview ; `nosniff` partout.
 
+use norelly_application::contact_photos::ReadContactPhoto;
+use norelly_domain::contact_photo::{PHOTO_MEDIA_TYPE, is_kept_photo};
+use norelly_domain::contacts::ContactId;
 use norelly_domain::fetch_policy::PartPath;
 use norelly_domain::ports::{MessageId, MessageLocator, ReadingPreferences};
 use norelly_domain::reading::sender_address;
@@ -39,6 +45,37 @@ fn message_of(raw: &str) -> Option<MessageId> {
         return None;
     }
     raw.parse().ok().and_then(MessageId::new)
+}
+
+fn contact_of(raw: &str) -> Option<ContactId> {
+    if raw.is_empty() || raw.len() > 12 || !raw.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    raw.parse().ok().and_then(ContactId::new)
+}
+
+/// La requête vient-elle de l'interface ? `Origin` et `Referer`, s'ils sont
+/// présents, doivent désigner l'interface elle-même ([`is_interface`]).
+fn from_interface(request: &Request<Vec<u8>>) -> bool {
+    [header::ORIGIN, header::REFERER].iter().all(|name| {
+        request.headers().get(name).is_none_or(|value| {
+            value
+                .to_str()
+                .ok()
+                .and_then(|v| url::Url::parse(v).ok())
+                .is_some_and(|url| is_interface(&url))
+        })
+    })
+}
+
+/// Adresse de l'interface (pas d'un document de message).
+fn is_interface(url: &url::Url) -> bool {
+    match (url.scheme(), url.host_str()) {
+        ("tauri", Some("localhost")) | ("http" | "https", Some("tauri.localhost")) => true,
+        // Serveur de développement Vite (pnpm tauri dev).
+        ("http", Some("localhost")) => cfg!(debug_assertions) && url.port() == Some(1420),
+        _ => false,
+    }
 }
 
 fn status(code: StatusCode) -> Response<Vec<u8>> {
@@ -158,6 +195,43 @@ async fn remote_image<R: Runtime>(
     }
 }
 
+async fn contact_photo<R: Runtime>(
+    app: &AppHandle<R>,
+    request: Request<Vec<u8>>,
+) -> Response<Vec<u8>> {
+    // Demandée par l'interface seulement, jamais par un document de
+    // message (cadre `mailview://`, origine opaque).
+    if !from_interface(&request) {
+        return status(StatusCode::FORBIDDEN);
+    }
+    let state = app.state::<AppState>();
+    let parts = segments(&request);
+    let [id] = parts.as_slice() else {
+        return status(StatusCode::NOT_FOUND);
+    };
+    let Some(id) = contact_of(id) else {
+        return status(StatusCode::NOT_FOUND);
+    };
+    let read = ReadContactPhoto {
+        directory: &state.contacts,
+        photos: &state.contact_photos,
+    };
+    match read.execute(id).await {
+        // Même contrôle que les images du rendu (type matriciel accepté),
+        // et le contenu doit être le JPEG réencodé : rien d'autre n'est
+        // servi, même depuis un magasin altéré.
+        Ok(Some(bytes)) => match accepted_type(Some(PHOTO_MEDIA_TYPE)) {
+            Some(media_type) if is_kept_photo(&bytes) => ok(media_type, NO_CONTENT_CSP, bytes),
+            _ => status(StatusCode::FORBIDDEN),
+        },
+        Ok(None) => status(StatusCode::NOT_FOUND),
+        Err(e) => {
+            tracing::warn!(error = %e, "photo de contact indisponible");
+            status(StatusCode::NOT_FOUND)
+        }
+    }
+}
+
 /// Traitement d'une requête, lancé en tâche asynchrone.
 type Handler<R> =
     fn(AppHandle<R>, Request<Vec<u8>>) -> tauri::async_runtime::JoinHandle<Response<Vec<u8>>>;
@@ -212,7 +286,7 @@ pub fn navigation_guard<R: Runtime>() -> tauri::plugin::TauriPlugin<R> {
         .build()
 }
 
-/// Enregistre les trois protocoles.
+/// Enregistre les quatre protocoles.
 pub fn register<R: Runtime>(builder: tauri::Builder<R>) -> tauri::Builder<R> {
     builder
         .register_asynchronous_uri_scheme_protocol("mailview", |ctx, request, responder| {
@@ -228,6 +302,11 @@ pub fn register<R: Runtime>(builder: tauri::Builder<R>) -> tauri::Builder<R> {
         .register_asynchronous_uri_scheme_protocol("remote-img", |ctx, request, responder| {
             serve(&ctx, request, responder, |app, request| {
                 tauri::async_runtime::spawn(async move { remote_image(&app, request).await })
+            });
+        })
+        .register_asynchronous_uri_scheme_protocol("contact-photo", |ctx, request, responder| {
+            serve(&ctx, request, responder, |app, request| {
+                tauri::async_runtime::spawn(async move { contact_photo(&app, request).await })
             });
         })
 }
@@ -250,9 +329,38 @@ mod tests {
             "javascript:alert(1)",
             "data:text/html,x",
             "mailpart://localhost/1/2",
+            "contact-photo://localhost/1",
+            "http://contact-photo.localhost/1",
         ] {
             assert!(!ok(bad), "{bad}");
         }
+    }
+
+    /// Directive `name` de la CSP de la fenêtre principale.
+    fn window_csp(name: &str) -> Vec<String> {
+        let conf: serde_json::Value = serde_json::from_str(include_str!("../tauri.conf.json"))
+            .unwrap_or_else(|e| panic!("{e}"));
+        let csp = conf["app"]["security"]["csp"].as_str().unwrap_or_default();
+        csp.split(';')
+            .map(str::trim)
+            .find_map(|d| d.strip_prefix(name).filter(|r| r.starts_with(' ')))
+            .unwrap_or_default()
+            .split_whitespace()
+            .map(str::to_owned)
+            .collect()
+    }
+
+    #[test]
+    fn the_window_loads_images_from_itself_and_contact_photos_only() {
+        assert_eq!(
+            window_csp("img-src"),
+            [
+                "'self'",
+                "data:",
+                "contact-photo:",
+                "http://contact-photo.localhost"
+            ]
+        );
     }
 
     #[test]
@@ -316,6 +424,172 @@ mod tests {
                 mailview(handle, get(bad)).await.status(),
                 StatusCode::NOT_FOUND,
                 "{bad}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn contact_photos_are_served_read_only_as_jpeg() {
+        use norelly_domain::contact_import::{PhotoTarget, PlacedPhoto};
+        use norelly_domain::ports::{ContactBook, ContactPhotoStore};
+        use norelly_test_support::contacts_contracts::sample_contact;
+
+        let t = crate::test_app::test_app().await;
+        let handle = t.app.handle();
+        let state = t.state();
+        let jpeg = b"\xFF\xD8\xFF\xE0 vignette".to_vec();
+        let photo = state
+            .contact_photos
+            .put(jpeg.clone())
+            .await
+            .unwrap_or_else(|e| panic!("{e}"));
+        // Contenu enregistré qui n'est pas un JPEG (magasin altéré).
+        let trapped = state
+            .contact_photos
+            .put(b"<svg onload=alert(1)>".to_vec())
+            .await
+            .unwrap_or_else(|e| panic!("{e}"));
+        state
+            .contacts
+            .import(
+                &[
+                    sample_contact("Alice", &["alice@example.com"]),
+                    sample_contact("Bob", &["bob@example.com"]),
+                    sample_contact("Carole", &["carole@example.com"]),
+                ],
+                &[],
+                &[],
+                &[
+                    PlacedPhoto {
+                        target: PhotoTarget::Created(0),
+                        photo,
+                    },
+                    PlacedPhoto {
+                        target: PhotoTarget::Created(2),
+                        photo: trapped,
+                    },
+                ],
+            )
+            .await
+            .unwrap_or_else(|e| panic!("{e}"));
+        let response = contact_photo(handle, get("contact-photo://localhost/1")).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        // Demandée par l'interface : servie aussi.
+        let from_ui = Request::builder()
+            .uri("contact-photo://localhost/1")
+            .header("Referer", "tauri://localhost/index.html")
+            .body(Vec::new())
+            .unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(
+            contact_photo(handle, from_ui).await.status(),
+            StatusCode::OK
+        );
+        let headers = response.headers();
+        assert_eq!(
+            headers.get(header::CONTENT_TYPE).map(|v| v.as_bytes()),
+            Some(&b"image/jpeg"[..])
+        );
+        assert_eq!(
+            headers
+                .get(header::X_CONTENT_TYPE_OPTIONS)
+                .map(|v| v.as_bytes()),
+            Some(&b"nosniff"[..])
+        );
+        assert_eq!(
+            headers
+                .get(header::CONTENT_SECURITY_POLICY)
+                .map(|v| v.as_bytes()),
+            Some(NO_CONTENT_CSP.as_bytes())
+        );
+        assert_eq!(response.body(), &jpeg);
+        assert_eq!(
+            contact_photo(handle, get("contact-photo://localhost/3"))
+                .await
+                .status(),
+            StatusCode::FORBIDDEN
+        );
+        for bad in [
+            "contact-photo://localhost/2",
+            "contact-photo://localhost/999",
+            "contact-photo://localhost/",
+            "contact-photo://localhost/0",
+            "contact-photo://localhost/1/2",
+            "contact-photo://localhost/..%2F1",
+            "contact-photo://localhost/abababababababababababababababababababababababababababababababab",
+        ] {
+            assert_eq!(
+                contact_photo(handle, get(bad)).await.status(),
+                StatusCode::NOT_FOUND,
+                "{bad}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn photos_no_contact_carries_are_swept_once_old_enough() {
+        use norelly_domain::contact_import::{PhotoTarget, PlacedPhoto};
+        use norelly_domain::contact_photo::PHOTO_SWEEP_MIN_AGE;
+        use norelly_domain::ports::{ContactBook, ContactPhotoStore};
+        use norelly_test_support::contacts_contracts::sample_contact;
+
+        let t = crate::test_app::test_app().await;
+        let state = t.state();
+        let photo = state
+            .contact_photos
+            .put(b"\xFF\xD8\xFF\xE0 supprimee".to_vec())
+            .await
+            .unwrap_or_else(|e| panic!("{e}"));
+        state
+            .contacts
+            .import(
+                &[sample_contact("Alice", &["alice@example.com"])],
+                &[],
+                &[],
+                &[PlacedPhoto {
+                    target: PhotoTarget::Created(0),
+                    photo: photo.clone(),
+                }],
+            )
+            .await
+            .unwrap_or_else(|e| panic!("{e}"));
+        let path = state.contact_photos.path_of(&photo);
+        let old = std::time::SystemTime::now() - PHOTO_SWEEP_MIN_AGE * 2;
+        std::fs::File::options()
+            .append(true)
+            .open(&path)
+            .and_then(|f| f.set_modified(old))
+            .unwrap_or_else(|e| panic!("{e}"));
+        // Encore portée : gardée.
+        crate::state::sweep_contact_photos(&state).await;
+        assert!(path.exists());
+        let id = ContactId::new(1).unwrap_or_else(|| panic!("id"));
+        state
+            .contacts
+            .delete(id)
+            .await
+            .unwrap_or_else(|e| panic!("{e}"));
+        crate::state::sweep_contact_photos(&state).await;
+        assert!(!path.exists());
+    }
+
+    #[tokio::test]
+    async fn a_mail_view_cannot_load_contact_photos() {
+        let t = crate::test_app::test_app().await;
+        let handle = t.app.handle();
+        for (name, value) in [
+            ("Referer", "mailview://localhost/1"),
+            ("Origin", "http://mailview.localhost"),
+            ("Origin", "null"),
+        ] {
+            let request = Request::builder()
+                .uri("contact-photo://localhost/1")
+                .header(name, value)
+                .body(Vec::new())
+                .unwrap_or_else(|e| panic!("{e}"));
+            assert_eq!(
+                contact_photo(handle, request).await.status(),
+                StatusCode::FORBIDDEN,
+                "{name}: {value}"
             );
         }
     }

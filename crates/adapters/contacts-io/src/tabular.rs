@@ -11,6 +11,7 @@ use norelly_domain::contact_export::{is_favorite_google_label, restore_csv_cell}
 use norelly_domain::contact_import::{
     ContactFormat, DecodedContacts, ImportedCard, MAX_IMPORT_CARDS,
 };
+use norelly_domain::contact_photo::CardPhotos;
 use norelly_domain::contacts::{
     ContactInput, EmailInput, PhoneInput, PostalAddressInput, WebsiteInput,
 };
@@ -557,7 +558,11 @@ pub(crate) fn decode(text: &str) -> Result<DecodedContacts, ContactCodecError> {
             return Err(ContactCodecError::TooManyCards);
         }
     }
-    Ok(DecodedContacts { format, cards })
+    Ok(DecodedContacts {
+        format,
+        cards,
+        photos: CardPhotos::new(),
+    })
 }
 
 #[cfg(test)]

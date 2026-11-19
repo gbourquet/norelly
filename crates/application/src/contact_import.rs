@@ -14,18 +14,28 @@
 //! [`norelly_domain::contact_import::plan_outdated`]) n'est pas écrasé :
 //! l'écriture est refusée, le carnet relu et le plan recalculé, au plus
 //! [`MAX_IMPORT_ATTEMPTS`] fois.
+//!
+//! Les photos intégrées aux fiches suivent le plan
+//! ([`norelly_domain::contact_import::plan_import_with_photos`]) : chaque
+//! photo retenue est réencodée par le port [`PhotoCodec`] (hors des fils
+//! asynchrones), enregistrée dans le [`ContactPhotoStore`], puis donnée à
+//! son contact dans la transaction de l'import. Une photo que le
+//! réencodage refuse est écartée, la fiche importée sans elle.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use norelly_domain::contact_import::{
     ContactFormat, DecodedContacts, DuplicatePolicy, ImportPlan, ImportedCard, MAX_IMPORT_ATTEMPTS,
-    import_keys, import_list_keys, plan_import, plan_outdated,
+    PhotoPlacement, PhotoTarget, PlacedPhoto, import_keys, import_list_keys,
+    plan_import_with_photos, plan_outdated,
 };
 use norelly_domain::contact_lists::ContactList;
+use norelly_domain::contact_photo::{CardPhotos, DecodeBudget};
 use norelly_domain::contacts::Contact;
 use norelly_domain::ports::{
-    ContactBook, ContactCodec, ContactCodecError, ContactDirectory, ContactListDirectory,
-    ContactStoreError, ImportOutcome, MAX_CONTACT_LOOKUP, StoreError, TextNormalizer,
+    BlobId, ContactBook, ContactCodec, ContactCodecError, ContactDirectory, ContactListDirectory,
+    ContactPhotoStore, ContactStoreError, ImportOutcome, MAX_CONTACT_LOOKUP, PhotoCodec,
+    StoreError, TextNormalizer,
 };
 
 /// Échec d'un import.
@@ -52,6 +62,8 @@ pub struct ImportPreview {
     pub format: ContactFormat,
     /// Fiches lues, à repasser à [`ApplyContactImport`].
     pub cards: Vec<ImportedCard>,
+    /// Photos intégrées aux fiches, à repasser avec elles.
+    pub photos: CardPhotos,
     /// Plan si les doublons sont ignorés.
     pub skip: ImportPlan,
     /// Plan si les contacts existants sont complétés.
@@ -118,12 +130,22 @@ impl<C: ContactCodec, D: ContactDirectory + ContactListDirectory, N: TextNormali
     pub async fn plan(&self, decoded: DecodedContacts) -> Result<ImportPreview, ImportFailure> {
         let existing = existing(self.directory, &decoded.cards, self.normalizer).await?;
         let lists = existing_lists(self.directory, &decoded.cards, self.normalizer).await?;
-        let plan = |policy| plan_import(&existing, &lists, &decoded.cards, policy, self.normalizer);
+        let plan = |policy| {
+            plan_import_with_photos(
+                &existing,
+                &lists,
+                &decoded.cards,
+                &decoded.photos,
+                policy,
+                self.normalizer,
+            )
+        };
         Ok(ImportPreview {
             format: decoded.format,
             skip: plan(DuplicatePolicy::Skip),
             complete: plan(DuplicatePolicy::Complete),
             cards: decoded.cards,
+            photos: decoded.photos,
         })
     }
 }
@@ -131,27 +153,65 @@ impl<C: ContactCodec, D: ContactDirectory + ContactListDirectory, N: TextNormali
 /// Cas d'usage : importer les fiches d'un aperçu selon `policy`, en une
 /// transaction.
 #[derive(Debug)]
-pub struct ApplyContactImport<'a, B, N> {
+pub struct ApplyContactImport<'a, B, N, P, S> {
     pub book: &'a B,
     pub normalizer: &'a N,
+    pub photo_codec: &'a P,
+    pub photos: &'a S,
 }
 
-impl<B: ContactBook + ContactDirectory + ContactListDirectory, N: TextNormalizer>
-    ApplyContactImport<'_, B, N>
+impl<B, N, P, S> ApplyContactImport<'_, B, N, P, S>
+where
+    B: ContactBook + ContactDirectory + ContactListDirectory,
+    N: TextNormalizer,
+    P: PhotoCodec + Clone + 'static,
+    S: ContactPhotoStore,
 {
     pub async fn execute(
         &self,
         cards: &[ImportedCard],
+        photos: &CardPhotos,
         policy: DuplicatePolicy,
     ) -> Result<ImportOutcome, ImportFailure> {
+        // Photo réencodée et enregistrée de chaque fiche, une fois quel que
+        // soit le nombre de tentatives (`None` : refusée au réencodage).
+        let mut stored: HashMap<usize, Option<BlobId>> = HashMap::new();
+        // Pixels décodés pour tout l'import, toutes tentatives comprises.
+        let mut budget = DecodeBudget::default();
         let mut attempt = 1;
         loop {
             let existing = existing(self.book, cards, self.normalizer).await?;
             let lists = existing_lists(self.book, cards, self.normalizer).await?;
-            let plan = plan_import(&existing, &lists, cards, policy, self.normalizer);
+            let mut plan =
+                plan_import_with_photos(&existing, &lists, cards, photos, policy, self.normalizer);
+            let mut placed = Vec::with_capacity(plan.photos.len());
+            for placement in &plan.photos {
+                let photo = match stored.get(&placement.card) {
+                    Some(photo) => photo.clone(),
+                    None => {
+                        let photo = self.store_photo(photos, placement, &mut budget).await?;
+                        stored.insert(placement.card, photo.clone());
+                        photo
+                    }
+                };
+                if let Some(photo) = photo {
+                    placed.push(PlacedPhoto {
+                        target: placement.target,
+                        photo,
+                    });
+                }
+            }
+            // Un contact complété par sa seule photo, refusée au
+            // réencodage, n'a plus rien à recevoir.
+            plan.complete.retain(|c| {
+                c.draft() != c.read().draft()
+                    || placed
+                        .iter()
+                        .any(|p| p.target == PhotoTarget::Existing(c.id()))
+            });
             let written = self
                 .book
-                .import(&plan.create, &plan.complete, &plan.lists)
+                .import(&plan.create, &plan.complete, &plan.lists, &placed)
                 .await;
             match written {
                 // Le carnet a changé depuis sa lecture : rien n'est écrit,
@@ -160,6 +220,65 @@ impl<B: ContactBook + ContactDirectory + ContactListDirectory, N: TextNormalizer
                     attempt += 1;
                 }
                 outcome => return Ok(outcome?),
+            }
+        }
+    }
+}
+
+impl<B, N, P, S> ApplyContactImport<'_, B, N, P, S>
+where
+    P: PhotoCodec + Clone + 'static,
+    S: ContactPhotoStore,
+{
+    /// Photo de la fiche `placement.card` réencodée (hors des fils
+    /// asynchrones) puis enregistrée ; `None` si le réencodage la refuse,
+    /// si elle dépasse le budget de décodage de l'import, ou si le
+    /// décodeur échoue en paniquant.
+    async fn store_photo(
+        &self,
+        photos: &CardPhotos,
+        placement: &PhotoPlacement,
+        budget: &mut DecodeBudget,
+    ) -> Result<Option<BlobId>, ImportFailure> {
+        let Some(photo) = photos.get(&placement.card) else {
+            return Ok(None);
+        };
+        let codec = self.photo_codec.clone();
+        let bytes = photo.bytes.clone();
+        let format = placement.format;
+        // En-tête d'abord : le budget décide avant le décodage des pixels.
+        let header = {
+            let (codec, bytes) = (codec.clone(), bytes.clone());
+            tokio::task::spawn_blocking(move || codec.dimensions(&bytes, format)).await
+        };
+        match header {
+            Ok(Ok((width, height))) if budget.take(width, height) => {}
+            Ok(Ok(_)) => {
+                tracing::debug!("photo de contact écartée : budget de décodage atteint");
+                return Ok(None);
+            }
+            Ok(Err(e)) => {
+                tracing::debug!(error = %e, "photo de contact écartée");
+                return Ok(None);
+            }
+            Err(_) => {
+                tracing::warn!("photo de contact écartée : décodeur interrompu");
+                return Ok(None);
+            }
+        }
+        let thumbnail = tokio::task::spawn_blocking(move || codec.thumbnail(&bytes, format)).await;
+        let Ok(thumbnail) = thumbnail else {
+            // Panique du décodeur : la photo est écartée, pas l'import ; ni
+            // le message ni le contenu ne sont journalisés.
+            tracing::warn!("photo de contact écartée : décodeur interrompu");
+            return Ok(None);
+        };
+        match thumbnail {
+            Ok(thumbnail) => Ok(Some(self.photos.put(thumbnail).await?)),
+            Err(e) => {
+                // Ni le contenu ni la fiche dans le journal.
+                tracing::debug!(error = %e, "photo de contact écartée");
+                Ok(None)
             }
         }
     }

@@ -209,6 +209,18 @@ langue du logiciel d'origine. Les étiquettes personnelles, comme celles
 créées dans Contacts d'Apple (« bureau », « chalet »), sont reprises telles
 quelles.
 
+Les **photos** contenues dans un fichier vCard sont reprises et
+s'affichent sur la fiche du contact, à côté de son nom ; sans photo, la
+fiche montre l'initiale du nom. Norelly garde une copie en petit format de
+chaque photo, sans les informations cachées qu'elle pouvait contenir
+(lieu, date, appareil). Une photo indiquée par un simple lien vers
+Internet n'est jamais chargée, et une photo trop grande ou d'un format
+inhabituel est laissée de côté : le contact est importé sans elle. Un
+contact déjà dans votre carnet ne reçoit la photo du fichier que s'il n'en
+a pas et que vous choisissez **Les compléter avec le fichier**.
+
+![La fiche de Camille Rousseau, avec la photo reprise du fichier](captures/contacts-photo.png)
+
 ## Exporter vos contacts
 
 Pour garder une copie de votre carnet, ou le reprendre dans un autre
@@ -232,7 +244,8 @@ Les favoris sont gardés en vCard et en CSV (Google Contacts les range
 dans ses favoris, et Norelly les retrouve à l'import), pas en LDIF. Les
 listes de diffusion sont exportées avec tout le carnet, en vCard et en
 LDIF ; elles ne le sont pas en CSV, ni quand vous n'exportez que quelques
-contacts cochés. Dans un
+contacts cochés. Les photos ne sont gardées que dans les fichiers vCard.
+Dans un
 fichier CSV ouvert avec un tableur, un numéro commençant par « + »
 apparaît précédé d'une apostrophe : c'est voulu, pour que le tableur ne le
 prenne pas pour un calcul.

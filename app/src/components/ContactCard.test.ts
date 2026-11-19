@@ -1,5 +1,7 @@
 // Fiche d'un contact en lecture : titre et organisation, anniversaire,
-// adresses postales et sites web ; un site s'ouvre par Rust.
+// adresses postales et sites web ; un site s'ouvre par Rust. Photo servie
+// par le protocole dédié, initiale à défaut (pas de photo, ou photo
+// indisponible).
 import { describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/svelte";
 import ContactCard from "./ContactCard.svelte";
@@ -12,6 +14,7 @@ function contact(): ContactDto {
   return {
     id: 3,
     name: "Hélène Lefèvre",
+    photo: false,
     fields: {
       ...emptyFields(),
       display_name: "Hélène Lefèvre",
@@ -71,5 +74,58 @@ describe("fiche d'un contact", () => {
     show(vi.fn(async () => Promise.reject(new IpcFailure("link_refused"))));
     await fireEvent.click(screen.getByRole("button", { name: /mairie\.example/ }));
     await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("Site non ouvert"));
+  });
+});
+
+function withPhoto(id: number, photo: boolean): ContactDto {
+  return {
+    id,
+    name: "élodie Cézanne",
+    photo,
+    fields: {
+      ...emptyFields(),
+      display_name: "élodie Cézanne",
+      emails: [{ address: "elodie@example.com", label: "", preferred: true }],
+    },
+  };
+}
+
+function card(c: ContactDto) {
+  return render(ContactCard, {
+    props: {
+      contact: c,
+      registry: new CommandRegistry<unknown>(),
+      context: null,
+      openWebsite: vi.fn(async () => undefined),
+    },
+  });
+}
+
+describe("photo d'un contact", () => {
+  it("montre la photo du contact qui en a une", () => {
+    const { container } = card(withPhoto(12, true));
+    const img = container.querySelector(".avatar img");
+    expect(img?.getAttribute("src")).toBe("contact-photo://localhost/12");
+    // Décorative : le nom est déjà écrit à côté.
+    expect(img?.getAttribute("alt")).toBe("");
+  });
+
+  it("montre l'initiale sans photo", () => {
+    const { container } = card(withPhoto(12, false));
+    expect(container.querySelector(".avatar img")).toBeNull();
+    expect(container.querySelector(".avatar")?.textContent?.trim()).toBe("É");
+  });
+
+  it("revient à l'initiale si la photo ne se charge pas, jusqu'au contact suivant", async () => {
+    const { container, rerender } = card(withPhoto(12, true));
+    const img = container.querySelector(".avatar img");
+    if (img === null) throw new Error("photo absente");
+    await fireEvent.error(img);
+    expect(container.querySelector(".avatar img")).toBeNull();
+    expect(container.querySelector(".avatar")?.textContent?.trim()).toBe("É");
+    await rerender({ contact: withPhoto(13, true) });
+    expect(container.querySelector(".avatar img")?.getAttribute("src")).toBe(
+      "contact-photo://localhost/13",
+    );
   });
 });

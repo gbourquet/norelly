@@ -18,6 +18,7 @@ use crate::contact_details::{
     MAX_POSTAL_STREET_CHARS, website_url,
 };
 use crate::mailbox::{MAX_ADDRESS_CHARS, header_text};
+use crate::ports::BlobId;
 use crate::sender::imitates_address;
 
 /// Longueur maximale d'un nom (affiché, prénom, nom, surnom, organisation),
@@ -782,7 +783,11 @@ impl ContactDraft {
     /// Fiche enregistrée sous `id`.
     #[must_use]
     pub fn with_id(self, id: ContactId) -> Contact {
-        Contact { id, draft: self }
+        Contact {
+            id,
+            draft: self,
+            photo: None,
+        }
     }
 }
 
@@ -791,6 +796,9 @@ impl ContactDraft {
 pub struct Contact {
     id: ContactId,
     draft: ContactDraft,
+    /// Photo réencodée ([`crate::contact_photo`]), dans le magasin des
+    /// photos.
+    photo: Option<BlobId>,
 }
 
 impl Contact {
@@ -802,6 +810,18 @@ impl Contact {
     #[must_use]
     pub fn draft(&self) -> &ContactDraft {
         &self.draft
+    }
+
+    /// Photo du contact, s'il en a une.
+    #[must_use]
+    pub fn photo(&self) -> Option<&BlobId> {
+        self.photo.as_ref()
+    }
+
+    /// Le même contact, avec la photo `photo` (relue par le stockage).
+    #[must_use]
+    pub fn with_photo(self, photo: Option<BlobId>) -> Self {
+        Self { photo, ..self }
     }
 }
 

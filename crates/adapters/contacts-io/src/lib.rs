@@ -17,11 +17,13 @@ use norelly_domain::contact_details::Birthday;
 use norelly_domain::contact_export::{ExportCard, ExportFormat, ExportList, MAX_EXPORT_CONTACTS};
 use norelly_domain::contact_import::{ContactFormat, DecodedContacts, MAX_IMPORT_FILE_BYTES};
 use norelly_domain::contact_lists::MAX_CONTACT_LIST_MEMBERS;
+use norelly_domain::contact_photo::CardPhotos;
 use norelly_domain::ports::{ContactCodec, ContactCodecError, TextNormalizer};
 
 mod encode;
 mod groups;
 mod ldif;
+mod photo;
 mod tabular;
 mod text;
 mod vcard;
@@ -30,6 +32,9 @@ mod vcard;
 /// liste est illisible ; le domaine refuse aussi une liste de plus de
 /// [`MAX_CONTACT_LIST_MEMBERS`] membres distincts.
 pub const MAX_LIST_MEMBERS_READ: usize = 2 * MAX_CONTACT_LIST_MEMBERS;
+
+pub use photo::ImagePhotos;
+
 /// Longueur maximale d'un champ lu, en octets : au-delà, la fiche est
 /// illisible (les notes, champ le plus long, tiennent en 40 Kio).
 pub const MAX_FIELD_BYTES: usize = 64 * 1024;
@@ -85,14 +90,17 @@ impl ContactCodec for ContactsIo {
             return Err(ContactCodecError::UnknownFormat);
         }
         if vcard::looks_like(&text) {
+            let (cards, photos) = vcard::decode_with_photos(&text)?;
             Ok(DecodedContacts {
                 format: ContactFormat::VCard,
-                cards: vcard::decode(&text)?,
+                cards,
+                photos,
             })
         } else if ldif::looks_like(&text) {
             Ok(DecodedContacts {
                 format: ContactFormat::Ldif,
                 cards: ldif::decode(&text)?,
+                photos: CardPhotos::new(),
             })
         } else {
             tabular::decode(&text)

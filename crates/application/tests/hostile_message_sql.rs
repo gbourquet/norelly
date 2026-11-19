@@ -856,9 +856,11 @@ async fn trapped_import_cannot_alter_the_database() -> Result<(), Box<dyn std::e
     use norelly_application::contact_import::{ApplyContactImport, PreviewContactImport};
     use norelly_contacts_io::{ContactsIo, IcuNfc};
     use norelly_domain::contact_import::DuplicatePolicy;
+    use norelly_domain::contact_photo::CardPhotos;
     use norelly_domain::contacts::ContactFilter;
     use norelly_domain::ports::ContactDirectory;
     use norelly_sqlite::contacts::SqliteContactBook;
+    use norelly_test_support::contact_photo_contracts::{FakePhotoCodec, InMemoryPhotoStore};
 
     let l = local("sql-injection-import").await;
     let schema_before = l.db.schema().await?;
@@ -884,8 +886,12 @@ async fn trapped_import_cannot_alter_the_database() -> Result<(), Box<dyn std::e
     let apply = ApplyContactImport {
         book: &book,
         normalizer: &IcuNfc,
+        photo_codec: &FakePhotoCodec,
+        photos: &InMemoryPhotoStore::default(),
     };
-    let outcome = apply.execute(&preview.cards, DuplicatePolicy::Skip).await?;
+    let outcome = apply
+        .execute(&preview.cards, &CardPhotos::new(), DuplicatePolicy::Skip)
+        .await?;
     assert_eq!(outcome.created, PAYLOADS.len());
     let page = book
         .page(&ContactFilter::default(), None, PageSize::new(50))
@@ -915,7 +921,9 @@ async fn trapped_import_cannot_alter_the_database() -> Result<(), Box<dyn std::e
     .execute(&trapped_csv(true))
     .await?
     .cards;
-    let outcome = apply.execute(&cards, DuplicatePolicy::Complete).await?;
+    let outcome = apply
+        .execute(&cards, &CardPhotos::new(), DuplicatePolicy::Complete)
+        .await?;
     assert_eq!((outcome.created, outcome.completed), (0, PAYLOADS.len()));
     let page = book
         .page(&ContactFilter::default(), None, PageSize::new(50))
@@ -1009,9 +1017,11 @@ async fn trapped_google_labels_and_apostrophes_cannot_alter_the_database()
     use norelly_application::contacts::SuggestRecipients;
     use norelly_contacts_io::{ContactsIo, IcuNfc};
     use norelly_domain::contact_import::DuplicatePolicy;
+    use norelly_domain::contact_photo::CardPhotos;
     use norelly_domain::contacts::{Contact, ContactFilter};
     use norelly_domain::ports::ContactDirectory;
     use norelly_sqlite::contacts::SqliteContactBook;
+    use norelly_test_support::contact_photo_contracts::{FakePhotoCodec, InMemoryPhotoStore};
 
     let l = local("sql-injection-import-google").await;
     let schema_before = l.db.schema().await?;
@@ -1084,8 +1094,12 @@ async fn trapped_google_labels_and_apostrophes_cannot_alter_the_database()
     let apply = ApplyContactImport {
         book: &book,
         normalizer: &IcuNfc,
+        photo_codec: &FakePhotoCodec,
+        photos: &InMemoryPhotoStore::default(),
     };
-    let outcome = apply.execute(&preview.cards, DuplicatePolicy::Skip).await?;
+    let outcome = apply
+        .execute(&preview.cards, &CardPhotos::new(), DuplicatePolicy::Skip)
+        .await?;
     assert_eq!(outcome.created, PAYLOADS.len());
     let suggest = SuggestRecipients {
         collected: &*l.store,
@@ -1131,7 +1145,11 @@ async fn trapped_google_labels_and_apostrophes_cannot_alter_the_database()
         preview.complete.rejected
     );
     let outcome = apply
-        .execute(&preview.cards, DuplicatePolicy::Complete)
+        .execute(
+            &preview.cards,
+            &CardPhotos::new(),
+            DuplicatePolicy::Complete,
+        )
         .await?;
     assert_eq!((outcome.created, outcome.completed), (0, PAYLOADS.len()));
     for n in 0..PAYLOADS.len() {
@@ -1368,6 +1386,8 @@ async fn trapped_list_import_and_export_cannot_alter_the_database()
     let apply = ApplyContactImport {
         book: &book,
         normalizer: &IcuNfc,
+        photo_codec: &norelly_test_support::contact_photo_contracts::FakePhotoCodec,
+        photos: &norelly_test_support::contact_photo_contracts::InMemoryPhotoStore::default(),
     };
 
     // Fichier piégé lu, chiffré puis importé : listes et membres, de
@@ -1376,7 +1396,13 @@ async fn trapped_list_import_and_export_cannot_alter_the_database()
     assert!(first.skip.rejected.is_empty(), "{:?}", first.skip.rejected);
     assert_eq!(first.skip.lists.len(), PAYLOADS.len());
     assert_eq!(first.skip.missing_members, 0);
-    let outcome = apply.execute(&first.cards, DuplicatePolicy::Skip).await?;
+    let outcome = apply
+        .execute(
+            &first.cards,
+            &norelly_domain::contact_photo::CardPhotos::new(),
+            DuplicatePolicy::Skip,
+        )
+        .await?;
     assert_eq!(
         (outcome.created, outcome.lists_created),
         (PAYLOADS.len(), PAYLOADS.len())
@@ -1437,7 +1463,11 @@ async fn trapped_list_import_and_export_cannot_alter_the_database()
         second.complete.rejected
     );
     let outcome = apply
-        .execute(&second.cards, DuplicatePolicy::Complete)
+        .execute(
+            &second.cards,
+            &norelly_domain::contact_photo::CardPhotos::new(),
+            DuplicatePolicy::Complete,
+        )
         .await?;
     assert_eq!(
         (outcome.created, outcome.lists_created),
@@ -1454,9 +1484,12 @@ async fn trapped_list_import_and_export_cannot_alter_the_database()
         ExportFormat::VCard3,
         ExportFormat::Ldif,
     ] {
-        let prepared = PrepareContactExport { directory: &book }
-            .execute(&ContactSelection::All, format)
-            .await?;
+        let prepared = PrepareContactExport {
+            directory: &book,
+            photos: &norelly_test_support::contact_photo_contracts::InMemoryPhotoStore::default(),
+        }
+        .execute(&ContactSelection::All, format)
+        .await?;
         assert_eq!(prepared.lists.len(), PAYLOADS.len(), "{format:?}");
         let bytes = ContactsIo.encode(&prepared.cards, &prepared.lists, format)?;
         let decoded = ContactsIo.decode(&bytes)?;
@@ -1497,8 +1530,14 @@ async fn trapped_list_import_and_export_cannot_alter_the_database()
         let outcome = ApplyContactImport {
             book: &fresh_book,
             normalizer: &IcuNfc,
+            photo_codec: &norelly_test_support::contact_photo_contracts::FakePhotoCodec,
+            photos: &norelly_test_support::contact_photo_contracts::InMemoryPhotoStore::default(),
         }
-        .execute(&again.cards, DuplicatePolicy::Skip)
+        .execute(
+            &again.cards,
+            &norelly_domain::contact_photo::CardPhotos::new(),
+            DuplicatePolicy::Skip,
+        )
         .await?;
         assert_eq!(outcome.lists_created, PAYLOADS.len(), "{format:?}");
         for list in fresh_book.all_lists(100).await? {
@@ -1512,5 +1551,110 @@ async fn trapped_list_import_and_export_cannot_alter_the_database()
     assert_eq!(accounts.list().await?, accounts_before, "comptes modifiés");
     assert_eq!(l.db.integrity_problems().await?, Vec::<String>::new());
     assert_eq!(l.db.schema().await?, schema_before, "schéma modifié");
+    Ok(())
+}
+
+/// vCard piégée : une fiche par charge (nom, note),
+/// chacune avec la photo PNG intégrée du jeu d'essai `photo.vcf`.
+fn trapped_vcard_with_photos() -> Vec<u8> {
+    let fixture = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../adapters/contacts-io/tests/data/photo.vcf"
+    ))
+    .unwrap_or_else(|e| panic!("{e}"));
+    // Propriété PHOTO de la première carte, lignes repliées comprises.
+    let mut photo = String::new();
+    for line in fixture.split("\r\n") {
+        if line.starts_with("PHOTO;") {
+            photo.push_str(line);
+        } else if !photo.is_empty() && line.starts_with(' ') {
+            photo.push_str("\r\n");
+            photo.push_str(line);
+        } else if !photo.is_empty() {
+            break;
+        }
+    }
+    let escape = |v: &str| {
+        v.replace('\\', "\\\\")
+            .replace(',', "\\,")
+            .replace(';', "\\;")
+            .replace('\n', "\\n")
+    };
+    let mut out = String::new();
+    for (i, payload) in PAYLOADS.iter().enumerate() {
+        out.push_str(&format!(
+            "BEGIN:VCARD\r\nVERSION:3.0\r\nFN:Piège {i} {}\r\nNOTE:{}\r\nEMAIL:piege{i}@example.com\r\n{photo}\r\nEND:VCARD\r\n",
+            escape(&short_payload(i)),
+            escape(payload),
+        ));
+    }
+    out.into_bytes()
+}
+
+#[tokio::test]
+async fn trapped_vcard_with_photos_cannot_alter_the_database()
+-> Result<(), Box<dyn std::error::Error>> {
+    use norelly_application::contact_import::{ApplyContactImport, PreviewContactImport};
+    use norelly_blobs::FsContactPhotoStore;
+    use norelly_contacts_io::{ContactsIo, IcuNfc, ImagePhotos};
+    use norelly_domain::contact_import::DuplicatePolicy;
+    use norelly_domain::contacts::ContactFilter;
+    use norelly_domain::ports::{ContactDirectory, ContactPhotoStore};
+    use norelly_sqlite::contacts::SqliteContactBook;
+
+    let l = local("sql-injection-import-photos").await;
+    let schema_before = l.db.schema().await?;
+    let book = SqliteContactBook::new(l.db.clone());
+    let root = std::env::temp_dir().join(format!("norelly-hostile-photos-{}", std::process::id()));
+    let store = FsContactPhotoStore::new(&root);
+
+    let preview = PreviewContactImport {
+        codec: &ContactsIo,
+        directory: &book,
+        normalizer: &IcuNfc,
+    }
+    .execute(&trapped_vcard_with_photos())
+    .await?;
+    assert_eq!(
+        preview.skip.create.len(),
+        PAYLOADS.len(),
+        "{:?}",
+        preview.skip.rejected
+    );
+    assert_eq!(preview.skip.photos.len(), PAYLOADS.len());
+    let outcome = ApplyContactImport {
+        book: &book,
+        normalizer: &IcuNfc,
+        photo_codec: &ImagePhotos,
+        photos: &store,
+    }
+    .execute(&preview.cards, &preview.photos, DuplicatePolicy::Skip)
+    .await?;
+    assert_eq!(outcome.created, PAYLOADS.len());
+    let page = book
+        .page(&ContactFilter::default(), None, PageSize::new(50))
+        .await?;
+    assert_eq!(page.items.len(), PAYLOADS.len());
+    let photos = book.photo_ids().await?;
+    // Une seule photo, la même pour toutes les fiches, réencodée.
+    assert_eq!(photos.len(), 1);
+    for item in &page.items {
+        let contact = book.get(item.id).await?.unwrap_or_else(|| panic!("fiche"));
+        let photo = contact
+            .photo()
+            .unwrap_or_else(|| panic!("photo de {}", item.id));
+        assert!(photos.contains(photo));
+        assert!(PAYLOADS.iter().any(|p| contact.draft().notes() == Some(*p)));
+    }
+    for id in &photos {
+        let bytes = store
+            .get(id)
+            .await?
+            .unwrap_or_else(|| panic!("photo absente"));
+        assert!(norelly_domain::contact_photo::is_kept_photo(&bytes));
+    }
+    assert_eq!(l.db.integrity_problems().await?, Vec::<String>::new());
+    assert_eq!(l.db.schema().await?, schema_before, "schéma modifié");
+    let _ = std::fs::remove_dir_all(&root);
     Ok(())
 }

@@ -68,6 +68,7 @@ relecture prioritaire du mainteneur.
 | `contacts` | Fiche du carnet d'adresses validée, clé d'adresse, nom affiché, filtre et ordre de la liste (ADR-012) |
 | `contact_export` | Règles de sortie de l'export (`export_card` : adresse préférée en tête, ce que chaque format retient), sélection revalidée, neutralisation des cellules CSV et son inverse, bornes de l'import |
 | `contact_import` | Plan d'import d'un carnet : noms en NFC (port `TextNormalizer`), nom imitant une adresse retiré, caractères invisibles refusés, doublons par `AddressKey`, rejets motivés, politique « ignorer » ou « compléter » ; listes de diffusion revalidées comme la saisie, membres retrouvés par adresse, doublons de nom |
+| `contact_photo` | Photos de contact : photo intégrée seulement, taille, formats (signature PNG, JPEG, WebP), dimensions bornées avant décodage, taille de la vignette réencodée ; plan des photos de l'import (`plan_import_with_photos`) |
 | `notify`, `settings` | Notifications à émettre ; paramètres |
 | `ports` | Tous les traits (≈ 27) : `RemoteMailboxConnector`, `RemoteMailboxSession`, `MailSender`, `SecretStore`, `MailStore`, `BlobStore`, `PendingOpStore`, `DraftStore`, `OutboxStore`, `SearchIndex`, carnet (`ContactBook`, `DuplicateDismissals`), requêtes d'écran (`FolderTreeQuery`, `ConversationQuery`, `MessageListQuery`, `ContactDirectory`)… |
 
@@ -97,13 +98,13 @@ Orchestration async des ports, sans règle métier propre :
 | `imap` | `RemoteMailboxConnector`, `RemoteMailboxSession` : pilote d'E/S maison au-dessus d'`imap-next` (lignes bornées, délais, rejet des octets reçus après `STARTTLS`) | fichier sensible (`connection.rs`) |
 | `smtp` | `MailSender` : TLS par `norelly-tls`, puis `lettre` | STARTTLS exigé |
 | `sqlite` | `MailStore`, `AccountRepository`, requêtes d'écran, `PendingOpStore`, `DraftStore`, `OutboxStore`, `SearchIndex`, `SettingsStore`, `ContactBook`, `ContactDirectory`, `DuplicateDismissals`… | SQL paramétré uniquement (`check-sql.sh`) |
-| `blobs` | `BlobStore` : `.eml.zst` par compte et empreinte, écriture atomique | — |
+| `blobs` | `BlobStore` : `.eml.zst` par compte et empreinte, écriture atomique ; `ContactPhotoStore` : photos de contact réencodées par empreinte, lecture bornée et revérifiée | — |
 | `keyring` | `SecretStore` : Secret Service, Credential Manager ; fichier 0600 en dérogation | — |
 | `discovery` | `AutoconfigClient`, `SrvResolver`, `PortProber` | HTTPS seulement |
 | `oauth` | `OAuthClient` : navigateur du système (`BrowserOpener`), redirection locale sur `127.0.0.1` (port éphémère), PKCE S256, échange et rafraîchissement des jetons par HTTPS (`norelly-tls`) | `state` vérifié par le domaine, retour forgé ignoré, corps des réponses jamais recopié (ADR-013) |
 | `render` | Rendu MIME → vue, assainissement HTML et CSS, agent, construction MIME sortante, extraction du texte indexé | fichiers sensibles (`sanitize.rs`, `css.rs`, `agent.js`) |
 | `webdav` | `CardDavClient` : découverte des carnets (`/.well-known/carddav`, principal, dossier des carnets), liste des fiches et ETag, `addressbook-multiget`, écritures conditionnelles (`If-Match`, `If-None-Match: *`), HTTP Basic sur HTTPS (`norelly-tls`, vérification de la plateforme sans exception) | adresses citées par le serveur revalidées sur l'origine du carnet par le domaine, redirections suivies en découverte seulement, réponses bornées, DTD refusée (ADR-014) |
-| `contacts-io` | `ContactCodec` (lecture vCard, CSV Google/Outlook/Thunderbird, LDIF ; écriture vCard 4.0/3.0, CSV Google, LDIF Thunderbird), `TextNormalizer` (NFC, NFD) | entrées et sorties bornées, fuzzé (`contact_import`, `contact_export`) ; fichier lu et écrit par le shell, jamais d'URL suivie |
+| `contacts-io` | `ContactCodec` (lecture vCard, CSV Google/Outlook/Thunderbird, LDIF ; écriture vCard 4.0/3.0, CSV Google, LDIF Thunderbird), `TextNormalizer` (NFC, NFD), `PhotoCodec` (photos réencodées en JPEG par la crate `image`, PNG, JPEG et WebP seulement) | entrées et sorties bornées, fuzzé (`contact_import`, `contact_export`) ; fichier lu et écrit par le shell, jamais d'URL suivie |
 
 ### Point d'assemblage et adaptateur entrant (`app/src-tauri`)
 

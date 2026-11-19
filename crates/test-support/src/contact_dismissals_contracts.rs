@@ -74,7 +74,7 @@ where
         .await?
         .unwrap_or_else(|| panic!("fiche 4 perdue"));
     let completed = sample_contact("Fiche complétée", &["fiche4@example.com"]);
-    book.import(&[], &[ContactCompletion::new(read, completed)], &[])
+    book.import(&[], &[ContactCompletion::new(read, completed)], &[], &[])
         .await?;
     assert!(sorted(book).await?.is_empty(), "import sans effet");
 

@@ -7,6 +7,7 @@ use norelly_domain::contact_import::{
     ContactFormat, DecodedContacts, DuplicatePolicy, ImportedCard, ImportedList, ImportedMember,
     ListMember, RejectReason, plan_import,
 };
+use norelly_domain::contact_photo::CardPhotos;
 use norelly_domain::contacts::{
     ContactError, ContactInput, EmailInput, PhoneInput, PostalAddressInput,
 };
@@ -64,6 +65,7 @@ fn real_codec_passes_contract() {
             emails: vec![email("alice@example.com", "", false)],
             ..ContactInput::default()
         })],
+        photos: CardPhotos::new(),
     };
     contact_codec_contract(&ContactsIo, SAMPLE_VCARD, &expected);
 }
@@ -424,4 +426,28 @@ fn google_csv_completes_the_book_imported_from_google_vcard() {
         assert_eq!(plan.create.len(), 1, "{policy:?} : {:?}", plan.rejected);
         assert_eq!(plan.rejected.len(), 1, "{policy:?} : {:?}", plan.rejected);
     }
+}
+
+#[test]
+fn vcard_with_photos() {
+    use norelly_contacts_io::ImagePhotos;
+    use norelly_domain::contact_photo::{PhotoFormat, PhotoRefusal, check_embedded};
+    use norelly_domain::ports::PhotoCodec;
+
+    let d = decode("photo.vcf");
+    assert_eq!(d.cards.len(), 3);
+    // Photo intégrée (PNG de 400 px) ; photo par adresse ignorée ; SVG
+    // annoncé comme PNG refusé par le domaine.
+    assert_eq!(d.photos.keys().copied().collect::<Vec<_>>(), [0, 2]);
+    let photo = &d.photos[&0];
+    assert_eq!(check_embedded(photo), Ok(PhotoFormat::Png));
+    assert_eq!(
+        check_embedded(&d.photos[&2]),
+        Err(PhotoRefusal::Unsupported)
+    );
+    let thumbnail = ImagePhotos
+        .thumbnail(&photo.bytes, PhotoFormat::Png)
+        .unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(PhotoFormat::sniff(&thumbnail), Some(PhotoFormat::Jpeg));
+    assert!(thumbnail.len() < photo.bytes.len() * 4);
 }

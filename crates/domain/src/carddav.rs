@@ -12,12 +12,13 @@
 //!   paramètre) ;
 //! - [`merge_card`] : une fiche modifiée ici remplace, dans la vCard du
 //!   serveur, les seules propriétés que le carnet connaît ; le reste
-//!   (photo, adresse postale, anniversaire…) est gardé ;
+//!   (photo, second prénom, anniversaire en texte…) est gardé ;
 //! - [`plan_sync`] : ce que la synchronisation écrit de chaque côté.
 
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 
+use crate::contact_details::{Birthday, website_url};
 use crate::contact_import::{DecodedContacts, DuplicatePolicy, ImportedCard, plan_import};
 use crate::contacts::{AddressKey, Contact, ContactDraft, ContactId};
 use crate::credentials::{CredentialsError, MAX_PASSWORD_LEN, Secret, Username};
@@ -732,7 +733,24 @@ pub enum CardVersion {
 }
 
 /// Propriétés que le carnet connaît : celles qu'il écrit.
-const MANAGED_PROPERTIES: [&str; 7] = ["FN", "N", "NICKNAME", "ORG", "EMAIL", "TEL", "NOTE"];
+const MANAGED_PROPERTIES: [&str; 9] = [
+    "FN", "N", "NICKNAME", "ORG", "TITLE", "EMAIL", "TEL", "ADR", "NOTE",
+];
+
+/// Propriété distante que le carnet tient, donc remplacée par la sienne
+/// à l'écriture : celles de [`MANAGED_PROPERTIES`], et un anniversaire ou
+/// un site que le carnet sait lire ([`Birthday::parse`], [`website_url`]).
+/// Un anniversaire en texte (« vers 1950 ») ou un lien qui n'est pas un
+/// site, que le carnet n'a jamais repris, est gardé tel quel.
+fn managed(name: &str, logical: &str) -> bool {
+    let value = || property_value(logical).unwrap_or_default().trim();
+    match name {
+        // Une date lisible (l'année fictive d'Apple en est une).
+        "BDAY" => Birthday::parse(value()).is_some(),
+        "URL" => website_url(&value().replace("\\,", ",").replace("\\;", ";")).is_some(),
+        _ => MANAGED_PROPERTIES.contains(&name),
+    }
+}
 /// Propriétés réécrites à chaque écriture.
 const FRAME_PROPERTIES: [&str; 4] = ["BEGIN", "END", "VERSION", "REV"];
 
@@ -927,14 +945,14 @@ pub fn merge_card(remote: &str, ours: &str, rev: i64) -> String {
         .iter()
         .filter_map(|line| {
             let (group, name) = property_name(&line.logical);
-            group.filter(|_| MANAGED_PROPERTIES.contains(&name.as_str()))
+            group.filter(|_| managed(&name, &line.logical))
         })
         .collect();
     let mut out = String::from("BEGIN:VCARD\r\n");
     out.push_str(version_line(card_version(remote)));
     for line in body {
         let (group, name) = property_name(&line.logical);
-        let replaced = MANAGED_PROPERTIES.contains(&name.as_str())
+        let replaced = managed(&name, &line.logical)
             || FRAME_PROPERTIES.contains(&name.as_str())
             || group.is_some_and(|g| replaced_groups.contains(&g));
         if !replaced {
@@ -1049,6 +1067,9 @@ pub struct LocalCard {
 }
 
 /// Écriture décidée par [`plan_sync`].
+// Valeurs passagères d'un plan, presque toutes porteuses d'une fiche :
+// mettre la fiche en boîte ajouterait une allocation sans rien économiser.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SyncAction {
     /// Nouvelle fiche distante : créée ici.

@@ -25,6 +25,7 @@
 //! - [`contact_duplicates`] : doublons du carnet et fusion des fiches ;
 //! - [`contact_lists`] : listes de diffusion (nom unique, expansion) ;
 //! - [`carddav`] : synchronisation CardDAV du carnet (adresses, conflits, plan) ;
+//! - [`contact_photo`] : photos de contact (contrôle, dimensions) ;
 //! - [`oauth`] : connexion OAuth (fournisseurs, PKCE, XOAUTH2) ;
 //! - [`sender`] : nom affiché d'un correspondant (carnet, en-tête) ;
 //! - [`sender_auth`] : authentification de l'expéditeur (`Authentication-Results`) ;
@@ -44,6 +45,7 @@ pub mod contact_export;
 pub mod contact_import;
 pub mod contact_labels;
 pub mod contact_lists;
+pub mod contact_photo;
 pub mod contacts;
 pub mod conversation;
 pub mod credentials;

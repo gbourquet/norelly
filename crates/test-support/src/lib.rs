@@ -13,6 +13,7 @@
 //! - [`contact_import_contracts`] : import du carnet (NFC, fichiers) ;
 //! - [`carddav_server`] et [`carddav_contracts`] : faux serveur CardDAV,
 //!   faux client et état de synchronisation, suites de contrat ;
+//! - [`contact_photo_contracts`] : photos de contact (réencodage, magasin) ;
 //! - [`synthetic`] : générateur de boîtes synthétiques (bench) ;
 //! - [`imap_control`] et [`session_contract`] : contrat de la session IMAP
 //!   (faux serveur et Dovecot).
@@ -29,6 +30,7 @@ pub mod compose_contracts;
 pub mod contact_dismissals_contracts;
 pub mod contact_import_contracts;
 pub mod contact_lists_contracts;
+pub mod contact_photo_contracts;
 pub mod contacts_contracts;
 pub mod containers;
 pub mod contracts;

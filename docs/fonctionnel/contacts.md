@@ -40,6 +40,10 @@ serveur de contacts (voir [synchronisation-carnet.md](synchronisation-carnet.md)
   favoris.
 - Carnet vide : un message invite à cliquer sur **Nouveau contact**.
   Aucun résultat : « Aucun contact ne correspond. ».
+- La fiche d'un contact montre sa **photo**, ronde, à côté de son nom,
+  s'il en a une ; sinon, ou si la photo ne peut pas s'afficher, l'initiale
+  de son nom. Les photos viennent seulement de l'import (voir « Importer
+  des contacts ») : elles ne se choisissent pas à la main.
 
 ### Ajouter un contact
 
@@ -344,6 +348,19 @@ serveur de contacts (voir [synchronisation-carnet.md](synchronisation-carnet.md)
 - Un nom (nom affiché, prénom, nom, surnom) qui ressemble à une adresse
   électronique n'est pas repris : l'adresse s'affiche à sa place. La
   fenêtre le signale.
+- La **photo** d'une fiche vCard est reprise si elle est contenue dans le
+  fichier, en PNG, JPEG ou WebP, d'une taille raisonnable.
+  Elle est gardée en petit format, débarrassée de tout ce qui n'est pas
+  l'image elle-même (date, lieu de la prise de vue, appareil…) et
+  redressée si l'appareil l'avait prise de travers. Une photo indiquée par
+  un lien vers Internet n'est jamais chargée ; une photo d'un autre format,
+  trop grande ou abîmée est laissée de côté : le contact est importé sans
+  elle. Un contact déjà dans le carnet reçoit la photo du fichier
+  seulement s'il n'en a pas et que l'on choisit **Les compléter avec le
+  fichier** ; une photo existante n'est jamais remplacée.
+- En fusionnant des doublons, la fiche gardée garde sa photo ; si elle
+  n'en a pas, elle prend celle d'une fiche fusionnée. La photo d'un contact
+  supprimé est effacée de l'ordinateur.
 - **Importer** écrit tout en une fois : soit tout l'import réussit, soit
   rien ne change. Un message annonce ensuite le nombre de contacts
   ajoutés et complétés, et celui des listes ajoutées s'il y en a. Une
@@ -394,7 +411,9 @@ serveur de contacts (voir [synchronisation-carnet.md](synchronisation-carnet.md)
     Apple (année fictive), et relu sans année ;
   - vCard : le nom complet est toujours écrit (un contact sans nom affiché
     reçoit son prénom et son nom) ; les étiquettes sont écrites en
-    minuscules ;
+    minuscules ; la photo est écrite dans le fichier, telle que Norelly
+    la garde (petit format) ;
+  - CSV et LDIF : la photo n'est pas exportée ;
   - LDIF : les adresses n'ont pas d'étiquette, les téléphones sont rangés
     en travail, domicile, portable, fax ou bipeur ; le favori n'est pas
     porté ; une seule adresse postale et un seul site au domicile, un
@@ -494,8 +513,11 @@ serveur de contacts (voir [synchronisation-carnet.md](synchronisation-carnet.md)
   messages ; il n'est envoyé à aucun serveur.
 - Un fichier importé est lu par l'application elle-même, taille limitée
   avant lecture ; l'écran ne reçoit que le résumé. Il ne fait charger
-  aucune ressource extérieure (photo, lien). Les caractères invisibles ou
-  trompeurs d'une fiche importée la font refuser, comme à la saisie. Ceux
+  aucune ressource extérieure (photo, lien). Une photo importée est
+  contrôlée comme les images d'un message, puis redessinée par
+  l'application : seule l'image redessinée est gardée et affichée, jamais
+  le fichier d'origine ; une image piégée ne peut ainsi rien faire. Les
+  caractères invisibles ou trompeurs d'une fiche importée la font refuser, comme à la saisie. Ceux
   que contenaient déjà les fiches du carnet sont retirés à la mise à jour
   de l'application : un champ ainsi vidé disparaît ; une adresse qui en
   contenait est écartée plutôt que corrigée (corrigée, elle désignerait une
@@ -518,5 +540,11 @@ serveur de contacts (voir [synchronisation-carnet.md](synchronisation-carnet.md)
   permet ni de la voir, ni de la réparer, ni de la supprimer. Une très
   longue suite de fiches abîmées peut arrêter la liste avant sa fin.
 - Un groupe passé n'est pas retenu : il est proposé de nouveau à chaque
-  recherche. Les listes ne s'importent ni ne s'exportent, les favoris ne s'exportent pas en LDIF. Photos,
-  adresses postales et anniversaires d'un fichier importé sont ignorés.
+  recherche. Les listes ne s'importent ni ne s'exportent, les favoris ne
+  s'exportent pas en LDIF. Adresses postales et anniversaires d'un
+  fichier importé sont ignorés, comme les photos des fichiers CSV et
+  LDIF. La photo d'un contact ne se choisit ni ne se retire à la main.
+  Un très gros import ne reprend qu'une partie des photos (les
+  premières du fichier), et un export vCard d'un carnet très riche en
+  photos ne les écrit que tant que le fichier reste d'une taille
+  raisonnable : les contacts suivants sont exportés sans photo.

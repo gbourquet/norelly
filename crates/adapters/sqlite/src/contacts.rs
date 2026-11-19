@@ -7,21 +7,22 @@
 //! L'unicité d'une adresse dans le carnet est vérifiée avant l'écriture
 //! (pour nommer l'adresse refusée) et garantie par le schéma.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::sync::{Arc, Mutex, PoisonError};
 
 use norelly_domain::address::EmailAddress;
 use norelly_domain::contact_details::{MAX_CONTACT_WEBSITES, MAX_POSTAL_ADDRESSES};
+use norelly_domain::contact_duplicates::merged_photo;
 use norelly_domain::contact_export::ContactSelection;
-use norelly_domain::contact_import::{ContactCompletion, ListImport};
+use norelly_domain::contact_import::{ContactCompletion, ListImport, PhotoTarget, PlacedPhoto};
 use norelly_domain::contacts::{
     AddressKey, Contact, ContactDraft, ContactFilter, ContactId, ContactInput, EmailInput,
     InvisibleCleanup, MAX_CONTACT_ID, PhoneInput, PostalAddressInput, WebsiteInput,
     clean_invisible, clean_names_imitating_address,
 };
 use norelly_domain::ports::{
-    ContactBook, ContactCursor, ContactDirectory, ContactListItem, ContactPage, ContactStoreError,
-    ImportOutcome, MAX_CONTACT_LOOKUP, PageSize, StoreError,
+    BlobId, ContactBook, ContactCursor, ContactDirectory, ContactListItem, ContactPage,
+    ContactStoreError, ImportOutcome, MAX_CONTACT_LOOKUP, PageSize, StoreError,
 };
 use rusqlite::{Connection, OptionalExtension, Row, Transaction, params};
 
@@ -396,25 +397,83 @@ pub(crate) fn json_list<T: serde::Serialize>(values: &[T]) -> Result<String, Sto
 /// Fiches `ids`, dans cet ordre (inconnues omises) ; une fiche invalide
 /// fait échouer la lecture.
 fn load(c: &Connection, ids: &[i64]) -> Result<Vec<Contact>, StoreError> {
+    let mut photos = photos(c, ids)?;
     load_rows(c, ids)?
         .into_iter()
-        .map(ContactRow::into_contact)
+        .map(|row| {
+            let photo = photos.remove(&row.id);
+            row.into_contact().map(|c| c.with_photo(photo))
+        })
         .collect()
 }
 
 /// Fiches valides parmi `ids`, dans cet ordre (inconnues omises), et
 /// identifiants des fiches invalides écartées.
 fn load_valid(c: &Connection, ids: &[i64]) -> Result<(Vec<Contact>, Vec<i64>), StoreError> {
+    let mut photos = photos(c, ids)?;
     let mut contacts = Vec::new();
     let mut skipped = Vec::new();
     for row in load_rows(c, ids)? {
         let id = row.id;
         match row.into_contact() {
-            Ok(contact) => contacts.push(contact),
+            Ok(contact) => contacts.push(contact.with_photo(photos.remove(&id))),
             Err(_) => skipped.push(id),
         }
     }
     Ok((contacts, skipped))
+}
+
+/// Photo stockée : une valeur qui n'est pas une empreinte valide (type
+/// inattendu, texte retouché) est une absence de photo, jamais un chemin.
+fn stored_photo(value: rusqlite::types::ValueRef<'_>) -> Option<BlobId> {
+    match value {
+        rusqlite::types::ValueRef::Text(text) => {
+            std::str::from_utf8(text).ok().and_then(BlobId::parse)
+        }
+        _ => None,
+    }
+}
+
+/// Photos des fiches `ids` qui en ont une (colonne lue à part : les
+/// étapes des migrations 18 à 23 relisent les fiches avant qu'elle
+/// n'existe).
+fn photos(c: &Connection, ids: &[i64]) -> Result<HashMap<i64, BlobId>, StoreError> {
+    if ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let list = json_list(ids)?;
+    let mut stmt = c
+        .prepare_cached(
+            "SELECT id, photo FROM contacts \
+             WHERE id IN (SELECT value FROM json_each(?1)) AND photo IS NOT NULL",
+        )
+        .map_err(store_error)?;
+    let rows = stmt
+        .query_map(params![list], |r| {
+            Ok((r.get::<_, i64>(0)?, stored_photo(r.get_ref(1)?)))
+        })
+        .map_err(store_error)?;
+    let mut out = HashMap::new();
+    for row in rows {
+        if let (id, Some(photo)) = row.map_err(store_error)? {
+            out.insert(id, photo);
+        }
+    }
+    Ok(out)
+}
+
+/// Photo de la fiche `id` telle qu'enregistrée.
+fn photo_of(tx: &Transaction<'_>, id: i64) -> Result<Option<BlobId>, StoreError> {
+    Ok(photos(tx, &[id])?.remove(&id))
+}
+
+fn set_photo(tx: &Transaction<'_>, id: i64, photo: &BlobId) -> Result<(), StoreError> {
+    tx.execute(
+        "UPDATE contacts SET photo = ?2 WHERE id = ?1",
+        params![id, photo.as_str()],
+    )
+    .map_err(store_error)?;
+    Ok(())
 }
 
 /// Lignes brutes des fiches `ids`, dans cet ordre (inconnues omises).
@@ -811,8 +870,10 @@ impl ContactBook for SqliteContactBook {
                     return Ok(Err(ContactStoreError::DuplicateAddress(address)));
                 }
                 write_all(&tx, id.get(), &draft)?;
+                // La photo n'est pas dans la fiche saisie : elle reste.
+                let photo = photo_of(&tx, id.get())?;
                 tx.commit().map_err(store_error)?;
-                Ok(Ok(draft.with_id(id)))
+                Ok(Ok(draft.with_id(id).with_photo(photo)))
             })
             .await?
     }
@@ -826,10 +887,12 @@ impl ContactBook for SqliteContactBook {
         create: &[ContactDraft],
         complete: &[ContactCompletion],
         lists: &[ListImport],
+        photos: &[PlacedPhoto],
     ) -> Result<ImportOutcome, ContactStoreError> {
         let create = create.to_vec();
         let complete = complete.to_vec();
         let lists = lists.to_vec();
+        let photos = photos.to_vec();
         let nfc = self.db.normalizer();
         self.db
             .run(move |c| {
@@ -857,9 +920,15 @@ impl ContactBook for SqliteContactBook {
                         return Ok(Err(ContactStoreError::DuplicateAddress(address)));
                     }
                     write_all(&tx, contact.id().get(), contact.draft())?;
+                    let photo = photos
+                        .iter()
+                        .find(|p| p.target == PhotoTarget::Existing(contact.id()));
+                    if let Some(p) = photo {
+                        set_photo(&tx, contact.id().get(), &p.photo)?;
+                    }
                 }
                 let mut created = Vec::with_capacity(create.len());
-                for draft in &create {
+                for (rank, draft) in create.iter().enumerate() {
                     if let Some(address) = taken(&tx, draft, None)? {
                         return Ok(Err(ContactStoreError::DuplicateAddress(address)));
                     }
@@ -870,6 +939,12 @@ impl ContactBook for SqliteContactBook {
                     .map_err(store_error)?;
                     let raw = new_id(&tx)?;
                     write_all(&tx, raw, draft)?;
+                    let photo = photos
+                        .iter()
+                        .find(|p| p.target == PhotoTarget::Created(rank));
+                    if let Some(p) = photo {
+                        set_photo(&tx, raw, &p.photo)?;
+                    }
                     created.push(
                         ContactId::new(raw)
                             .ok_or_else(|| StoreError(format!("identifiant {raw}")))?,
@@ -956,8 +1031,16 @@ impl ContactBook for SqliteContactBook {
                         .map_err(store_error)?;
                 }
                 write_all(&tx, keep.get(), &draft)?;
+                // Photo de la fiche gardée, sinon d'une fiche absorbée
+                // (fiches relues identiques à celles du calcul).
+                let photo = read
+                    .split_first()
+                    .and_then(|(kept, gone)| merged_photo(kept, gone).cloned());
+                if let Some(photo) = &photo {
+                    set_photo(&tx, keep.get(), photo)?;
+                }
                 tx.commit().map_err(store_error)?;
-                Ok(Ok(draft.with_id(keep)))
+                Ok(Ok(draft.with_id(keep).with_photo(photo)))
             })
             .await?
     }
@@ -1157,13 +1240,32 @@ impl ContactDirectory for SqliteContactBook {
         self.report(&skipped);
         Ok(contacts)
     }
+
+    async fn photo_ids(&self) -> Result<BTreeSet<BlobId>, StoreError> {
+        self.db
+            .read(|c| {
+                let mut stmt = c
+                    .prepare_cached("SELECT DISTINCT photo FROM contacts WHERE photo IS NOT NULL")
+                    .map_err(store_error)?;
+                let rows = stmt
+                    .query_map([], |r| Ok(stored_photo(r.get_ref(0)?)))
+                    .map_err(store_error)?;
+                let mut out = BTreeSet::new();
+                for row in rows {
+                    out.extend(row.map_err(store_error)?);
+                }
+                Ok(out)
+            })
+            .await
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use norelly_test_support::contacts_contracts::{
         contact_book_contract, contact_corruption_contract, contact_import_contract,
-        contact_page_size_contract, contact_selection_contract, full_contact, sample_contact,
+        contact_page_size_contract, contact_photo_contract, contact_selection_contract,
+        full_contact, photo_id, sample_contact,
     };
 
     use super::*;
@@ -1193,6 +1295,46 @@ mod tests {
     #[tokio::test]
     async fn contact_book_passes_page_size_contract() -> Result<(), ContactStoreError> {
         contact_page_size_contract(&book()).await
+    }
+
+    #[tokio::test]
+    async fn contact_book_passes_photo_contract() -> Result<(), ContactStoreError> {
+        contact_photo_contract(&book()).await
+    }
+
+    #[tokio::test]
+    async fn an_invalid_stored_photo_reads_as_no_photo() -> Result<(), ContactStoreError> {
+        let book = book();
+        let alice = book
+            .create(&sample_contact("Alice", &["alice@example.com"]))
+            .await?;
+        let bob = book
+            .create(&sample_contact("Bob", &["bob@example.com"]))
+            .await?;
+        let id = alice.id().get();
+        let good = photo_id(9);
+        let bob_id = bob.id().get();
+        book.db
+            .run(move |c| {
+                c.execute(
+                    "UPDATE contacts SET photo = '../../etc/passwd' WHERE id = ?1",
+                    params![id],
+                )
+                .map_err(store_error)?;
+                c.execute(
+                    "UPDATE contacts SET photo = ?2 WHERE id = ?1",
+                    params![bob_id, good.as_str()],
+                )
+                .map_err(store_error)
+            })
+            .await?;
+        let read = book.get(alice.id()).await?;
+        assert_eq!(read.as_ref().map(Contact::photo), Some(None));
+        assert_eq!(
+            book.photo_ids().await?.into_iter().collect::<Vec<_>>(),
+            [photo_id(9)]
+        );
+        Ok(())
     }
 
     fn count(c: &rusqlite::Connection, table: &'static str) -> Result<i64, StoreError> {
@@ -1554,7 +1696,12 @@ mod tests {
             "identifiant hors limites attribué : {created:?}"
         );
         let imported = book
-            .import(&[sample_contact("David", &["david@example.com"])], &[], &[])
+            .import(
+                &[sample_contact("David", &["david@example.com"])],
+                &[],
+                &[],
+                &[],
+            )
             .await;
         assert!(
             imported.is_err(),

@@ -67,6 +67,11 @@ côté l'est aussi de l'autre.
   anniversaire, adresses postales, sites web, notes) : la photo ou ce que
   Norelly ne sait pas lire (un anniversaire écrit en toutes lettres, un
   lien qui n'est pas un site web) saisis ailleurs sont gardés.
+- Les photos restent propres à chaque côté : la photo d'une fiche du
+  serveur n'est pas reprise dans Norelly, et la photo d'un contact de
+  Norelly (reprise d'un fichier importé) n'est pas envoyée au serveur ;
+  elle reste quand la fiche est modifiée sur le serveur. Un contact
+  supprimé sur le serveur l'est ici avec sa photo.
 - Les favoris et les listes de diffusion restent propres à Norelly.
 - Une fiche du serveur que Norelly ne peut pas reprendre (sans adresse
   électronique, adresse déjà portée par un autre contact) est laissée de

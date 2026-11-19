@@ -248,6 +248,7 @@ pub async fn export_contacts(
     let format = format_of(format);
     let prepared = PrepareContactExport {
         directory: &state.contacts,
+        photos: &state.contact_photos,
     }
     .execute(&selection, format)
     .await

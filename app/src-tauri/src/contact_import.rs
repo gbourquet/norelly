@@ -19,6 +19,7 @@ use norelly_domain::contact_import::{
     ContactFormat, DuplicatePolicy, ImportPlan, ImportedCard, MAX_IMPORT_FILE_BYTES, RejectReason,
 };
 use norelly_domain::contact_lists::ContactListError;
+use norelly_domain::contact_photo::CardPhotos;
 use norelly_domain::contacts::ContactError;
 use norelly_domain::ports::{ContactCodec, ContactCodecError, ContactStoreError};
 use tauri::{AppHandle, State};
@@ -33,22 +34,29 @@ use crate::state::AppState;
 /// Fiches rejetées détaillées au plus dans un aperçu.
 pub const MAX_LISTED_REJECTIONS: usize = 100;
 
+/// Fiches lues d'un aperçu, et leurs photos intégrées.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct PendingCards {
+    pub cards: Vec<ImportedCard>,
+    pub photos: CardPhotos,
+}
+
 /// Fiches d'un aperçu en attente de confirmation (une à la fois).
 #[derive(Debug, Default)]
 pub struct PendingImport {
     /// Dernier jeton attribué (jamais réutilisé pendant la session).
     last: AtomicU32,
-    slot: Mutex<Option<(u32, Vec<ImportedCard>)>>,
+    slot: Mutex<Option<(u32, PendingCards)>>,
 }
 
 impl PendingImport {
-    fn slot(&self) -> std::sync::MutexGuard<'_, Option<(u32, Vec<ImportedCard>)>> {
+    fn slot(&self) -> std::sync::MutexGuard<'_, Option<(u32, PendingCards)>> {
         self.slot.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
     /// Garde les fiches d'un nouvel aperçu (l'aperçu précédent est
     /// périmé) ; renvoie son jeton (jamais 0).
-    pub fn remember(&self, cards: Vec<ImportedCard>) -> u32 {
+    pub fn remember(&self, cards: PendingCards) -> u32 {
         let token = self
             .last
             .fetch_add(1, Ordering::Relaxed)
@@ -59,7 +67,7 @@ impl PendingImport {
     }
 
     /// Fiches de l'aperçu `token`, une seule fois.
-    pub fn take(&self, token: u32) -> Option<Vec<ImportedCard>> {
+    pub fn take(&self, token: u32) -> Option<PendingCards> {
         let mut slot = self.slot();
         match slot.take() {
             Some((t, cards)) if t == token => Some(cards),
@@ -72,7 +80,7 @@ impl PendingImport {
 
     /// Rend les fiches d'un import échoué, si aucun autre aperçu ne les a
     /// remplacées entre-temps.
-    pub fn restore(&self, token: u32, cards: Vec<ImportedCard>) {
+    pub fn restore(&self, token: u32, cards: PendingCards) {
         let mut slot = self.slot();
         if slot.is_none() && self.last.load(Ordering::Relaxed) == token {
             *slot = Some((token, cards));
@@ -261,7 +269,7 @@ pub async fn preview_contact_import(
     })
     .await
     .map_err(IpcError::internal)??;
-    let preview = PreviewContactImport {
+    let mut preview = PreviewContactImport {
         codec: &imports.codec,
         directory: &state.contacts,
         normalizer: &imports.nfc,
@@ -269,7 +277,11 @@ pub async fn preview_contact_import(
     .plan(decoded)
     .await
     .map_err(import_error)?;
-    let token = imports.pending.remember(preview.cards.clone());
+    // Les photos ne servent pas au résumé : déplacées, pas copiées.
+    let token = imports.pending.remember(PendingCards {
+        cards: preview.cards.clone(),
+        photos: std::mem::take(&mut preview.photos),
+    });
     preview_dto(token, &file_name, &preview).map(Some)
 }
 
@@ -291,11 +303,16 @@ pub async fn apply_contact_import(
         DuplicatePolicyDto::Skip => DuplicatePolicy::Skip,
         DuplicatePolicyDto::Complete => DuplicatePolicy::Complete,
     };
+    // Pas de ménage des photos pendant l'import : une photo enregistrée
+    // n'est donnée à son contact qu'à la fin.
+    let _photos = imports.photo_writes.lock().await;
     let outcome = ApplyContactImport {
         book: &state.contacts,
         normalizer: &imports.nfc,
+        photo_codec: &imports.photo_codec,
+        photos: &state.contact_photos,
     }
-    .execute(&cards, policy)
+    .execute(&cards.cards, &cards.photos, policy)
     .await;
     match outcome {
         Ok(outcome) => Ok(ContactImportOutcomeDto {

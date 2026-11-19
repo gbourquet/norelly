@@ -168,6 +168,7 @@ pub async fn merge_contacts(
     .execute(&selection)
     .await
     .map_err(merge_error)?;
+    crate::state::sweep_contact_photos(&state).await;
     contact_dto(&kept)
 }
 

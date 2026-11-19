@@ -27,6 +27,7 @@ function contact(id: number, name: string, favorite = false): ContactDto {
   return {
     id,
     name,
+    photo: false,
     fields: {
       ...emptyFields(),
       display_name: name,
@@ -70,14 +71,19 @@ function fakeApi(book: ContactDto[] = []) {
       return structuredClone(found);
     }),
     createContact: vi.fn(async (fields: ContactFieldsDto) => {
-      const created = { id: 100 + book.length, name: fields.display_name, fields };
+      const created = { id: 100 + book.length, name: fields.display_name, photo: false, fields };
       book.push(created);
       return created;
     }),
     updateContact: vi.fn(async (id: number, fields: ContactFieldsDto) => {
       const index = book.findIndex((c) => c.id === id);
       if (index < 0) throw new IpcFailure("contact_not_found");
-      const updated = { id, name: fields.display_name || (book[index]?.name ?? ""), fields };
+      const updated = {
+        id,
+        name: fields.display_name || (book[index]?.name ?? ""),
+        photo: book[index]?.photo ?? false,
+        fields,
+      };
       book[index] = updated;
       return updated;
     }),

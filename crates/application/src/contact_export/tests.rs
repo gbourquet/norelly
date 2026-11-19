@@ -8,6 +8,7 @@ use norelly_domain::ports::{
     MAX_CONTACT_LOOKUP, PageSize, StoreError,
 };
 use norelly_test_support::contact_lists_contracts::sample_list;
+use norelly_test_support::contact_photo_contracts::InMemoryPhotoStore;
 use norelly_test_support::contacts_contracts::{InMemoryContactBook, full_contact, sample_contact};
 
 use super::*;
@@ -25,9 +26,12 @@ async fn the_whole_book_is_prepared_in_list_order() -> Result<(), Box<dyn std::e
     book.create(&sample_contact("Bob", &["bob@example.net"]))
         .await?;
     let alice = book.create(&full_contact()).await?;
-    let prepared = PrepareContactExport { directory: &book }
-        .execute(&ContactSelection::All, ExportFormat::VCard4)
-        .await?;
+    let prepared = PrepareContactExport {
+        directory: &book,
+        photos: &norelly_test_support::contact_photo_contracts::InMemoryPhotoStore::default(),
+    }
+    .execute(&ContactSelection::All, ExportFormat::VCard4)
+    .await?;
     assert_eq!(names(&prepared.cards), ["Alice Martin", "Bob"]);
     // Préparées par la règle du domaine pour le format choisi.
     assert_eq!(
@@ -47,9 +51,12 @@ async fn lists_go_with_the_whole_book_only() -> Result<(), Box<dyn std::error::E
     let alice = book.create(&full_contact()).await?;
     book.create_list(&sample_list("Famille", &[bob.id(), alice.id()], true))
         .await?;
-    let prepared = PrepareContactExport { directory: &book }
-        .execute(&ContactSelection::All, ExportFormat::Ldif)
-        .await?;
+    let prepared = PrepareContactExport {
+        directory: &book,
+        photos: &norelly_test_support::contact_photo_contracts::InMemoryPhotoStore::default(),
+    }
+    .execute(&ContactSelection::All, ExportFormat::Ldif)
+    .await?;
     // Membres désignés par leur rang dans les fiches (Alice, puis Bob).
     assert_eq!(
         prepared.lists,
@@ -60,16 +67,22 @@ async fn lists_go_with_the_whole_book_only() -> Result<(), Box<dyn std::error::E
             members: vec![1, 0],
         }]
     );
-    let csv = PrepareContactExport { directory: &book }
-        .execute(&ContactSelection::All, ExportFormat::GoogleCsv)
-        .await?;
+    let csv = PrepareContactExport {
+        directory: &book,
+        photos: &norelly_test_support::contact_photo_contracts::InMemoryPhotoStore::default(),
+    }
+    .execute(&ContactSelection::All, ExportFormat::GoogleCsv)
+    .await?;
     assert!(csv.lists.is_empty(), "le CSV ne porte pas de listes");
-    let some = PrepareContactExport { directory: &book }
-        .execute(
-            &ContactSelection::Contacts(vec![bob.id()]),
-            ExportFormat::VCard4,
-        )
-        .await?;
+    let some = PrepareContactExport {
+        directory: &book,
+        photos: &norelly_test_support::contact_photo_contracts::InMemoryPhotoStore::default(),
+    }
+    .execute(
+        &ContactSelection::Contacts(vec![bob.id()]),
+        ExportFormat::VCard4,
+    )
+    .await?;
     assert!(some.lists.is_empty(), "sélection : pas de listes");
     Ok(())
 }
@@ -84,12 +97,15 @@ async fn a_selection_is_prepared_without_unknown_contacts() -> Result<(), Box<dy
     book.create(&sample_contact("Carole", &["carole@example.org"]))
         .await?;
     let gone = ContactId::new(999).ok_or("id")?;
-    let prepared = PrepareContactExport { directory: &book }
-        .execute(
-            &ContactSelection::Contacts(vec![gone, bob.id()]),
-            ExportFormat::GoogleCsv,
-        )
-        .await?;
+    let prepared = PrepareContactExport {
+        directory: &book,
+        photos: &norelly_test_support::contact_photo_contracts::InMemoryPhotoStore::default(),
+    }
+    .execute(
+        &ContactSelection::Contacts(vec![gone, bob.id()]),
+        ExportFormat::GoogleCsv,
+    )
+    .await?;
     assert_eq!(prepared.cards.len(), 1);
     assert_eq!(prepared.cards[0].full_name.as_deref(), Some("Bob"));
     Ok(())
@@ -98,7 +114,10 @@ async fn a_selection_is_prepared_without_unknown_contacts() -> Result<(), Box<dy
 #[tokio::test]
 async fn nothing_to_export_is_refused() -> Result<(), Box<dyn std::error::Error>> {
     let book = InMemoryContactBook::default();
-    let prepare = PrepareContactExport { directory: &book };
+    let prepare = PrepareContactExport {
+        directory: &book,
+        photos: &InMemoryPhotoStore::default(),
+    };
     assert_eq!(
         prepare
             .execute(&ContactSelection::All, ExportFormat::Ldif)
@@ -125,6 +144,12 @@ struct CrowdedDirectory {
 }
 
 impl ContactDirectory for CrowdedDirectory {
+    async fn photo_ids(
+        &self,
+    ) -> Result<std::collections::BTreeSet<norelly_domain::ports::BlobId>, StoreError> {
+        Ok(std::collections::BTreeSet::new())
+    }
+
     async fn page(
         &self,
         _: &ContactFilter,
@@ -193,6 +218,7 @@ async fn a_book_larger_than_an_import_is_refused() -> Result<(), Box<dyn std::er
     let directory = crowded(usize::MAX, 0)?;
     let prepare = PrepareContactExport {
         directory: &directory,
+        photos: &norelly_test_support::contact_photo_contracts::InMemoryPhotoStore::default(),
     };
     assert_eq!(
         prepare
@@ -207,23 +233,126 @@ async fn a_book_larger_than_an_import_is_refused() -> Result<(), Box<dyn std::er
 async fn lists_count_with_the_cards_in_the_bound() -> Result<(), Box<dyn std::error::Error>> {
     let full = crowded(MAX_EXPORT_CONTACTS - 2, 3)?;
     assert_eq!(
-        PrepareContactExport { directory: &full }
-            .execute(&ContactSelection::All, ExportFormat::VCard4)
-            .await,
+        PrepareContactExport {
+            directory: &full,
+            photos: &norelly_test_support::contact_photo_contracts::InMemoryPhotoStore::default()
+        }
+        .execute(&ContactSelection::All, ExportFormat::VCard4)
+        .await,
         Err(ExportFailure::TooMany)
     );
     let exact = crowded(MAX_EXPORT_CONTACTS - 2, 2)?;
-    let prepared = PrepareContactExport { directory: &exact }
-        .execute(&ContactSelection::All, ExportFormat::VCard4)
-        .await?;
+    let prepared = PrepareContactExport {
+        directory: &exact,
+        photos: &norelly_test_support::contact_photo_contracts::InMemoryPhotoStore::default(),
+    }
+    .execute(&ContactSelection::All, ExportFormat::VCard4)
+    .await?;
     assert_eq!(
         prepared.cards.len() + prepared.lists.len(),
         MAX_EXPORT_CONTACTS
     );
     // Sans listes écrites, leur nombre ne compte pas.
-    let csv = PrepareContactExport { directory: &full }
-        .execute(&ContactSelection::All, ExportFormat::GoogleCsv)
-        .await?;
+    let csv = PrepareContactExport {
+        directory: &full,
+        photos: &norelly_test_support::contact_photo_contracts::InMemoryPhotoStore::default(),
+    }
+    .execute(&ContactSelection::All, ExportFormat::GoogleCsv)
+    .await?;
     assert_eq!(csv.cards.len(), MAX_EXPORT_CONTACTS - 2);
+    Ok(())
+}
+
+#[tokio::test]
+async fn vcards_carry_the_reencoded_photo() -> Result<(), Box<dyn std::error::Error>> {
+    use norelly_domain::contact_import::{PhotoTarget, PlacedPhoto};
+    let book = InMemoryContactBook::default();
+    let store = InMemoryPhotoStore::default();
+    let photo = b"\xFF\xD8\xFF vignette".to_vec();
+    let kept = store.put(photo.clone()).await?;
+    let lost = store.put(b"\xFF\xD8\xFF perdue".to_vec()).await?;
+    book.import(
+        &[
+            sample_contact("Alice", &["alice@example.com"]),
+            sample_contact("Bob", &["bob@example.com"]),
+            sample_contact("Carole", &["carole@example.com"]),
+        ],
+        &[],
+        &[],
+        &[
+            PlacedPhoto {
+                target: PhotoTarget::Created(0),
+                photo: kept,
+            },
+            PlacedPhoto {
+                target: PhotoTarget::Created(2),
+                photo: lost.clone(),
+            },
+        ],
+    )
+    .await?;
+    // La photo de Carole manque au magasin : omise, l'export continue.
+    store
+        .retain(
+            &[store.ids().into_iter().find(|i| *i != lost).ok_or("id")?].into(),
+            std::time::Duration::ZERO,
+        )
+        .await?;
+    let prepare = PrepareContactExport {
+        directory: &book,
+        photos: &store,
+    };
+    for format in [ExportFormat::VCard4, ExportFormat::VCard3] {
+        let cards = prepare.execute(&ContactSelection::All, format).await?.cards;
+        let photos: Vec<_> = cards.iter().map(|c| c.photo.clone()).collect();
+        assert_eq!(photos, [Some(photo.clone()), None, None], "{format:?}");
+    }
+    for format in [ExportFormat::GoogleCsv, ExportFormat::Ldif] {
+        let cards = prepare.execute(&ContactSelection::All, format).await?.cards;
+        assert!(cards.iter().all(|c| c.photo.is_none()), "{format:?}");
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn photos_are_checked_and_bounded_in_total() -> Result<(), Box<dyn std::error::Error>> {
+    use norelly_domain::contact_export::MAX_EXPORT_PHOTO_BYTES;
+    use norelly_domain::contact_import::{PhotoTarget, PlacedPhoto};
+    use norelly_domain::contact_photo::MAX_PHOTO_BYTES;
+    let book = InMemoryContactBook::default();
+    let store = InMemoryPhotoStore::default();
+    let count = MAX_EXPORT_PHOTO_BYTES / MAX_PHOTO_BYTES + 2;
+    let mut drafts = Vec::new();
+    let mut placed = Vec::new();
+    for i in 0..count {
+        drafts.push(sample_contact(
+            &format!("c{i:02}"),
+            &[&format!("c{i}@example.com")],
+        ));
+        let mut photo = vec![0xFF, 0xD8, 0xFF, u8::try_from(i).unwrap_or(0)];
+        photo.resize(MAX_PHOTO_BYTES, 0);
+        if i == 0 {
+            // Contenu relu qui n'est pas un JPEG (magasin altéré) : omis.
+            photo[0] = b'<';
+        }
+        placed.push(PlacedPhoto {
+            target: PhotoTarget::Created(i),
+            photo: store.put(photo).await?,
+        });
+    }
+    book.import(&drafts, &[], &[], &placed).await?;
+    let cards = PrepareContactExport {
+        directory: &book,
+        photos: &store,
+    }
+    .execute(&ContactSelection::All, ExportFormat::VCard4)
+    .await?
+    .cards;
+    let kept: Vec<bool> = cards.iter().map(|c| c.photo.is_some()).collect();
+    let fits = MAX_EXPORT_PHOTO_BYTES / MAX_PHOTO_BYTES;
+    let mut expected = vec![false];
+    expected.extend(std::iter::repeat_n(true, fits));
+    expected.push(false);
+    assert_eq!(kept, expected);
     Ok(())
 }

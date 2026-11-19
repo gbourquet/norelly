@@ -23,12 +23,13 @@ use crate::contact_lists::{
     ContactList, ContactListDraft, ContactListError, ContactListField, ContactListInput,
     MAX_CONTACT_LIST_MEMBERS,
 };
+use crate::contact_photo::{CardPhotos, MAX_IMPORT_PHOTOS, PhotoFormat, check_embedded};
 use crate::contacts::{
     AddressKey, Contact, ContactDraft, ContactError, ContactField, ContactId, ContactInput,
     ContactPostalAddress, EmailInput, MAX_CONTACT_EMAILS, MAX_CONTACT_PHONES, PhoneInput,
     PostalAddressInput, WebsiteInput, is_invisible,
 };
-use crate::ports::{ContactStoreError, TextNormalizer};
+use crate::ports::{BlobId, ContactStoreError, TextNormalizer};
 use crate::sender::imitates_address;
 
 /// Taille maximale d'un fichier de contacts importé, en octets.
@@ -103,6 +104,8 @@ pub enum ImportedCard {
 pub struct DecodedContacts {
     pub format: ContactFormat,
     pub cards: Vec<ImportedCard>,
+    /// Photos intégrées aux fiches, par rang de fiche dans `cards`.
+    pub photos: CardPhotos,
 }
 
 /// Que faire d'une fiche dont une adresse est déjà dans le carnet (ou dans
@@ -254,6 +257,34 @@ impl ListImport {
     }
 }
 
+/// Contact qui recevra une photo importée.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PhotoTarget {
+    /// Nouvelle fiche, par son rang dans [`ImportPlan::create`].
+    Created(usize),
+    /// Contact du carnet complété, qui n'avait pas de photo.
+    Existing(ContactId),
+}
+
+/// Photo d'une fiche du fichier à donner à un contact : à réencoder
+/// ([`crate::ports::PhotoCodec`]) avant l'écriture.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PhotoPlacement {
+    /// Rang de la fiche du fichier qui porte la photo (à partir de 0).
+    pub card: usize,
+    /// Format reconnu par [`check_embedded`].
+    pub format: PhotoFormat,
+    pub target: PhotoTarget,
+}
+
+/// Photo réencodée et enregistrée, donnée à un contact par
+/// [`crate::ports::ContactBook::import`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PlacedPhoto {
+    pub target: PhotoTarget,
+    pub photo: BlobId,
+}
+
 /// Plan d'import : ce que l'import écrira, et ce qu'il laisse de côté.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ImportPlan {
@@ -273,6 +304,9 @@ pub struct ImportPlan {
     pub renamed: usize,
     /// Fiches rejetées, dans l'ordre du fichier.
     pub rejected: Vec<ImportRejection>,
+    /// Photos à donner : une par nouvelle fiche ou contact complété au
+    /// plus, celle de la première fiche du fichier qui en apporte une.
+    pub photos: Vec<PhotoPlacement>,
 }
 
 /// Clés des adresses des fiches et des membres des listes, une fois
@@ -389,6 +423,33 @@ pub fn plan_import(
     policy: DuplicatePolicy,
     normalizer: &impl TextNormalizer,
 ) -> ImportPlan {
+    plan_import_with_photos(
+        existing,
+        existing_lists,
+        cards,
+        &CardPhotos::new(),
+        policy,
+        normalizer,
+    )
+}
+
+/// [`plan_import`] des fiches `cards` et de leurs photos `photos`.
+///
+/// Une photo refusée par [`check_embedded`] est écartée (la fiche est
+/// importée sans elle). Une nouvelle fiche reçoit la photo de la première
+/// fiche du fichier versée en elle qui en porte une ; un contact du carnet
+/// complété ([`DuplicatePolicy::Complete`]) la reçoit seulement s'il n'a
+/// pas de photo, même si la fiche n'apporte rien d'autre : rien n'est
+/// écrasé. Une fiche ignorée n'apporte pas sa photo.
+#[must_use]
+pub fn plan_import_with_photos(
+    existing: &[Contact],
+    existing_lists: &[ContactList],
+    cards: &[ImportedCard],
+    photos: &CardPhotos,
+    policy: DuplicatePolicy,
+    normalizer: &impl TextNormalizer,
+) -> ImportPlan {
     let mut plan = ImportPlan::default();
     let mut owners: HashMap<AddressKey, Owner> = HashMap::new();
     for (index, contact) in existing.iter().enumerate() {
@@ -402,6 +463,21 @@ pub fn plan_import(
     // Contact où chaque fiche du fichier a fini (créée, ou doublon d'un
     // contact) : un membre de liste désigné par sa fiche le retrouve.
     let mut card_owner: Vec<Option<Owner>> = vec![None; cards.len()];
+    // Photo retenue par contact du carnet et par nouvelle fiche.
+    let mut existing_photos: Vec<Option<PhotoPlacement>> = vec![None; existing.len()];
+    let mut created_photos: Vec<Option<PhotoPlacement>> = Vec::new();
+    // Photo d'une fiche, contrôlée une fois, au moment de la placer.
+    // Une photo refusée est écartée : la fiche est importée sans elle ;
+    // au-delà de `MAX_IMPORT_PHOTOS` photos placées, les suivantes aussi.
+    let mut placed = 0_usize;
+    let mut photo_of = |index: usize| {
+        if placed >= MAX_IMPORT_PHOTOS {
+            return None;
+        }
+        let format = check_embedded(photos.get(&index)?).ok()?;
+        placed += 1;
+        Some((index, format))
+    };
 
     for (index, card) in cards.iter().enumerate() {
         let reject = |hint: String, reason| ImportRejection {
@@ -460,6 +536,11 @@ pub fn plan_import(
                 owners.insert(e.key().clone(), Owner::New(plan.create.len()));
             }
             card_owner[index] = Some(Owner::New(plan.create.len()));
+            created_photos.push(photo_of(index).map(|(card, format)| PhotoPlacement {
+                card,
+                format,
+                target: PhotoTarget::Created(plan.create.len()),
+            }));
             plan.create.push(draft);
             continue;
         };
@@ -475,6 +556,38 @@ pub fn plan_import(
         let merged = complete_contact(base, &draft, |key| {
             owners.get(key).is_some_and(|o| *o != owner)
         });
+        // Photo apportée à un contact qui n'en a pas encore (ni dans le
+        // carnet, ni par une fiche précédente).
+        let wants_photo = match owner {
+            Owner::Existing(i) => existing[i].photo().is_none() && existing_photos[i].is_none(),
+            Owner::New(i) => created_photos.get(i).is_some_and(Option::is_none),
+        };
+        let photo = if wants_photo { photo_of(index) } else { None };
+        let photo_only = photo.is_some() && matches!(owner, Owner::Existing(_));
+        if let Some((card, format)) = photo {
+            match owner {
+                Owner::Existing(i) => {
+                    existing_photos[i] = Some(PhotoPlacement {
+                        card,
+                        format,
+                        target: PhotoTarget::Existing(existing[i].id()),
+                    });
+                    // Complété par sa photo seule : son contenu reste le même.
+                    if merged.is_none() && completed[i].is_none() {
+                        completed[i] = Some(existing[i].draft().clone());
+                    }
+                }
+                Owner::New(i) => {
+                    if let Some(slot) = created_photos.get_mut(i) {
+                        *slot = Some(PhotoPlacement {
+                            card,
+                            format,
+                            target: PhotoTarget::Created(i),
+                        });
+                    }
+                }
+            }
+        }
         match merged {
             Some(merged) => {
                 for e in merged.emails() {
@@ -488,6 +601,9 @@ pub fn plan_import(
                     }
                 }
             }
+            // Une fiche qui n'apporte que sa photo à un contact du carnet
+            // le complète : ce n'est pas un doublon ignoré.
+            None if photo_only => {}
             None => plan.duplicates += 1,
         }
         // Un nouveau contact est favori si l'une de ses fiches du fichier
@@ -525,6 +641,11 @@ pub fn plan_import(
         .iter()
         .zip(completed)
         .filter_map(|(contact, draft)| draft.map(|d| ContactCompletion::new(contact.clone(), d)))
+        .collect();
+    plan.photos = created_photos
+        .into_iter()
+        .chain(existing_photos)
+        .flatten()
         .collect();
     plan
 }

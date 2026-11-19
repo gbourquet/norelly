@@ -218,18 +218,22 @@ pub(crate) async fn sync_now(state: &AppState) -> Option<Result<SyncReport, Sync
     let Ok(client) = carddav.client() else {
         return Some(Err(SyncError::Failed(SyncFailure::Network)));
     };
-    Some(
-        SyncCardDav {
-            client,
-            store: &carddav.store,
-            book: &state.contacts,
-            secrets: &state.secrets,
-            codec: &state.imports.codec,
-            normalizer: &state.imports.nfc,
-        }
-        .execute(now())
-        .await,
-    )
+    let report = SyncCardDav {
+        client,
+        store: &carddav.store,
+        book: &state.contacts,
+        secrets: &state.secrets,
+        codec: &state.imports.codec,
+        normalizer: &state.imports.nfc,
+    }
+    .execute(now())
+    .await;
+    // Contacts supprimés ici par la synchronisation : leurs photos sont
+    // effacées sans attendre le démarrage suivant.
+    if report.as_ref().is_ok_and(|r| r.pulled > 0) {
+        crate::state::sweep_contact_photos(state).await;
+    }
+    Some(report)
 }
 
 /// Carnets du compte sur le serveur `server` (adresse, ou nom de domaine

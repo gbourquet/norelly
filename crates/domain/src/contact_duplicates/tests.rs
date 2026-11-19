@@ -977,3 +977,28 @@ fn many_dismissed_pairs_in_one_bucket_still_form_the_right_groups() {
     found.sort();
     assert_eq!(found, [vec![1, 3, 5, 7, 9], vec![2, 4, 6, 8, 10]]);
 }
+
+#[test]
+fn a_kept_card_keeps_its_photo_or_takes_the_first_absorbed_one() {
+    let photo = |n: u8| BlobId::parse(&format!("{n:02x}").repeat(32)).unwrap_or_else(|| panic!());
+    let contact = |id: i64, p: Option<u8>| {
+        let draft = crate::contacts::ContactDraft::new(ContactInput {
+            display_name: format!("c{id}"),
+            emails: vec![crate::contacts::EmailInput {
+                address: format!("c{id}@example.com"),
+                ..Default::default()
+            }],
+            ..ContactInput::default()
+        })
+        .unwrap_or_else(|e| panic!("{e}"));
+        draft
+            .with_id(crate::contacts::ContactId::new(id).unwrap_or_else(|| panic!()))
+            .with_photo(p.map(photo))
+    };
+    let keep = contact(1, Some(1));
+    let absorbed = [contact(2, None), contact(3, Some(3)), contact(4, Some(4))];
+    assert_eq!(merged_photo(&keep, &absorbed), Some(&photo(1)));
+    let bare = contact(1, None);
+    assert_eq!(merged_photo(&bare, &absorbed), Some(&photo(3)));
+    assert_eq!(merged_photo(&bare, &absorbed[..1]), None);
+}

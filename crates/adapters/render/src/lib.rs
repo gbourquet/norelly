@@ -253,6 +253,14 @@ mod tests {
     use super::*;
 
     #[test]
+    fn a_mail_document_cannot_load_contact_photos() {
+        for protocols in [Protocols::custom_schemes(), Protocols::localhost_http()] {
+            let csp = content_security_policy(&protocols);
+            assert!(!csp.contains("contact-photo"), "{csp}");
+        }
+    }
+
+    #[test]
     fn agent_hash_matches_the_embedded_agent() {
         use sha2::{Digest, Sha256};
         let digest = Sha256::digest(AGENT_JS.as_bytes());

@@ -61,6 +61,7 @@ function fakeApi(
       return {
         id: keep,
         name: "fusionné",
+        photo: false,
         fields: {
           display_name: "fusionné",
           given_name: "",

@@ -12,6 +12,7 @@ publish.workspace = true
 norelly-domain.workspace = true
 csv.workspace = true
 icu_normalizer.workspace = true
+image.workspace = true
 
 [dev-dependencies]
 norelly-test-support.workspace = true

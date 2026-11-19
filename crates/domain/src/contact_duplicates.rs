@@ -17,7 +17,7 @@ use crate::contacts::{
     AddressKey, Contact, ContactDraft, ContactError, ContactId, EmailInput, MAX_CONTACT_EMAILS,
     PhoneInput,
 };
-use crate::ports::TextNormalizer;
+use crate::ports::{BlobId, TextNormalizer};
 use crate::sender::imitates_address;
 
 /// Nombre minimal de chiffres d'un numéro pour rapprocher deux contacts
@@ -549,6 +549,15 @@ impl Dismissal {
     pub fn pairs(&self) -> &[DismissedPair] {
         &self.pairs
     }
+}
+
+/// Photo d'une fusion : celle de la fiche gardée `keep`, sinon celle de
+/// la première fiche absorbée qui en a une (champ vide complété, rien
+/// d'écrasé).
+#[must_use]
+pub fn merged_photo<'a>(keep: &'a Contact, absorbed: &'a [Contact]) -> Option<&'a BlobId> {
+    keep.photo()
+        .or_else(|| absorbed.iter().find_map(Contact::photo))
 }
 
 #[cfg(test)]

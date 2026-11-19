@@ -600,7 +600,8 @@ async fn write<B: ContactBook>(
     book: &B,
     plan: &ImportPlan,
 ) -> Result<ImportOutcome, ContactStoreError> {
-    book.import(&plan.create, &plan.complete, &plan.lists).await
+    book.import(&plan.create, &plan.complete, &plan.lists, &[])
+        .await
 }
 
 /// Contrat de l'import des listes ([`ContactBook::import`],

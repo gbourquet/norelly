@@ -148,9 +148,42 @@ pub(crate) fn base64(value: &str) -> Option<Vec<u8>> {
     Some(out)
 }
 
+/// Alphabet base64 (RFC 4648).
+const BASE64_ALPHABET: &[u8; 64] =
+    b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+/// `bytes` en base64 (RFC 4648), avec `=` final, sans saut de ligne.
+pub(crate) fn base64_encode(bytes: &[u8]) -> String {
+    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for chunk in bytes.chunks(3) {
+        let [b0, b1, b2] = [0, 1, 2].map(|i| chunk.get(i).copied().unwrap_or(0));
+        let acc = u32::from(b0) << 16 | u32::from(b1) << 8 | u32::from(b2);
+        for i in 0..4 {
+            if i <= chunk.len() {
+                let index = (acc >> (18 - 6 * i)) & 0x3F;
+                out.push(char::from(BASE64_ALPHABET[index as usize]));
+            } else {
+                out.push('=');
+            }
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn base64_encoding_round_trips() {
+        assert_eq!(base64_encode(b""), "");
+        assert_eq!(base64_encode(b"f"), "Zg==");
+        assert_eq!(base64_encode(b"fo"), "Zm8=");
+        assert_eq!(base64_encode(b"foo"), "Zm9v");
+        assert_eq!(base64_encode(&[0xFF, 0xD8, 0xFF, 0xE0]), "/9j/4A==");
+        let all: Vec<u8> = (0..=255).collect();
+        assert_eq!(base64(&base64_encode(&all)), Some(all));
+    }
 
     #[test]
     fn file_text_reads_boms_utf8_and_falls_back_to_windows_1252() {

@@ -1,7 +1,8 @@
 //! Écriture vCard 4.0 (RFC 6350) et 3.0 (RFC 2426) : `FN`, `N`, `TITLE`,
 //! `BDAY` (forme de base en 4.0, étendue en 3.0), `ADR`, `URL`,
 //! `NICKNAME`, `ORG`, `EMAIL` (type, préférence), `TEL`, `CATEGORIES`
-//! (favori seulement), `NOTE` ;
+//! (favori seulement), `NOTE`, `PHOTO` (JPEG réencodé, intégré : URI
+//! `data:` en 4.0, base64 en 3.0) ;
 //! échappements des valeurs texte, lignes repliées à 75 octets sans couper
 //! un caractère, fins de ligne CRLF. Les listes suivent les fiches, en
 //! cartes de groupe (`KIND:group` en 4.0, `X-ADDRESSBOOKSERVER-KIND:group`
@@ -12,6 +13,7 @@ use norelly_domain::contact_export::{ExportCard, ExportList, VCARD_FAVORITE_CATE
 use norelly_domain::ports::ContactCodecError;
 
 use super::Output;
+use crate::text;
 
 /// Version écrite.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -190,6 +192,13 @@ pub(crate) fn encode(
         if let Some(notes) = &card.notes {
             lines.push(format!("NOTE:{}", escape(notes)));
         }
+        if let Some(photo) = &card.photo {
+            let data = text::base64_encode(photo);
+            lines.push(match version {
+                Version::V4 => format!("PHOTO:data:image/jpeg;base64,{data}"),
+                Version::V3 => format!("PHOTO;ENCODING=b;TYPE=JPEG:{data}"),
+            });
+        }
         lines.push("END:VCARD".to_owned());
         for line in lines {
             out.push(&fold(&line))?;
@@ -246,6 +255,7 @@ mod tests {
 
     fn card() -> ExportCard {
         ExportCard {
+            photo: None,
             full_name: Some("Anne, dite; \"Nanou\"".into()),
             given_name: Some("Anne".into()),
             family_name: Some("Martin".into()),

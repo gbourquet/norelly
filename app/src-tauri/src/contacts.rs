@@ -230,6 +230,7 @@ pub(crate) fn contact_dto(contact: &Contact) -> Result<ContactDto, IpcError> {
                 .collect(),
             favorite: input.favorite,
         },
+        photo: contact.photo().is_some(),
     })
 }
 
@@ -356,6 +357,9 @@ pub async fn delete_contacts(state: State<'_, AppState>, ids: Vec<u32>) -> Resul
     .execute(&ids)
     .await
     .map_err(|e| contact_error(e, &[]))?;
+    // Photos des fiches supprimées : effacées sans attendre le démarrage
+    // suivant.
+    crate::state::sweep_contact_photos(&state).await;
     u32::try_from(deleted).map_err(|_| IpcError::internal("nombre de contacts supprimés"))
 }
 

@@ -2204,6 +2204,8 @@ pub struct ContactDto {
     /// Nom à afficher (règle du domaine).
     pub name: String,
     pub fields: ContactFieldsDto,
+    /// Le contact a une photo, servie par `contact-photo://localhost/<id>`.
+    pub photo: bool,
 }
 
 /// Ligne de la liste des contacts.

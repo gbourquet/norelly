@@ -690,6 +690,8 @@ export type ContactDto_Deserialize = {
 	/**  Nom à afficher (règle du domaine). */
 	name: string,
 	fields: ContactFieldsDto_Deserialize,
+	/**  Le contact a une photo, servie par `contact-photo://localhost/<id>`. */
+	photo: boolean,
 };
 
 /**  Fiche contact enregistrée. */
@@ -698,6 +700,8 @@ export type ContactDto_Serialize = {
 	/**  Nom à afficher (règle du domaine). */
 	name: string,
 	fields: ContactFieldsDto_Serialize,
+	/**  Le contact a une photo, servie par `contact-photo://localhost/<id>`. */
+	photo: boolean,
 };
 
 /**  Groupe de doublons : la fiche proposée à garder d'abord. */

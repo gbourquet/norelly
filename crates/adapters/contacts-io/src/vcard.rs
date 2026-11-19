@@ -5,13 +5,16 @@
 //! `TITLE`, `NOTE`, `BDAY`, `EMAIL`, `TEL`, `ADR`, `URL`, la nature de la
 //! carte (`KIND`), les libellés d'Apple (`itemN.X-ABLabel`, étiquette de
 //! la valeur du même groupe) et la catégorie des favoris (`CATEGORIES`,
-//! rien d'autre des catégories) sont lus ; le reste (photos comprises)
-//! est ignoré sans être décodé. Une carte de groupe (`KIND:group`, ou
-//! `X-ADDRESSBOOKSERVER-KIND:group` d'Apple) est une liste : nom (`FN`),
-//! description (`NOTE`), membres (`MEMBER`, `X-ADDRESSBOOKSERVER-MEMBER`)
-//! désignés par une adresse (`mailto:`) ou par l'identifiant (`UID`,
-//! `X-ABUID` d'Apple) d'une autre carte du fichier, rendue par sa première
-//! adresse ; copie cachée (`X-NORELLY-BCC:TRUE`, propre à Norelly).
+//! rien d'autre des catégories) sont lus, ainsi que la première photo
+//! intégrée (`PHOTO` en base64 ou en URI `data:`), rendue brute au
+//! domaine qui la contrôle ; une photo donnée par adresse est ignorée
+//! (aucune requête réseau). Le reste est ignoré sans être décodé. Une
+//! carte de groupe (`KIND:group`, ou `X-ADDRESSBOOKSERVER-KIND:group`
+//! d'Apple) est une liste : nom (`FN`), description (`NOTE`), membres
+//! (`MEMBER`, `X-ADDRESSBOOKSERVER-MEMBER`) désignés par une adresse
+//! (`mailto:`) ou par l'identifiant (`UID`, `X-ABUID` d'Apple) d'une
+//! autre carte du fichier, rendue par sa première adresse ; copie
+//! cachée (`X-NORELLY-BCC:TRUE`, propre à Norelly).
 
 use std::collections::HashMap;
 
@@ -20,6 +23,7 @@ use norelly_domain::contact_export::is_favorite_category;
 use norelly_domain::contact_import::ImportedMember;
 use norelly_domain::contact_import::{ImportedCard, ImportedList, MAX_IMPORT_CARDS};
 use norelly_domain::contact_labels::apple_label;
+use norelly_domain::contact_photo::{CardPhotos, EmbeddedPhoto};
 use norelly_domain::contacts::{
     ContactInput, EmailInput, PhoneInput, PostalAddressInput, WebsiteInput,
 };
@@ -291,6 +295,8 @@ struct Card {
     group_labels: HashMap<String, String>,
     /// Adresses et téléphones d'un groupe.
     grouped: Vec<(Grouped, String)>,
+    /// Première photo intégrée de la carte.
+    photo: Option<EmbeddedPhoto>,
 }
 
 impl Card {
@@ -318,6 +324,12 @@ impl Card {
         }
         if p.name == "CATEGORIES" {
             self.read_categories(p);
+            return;
+        }
+        if p.name == "PHOTO" {
+            if self.photo.is_none() {
+                self.photo = embedded_photo(p);
+            }
             return;
         }
         if matches!(
@@ -508,19 +520,23 @@ impl Card {
         }
     }
 
-    fn finish(self) -> Read {
+    /// Fiche lue, et sa photo intégrée (celle d'un contact seulement).
+    fn finish(self) -> (Read, Option<EmbeddedPhoto>) {
         if self.unreadable || (self.list && self.unreadable_bcc) {
-            Read::Ready(ImportedCard::Unreadable)
+            (Read::Ready(ImportedCard::Unreadable), None)
         } else if self.list {
-            Read::List(
-                ImportedList {
-                    name: self.input.display_name,
-                    description: self.notes.join("\n"),
-                    members: Vec::new(),
-                    unresolved: self.unreadable_members,
-                    bcc: self.bcc,
-                },
-                self.members,
+            (
+                Read::List(
+                    ImportedList {
+                        name: self.input.display_name,
+                        description: self.notes.join("\n"),
+                        members: Vec::new(),
+                        unresolved: self.unreadable_members,
+                        bcc: self.bcc,
+                    },
+                    self.members,
+                ),
+                None,
             )
         } else {
             let mut input = self.input;
@@ -539,7 +555,7 @@ impl Card {
                     slot.clone_from(label);
                 }
             }
-            Read::Contact(input, self.uid)
+            (Read::Contact(input, self.uid), self.photo)
         }
     }
 }
@@ -585,11 +601,76 @@ fn percent_decoded(text: &str) -> Option<String> {
     String::from_utf8(out).ok()
 }
 
-/// Cartes d'un fichier vCard, dans son ordre ; une carte non fermée en
-/// fin de fichier est gardée. Les cartes imbriquées (`AGENT`) sont
-/// ignorées.
+/// Photo intégrée d'une propriété `PHOTO` : URI `data:` (vCard 4.0) ou
+/// valeur en base64 (`ENCODING=b`, vCard 3.0 ; `ENCODING=BASE64`, 2.1),
+/// avec son type annoncé (type du `data:`, sinon paramètre `TYPE`).
+/// `None` pour une photo donnée par adresse (`http:`, `VALUE=uri`), jamais
+/// suivie. Un contenu illisible (base64 invalide, `data:` sans base64) est
+/// rendu vide : le domaine le refuse.
+fn embedded_photo(p: &Property<'_>) -> Option<EmbeddedPhoto> {
+    let value = p.value.trim();
+    let by_address = p
+        .param("VALUE")
+        .is_some_and(|v| matches!(v.to_ascii_lowercase().as_str(), "uri" | "url"));
+    if let Some(data) = value
+        .get(..5)
+        .filter(|scheme| scheme.eq_ignore_ascii_case("data:"))
+        .map(|_| &value[5..])
+    {
+        // data:[<type>][;base64],<contenu> (RFC 2397).
+        let (head, content) = data.split_once(',').unwrap_or((data, ""));
+        let mut params = head.split(';');
+        let media_type = params.next().unwrap_or_default().trim();
+        let base64 = params.any(|q| q.trim().eq_ignore_ascii_case("base64"));
+        return Some(EmbeddedPhoto {
+            declared: (!media_type.is_empty()).then(|| media_type.to_owned()),
+            bytes: base64
+                .then(|| text::base64(content))
+                .flatten()
+                .unwrap_or_default(),
+        });
+    }
+    let base64 = p
+        .param("ENCODING")
+        .is_some_and(|e| matches!(e.to_ascii_uppercase().as_str(), "B" | "BASE64"));
+    if by_address || !base64 {
+        return None;
+    }
+    // Premier type qui n'est pas `PREF` (`TYPE=JPEG`, ou `JPEG` nu en 2.1).
+    let declared = p
+        .types()
+        .find(|t| !t.eq_ignore_ascii_case("pref"))
+        .map(str::to_owned);
+    Some(EmbeddedPhoto {
+        declared,
+        bytes: text::base64(value).unwrap_or_default(),
+    })
+}
+
+/// Cartes d'un fichier vCard, sans leurs photos.
+#[cfg(test)]
 pub(crate) fn decode(text: &str) -> Result<Vec<ImportedCard>, ContactCodecError> {
+    decode_with_photos(text).map(|(cards, _)| cards)
+}
+
+/// Cartes d'un fichier vCard, dans son ordre, et leurs photos intégrées
+/// (par rang de carte) ; une carte non fermée en fin de fichier est
+/// gardée. Les cartes imbriquées (`AGENT`) sont ignorées, photos
+/// comprises.
+pub(crate) fn decode_with_photos(
+    text: &str,
+) -> Result<(Vec<ImportedCard>, CardPhotos), ContactCodecError> {
     let mut cards: Vec<Read> = Vec::new();
+    let mut photos = CardPhotos::new();
+    // `resolve` rend une fiche par carte lue, dans le même ordre : le rang
+    // d'une photo reste celui de sa fiche.
+    let mut push = |cards: &mut Vec<Read>, card: Card| {
+        let (card, photo) = card.finish();
+        if let Some(photo) = photo {
+            photos.insert(cards.len(), photo);
+        }
+        cards.push(card);
+    };
     let mut current: Option<Card> = None;
     let mut depth = 0_usize;
     for line in logical_lines(text) {
@@ -607,7 +688,7 @@ pub(crate) fn decode(text: &str) -> Result<Vec<ImportedCard>, ContactCodecError>
             if depth == 0
                 && let Some(card) = current.take()
             {
-                cards.push(card.finish());
+                push(&mut cards, card);
             }
         } else if depth == 1
             && let Some(card) = current.as_mut()
@@ -619,19 +700,20 @@ pub(crate) fn decode(text: &str) -> Result<Vec<ImportedCard>, ContactCodecError>
         }
     }
     if let Some(card) = current {
-        cards.push(card.finish());
+        push(&mut cards, card);
     }
     if cards.len() > MAX_IMPORT_CARDS {
         return Err(ContactCodecError::TooManyCards);
     }
-    Ok(resolve(
+    let cards = resolve(
         cards,
         &Designation {
             key: card_id,
             direct: mailto,
             fallback: |_: &str| None,
         },
-    ))
+    );
+    Ok((cards, photos))
 }
 
 #[cfg(test)]
@@ -827,7 +909,8 @@ mod tests {
                 &line[..line.len().min(40)]
             );
         }
-        // Une propriété ignorée démesurée (photo) ne gêne pas.
+        // Une photo démesurée ne rend pas la carte illisible (le domaine
+        // la refuse).
         let c = contact(&format!(
             "BEGIN:VCARD\nPHOTO;ENCODING=b:{}\nEMAIL:a@example.com\nEND:VCARD",
             "A".repeat(MAX_FIELD_BYTES * 2)
@@ -871,6 +954,79 @@ mod tests {
             start.elapsed() < std::time::Duration::from_secs(1),
             "dépliage trop lent : {:?}",
             start.elapsed()
+        );
+    }
+
+    fn photos_of(text: &str) -> CardPhotos {
+        decode_with_photos(text).unwrap_or_else(|e| panic!("{e}")).1
+    }
+
+    fn photo(declared: Option<&str>, bytes: &[u8]) -> EmbeddedPhoto {
+        EmbeddedPhoto {
+            declared: declared.map(str::to_owned),
+            bytes: bytes.to_vec(),
+        }
+    }
+
+    #[test]
+    fn embedded_photos_are_read_in_every_version() {
+        // « /9j/4A » : FF D8 FF E0 ; « iVBORw0K » : 89 50 4E 47 0D 0A.
+        let photos = photos_of(
+            "BEGIN:VCARD\nVERSION:3.0\nEMAIL:a@example.com\n\
+             PHOTO;ENCODING=b;TYPE=JPEG:/9j/\n 4A\nEND:VCARD\n\
+             BEGIN:VCARD\nVERSION:4.0\nEMAIL:b@example.com\n\
+             PHOTO:DATA:image/png;base64,iVBORw0K\nEND:VCARD\n\
+             BEGIN:VCARD\nVERSION:2.1\nEMAIL:c@example.com\n\
+             item1.PHOTO;JPEG;ENCODING=BASE64:/9j/4A==\nEND:VCARD\n\
+             BEGIN:VCARD\nVERSION:4.0\nEMAIL:d@example.com\n\
+             PHOTO;MEDIATYPE=image/jpeg:data:;base64,/9j/4A\nEND:VCARD",
+        );
+        let jpeg = [0xFF, 0xD8, 0xFF, 0xE0];
+        assert_eq!(
+            photos.into_iter().collect::<Vec<_>>(),
+            [
+                (0, photo(Some("JPEG"), &jpeg)),
+                (1, photo(Some("image/png"), b"\x89PNG\r\n")),
+                (2, photo(Some("JPEG"), &jpeg)),
+                (3, photo(None, &jpeg)),
+            ]
+        );
+    }
+
+    #[test]
+    fn photos_given_by_address_are_ignored() {
+        let photos = photos_of(
+            "BEGIN:VCARD\nEMAIL:a@example.com\nPHOTO;VALUE=uri:https://pistage.example/a.jpg\nEND:VCARD\n\
+             BEGIN:VCARD\nEMAIL:b@example.com\nPHOTO:http://pistage.example/b.png\nEND:VCARD\n\
+             BEGIN:VCARD\nEMAIL:c@example.com\nPHOTO;VALUE=URL;TYPE=JPEG:file:///etc/passwd\nEND:VCARD\n\
+             BEGIN:VCARD\nEMAIL:d@example.com\nPHOTO;ENCODING=b;VALUE=uri:/9j/4A\nEND:VCARD",
+        );
+        assert!(photos.is_empty(), "{photos:?}");
+    }
+
+    #[test]
+    fn an_unreadable_photo_is_kept_empty_and_the_card_stays_readable() {
+        let text = "BEGIN:VCARD\nEMAIL:a@example.com\nPHOTO;ENCODING=b:***\nEND:VCARD\n\
+             BEGIN:VCARD\nEMAIL:b@example.com\nPHOTO:data:image/jpeg,%FF%D8\nEND:VCARD";
+        let (cards, photos) = decode_with_photos(text).unwrap_or_else(|e| panic!("{e}"));
+        assert!(matches!(cards[0], ImportedCard::Contact(_)), "{cards:?}");
+        assert_eq!(
+            photos.into_iter().collect::<Vec<_>>(),
+            [(0, photo(None, b"")), (1, photo(Some("image/jpeg"), b"")),]
+        );
+    }
+
+    #[test]
+    fn only_the_first_photo_of_a_contact_card_is_kept() {
+        let photos = photos_of(
+            "BEGIN:VCARD\nEMAIL:a@example.com\nPHOTO:http://x.example/\n\
+             PHOTO;ENCODING=b;TYPE=PNG:iVBORw0K\nPHOTO;ENCODING=b;TYPE=JPEG:/9j/4A\n\
+             AGENT:BEGIN:VCARD\nBEGIN:VCARD\nPHOTO;ENCODING=b:/9j/4A\nEND:VCARD\nEND:VCARD\n\
+             BEGIN:VCARD\nKIND:group\nPHOTO;ENCODING=b:/9j/4A\nEND:VCARD",
+        );
+        assert_eq!(
+            photos.into_iter().collect::<Vec<_>>(),
+            [(0, photo(Some("PNG"), b"\x89PNG\r\n"))]
         );
     }
 

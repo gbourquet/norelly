@@ -269,6 +269,7 @@ mod tests {
     #[test]
     fn thunderbird_record() {
         let card = ExportCard {
+            photo: None,
             full_name: Some("Anne Martin".into()),
             given_name: Some("Anne".into()),
             family_name: Some("Martin".into()),

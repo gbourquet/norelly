@@ -89,6 +89,7 @@ export function mailviewUrl(message: number, version = 0, windows = isWindows())
   return `${base}${message}?v=${version}`;
 }
 
-function isWindows(): boolean {
+/** WebView2 (Windows) : protocoles servis en `http://<schéma>.localhost/`. */
+export function isWindows(): boolean {
   return typeof navigator !== "undefined" && /Windows/i.test(navigator.userAgent);
 }

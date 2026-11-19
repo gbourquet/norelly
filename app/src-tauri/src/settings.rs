@@ -292,6 +292,12 @@ mod tests {
     struct BrokenDirectory;
 
     impl ContactDirectory for BrokenDirectory {
+        async fn photo_ids(
+            &self,
+        ) -> Result<std::collections::BTreeSet<norelly_domain::ports::BlobId>, StoreError> {
+            Ok(std::collections::BTreeSet::new())
+        }
+
         async fn page(
             &self,
             _: &norelly_domain::contacts::ContactFilter,

@@ -46,6 +46,7 @@ fn preview(rejected: Vec<ImportRejection>) -> ImportPreview {
     ImportPreview {
         format: ContactFormat::GoogleCsv,
         cards: Vec::new(),
+        photos: CardPhotos::new(),
         skip: ImportPlan {
             create: vec![alice.clone(), alice.clone()],
             duplicates: 4,
@@ -61,6 +62,7 @@ fn preview(rejected: Vec<ImportRejection>) -> ImportPreview {
             rejected,
             lists: lists.lists,
             missing_members: lists.missing_members,
+            ..ImportPlan::default()
         },
     }
 }
@@ -223,27 +225,46 @@ fn failures_become_codes() {
     );
 }
 
+fn pending_cards(card: ImportedCard) -> PendingCards {
+    PendingCards {
+        cards: vec![card],
+        photos: CardPhotos::new(),
+    }
+}
+
 #[test]
 fn pending_import_is_taken_once_with_its_token() {
     let pending = PendingImport::default();
-    let first = pending.remember(vec![ImportedCard::List(ImportedList::default())]);
-    let second = pending.remember(vec![ImportedCard::Unreadable]);
+    let first = pending.remember(pending_cards(ImportedCard::List(ImportedList::default())));
+    let second = pending.remember(pending_cards(ImportedCard::Unreadable));
     assert_ne!(first, second);
     // L'aperçu remplacé est périmé.
     assert_eq!(pending.take(first), None);
-    assert_eq!(pending.take(second), Some(vec![ImportedCard::Unreadable]));
+    assert_eq!(
+        pending.take(second),
+        Some(pending_cards(ImportedCard::Unreadable))
+    );
     assert_eq!(pending.take(second), None);
     // Rendu après un échec : de nouveau disponible, sauf si un autre
     // aperçu l'a remplacé.
-    pending.restore(second, vec![ImportedCard::List(ImportedList::default())]);
+    pending.restore(
+        second,
+        pending_cards(ImportedCard::List(ImportedList::default())),
+    );
     assert_eq!(
         pending.take(second),
-        Some(vec![ImportedCard::List(ImportedList::default())])
+        Some(pending_cards(ImportedCard::List(ImportedList::default())))
     );
-    let third = pending.remember(vec![ImportedCard::Unreadable]);
-    pending.restore(second, vec![ImportedCard::List(ImportedList::default())]);
+    let third = pending.remember(pending_cards(ImportedCard::Unreadable));
+    pending.restore(
+        second,
+        pending_cards(ImportedCard::List(ImportedList::default())),
+    );
     assert_eq!(pending.take(second), None);
-    assert_eq!(pending.take(third), Some(vec![ImportedCard::Unreadable]));
+    assert_eq!(
+        pending.take(third),
+        Some(pending_cards(ImportedCard::Unreadable))
+    );
     assert_ne!(third, 0);
 }
 

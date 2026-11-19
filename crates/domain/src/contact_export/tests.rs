@@ -845,3 +845,25 @@ fn list_members_point_to_exported_cards() {
         ]
     );
 }
+
+#[test]
+fn only_vcards_keep_photos() {
+    assert!(ExportFormat::VCard4.keeps_photos());
+    assert!(ExportFormat::VCard3.keeps_photos());
+    // Google et Thunderbird n'importent pas de photo par ces formats.
+    assert!(!ExportFormat::GoogleCsv.keeps_photos());
+    assert!(!ExportFormat::Ldif.keeps_photos());
+}
+
+#[test]
+fn photos_beyond_the_budget_are_left_out_from_then_on() {
+    let mut budget = PhotoBudget::default();
+    assert!(budget.take(MAX_EXPORT_PHOTO_BYTES - 10));
+    assert!(budget.take(10));
+    assert!(!budget.exhausted());
+    assert!(!budget.take(1));
+    assert!(budget.exhausted());
+    // Une petite photo après l'épuisement est omise aussi : l'ordre des
+    // fiches décide, pas la taille.
+    assert!(!budget.take(0));
+}

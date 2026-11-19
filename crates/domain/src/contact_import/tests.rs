@@ -745,6 +745,134 @@ fn invisible_characters_in_details_reject_an_imported_card() {
     );
 }
 
+const JPEG: &[u8] = &[0xFF, 0xD8, 0xFF, 0xE0];
+
+fn photos(cards: &[(usize, &[u8])]) -> CardPhotos {
+    cards
+        .iter()
+        .map(|(card, bytes)| {
+            (
+                *card,
+                crate::contact_photo::EmbeddedPhoto {
+                    declared: None,
+                    bytes: bytes.to_vec(),
+                },
+            )
+        })
+        .collect()
+}
+
+fn photo_id(n: u8) -> BlobId {
+    BlobId::parse(&format!("{n:02x}").repeat(32)).unwrap_or_else(|| panic!("id"))
+}
+
+fn plan_photos(
+    existing: &[Contact],
+    cards: &[ImportedCard],
+    photos: &CardPhotos,
+    policy: DuplicatePolicy,
+) -> ImportPlan {
+    plan_import_with_photos(existing, &[], cards, photos, policy, &FakeNfc)
+}
+
+#[test]
+fn new_cards_receive_their_embedded_photo() {
+    let cards = [
+        card("Alice", &["alice@example.com"]),
+        card("Bob", &["bob@example.net"]),
+        card("Carole", &["carole@example.org"]),
+    ];
+    let p = plan_photos(
+        &[],
+        &cards,
+        &photos(&[(0, JPEG), (2, b"GIF89a")]),
+        DuplicatePolicy::Skip,
+    );
+    assert_eq!(
+        p.photos,
+        [PhotoPlacement {
+            card: 0,
+            format: PhotoFormat::Jpeg,
+            target: PhotoTarget::Created(0),
+        }]
+    );
+}
+
+#[test]
+fn photos_of_rejected_or_skipped_cards_are_ignored() {
+    let existing = [stored(1, draft("Alice", &["alice@example.com"]))];
+    let cards = [
+        card("Sans adresse", &[]),
+        card("Alice bis", &["alice@example.com"]),
+    ];
+    let p = plan_photos(
+        &existing,
+        &cards,
+        &photos(&[(0, JPEG), (1, JPEG)]),
+        DuplicatePolicy::Skip,
+    );
+    assert!(p.photos.is_empty(), "{:?}", p.photos);
+    assert!(p.complete.is_empty());
+}
+
+#[test]
+fn a_completed_contact_receives_a_photo_only_if_it_has_none() {
+    let existing = [
+        stored(1, draft("Alice", &["alice@example.com"])),
+        stored(2, draft("Bob", &["bob@example.net"])).with_photo(Some(photo_id(7))),
+    ];
+    // Fiches qui n'apportent rien d'autre que la photo.
+    let cards = [
+        card("Alice", &["alice@example.com"]),
+        card("Bob", &["bob@example.net"]),
+    ];
+    let p = plan_photos(
+        &existing,
+        &cards,
+        &photos(&[(0, JPEG), (1, JPEG)]),
+        DuplicatePolicy::Complete,
+    );
+    let id = |n| ContactId::new(n).unwrap_or_else(|| panic!("id"));
+    assert_eq!(
+        p.photos,
+        [PhotoPlacement {
+            card: 0,
+            format: PhotoFormat::Jpeg,
+            target: PhotoTarget::Existing(id(1)),
+        }]
+    );
+    // Alice est complétée (sa photo seule), sans rien changer d'autre ;
+    // Bob, qui a déjà une photo, n'est pas touché.
+    assert_eq!(p.complete.len(), 1);
+    assert_eq!(p.complete[0].id(), id(1));
+    assert_eq!(p.complete[0].draft(), existing[0].draft());
+    assert_eq!(p.duplicates, 1);
+}
+
+#[test]
+fn the_first_photo_merged_into_a_new_card_wins() {
+    let cards = [
+        card("Alice", &["alice@example.com"]),
+        card("Alice", &["alice@example.com", "alice@example.org"]),
+        card("Alice", &["alice@example.org"]),
+    ];
+    let p = plan_photos(
+        &[],
+        &cards,
+        &photos(&[(1, JPEG), (2, JPEG)]),
+        DuplicatePolicy::Complete,
+    );
+    assert_eq!(p.create.len(), 1);
+    assert_eq!(
+        p.photos,
+        [PhotoPlacement {
+            card: 1,
+            format: PhotoFormat::Jpeg,
+            target: PhotoTarget::Created(0),
+        }]
+    );
+}
+
 #[test]
 fn completing_a_contact_fills_details_without_overwriting() {
     let base = draft("Alice", &["a@example.com"]);
@@ -1097,4 +1225,27 @@ fn import_list_keys_gives_each_valid_name_once() {
         &FakeNfc,
     );
     assert_eq!(keys, ["club été", "famille"]);
+}
+
+#[test]
+fn plan_import_alone_places_no_photo() {
+    let p = plan(
+        &[],
+        &[card("Alice", &["alice@example.com"])],
+        DuplicatePolicy::Skip,
+    );
+    assert!(p.photos.is_empty());
+}
+
+#[test]
+fn photos_beyond_the_import_bound_are_left_out() {
+    use crate::contact_photo::MAX_IMPORT_PHOTOS;
+    let cards: Vec<ImportedCard> = (0..=MAX_IMPORT_PHOTOS)
+        .map(|i| card(&format!("c{i}"), &[&format!("c{i}@example.com")]))
+        .collect();
+    let all: Vec<(usize, &[u8])> = (0..cards.len()).map(|i| (i, JPEG)).collect();
+    let p = plan_photos(&[], &cards, &photos(&all), DuplicatePolicy::Skip);
+    assert_eq!(p.create.len(), MAX_IMPORT_PHOTOS + 1);
+    assert_eq!(p.photos.len(), MAX_IMPORT_PHOTOS);
+    assert!(p.photos.iter().all(|ph| ph.card < MAX_IMPORT_PHOTOS));
 }

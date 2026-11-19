@@ -201,6 +201,17 @@ are shown in English, whatever the language of the program they come
 from. Personal labels, such as those created in Apple Contacts ("office",
 "cottage"), are kept as they are.
 
+**Photos** contained in a vCard file are kept and shown on the contact's
+card, next to their name; without a photo, the card shows the first letter
+of the name. Norelly keeps a small copy of each photo, without the hidden
+information it may have carried (place, date, camera). A photo given only
+as a link to the Internet is never loaded, and a photo that is too large or
+in an unusual format is left out: the contact is imported without it. A
+contact already in your address book only gets the photo from the file if
+it has none and you choose **Complete them from the file**.
+
+![Camille Rousseau's card, with the photo taken from the file](captures/contacts-photo.png)
+
 ## Exporting your contacts
 
 To keep a copy of your address book, or move it to another program:
@@ -222,7 +233,7 @@ Favorites are kept in vCard and CSV (Google Contacts puts them in its
 favorites, and Norelly finds them again on import), not in LDIF. Mailing
 lists are exported with the whole address book, in vCard and LDIF; they
 are not exported in CSV, nor when you export only a few ticked contacts.
-In a CSV file opened in a
+Photos are kept in vCard files only. In a CSV file opened in a
 spreadsheet, a number starting with “+” shows with an apostrophe in front:
 this is on purpose, so that the spreadsheet does not take it for a
 formula.

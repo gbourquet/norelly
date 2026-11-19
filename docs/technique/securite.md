@@ -221,6 +221,22 @@ du domaine de l'adresse soumis à confirmation ; XML hostile sans panique
 - Pièces jointes : nom assaini par le domaine, ouverture directe réservée à
   une liste blanche d'extensions, écriture par création exclusive dans le
   dossier choisi.
+- Photos de contact (fichier importé, tiers) : intégrées seulement (une
+  `PHOTO` par adresse n'est jamais suivie), taille, format (signature PNG,
+  JPEG ou WebP, type annoncé cohérent) et dimensions contrôlés par le
+  domaine avant décodage (`contact_photo.rs`) ; décodées par le seul
+  décodeur du format reconnu, mémoire bornée, puis **réencodées** en JPEG
+  de 256 px au plus : métadonnées (lieu, appareil), polyglotte ou octets
+  ajoutés disparaissent ; seule la vignette est stockée
+  (`contact-photos/`, empreinte revérifiée à la lecture). Affichage par
+  `contact-photo://` en lecture seule : photo relue par le carnet,
+  servie seulement si c'est un JPEG et un type matriciel accepté
+  (`accepted_type`, comme `mailpart://`), CSP `default-src 'none';
+  sandbox`, `nosniff`, refusée à un document de message (`Origin` ou
+  `Referer` autres que l'interface) ; `img-src` de la fenêtre limitée à
+  elle-même, `data:` et ce protocole. Travail borné par import (2 000
+  photos, 500 Mpx décodés en tout, en-tête lu d'abord) ; une panique d'un
+  décodeur écarte la photo.
 - Impression : `window.print()` de la fenêtre principale, lancé par
   l'interface seulement (l'agent ne relaie aucune demande d'impression,
   test `agent_cannot_print`) ; aucune commande IPC, aucune capability, cadre
@@ -391,6 +407,16 @@ reçus de l'interface ; types MIME recalculés.
   suivantes sont remises à la synchronisation suivante), fiches distantes
   enregistrées lues une à une, à la demande, pas de fiche gardée pour une
   ressource laissée de côté.
+- Photos : une `PHOTO` d'une fiche du serveur n'est jamais reprise dans le
+  carnet ni décodée en image (le base64 est lu puis jeté avec la fiche) ;
+  elle n'est gardée que dans la fiche brute de `carddav_links.remote`,
+  texte opaque qui sert seulement de base à `merge_card` (pour ne pas la
+  retirer du serveur), jamais servi ni rangé dans le magasin des photos.
+  La photo d'un contact (import) n'est jamais envoyée (`export_card` ne
+  la porte pas, testé pour la création et la mise à jour), elle est
+  gardée par une mise à jour venue du serveur (contrat
+  `contact_photo_contract`, faux et SQLite), et le ménage est relancé
+  après une synchronisation qui a supprimé ou modifié des contacts ici.
 - Intégrité du carnet : aucune suppression dans le carnet quand la liste
   du serveur n'est pas sûre (réponse omise, liste vide) ou qu'elle en
   emporterait plus de la moitié au-delà de 10 (`guard_deletions`) ; une
@@ -424,7 +450,10 @@ Signalés au mainteneur dans chaque PR qui les touche (ADR-008) :
 - `crates/adapters/render/src/sanitize.rs`, `css.rs`, `compose.rs`,
   `agent.js` ;
 - `crates/adapters/contacts-io/src/` (lecture et écriture de fichiers
-  externes), `crates/domain/src/contact_import.rs`, `contact_export.rs` ;
+  externes, décodage des photos `photo.rs`),
+  `crates/domain/src/contact_import.rs`, `contact_export.rs`,
+  `contact_photo.rs` ; `crates/adapters/blobs/src/photos.rs` (photos
+  stockées) ; `app/src-tauri/tauri.conf.json` (CSP de la fenêtre) ;
 - `app/src-tauri/src/protocols.rs`, `remote_images.rs`, `reading.rs`
   (pièces jointes), `contact_import.rs` (fichier importé),
   `contact_export.rs` (fichier exporté), `ipc.rs`,

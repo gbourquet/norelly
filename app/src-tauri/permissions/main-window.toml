@@ -84,6 +84,11 @@ permissions = [
   "allow-add-to-contact-list",
   "allow-expand-contact-list",
   "allow-suggest-contact-lists",
+  "allow-find-carddav-books",
+  "allow-connect-carddav",
+  "allow-carddav-status",
+  "allow-sync-carddav",
+  "allow-disconnect-carddav",
   "allow-update-status",
   "allow-install-update",
 ]

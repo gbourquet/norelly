@@ -3,6 +3,7 @@
 pub mod account_actor;
 pub mod accounts;
 pub mod actions;
+pub mod carddav;
 pub mod compose;
 pub mod compose_worker;
 pub mod contact_duplicates;

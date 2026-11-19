@@ -4,7 +4,8 @@
 
 Le **carnet d'adresses** garde les personnes à qui vous écrivez souvent :
 leur nom, leurs adresses électroniques, leurs téléphones. Il est commun à
-toutes vos adresses et reste sur votre ordinateur.
+toutes vos adresses et reste sur votre ordinateur, sauf si vous le
+synchronisez avec un serveur de contacts (voir plus bas).
 
 ## Ouvrir vos contacts
 
@@ -240,6 +241,44 @@ La fiche gardée reçoit les adresses, les téléphones et les notes des
 autres, et complète ses champs vides ; rien de ce qu'elle contenait n'est
 remplacé. Elle prend leur place dans vos listes de diffusion, puis les
 autres fiches sont supprimées.
+
+## Retrouver vos contacts sur vos autres appareils
+
+Si votre fournisseur propose un serveur de contacts (CardDAV : Nextcloud,
+Fastmail, Synology, Baïkal…), Norelly peut tenir votre carnet à jour avec
+lui, dans les deux sens : un contact ajouté, modifié ou supprimé sur votre
+téléphone l'est aussi dans Norelly, et inversement.
+
+1. Créez un **mot de passe d'application** dans les réglages de sécurité
+   de votre fournisseur.
+2. Dans **Contacts**, cliquez sur **Plus…**, en haut de la liste, puis sur
+   **Synchroniser avec un serveur…**.
+3. Saisissez l'adresse du serveur (son nom suffit, par exemple
+   `nextcloud.exemple.fr`), votre identifiant et le mot de passe
+   d'application, puis cliquez sur **Rechercher les carnets**.
+4. Choisissez le carnet à synchroniser, puis cliquez sur **Synchroniser ce
+   carnet**.
+
+![Le choix du carnet à synchroniser](captures/contacts-carddav.png)
+
+Le mot de passe est gardé dans le trousseau de votre système. Le carnet est
+synchronisé à chaque ouverture de Norelly ; **Synchroniser maintenant**,
+dans la même fenêtre, le fait tout de suite.
+
+Bon à savoir :
+
+- Une fiche modifiée des deux côtés garde la modification la plus récente.
+- Norelly ne change sur le serveur que ce qu'il connaît (noms,
+  organisation, adresses, téléphones, notes) : la photo ou l'anniversaire
+  saisis sur votre téléphone sont gardés.
+- Les favoris et les listes de diffusion restent dans Norelly seulement.
+- Une fiche sans adresse électronique n'est pas reprise dans Norelly ; elle
+  reste sur le serveur.
+- **Déconnecter** arrête la synchronisation ; vos contacts restent dans
+  Norelly, et rien n'est supprimé sur le serveur.
+- Par prudence, si beaucoup de contacts disparaissent d'un coup du serveur,
+  Norelly ne les supprime pas : supprimez-les vous-même dans Norelly.
+- Google Contacts et iCloud ne sont pas encore pris en charge.
 
 ## Supprimer des contacts
 

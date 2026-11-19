@@ -20,6 +20,11 @@
 #   GNOME Keyring.
 # - Produit les captures d'écran de la documentation utilisateur
 #   (e2e/captures), recopiées dans docs/utilisateur/<langue>/captures.
+# - Démarre un faux serveur CardDAV (carddav.norelly.test, e2e/carddav.mjs)
+#   dont le certificat est signé par une seconde autorité de test, limitée
+#   à ce nom et générée pour l'occasion ; elle rejoint la première dans
+#   SSL_CERT_FILE. La synchronisation du carnet n'admet aucune exception de
+#   certificat.
 # - Démarre aussi un serveur canari (canary.norelly.test, e2e/canary.mjs) :
 #   les scénarios de lecture vérifient qu'il ne reçoit aucune requête.
 set -euo pipefail
@@ -37,7 +42,7 @@ mailpit_image="axllent/mailpit:v1.33.0@sha256:9b3a463be15354c0f0eba91697d80e3e0d
 workdir=$(mktemp -d)
 
 cleanup() {
-  docker rm -f "$run_id-imap" "$run_id-gmail" "$run_id-smtp" "$run_id-canary" >/dev/null 2>&1 || true
+  docker rm -f "$run_id-imap" "$run_id-gmail" "$run_id-smtp" "$run_id-canary" "$run_id-carddav" >/dev/null 2>&1 || true
   docker network rm "$network" >/dev/null 2>&1 || true
   rm -rf "$workdir"
 }
@@ -85,7 +90,23 @@ openssl x509 -req -in "$workdir/gmail.csr" -CA "$workdir/test-ca.crt" -CAkey "$w
 # La clé de l'autorité ne sert plus : supprimée tout de suite, elle ne peut
 # pas rester sur le disque après un arrêt brutal.
 rm -f "$workdir/test-ca.key" "$workdir/test-ca.srl" "$workdir/gmail.csr"
-chmod 644 "$workdir/gmail.key" "$workdir/gmail.crt" "$workdir/test-ca.crt"
+# Autorité de test limitée à carddav.norelly.test, et certificat du faux
+# serveur CardDAV qu'elle signe ; sa clé est supprimée aussitôt.
+openssl req -x509 -newkey rsa:2048 -nodes -days 2 -subj "/CN=Norelly e2e CardDAV CA" \
+  -addext "basicConstraints=critical,CA:TRUE" \
+  -addext "keyUsage=critical,keyCertSign" \
+  -addext "nameConstraints=critical,permitted;DNS:carddav.norelly.test" \
+  -keyout "$workdir/carddav-ca.key" -out "$workdir/carddav-ca.crt" 2>/dev/null
+openssl req -newkey rsa:2048 -nodes -subj "/CN=carddav.norelly.test" \
+  -keyout "$workdir/carddav.key" -out "$workdir/carddav.csr" 2>/dev/null
+printf '%s\n' "basicConstraints=critical,CA:FALSE" "keyUsage=critical,digitalSignature,keyEncipherment" \
+  "extendedKeyUsage=serverAuth" "subjectAltName=DNS:carddav.norelly.test" > "$workdir/carddav.ext"
+openssl x509 -req -in "$workdir/carddav.csr" -CA "$workdir/carddav-ca.crt" -CAkey "$workdir/carddav-ca.key" \
+  -CAcreateserial -days 2 -extfile "$workdir/carddav.ext" -out "$workdir/carddav.crt" 2>/dev/null
+rm -f "$workdir/carddav-ca.key" "$workdir/carddav-ca.srl" "$workdir/carddav.csr"
+cat "$workdir/test-ca.crt" "$workdir/carddav-ca.crt" > "$workdir/test-cas.crt"
+chmod 644 "$workdir/gmail.key" "$workdir/gmail.crt" "$workdir/test-ca.crt" \
+  "$workdir/carddav.key" "$workdir/carddav.crt" "$workdir/test-cas.crt"
 mkdir -p "$workdir/captures"
 printf 'norelly:%s\n' "$password" > "$workdir/smtp-auth"
 chmod 644 "$workdir/smtp-auth"
@@ -117,6 +138,14 @@ docker run -d --name "$run_id-smtp" --network "$network" --network-alias smtp.no
 docker run -d --name "$run_id-canary" --network "$network" --network-alias canary.norelly.test \
   -v "$root/app/e2e/canary.mjs:/canary.mjs:ro" \
   "$image" node /canary.mjs >/dev/null
+
+# Faux serveur CardDAV : le scénario s'y connecte avec $password.
+docker run -d --name "$run_id-carddav" --network "$network" --network-alias carddav.norelly.test \
+  -e NORELLY_E2E_PASSWORD="$password" \
+  -v "$root/app/e2e/carddav.mjs:/carddav.mjs:ro" \
+  -v "$workdir/carddav.crt:/certs/tls.crt:ro" \
+  -v "$workdir/carddav.key:/certs/tls.key:ro" \
+  "$image" node /carddav.mjs >/dev/null
 
 mkdir -p "$cache/target" "$cache/cargo" "$cache/home"
 # Le cache n'est jamais placé dans le PATH : un binaire déposé là par un
@@ -164,9 +193,10 @@ docker run "${common[@]}" --network "$network" \
   --tmpfs /tmp/home:exec,mode=1777 -e HOME=/tmp/home \
   -v "$workdir/passwd:/etc/passwd:ro" -v "$workdir/group:/etc/group:ro" \
   -e NORELLY_E2E_PASSWORD="$password" \
-  -v "$workdir/test-ca.crt:/etc/norelly-e2e/test-ca.crt:ro" \
+  -v "$workdir/test-cas.crt:/etc/norelly-e2e/test-ca.crt:ro" \
   -e SSL_CERT_FILE=/etc/norelly-e2e/test-ca.crt \
   -e NORELLY_E2E_CANARY="http://canary.norelly.test:8080" \
+  -e NORELLY_E2E_CARDDAV="http://carddav.norelly.test:8080" \
   -e LANG=fr_FR.UTF-8 -e LANGUAGE=fr \
   -e NORELLY_E2E_PERF="${NORELLY_E2E_PERF:-}" \
   -v "$root:/work:ro" -v "$workdir/captures:/captures" \

@@ -61,6 +61,7 @@ norelly-blobs.workspace = true
 norelly-render.workspace = true
 norelly-contacts-io.workspace = true
 norelly-oauth.workspace = true
+norelly-webdav.workspace = true
 
 [target.'cfg(unix)'.dependencies]
 # Ouverture d'un temporaire d'export à nettoyer sans suivre de lien ni

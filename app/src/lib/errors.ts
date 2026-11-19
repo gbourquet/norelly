@@ -117,6 +117,12 @@ export function fieldLabel(field: FieldDto | null): string {
       return m.field_label_name();
     case "label_color":
       return m.field_label_color();
+    case "password":
+      return m.field_password();
+    case "card_dav_server":
+      return m.field_carddav_server();
+    case "card_dav_book":
+      return m.field_carddav_book();
     case null:
       return "?";
   }
@@ -276,6 +282,22 @@ function codeText(code: ErrorCodeDto, field: FieldDto | null): string {
       return m.err_label_rewrites_pending();
     case "contact_list_not_found":
       return m.err_contact_list_not_found();
+    case "card_dav_unauthorized":
+      return m.err_carddav_unauthorized();
+    case "card_dav_unreachable":
+      return m.err_carddav_unreachable();
+    case "card_dav_certificate":
+      return m.err_carddav_certificate();
+    case "card_dav_no_address_book":
+      return m.err_carddav_no_address_book();
+    case "card_dav_too_large":
+      return m.err_carddav_too_large();
+    case "card_dav_server_error":
+      return m.err_carddav_server_error();
+    case "card_dav_not_configured":
+      return m.err_carddav_not_configured();
+    case "card_dav_sync_busy":
+      return m.err_carddav_sync_busy();
     case "internal":
       return m.err_internal();
   }

@@ -87,6 +87,7 @@ suggested address, `Enter` or `,` confirms it.
 | Export contacts… | palette |
 | Export selected contacts… | palette |
 | Find duplicates… | palette |
+| Sync with a server… | palette |
 | Edit contact | `Shift+E` |
 | Write to contact | `W` |
 | Favorite (add or remove) | `Shift+S` |

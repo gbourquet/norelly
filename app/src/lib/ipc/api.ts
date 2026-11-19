@@ -65,10 +65,16 @@ import {
   type SecretsBackendDto,
   type LabelDto_Serialize,
   type LabelMenuDto_Serialize,
+  type CardDavBookDto,
+  type CardDavReportDto,
+  type CardDavStatusDto_Serialize,
 } from "./bindings";
 import { IpcFailure } from "../errors";
 
 export type {
+  CardDavBookDto,
+  CardDavFailureDto,
+  CardDavReportDto,
   OAuthProviderDto,
   OAuthSignInStepDto,
   ContactExportFormatDto,
@@ -162,6 +168,8 @@ export type SearchHit = SearchHitDto_Serialize;
 export type SearchPage = SearchPageDto_Serialize;
 /** Brouillon échangé avec l'éditeur (même forme dans les deux sens). */
 export type Draft = DraftDto_Serialize;
+/** Compte CardDAV relié et dernière synchronisation du carnet. */
+export type CardDavStatus = CardDavStatusDto_Serialize;
 
 export { IpcFailure } from "../errors";
 
@@ -507,6 +515,31 @@ export const api = {
   /** Listes proposées pendant la saisie d'un destinataire (vides écartées). */
   suggestContactLists: (text: string): Promise<ContactListItemDto[]> =>
     unwrap(commands.suggestContactLists(text)),
+
+  /** Carnets d'adresses du compte sur le serveur CardDAV `server`
+   * (adresse ou nom de domaine : Rust cherche l'adresse du carnet). */
+  findCarddavBooks: (
+    server: string,
+    username: string,
+    password: string,
+  ): Promise<CardDavBookDto[]> => unwrap(commands.findCarddavBooks(server, username, password)),
+
+  /** Relie le carnet `bookUrl`, proposé par la dernière recherche ; le mot
+   * de passe va au trousseau. */
+  connectCarddav: (
+    server: string,
+    username: string,
+    password: string,
+    bookUrl: string,
+  ): Promise<CardDavStatus> => unwrap(commands.connectCarddav(server, username, password, bookUrl)),
+
+  carddavStatus: (): Promise<CardDavStatus> => unwrap(commands.carddavStatus()),
+
+  /** Synchronise le carnet avec le carnet distant, dans les deux sens. */
+  syncCarddav: (): Promise<CardDavReportDto> => unwrap(commands.syncCarddav()),
+
+  /** Oublie le carnet distant (les contacts restent). */
+  disconnectCarddav: (): Promise<null> => unwrap(commands.disconnectCarddav()),
 
   onComposeEvent: async (listener: (event: ComposeEventDto) => void): Promise<() => void> =>
     events.composeEventDto.listen((e) => listener(e.payload)),

@@ -43,6 +43,7 @@
   import ContactExportDialog from "./components/ContactExportDialog.svelte";
   import ContactDuplicatesDialog from "./components/ContactDuplicatesDialog.svelte";
   import ContactImportDialog from "./components/ContactImportDialog.svelte";
+  import CardDavDialog from "./components/CardDavDialog.svelte";
   import ContactListCard from "./components/ContactListCard.svelte";
   import ContactListDialog from "./components/ContactListDialog.svelte";
   import AddToListDialog from "./components/AddToListDialog.svelte";
@@ -56,6 +57,7 @@
   import {
     addToList,
     app,
+    carddav,
     compose,
     contactDeletion,
     contactForm,
@@ -95,6 +97,13 @@
     let disposed = false;
     void settings.load();
     void updates.load().catch(() => undefined);
+    // Carnet distant relié : synchronisé au lancement, liste relue s'il a
+    // apporté des changements.
+    void carddav.background().then((report) => {
+      if (report === null || report.pulled === 0) return;
+      void contacts.load();
+      if (app.view === "mail") void mail.reload();
+    });
     void (async () => {
       // Comptes et première liste en parallèle : la boîte unifiée ne
       // dépend pas de la liste des comptes (démarrage plus court).
@@ -848,6 +857,24 @@
       text: m.contacts_export_notice({ count: outcome.exported, name: outcome.file_name }),
       undoable: false,
     };
+  }}
+/>
+<CardDavDialog
+  open={app.dialog === "carddav"}
+  form={carddav}
+  onClose={() => {
+    carddav.close();
+    app.close();
+  }}
+  onSynced={(report) => {
+    mail.notice = {
+      text: m.carddav_notice({ pulled: report.pulled, pushed: report.pushed }),
+      undoable: false,
+    };
+    if (report.pulled > 0) {
+      void contacts.load();
+      if (app.view === "mail") void mail.reload();
+    }
   }}
 />
 <ContactImportDialog

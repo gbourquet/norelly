@@ -82,6 +82,11 @@ const APP_COMMANDS: &[&str] = &[
     "add_to_contact_list",
     "expand_contact_list",
     "suggest_contact_lists",
+    "find_carddav_books",
+    "connect_carddav",
+    "carddav_status",
+    "sync_carddav",
+    "disconnect_carddav",
     "update_status",
     "install_update",
 ];

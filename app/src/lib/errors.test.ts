@@ -193,6 +193,14 @@ describe("traduction des erreurs IPC", () => {
       label_too_many: true,
       label_name_reserved: true,
       label_rewrites_pending: true,
+      card_dav_unauthorized: true,
+      card_dav_unreachable: true,
+      card_dav_certificate: true,
+      card_dav_no_address_book: true,
+      card_dav_too_large: true,
+      card_dav_server_error: true,
+      card_dav_not_configured: true,
+      card_dav_sync_busy: true,
       internal: true,
     } satisfies Record<ErrorCodeDto, true>;
     const fields = {
@@ -231,6 +239,9 @@ describe("traduction des erreurs IPC", () => {
       label: true,
       label_name: true,
       label_color: true,
+      password: true,
+      card_dav_server: true,
+      card_dav_book: true,
     } satisfies Record<FieldDto, true>;
     const kinds = {
       network: true,

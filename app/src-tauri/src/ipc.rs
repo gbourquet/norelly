@@ -208,6 +208,22 @@ pub enum ErrorCodeDto {
     LabelNameReserved,
     /// Trop de renommages d'étiquettes attendent encore le serveur.
     LabelRewritesPending,
+    /// Serveur CardDAV : identifiant ou mot de passe refusé.
+    CardDavUnauthorized,
+    /// Serveur CardDAV injoignable (`detail` : erreur brute).
+    CardDavUnreachable,
+    /// Certificat du serveur CardDAV refusé (`detail` : raison brute).
+    CardDavCertificate,
+    /// Aucun carnet d'adresses à cette adresse (ou carnet disparu).
+    CardDavNoAddressBook,
+    /// Carnet distant trop grand (fiches, taille des réponses).
+    CardDavTooLarge,
+    /// Réponse refusée du serveur CardDAV (`detail` : erreur brute).
+    CardDavServerError,
+    /// Aucun carnet distant relié.
+    CardDavNotConfigured,
+    /// Une synchronisation du carnet est déjà en cours.
+    CardDavSyncBusy,
     /// Erreur interne (journalisée).
     Internal,
 }
@@ -264,6 +280,12 @@ pub enum FieldDto {
     LabelName,
     /// Couleur d'une étiquette.
     LabelColor,
+    /// Mot de passe (vide, trop long).
+    Password,
+    /// Adresse d'un serveur CardDAV.
+    CardDavServer,
+    /// Carnet distant choisi (pas proposé par la recherche).
+    CardDavBook,
 }
 
 /// Erreur renvoyée à l'interface : un code, le champ concerné, et un détail
@@ -2392,4 +2414,68 @@ pub struct ContactExportOutcomeDto {
     pub exported: u32,
     /// Nom du fichier écrit.
     pub file_name: String,
+}
+
+/// Carnet d'adresses proposé par un serveur CardDAV.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
+pub struct CardDavBookDto {
+    /// Adresse du carnet, rendue telle quelle pour le relier.
+    pub url: String,
+    /// Nom donné par le serveur (nettoyé ; vide s'il n'en donne pas).
+    pub name: String,
+}
+
+/// Compte CardDAV relié (sans mot de passe).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
+pub struct CardDavAccountDto {
+    pub server: String,
+    pub username: String,
+    pub book_url: String,
+    pub book_name: String,
+}
+
+/// Bilan d'une synchronisation du carnet.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Type)]
+pub struct CardDavReportDto {
+    /// Fiches créées, modifiées ou supprimées dans Norelly.
+    pub pulled: u32,
+    /// Fiches créées, modifiées ou supprimées sur le serveur.
+    pub pushed: u32,
+    /// Fiches laissées de côté (sans adresse, en double, ou remises à la
+    /// prochaine fois).
+    pub skipped: u32,
+}
+
+/// Raison de l'échec de la dernière synchronisation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum CardDavFailureDto {
+    Unauthorized,
+    Network,
+    Certificate,
+    NotFound,
+    TooLarge,
+    Server,
+    Storage,
+    Keyring,
+}
+
+/// Dernière synchronisation du carnet.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Type)]
+pub struct CardDavSyncDto {
+    /// Date (secondes Unix).
+    pub at: u32,
+    /// Bilan, si elle a réussi.
+    pub report: Option<CardDavReportDto>,
+    /// Raison, si elle a échoué.
+    pub failure: Option<CardDavFailureDto>,
+}
+
+/// État de la synchronisation CardDAV.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
+pub struct CardDavStatusDto {
+    pub account: Option<CardDavAccountDto>,
+    pub last_sync: Option<CardDavSyncDto>,
+    /// Une synchronisation est en cours.
+    pub syncing: bool,
 }

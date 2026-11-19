@@ -63,6 +63,7 @@ système.
 | 21 | `0021_labels.sql` | étiquettes : `labels` (mot-clé par compte, couleur locale `#rrggbb` en minuscules par `CHECK`, `hidden` pour une étiquette supprimée de la liste sans être retirée des messages), `label_rewrites` (réécritures en attente d'un mot-clé sur tous les messages du serveur : renommage, ou retrait si `to_keyword` est `NULL` ; essais comptés), `mailboxes.permanent_flags` (`PERMANENTFLAGS` du dernier `SELECT` en écriture : `NULL` inconnu, `*` tout mot-clé, `=` suivi des mots-clés permis) ; `pending_ops` reconstruite pour les opérations de mot-clé (`flag = 'keyword'` et colonne `keyword`, exigée par `CHECK`), lignes, index et numérotation `sqlite_sequence` conservés (les copies provisoires désignent leur opération par son identifiant) |
 | 22 | `0022_contact_dismissals.sql` | `contact_duplicate_dismissals` : paires de contacts passées dans la recherche des doublons (`low_id < high_id` par `CHECK`, clé primaire sur la paire), `batch` numéro du groupe passé (un appel de `dismiss`), `rowid` de la plus ancienne à la plus récente ; oubliées quand une fiche disparaît (clés étrangères `ON DELETE CASCADE`) ou change (déclencheur `contact_duplicate_dismissals_forget` sur `UPDATE` de `contacts`, que toute écriture d'une fiche réécrit : modification, import, fusion) ; une paire retenue de nouveau est réinsérée (`INSERT OR REPLACE`, la plus récente) ; au-delà de `MAX_DISMISSED_PAIRS` (10 000), les plus anciens groupes sont supprimés, chacun en entier (jamais un groupe en partie), dans la même transaction ; paire d'une fiche inconnue ignorée ; écritures en paramètres liés |
 | 23 | `0023_contact_full_name_search.sql` | schéma inchangé ; étape Rust jouée dans la même transaction (`M::up_with_hook`, `index_full_names`) : `search_text` recalculé par le domaine pour y ajouter le nom complet composé « prénom nom » (« alice mar » trouve Alice Martin), sans quoi les fiches enregistrées seraient tenues pour corrompues à la relecture ; seule cette colonne est réécrite, et seulement pour une fiche dont `sort_key` et `search_text` stockés sont ceux que calculait le domaine avant (ou déjà ceux d'aujourd'hui), pour la fiche relue ou telle qu'enregistrée avec un nom imitant une adresse (`ContactDraft::full_name_reindex`) ; une fiche illisible (type ou encodage d'une colonne), invalide, aux clés de tri ou de recherche retouchées, ou dont une clé `address_key` stockée n'est pas celle de son adresse, est laissée telle quelle, ni réparée ni masquée (toujours écartée à la relecture), sans bloquer l'ouverture ; parcours des fiches par lots commun aux étapes 18, 19 et 23 (`for_each_stored_contact`) ; journal : nombres seulement ; écritures en paramètres liés |
+| 24 | `0024_carddav.sql` | synchronisation CardDAV (ADR-014) : `contacts.modified_at`, date de la dernière écriture d'une fiche posée par déclencheurs (création, et modification de ses champs : toute écriture réécrit la ligne de `contacts`), fiches existantes de date inconnue (0 : elles ne l'emportent pas sur une fiche d'un serveur à la première synchronisation) ; `carddav_account` (compte unique : serveur, identifiant, carnet ; jamais le mot de passe), `carddav_links` (ressources du carnet distant : ETag, contact relié, date de suppression de son contact posée par déclencheur avant suppression puis `ON DELETE SET NULL`, fiche locale et fiche distante à la dernière synchronisation ; un contact n'est relié qu'à une ressource), `carddav_sync` (dernière synchronisation : date, bilan ou code d'échec) |
 
 Le schéma courant complet est la somme de ces fichiers ; ils sont commentés
 en tête et à chaque table.
@@ -131,6 +132,14 @@ en tête et à chaque table.
   s'arrête. Lue seule (`get`) ou à la fusion, elle reste une erreur.
   Aucune migration : rien n'est réécrit, la fiche redevient visible si
   elle est réparée.
+- Synchronisation CardDAV : la date de modification d'une fiche
+  (`contacts.modified_at`) et la date de suppression d'un contact relié
+  (`carddav_links.deleted_at`) sont posées par des **déclencheurs**, quel
+  que soit le chemin d'écriture (saisie, import, fusion, synchronisation) :
+  elles départagent un conflit (la dernière modification gagne). Changer le
+  compte pour un autre carnet ou un autre serveur oublie les ressources
+  connues et la dernière synchronisation ; retirer le compte les oublie
+  aussi, contacts gardés.
 
 ### Lectures d'écran (CQRS léger)
 

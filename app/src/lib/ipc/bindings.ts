@@ -350,6 +350,25 @@ export const commands = {
 	expandContactList: (id: number, field: RecipientFieldDto) => typedError<ExpandedListDto, IpcError_Serialize>(__TAURI_INVOKE("expand_contact_list", { id, field })),
 	/**  Listes proposées pendant la saisie d'un destinataire. */
 	suggestContactLists: (text: string) => typedError<ContactListItemDto[], IpcError_Serialize>(__TAURI_INVOKE("suggest_contact_lists", { text })),
+	/**
+	 *  Carnets du compte sur le serveur `server` (adresse, ou nom de domaine
+	 *  seul : la découverte commence alors par l'adresse bien connue).
+	 */
+	findCarddavBooks: (server: string, username: string, password: string) => typedError<CardDavBookDto[], IpcError_Serialize>(__TAURI_INVOKE("find_carddav_books", { server, username, password })),
+	/**
+	 *  Relie le carnet `book_url` (proposé par la dernière recherche) ; le
+	 *  mot de passe va au trousseau.
+	 */
+	connectCarddav: (server: string, username: string, password: string, bookUrl: string) => typedError<CardDavStatusDto_Serialize, IpcError_Serialize>(__TAURI_INVOKE("connect_carddav", { server, username, password, bookUrl })),
+	/**  Compte relié et dernière synchronisation. */
+	carddavStatus: () => typedError<CardDavStatusDto_Serialize, IpcError_Serialize>(__TAURI_INVOKE("carddav_status")),
+	/**  Synchronise maintenant. */
+	syncCarddav: () => typedError<CardDavReportDto, IpcError_Serialize>(__TAURI_INVOKE("sync_carddav")),
+	/**
+	 *  Déconnecte le carnet distant : compte et mot de passe oubliés, contacts
+	 *  gardés.
+	 */
+	disconnectCarddav: () => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("disconnect_carddav")),
 	/**  État de la recherche de mises à jour. */
 	updateStatus: () => __TAURI_INVOKE<UpdateStatusDto_Serialize>("update_status"),
 	/**
@@ -541,6 +560,80 @@ export type BodyModeDto = "html" | "text" | "empty";
 
 /**  Avis sur un corps non affiché (texte localisé par l'interface). */
 export type BodyNoticeDto = "too_complex" | "too_long" | "not_available";
+
+/**  Compte CardDAV relié (sans mot de passe). */
+export type CardDavAccountDto = {
+	server: string,
+	username: string,
+	book_url: string,
+	book_name: string,
+};
+
+/**  Carnet d'adresses proposé par un serveur CardDAV. */
+export type CardDavBookDto = {
+	/**  Adresse du carnet, rendue telle quelle pour le relier. */
+	url: string,
+	/**  Nom donné par le serveur (nettoyé ; vide s'il n'en donne pas). */
+	name: string,
+};
+
+/**  Raison de l'échec de la dernière synchronisation. */
+export type CardDavFailureDto = "unauthorized" | "network" | "certificate" | "not_found" | "too_large" | "server" | "storage" | "keyring";
+
+/**  Bilan d'une synchronisation du carnet. */
+export type CardDavReportDto = {
+	/**  Fiches créées, modifiées ou supprimées dans Norelly. */
+	pulled: number,
+	/**  Fiches créées, modifiées ou supprimées sur le serveur. */
+	pushed: number,
+	/**
+	 *  Fiches laissées de côté (sans adresse, en double, ou remises à la
+	 *  prochaine fois).
+	 */
+	skipped: number,
+};
+
+/**  État de la synchronisation CardDAV. */
+export type CardDavStatusDto = CardDavStatusDto_Serialize | CardDavStatusDto_Deserialize;
+
+/**  État de la synchronisation CardDAV. */
+export type CardDavStatusDto_Deserialize = {
+	account?: CardDavAccountDto | null,
+	last_sync?: CardDavSyncDto_Deserialize | null,
+	/**  Une synchronisation est en cours. */
+	syncing: boolean,
+};
+
+/**  État de la synchronisation CardDAV. */
+export type CardDavStatusDto_Serialize = {
+	account: CardDavAccountDto | null,
+	last_sync: CardDavSyncDto_Serialize | null,
+	/**  Une synchronisation est en cours. */
+	syncing: boolean,
+};
+
+/**  Dernière synchronisation du carnet. */
+export type CardDavSyncDto = CardDavSyncDto_Serialize | CardDavSyncDto_Deserialize;
+
+/**  Dernière synchronisation du carnet. */
+export type CardDavSyncDto_Deserialize = {
+	/**  Date (secondes Unix). */
+	at: number,
+	/**  Bilan, si elle a réussi. */
+	report?: CardDavReportDto | null,
+	/**  Raison, si elle a échoué. */
+	failure?: CardDavFailureDto | null,
+};
+
+/**  Dernière synchronisation du carnet. */
+export type CardDavSyncDto_Serialize = {
+	/**  Date (secondes Unix). */
+	at: number,
+	/**  Bilan, si elle a réussi. */
+	report: CardDavReportDto | null,
+	/**  Raison, si elle a échoué. */
+	failure: CardDavFailureDto | null,
+};
 
 /**  Code stable du problème de certificat (pour l'interface). */
 export type CertificateIssueDto = "unknown_issuer" | "expired" | "not_yet_valid" | "hostname_mismatch" | "revoked" | "invalid_signature" | "malformed" | "other";
@@ -1404,6 +1497,22 @@ export type ErrorCodeDto =
 "label_name_reserved" | 
 /**  Trop de renommages d'étiquettes attendent encore le serveur. */
 "label_rewrites_pending" | 
+/**  Serveur CardDAV : identifiant ou mot de passe refusé. */
+"card_dav_unauthorized" | 
+/**  Serveur CardDAV injoignable (`detail` : erreur brute). */
+"card_dav_unreachable" | 
+/**  Certificat du serveur CardDAV refusé (`detail` : raison brute). */
+"card_dav_certificate" | 
+/**  Aucun carnet d'adresses à cette adresse (ou carnet disparu). */
+"card_dav_no_address_book" | 
+/**  Carnet distant trop grand (fiches, taille des réponses). */
+"card_dav_too_large" | 
+/**  Réponse refusée du serveur CardDAV (`detail` : erreur brute). */
+"card_dav_server_error" | 
+/**  Aucun carnet distant relié. */
+"card_dav_not_configured" | 
+/**  Une synchronisation du carnet est déjà en cours. */
+"card_dav_sync_busy" | 
 /**  Erreur interne (journalisée). */
 "internal";
 
@@ -1507,7 +1616,13 @@ export type FieldDto = "address" | "display_name" | "host" | "port" | "username"
 /**  Nom d'une étiquette. */
 "label_name" | 
 /**  Couleur d'une étiquette. */
-"label_color";
+"label_color" | 
+/**  Mot de passe (vide, trop long). */
+"password" | 
+/**  Adresse d'un serveur CardDAV. */
+"card_dav_server" | 
+/**  Carnet distant choisi (pas proposé par la recherche). */
+"card_dav_book";
 
 /**  Dossier d'un compte. */
 export type FolderDto = {

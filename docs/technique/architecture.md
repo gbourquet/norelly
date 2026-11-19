@@ -29,7 +29,7 @@ flowchart LR
     ports["ports.rs"]
   end
   subgraph Adapters["crates/adapters/*"]
-    imap & smtp & tls & sqlite & blobs & keyring & discovery & render & oauth
+    imap & smtp & tls & sqlite & blobs & keyring & discovery & render & oauth & webdav
   end
   UI -- "invoke (bindings TS générés)" --> ipc
   UI -- "iframe sandbox" --> proto
@@ -102,6 +102,7 @@ Orchestration async des ports, sans règle métier propre :
 | `discovery` | `AutoconfigClient`, `SrvResolver`, `PortProber` | HTTPS seulement |
 | `oauth` | `OAuthClient` : navigateur du système (`BrowserOpener`), redirection locale sur `127.0.0.1` (port éphémère), PKCE S256, échange et rafraîchissement des jetons par HTTPS (`norelly-tls`) | `state` vérifié par le domaine, retour forgé ignoré, corps des réponses jamais recopié (ADR-013) |
 | `render` | Rendu MIME → vue, assainissement HTML et CSS, agent, construction MIME sortante, extraction du texte indexé | fichiers sensibles (`sanitize.rs`, `css.rs`, `agent.js`) |
+| `webdav` | `CardDavClient` : découverte des carnets (`/.well-known/carddav`, principal, dossier des carnets), liste des fiches et ETag, `addressbook-multiget`, écritures conditionnelles (`If-Match`, `If-None-Match: *`), HTTP Basic sur HTTPS (`norelly-tls`, vérification de la plateforme sans exception) | adresses citées par le serveur revalidées sur l'origine du carnet par le domaine, redirections suivies en découverte seulement, réponses bornées, DTD refusée (ADR-014) |
 | `contacts-io` | `ContactCodec` (lecture vCard, CSV Google/Outlook/Thunderbird, LDIF ; écriture vCard 4.0/3.0, CSV Google, LDIF Thunderbird), `TextNormalizer` (NFC, NFD) | entrées et sorties bornées, fuzzé (`contact_import`, `contact_export`) ; fichier lu et écrit par le shell, jamais d'URL suivie |
 
 ### Point d'assemblage et adaptateur entrant (`app/src-tauri`)

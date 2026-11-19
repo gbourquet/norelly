@@ -20,6 +20,7 @@ import { ContactFormState, ContactsState, DeleteContactsState } from "./contacts
 import { ContactExportState } from "./contact-export.svelte";
 import { ContactDuplicatesState } from "./contact-duplicates.svelte";
 import { ContactImportState } from "./contact-import.svelte";
+import { CardDavState } from "./carddav.svelte";
 import {
   AddToListState,
   ContactListFormState,
@@ -64,7 +65,8 @@ export type DialogName =
   | "add-to-list"
   | "contact-import"
   | "contact-export"
-  | "contact-duplicates";
+  | "contact-duplicates"
+  | "carddav";
 
 export interface AppContext {
   selectedAccount: AccountDto | null;
@@ -524,6 +526,8 @@ export const contactDeletion = new DeleteContactsState(api);
 export const contactImport = new ContactImportState(api);
 export const contactExport = new ContactExportState(api);
 export const contactDuplicates = new ContactDuplicatesState(api);
+/** Synchronisation du carnet avec un serveur CardDAV. */
+export const carddav = new CardDavState(api);
 
 /** Listes de diffusion (section « Listes » de la vue Contacts). */
 export const lists = new ContactListsState(api);
@@ -983,6 +987,17 @@ export function registerAppCommands(): () => void {
         if (app.view !== "contacts") await app.showContacts();
         app.open("contact-duplicates");
         await contactDuplicates.open();
+      },
+    }),
+    registry.register({
+      id: "contacts.carddav",
+      title: m.cmd_contacts_carddav(),
+      group: m.group_contacts(),
+      keywords: words(m.cmd_contacts_carddav_keywords()),
+      run: async () => {
+        if (app.view !== "contacts") await app.showContacts();
+        app.open("carddav");
+        await carddav.open();
       },
     }),
     registry.register({

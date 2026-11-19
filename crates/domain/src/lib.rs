@@ -24,6 +24,7 @@
 //! - [`contact_labels`] : genre des étiquettes de fiche, libellés Apple ;
 //! - [`contact_duplicates`] : doublons du carnet et fusion des fiches ;
 //! - [`contact_lists`] : listes de diffusion (nom unique, expansion) ;
+//! - [`carddav`] : synchronisation CardDAV du carnet (adresses, conflits, plan) ;
 //! - [`oauth`] : connexion OAuth (fournisseurs, PKCE, XOAUTH2) ;
 //! - [`sender`] : nom affiché d'un correspondant (carnet, en-tête) ;
 //! - [`sender_auth`] : authentification de l'expéditeur (`Authentication-Results`) ;
@@ -34,6 +35,7 @@ pub mod actions;
 pub mod address;
 pub mod auth;
 pub mod capabilities;
+pub mod carddav;
 pub mod compose;
 pub mod connection;
 pub mod contact_duplicates;

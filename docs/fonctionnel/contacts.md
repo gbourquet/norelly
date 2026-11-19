@@ -12,7 +12,8 @@ les retrouver en premier en écrivant un message, et ajouter au carnet une
 personne rencontrée dans un message ; regrouper des contacts dans des
 listes de diffusion pour leur écrire en une fois.
 Le carnet est **unique** pour tous les comptes et reste **sur
-l'ordinateur** : rien n'est envoyé à un serveur.
+l'ordinateur** : rien n'est envoyé à un serveur, sauf s'il est relié à un
+serveur de contacts (voir [synchronisation-carnet.md](synchronisation-carnet.md)).
 
 ## Comportement attendu
 

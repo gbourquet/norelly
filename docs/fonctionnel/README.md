@@ -77,9 +77,9 @@ Norelly est un client de messagerie **IMAP/SMTP** de bureau, pour
   des messages.
 - **Pas de chiffrement des données locales par Norelly** : elles sont
   protégées par le chiffrement du disque, s'il est activé sur l'ordinateur.
-- **Pas d'agenda ni de filtres** ; le carnet d'adresses est local (pas de
-  synchronisation CardDAV) et les suggestions de destinataires viennent des
-  adresses déjà vues.
+- **Pas d'agenda ni de filtres** ; le carnet d'adresses se synchronise
+  avec un serveur de contacts (CardDAV), mais pas avec Google Contacts ni
+  iCloud.
 - **Pas de macOS** ni de version mobile.
 - **Pas de télémétrie**, ni de rapport de plantage automatique.
 
@@ -121,6 +121,7 @@ Norelly est un client de messagerie **IMAP/SMTP** de bureau, pour
 | Envoyer : boîte d'envoi, nouvelles tentatives, envoi différé | [envoi.md](envoi.md) |
 | Rechercher en plein texte | [recherche.md](recherche.md) |
 | Carnet d'adresses : ajouter, modifier, supprimer un contact, favoris, écrire à un contact | [contacts.md](contacts.md) |
+| Synchroniser le carnet avec un serveur de contacts (CardDAV), dans les deux sens | [synchronisation-carnet.md](synchronisation-carnet.md) |
 | Notifier les nouveaux messages | [notifications.md](notifications.md) |
 | Paramètres, langue et mises à jour | [parametres.md](parametres.md) |
 | Commandes : souris, clavier, palette, accessibilité | [clavier.md](clavier.md) |

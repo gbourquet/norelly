@@ -2213,6 +2213,196 @@ pub trait ReadingPreferences: Send + Sync {
     ) -> impl Future<Output = Result<(), StoreError>> + Send;
 }
 
+// ---------------------------------------------------------------------------
+// Synchronisation CardDAV (ADR-014)
+// ---------------------------------------------------------------------------
+
+/// Échec d'un échange avec un serveur CardDAV. Ne contient jamais le mot
+/// de passe ni le contenu d'une fiche.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum CardDavError {
+    #[error("serveur injoignable : {0}")]
+    Network(String),
+    #[error("délai dépassé")]
+    Timeout,
+    /// Certificat refusé (vérification de la plateforme, sans exception).
+    #[error("certificat refusé : {0}")]
+    Certificate(String),
+    /// Identifiant ou mot de passe refusé (401, 403).
+    #[error("identifiants refusés")]
+    Unauthorized,
+    /// Ressource ou carnet introuvable (404, 410).
+    #[error("introuvable")]
+    NotFound,
+    /// Ressource changée depuis sa lecture (412).
+    #[error("ressource modifiée entre-temps")]
+    PreconditionFailed,
+    /// Réponse au-delà des bornes (taille, nombre, profondeur).
+    #[error("réponse trop volumineuse")]
+    TooLarge,
+    /// Aucun carnet d'adresses à cette adresse.
+    #[error("aucun carnet d'adresses")]
+    NoAddressBook,
+    /// Réponse illisible ou contraire au protocole.
+    #[error("réponse invalide : {0}")]
+    Protocol(String),
+    /// Erreur du serveur (statut HTTP).
+    #[error("erreur du serveur : HTTP {0}")]
+    Server(u16),
+}
+
+/// Client CardDAV (adaptateur `webdav`) : HTTPS seulement, HTTP Basic,
+/// vérification des certificats de la plateforme. Toute ressource citée
+/// par le serveur est revalidée par le domaine
+/// ([`crate::carddav::DavUrl::join`]) : jamais hors de l'origine du
+/// carnet.
+pub trait CardDavClient: Send + Sync {
+    /// Carnets d'adresses du compte (au plus
+    /// [`crate::carddav::MAX_ADDRESS_BOOKS`]), découverts depuis l'adresse
+    /// `server` ([`crate::carddav::discovery_candidates`]) ;
+    /// `NoAddressBook` s'il n'y en a aucun.
+    fn address_books(
+        &self,
+        server: &crate::carddav::DavUrl,
+        credentials: &crate::carddav::DavCredentials,
+    ) -> impl Future<Output = Result<Vec<crate::carddav::AddressBook>, CardDavError>> + Send;
+
+    /// Fiches du carnet et leur ETag (au plus
+    /// [`crate::carddav::MAX_REMOTE_CARDS`], sinon `TooLarge`) ; une
+    /// réponse illisible (sans ETag, hors du carnet) est omise et comptée.
+    fn entries(
+        &self,
+        book: &crate::carddav::DavUrl,
+        credentials: &crate::carddav::DavCredentials,
+    ) -> impl Future<Output = Result<RemoteListing, CardDavError>> + Send;
+
+    /// Fiches `hrefs` du carnet (au plus
+    /// [`crate::carddav::MAX_MULTIGET_HREFS`]) ; une fiche absente ou plus
+    /// grosse que [`crate::carddav::MAX_CARD_BYTES`] est omise.
+    fn cards(
+        &self,
+        book: &crate::carddav::DavUrl,
+        credentials: &crate::carddav::DavCredentials,
+        hrefs: &[crate::carddav::Href],
+    ) -> impl Future<Output = Result<Vec<crate::carddav::RemoteCard>, CardDavError>> + Send;
+
+    /// Crée la fiche `href` (refusé par `PreconditionFailed` si elle
+    /// existe) ; renvoie son ETag si le serveur la donne.
+    fn create(
+        &self,
+        book: &crate::carddav::DavUrl,
+        credentials: &crate::carddav::DavCredentials,
+        href: &crate::carddav::Href,
+        card: &str,
+    ) -> impl Future<Output = Result<Option<crate::carddav::ETag>, CardDavError>> + Send;
+
+    /// Remplace la fiche `href` si elle est toujours à la version `etag`
+    /// (sinon `PreconditionFailed`) ; renvoie sa nouvelle ETag si le
+    /// serveur la donne.
+    fn update(
+        &self,
+        book: &crate::carddav::DavUrl,
+        credentials: &crate::carddav::DavCredentials,
+        href: &crate::carddav::Href,
+        etag: &crate::carddav::ETag,
+        card: &str,
+    ) -> impl Future<Output = Result<Option<crate::carddav::ETag>, CardDavError>> + Send;
+
+    /// Supprime la fiche `href` si elle est toujours à la version `etag`
+    /// (sinon `PreconditionFailed`) ; une fiche déjà absente est un succès.
+    fn delete(
+        &self,
+        book: &crate::carddav::DavUrl,
+        credentials: &crate::carddav::DavCredentials,
+        href: &crate::carddav::Href,
+        etag: &crate::carddav::ETag,
+    ) -> impl Future<Output = Result<(), CardDavError>> + Send;
+
+    /// UID aléatoire d'une fiche créée ici.
+    fn new_uid(&self) -> crate::carddav::CardUid;
+}
+
+/// Liste d'un carnet distant.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct RemoteListing {
+    pub entries: Vec<crate::carddav::RemoteEntry>,
+    /// Réponses omises (illisibles, hors du carnet) : la liste est
+    /// incomplète, aucune fiche ne doit être tenue pour supprimée.
+    pub omitted: usize,
+}
+
+/// Synchronisation enregistrée.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CardDavSyncRecord {
+    /// Date de la fin de la synchronisation.
+    pub at: i64,
+    pub outcome: Result<crate::carddav::SyncReport, crate::carddav::SyncFailure>,
+}
+
+/// État de la synchronisation CardDAV (adaptateur `sqlite`) : compte,
+/// ressources connues, dernière synchronisation. Le mot de passe n'y est
+/// jamais : il est dans le trousseau ([`SecretStore`]).
+pub trait CardDavStore: Send + Sync {
+    /// Compte enregistré.
+    fn account(
+        &self,
+    ) -> impl Future<Output = Result<Option<crate::carddav::CardDavAccount>, StoreError>> + Send;
+
+    /// Enregistre le compte ; un autre carnet (ou un autre serveur) fait
+    /// oublier les ressources connues et la dernière synchronisation.
+    fn save_account(
+        &self,
+        account: &crate::carddav::CardDavAccount,
+    ) -> impl Future<Output = Result<(), StoreError>> + Send;
+
+    /// Oublie le compte, les ressources connues et la dernière
+    /// synchronisation (les contacts restent).
+    fn remove_account(&self) -> impl Future<Output = Result<(), StoreError>> + Send;
+
+    /// Ressources connues, **sans** leur fiche distante
+    /// ([`crate::carddav::SyncLink::remote`] vide : lue à la demande par
+    /// [`Self::link_remote`], pour ne pas charger tout le carnet distant).
+    fn links(
+        &self,
+    ) -> impl Future<Output = Result<Vec<crate::carddav::SyncLink>, StoreError>> + Send;
+
+    /// Fiche distante enregistrée d'une ressource connue.
+    fn link_remote(
+        &self,
+        href: &crate::carddav::Href,
+    ) -> impl Future<Output = Result<Option<String>, StoreError>> + Send;
+
+    /// Enregistre ou remplace une ressource connue. Un contact supprimé du
+    /// carnet fait passer sa ressource à
+    /// [`crate::carddav::LinkState::Deleted`], datée.
+    fn save_link(
+        &self,
+        link: &crate::carddav::SyncLink,
+    ) -> impl Future<Output = Result<(), StoreError>> + Send;
+
+    /// Oublie une ressource (sans effet si inconnue).
+    fn forget_link(
+        &self,
+        href: &crate::carddav::Href,
+    ) -> impl Future<Output = Result<(), StoreError>> + Send;
+
+    /// Date de la dernière modification de chaque contact du carnet.
+    fn modification_times(
+        &self,
+    ) -> impl Future<Output = Result<Vec<(ContactId, i64)>, StoreError>> + Send;
+
+    /// Enregistre la fin d'une synchronisation.
+    fn record_sync(
+        &self,
+        record: &CardDavSyncRecord,
+    ) -> impl Future<Output = Result<(), StoreError>> + Send;
+
+    /// Dernière synchronisation.
+    fn last_sync(
+        &self,
+    ) -> impl Future<Output = Result<Option<CardDavSyncRecord>, StoreError>> + Send;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

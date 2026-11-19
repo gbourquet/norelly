@@ -653,6 +653,57 @@ Fiche : [contacts.md](../fonctionnel/contacts.md). Décision : ADR-012.
 - Nom des correspondants sur l'application factice : liste, conversation,
   recherche (`command_tests.rs`, `senders_in_the_book_are_named_from_their_card`).
 
+## Synchronisation du carnet avec un serveur de contacts (CardDAV)
+
+Fiche : [synchronisation-carnet.md](../fonctionnel/synchronisation-carnet.md).
+Décision : ADR-014 (à valider).
+
+### Règles et code
+
+| Règle | Où |
+|---|---|
+| Adresse HTTPS seulement, sans identifiants, requête ni fragment, chemin ASCII sans `.` ni `..` ; nom de domaine seul accepté (`DavUrl::parse`) | `crates/domain/src/carddav.rs` |
+| Ressource citée par le serveur suivie sur la même origine seulement (`DavUrl::join`) ; découverte : adresse bien connue depuis la racine, puis la racine (`discovery_candidates`) ; redirection sur la même origine, 3 au plus (`redirect_target`) | `carddav.rs` |
+| Identifiant utilisable en HTTP Basic (`DavUsername`), mot de passe non vide et borné (`validate_password`), carnet sur le serveur du compte (`CardDavAccount::new`), nom de carnet nettoyé et borné (`AddressBook::new`) | `carddav.rs` |
+| La dernière modification gagne (`newest_side`) : `REV` absent vaut maintenant, date future ramenée à maintenant, égalité au serveur ; `REV` lu dans ses formes courantes (`parse_rev`) | `carddav.rs` |
+| Fiche poussée : seules les propriétés connues du carnet (et leur groupe) remplacées dans la fiche du serveur, `REV` à jour (`merge_card`) ; fiche créée avec UID et `REV` (`new_card`, `new_card_href`) ; fiche distante revalidée comme une fiche importée (`remote_draft`) | `carddav.rs` |
+| Plan de synchronisation (`plan_sync`, `hrefs_to_fetch`) : reprises, envois, suppressions, conflits, rapprochement à la première synchronisation, favori gardé, fiches laissées de côté | `carddav.rs` |
+| Application du plan : suppressions ici d'abord, écritures conditionnelles, fiche changée entre-temps remise à plus tard, bilan ou échec enregistré | `crates/application/src/carddav.rs` |
+| Client CardDAV : HTTPS sans exception de certificat, HTTP Basic, réponses bornées, DTD refusée | `crates/adapters/webdav/src/` |
+| Dates de modification et de suppression posées par déclencheurs (migration 24) ; compte, ressources connues, dernière synchronisation | `crates/adapters/sqlite/src/carddav.rs`, `migrations/0024_carddav.sql` |
+| Carnet relié choisi parmi ceux de la dernière recherche seulement ; une synchronisation à la fois ; synchronisation au lancement | `app/src-tauri/src/carddav.rs`, `lib.rs` |
+
+### Clés des messages
+
+`carddav_*`, `cmd_contacts_carddav*`, `err_carddav_*`, `field_password`,
+`field_carddav_server`, `field_carddav_book`.
+
+### Commandes
+
+`contacts.carddav`.
+
+### Vérifications et compléments
+
+- Règles du domaine : `crates/domain/src/carddav/tests.rs` (adresses,
+  même origine, dates, fusion des fiches, plan dans chaque cas).
+- Contrat du client (`carddav_client_contract`) joué contre le faux client
+  et contre l'adaptateur réel branché sur le faux serveur CardDAV en HTTPS
+  (`crates/test-support/src/carddav_server.rs`,
+  `crates/adapters/webdav/tests/fake_server.rs`) ; serveur hostile :
+  certificat d'une autorité inconnue, redirection et fiches hors du
+  serveur, réponses trop grosses, trop de fiches, entité externe.
+- Contrat de l'état de synchronisation (`carddav_store_contract`) joué
+  contre le faux et SQLite ; montée vers la version 24.
+- Cas d'usage sur faux (`crates/application/src/carddav/tests.rs`) et de
+  bout en bout sur SQLite, client HTTPS et faux serveur
+  (`crates/application/tests/carddav_end_to_end.rs`) : deux
+  synchronisations de suite n'écrivent rien la seconde fois.
+- Scénario de bout en bout (`app/e2e/specs/carddav.e2e.mjs`) contre le faux
+  serveur CardDAV du réseau de test (`app/e2e/carddav.mjs`, certificat
+  d'une autorité de test limitée à son nom) : mot de passe refusé, carnet
+  trouvé depuis le nom du serveur, fiche reçue, contact envoyé,
+  anniversaire d'une fiche du serveur gardé, déconnexion.
+
 ## Notifications des nouveaux messages
 
 Fiche : [notifications.md](../fonctionnel/notifications.md).

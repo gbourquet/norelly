@@ -30,6 +30,7 @@ import DownloadIcon from "@lucide/svelte/icons/download";
 import ImportIcon from "@lucide/svelte/icons/import";
 import PencilIcon from "@lucide/svelte/icons/pencil";
 import UsersIcon from "@lucide/svelte/icons/users";
+import CloudSyncIcon from "@lucide/svelte/icons/cloud-sync";
 import FolderPlusIcon from "@lucide/svelte/icons/folder-plus";
 import FolderXIcon from "@lucide/svelte/icons/folder-x";
 import { m } from "./paraglide/messages.js";
@@ -344,7 +345,8 @@ export function contactListMenuActions(): VisibleAction[] {
 
 /** En-tête de la vue Contacts, à côté de « Nouveau contact » : « Exporter… »
  * puis « Importer… » passent dans « Plus… » si la place manque ;
- * « Rechercher les doublons… », rare, y est toujours. */
+ * « Rechercher les doublons… » et « Synchroniser avec un serveur… »,
+ * rares, y sont toujours. */
 export function contactsHeaderActions(): { primary: VisibleAction[]; more: VisibleAction[] } {
   return {
     primary: [
@@ -362,6 +364,9 @@ export function contactsHeaderActions(): { primary: VisibleAction[]; more: Visib
         priority: 3,
       },
     ],
-    more: [{ command: "contacts.find-duplicates", icon: UsersIcon }],
+    more: [
+      { command: "contacts.find-duplicates", icon: UsersIcon },
+      { command: "contacts.carddav", icon: CloudSyncIcon },
+    ],
   };
 }

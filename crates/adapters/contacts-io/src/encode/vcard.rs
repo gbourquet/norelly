@@ -3,9 +3,12 @@
 //! `NICKNAME`, `ORG`, `EMAIL` (type, préférence), `TEL`, `CATEGORIES`
 //! (favori seulement), `NOTE` ;
 //! échappements des valeurs texte, lignes repliées à 75 octets sans couper
-//! un caractère, fins de ligne CRLF.
+//! un caractère, fins de ligne CRLF. Les listes suivent les fiches, en
+//! cartes de groupe (`KIND:group` en 4.0, `X-ADDRESSBOOKSERVER-KIND:group`
+//! d'Apple en 3.0) dont chaque membre est l'adresse préférée de sa fiche
+//! (`mailto:`), copie cachée notée `X-NORELLY-BCC:TRUE`.
 
-use norelly_domain::contact_export::{ExportCard, VCARD_FAVORITE_CATEGORY};
+use norelly_domain::contact_export::{ExportCard, ExportList, VCARD_FAVORITE_CATEGORY};
 use norelly_domain::ports::ContactCodecError;
 
 use super::Output;
@@ -63,6 +66,21 @@ fn type_param(label: Option<&str>) -> String {
     label.map_or_else(String::new, |label| format!(";TYPE={label}"))
 }
 
+/// Adresse en URI `mailto:` (RFC 6068) : tout octet hors des lettres et
+/// chiffres ASCII et de `-._~@+` est écrit en pourcentage (aucun
+/// caractère de la syntaxe vCard ne reste).
+fn mailto(address: &str) -> String {
+    let mut out = String::from("mailto:");
+    for b in address.bytes() {
+        if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'.' | b'_' | b'~' | b'@' | b'+') {
+            out.push(char::from(b));
+        } else {
+            out.push_str(&format!("%{b:02X}"));
+        }
+    }
+    out
+}
+
 fn optional(value: Option<&String>) -> String {
     value.map_or_else(String::new, |v| escape(v))
 }
@@ -70,6 +88,7 @@ fn optional(value: Option<&String>) -> String {
 /// Cartes `cards` dans `out`.
 pub(crate) fn encode(
     cards: &[ExportCard],
+    lists: &[ExportList],
     version: Version,
     out: &mut Output,
 ) -> Result<(), ContactCodecError> {
@@ -176,6 +195,37 @@ pub(crate) fn encode(
             out.push(&fold(&line))?;
         }
     }
+    for list in lists {
+        let mut lines = vec!["BEGIN:VCARD".to_owned(), version_line.to_owned()];
+        match version {
+            Version::V4 => lines.push("KIND:group".to_owned()),
+            Version::V3 => lines.push("X-ADDRESSBOOKSERVER-KIND:group".to_owned()),
+        }
+        lines.push(format!("FN:{}", escape(&list.name)));
+        if version == Version::V3 {
+            // `N` est obligatoire en 3.0.
+            lines.push(format!("N:{};;;;", escape(&list.name)));
+        }
+        if let Some(description) = &list.description {
+            lines.push(format!("NOTE:{}", escape(description)));
+        }
+        if list.bcc {
+            lines.push("X-NORELLY-BCC:TRUE".to_owned());
+        }
+        let property = match version {
+            Version::V4 => "MEMBER",
+            Version::V3 => "X-ADDRESSBOOKSERVER-MEMBER",
+        };
+        for card in list.members.iter().filter_map(|&i| cards.get(i)) {
+            if let Some(email) = card.emails.first() {
+                lines.push(format!("{property}:{}", mailto(&email.address)));
+            }
+        }
+        lines.push("END:VCARD".to_owned());
+        for line in lines {
+            out.push(&fold(&line))?;
+        }
+    }
     Ok(())
 }
 
@@ -190,7 +240,7 @@ mod tests {
 
     fn written(cards: &[ExportCard], version: Version) -> String {
         let mut out = Output::new();
-        encode(cards, version, &mut out).unwrap_or_else(|e| panic!("{e}"));
+        encode(cards, &[], version, &mut out).unwrap_or_else(|e| panic!("{e}"));
         String::from_utf8(out.into_bytes()).unwrap_or_else(|e| panic!("{e}"))
     }
 
@@ -358,7 +408,7 @@ mod tests {
     fn output_limit_stops_the_writing() {
         let mut out = Output::with_limit(40);
         assert_eq!(
-            encode(&[card()], Version::V4, &mut out),
+            encode(&[card()], &[], Version::V4, &mut out),
             Err(ContactCodecError::TooLarge)
         );
     }

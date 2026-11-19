@@ -8,12 +8,20 @@
 // - la fiche importée garde ses accents et sa note ; ses étiquettes
 //   (`work`, `home`, `cell`) s'affichent traduites ;
 // - un export vCard d'Apple : les étiquettes personnalisées
-//   (`X-ABLabel:bureau`) sont reprises, les réservées traduites ;
-// - nettoyage : les contacts importés sont supprimés (sélection multiple).
+//   (`X-ABLabel:bureau`) sont reprises, les réservées traduites ; son
+//   groupe devient une liste de diffusion, avec son membre ;
+// - nettoyage : la liste et les contacts importés sont supprimés.
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { $, $$, browser, expect } from "@wdio/globals";
-import { addTestAccount, barAction, openMenu, pickFile, removeTestAccount } from "./helpers.mjs";
+import {
+  addTestAccount,
+  barAction,
+  openContextMenu,
+  openMenu,
+  pickFile,
+  removeTestAccount,
+} from "./helpers.mjs";
 
 const data = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -88,7 +96,7 @@ describe("import du carnet", () => {
     await expect(preview.$("p*=CSV de Google Contacts")).toBeDisplayed();
     await expect(preview.$("span=1 nouveau(x) contact(s) ajouté(s)")).toBeDisplayed();
     await expect(
-      preview.$("span=2 fiche(s) déjà dans le carnet, laissée(s) de côté"),
+      preview.$("span=2 fiche(s) ou liste(s) déjà dans le carnet, laissée(s) de côté"),
     ).toBeDisplayed();
     await expect(preview.$("span=1 fiche(s) impossible(s) à importer")).toBeDisplayed();
     await expect(preview.$("legend=Contacts déjà dans le carnet")).toBeDisplayed();
@@ -110,8 +118,12 @@ describe("import du carnet", () => {
   it("importe un export vCard d'Apple : étiquettes personnalisées reprises", async () => {
     const preview = await importFile("apple.vcf");
     await expect(preview.$("p*=« apple.vcf » (vCard)")).toBeDisplayed();
+    await expect(preview.$("span=1 nouvelle(s) liste(s) de diffusion ajoutée(s)")).toBeDisplayed();
     await preview.$("button=Importer").click();
     await preview.waitForDisplayed({ reverse: true, timeout: 20000 });
+    await expect(
+      $("span*=Import terminé : 2 contact(s) ajouté(s), 0 complété(s) ; 1 liste(s) ajoutée(s)"),
+    ).toBeDisplayed();
     await row("Alice Martin").click();
     const card = $('article[aria-label="Fiche de Alice Martin"]');
     await expect(card).toBeDisplayed();
@@ -120,6 +132,27 @@ describe("import du carnet", () => {
     await expect(card.$("span.tag=Autre")).toBeDisplayed();
     await expect(card.$("span.tag=Domicile")).toBeDisplayed();
     await expect(card.$("span.tag=Mobile")).toBeDisplayed();
+  });
+
+  it("le groupe d'Apple est devenu une liste avec son membre", async () => {
+    await $('//button[normalize-space()="Listes"]').click();
+    const list = row("Famille");
+    await expect(list).toBeDisplayed();
+    await expect(list.$("span=1 membre(s)")).toBeDisplayed();
+    await list.click();
+    const card = $('article[aria-label="Liste Famille"]');
+    await expect(card).toBeDisplayed();
+    await expect(card.$("span=alice.martin@example.com")).toBeDisplayed();
+    await openContextMenu(list);
+    await $(
+      '//*[@role="menuitem"][.//*[contains(@class, "menu-label")][normalize-space()="Supprimer la liste"]]',
+    ).click();
+    const confirm = dialog("Supprimer la liste ?");
+    await confirm.waitForDisplayed();
+    await confirm.$("button=Supprimer").click();
+    await confirm.waitForDisplayed({ reverse: true, timeout: 10000 });
+    await $("p*=Aucune liste pour l'instant").waitForDisplayed({ timeout: 10000 });
+    await $('//button[normalize-space()="Tous"]').click();
   });
 
   it("supprime les contacts importés", async () => {

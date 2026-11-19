@@ -4,7 +4,8 @@
 
 use norelly_contacts_io::{ContactsIo, IcuNfc};
 use norelly_domain::contact_import::{
-    ContactFormat, DecodedContacts, DuplicatePolicy, ImportedCard, RejectReason, plan_import,
+    ContactFormat, DecodedContacts, DuplicatePolicy, ImportedCard, ImportedList, ImportedMember,
+    ListMember, RejectReason, plan_import,
 };
 use norelly_domain::contacts::{
     ContactError, ContactInput, EmailInput, PhoneInput, PostalAddressInput,
@@ -32,7 +33,7 @@ fn contacts(decoded: &DecodedContacts) -> Vec<&ContactInput> {
         .iter()
         .filter_map(|c| match c {
             ImportedCard::Contact(input) => Some(input),
-            ImportedCard::List | ImportedCard::Unreadable => None,
+            ImportedCard::List(_) | ImportedCard::Unreadable => None,
         })
         .collect()
 }
@@ -169,7 +170,15 @@ fn apple_vcard() {
     let d = decode("apple.vcf");
     assert_eq!(d.format, ContactFormat::VCard);
     assert_eq!(d.cards.len(), 3);
-    assert_eq!(d.cards[1], ImportedCard::List);
+    // Groupe d'Apple : membre désigné par l'identifiant de sa fiche.
+    assert_eq!(
+        d.cards[1],
+        ImportedCard::List(ImportedList {
+            name: "Famille".into(),
+            members: vec![ImportedMember::Card(0)],
+            ..ImportedList::default()
+        })
+    );
     let c = contacts(&d);
     assert_eq!(
         *c[0],
@@ -306,7 +315,15 @@ fn thunderbird_ldif() {
     let d = decode("thunderbird.ldif");
     assert_eq!(d.format, ContactFormat::Ldif);
     assert_eq!(d.cards.len(), 3);
-    assert_eq!(d.cards[2], ImportedCard::List);
+    // Groupe de Thunderbird : membre désigné par son nom distinctif.
+    assert_eq!(
+        d.cards[2],
+        ImportedCard::List(ImportedList {
+            name: "Amis".into(),
+            members: vec![ImportedMember::Card(1)],
+            ..ImportedList::default()
+        })
+    );
     let c = contacts(&d);
     assert_eq!(
         *c[0],
@@ -335,19 +352,21 @@ fn thunderbird_ldif() {
 fn every_fixture_plans_without_surprise() {
     // Bout à bout : chaque export donne des fiches que le domaine accepte,
     // sauf celles que le jeu d'essai rend invalides exprès.
-    for (name, created, rejected) in [
-        ("gmail.csv", 3, 1),
-        ("gmail.vcf", 2, 0),
-        ("apple.vcf", 2, 1),
-        ("outlook.vcf", 2, 0),
-        ("outlook.csv", 2, 0),
-        ("outlook-fr.csv", 1, 0),
-        ("thunderbird.csv", 2, 0),
-        ("thunderbird.ldif", 2, 1),
+    for (name, created, rejected, lists) in [
+        ("gmail.csv", 3, 1, 0),
+        ("gmail.vcf", 2, 0, 0),
+        ("apple.vcf", 2, 0, 1),
+        ("outlook.vcf", 2, 0, 0),
+        ("outlook.csv", 2, 0, 0),
+        ("outlook-fr.csv", 1, 0, 0),
+        ("thunderbird.csv", 2, 0, 0),
+        ("thunderbird.ldif", 2, 0, 1),
     ] {
         let d = decode(name);
-        let plan = plan_import(&[], &d.cards, DuplicatePolicy::Skip, &IcuNfc);
+        let plan = plan_import(&[], &[], &d.cards, DuplicatePolicy::Skip, &IcuNfc);
         assert_eq!(plan.create.len(), created, "{name} : {:?}", plan.rejected);
+        assert_eq!(plan.lists.len(), lists, "{name}");
+        assert_eq!(plan.missing_members, 0, "{name}");
         assert_eq!(
             plan.rejected.len(),
             rejected,
@@ -356,6 +375,7 @@ fn every_fixture_plans_without_surprise() {
         );
     }
     let plan = plan_import(
+        &[],
         &[],
         &decode("gmail.csv").cards,
         DuplicatePolicy::Skip,
@@ -368,12 +388,17 @@ fn every_fixture_plans_without_surprise() {
     // Nom imitant une adresse retiré (Apple, Thunderbird).
     let plan = plan_import(
         &[],
+        &[],
         &decode("apple.vcf").cards,
         DuplicatePolicy::Skip,
         &IcuNfc,
     );
     assert_eq!(plan.renamed, 1);
-    assert_eq!(plan.rejected[0].reason, RejectReason::List);
+    // La liste Famille est importée avec Alice.
+    assert!(plan.rejected.is_empty(), "{:?}", plan.rejected);
+    assert_eq!(plan.lists.len(), 1);
+    assert_eq!(plan.lists[0].draft().name(), "Famille");
+    assert_eq!(plan.lists[0].members(), [ListMember::New(0)]);
 }
 
 /// Export CSV de Google versé dans le carnet issu de l'export vCard de
@@ -383,6 +408,7 @@ fn every_fixture_plans_without_surprise() {
 fn google_csv_completes_the_book_imported_from_google_vcard() {
     use norelly_domain::contacts::ContactId;
     let first = plan_import(
+        &[],
         &[],
         &decode("gmail.vcf").cards,
         DuplicatePolicy::Skip,
@@ -394,7 +420,7 @@ fn google_csv_completes_the_book_imported_from_google_vcard() {
         .collect();
     let csv = decode("gmail.csv");
     for policy in [DuplicatePolicy::Skip, DuplicatePolicy::Complete] {
-        let plan = plan_import(&book, &csv.cards, policy, &IcuNfc);
+        let plan = plan_import(&book, &[], &csv.cards, policy, &IcuNfc);
         assert_eq!(plan.create.len(), 1, "{policy:?} : {:?}", plan.rejected);
         assert_eq!(plan.rejected.len(), 1, "{policy:?} : {:?}", plan.rejected);
     }

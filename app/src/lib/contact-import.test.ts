@@ -3,14 +3,16 @@ import type { ContactImportPreviewDto } from "./ipc/api";
 import { IpcFailure } from "./errors";
 import { ContactImportState, type ContactImportApi } from "./contact-import.svelte";
 
+const noList = { lists: 0, missing_members: 0 };
+
 function preview(over: Partial<ContactImportPreviewDto> = {}): ContactImportPreviewDto {
   return {
     token: 4,
     file_name: "contacts.csv",
     format: "google_csv",
     cards: 6,
-    skip: { create: 3, complete: 0, duplicates: 2 },
-    complete: { create: 3, complete: 1, duplicates: 1 },
+    skip: { create: 3, complete: 0, duplicates: 2, ...noList },
+    complete: { create: 3, complete: 1, duplicates: 1, ...noList },
     renamed: 0,
     rejected_total: 1,
     rejected: [{ card: 6, hint: "Jean", reason: "no_address" }],
@@ -24,7 +26,11 @@ function fakeApi(result: ContactImportPreviewDto | null | Error = preview()) {
       if (result instanceof Error) throw result;
       return result;
     }),
-    applyContactImport: vi.fn(async () => ({ created: 3, completed: 1 })),
+    applyContactImport: vi.fn(async () => ({
+      created: 3,
+      completed: 1,
+      lists_created: 0,
+    })),
   } satisfies ContactImportApi;
 }
 
@@ -36,12 +42,12 @@ describe("import de contacts", () => {
     expect(api.previewContactImport).toHaveBeenCalledWith("Choisir", "Fichiers de contacts");
     expect(state.preview?.token).toBe(4);
     expect(state.policy).toBe("skip");
-    expect(state.counts).toEqual({ create: 3, complete: 0, duplicates: 2 });
+    expect(state.counts).toEqual({ create: 3, complete: 0, duplicates: 2, ...noList });
     expect(state.canImport).toBe(true);
     // Doublons présents : le choix de la politique est proposé.
     expect(state.offersPolicy).toBe(true);
     state.policy = "complete";
-    expect(state.counts).toEqual({ create: 3, complete: 1, duplicates: 1 });
+    expect(state.counts).toEqual({ create: 3, complete: 1, duplicates: 1, ...noList });
   });
 
   it("annulation du sélecteur : rien à afficher", async () => {
@@ -58,7 +64,7 @@ describe("import de contacts", () => {
   });
 
   it("sans doublon ni rien à importer : ni choix ni import", async () => {
-    const empty = { create: 0, complete: 0, duplicates: 0 };
+    const empty = { create: 0, complete: 0, duplicates: 0, ...noList };
     const state = new ContactImportState(
       fakeApi(preview({ skip: empty, complete: empty, rejected_total: 2 })),
     );
@@ -71,8 +77,8 @@ describe("import de contacts", () => {
     const state = new ContactImportState(
       fakeApi(
         preview({
-          skip: { create: 0, complete: 0, duplicates: 2 },
-          complete: { create: 0, complete: 2, duplicates: 0 },
+          skip: { create: 0, complete: 0, duplicates: 2, ...noList },
+          complete: { create: 0, complete: 2, duplicates: 0, ...noList },
         }),
       ),
     );
@@ -82,6 +88,21 @@ describe("import de contacts", () => {
     expect(state.canImport).toBe(true);
   });
 
+  it("des listes seules suffisent à importer", async () => {
+    const state = new ContactImportState(
+      fakeApi(
+        preview({
+          skip: { create: 0, complete: 0, duplicates: 0, ...noList, lists: 2 },
+          complete: { create: 0, complete: 0, duplicates: 0, ...noList, lists: 2 },
+        }),
+      ),
+    );
+    await state.choose("t", "f");
+    expect(state.nothingToImport).toBe(false);
+    expect(state.canImport).toBe(true);
+    expect(state.offersPolicy).toBe(false);
+  });
+
   it("confirme avec le jeton et la politique choisie, puis oublie l'aperçu", async () => {
     const api = fakeApi();
     const state = new ContactImportState(api);
@@ -89,7 +110,7 @@ describe("import de contacts", () => {
     state.policy = "complete";
     const done = state.confirm();
     expect(state.busy).toBe(true);
-    expect(await done).toEqual({ created: 3, completed: 1 });
+    expect(await done).toEqual({ created: 3, completed: 1, lists_created: 0 });
     expect(api.applyContactImport).toHaveBeenCalledWith(4, "complete");
     expect(state.busy).toBe(false);
     expect(state.preview).toBeNull();

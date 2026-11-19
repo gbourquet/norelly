@@ -2,15 +2,26 @@
 //! Thunderbird : enregistrements séparés par une ligne vide, lignes
 //! repliées (continuation par une espace), commentaires `#`, valeurs en
 //! base64 (`attr:: …`). Les valeurs désignées par une URL (`attr:< …`)
-//! sont ignorées : rien n'est lu hors du fichier.
+//! sont ignorées : rien n'est lu hors du fichier. Un groupe
+//! (`groupOfNames`, `groupOfUniqueNames`) est une liste : nom (`cn`),
+//! description, membres (`member`, `uniqueMember`) désignés par le nom
+//! distinctif (`dn`) d'un autre enregistrement du fichier, rendu par sa
+//! première adresse, ou à défaut par l'attribut `mail` de ce nom ; copie
+//! cachée (`x-norelly-bcc: TRUE`, propre à Norelly).
 
-use norelly_domain::contact_import::{ImportedCard, MAX_IMPORT_CARDS};
+#[cfg(test)]
+use norelly_domain::contact_import::ImportedMember;
+use norelly_domain::contact_import::{ImportedCard, ImportedList, MAX_IMPORT_CARDS};
 use norelly_domain::contacts::{
     ContactInput, EmailInput, PhoneInput, PostalAddressInput, WebsiteInput,
 };
 use norelly_domain::ports::ContactCodecError;
 
-use crate::{MAX_FIELD_BYTES, MAX_VALUES_PER_CARD, birthday_of_parts, street_lines, text};
+use crate::groups::{Designation, Read, hex_byte, resolve};
+use crate::{
+    MAX_FIELD_BYTES, MAX_LIST_MEMBERS_READ, MAX_VALUES_PER_CARD, birthday_of_parts, street_lines,
+    text,
+};
 
 /// Le texte commence-t-il comme un fichier LDIF (`dn:` ou `version:`) ?
 pub(crate) fn looks_like(text: &str) -> bool {
@@ -131,7 +142,88 @@ fn website_attribute(attribute: &str) -> Option<usize> {
     }
 }
 
-fn card(record: &[(String, Value)]) -> Option<ImportedCard> {
+/// Groupe lu : nom, description, copie cachée et membres tels que lus
+/// (noms distinctifs) ; un membre illisible est compté introuvable ; le
+/// groupe est illisible si son nom, sa description ou sa copie cachée
+/// l'est, ou au-delà de [`MAX_LIST_MEMBERS_READ`] membres.
+fn group(record: &[(String, Value)]) -> Read {
+    let mut list = ImportedList::default();
+    let mut members = Vec::new();
+    let mut notes = Vec::new();
+    for (name, value) in record {
+        let known = matches!(
+            name.as_str(),
+            "cn" | "description" | "member" | "uniquemember" | "x-norelly-bcc"
+        );
+        if !known {
+            continue;
+        }
+        let member = matches!(name.as_str(), "member" | "uniquemember");
+        if member && members.len() + list.unresolved >= MAX_LIST_MEMBERS_READ {
+            return Read::Ready(ImportedCard::Unreadable);
+        }
+        let Some(value) = value else {
+            if member {
+                list.unresolved += 1;
+                continue;
+            }
+            return Read::Ready(ImportedCard::Unreadable);
+        };
+        match name.as_str() {
+            "cn" if list.name.is_empty() => value.clone_into(&mut list.name),
+            "description" => notes.push(value.clone()),
+            "x-norelly-bcc" => list.bcc = value.trim().eq_ignore_ascii_case("true"),
+            "member" | "uniquemember" => members.push(value.trim().to_owned()),
+            _ => {}
+        }
+    }
+    list.description = notes.join("\n");
+    Read::List(list, members)
+}
+
+/// Nom distinctif comparable : sans espaces de bord, en minuscules.
+fn dn_key(dn: &str) -> String {
+    dn.trim().to_lowercase()
+}
+
+/// Valeur de l'attribut `mail` d'un nom distinctif (RFC 4514 : RDN
+/// séparés par `,` ou `+` non échappés, `\c` et `\HH` décodés) ; `None`
+/// s'il n'en a pas ou s'il est illisible.
+fn dn_mail(dn: &str) -> Option<String> {
+    let mut parts: Vec<Vec<u8>> = vec![Vec::new()];
+    let bytes = dn.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        let b = bytes[i];
+        let current = parts.last_mut()?;
+        match b {
+            b'\\' => {
+                if let Some(byte) = hex_byte(dn.get(i + 1..i + 3)) {
+                    current.push(byte);
+                    i += 3;
+                    continue;
+                }
+                current.push(*bytes.get(i + 1)?);
+                i += 2;
+                continue;
+            }
+            b',' | b'+' => parts.push(Vec::new()),
+            _ => current.push(b),
+        }
+        i += 1;
+    }
+    parts.into_iter().find_map(|part| {
+        let text = String::from_utf8(part).ok()?;
+        let (attribute, value) = text.split_once('=')?;
+        attribute
+            .trim()
+            .eq_ignore_ascii_case("mail")
+            .then(|| value.trim().to_owned())
+            .filter(|v| !v.is_empty())
+    })
+}
+
+fn card(record: &[(String, Value)]) -> Option<Read> {
     let is_group = record.iter().any(|(name, value)| {
         name == "objectclass"
             && value.as_deref().is_some_and(|v| {
@@ -140,7 +232,7 @@ fn card(record: &[(String, Value)]) -> Option<ImportedCard> {
             })
     });
     if is_group {
-        return Some(ImportedCard::List);
+        return Some(group(record));
     }
     // Enregistrement d'en-tête (`version: 1`) ou sans nom distinctif.
     if !record.iter().any(|(name, _)| name == "dn") {
@@ -177,7 +269,7 @@ fn card(record: &[(String, Value)]) -> Option<ImportedCard> {
             continue;
         }
         let Some(value) = value else {
-            return Some(ImportedCard::Unreadable);
+            return Some(Read::Ready(ImportedCard::Unreadable));
         };
         let set = |field: &mut String| {
             if field.is_empty() {
@@ -244,7 +336,7 @@ fn card(record: &[(String, Value)]) -> Option<ImportedCard> {
             || input.phones.len() > MAX_VALUES_PER_CARD
             || input.websites.len() > MAX_VALUES_PER_CARD
         {
-            return Some(ImportedCard::Unreadable);
+            return Some(Read::Ready(ImportedCard::Unreadable));
         }
     }
     input.notes = notes.join("\n");
@@ -264,7 +356,11 @@ fn card(record: &[(String, Value)]) -> Option<ImportedCard> {
         )
         .collect();
     input.birthday = birthday_of_parts(&birth[0], &birth[1], &birth[2]);
-    Some(ImportedCard::Contact(input))
+    let dn = record
+        .iter()
+        .find(|(name, _)| name == "dn")
+        .and_then(|(_, dn)| dn.clone());
+    Some(Read::Contact(input, dn))
 }
 
 /// Fiches d'un fichier LDIF, dans son ordre.
@@ -278,7 +374,14 @@ pub(crate) fn decode(text: &str) -> Result<Vec<ImportedCard>, ContactCodecError>
             }
         }
     }
-    Ok(cards)
+    Ok(resolve(
+        cards,
+        &Designation {
+            key: dn_key,
+            direct: |_: &str| None,
+            fallback: dn_mail,
+        },
+    ))
 }
 
 #[cfg(test)]
@@ -413,6 +516,53 @@ mod tests {
         assert_eq!(
             decode(&record.repeat(MAX_IMPORT_CARDS + 1)),
             Err(ContactCodecError::TooManyCards)
+        );
+    }
+
+    #[test]
+    fn a_group_names_its_members_by_their_dn() {
+        let c = cards(
+            "dn: cn=Club\\, lecture\nobjectclass: groupOfNames\ncn: Club, lecture\n\
+             description: Le jeudi\nmember: cn=Paul,mail=paul@example.com\n\
+             member: CN=Anne Martin,MAIL=anne@example.org\nmember:: Y249SW5jb25udQ==\n\
+             uniquemember: mail=o\\27brien@example.org\n\
+             member: cn=Sans\\, mail\\=x@example.com\nmember: mail=john\\+b@example.com\n\
+             member:: /w==\nx-norelly-bcc: TRUE\n\n\
+             dn: cn=Anne Martin,mail=anne@example.org\nobjectclass: person\nmail: anne@example.org\n\
+             mail: anne@work.example\n\n\
+             dn: cn=Paul,mail=paul@example.com\nmail: paul.autre@example.com\n",
+        );
+        assert_eq!(
+            c[0],
+            ImportedCard::List(ImportedList {
+                name: "Club, lecture".into(),
+                description: "Le jeudi".into(),
+                // Fiche du fichier désignée par son nom distinctif, sinon
+                // l'attribut `mail` du nom.
+                members: vec![
+                    ImportedMember::Card(2),
+                    ImportedMember::Card(1),
+                    ImportedMember::Address("o'brien@example.org".into()),
+                    // `\+` est un `+` échappé, pas un octet.
+                    ImportedMember::Address("john+b@example.com".into()),
+                ],
+                // Nom inconnu, nom sans `mail`, valeur illisible.
+                unresolved: 3,
+                bcc: true,
+            })
+        );
+    }
+
+    #[test]
+    fn a_group_with_too_many_members_is_unreadable() {
+        let members: String = (0..=MAX_LIST_MEMBERS_READ)
+            .map(|i| format!("member: mail=m{i}@example.com\n"))
+            .collect();
+        assert_eq!(
+            cards(&format!(
+                "dn: cn=L\nobjectclass: groupOfNames\ncn: L\n{members}"
+            )),
+            [ImportedCard::Unreadable]
         );
     }
 }

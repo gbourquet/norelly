@@ -60,7 +60,8 @@ async fn a_book_synchronises_over_https_with_sqlite() {
         .unwrap_or_else(|e| panic!("{e}"));
     let client = WebDavClient::new(&TlsClientFactory::new(TrustRoots::Custom(vec![ca.root()])))
         .unwrap_or_else(|e| panic!("{e}"));
-    let db = Database::open_in_memory().unwrap_or_else(|e| panic!("{e}"));
+    let db =
+        Database::open_in_memory(norelly_contacts_io::IcuNfc).unwrap_or_else(|e| panic!("{e}"));
     let book = SqliteContactBook::new(db.clone());
     let store = SqliteCardDavStore::new(db);
     let keyring = Keyring::default();
@@ -161,7 +162,8 @@ async fn hostile_server_values_reach_the_database_as_plain_data() {
         .unwrap_or_else(|e| panic!("{e}"));
     let client = WebDavClient::new(&TlsClientFactory::new(TrustRoots::Custom(vec![ca.root()])))
         .unwrap_or_else(|e| panic!("{e}"));
-    let db = Database::open_in_memory().unwrap_or_else(|e| panic!("{e}"));
+    let db =
+        Database::open_in_memory(norelly_contacts_io::IcuNfc).unwrap_or_else(|e| panic!("{e}"));
     let book = SqliteContactBook::new(db.clone());
     let store = SqliteCardDavStore::new(db.clone());
     let keyring = Keyring::default();

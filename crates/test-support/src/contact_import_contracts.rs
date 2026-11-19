@@ -6,10 +6,12 @@
 use std::sync::{Mutex, PoisonError};
 
 use norelly_domain::contact_export::{
-    ExportCard, ExportFormat, MAX_EXPORT_CONTACTS, MAX_EXPORT_FILE_BYTES, export_card,
+    ContactSelection, ExportCard, ExportFormat, ExportList, MAX_EXPORT_CONTACTS,
+    MAX_EXPORT_FILE_BYTES, export_card, exports_lists,
 };
 use norelly_domain::contact_import::{
-    ContactFormat, DecodedContacts, ImportedCard, MAX_IMPORT_CARDS, MAX_IMPORT_FILE_BYTES,
+    ContactFormat, DecodedContacts, ImportedCard, ImportedList, ImportedMember, MAX_IMPORT_CARDS,
+    MAX_IMPORT_FILE_BYTES,
 };
 use norelly_domain::contacts::{
     ContactDraft, ContactInput, EmailInput, PhoneInput, PostalAddressInput, WebsiteInput,
@@ -141,9 +143,10 @@ impl ContactCodec for FakeContactCodec {
     fn encode(
         &self,
         cards: &[ExportCard],
+        lists: &[ExportList],
         format: ExportFormat,
     ) -> Result<Vec<u8>, ContactCodecError> {
-        if cards.len() > MAX_EXPORT_CONTACTS {
+        if cards.len().saturating_add(lists.len()) > MAX_EXPORT_CONTACTS {
             return Err(ContactCodecError::TooManyCards);
         }
         let size: usize = cards.iter().map(card_size).sum();
@@ -156,7 +159,7 @@ impl ContactCodec for FakeContactCodec {
             bytes.clone(),
             DecodedContacts {
                 format: import_format(format),
-                cards: cards.iter().map(imported).collect(),
+                cards: imported_file(cards, lists, format),
             },
         ));
         Ok(bytes)
@@ -248,6 +251,74 @@ pub fn imported(card: &ExportCard) -> ImportedCard {
             .collect(),
         favorite: card.favorite,
     })
+}
+
+/// Liste qu'un traducteur fidèle relit dans l'export de `list` dans
+/// `format` : membres désignés par l'adresse préférée de leur fiche dans
+/// `cards` (vCard), ou par le rang de leur fiche (LDIF, nom distinctif).
+#[must_use]
+pub fn imported_list(
+    list: &ExportList,
+    cards: &[ExportCard],
+    format: ExportFormat,
+) -> ImportedCard {
+    ImportedCard::List(ImportedList {
+        name: list.name.clone(),
+        description: list.description.clone().unwrap_or_default(),
+        members: list
+            .members
+            .iter()
+            .filter_map(|&i| {
+                let card = cards.get(i)?;
+                match format {
+                    ExportFormat::Ldif => Some(ImportedMember::Card(i)),
+                    _ => card
+                        .emails
+                        .first()
+                        .map(|e| ImportedMember::Address(e.address.clone())),
+                }
+            })
+            .collect(),
+        unresolved: 0,
+        bcc: list.bcc,
+    })
+}
+
+/// Fiches qu'un traducteur fidèle relit dans l'export de `cards` et
+/// `lists` dans `format` : les listes suivent les fiches, si le format les
+/// porte.
+#[must_use]
+pub fn imported_file(
+    cards: &[ExportCard],
+    lists: &[ExportList],
+    format: ExportFormat,
+) -> Vec<ImportedCard> {
+    let mut out: Vec<ImportedCard> = cards.iter().map(imported).collect();
+    if exports_lists(&ContactSelection::All, format) {
+        out.extend(lists.iter().map(|l| imported_list(l, cards, format)));
+    }
+    out
+}
+
+/// Listes d'exemple de l'export, sur `cards` fiches (au moins deux) :
+/// séparateurs et échappements de chaque format dans le nom et la
+/// description, copie cachée, liste vide.
+#[must_use]
+pub fn sample_export_lists(cards: usize) -> Vec<ExportList> {
+    vec![
+        ExportList {
+            name: "Club ; de, lecture \\ « été » = ok: oui".into(),
+            description: Some("Le jeudi : 20 h, salle \"B\" ; entrée libre".into()),
+            bcc: true,
+            members: vec![cards - 1, 0, 1],
+        },
+        ExportList {
+            name: "Vide".into(),
+            description: None,
+            bcc: false,
+            members: Vec::new(),
+        },
+    ]
 }
 
 /// Formats d'export, tous.
@@ -374,28 +445,36 @@ pub fn sample_export_drafts() -> Vec<ContactDraft> {
 /// relit à l'identique ([`imported`]) ; trop de fiches ou un fichier trop
 /// gros sont refusés.
 pub fn contact_encoding_contract(codec: &impl ContactCodec, drafts: &[ContactDraft]) {
+    let lists = sample_export_lists(drafts.len());
     for format in EXPORT_FORMATS {
         let cards: Vec<ExportCard> = drafts.iter().map(|d| export_card(d, format)).collect();
         let bytes = codec
-            .encode(&cards, format)
+            .encode(&cards, &lists, format)
             .unwrap_or_else(|e| panic!("{format:?} : {e}"));
         assert!(bytes.len() <= MAX_EXPORT_FILE_BYTES);
         assert_eq!(
             codec.decode(&bytes),
             Ok(DecodedContacts {
                 format: import_format(format),
-                cards: cards.iter().map(imported).collect(),
+                cards: imported_file(&cards, &lists, format),
             }),
             "{format:?}"
         );
     }
     let tiny = export_card(&drafts[0], ExportFormat::VCard4);
-    let many = vec![tiny; MAX_EXPORT_CONTACTS + 1];
+    let many = vec![tiny.clone(); MAX_EXPORT_CONTACTS + 1];
+    // Fiches et listes comptent ensemble.
+    let nearly = vec![tiny; MAX_EXPORT_CONTACTS - 1];
     for format in EXPORT_FORMATS {
         assert_eq!(
-            codec.encode(&many, format),
+            codec.encode(&many, &[], format),
             Err(ContactCodecError::TooManyCards),
             "{format:?}"
+        );
+        assert_eq!(
+            codec.encode(&nearly, &lists, format),
+            Err(ContactCodecError::TooManyCards),
+            "{format:?} : listes comptées"
         );
     }
     // Des notes de longueur maximale, assez de fiches pour dépasser la
@@ -408,7 +487,7 @@ pub fn contact_encoding_contract(codec: &impl ContactCodec, drafts: &[ContactDra
     let heavy = vec![heavy; MAX_EXPORT_FILE_BYTES / 20_000 + 1];
     for format in EXPORT_FORMATS {
         assert_eq!(
-            codec.encode(&heavy, format),
+            codec.encode(&heavy, &[], format),
             Err(ContactCodecError::TooLarge),
             "{format:?}"
         );

@@ -2321,8 +2321,13 @@ pub enum DuplicatePolicyDto {
 pub enum ImportRejectReasonDto {
     /// Fiche illisible (encodage, champ démesuré).
     Unreadable,
-    /// Liste de diffusion : non importée.
-    List,
+    /// Liste de diffusion sans nom.
+    ListNoName,
+    /// Liste de diffusion de plus de membres qu'un envoi ne permet (seule,
+    /// ou réunie à une liste du même nom du fichier).
+    ListTooManyMembers,
+    /// Liste de diffusion dont le nom imite une adresse.
+    ListNameLooksLikeAddress,
     /// Fiche sans adresse électronique.
     NoAddress,
     /// Adresse électronique invalide.
@@ -2352,8 +2357,13 @@ pub struct ImportCountsDto {
     pub create: u32,
     /// Contacts existants complétés.
     pub complete: u32,
-    /// Fiches en double laissées de côté.
+    /// Fiches et listes en double laissées de côté.
     pub duplicates: u32,
+    /// Listes créées.
+    pub lists: u32,
+    /// Membres de listes ni dans le fichier ni dans le carnet, laissés de
+    /// côté.
+    pub missing_members: u32,
 }
 
 /// Aperçu d'un import : à confirmer par `apply_contact_import(token, …)`.
@@ -2382,6 +2392,7 @@ pub struct ContactImportPreviewDto {
 pub struct ContactImportOutcomeDto {
     pub created: u32,
     pub completed: u32,
+    pub lists_created: u32,
 }
 
 /// Contacts à exporter.

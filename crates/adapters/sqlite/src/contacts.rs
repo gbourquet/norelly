@@ -13,7 +13,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use norelly_domain::address::EmailAddress;
 use norelly_domain::contact_details::{MAX_CONTACT_WEBSITES, MAX_POSTAL_ADDRESSES};
 use norelly_domain::contact_export::ContactSelection;
-use norelly_domain::contact_import::ContactCompletion;
+use norelly_domain::contact_import::{ContactCompletion, ListImport};
 use norelly_domain::contacts::{
     AddressKey, Contact, ContactDraft, ContactFilter, ContactId, ContactInput, EmailInput,
     InvisibleCleanup, MAX_CONTACT_ID, PhoneInput, PostalAddressInput, WebsiteInput,
@@ -825,9 +825,12 @@ impl ContactBook for SqliteContactBook {
         &self,
         create: &[ContactDraft],
         complete: &[ContactCompletion],
+        lists: &[ListImport],
     ) -> Result<ImportOutcome, ContactStoreError> {
         let create = create.to_vec();
         let complete = complete.to_vec();
+        let lists = lists.to_vec();
+        let nfc = self.db.normalizer();
         self.db
             .run(move |c| {
                 let tx = c.transaction().map_err(store_error)?;
@@ -855,6 +858,7 @@ impl ContactBook for SqliteContactBook {
                     }
                     write_all(&tx, contact.id().get(), contact.draft())?;
                 }
+                let mut created = Vec::with_capacity(create.len());
                 for draft in &create {
                     if let Some(address) = taken(&tx, draft, None)? {
                         return Ok(Err(ContactStoreError::DuplicateAddress(address)));
@@ -866,11 +870,21 @@ impl ContactBook for SqliteContactBook {
                     .map_err(store_error)?;
                     let raw = new_id(&tx)?;
                     write_all(&tx, raw, draft)?;
+                    created.push(
+                        ContactId::new(raw)
+                            .ok_or_else(|| StoreError(format!("identifiant {raw}")))?,
+                    );
+                }
+                if let Err(refusal) =
+                    crate::contact_lists::import_lists(&tx, &*nfc, &created, &lists)?
+                {
+                    return Ok(Err(refusal));
                 }
                 tx.commit().map_err(store_error)?;
                 Ok(Ok(ImportOutcome {
                     created: create.len(),
                     completed: complete.len(),
+                    lists_created: lists.len(),
                 }))
             })
             .await?
@@ -1155,7 +1169,10 @@ mod tests {
     use super::*;
 
     fn book() -> SqliteContactBook {
-        SqliteContactBook::new(Database::open_in_memory().unwrap_or_else(|e| panic!("{e}")))
+        SqliteContactBook::new(
+            Database::open_in_memory(norelly_test_support::contact_import_contracts::FakeNfc)
+                .unwrap_or_else(|e| panic!("{e}")),
+        )
     }
 
     #[tokio::test]
@@ -1537,7 +1554,7 @@ mod tests {
             "identifiant hors limites attribué : {created:?}"
         );
         let imported = book
-            .import(&[sample_contact("David", &["david@example.com"])], &[])
+            .import(&[sample_contact("David", &["david@example.com"])], &[], &[])
             .await;
         assert!(
             imported.is_err(),

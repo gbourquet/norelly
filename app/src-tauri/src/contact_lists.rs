@@ -182,6 +182,7 @@ pub async fn create_contact_list(
 ) -> Result<ContactListDto, IpcError> {
     let created = CreateContactList {
         book: &state.contacts,
+        normalizer: &state.imports.nfc,
     }
     .execute(input_of(list))
     .await
@@ -200,6 +201,7 @@ pub async fn update_contact_list(
     let id = list_id(id)?;
     UpdateContactList {
         book: &state.contacts,
+        normalizer: &state.imports.nfc,
     }
     .execute(id, input_of(list))
     .await

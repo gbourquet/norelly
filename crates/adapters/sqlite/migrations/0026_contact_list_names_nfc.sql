@@ -1,0 +1,14 @@
+-- Version 26 : noms des listes de diffusion en NFC.
+--
+-- Le nom d'une liste est désormais mis en forme NFC par le domaine
+-- (norelly_domain::contact_lists::ContactListDraft::new) : « É »
+-- précomposé et « E » suivi d'un accent combinant sont le même nom, et
+-- name_key (le nom en minuscules) les confond. Le schéma ne change pas ;
+-- les noms des listes enregistrées avant sont mis en NFC dans le crochet
+-- Rust de la migration (norelly_sqlite::contact_lists::normalize_list_names),
+-- dans la même transaction, avec des paramètres liés. Deux listes devenues
+-- homonymes ne sont pas fusionnées : la plus récente reçoit le suffixe
+-- « (2) » (norelly_domain::contact_lists::renormalized_list_names). Une
+-- liste écartée à la lecture (clé qui n'est pas celle de son nom) est
+-- laissée telle quelle.
+SELECT 1;

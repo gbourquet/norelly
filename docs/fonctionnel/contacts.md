@@ -248,6 +248,11 @@ serveur de contacts (voir [synchronisation-carnet.md](synchronisation-carnet.md)
   retire d'un clic. Une liste peut être enregistrée vide.
 - Deux listes ne peuvent pas porter le même nom, majuscules comprises
   (« Famille » et « FAMILLE ») : la fenêtre reste ouverte et l'explique.
+  Deux noms qui s'affichent de la même façon sont le même nom, même si
+  leurs lettres accentuées ont été tapées ou collées autrement ; les
+  accents comptent toujours (« Été » et « Ete » sont deux noms). Si deux
+  listes existantes se retrouvent ainsi homonymes, aucune n'est fusionnée :
+  la plus récente prend la mention « (2) » à la fin de son nom.
   Une liste compte au plus autant de membres qu'un message peut avoir de
   destinataires.
 - Sur la liste ouverte : **Écrire à la liste**, **Modifier la liste**,
@@ -314,7 +319,21 @@ serveur de contacts (voir [synchronisation-carnet.md](synchronisation-carnet.md)
   importer. **Voir les fiches impossibles à importer** donne, pour
   chacune, son rang dans le fichier, son nom et la raison (illisible,
   sans adresse électronique, adresse invalide, champ trop long ou avec un
-  caractère interdit, trop d'adresses, liste de diffusion).
+  caractère interdit, trop d'adresses, liste sans nom, dont le nom
+  ressemble à une adresse électronique, ou de plus de membres qu'un
+  message ne peut avoir de destinataires).
+- Les **listes de diffusion** du fichier (groupes d'un vCard, dont ceux
+  des Contacts d'Apple, et groupes d'un LDIF de Thunderbird) sont
+  importées avec leur nom, leur description (ramenée à une ligne) et
+  leurs membres, comme une liste créée à la main (mêmes limites, mêmes
+  refus). Un membre est retrouvé parmi les contacts du carnet et ceux du
+  fichier ; un membre qui n'est ni dans l'un ni dans l'autre est laissé de
+  côté, et la fenêtre dit combien. Une liste du même nom qu'une liste du
+  carnet est **déjà dans le carnet** et laissée de côté, même si l'on
+  choisit de compléter : un fichier ne fait jamais entrer quelqu'un dans
+  une liste existante (un nom de liste se devine). Deux listes du même nom
+  dans le fichier n'en font qu'une si l'on complète, dans la limite d'une
+  liste. Le CSV ne porte pas de listes.
 - Une fiche est **déjà dans le carnet** si l'une de ses adresses y est,
   majuscules comprises ; deux fiches du fichier qui partagent une adresse
   n'en font qu'une. Quand il y en a, la fenêtre propose : **Les laisser
@@ -327,7 +346,9 @@ serveur de contacts (voir [synchronisation-carnet.md](synchronisation-carnet.md)
   fenêtre le signale.
 - **Importer** écrit tout en une fois : soit tout l'import réussit, soit
   rien ne change. Un message annonce ensuite le nombre de contacts
-  ajoutés et complétés. Un contact ajouté entre l'aperçu et l'import est
+  ajoutés et complétés, et celui des listes ajoutées s'il y en a. Une
+  liste créée sous le même nom pendant l'import est traitée comme une
+  liste déjà dans le carnet. Un contact ajouté entre l'aperçu et l'import est
   traité comme un doublon. Un contact à compléter qui est modifié pendant
   l'import n'est jamais écrasé : l'import repart du contact modifié et le
   complète. S'il change sans cesse, l'import s'arrête sans rien changer et
@@ -379,7 +400,13 @@ serveur de contacts (voir [synchronisation-carnet.md](synchronisation-carnet.md)
     porté ; une seule adresse postale et un seul site au domicile, un
     seul au travail sont écrits ;
   - dans tous les formats, l'adresse préférée est écrite en premier ; les
-    listes de diffusion ne sont pas exportées.
+    listes de diffusion sont exportées avec tout le carnet, en vCard et
+    en LDIF (nom, description, membres, envoi en copie cachée), et se
+    réimportent avec leurs membres dans Norelly ; elles ne le sont pas
+    avec quelques contacts cochés, ni en CSV. Dans un fichier vCard 3.0,
+    d'autres logiciels (Contacts d'Apple notamment) peuvent ne pas
+    retrouver les membres d'une liste. Contacts et listes comptent
+    ensemble dans la limite d'un export.
 - Un CSV importé dans Google Contacts y range les contacts dans « Mes
   contacts », comme ceux créés directement chez Google, et les favoris
   aussi dans ses favoris. Un favori exporté en vCard porte la même marque

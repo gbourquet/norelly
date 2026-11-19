@@ -15,7 +15,7 @@ use crate::compose::draft::{MAX_RECIPIENTS, Recipient};
 use crate::connection::is_format_char;
 use crate::contacts::{Contact, ContactId, MAX_CONTACT_FILTER_CHARS, MAX_CONTACT_NAME_CHARS};
 use crate::mailbox::header_text;
-use crate::ports::ContactListSummary;
+use crate::ports::{ContactListSummary, TextNormalizer};
 use crate::sender::contact_name;
 
 /// Longueur maximale du nom d'une liste, en caractères.
@@ -101,17 +101,22 @@ pub struct ContactListDraft {
 }
 
 impl ContactListDraft {
-    /// Valide une liste. Un membre cité plusieurs fois l'est une fois, à
-    /// sa première place.
-    pub fn new(input: ContactListInput) -> Result<Self, ContactListError> {
+    /// Valide une liste. Le nom et la description sont mis en forme NFC par `normalizer`
+    /// (casse et accents gardés) : deux noms au rendu identique ont la même
+    /// clé ([`Self::name_key`]). Un membre cité plusieurs fois l'est une
+    /// fois, à sa première place.
+    pub fn new(
+        input: ContactListInput,
+        normalizer: &(impl TextNormalizer + ?Sized),
+    ) -> Result<Self, ContactListError> {
         let name = text(
-            &input.name,
+            &normalizer.nfc(&input.name),
             ContactListField::Name,
             MAX_CONTACT_LIST_NAME_CHARS,
         )?
         .ok_or(ContactListError::NoName)?;
         let description = text(
-            &input.description,
+            &normalizer.nfc(&input.description),
             ContactListField::Description,
             MAX_CONTACT_LIST_DESCRIPTION_CHARS,
         )?;
@@ -324,6 +329,50 @@ pub fn list_suggestions(
         .collect()
 }
 
+/// Noms des listes enregistrées `names` (de la plus ancienne à la plus
+/// récente) une fois mis en NFC. Deux listes que la normalisation rend
+/// homonymes ne sont pas fusionnées : la plus récente reçoit le suffixe
+/// « (2) » (« (3) », etc. si ce nom est pris), sans jamais prendre le nom
+/// d'une autre liste de `names` ni une clé de `reserved` (lignes écartées
+/// qui gardent la leur) ; le nom suffixé reste dans la borne d'un nom.
+#[must_use]
+pub fn renormalized_list_names(
+    names: &[String],
+    reserved: &HashSet<String>,
+    normalizer: &(impl TextNormalizer + ?Sized),
+) -> Vec<String> {
+    let normalized: Vec<String> = names.iter().map(|n| normalizer.nfc(n.trim())).collect();
+    // Clé que chaque liste garderait sans homonyme : aucun suffixe ne la
+    // prend.
+    let plain: HashSet<String> = normalized.iter().map(|n| n.to_lowercase()).collect();
+    let mut assigned: HashSet<String> = HashSet::new();
+    normalized
+        .into_iter()
+        .map(|name| {
+            let key = name.to_lowercase();
+            if !reserved.contains(&key) && assigned.insert(key) {
+                return name;
+            }
+            (2_usize..)
+                .map(|n| suffixed(&name, n))
+                .find(|candidate| {
+                    let key = candidate.to_lowercase();
+                    !plain.contains(&key) && !reserved.contains(&key) && assigned.insert(key)
+                })
+                .unwrap_or(name)
+        })
+        .collect()
+}
+
+/// `name` suivi de « (n) », raccourci au besoin pour rester dans
+/// [`MAX_CONTACT_LIST_NAME_CHARS`].
+fn suffixed(name: &str, n: usize) -> String {
+    let suffix = format!(" ({n})");
+    let room = MAX_CONTACT_LIST_NAME_CHARS.saturating_sub(suffix.chars().count());
+    let base: String = name.chars().take(room).collect();
+    format!("{}{suffix}", base.trim_end())
+}
+
 /// `members` suivis des contacts `added` absents, chacun une fois ;
 /// refusé au-delà de [`MAX_CONTACT_LIST_MEMBERS`].
 fn append_members(
@@ -364,6 +413,24 @@ mod tests {
     use super::*;
     use crate::contacts::{ContactDraft, ContactInput, EmailInput};
 
+    /// Normalisation de test : compose les seuls « e » et « E » suivis
+    /// d'un accent aigu combinant (U+0301).
+    struct FakeNfc;
+
+    impl TextNormalizer for FakeNfc {
+        fn nfc(&self, text: &str) -> String {
+            text.replace("e\u{301}", "é").replace("E\u{301}", "É")
+        }
+
+        fn nfd(&self, text: &str) -> String {
+            text.replace('é', "e\u{301}").replace('É', "E\u{301}")
+        }
+    }
+
+    fn new(input: ContactListInput) -> Result<ContactListDraft, ContactListError> {
+        ContactListDraft::new(input, &FakeNfc)
+    }
+
     fn input(name: &str, members: &[i64]) -> ContactListInput {
         ContactListInput {
             name: name.to_owned(),
@@ -373,7 +440,7 @@ mod tests {
     }
 
     fn draft(input: ContactListInput) -> ContactListDraft {
-        ContactListDraft::new(input).unwrap_or_else(|e| panic!("liste refusée : {e}"))
+        new(input).unwrap_or_else(|e| panic!("liste refusée : {e}"))
     }
 
     fn cid(raw: i64) -> ContactId {
@@ -428,7 +495,7 @@ mod tests {
         assert_eq!(d.description(), Some("Le jeudi soir"));
         assert_eq!(d.members(), [cid(3), cid(1)]);
         assert!(d.bcc());
-        assert_eq!(ContactListDraft::new(d.to_input()), Ok(d));
+        assert_eq!(new(d.to_input()), Ok(d));
     }
 
     #[test]
@@ -441,24 +508,21 @@ mod tests {
 
     #[test]
     fn name_is_required() {
-        assert_eq!(
-            ContactListDraft::new(input("   ", &[1])),
-            Err(ContactListError::NoName)
-        );
+        assert_eq!(new(input("   ", &[1])), Err(ContactListError::NoName));
     }
 
     #[test]
     fn texts_are_bounded_and_without_control_characters() {
         let long = "a".repeat(MAX_CONTACT_LIST_NAME_CHARS + 1);
         assert_eq!(
-            ContactListDraft::new(input(&long, &[])),
+            new(input(&long, &[])),
             Err(ContactListError::TooLong(ContactListField::Name))
         );
         let exact = "é".repeat(MAX_CONTACT_LIST_NAME_CHARS);
-        assert!(ContactListDraft::new(input(&exact, &[])).is_ok());
+        assert!(new(input(&exact, &[])).is_ok());
         for bad in ["Fa\nmille", "Fa\u{202E}mille", "Fa\u{7}mille"] {
             assert_eq!(
-                ContactListDraft::new(input(bad, &[])),
+                new(input(bad, &[])),
                 Err(ContactListError::InvalidCharacter(ContactListField::Name)),
                 "{bad:?}"
             );
@@ -468,17 +532,14 @@ mod tests {
             ..input("Famille", &[])
         };
         assert_eq!(
-            ContactListDraft::new(described(
+            new(described(
                 "d".repeat(MAX_CONTACT_LIST_DESCRIPTION_CHARS + 1)
             )),
             Err(ContactListError::TooLong(ContactListField::Description))
         );
-        assert!(
-            ContactListDraft::new(described("d".repeat(MAX_CONTACT_LIST_DESCRIPTION_CHARS)))
-                .is_ok()
-        );
+        assert!(new(described("d".repeat(MAX_CONTACT_LIST_DESCRIPTION_CHARS))).is_ok());
         assert_eq!(
-            ContactListDraft::new(described("une\nligne".into())),
+            new(described("une\nligne".into())),
             Err(ContactListError::InvalidCharacter(
                 ContactListField::Description
             ))
@@ -488,13 +549,10 @@ mod tests {
     #[test]
     fn members_are_valid_ids_each_once_and_bounded() {
         assert_eq!(
-            ContactListDraft::new(input("L", &[1, 0])),
+            new(input("L", &[1, 0])),
             Err(ContactListError::InvalidMember)
         );
-        assert_eq!(
-            ContactListDraft::new(input("L", &[-2])),
-            Err(ContactListError::InvalidMember)
-        );
+        assert_eq!(new(input("L", &[-2])), Err(ContactListError::InvalidMember));
         assert_eq!(
             draft(input("L", &[2, 1, 2, 1, 3])).members(),
             [cid(2), cid(1), cid(3)]
@@ -507,13 +565,13 @@ mod tests {
         let mut repeated = full.clone();
         repeated.extend(&full);
         assert!(
-            ContactListDraft::new(input("L", &repeated)).is_ok(),
+            new(input("L", &repeated)).is_ok(),
             "doublons comptés une fois"
         );
         let mut over = full;
         over.push(MAX_CONTACT_LIST_MEMBERS as i64 + 1);
         assert_eq!(
-            ContactListDraft::new(input("L", &over)),
+            new(input("L", &over)),
             Err(ContactListError::TooManyMembers)
         );
     }
@@ -524,7 +582,7 @@ mod tests {
         // compris) : refusé d'emblée.
         let flood = vec![1; 2 * MAX_CONTACT_LIST_MEMBERS + 1];
         assert_eq!(
-            ContactListDraft::new(input("L", &flood)),
+            new(input("L", &flood)),
             Err(ContactListError::TooManyMembers)
         );
     }
@@ -536,6 +594,71 @@ mod tests {
         assert_eq!(a.name_key(), "club été");
         assert_eq!(a.name_key(), b.name_key());
         assert_ne!(a.name_key(), draft(input("Club hiver", &[])).name_key());
+    }
+
+    #[test]
+    fn name_is_put_in_nfc_keeping_case_and_accents() {
+        // « É » précomposé, ou « E » suivi d'un accent combinant : même nom,
+        // même clé ; casse et accents gardés dans le nom.
+        let decomposed = draft(input("Club E\u{301}te\u{301}", &[]));
+        let composed = draft(input("Club Été", &[]));
+        assert_eq!(decomposed.name(), "Club Été");
+        assert_eq!(decomposed.name_key(), composed.name_key());
+        assert_eq!(decomposed.name_key(), "club été");
+        assert_ne!(
+            decomposed.name_key(),
+            draft(input("Club Ete", &[])).name_key()
+        );
+        assert_eq!(new(decomposed.to_input()), Ok(decomposed));
+    }
+
+    #[test]
+    fn name_length_is_counted_in_nfc() {
+        let decomposed = "e\u{301}".repeat(MAX_CONTACT_LIST_NAME_CHARS);
+        assert_eq!(
+            new(input(&decomposed, &[])).map(|d| d.name().chars().count()),
+            Ok(MAX_CONTACT_LIST_NAME_CHARS)
+        );
+    }
+
+    fn names(raw: &[&str]) -> Vec<String> {
+        raw.iter().map(|&n| n.to_owned()).collect()
+    }
+
+    #[test]
+    fn renormalized_names_are_in_nfc_and_the_newest_gets_a_suffix() {
+        let renamed = renormalized_list_names(
+            &names(&["E\u{301}te\u{301}", "Été", "Famille", "été"]),
+            &HashSet::new(),
+            &FakeNfc,
+        );
+        assert_eq!(renamed, names(&["Été", "Été (2)", "Famille", "été (3)"]));
+    }
+
+    #[test]
+    fn a_suffix_never_takes_the_name_of_another_list_or_a_reserved_key() {
+        let renamed = renormalized_list_names(
+            &names(&["Club", "club", "Club (2)"]),
+            &HashSet::from(["club (3)".to_owned()]),
+            &FakeNfc,
+        );
+        assert_eq!(renamed, names(&["Club", "club (4)", "Club (2)"]));
+        let renamed = renormalized_list_names(
+            &names(&["Club"]),
+            &HashSet::from(["club".to_owned()]),
+            &FakeNfc,
+        );
+        assert_eq!(renamed, names(&["Club (2)"]));
+    }
+
+    #[test]
+    fn a_suffixed_name_stays_within_the_bound() {
+        let long = "a".repeat(MAX_CONTACT_LIST_NAME_CHARS);
+        let renamed = renormalized_list_names(&names(&[&long, &long]), &HashSet::new(), &FakeNfc);
+        assert_eq!(renamed[0], long);
+        assert_eq!(renamed[1].chars().count(), MAX_CONTACT_LIST_NAME_CHARS);
+        assert!(renamed[1].ends_with(" (2)"), "{}", renamed[1]);
+        assert!(new(input(&renamed[1], &[])).is_ok());
     }
 
     #[test]
@@ -561,7 +684,7 @@ mod tests {
 
     #[test]
     fn filter_searches_the_name_without_case() {
-        let d = ContactListDraft::new(ContactListInput {
+        let d = new(ContactListInput {
             description: "voisins".into(),
             ..input("Club de Lecture", &[])
         })

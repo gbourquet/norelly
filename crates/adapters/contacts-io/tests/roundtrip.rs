@@ -9,13 +9,13 @@
 use std::collections::HashSet;
 
 use norelly_contacts_io::{ContactsIo, IcuNfc};
-use norelly_domain::contact_export::{ExportCard, ExportFormat, export_card};
+use norelly_domain::contact_export::{ExportCard, ExportFormat, ExportList, export_card};
 use norelly_domain::contact_import::{DuplicatePolicy, ImportPlan, plan_import};
 use norelly_domain::contacts::{
     ContactDraft, ContactInput, EmailInput, PhoneInput, PostalAddressInput, WebsiteInput,
 };
 use norelly_domain::ports::ContactCodec;
-use norelly_test_support::contact_import_contracts::{EXPORT_FORMATS, imported};
+use norelly_test_support::contact_import_contracts::{EXPORT_FORMATS, imported, imported_file};
 use proptest::prelude::*;
 
 fn email(address: &str, label: &str, preferred: bool) -> EmailInput {
@@ -42,12 +42,12 @@ fn draft(input: ContactInput) -> ContactDraft {
 fn round_trip(book: &[ContactDraft], format: ExportFormat) -> ImportPlan {
     let cards: Vec<ExportCard> = book.iter().map(|d| export_card(d, format)).collect();
     let bytes = ContactsIo
-        .encode(&cards, format)
+        .encode(&cards, &[], format)
         .unwrap_or_else(|e| panic!("{format:?} : {e}"));
     let decoded = ContactsIo
         .decode(&bytes)
         .unwrap_or_else(|e| panic!("{format:?} : {e}"));
-    plan_import(&[], &decoded.cards, DuplicatePolicy::Skip, &IcuNfc)
+    plan_import(&[], &[], &decoded.cards, DuplicatePolicy::Skip, &IcuNfc)
 }
 
 /// Carnet d'essai : accents, notes sur plusieurs lignes, plusieurs
@@ -387,6 +387,39 @@ fn format() -> impl Strategy<Value = ExportFormat> {
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(256))]
 
+    /// Les listes écrites se relisent à l'identique, membres compris (par
+    /// leur adresse préférée), dans les formats qui les portent.
+    #[test]
+    fn decoding_an_export_gives_back_the_lists(
+        book in valid_book(),
+        lists in prop::collection::vec(
+            (
+                line_text(),
+                line_text(),
+                any::<bool>(),
+                prop::collection::vec(any::<prop::sample::Index>(), 0..6),
+            ),
+            0..4,
+        ),
+        format in format(),
+    ) {
+        let cards: Vec<ExportCard> = book.iter().map(|d| export_card(d, format)).collect();
+        let lists: Vec<ExportList> = lists
+            .into_iter()
+            .map(|(name, description, bcc, members)| ExportList {
+                name,
+                description: (!description.is_empty()).then_some(description),
+                bcc,
+                members: members.iter().map(|i| i.index(cards.len())).collect(),
+            })
+            .collect();
+        let bytes = ContactsIo
+            .encode(&cards, &lists, format)
+            .map_err(|e| TestCaseError::fail(e.to_string()))?;
+        let decoded = ContactsIo.decode(&bytes).map_err(|e| TestCaseError::fail(e.to_string()))?;
+        prop_assert_eq!(decoded.cards, imported_file(&cards, &lists, format));
+    }
+
     /// Ce qui est écrit se relit à l'identique.
     #[test]
     fn decoding_an_export_gives_back_the_cards(
@@ -394,7 +427,7 @@ proptest! {
         format in format(),
     ) {
         let cards: Vec<ExportCard> = book.iter().map(|d| export_card(d, format)).collect();
-        let bytes = ContactsIo.encode(&cards, format).map_err(|e| TestCaseError::fail(e.to_string()))?;
+        let bytes = ContactsIo.encode(&cards, &[], format).map_err(|e| TestCaseError::fail(e.to_string()))?;
         let decoded = ContactsIo.decode(&bytes).map_err(|e| TestCaseError::fail(e.to_string()))?;
         let want: Vec<_> = cards.iter().map(imported).collect();
         prop_assert_eq!(decoded.cards, want);

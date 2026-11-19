@@ -765,3 +765,83 @@ fn an_export_label_is_bounded_before_any_processing() {
     let ascii = "a".repeat(MAX_EXPORT_LABEL_BYTES + 10);
     assert_eq!(export_label(&ascii).len(), MAX_EXPORT_LABEL_BYTES);
 }
+
+fn stored_contact(id: i64, address: &str) -> Contact {
+    draft(ContactInput {
+        emails: vec![email(address, "", true)],
+        ..ContactInput::default()
+    })
+    .with_id(ContactId::new(id).unwrap_or_else(|| panic!("id")))
+}
+
+fn stored_list(id: i64, name: &str, description: &str, members: &[i64], bcc: bool) -> ContactList {
+    use crate::contact_lists::{ContactListDraft, ContactListId, ContactListInput};
+    struct Same;
+    impl crate::ports::TextNormalizer for Same {
+        fn nfc(&self, text: &str) -> String {
+            text.to_owned()
+        }
+        fn nfd(&self, text: &str) -> String {
+            text.to_owned()
+        }
+    }
+    ContactListDraft::new(
+        ContactListInput {
+            name: name.into(),
+            description: description.into(),
+            members: members.to_vec(),
+            bcc,
+        },
+        &Same,
+    )
+    .unwrap_or_else(|e| panic!("{e}"))
+    .with_id(ContactListId::new(id).unwrap_or_else(|| panic!("id")))
+}
+
+#[test]
+fn lists_are_exported_with_the_whole_book_in_formats_that_carry_them() {
+    let some = ContactSelection::of(&[1_i64]).unwrap_or_else(|e| panic!("{e}"));
+    for format in [
+        ExportFormat::VCard4,
+        ExportFormat::VCard3,
+        ExportFormat::Ldif,
+    ] {
+        assert!(exports_lists(&ContactSelection::All, format), "{format:?}");
+        assert!(!exports_lists(&some, format), "{format:?}");
+    }
+    assert!(!exports_lists(
+        &ContactSelection::All,
+        ExportFormat::GoogleCsv
+    ));
+}
+
+#[test]
+fn list_members_point_to_exported_cards() {
+    let contacts = [
+        stored_contact(4, "a@example.com"),
+        stored_contact(2, "b@example.com"),
+        stored_contact(9, "c@example.com"),
+    ];
+    let lists = [
+        stored_list(1, "Famille", "Les cousins", &[9, 4, 7], true),
+        stored_list(2, "Vide", "", &[], false),
+    ];
+    assert_eq!(
+        export_lists(&lists, &contacts),
+        [
+            ExportList {
+                name: "Famille".into(),
+                description: Some("Les cousins".into()),
+                bcc: true,
+                // Le contact 7 n'est pas dans l'export : omis.
+                members: vec![2, 0],
+            },
+            ExportList {
+                name: "Vide".into(),
+                description: None,
+                bcc: false,
+                members: vec![],
+            },
+        ]
+    );
+}

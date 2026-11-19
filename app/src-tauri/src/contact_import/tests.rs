@@ -2,11 +2,13 @@ use std::io::Write;
 
 use norelly_application::contact_import::ImportPreview;
 use norelly_domain::contact_import::{
-    ContactCompletion, ContactFormat, ImportPlan, ImportRejection, MAX_IMPORT_FILE_BYTES,
-    RejectReason,
+    ContactCompletion, ContactFormat, DuplicatePolicy, ImportPlan, ImportRejection, ImportedList,
+    ImportedMember, MAX_IMPORT_FILE_BYTES, RejectReason, plan_import,
 };
+use norelly_domain::contact_lists::{ContactListError, ContactListField};
 use norelly_domain::contacts::{ContactError, ContactField, ContactId};
 use norelly_domain::ports::{ContactCodecError, ContactStoreError, StoreError};
+use norelly_test_support::contact_import_contracts::FakeNfc;
 use norelly_test_support::contacts_contracts::sample_contact;
 
 use super::*;
@@ -23,6 +25,24 @@ fn rejection(card: usize, reason: RejectReason) -> ImportRejection {
 fn preview(rejected: Vec<ImportRejection>) -> ImportPreview {
     let alice = sample_contact("Alice", &["alice@example.com"]);
     let id = ContactId::new(3).unwrap_or_else(|| panic!("id"));
+    // Deux listes, l'une avec un membre introuvable.
+    let lists = plan_import(
+        &[],
+        &[],
+        &[
+            ImportedCard::List(ImportedList {
+                name: "Club".into(),
+                members: vec![ImportedMember::Address("inconnu@example.com".into())],
+                ..ImportedList::default()
+            }),
+            ImportedCard::List(ImportedList {
+                name: "Famille".into(),
+                ..ImportedList::default()
+            }),
+        ],
+        DuplicatePolicy::Complete,
+        &FakeNfc,
+    );
     ImportPreview {
         format: ContactFormat::GoogleCsv,
         cards: Vec::new(),
@@ -39,6 +59,8 @@ fn preview(rejected: Vec<ImportRejection>) -> ImportPreview {
             duplicates: 2,
             renamed: 1,
             rejected,
+            lists: lists.lists,
+            missing_members: lists.missing_members,
         },
     }
 }
@@ -48,7 +70,32 @@ fn preview_counts_both_policies_and_lists_reasons() -> Result<(), IpcError> {
     let invalid = |e| RejectReason::Invalid(e);
     let reasons = [
         (RejectReason::Unreadable, ImportRejectReasonDto::Unreadable),
-        (RejectReason::List, ImportRejectReasonDto::List),
+        (
+            RejectReason::InvalidList(ContactListError::NoName),
+            ImportRejectReasonDto::ListNoName,
+        ),
+        (
+            RejectReason::InvalidList(ContactListError::TooManyMembers),
+            ImportRejectReasonDto::ListTooManyMembers,
+        ),
+        (
+            RejectReason::ListNameLooksLikeAddress,
+            ImportRejectReasonDto::ListNameLooksLikeAddress,
+        ),
+        (
+            RejectReason::ListMergeTooLarge,
+            ImportRejectReasonDto::ListTooManyMembers,
+        ),
+        (
+            RejectReason::InvalidList(ContactListError::TooLong(ContactListField::Name)),
+            ImportRejectReasonDto::TooLong,
+        ),
+        (
+            RejectReason::InvalidList(ContactListError::InvalidCharacter(
+                ContactListField::Description,
+            )),
+            ImportRejectReasonDto::InvalidField,
+        ),
         (
             invalid(ContactError::NoAddress),
             ImportRejectReasonDto::NoAddress,
@@ -100,7 +147,9 @@ fn preview_counts_both_policies_and_lists_reasons() -> Result<(), IpcError> {
         ImportCountsDto {
             create: 2,
             complete: 0,
-            duplicates: 4
+            duplicates: 4,
+            lists: 0,
+            missing_members: 0,
         }
     );
     assert_eq!(
@@ -108,11 +157,13 @@ fn preview_counts_both_policies_and_lists_reasons() -> Result<(), IpcError> {
         ImportCountsDto {
             create: 1,
             complete: 1,
-            duplicates: 2
+            duplicates: 2,
+            lists: 2,
+            missing_members: 1,
         }
     );
     assert_eq!(dto.renamed, 1);
-    assert_eq!(dto.rejected_total, 11);
+    assert_eq!(dto.rejected_total, 16);
     let got: Vec<_> = dto.rejected.iter().map(|r| (r.card, r.reason)).collect();
     let expected: Vec<_> = (1..).zip(reasons.iter().map(|(_, d)| *d)).collect();
     assert_eq!(got, expected);
@@ -175,7 +226,7 @@ fn failures_become_codes() {
 #[test]
 fn pending_import_is_taken_once_with_its_token() {
     let pending = PendingImport::default();
-    let first = pending.remember(vec![ImportedCard::List]);
+    let first = pending.remember(vec![ImportedCard::List(ImportedList::default())]);
     let second = pending.remember(vec![ImportedCard::Unreadable]);
     assert_ne!(first, second);
     // L'aperçu remplacé est périmé.
@@ -184,10 +235,13 @@ fn pending_import_is_taken_once_with_its_token() {
     assert_eq!(pending.take(second), None);
     // Rendu après un échec : de nouveau disponible, sauf si un autre
     // aperçu l'a remplacé.
-    pending.restore(second, vec![ImportedCard::List]);
-    assert_eq!(pending.take(second), Some(vec![ImportedCard::List]));
+    pending.restore(second, vec![ImportedCard::List(ImportedList::default())]);
+    assert_eq!(
+        pending.take(second),
+        Some(vec![ImportedCard::List(ImportedList::default())])
+    );
     let third = pending.remember(vec![ImportedCard::Unreadable]);
-    pending.restore(second, vec![ImportedCard::List]);
+    pending.restore(second, vec![ImportedCard::List(ImportedList::default())]);
     assert_eq!(pending.take(second), None);
     assert_eq!(pending.take(third), Some(vec![ImportedCard::Unreadable]));
     assert_ne!(third, 0);

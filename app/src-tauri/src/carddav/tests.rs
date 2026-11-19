@@ -40,7 +40,8 @@ fn only_a_proposed_book_can_be_connected() {
     let services = CardDavServices::new(
         Err("tests".into()),
         SqliteCardDavStore::new(
-            norelly_sqlite::Database::open_in_memory().unwrap_or_else(|e| panic!("{e}")),
+            norelly_sqlite::Database::open_in_memory(norelly_contacts_io::IcuNfc)
+                .unwrap_or_else(|e| panic!("{e}")),
         ),
     );
     let server = url("https://dav.example.com/");

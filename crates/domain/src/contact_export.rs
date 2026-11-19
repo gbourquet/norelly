@@ -1,6 +1,7 @@
 //! Export du carnet d'adresses (ADR-012) : formats proposés, contacts
 //! visés, et règles de sortie ([`export_card`]) qui disent ce que chaque
-//! format retient d'une fiche.
+//! format retient d'une fiche ; listes de diffusion écrites avec tout le
+//! carnet ([`exports_lists`], [`export_lists`]).
 //!
 //! L'adaptateur `contacts-io` met en forme les fiches préparées ici
 //! ([`ExportCard`]) sans rien décider : l'ordre des adresses, les
@@ -15,8 +16,9 @@ use std::time::Duration;
 use crate::contact_details::Birthday;
 use crate::contact_import::{MAX_IMPORT_CARDS, MAX_IMPORT_FILE_BYTES};
 use crate::contact_labels::ContactLabelKind;
+use crate::contact_lists::ContactList;
 use crate::contacts::{
-    ContactDraft, ContactEmail, ContactId, ContactSelectionError, MAX_CONTACT_NAME_CHARS,
+    Contact, ContactDraft, ContactEmail, ContactId, ContactSelectionError, MAX_CONTACT_NAME_CHARS,
     MAX_CONTACT_SELECTION, contact_selection,
 };
 use crate::reading::safe_file_name_or;
@@ -183,6 +185,57 @@ pub struct ExportCard {
     pub postal_addresses: Vec<ExportPostalAddress>,
     /// Sites web ; en LDIF, comme les adresses postales.
     pub websites: Vec<ExportWebsite>,
+}
+
+/// Liste de diffusion prête à écrire : ses membres sont désignés par leur
+/// rang dans les fiches de l'export (le format les écrit par leur adresse
+/// préférée en vCard, par leur nom distinctif en LDIF).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ExportList {
+    pub name: String,
+    pub description: Option<String>,
+    pub bcc: bool,
+    pub members: Vec<usize>,
+}
+
+/// L'export de `selection` dans `format` écrit-il les listes de
+/// diffusion ? Seulement tout le carnet (une liste n'a de sens qu'avec ses
+/// membres) et dans un format qui sait les porter (vCard, LDIF ; pas le
+/// CSV de Google).
+#[must_use]
+pub fn exports_lists(selection: &ContactSelection, format: ExportFormat) -> bool {
+    matches!(selection, ContactSelection::All)
+        && matches!(
+            format,
+            ExportFormat::VCard4 | ExportFormat::VCard3 | ExportFormat::Ldif
+        )
+}
+
+/// Listes `lists` prêtes à écrire avec les fiches des contacts `contacts`
+/// (dans l'ordre de l'export) : un membre absent de l'export est omis.
+#[must_use]
+pub fn export_lists(lists: &[ContactList], contacts: &[Contact]) -> Vec<ExportList> {
+    let rank: std::collections::HashMap<ContactId, usize> = contacts
+        .iter()
+        .enumerate()
+        .map(|(i, c)| (c.id(), i))
+        .collect();
+    lists
+        .iter()
+        .map(|list| {
+            let draft = list.draft();
+            ExportList {
+                name: draft.name().to_owned(),
+                description: draft.description().map(str::to_owned),
+                bcc: draft.bcc(),
+                members: draft
+                    .members()
+                    .iter()
+                    .filter_map(|id| rank.get(id).copied())
+                    .collect(),
+            }
+        })
+        .collect()
 }
 
 /// Ce que `format` retient de `draft`.

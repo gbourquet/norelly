@@ -231,13 +231,15 @@ mod tests {
 
     #[tokio::test]
     async fn sqlite_preferences_pass_contract() -> Result<(), StoreError> {
-        let db = Database::open_in_memory().map_err(|e| StoreError(e.to_string()))?;
+        let db = Database::open_in_memory(norelly_test_support::contact_import_contracts::FakeNfc)
+            .map_err(|e| StoreError(e.to_string()))?;
         reading_preferences_contract(&SqliteReadingPreferences::new(db)).await
     }
 
     #[tokio::test]
     async fn sqlite_settings_pass_contract() -> Result<(), StoreError> {
-        let db = Database::open_in_memory().map_err(|e| StoreError(e.to_string()))?;
+        let db = Database::open_in_memory(norelly_test_support::contact_import_contracts::FakeNfc)
+            .map_err(|e| StoreError(e.to_string()))?;
         settings_store_contract(&SqliteSettingsStore::new(db)).await
     }
 
@@ -245,7 +247,8 @@ mod tests {
     /// reprend sa valeur par défaut, les autres sont gardées.
     #[tokio::test]
     async fn tampered_settings_fall_back_to_defaults() -> Result<(), StoreError> {
-        let db = Database::open_in_memory().map_err(|e| StoreError(e.to_string()))?;
+        let db = Database::open_in_memory(norelly_test_support::contact_import_contracts::FakeNfc)
+            .map_err(|e| StoreError(e.to_string()))?;
         let store = SqliteSettingsStore::new(db.clone());
         let chosen = Settings {
             notifications: false,
@@ -286,7 +289,8 @@ mod tests {
     /// vaut « jamais ».
     #[tokio::test]
     async fn stored_mark_seen_delays_stay_readable() -> Result<(), StoreError> {
-        let db = Database::open_in_memory().map_err(|e| StoreError(e.to_string()))?;
+        let db = Database::open_in_memory(norelly_test_support::contact_import_contracts::FakeNfc)
+            .map_err(|e| StoreError(e.to_string()))?;
         let store = SqliteSettingsStore::new(db.clone());
         store.save_settings(&Settings::default()).await?;
         for (update, read) in [
@@ -344,7 +348,8 @@ mod tests {
     /// valeurs par défaut, sans blocage.
     #[tokio::test]
     async fn all_out_of_bounds_settings_reload_to_defaults() -> Result<(), StoreError> {
-        let db = Database::open_in_memory().map_err(|e| StoreError(e.to_string()))?;
+        let db = Database::open_in_memory(norelly_test_support::contact_import_contracts::FakeNfc)
+            .map_err(|e| StoreError(e.to_string()))?;
         let store = SqliteSettingsStore::new(db.clone());
         store.save_settings(&Settings::default()).await?;
         db.write_for_tests(
@@ -361,7 +366,8 @@ mod tests {
     /// reprennent leur valeur par défaut.
     #[tokio::test]
     async fn unreadable_privacy_fails_closed() -> Result<(), StoreError> {
-        let db = Database::open_in_memory().map_err(|e| StoreError(e.to_string()))?;
+        let db = Database::open_in_memory(norelly_test_support::contact_import_contracts::FakeNfc)
+            .map_err(|e| StoreError(e.to_string()))?;
         let store = SqliteSettingsStore::new(db.clone());
         store.save_settings(&Settings::default()).await?;
         db.write_for_tests("UPDATE settings SET value = 'oui' WHERE key = 'notify.privacy'")

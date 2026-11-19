@@ -67,7 +67,7 @@ relecture prioritaire du mainteneur.
 | `search` | Syntaxe des requêtes, surlignage |
 | `contacts` | Fiche du carnet d'adresses validée, clé d'adresse, nom affiché, filtre et ordre de la liste (ADR-012) |
 | `contact_export` | Règles de sortie de l'export (`export_card` : adresse préférée en tête, ce que chaque format retient), sélection revalidée, neutralisation des cellules CSV et son inverse, bornes de l'import |
-| `contact_import` | Plan d'import d'un carnet : noms en NFC (port `TextNormalizer`), nom imitant une adresse retiré, caractères invisibles refusés, doublons par `AddressKey`, rejets motivés, politique « ignorer » ou « compléter » |
+| `contact_import` | Plan d'import d'un carnet : noms en NFC (port `TextNormalizer`), nom imitant une adresse retiré, caractères invisibles refusés, doublons par `AddressKey`, rejets motivés, politique « ignorer » ou « compléter » ; listes de diffusion revalidées comme la saisie, membres retrouvés par adresse, doublons de nom |
 | `notify`, `settings` | Notifications à émettre ; paramètres |
 | `ports` | Tous les traits (≈ 27) : `RemoteMailboxConnector`, `RemoteMailboxSession`, `MailSender`, `SecretStore`, `MailStore`, `BlobStore`, `PendingOpStore`, `DraftStore`, `OutboxStore`, `SearchIndex`, carnet (`ContactBook`, `DuplicateDismissals`), requêtes d'écran (`FolderTreeQuery`, `ConversationQuery`, `MessageListQuery`, `ContactDirectory`)… |
 

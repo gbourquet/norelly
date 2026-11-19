@@ -18,6 +18,7 @@ use norelly_domain::connection::server_text;
 use norelly_domain::contact_import::{
     ContactFormat, DuplicatePolicy, ImportPlan, ImportedCard, MAX_IMPORT_FILE_BYTES, RejectReason,
 };
+use norelly_domain::contact_lists::ContactListError;
 use norelly_domain::contacts::ContactError;
 use norelly_domain::ports::{ContactCodec, ContactCodecError, ContactStoreError};
 use tauri::{AppHandle, State};
@@ -96,7 +97,16 @@ fn format_dto(format: ContactFormat) -> ContactImportFormatDto {
 fn reason_dto(reason: &RejectReason) -> ImportRejectReasonDto {
     match reason {
         RejectReason::Unreadable => ImportRejectReasonDto::Unreadable,
-        RejectReason::List => ImportRejectReasonDto::List,
+        RejectReason::ListNameLooksLikeAddress => ImportRejectReasonDto::ListNameLooksLikeAddress,
+        RejectReason::ListMergeTooLarge => ImportRejectReasonDto::ListTooManyMembers,
+        RejectReason::InvalidList(e) => match e {
+            ContactListError::NoName => ImportRejectReasonDto::ListNoName,
+            ContactListError::TooManyMembers => ImportRejectReasonDto::ListTooManyMembers,
+            ContactListError::TooLong(_) => ImportRejectReasonDto::TooLong,
+            ContactListError::InvalidCharacter(_)
+            | ContactListError::InvalidMember
+            | ContactListError::Empty => ImportRejectReasonDto::InvalidField,
+        },
         RejectReason::Invalid(e) => match e {
             ContactError::NoAddress => ImportRejectReasonDto::NoAddress,
             ContactError::InvalidAddress { .. }
@@ -122,6 +132,8 @@ fn counts(plan: &ImportPlan) -> ImportCountsDto {
         create: count(plan.create.len()),
         complete: count(plan.complete.len()),
         duplicates: count(plan.duplicates),
+        lists: count(plan.lists.len()),
+        missing_members: count(plan.missing_members),
     }
 }
 
@@ -289,6 +301,7 @@ pub async fn apply_contact_import(
         Ok(outcome) => Ok(ContactImportOutcomeDto {
             created: count(outcome.created),
             completed: count(outcome.completed),
+            lists_created: count(outcome.lists_created),
         }),
         Err(e) => {
             imports.pending.restore(token, cards);

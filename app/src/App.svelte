@@ -892,7 +892,14 @@
   onImported={(outcome) => {
     app.close();
     mail.notice = {
-      text: m.contacts_import_notice({ created: outcome.created, completed: outcome.completed }),
+      text:
+        outcome.lists_created > 0
+          ? m.contacts_import_notice_lists({
+              created: outcome.created,
+              completed: outcome.completed,
+              lists: outcome.lists_created,
+            })
+          : m.contacts_import_notice({ created: outcome.created, completed: outcome.completed }),
       undoable: false,
     };
     void contacts.load();

@@ -29,10 +29,12 @@ export class ContactImportState {
     this.preview !== null &&
       (this.preview.skip.duplicates > 0 || this.preview.complete.complete > 0),
   );
-  /** Quelque chose à écrire avec la politique choisie. */
-  readonly canImport = $derived(
-    this.counts !== null && !this.busy && this.counts.create + this.counts.complete > 0,
+  /** Rien à écrire avec la politique choisie (ni contact ni liste). */
+  readonly nothingToImport = $derived(
+    this.counts !== null && this.counts.create + this.counts.complete + this.counts.lists === 0,
   );
+  /** Quelque chose à écrire avec la politique choisie. */
+  readonly canImport = $derived(this.counts !== null && !this.busy && !this.nothingToImport);
 
   constructor(api: ContactImportApi) {
     this.#api = api;

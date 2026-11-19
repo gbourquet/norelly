@@ -8,7 +8,8 @@ use super::*;
 use crate::SqliteAccountRepository;
 
 async fn setup() -> Result<(SqliteComposeStore, Database, AccountId, AccountId), StoreError> {
-    let db = Database::open_in_memory().map_err(|e| StoreError(e.to_string()))?;
+    let db = Database::open_in_memory(norelly_test_support::contact_import_contracts::FakeNfc)
+        .map_err(|e| StoreError(e.to_string()))?;
     let repo = SqliteAccountRepository::new(db.clone());
     let a = repo
         .insert(&sample_account("alice@example.com", false))

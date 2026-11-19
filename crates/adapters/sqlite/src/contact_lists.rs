@@ -7,17 +7,20 @@
 //! avant l'écriture (pour nommer le refus) et garanties par le schéma ;
 //! une liste écartée à la lecture (corrompue) ne garde pas son nom.
 
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fmt;
 use std::sync::{Mutex, PoisonError};
 
+use norelly_domain::contact_import::ListImport;
 use norelly_domain::contact_lists::{
     ContactList, ContactListDraft, ContactListError, ContactListFilter, ContactListId,
-    ContactListInput, MAX_CONTACT_LIST_MEMBERS,
+    ContactListInput, MAX_CONTACT_LIST_MEMBERS, renormalized_list_names,
 };
+use norelly_domain::contacts::ContactId;
 use norelly_domain::ports::{
     ContactListBook, ContactListCursor, ContactListDirectory, ContactListPage,
-    ContactListStoreError, ContactListSummary, PageSize, StoreError,
+    ContactListStoreError, ContactListSummary, ContactStoreError, MAX_CONTACT_LOOKUP, PageSize,
+    StoreError, TextNormalizer,
 };
 use rusqlite::ToSql;
 use rusqlite::types::{FromSql, FromSqlResult, ToSqlOutput, Value, ValueRef};
@@ -123,24 +126,37 @@ struct ListRow {
     unreadable_member: bool,
 }
 
-/// Liste revalidée par le domaine, ou la nature de son défaut.
-fn validate(raw: i64, row: ListRow) -> Result<ContactList, Defect> {
+/// Liste revalidée par le domaine (nom en NFC par `normalizer`), ou la
+/// nature de son défaut.
+fn validate(
+    raw: i64,
+    row: ListRow,
+    normalizer: &dyn TextNormalizer,
+) -> Result<ContactList, Defect> {
     let id = ContactListId::new(raw).ok_or(Defect::Id)?;
     let fields = row.fields.ok_or(Defect::ColumnType)?;
     if row.unreadable_member {
         return Err(Defect::UnreadableMember);
     }
     let count = row.members.len();
-    let draft = ContactListDraft::new(ContactListInput {
-        name: fields.name,
-        description: fields.description.unwrap_or_default(),
-        members: row.members,
-        bcc: fields.bcc,
-    })
+    let draft = ContactListDraft::new(
+        ContactListInput {
+            name: fields.name.clone(),
+            description: fields.description.unwrap_or_default(),
+            members: row.members,
+            bcc: fields.bcc,
+        },
+        normalizer,
+    )
     .map_err(Defect::Refused)?;
     // Unicité et tri portent sur la clé stockée : elle doit être celle du
-    // domaine ; un membre répété serait fusionné en silence.
-    if draft.name_key() != fields.name_key || draft.members().len() != count {
+    // domaine, et le nom stocké déjà en NFC (sinon deux noms au rendu
+    // identique auraient deux clés) ; un membre répété serait fusionné en
+    // silence.
+    if draft.name_key() != fields.name_key
+        || draft.name() != fields.name
+        || draft.members().len() != count
+    {
         return Err(Defect::KeyOrMembers);
     }
     Ok(draft.with_id(id))
@@ -148,7 +164,11 @@ fn validate(raw: i64, row: ListRow) -> Result<ContactList, Defect> {
 
 /// Listes `ids`, dans cet ordre (inconnues omises) ; une liste corrompue
 /// est écartée et journalisée, les autres restent lisibles.
-fn load(c: &Connection, ids: &[i64]) -> Result<Vec<ContactList>, StoreError> {
+fn load(
+    c: &Connection,
+    normalizer: &dyn TextNormalizer,
+    ids: &[i64],
+) -> Result<Vec<ContactList>, StoreError> {
     if ids.is_empty() {
         return Ok(Vec::new());
     }
@@ -205,7 +225,7 @@ fn load(c: &Connection, ids: &[i64]) -> Result<Vec<ContactList>, StoreError> {
         .iter()
         .filter_map(|id| rows.remove(id).map(|row| (*id, row)))
         .filter_map(|(raw, row)| {
-            validate(raw, row)
+            validate(raw, row, normalizer)
                 .inspect_err(|defect| skip_corrupted(raw, *defect))
                 .ok()
         })
@@ -252,6 +272,7 @@ fn release_name(tx: &Transaction<'_>, id: i64) -> Result<(), StoreError> {
 /// dans la transaction de l'écriture.
 fn admit(
     tx: &Transaction<'_>,
+    normalizer: &dyn TextNormalizer,
     draft: &ContactListDraft,
     except: Option<ContactListId>,
 ) -> Result<Result<(), ContactListStoreError>, StoreError> {
@@ -269,7 +290,7 @@ fn admit(
         })
         .map_err(store_error)?;
     if let Some(holder) = holder
-        && !load(tx, &[holder])?.is_empty()
+        && !load(tx, normalizer, &[holder])?.is_empty()
     {
         return Ok(Err(ContactListStoreError::DuplicateName(
             draft.name().to_owned(),
@@ -327,10 +348,11 @@ impl ContactListBook for SqliteContactBook {
         draft: &ContactListDraft,
     ) -> Result<ContactList, ContactListStoreError> {
         let draft = draft.clone();
+        let nfc = self.db.normalizer();
         self.db
             .run(move |c| {
                 let tx = c.transaction().map_err(store_error)?;
-                if let Err(refusal) = admit(&tx, &draft, None)? {
+                if let Err(refusal) = admit(&tx, &*nfc, &draft, None)? {
                     return Ok(Err(refusal));
                 }
                 // Clé du nom, libre après l'admission ; le reste est écrit
@@ -358,6 +380,7 @@ impl ContactListBook for SqliteContactBook {
         draft: &ContactListDraft,
     ) -> Result<ContactList, ContactListStoreError> {
         let draft = draft.clone();
+        let nfc = self.db.normalizer();
         self.db
             .run(move |c| {
                 let tx = c.transaction().map_err(store_error)?;
@@ -368,7 +391,7 @@ impl ContactListBook for SqliteContactBook {
                 if !exists {
                     return Ok(Err(ContactListStoreError::NotFound));
                 }
-                if let Err(refusal) = admit(&tx, &draft, Some(id))? {
+                if let Err(refusal) = admit(&tx, &*nfc, &draft, Some(id))? {
                     return Ok(Err(refusal));
                 }
                 write(&tx, id.get(), &draft)?;
@@ -446,6 +469,7 @@ impl ContactListDirectory for SqliteContactBook {
             return Ok(ContactListPage::default());
         }
         let filter = filter.clone();
+        let nfc = self.db.normalizer();
         self.db
             .read(move |c| {
                 // Une liste valide de plus : savoir s'il existe une suite.
@@ -475,7 +499,7 @@ impl ContactListDirectory for SqliteContactBook {
                     }
                     .map_err(store_error)?;
                     let ids: Vec<i64> = rows.iter().map(|(id, _)| *id).collect();
-                    lists.extend(load(c, &ids)?);
+                    lists.extend(load(c, &*nfc, &ids)?);
                     let exhausted = rows.len() < batch as usize;
                     after = rows.pop().map(|(id, key)| (key, id));
                     if exhausted || lists.len() >= wanted {
@@ -499,16 +523,203 @@ impl ContactListDirectory for SqliteContactBook {
     }
 
     async fn get_list(&self, id: ContactListId) -> Result<Option<ContactList>, StoreError> {
-        self.db.read(move |c| Ok(load(c, &[id.get()])?.pop())).await
+        let nfc = self.db.normalizer();
+        self.db
+            .read(move |c| Ok(load(c, &*nfc, &[id.get()])?.pop()))
+            .await
     }
+
+    async fn lists_named(&self, keys: &[String]) -> Result<Vec<ContactList>, StoreError> {
+        let keys = &keys[..keys.len().min(MAX_CONTACT_LOOKUP)];
+        if keys.is_empty() {
+            return Ok(Vec::new());
+        }
+        let keys = serde_json::to_string(keys).map_err(|e| StoreError(e.to_string()))?;
+        let nfc = self.db.normalizer();
+        self.db
+            .read(move |c| {
+                let ids: Vec<i64> = c
+                    .prepare_cached(
+                        "SELECT id FROM contact_lists \
+                         WHERE name_key IN (SELECT value FROM json_each(?1)) \
+                         ORDER BY name_key, id",
+                    )
+                    .and_then(|mut s| s.query_map(params![keys], |r| r.get(0))?.collect())
+                    .map_err(store_error)?;
+                load(c, &*nfc, &ids)
+            })
+            .await
+    }
+
+    async fn all_lists(&self, limit: usize) -> Result<Vec<ContactList>, StoreError> {
+        let nfc = self.db.normalizer();
+        // Une seule lecture (instantané cohérent), par lots dans l'ordre de
+        // la liste ; les listes écartées n'arrêtent pas la lecture.
+        self.db
+            .read(move |c| {
+                let batch = i64::from(PageSize::MAX.get());
+                let mut lists = Vec::new();
+                let mut offset = 0_i64;
+                while lists.len() < limit {
+                    let ids: Vec<i64> = c
+                        .prepare_cached(
+                            "SELECT id FROM contact_lists ORDER BY name_key, id LIMIT ?1 OFFSET ?2",
+                        )
+                        .and_then(|mut s| {
+                            s.query_map(params![batch, offset], |r| r.get(0))?.collect()
+                        })
+                        .map_err(store_error)?;
+                    let exhausted = (ids.len() as i64) < batch;
+                    offset += batch;
+                    lists.extend(load(c, &*nfc, &ids)?);
+                    if exhausted {
+                        break;
+                    }
+                }
+                lists.truncate(limit);
+                Ok(lists)
+            })
+            .await
+    }
+}
+
+/// Listes d'un import, dans la transaction `tx` qui vient de créer les
+/// fiches `created` (dans l'ordre du plan) : chaque liste à créer doit
+/// porter un nom libre (`Conflict` s'il a été pris entre-temps) ; un
+/// membre absent du carnet donne `NotFound`. Les listes sont revalidées par le domaine
+/// ([`ListImport::resolve`]). Un refus est rendu sans rien écrire de plus :
+/// l'appelant annule la transaction.
+pub(crate) fn import_lists(
+    tx: &Transaction<'_>,
+    normalizer: &dyn TextNormalizer,
+    created: &[ContactId],
+    lists: &[ListImport],
+) -> Result<Result<(), ContactStoreError>, StoreError> {
+    let corrupted = |e: ContactListError| StoreError(format!("liste importée : {e}"));
+    let refusal = |e: ContactListStoreError| match e {
+        ContactListStoreError::DuplicateName(_) => Ok(ContactStoreError::Conflict),
+        ContactListStoreError::UnknownContact(_) | ContactListStoreError::NotFound => {
+            Ok(ContactStoreError::NotFound)
+        }
+        ContactListStoreError::Store(e) => Err(e),
+    };
+    for list in lists {
+        let draft = list.resolve(created).map_err(corrupted)?;
+        if let Err(e) = admit(tx, normalizer, &draft, None)? {
+            return Ok(Err(refusal(e)?));
+        }
+        tx.execute(
+            "INSERT INTO contact_lists (name, name_key) VALUES ('', ?1)",
+            params![draft.name_key()],
+        )
+        .map_err(store_error)?;
+        let raw = tx.last_insert_rowid();
+        write(tx, raw, &draft)?;
+    }
+    Ok(Ok(()))
+}
+
+/// Crochet de la migration 26 : noms des listes lisibles (nom accepté par
+/// le domaine, clé stockée égale au nom en minuscules) mis en NFC par
+/// `normalizer`, la plus récente de deux listes devenues homonymes
+/// suffixée ([`renormalized_list_names`]). Une liste écartée (nom refusé,
+/// clé qui n'est pas celle de son nom, colonne d'un autre type) est
+/// laissée telle quelle, et sa clé n'est jamais prise. Les lignes
+/// réécrites passent d'abord par une clé provisoire libre commençant par
+/// un caractère de contrôle, qu'aucun nom accepté ne peut donner : la clé
+/// reste unique à chaque instant, et l'ouverture de la base n'échoue
+/// jamais faute de clé libre.
+pub(crate) fn normalize_list_names(
+    tx: &Transaction<'_>,
+    normalizer: &dyn TextNormalizer,
+) -> Result<(), StoreError> {
+    let rows: Vec<(i64, Option<String>, RawKey)> = tx
+        .prepare("SELECT id, name, name_key FROM contact_lists ORDER BY id")
+        .and_then(|mut s| {
+            s.query_map([], |r| Ok((r.get(0)?, tolerant(r.get(1))?, r.get(2)?)))?
+                .collect()
+        })
+        .map_err(store_error)?;
+    let rows_count = rows.len();
+    let mut readable: Vec<(i64, String)> = Vec::new();
+    let mut reserved: HashSet<String> = HashSet::new();
+    let accepted = |name: &str| {
+        ContactListDraft::new(
+            ContactListInput {
+                name: name.to_owned(),
+                ..ContactListInput::default()
+            },
+            normalizer,
+        )
+        .is_ok()
+    };
+    for (id, name, key) in rows {
+        let key = match key {
+            RawKey::Text(bytes) => String::from_utf8(bytes).ok(),
+            RawKey::Other(_) => None,
+        };
+        match (name, key) {
+            (Some(name), Some(key)) if key == name.to_lowercase() && accepted(&name) => {
+                readable.push((id, name));
+            }
+            (_, Some(key)) => {
+                reserved.insert(key);
+            }
+            _ => {}
+        }
+    }
+    let names: Vec<String> = readable.iter().map(|(_, n)| n.clone()).collect();
+    let renamed = renormalized_list_names(&names, &reserved, normalizer);
+    let changed: Vec<(i64, String)> = readable
+        .into_iter()
+        .zip(renamed)
+        .filter(|((_, old), new)| old != new)
+        .map(|((id, _), new)| (id, new))
+        .collect();
+    for (id, _) in &changed {
+        park(tx, *id, rows_count)?;
+    }
+    for (id, name) in &changed {
+        tx.execute(
+            "UPDATE contact_lists SET name = ?2, name_key = ?3 WHERE id = ?1",
+            params![id, name, name.to_lowercase()],
+        )
+        .map_err(store_error)?;
+    }
+    Ok(())
+}
+
+/// Clé provisoire libre de la liste `id` pendant la migration 26 :
+/// commence par un caractère de contrôle (jamais la clé d'une liste
+/// lisible) ; parmi `rows` lignes, une clé libre est trouvée en au plus
+/// `rows + 1` essais.
+fn park(tx: &Transaction<'_>, id: i64, rows: usize) -> Result<(), StoreError> {
+    let mut key = format!("\u{2}{id}");
+    let mut taken = tx
+        .prepare_cached("SELECT 1 FROM contact_lists WHERE name_key = ?1")
+        .map_err(store_error)?;
+    let mut attempts = 0;
+    while taken.exists(params![key]).map_err(store_error)? {
+        attempts += 1;
+        if attempts > rows {
+            return Err(StoreError(format!("aucune clé libre pour la liste {id}")));
+        }
+        key.push('\u{2}');
+    }
+    tx.execute(
+        "UPDATE contact_lists SET name_key = ?2 WHERE id = ?1",
+        params![id, key],
+    )
+    .map_err(store_error)?;
+    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use norelly_domain::ports::ContactBook;
     use norelly_test_support::contact_lists_contracts::{
-        contact_list_contract, contact_list_page_size_contract, contact_merge_contract,
-        corrupted_list_contract, sample_list,
+        contact_list_contract, contact_list_import_contract, contact_list_page_size_contract,
+        contact_merge_contract, corrupted_list_contract, sample_list,
     };
     use norelly_test_support::contacts_contracts::sample_contact;
 
@@ -516,12 +727,20 @@ mod tests {
     use crate::Database;
 
     fn book() -> SqliteContactBook {
-        SqliteContactBook::new(Database::open_in_memory().unwrap_or_else(|e| panic!("{e}")))
+        SqliteContactBook::new(
+            Database::open_in_memory(norelly_test_support::contact_import_contracts::FakeNfc)
+                .unwrap_or_else(|e| panic!("{e}")),
+        )
     }
 
     #[tokio::test]
     async fn contact_lists_pass_contract() -> Result<(), ContactListStoreError> {
         contact_list_contract(&book()).await
+    }
+
+    #[tokio::test]
+    async fn list_import_passes_contract() -> Result<(), ContactListStoreError> {
+        contact_list_import_contract(&book()).await
     }
 
     #[tokio::test]
@@ -597,8 +816,9 @@ mod tests {
     /// domaine), clé de nom qui n'est pas celle du domaine, nom qui n'est
     /// pas du texte, clé de nom qui n'est pas du texte, texte qui n'est pas
     /// de l'UTF-8 (nom, description, clé de nom), description de plusieurs
-    /// lignes.
-    const CORRUPTIONS: [&str; 8] = [
+    /// lignes, nom qui n'est pas en NFC (signe kelvin) avec la clé que son
+    /// passage en minuscules donne.
+    const CORRUPTIONS: [&str; 9] = [
         "UPDATE contact_lists SET name = '' WHERE id = ?1",
         "UPDATE contact_lists SET name_key = 'zz' || name_key WHERE id = ?1",
         "UPDATE contact_lists SET name = x'00ff' WHERE id = ?1",
@@ -607,6 +827,7 @@ mod tests {
         "UPDATE contact_lists SET description = CAST(x'ff' AS TEXT) WHERE id = ?1",
         "UPDATE contact_lists SET name_key = name_key || CAST(x'ff' AS TEXT) WHERE id = ?1",
         "UPDATE contact_lists SET description = 'a' || char(10) || 'b' WHERE id = ?1",
+        "UPDATE contact_lists SET name = char(8490) || 'lub', name_key = 'klub' WHERE id = ?1",
     ];
 
     #[tokio::test]

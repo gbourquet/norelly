@@ -26,8 +26,11 @@ use tokio::runtime::Runtime;
 
 /// Taille d'une page d'écran.
 const PAGE: u32 = 50;
-/// Seuil des lectures d'écran (liste, suggestions), médiane.
+/// Seuil des lectures de la liste, médiane.
 const READ_THRESHOLD: Duration = Duration::from_millis(50);
+/// Seuil d'une suggestion de destinataires (deux pages filtrées puis les
+/// fiches trouvées), médiane : celui de la recherche.
+const SUGGEST_THRESHOLD: Duration = Duration::from_millis(100);
 /// Seuil de l'import d'un fichier de taille maximale dans un carnet qui
 /// en devient plein.
 const IMPORT_THRESHOLD: Duration = Duration::from_secs(20);
@@ -217,8 +220,13 @@ fn check_thresholds(f: &Fixture) {
         "{read} fiches lues"
     );
     for (what, t) in reads(f) {
-        eprintln!("{what} : {t:?} (seuil {READ_THRESHOLD:?})");
-        assert!(t < READ_THRESHOLD, "{what} en {t:?} (> {READ_THRESHOLD:?})");
+        let threshold = if what.starts_with("suggestions") {
+            SUGGEST_THRESHOLD
+        } else {
+            READ_THRESHOLD
+        };
+        eprintln!("{what} : {t:?} (seuil {threshold:?})");
+        assert!(t < threshold, "{what} en {t:?} (> {threshold:?})");
     }
     eprintln!(
         "import de {MAX_IMPORT_CARDS} fiches : {:?} (seuil {IMPORT_THRESHOLD:?})",

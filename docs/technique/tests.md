@@ -117,7 +117,8 @@ mesure unitaire.
 |---|---|---|
 | Liste : première page et changement de dossier, 50 000 messages (requête seule) | `cargo bench -p norelly-sqlite -- --test` | < 50 ms (mesuré ≈ 0,2 ms) |
 | Recherche, 50 000 messages de 300 mots | même commande (bancs `message_list` et `search`) | < 100 ms (mesuré 0,3 à 89 ms) |
-| Carnet plein (`MAX_CONTACTS` = 25 000 fiches) : première page, page suivante, liste filtrée, suggestions de destinataires | même commande (banc `contacts`) | < 50 ms (mesuré 0,7 à 31 ms) |
+| Carnet plein (`MAX_CONTACTS` = 25 000 fiches) : première page, page suivante, liste filtrée | même commande (banc `contacts`) | < 50 ms (mesuré 0,7 à 18 ms) |
+| Carnet plein : suggestions de destinataires (lectures du carnet) | même commande (banc `contacts`) | < 100 ms (mesuré 13 à 45 ms) |
 | Import d'un fichier de 25 000 fiches qui remplit le carnet | même commande (banc `contacts`) | < 20 s (mesuré ≈ 2,2 s) |
 | Démarrage de bout en bout | `NORELLY_E2E_PERF=1 pnpm -C app e2e` | < 400 ms (seuil porté par le mainteneur) |
 | Changement de dossier de bout en bout | idem | < 200 ms (mesuré 13 à 16 ms) |
@@ -135,8 +136,10 @@ plafond ; au-delà, le relever le temps de la mesure). Médianes mesurées
 | 200 000 | 0,8 ms | 255 ms | 29 ms | 484 ms | 3,2 s |
 
 Un texte que ne contient aucune fiche fait parcourir tout le carnet (la
-liste filtrée et les suggestions croissent avec lui) : au-delà de
-25 000 fiches, une suggestion dépasse le seuil de 50 ms. Le plafond
+liste filtrée et les suggestions croissent avec lui) : à 50 000 fiches,
+la liste filtrée (47 ms) et une suggestion (87 ms) sont déjà au bord de
+leurs seuils sur une machine calme, et les dépassent sur une machine
+chargée ; à 100 000, elles les dépassent toujours. Le plafond
 retenu est aussi la borne d'un fichier importé, de l'export, de la
 recherche des doublons et de CardDAV.
 

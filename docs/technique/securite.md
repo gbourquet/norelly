@@ -303,6 +303,18 @@ en le complétant (`plan_import`).
 - Bornes partout : profondeur MIME, nombre de parties, tailles, nombre de
   clauses, de destinataires, de pièces jointes, d'opérations en attente,
   durée d'une recherche (2 s).
+- Carnet d'adresses : au plus `MAX_CONTACTS` fiches (25 000, la borne
+  d'un fichier importé), tous chemins d'écriture confondus, pour qu'une
+  suite d'imports ou de synchronisations CardDAV ne fasse pas grossir la
+  base et ralentir la liste et les suggestions sans limite ; un carnet
+  plein reste exportable, réimportable, parcouru par la recherche des
+  doublons et synchronisé en entier (bornes liées par un test du
+  domaine). Règle du domaine (`fits_in_book`), appliquée par le carnet dans
+  la transaction qui crée (`ContactBook::create`, `import` : `BookFull`,
+  rien n'est écrit, lignes illisibles comptées) ; l'aperçu et l'import la
+  vérifient aussi avant de réencoder les photos ; une fiche CardDAV qui ne
+  tient pas est laissée de côté. Valeur fixée d'après les bancs
+  `contacts` (`docs/technique/tests.md`).
 - Étiquettes : nom revalidé par le domaine (`LabelName`), encodé en
   atom ASCII avant tout envoi au serveur (`keyword_atom` le revérifie) ;
   mot-clé reçu de l'interface revalidé (`Keyword::parse`) ; mot-clé du

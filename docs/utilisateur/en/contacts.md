@@ -190,6 +190,12 @@ A contact is recognised as already there if it has the same email
 address. A card without an email address is not imported: Norelly's
 address book is for writing messages.
 
+The address book can hold a very large number of contacts, but not an
+unlimited one. If the new contacts of a file do not fit in the address
+book, Norelly says so in the preview and imports nothing. Delete the
+contacts you no longer need, or import a smaller file, then try again. A
+full address book also refuses a new contact, with the same message.
+
 Mailing lists in the file (the groups of a vCard or LDIF file) are
 imported with their members. A list with the same name as one of your
 lists is not imported, and your list does not change: a file never adds
@@ -296,6 +302,9 @@ Good to know:
 - Favorites and mailing lists stay in Norelly only.
 - A card without an email address is not brought into Norelly; it stays on
   the server.
+- If your address book is full, new cards from the server wait: the sync
+  window tells you how many. Delete the contacts you no longer need, and
+  they will arrive at the next sync.
 - **Disconnect** stops syncing; your contacts stay in Norelly, and nothing
   is deleted on the server.
 - As a precaution, if many contacts disappear from the server at once,

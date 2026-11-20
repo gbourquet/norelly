@@ -98,7 +98,8 @@ serveur de contacts (voir [synchronisation-carnet.md](synchronisation-carnet.md)
   - adresse qui appartient déjà à **un autre contact**, sans tenir compte
     des majuscules (citée) : une adresse n'appartient qu'à un contact ;
   - texte trop long ou caractère invisible ou trompeur dans un champ ou
-    dans une adresse (le champ est nommé), comme pour un import.
+    dans une adresse (le champ est nommé), comme pour un import ;
+  - carnet plein (voir « Taille du carnet » ci-dessous).
 - Contact enregistré : la fenêtre se ferme, un avis « Contact … ajouté. »
   s'affiche, la liste est relue et la fiche du contact s'ouvre.
 
@@ -373,6 +374,28 @@ serveur de contacts (voir [synchronisation-carnet.md](synchronisation-carnet.md)
 - Fichiers refusés en entier, avec un message clair : format inconnu (le
   message invite à exporter en vCard ou CSV), fichier trop gros (20 Mo)
   ou trop de contacts (25 000).
+- Un import dont les nouveaux contacts ne tiennent pas dans le carnet
+  (voir « Taille du carnet ») est refusé en entier dès l'aperçu : rien
+  n'est ajouté, jamais une partie seulement du fichier.
+
+### Taille du carnet
+
+- But : garder la liste, la recherche et les suggestions de
+  destinataires rapides quel que soit le nombre d'imports.
+- Le carnet a une taille maximale : celle d'un fichier de contacts
+  importé, si bien qu'un carnet plein peut toujours être exporté en
+  entier, réimporté, nettoyé de ses doublons et synchronisé avec un
+  serveur.
+- Carnet plein : créer un contact ou importer un fichier qui ajoute des
+  contacts est refusé, sans rien changer, avec un message qui explique
+  que le carnet est plein, rappelle sa taille maximale et invite à
+  supprimer les contacts devenus inutiles ou à importer un fichier plus
+  petit. Modifier, compléter ou fusionner des contacts reste possible.
+- Supprimer des contacts libère autant de places.
+- Synchronisation avec un serveur : une nouvelle fiche du serveur qui ne
+  tient plus dans le carnet est laissée de côté, et la fenêtre de
+  synchronisation dit combien attendent ; elle arrive à une
+  synchronisation suivante, une fois de la place libérée.
 
 ### Exporter des contacts
 

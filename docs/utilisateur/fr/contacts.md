@@ -196,6 +196,13 @@ Un contact est reconnu comme déjà présent s'il a la même adresse
 électronique. Une fiche sans adresse électronique n'est pas importée : le
 carnet de Norelly sert à écrire des messages.
 
+Le carnet peut contenir un très grand nombre de contacts, mais pas un
+nombre illimité. Si les nouveaux contacts d'un fichier ne tiennent pas
+dans le carnet, Norelly le dit dès l'aperçu et n'importe rien.
+Supprimez les contacts dont vous n'avez plus besoin, ou importez un
+fichier plus petit, puis réessayez. Un carnet plein refuse aussi un
+nouveau contact, avec le même message.
+
 Les listes de diffusion du fichier (les groupes d'un fichier vCard ou
 LDIF) sont importées avec leurs membres. Une liste qui porte le même nom
 qu'une de vos listes n'est pas importée, et votre liste ne change pas :
@@ -310,6 +317,9 @@ Bon à savoir :
 - Les favoris et les listes de diffusion restent dans Norelly seulement.
 - Une fiche sans adresse électronique n'est pas reprise dans Norelly ; elle
   reste sur le serveur.
+- Si votre carnet est plein, les nouvelles fiches du serveur attendent : la
+  fenêtre de synchronisation dit combien. Supprimez les contacts dont vous
+  n'avez plus besoin, elles arriveront à la synchronisation suivante.
 - **Déconnecter** arrête la synchronisation ; vos contacts restent dans
   Norelly, et rien n'est supprimé sur le serveur.
 - Par prudence, si beaucoup de contacts disparaissent d'un coup du serveur,

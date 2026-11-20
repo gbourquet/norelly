@@ -62,7 +62,8 @@ describe("import du carnet", () => {
     await $("nav").$("button=Contacts").click();
     await $("p*=Aucun contact pour l'instant").waitForDisplayed({ timeout: 10000 });
     // Aperçu abandonné : la fenêtre se ferme sans rien importer, et un
-    // nouvel aperçu du même fichier reste possible.
+    // nouvel aperçu du même fichier reste possible (la libération des
+    // fiches par Rust, invisible ici, est vérifiée par les tests unitaires).
     const abandoned = await importFile("gmail.vcf");
     await abandoned.$("button=Annuler").click();
     await abandoned.waitForDisplayed({ reverse: true, timeout: 10000 });

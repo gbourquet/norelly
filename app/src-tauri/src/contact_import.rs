@@ -8,8 +8,7 @@
 
 use std::io::Read;
 use std::path::Path;
-use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::{Mutex, PoisonError};
+use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use norelly_application::contact_import::{
     ApplyContactImport, ImportFailure, ImportPreview, PreviewContactImport,
@@ -44,67 +43,94 @@ pub struct PendingCards {
 /// Fiches d'un aperçu en attente de confirmation (une à la fois).
 #[derive(Debug, Default)]
 pub struct PendingImport {
-    /// Dernier jeton attribué (jamais réutilisé pendant la session).
-    last: AtomicU32,
-    /// Dernier jeton oublié : ses fiches, prises par un import en cours,
-    /// ne sont pas rendues s'il échoue. Lu et écrit sous `slot`.
-    discarded: AtomicU32,
-    slot: Mutex<Option<(u32, PendingCards)>>,
+    slot: Mutex<Slot>,
+}
+
+/// État du créneau, sous un seul verrou : jeton attribué et fiches gardées
+/// changent ensemble.
+#[derive(Debug, Default)]
+struct Slot {
+    /// Dernier jeton attribué (jamais 0 ; repart à 1 après `u32::MAX`).
+    last: u32,
+    /// Jeton oublié pendant que ses fiches étaient prises par un import :
+    /// elles ne sont pas rendues s'il échoue. L'interface empêche de
+    /// fermer la fenêtre pendant un import : défense en profondeur.
+    discarded: u32,
+    cards: Option<(u32, PendingCards)>,
+}
+
+impl Slot {
+    /// Fiches gardées si elles sont celles de l'aperçu `token`.
+    fn take(&mut self, token: u32) -> Option<PendingCards> {
+        match self.cards.take() {
+            Some((t, cards)) if t == token => Some(cards),
+            other => {
+                self.cards = other;
+                None
+            }
+        }
+    }
 }
 
 impl PendingImport {
-    fn slot(&self) -> std::sync::MutexGuard<'_, Option<(u32, PendingCards)>> {
+    fn slot(&self) -> MutexGuard<'_, Slot> {
         self.slot.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Créneau dont le dernier jeton attribué est `last`.
+    #[cfg(test)]
+    fn with_last(last: u32) -> Self {
+        Self {
+            slot: Mutex::new(Slot {
+                last,
+                ..Slot::default()
+            }),
+        }
     }
 
     /// Garde les fiches d'un nouvel aperçu (l'aperçu précédent est
     /// périmé) ; renvoie son jeton (jamais 0).
     pub fn remember(&self, cards: PendingCards) -> u32 {
-        let token = self
-            .last
-            .fetch_add(1, Ordering::Relaxed)
-            .wrapping_add(1)
-            .max(1);
-        *self.slot() = Some((token, cards));
+        let mut slot = self.slot();
+        let token = slot.last.checked_add(1).unwrap_or(1);
+        slot.last = token;
+        slot.discarded = 0;
+        let replaced = slot.cards.replace((token, cards));
+        // Fiches remplacées libérées hors du verrou.
+        drop(slot);
+        drop(replaced);
         token
     }
 
     /// Fiches de l'aperçu `token`, une seule fois.
     pub fn take(&self, token: u32) -> Option<PendingCards> {
-        let mut slot = self.slot();
-        match slot.take() {
-            Some((t, cards)) if t == token => Some(cards),
-            other => {
-                *slot = other;
-                None
-            }
-        }
+        self.slot().take(token)
     }
 
     /// Rend les fiches d'un import échoué, si aucun autre aperçu ne les a
     /// remplacées entre-temps et si l'aperçu n'a pas été oublié.
     pub fn restore(&self, token: u32, cards: PendingCards) {
         let mut slot = self.slot();
-        if slot.is_none()
-            && self.last.load(Ordering::Relaxed) == token
-            && self.discarded.load(Ordering::Relaxed) != token
-        {
-            *slot = Some((token, cards));
+        if slot.cards.is_none() && slot.last == token && slot.discarded != token {
+            slot.cards = Some((token, cards));
         }
     }
 
     /// Oublie l'aperçu `token` (fenêtre fermée sans importer) : ses fiches
-    /// sont libérées tout de suite, ou à la fin de l'import en cours. Un
-    /// jeton périmé n'efface pas un aperçu plus récent.
+    /// sont libérées tout de suite, ou à la fin d'un import en cours sans
+    /// être rendues s'il échoue. Un jeton périmé, inconnu ou nul n'efface
+    /// pas un aperçu plus récent.
     pub fn discard(&self, token: u32) {
         let mut slot = self.slot();
-        if token == 0 || self.last.load(Ordering::Relaxed) != token {
+        if token == 0 || slot.last != token {
             return;
         }
-        self.discarded.store(token, Ordering::Relaxed);
-        if slot.as_ref().is_some_and(|(t, _)| *t == token) {
-            *slot = None;
-        }
+        slot.discarded = token;
+        let released = slot.take(token);
+        // Fiches libérées hors du verrou : les autres commandes n'attendent
+        // pas la libération.
+        drop(slot);
+        drop(released);
     }
 }
 
@@ -351,7 +377,10 @@ pub async fn apply_contact_import(
 /// sont libérées. Sans effet pour un jeton périmé ou inconnu.
 #[tauri::command]
 #[specta::specta]
-pub async fn discard_contact_import(state: State<'_, AppState>, token: u32) -> Result<(), IpcError> {
+pub async fn discard_contact_import(
+    state: State<'_, AppState>,
+    token: u32,
+) -> Result<(), IpcError> {
     state.imports.pending.discard(token);
     Ok(())
 }

@@ -76,7 +76,8 @@ export class ContactImportState {
 
   /** Oublie l'aperçu (dialogue fermé), ici et en Rust qui en libère les
    * fiches ; la fermeture n'attend pas Rust, dont l'échec est sans effet
-   * visible (les fiches seront remplacées par le prochain aperçu). */
+   * visible (les fiches seront remplacées par le prochain aperçu). La
+   * permission de la commande est garantie par les tests d'ACL. */
   close(): void {
     const preview = this.preview;
     if (preview !== null) {

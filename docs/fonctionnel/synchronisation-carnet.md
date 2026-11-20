@@ -73,6 +73,12 @@ côté l'est aussi de l'autre.
   elle reste quand la fiche est modifiée sur le serveur. Un contact
   supprimé sur le serveur l'est ici avec sa photo.
 - Les favoris et les listes de diffusion restent propres à Norelly.
+- Une nouvelle fiche du serveur qui ne tient plus dans un carnet plein
+  (voir la taille du carnet dans la fiche des contacts) est laissée de
+  côté, sans arrêter la synchronisation : la fenêtre de synchronisation
+  dit combien de fiches attendent parce que le carnet est plein, et
+  invite à supprimer les contacts inutiles ; elles arrivent à une
+  synchronisation suivante, une fois de la place libérée.
 - Une fiche du serveur que Norelly ne peut pas reprendre (sans adresse
   électronique, adresse déjà portée par un autre contact) est laissée de
   côté et comptée ; elle n'est jamais supprimée du serveur, et elle est

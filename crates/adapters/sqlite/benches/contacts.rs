@@ -210,7 +210,12 @@ fn check_thresholds(f: &Fixture) {
     let all = ContactFilter::default();
     assert_eq!(page(f, &all, None), PAGE as usize);
     assert_eq!(page(f, &ContactFilter::new(ABSENT, false), None), 0);
-    assert_eq!(suggestions(f, COMMON), MAX_CONTACT_SUGGESTIONS);
+    // Une page de favoris et une page de tous : jusqu'à deux pages lues.
+    let read = suggestions(f, COMMON);
+    assert!(
+        (MAX_CONTACT_SUGGESTIONS..=2 * MAX_CONTACT_SUGGESTIONS).contains(&read),
+        "{read} fiches lues"
+    );
     for (what, t) in reads(f) {
         eprintln!("{what} : {t:?} (seuil {READ_THRESHOLD:?})");
         assert!(t < READ_THRESHOLD, "{what} en {t:?} (> {READ_THRESHOLD:?})");

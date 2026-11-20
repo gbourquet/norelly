@@ -1083,6 +1083,41 @@ const PAGE_AFTER_ROW: &str = "SELECT id FROM contacts \
 /// d'être parcourue à chaque lecture.
 const MAX_PAGE_BATCHES: usize = 10;
 
+/// Identifiants choisis par `selection`, en liste JSON ; `None` pour tout
+/// le carnet.
+fn chosen_ids(selection: &ContactSelection) -> Result<Option<String>, StoreError> {
+    match selection {
+        ContactSelection::All => Ok(None),
+        ContactSelection::Contacts(ids) => Ok(Some(json_list(
+            &ids.iter().map(|id| id.get()).collect::<Vec<_>>(),
+        )?)),
+    }
+}
+
+/// Au plus `limit` identifiants de tout le carnet (`chosen` absent) ou des
+/// contacts `chosen` (liste JSON), dans l'ordre de la liste, fiches
+/// invalides comprises.
+fn selected_ids(
+    c: &Connection,
+    chosen: Option<&str>,
+    limit: usize,
+) -> Result<Vec<i64>, StoreError> {
+    let limit = i64::try_from(limit).unwrap_or(i64::MAX);
+    match chosen {
+        None => c
+            .prepare_cached("SELECT id FROM contacts ORDER BY sort_key, id LIMIT ?1")
+            .and_then(|mut s| s.query_map(params![limit], |r| r.get(0))?.collect()),
+        Some(list) => c
+            .prepare_cached(
+                "SELECT id FROM contacts \
+                  WHERE id IN (SELECT value FROM json_each(?1)) \
+                  ORDER BY sort_key, id LIMIT ?2",
+            )
+            .and_then(|mut s| s.query_map(params![list, limit], |r| r.get(0))?.collect()),
+    }
+    .map_err(store_error)
+}
+
 impl ContactDirectory for SqliteContactBook {
     async fn page(
         &self,
@@ -1231,38 +1266,33 @@ impl ContactDirectory for SqliteContactBook {
         selection: &ContactSelection,
         limit: usize,
     ) -> Result<Vec<Contact>, StoreError> {
-        let limit = i64::try_from(limit).unwrap_or(i64::MAX);
-        let chosen = match selection {
-            ContactSelection::All => None,
-            ContactSelection::Contacts(ids) => Some(json_list(
-                &ids.iter().map(|id| id.get()).collect::<Vec<_>>(),
-            )?),
-        };
+        let chosen = chosen_ids(selection)?;
         // Export et recherche des doublons : une fiche invalide, invisible
         // partout ailleurs, est écartée (signalée) sans bloquer les autres.
         let (contacts, skipped) = self
             .db
             .read(move |c| {
-                let ids: Vec<i64> = match &chosen {
-                    None => c
-                        .prepare_cached("SELECT id FROM contacts ORDER BY sort_key, id LIMIT ?1")
-                        .and_then(|mut s| s.query_map(params![limit], |r| r.get(0))?.collect()),
-                    Some(list) => c
-                        .prepare_cached(
-                            "SELECT id FROM contacts \
-                              WHERE id IN (SELECT value FROM json_each(?1)) \
-                              ORDER BY sort_key, id LIMIT ?2",
-                        )
-                        .and_then(|mut s| {
-                            s.query_map(params![list, limit], |r| r.get(0))?.collect()
-                        }),
-                }
-                .map_err(store_error)?;
+                let ids = selected_ids(c, chosen.as_deref(), limit)?;
                 load_valid(c, &ids)
             })
             .await?;
         self.report(&skipped);
         Ok(contacts)
+    }
+
+    async fn contact_ids(
+        &self,
+        selection: &ContactSelection,
+        limit: usize,
+    ) -> Result<Vec<ContactId>, StoreError> {
+        let chosen = chosen_ids(selection)?;
+        let ids = self
+            .db
+            .read(move |c| selected_ids(c, chosen.as_deref(), limit))
+            .await?;
+        // Identifiant hors bornes (base retouchée) : écarté, comme une
+        // fiche illisible.
+        Ok(ids.into_iter().filter_map(ContactId::new).collect())
     }
 
     async fn photo_ids(&self) -> Result<BTreeSet<BlobId>, StoreError> {

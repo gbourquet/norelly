@@ -22,16 +22,76 @@ const PLACE_PARTS: [&str; 6] = [
     "Country",
 ];
 
-/// Fiches `cards` dans `out`.
+/// Colonnes du fichier, fixées par toutes ses fiches : autant de paires
+/// d'adresses, de téléphones, d'adresses postales et de sites que la fiche
+/// qui en a le plus (une adresse au moins) ; titre et anniversaire
+/// seulement si une fiche en a.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct Layout {
+    emails: usize,
+    phones: usize,
+    titles: bool,
+    birthdays: bool,
+    places: usize,
+    sites: usize,
+}
+
+impl Layout {
+    /// Colonnes élargies aux fiches `cards`.
+    pub(crate) fn survey(&mut self, cards: &[ExportCard]) {
+        for card in cards {
+            self.emails = self.emails.max(card.emails.len());
+            self.phones = self.phones.max(card.phones.len());
+            self.titles |= card.title.is_some();
+            self.birthdays |= card.birthday.is_some();
+            self.places = self.places.max(card.postal_addresses.len());
+            self.sites = self.sites.max(card.websites.len());
+        }
+    }
+
+    /// La fiche `card` s'écrit-elle entière dans ces colonnes ?
+    pub(crate) fn fits(&self, card: &ExportCard) -> bool {
+        card.emails.len() <= self.emails()
+            && card.phones.len() <= self.phones
+            && (self.titles || card.title.is_none())
+            && (self.birthdays || card.birthday.is_none())
+            && card.postal_addresses.len() <= self.places
+            && card.websites.len() <= self.sites
+    }
+
+    fn emails(&self) -> usize {
+        self.emails.max(1)
+    }
+}
+
+/// Fiches `cards` dans `out`, en-tête compris.
+#[cfg(test)]
 pub(crate) fn encode(cards: &[ExportCard], out: &mut Output) -> Result<(), ContactCodecError> {
+    let mut layout = Layout::default();
+    layout.survey(cards);
+    encode_header(&layout, out)?;
+    encode_rows(cards, &layout, out)
+}
+
+/// Rédacteur CSV de Google (virgule, CRLF) vers `out`.
+fn writer(out: &mut Output) -> ::csv::Writer<&mut Output> {
+    ::csv::WriterBuilder::new()
+        .terminator(::csv::Terminator::CRLF)
+        .from_writer(out)
+}
+
+/// Début du fichier : BOM, puis ligne d'en-tête des colonnes `layout`.
+pub(crate) fn encode_header(layout: &Layout, out: &mut Output) -> Result<(), ContactCodecError> {
     out.push("\u{FEFF}")?;
-    let emails = cards
-        .iter()
-        .map(|c| c.emails.len())
-        .max()
-        .unwrap_or(0)
-        .max(1);
-    let phones = cards.iter().map(|c| c.phones.len()).max().unwrap_or(0);
+    let Layout {
+        phones,
+        titles,
+        birthdays,
+        places,
+        sites,
+        ..
+    } = *layout;
+    let emails = layout.emails();
     let mut header: Vec<String> = [
         "Name",
         "First Name",
@@ -52,14 +112,6 @@ pub(crate) fn encode(cards: &[ExportCard], out: &mut Output) -> Result<(), Conta
         header.push(format!("Phone {n} - Value"));
     }
     // Colonnes des détails, seulement si une fiche en a.
-    let titles = cards.iter().any(|c| c.title.is_some());
-    let birthdays = cards.iter().any(|c| c.birthday.is_some());
-    let places = cards
-        .iter()
-        .map(|c| c.postal_addresses.len())
-        .max()
-        .unwrap_or(0);
-    let sites = cards.iter().map(|c| c.websites.len()).max().unwrap_or(0);
     if titles {
         header.push("Organization Title".to_owned());
     }
@@ -75,12 +127,35 @@ pub(crate) fn encode(cards: &[ExportCard], out: &mut Output) -> Result<(), Conta
         header.push(format!("Website {n} - Label"));
         header.push(format!("Website {n} - Value"));
     }
+    let mut writer = writer(out);
+    writer
+        .write_record(&header)
+        .map_err(|_| ContactCodecError::TooLarge)?;
+    writer.flush().map_err(|_| ContactCodecError::TooLarge)
+}
 
-    let mut writer = ::csv::WriterBuilder::new()
-        .terminator(::csv::Terminator::CRLF)
-        .from_writer(out);
+/// Lignes des fiches `cards` dans `out`, aux colonnes `layout` (repérées
+/// sur toutes les fiches du fichier) ; une fiche qui n'y tient pas est
+/// refusée, jamais tronquée.
+pub(crate) fn encode_rows(
+    cards: &[ExportCard],
+    layout: &Layout,
+    out: &mut Output,
+) -> Result<(), ContactCodecError> {
+    if !cards.iter().all(|card| layout.fits(card)) {
+        return Err(ContactCodecError::NotSurveyed);
+    }
+    let Layout {
+        phones,
+        titles,
+        birthdays,
+        places,
+        sites,
+        ..
+    } = *layout;
+    let emails = layout.emails();
+    let mut writer = writer(out);
     let too_large = |_| ContactCodecError::TooLarge;
-    writer.write_record(&header).map_err(too_large)?;
     for card in cards {
         let text = |v: &Option<String>| v.clone().unwrap_or_default();
         let mut row = vec![

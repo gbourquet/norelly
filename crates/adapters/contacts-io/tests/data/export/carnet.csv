@@ -1,0 +1,21 @@
+﻿Name,First Name,Last Name,Nickname,Organization Name,Notes,Labels,E-mail 1 - Label,E-mail 1 - Value,E-mail 2 - Label,E-mail 2 - Value,E-mail 3 - Label,E-mail 3 - Value,Phone 1 - Label,Phone 1 - Value,Phone 2 - Label,Phone 2 - Value,Organization Title,Birthday,Address 1 - Label,Address 1 - Street,Address 1 - City,Address 1 - Region,Address 1 - Postal Code,Address 1 - Country,Address 2 - Label,Address 2 - Street,Address 2 - City,Address 2 - Region,Address 2 - Postal Code,Address 2 - Country,Website 1 - Label,Website 1 - Value,Website 2 - Label,Website 2 - Value
+Hélène Lefèvre,Hélène,Lefèvre,Lène,Mairie de Saint-Étienne,"Première ligne
+seconde ligne, avec ; et \ et ""guillemets""
+	indentée",* myContacts ::: * starred,* Travail,helene.lefevre@example.fr,Maison,helene@example.org,,lene@example.net,Portable,'+33 6 11 22 33 44,,04 77 00 00 00,"Secrétaire générale, adjointe ; « intérim »",1985-04-12,Travail,"Hôtel de ville
+1 place de l'Hôtel-de-Ville; bureau 3, aile ""B""",Saint-Étienne,Loire,42000,France,Maison,12 rue des Roses,Firminy,,,,Travail,"https://www.saint-etienne.example/elus?id=3&x=a,b;c",Perso,http://helene.example
+,,,,,,* myContacts,*,sans-annee@example.com,,,,,,,,,'=SUM(A1),'--02-29,,,,,,'-Belgique,,,,,,,,https://example.org,,
+,Seán,"O'Brien; dit, ""Jo""",,"'=HYPERLINK(""http://example.com"")","'-moins
+@arobase
++plus",* myContacts,*,sean@example.ie,,,,,,'-12,,,,,,,,,,,,,,,,,,,,
+,,,,,"Une note longue qui dépasse largement soixante-quinze octets, pour forcer le repli des lignes : ééééééééééééééééééééééééé çàùœ€ 😀😀😀😀😀😀😀😀😀😀 fin.",* myContacts,*,anonyme@example.com,,,,,,,,,,,,,,,,,,,,,,,,,,
+,,,Lolo,,,* myContacts,*,c@example.com,,a@example.com,,b@example.com,,,,,,,,,,,,,,,,,,,,,,
+Hélène Lefèvre,Hélène,Lefèvre,Lène,Mairie de Saint-Étienne,"Première ligne
+seconde ligne, avec ; et \ et ""guillemets""
+	indentée",* myContacts ::: * starred,* Travail,helene.lefevre@example.fr,Maison,helene@example.org,,lene@example.net,Portable,'+33 6 11 22 33 44,,04 77 00 00 00,"Secrétaire générale, adjointe ; « intérim »",1985-04-12,Travail,"Hôtel de ville
+1 place de l'Hôtel-de-Ville; bureau 3, aile ""B""",Saint-Étienne,Loire,42000,France,Maison,12 rue des Roses,Firminy,,,,Travail,"https://www.saint-etienne.example/elus?id=3&x=a,b;c",Perso,http://helene.example
+,,,,,,* myContacts,*,sans-annee@example.com,,,,,,,,,'=SUM(A1),'--02-29,,,,,,'-Belgique,,,,,,,,https://example.org,,
+,Seán,"O'Brien; dit, ""Jo""",,"'=HYPERLINK(""http://example.com"")","'-moins
+@arobase
++plus",* myContacts,*,sean@example.ie,,,,,,'-12,,,,,,,,,,,,,,,,,,,,
+,,,,,"Une note longue qui dépasse largement soixante-quinze octets, pour forcer le repli des lignes : ééééééééééééééééééééééééé çàùœ€ 😀😀😀😀😀😀😀😀😀😀 fin.",* myContacts,*,anonyme@example.com,,,,,,,,,,,,,,,,,,,,,,,,,,
+,,,Lolo,,,* myContacts,*,c@example.com,,a@example.com,,b@example.com,,,,,,,,,,,,,,,,,,,,,,

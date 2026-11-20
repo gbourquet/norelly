@@ -1,7 +1,8 @@
 // Import d'un carnet de bout en bout, à la souris :
 // - « Importer… » de la vue Contacts ouvre le sélecteur du système, le
 //   fichier est lu en Rust ; un export vCard de Google (accents, note
-//   repliée) donne un aperçu chiffré, puis deux contacts ;
+//   repliée) donne un aperçu chiffré, puis deux contacts ; un aperçu
+//   abandonné (« Annuler ») n'importe rien et n'empêche pas le suivant ;
 // - un export CSV de Google Contacts : les fiches déjà importées sont
 //   reconnues par leur adresse (doublons, choix de leur sort), la fiche
 //   sans adresse est rejetée avec sa raison, la nouvelle est ajoutée ;
@@ -60,6 +61,12 @@ describe("import du carnet", () => {
   it("importe un export vCard de Google", async () => {
     await $("nav").$("button=Contacts").click();
     await $("p*=Aucun contact pour l'instant").waitForDisplayed({ timeout: 10000 });
+    // Aperçu abandonné : la fenêtre se ferme sans rien importer, et un
+    // nouvel aperçu du même fichier reste possible.
+    const abandoned = await importFile("gmail.vcf");
+    await abandoned.$("button=Annuler").click();
+    await abandoned.waitForDisplayed({ reverse: true, timeout: 10000 });
+    await expect($("p*=Aucun contact pour l'instant")).toBeDisplayed();
     const preview = await importFile("gmail.vcf");
     await expect(preview.$("p*=« gmail.vcf » (vCard) : 2 fiche(s)")).toBeDisplayed();
     await expect(preview.$("span=2 nouveau(x) contact(s) ajouté(s)")).toBeDisplayed();

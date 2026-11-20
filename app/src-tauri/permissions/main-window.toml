@@ -71,6 +71,7 @@ permissions = [
   "allow-delete-contacts",
   "allow-preview-contact-import",
   "allow-apply-contact-import",
+  "allow-discard-contact-import",
   "allow-export-contacts",
   "allow-find-contact-duplicates",
   "allow-dismiss-contact-duplicates",

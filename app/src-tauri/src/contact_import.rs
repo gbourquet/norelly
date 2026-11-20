@@ -46,6 +46,9 @@ pub struct PendingCards {
 pub struct PendingImport {
     /// Dernier jeton attribué (jamais réutilisé pendant la session).
     last: AtomicU32,
+    /// Dernier jeton oublié : ses fiches, prises par un import en cours,
+    /// ne sont pas rendues s'il échoue. Lu et écrit sous `slot`.
+    discarded: AtomicU32,
     slot: Mutex<Option<(u32, PendingCards)>>,
 }
 
@@ -79,11 +82,28 @@ impl PendingImport {
     }
 
     /// Rend les fiches d'un import échoué, si aucun autre aperçu ne les a
-    /// remplacées entre-temps.
+    /// remplacées entre-temps et si l'aperçu n'a pas été oublié.
     pub fn restore(&self, token: u32, cards: PendingCards) {
         let mut slot = self.slot();
-        if slot.is_none() && self.last.load(Ordering::Relaxed) == token {
+        if slot.is_none()
+            && self.last.load(Ordering::Relaxed) == token
+            && self.discarded.load(Ordering::Relaxed) != token
+        {
             *slot = Some((token, cards));
+        }
+    }
+
+    /// Oublie l'aperçu `token` (fenêtre fermée sans importer) : ses fiches
+    /// sont libérées tout de suite, ou à la fin de l'import en cours. Un
+    /// jeton périmé n'efface pas un aperçu plus récent.
+    pub fn discard(&self, token: u32) {
+        let mut slot = self.slot();
+        if token == 0 || self.last.load(Ordering::Relaxed) != token {
+            return;
+        }
+        self.discarded.store(token, Ordering::Relaxed);
+        if slot.as_ref().is_some_and(|(t, _)| *t == token) {
+            *slot = None;
         }
     }
 }
@@ -325,6 +345,15 @@ pub async fn apply_contact_import(
             Err(import_error(e))
         }
     }
+}
+
+/// Oublie l'aperçu `token` (fenêtre fermée sans importer) : ses fiches
+/// sont libérées. Sans effet pour un jeton périmé ou inconnu.
+#[tauri::command]
+#[specta::specta]
+pub async fn discard_contact_import(state: State<'_, AppState>, token: u32) -> Result<(), IpcError> {
+    state.imports.pending.discard(token);
+    Ok(())
 }
 
 /// Extensions proposées par le sélecteur.

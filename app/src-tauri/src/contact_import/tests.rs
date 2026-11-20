@@ -269,6 +269,41 @@ fn pending_import_is_taken_once_with_its_token() {
 }
 
 #[test]
+fn discarded_preview_is_released() {
+    let pending = PendingImport::default();
+    let token = pending.remember(pending_cards(ImportedCard::Unreadable));
+    pending.discard(token);
+    assert_eq!(pending.take(token), None);
+}
+
+#[test]
+fn stale_discard_keeps_the_newer_preview() {
+    let pending = PendingImport::default();
+    let first = pending.remember(pending_cards(ImportedCard::Unreadable));
+    let second = pending.remember(pending_cards(ImportedCard::Unreadable));
+    // Jeton périmé, inconnu ou nul : l'aperçu en cours reste.
+    pending.discard(first);
+    pending.discard(second.wrapping_add(1));
+    pending.discard(0);
+    assert_eq!(
+        pending.take(second),
+        Some(pending_cards(ImportedCard::Unreadable))
+    );
+}
+
+#[test]
+fn discard_during_import_prevents_restore() {
+    let pending = PendingImport::default();
+    let token = pending.remember(pending_cards(ImportedCard::Unreadable));
+    let cards = pending.take(token);
+    assert!(cards.is_some());
+    // Fenêtre fermée pendant l'import : un échec ne rend pas les fiches.
+    pending.discard(token);
+    pending.restore(token, pending_cards(ImportedCard::Unreadable));
+    assert_eq!(pending.take(token), None);
+}
+
+#[test]
 fn contact_file_is_read_within_bounds() -> Result<(), Box<dyn std::error::Error>> {
     let dir = std::env::temp_dir().join(format!("norelly-import-{}", std::process::id()));
     std::fs::create_dir_all(&dir)?;

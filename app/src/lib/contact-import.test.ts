@@ -31,6 +31,7 @@ function fakeApi(result: ContactImportPreviewDto | null | Error = preview()) {
       completed: 1,
       lists_created: 0,
     })),
+    discardContactImport: vi.fn(async (_token: number) => {}),
   } satisfies ContactImportApi;
 }
 
@@ -136,6 +137,47 @@ describe("import de contacts", () => {
     await state.confirm();
     await state.choose("t", "f");
     expect(state.policy).toBe("skip");
+    expect(state.error).toBeNull();
+  });
+
+  it("fermeture sans importer : l'aperçu est oublié aussi par Rust", async () => {
+    const api = fakeApi();
+    const state = new ContactImportState(api);
+    await state.choose("t", "f");
+    state.close();
+    expect(api.discardContactImport).toHaveBeenCalledWith(4);
+    expect(state.preview).toBeNull();
+  });
+
+  it("fermeture sans aperçu ou après un import réussi : rien à oublier", async () => {
+    const api = fakeApi();
+    const state = new ContactImportState(api);
+    state.close();
+    await state.choose("t", "f");
+    await state.confirm();
+    state.close();
+    expect(api.discardContactImport).not.toHaveBeenCalled();
+  });
+
+  it("fermeture après un échec de l'import : l'aperçu gardé est oublié", async () => {
+    const api = fakeApi();
+    api.applyContactImport.mockRejectedValueOnce(new IpcFailure("storage"));
+    const state = new ContactImportState(api);
+    await state.choose("t", "f");
+    await state.confirm();
+    state.close();
+    expect(api.discardContactImport).toHaveBeenCalledWith(4);
+    expect(state.error).toBeNull();
+  });
+
+  it("l'échec de l'oubli ne bloque pas la fermeture et ne s'affiche pas", async () => {
+    const api = fakeApi();
+    api.discardContactImport.mockRejectedValueOnce(new IpcFailure("internal"));
+    const state = new ContactImportState(api);
+    await state.choose("t", "f");
+    expect(() => state.close()).not.toThrow();
+    await Promise.resolve();
+    expect(state.preview).toBeNull();
     expect(state.error).toBeNull();
   });
 });

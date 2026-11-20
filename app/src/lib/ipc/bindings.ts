@@ -298,6 +298,11 @@ export const commands = {
 	 */
 	applyContactImport: (token: number, policy: DuplicatePolicyDto) => typedError<ContactImportOutcomeDto, IpcError_Serialize>(__TAURI_INVOKE("apply_contact_import", { token, policy })),
 	/**
+	 *  Oublie l'aperçu `token` (fenêtre fermée sans importer) : ses fiches
+	 *  sont libérées. Sans effet pour un jeton périmé ou inconnu.
+	 */
+	discardContactImport: (token: number) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("discard_contact_import", { token })),
+	/**
 	 *  Prépare et produit le fichier, ouvre le sélecteur d'enregistrement du
 	 *  système (titre, nom du filtre et nom de base du fichier proposé
 	 *  localisés par l'interface, le nom revalidé par le domaine) et écrit le

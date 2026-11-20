@@ -31,7 +31,7 @@ function fakeApi(result: ContactImportPreviewDto | null | Error = preview()) {
       completed: 1,
       lists_created: 0,
     })),
-    discardContactImport: vi.fn(async (_token: number) => {}),
+    discardContactImport: vi.fn<(token: number) => Promise<void>>(async () => {}),
   } satisfies ContactImportApi;
 }
 

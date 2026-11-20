@@ -163,6 +163,10 @@ impl ContactDirectory for CrowdedDirectory {
         Ok(None)
     }
 
+    async fn get_many(&self, _: &[ContactId]) -> Result<Vec<Contact>, StoreError> {
+        Ok(Vec::new())
+    }
+
     async fn by_addresses(
         &self,
         _: &[norelly_domain::contacts::AddressKey],

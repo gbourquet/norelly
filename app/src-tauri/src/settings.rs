@@ -314,6 +314,13 @@ mod tests {
             Err(StoreError("carnet illisible".into()))
         }
 
+        async fn get_many(
+            &self,
+            _: &[norelly_domain::contacts::ContactId],
+        ) -> Result<Vec<norelly_domain::contacts::Contact>, StoreError> {
+            Err(StoreError("carnet illisible".into()))
+        }
+
         async fn by_addresses(
             &self,
             _: &[norelly_domain::contacts::AddressKey],

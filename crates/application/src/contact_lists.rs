@@ -12,12 +12,13 @@
 
 use norelly_domain::contact_lists::{
     ContactList, ContactListDraft, ContactListError, ContactListFilter, ContactListId,
-    ContactListInput, Expansion, expand, list_suggestions,
+    ContactListInput, Expansion, MAX_CONTACT_LIST_MEMBERS, expand, list_suggestions,
 };
 use norelly_domain::contacts::{Contact, ContactId};
 use norelly_domain::ports::{
     ContactDirectory, ContactListBook, ContactListCursor, ContactListDirectory, ContactListPage,
-    ContactListStoreError, ContactListSummary, PageSize, StoreError, TextNormalizer,
+    ContactListStoreError, ContactListSummary, MAX_CONTACT_LOOKUP, PageSize, StoreError,
+    TextNormalizer,
 };
 
 /// Échec d'un cas d'usage des listes.
@@ -203,19 +204,17 @@ async fn read_list<L: ContactListDirectory>(
         .ok_or(ContactListFailure::Store(ContactListStoreError::NotFound))
 }
 
-/// Fiches des membres de `list`, dans son ordre ; un contact supprimé
-/// entre-temps est omis.
+// Une liste pleine se lit en une seule lecture du carnet.
+const _: () = assert!(MAX_CONTACT_LIST_MEMBERS <= MAX_CONTACT_LOOKUP);
+
+/// Fiches des membres de `list`, dans son ordre, en une seule lecture ;
+/// un contact supprimé entre-temps, ou dont la fiche est invalide, est
+/// omis.
 async fn read_members<D: ContactDirectory>(
     contacts: &D,
     list: &ContactList,
 ) -> Result<Vec<Contact>, StoreError> {
-    let mut found = Vec::with_capacity(list.draft().members().len());
-    for &id in list.draft().members() {
-        if let Some(contact) = contacts.get(id).await? {
-            found.push(contact);
-        }
-    }
-    Ok(found)
+    contacts.get_many(list.draft().members()).await
 }
 
 #[cfg(test)]

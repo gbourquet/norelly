@@ -1805,7 +1805,8 @@ pub struct ContactPage {
     pub next: Option<ContactCursor>,
 }
 
-/// Adresses cherchées au plus par [`ContactDirectory::by_addresses`].
+/// Adresses cherchées au plus par [`ContactDirectory::by_addresses`], et
+/// fiches lues au plus par [`ContactDirectory::get_many`].
 pub const MAX_CONTACT_LOOKUP: usize = 500;
 
 /// Lectures d'écran du carnet d'adresses.
@@ -1825,6 +1826,17 @@ pub trait ContactDirectory: Send + Sync {
         &self,
         id: ContactId,
     ) -> impl Future<Output = Result<Option<Contact>, StoreError>> + Send;
+
+    /// Fiches complètes des contacts `ids`, en une seule lecture : chacune
+    /// une fois (doublons ignorés), dans l'ordre de leur première
+    /// apparition dans `ids`, inconnues omises. Seuls les
+    /// [`MAX_CONTACT_LOOKUP`] premiers identifiants distincts sont lus, le
+    /// reste est ignoré : à l'appelant de découper une demande plus
+    /// longue. Une fiche invalide est écartée, sans bloquer les autres.
+    fn get_many(
+        &self,
+        ids: &[ContactId],
+    ) -> impl Future<Output = Result<Vec<Contact>, StoreError>> + Send;
 
     /// Contacts qui portent l'une des adresses (les
     /// [`MAX_CONTACT_LOOKUP`] premières), chacun une fois, dans l'ordre de

@@ -1173,6 +1173,33 @@ impl ContactDirectory for SqliteContactBook {
         self.db.read(move |c| Ok(load(c, &[id.get()])?.pop())).await
     }
 
+    async fn get_many(&self, ids: &[ContactId]) -> Result<Vec<Contact>, StoreError> {
+        let mut wanted: Vec<i64> = Vec::new();
+        let mut seen = HashSet::new();
+        for id in ids {
+            if wanted.len() == MAX_CONTACT_LOOKUP {
+                break;
+            }
+            if seen.insert(id.get()) {
+                wanted.push(id.get());
+            }
+        }
+        if wanted.is_empty() {
+            return Ok(Vec::new());
+        }
+        let (contacts, skipped) = self
+            .db
+            .read(move |c| {
+                // Une seule transaction : fiches, détails et photos lus
+                // dans le même état du carnet.
+                let tx = c.transaction().map_err(store_error)?;
+                load_valid(&tx, &wanted)
+            })
+            .await?;
+        self.report(&skipped);
+        Ok(contacts)
+    }
+
     async fn by_addresses(&self, keys: &[AddressKey]) -> Result<Vec<Contact>, StoreError> {
         let keys: Vec<&str> = keys
             .iter()
@@ -1263,9 +1290,9 @@ impl ContactDirectory for SqliteContactBook {
 #[cfg(test)]
 mod tests {
     use norelly_test_support::contacts_contracts::{
-        contact_book_contract, contact_corruption_contract, contact_import_contract,
-        contact_page_size_contract, contact_photo_contract, contact_selection_contract,
-        full_contact, photo_id, sample_contact,
+        contact_book_contract, contact_corruption_contract, contact_get_many_contract,
+        contact_import_contract, contact_page_size_contract, contact_photo_contract,
+        contact_selection_contract, full_contact, photo_id, sample_contact,
     };
 
     use super::*;
@@ -1290,6 +1317,11 @@ mod tests {
     #[tokio::test]
     async fn contact_book_passes_selection_contract() -> Result<(), ContactStoreError> {
         contact_selection_contract(&book()).await
+    }
+
+    #[tokio::test]
+    async fn contact_book_passes_get_many_contract() -> Result<(), ContactStoreError> {
+        contact_get_many_contract(&book()).await
     }
 
     #[tokio::test]

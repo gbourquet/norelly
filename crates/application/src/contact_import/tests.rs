@@ -225,6 +225,10 @@ impl ContactDirectory for EditedMeanwhile {
         self.inner.get(id).await
     }
 
+    async fn get_many(&self, ids: &[ContactId]) -> Result<Vec<Contact>, StoreError> {
+        self.inner.get_many(ids).await
+    }
+
     async fn by_addresses(&self, keys: &[AddressKey]) -> Result<Vec<Contact>, StoreError> {
         self.inner.by_addresses(keys).await
     }

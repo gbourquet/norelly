@@ -248,6 +248,10 @@ impl ContactDirectory for BrokenDirectory {
         Err(StoreError("carnet illisible".into()))
     }
 
+    async fn get_many(&self, _: &[ContactId]) -> Result<Vec<Contact>, StoreError> {
+        Err(StoreError("carnet illisible".into()))
+    }
+
     async fn by_addresses(
         &self,
         _: &[norelly_domain::contacts::AddressKey],

@@ -549,11 +549,12 @@ impl ContactListDirectory for SqliteContactBook {
             .read(move |c| {
                 let text = filter.text();
                 let mut lists = Vec::new();
-                // Candidates par lots de `limit` : seules les listes
-                // écartées (corrompues) en font relire.
-                let fetch = i64::try_from(limit).map_err(|e| StoreError(e.to_string()))?;
+                // Listes candidates : `limit` d'abord, puis par grands lots
+                // une fois des listes corrompues écartées, comme les pages.
+                let mut batch = limit;
                 let mut after: Option<(RawKey, i64)> = None;
                 while lists.len() < limit {
+                    let fetch = i64::try_from(batch).map_err(|e| StoreError(e.to_string()))?;
                     let mut rows: Vec<(i64, RawKey)> = match &after {
                         None => c.prepare_cached(SUGGEST_FIRST).and_then(|mut s| {
                             s.query_map(params![text, fetch], |r| Ok((r.get(0)?, r.get(1)?)))?
@@ -569,10 +570,11 @@ impl ContactListDirectory for SqliteContactBook {
                     .map_err(store_error)?;
                     let ids: Vec<i64> = rows.iter().map(|(id, _)| *id).collect();
                     lists.extend(load(c, &*nfc, &ids)?);
-                    if rows.len() < limit {
+                    if rows.len() < batch {
                         break;
                     }
                     after = rows.pop().map(|(id, key)| (key, id));
+                    batch = PageSize::MAX.get() as usize;
                 }
                 lists.truncate(limit);
                 Ok(lists.iter().map(ContactListSummary::from).collect())

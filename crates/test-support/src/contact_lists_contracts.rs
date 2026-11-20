@@ -547,6 +547,32 @@ where
     for index in [1, 2, 4] {
         assert_eq!(book.get_list(lists[index].id()).await?, None);
     }
+
+    // Plus de listes corrompues à la suite que la limite des listes
+    // proposées : la suivante est trouvée quand même. Six corruptions de
+    // plus, neuf en tout : chaque forme d'un stockage peut ne servir
+    // qu'une fois.
+    let mut suite = Vec::new();
+    for i in 1..=7 {
+        suite.push(
+            book.create_list(&sample_list(&format!("Suite {i}"), &[alice], false))
+                .await?,
+        );
+    }
+    for list in &suite[..6] {
+        corrupt(list.id()).await?;
+    }
+    for limit in [1, 5, 10] {
+        assert_eq!(
+            names(
+                &book
+                    .suggested_lists(&ContactListFilter::new("suite"), PageSize::new(limit))
+                    .await?
+            ),
+            vec!["Suite 7"],
+            "suggestions après des listes corrompues, limite {limit}"
+        );
+    }
     Ok(())
 }
 

@@ -18,7 +18,7 @@ use norelly_domain::contact_import::{ContactCompletion, ListImport, PhotoTarget,
 use norelly_domain::contacts::{
     AddressKey, Contact, ContactDraft, ContactFilter, ContactId, ContactInput, EmailInput,
     InvisibleCleanup, MAX_CONTACT_ID, PhoneInput, PostalAddressInput, WebsiteInput,
-    clean_invisible, clean_names_imitating_address,
+    clean_invisible, clean_names_imitating_address, lookup_ids,
 };
 use norelly_domain::ports::{
     BlobId, ContactBook, ContactCursor, ContactDirectory, ContactListItem, ContactPage,
@@ -1174,30 +1174,19 @@ impl ContactDirectory for SqliteContactBook {
     }
 
     async fn get_many(&self, ids: &[ContactId]) -> Result<Vec<Contact>, StoreError> {
-        let mut wanted: Vec<i64> = Vec::new();
-        let mut seen = HashSet::new();
-        for id in ids {
-            if wanted.len() == MAX_CONTACT_LOOKUP {
-                break;
-            }
-            if seen.insert(id.get()) {
-                wanted.push(id.get());
-            }
-        }
+        let wanted: Vec<i64> = lookup_ids(ids).iter().map(|id| id.get()).collect();
         if wanted.is_empty() {
             return Ok(Vec::new());
         }
-        let (contacts, skipped) = self
-            .db
+        self.db
             .read(move |c| {
                 // Une seule transaction : fiches, détails et photos lus
-                // dans le même état du carnet.
+                // dans le même état du carnet. Comme `get`, une fiche
+                // invalide fait échouer la lecture.
                 let tx = c.transaction().map_err(store_error)?;
-                load_valid(&tx, &wanted)
+                load(&tx, &wanted)
             })
-            .await?;
-        self.report(&skipped);
-        Ok(contacts)
+            .await
     }
 
     async fn by_addresses(&self, keys: &[AddressKey]) -> Result<Vec<Contact>, StoreError> {

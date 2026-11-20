@@ -18,7 +18,7 @@ use crate::contact_details::{
     MAX_POSTAL_STREET_CHARS, website_url,
 };
 use crate::mailbox::{MAX_ADDRESS_CHARS, header_text};
-use crate::ports::BlobId;
+use crate::ports::{BlobId, MAX_CONTACT_LOOKUP};
 use crate::sender::imitates_address;
 
 /// Longueur maximale d'un nom (affiché, prénom, nom, surnom, organisation),
@@ -1215,9 +1215,44 @@ pub fn contact_selection<T: Copy + Into<i64>>(
     Ok(ids)
 }
 
+/// Fiches à lire pour `ids` ([`crate::ports::ContactDirectory::get_many`]) :
+/// chaque identifiant une fois, dans l'ordre de sa première apparition,
+/// les [`MAX_CONTACT_LOOKUP`] premiers distincts au plus.
+#[must_use]
+pub fn lookup_ids(ids: &[ContactId]) -> Vec<ContactId> {
+    let mut kept = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for &id in ids {
+        if kept.len() == MAX_CONTACT_LOOKUP {
+            break;
+        }
+        if seen.insert(id) {
+            kept.push(id);
+        }
+    }
+    kept
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn lookup_ids_are_distinct_in_order_and_bounded() {
+        let id = |n: i64| ContactId::new(n).unwrap_or_else(|| panic!("id"));
+        assert!(lookup_ids(&[]).is_empty());
+        assert_eq!(
+            lookup_ids(&[id(3), id(1), id(3), id(2), id(1)]),
+            [id(3), id(1), id(2)]
+        );
+        // Borne : identifiants distincts, les doublons ne comptent pas.
+        let mut many: Vec<ContactId> = (1..=MAX_CONTACT_LOOKUP as i64 + 5).map(id).collect();
+        many.insert(1, id(1));
+        let kept = lookup_ids(&many);
+        assert_eq!(kept.len(), MAX_CONTACT_LOOKUP);
+        assert_eq!(kept.first(), Some(&id(1)));
+        assert_eq!(kept.last(), Some(&id(MAX_CONTACT_LOOKUP as i64)));
+    }
 
     fn email(address: &str) -> EmailInput {
         EmailInput {

@@ -1828,11 +1828,12 @@ pub trait ContactDirectory: Send + Sync {
     ) -> impl Future<Output = Result<Option<Contact>, StoreError>> + Send;
 
     /// Fiches complètes des contacts `ids`, en une seule lecture : chacune
-    /// une fois (doublons ignorés), dans l'ordre de leur première
-    /// apparition dans `ids`, inconnues omises. Seuls les
+    /// une fois, dans l'ordre de leur première apparition dans `ids`,
+    /// inconnues omises ([`crate::contacts::lookup_ids`] : seuls les
     /// [`MAX_CONTACT_LOOKUP`] premiers identifiants distincts sont lus, le
-    /// reste est ignoré : à l'appelant de découper une demande plus
-    /// longue. Une fiche invalide est écartée, sans bloquer les autres.
+    /// reste est ignoré ; à l'appelant de découper une demande plus
+    /// longue). Comme [`Self::get`], une fiche demandée invalide fait
+    /// échouer la lecture : elle n'est jamais omise en silence.
     fn get_many(
         &self,
         ids: &[ContactId],

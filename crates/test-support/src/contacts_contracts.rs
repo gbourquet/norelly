@@ -15,7 +15,7 @@ use norelly_domain::contact_lists::{
 };
 use norelly_domain::contacts::{
     AddressKey, Contact, ContactDraft, ContactFilter, ContactId, ContactInput, EmailInput,
-    PhoneInput, PostalAddressInput, WebsiteInput,
+    PhoneInput, PostalAddressInput, WebsiteInput, lookup_ids,
 };
 use norelly_domain::ports::{
     BlobId, ContactBook, ContactCursor, ContactDirectory, ContactListItem, ContactPage,
@@ -910,9 +910,9 @@ async fn readable_page<D: ContactDirectory>(
 
 /// Contrat d'une fiche relue invalide (carnet vide au départ) : `corrupt`
 /// rend illisible en base la fiche désignée. Elle seule est écartée de la
-/// liste (pages pleines, pagination menée jusqu'au bout), des fiches
-/// cherchées par adresse et des fiches lues par identifiants ; la lecture
-/// de cette seule fiche reste une erreur.
+/// liste (pages pleines, pagination menée jusqu'au bout) et des fiches
+/// cherchées par adresse ; la lecture de cette fiche, seule ou parmi
+/// d'autres par identifiants, reste une erreur.
 pub async fn contact_corruption_contract<B, F, Fut>(
     book: &B,
     corrupt: F,
@@ -965,12 +965,15 @@ where
         vec![ids[0], ids[3]]
     );
 
-    // Fiches par identifiants : la fiche invalide est écartée, pas les
-    // autres.
-    let found = book
-        .get_many(&[ids[3], ids[1], ids[0]])
-        .await
-        .unwrap_or_else(|e| panic!("une fiche invalide fait échouer la lecture : {e}"));
+    // Fiches par identifiants : comme la lecture d'une fiche, une fiche
+    // demandée invalide fait échouer la lecture (jamais omise en silence :
+    // une liste ouverte puis enregistrée la perdrait) ; les autres restent
+    // lisibles.
+    assert!(
+        book.get_many(&[ids[3], ids[1], ids[0]]).await.is_err(),
+        "fiche invalide omise en silence"
+    );
+    let found = book.get_many(&[ids[3], ids[0]]).await?;
     assert_eq!(
         found.iter().map(Contact::id).collect::<Vec<_>>(),
         vec![ids[3], ids[0]]
@@ -1407,19 +1410,14 @@ impl ContactDirectory for InMemoryContactBook {
     }
 
     async fn get_many(&self, ids: &[ContactId]) -> Result<Vec<Contact>, StoreError> {
-        let mut wanted: Vec<ContactId> = Vec::new();
-        for &id in ids {
-            if wanted.len() == MAX_CONTACT_LOOKUP {
-                break;
-            }
-            if !wanted.contains(&id) {
-                wanted.push(id);
-            }
+        let wanted = lookup_ids(ids);
+        if let Some(id) = wanted.iter().find(|&&id| self.is_unreadable(id)) {
+            return Err(StoreError(format!("contact {id} corrompu")));
         }
-        let readable = self.readable();
+        let state = self.lock();
         Ok(wanted
             .into_iter()
-            .filter_map(|id| readable.iter().find(|c| c.id() == id).cloned())
+            .filter_map(|id| state.1.iter().find(|c| c.id() == id).cloned())
             .collect())
     }
 

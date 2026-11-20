@@ -204,12 +204,13 @@ async fn read_list<L: ContactListDirectory>(
         .ok_or(ContactListFailure::Store(ContactListStoreError::NotFound))
 }
 
-// Une liste pleine se lit en une seule lecture du carnet.
+// Une liste pleine se lit en une seule lecture du carnet, jamais tronquée.
 const _: () = assert!(MAX_CONTACT_LIST_MEMBERS <= MAX_CONTACT_LOOKUP);
 
 /// Fiches des membres de `list`, dans son ordre, en une seule lecture ;
-/// un contact supprimé entre-temps, ou dont la fiche est invalide, est
-/// omis.
+/// un contact supprimé entre-temps est omis, une fiche invalide fait
+/// échouer la lecture (omise, elle disparaîtrait de la liste enregistrée
+/// depuis sa vue, ou de l'envoi).
 async fn read_members<D: ContactDirectory>(
     contacts: &D,
     list: &ContactList,

@@ -365,8 +365,11 @@ async fn a_full_list_is_read_in_a_single_lookup() -> Result<(), ContactListFailu
     Ok(())
 }
 
+/// Un membre dont la fiche est invalide n'est jamais omis en silence : la
+/// liste enregistrée depuis sa vue le perdrait, un envoi partirait sans
+/// lui.
 #[tokio::test]
-async fn an_invalid_member_is_left_out_of_the_expansion() -> Result<(), ContactListFailure> {
+async fn an_invalid_member_fails_the_read() -> Result<(), ContactListFailure> {
     let book = InMemoryContactBook::default();
     let alice = contact(&book, "Alice", "alice@example.com").await;
     let bob = contact(&book, "Bob", "bob@example.net").await;
@@ -374,18 +377,31 @@ async fn an_invalid_member_is_left_out_of_the_expansion() -> Result<(), ContactL
         .create_list(&sample_list("L", &[bob.id(), alice.id()], false))
         .await?;
     book.corrupt(bob.id());
-    let e = ExpandContactList {
+    let opened = GetContactList {
         lists: &book,
         contacts: &book,
     }
     .execute(list.id())
-    .await?;
-    assert_eq!(
-        e.recipients
-            .iter()
-            .map(|r| r.address().to_string())
-            .collect::<Vec<_>>(),
-        ["alice@example.com"]
+    .await;
+    assert!(
+        matches!(
+            opened,
+            Err(ContactListFailure::Store(ContactListStoreError::Store(_)))
+        ),
+        "{opened:?}"
+    );
+    let expanded = ExpandContactList {
+        lists: &book,
+        contacts: &book,
+    }
+    .execute(list.id())
+    .await;
+    assert!(
+        matches!(
+            expanded,
+            Err(ContactListFailure::Store(ContactListStoreError::Store(_)))
+        ),
+        "{expanded:?}"
     );
     Ok(())
 }

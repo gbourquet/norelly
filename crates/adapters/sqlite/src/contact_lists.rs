@@ -457,6 +457,18 @@ const PAGE_AFTER: &str = "SELECT id, name_key FROM contact_lists \
      WHERE (?1 = '' OR instr(name_key, ?1) > 0) AND (name_key, id) > (?3, ?4) \
      ORDER BY name_key, id LIMIT ?2";
 
+/// Listes proposées : comme la page, limitées aux listes qui ont au moins
+/// un membre (sous-requête sur la clé primaire des membres, sans les
+/// relire).
+const SUGGEST_FIRST: &str = "SELECT id, name_key FROM contact_lists AS l \
+     WHERE (?1 = '' OR instr(name_key, ?1) > 0) \
+     AND EXISTS (SELECT 1 FROM contact_list_members WHERE list_id = l.id) \
+     ORDER BY name_key, id LIMIT ?2";
+const SUGGEST_AFTER: &str = "SELECT id, name_key FROM contact_lists AS l \
+     WHERE (?1 = '' OR instr(name_key, ?1) > 0) AND (name_key, id) > (?3, ?4) \
+     AND EXISTS (SELECT 1 FROM contact_list_members WHERE list_id = l.id) \
+     ORDER BY name_key, id LIMIT ?2";
+
 impl ContactListDirectory for SqliteContactBook {
     async fn list_page(
         &self,
@@ -518,6 +530,52 @@ impl ContactListDirectory for SqliteContactBook {
                     items: lists.iter().map(ContactListSummary::from).collect(),
                     next,
                 })
+            })
+            .await
+    }
+
+    async fn suggested_lists(
+        &self,
+        filter: &ContactListFilter,
+        limit: PageSize,
+    ) -> Result<Vec<ContactListSummary>, StoreError> {
+        let limit = limit.get() as usize;
+        if limit == 0 {
+            return Ok(Vec::new());
+        }
+        let filter = filter.clone();
+        let nfc = self.db.normalizer();
+        self.db
+            .read(move |c| {
+                let text = filter.text();
+                let mut lists = Vec::new();
+                // Candidates par lots de `limit` : seules les listes
+                // écartées (corrompues) en font relire.
+                let fetch = i64::try_from(limit).map_err(|e| StoreError(e.to_string()))?;
+                let mut after: Option<(RawKey, i64)> = None;
+                while lists.len() < limit {
+                    let mut rows: Vec<(i64, RawKey)> = match &after {
+                        None => c.prepare_cached(SUGGEST_FIRST).and_then(|mut s| {
+                            s.query_map(params![text, fetch], |r| Ok((r.get(0)?, r.get(1)?)))?
+                                .collect()
+                        }),
+                        Some((key, id)) => c.prepare_cached(SUGGEST_AFTER).and_then(|mut s| {
+                            s.query_map(params![text, fetch, key, id], |r| {
+                                Ok((r.get(0)?, r.get(1)?))
+                            })?
+                            .collect()
+                        }),
+                    }
+                    .map_err(store_error)?;
+                    let ids: Vec<i64> = rows.iter().map(|(id, _)| *id).collect();
+                    lists.extend(load(c, &*nfc, &ids)?);
+                    if rows.len() < limit {
+                        break;
+                    }
+                    after = rows.pop().map(|(id, key)| (key, id));
+                }
+                lists.truncate(limit);
+                Ok(lists.iter().map(ContactListSummary::from).collect())
             })
             .await
     }
@@ -719,7 +777,8 @@ mod tests {
     use norelly_domain::ports::ContactBook;
     use norelly_test_support::contact_lists_contracts::{
         contact_list_contract, contact_list_import_contract, contact_list_page_size_contract,
-        contact_merge_contract, corrupted_list_contract, sample_list,
+        contact_list_suggestion_contract, contact_merge_contract, corrupted_list_contract,
+        sample_list,
     };
     use norelly_test_support::contacts_contracts::sample_contact;
 
@@ -751,6 +810,11 @@ mod tests {
     #[tokio::test]
     async fn contact_lists_pass_page_size_contract() -> Result<(), ContactListStoreError> {
         contact_list_page_size_contract(&book()).await
+    }
+
+    #[tokio::test]
+    async fn list_suggestions_pass_contract() -> Result<(), ContactListStoreError> {
+        contact_list_suggestion_contract(&book()).await
     }
 
     async fn with_list(book: &SqliteContactBook) -> Result<ContactList, ContactListStoreError> {

@@ -333,6 +333,127 @@ where
     Ok(())
 }
 
+/// Contrat des listes proposées à la saisie
+/// ([`ContactListDirectory::suggested_lists`], carnet vide au départ) : les
+/// mêmes que les pages filtrées privées des listes vides, dans le même
+/// ordre, coupées à la limite ; des listes vides en nombre avant les
+/// suivantes ne les cachent pas.
+pub async fn contact_list_suggestion_contract<B>(book: &B) -> Result<(), ContactListStoreError>
+where
+    B: ContactBook + ContactListBook + ContactListDirectory,
+{
+    let contact = |name: &'static str, address: &'static str| async move {
+        book.create(&sample_contact(name, &[address]))
+            .await
+            .map(|c| c.id())
+            .map_err(|e| ContactListStoreError::Store(StoreError(e.to_string())))
+    };
+    let alice = contact("Alice", "alice@example.com").await?;
+    let bob = contact("Bob", "bob@example.net").await?;
+    let lecture = book
+        .create_list(&sample_list("Club lecture", &[alice], false))
+        .await?;
+    book.create_list(&sample_list("Club vide", &[], false))
+        .await?;
+    let bis = book
+        .create_list(&sample_list("club bis", &[bob, alice], true))
+        .await?;
+    let voisins = book
+        .create_list(&sample_list("Voisins", &[bob], false))
+        .await?;
+    let anciens = book
+        .create_list(&sample_list("Anciens du CLUB", &[alice], false))
+        .await?;
+    let suggested = |text: &'static str, limit: u32| async move {
+        book.suggested_lists(&ContactListFilter::new(text), PageSize::new(limit))
+            .await
+    };
+
+    // Nom qui contient la saisie, sans la casse ; listes vides écartées ;
+    // ordre du carnet ; résumé identique à celui des pages.
+    let clubs = vec![
+        ContactListSummary::from(&anciens),
+        ContactListSummary::from(&bis),
+        ContactListSummary::from(&lecture),
+    ];
+    assert_eq!(suggested("CLUB", 10).await?, clubs);
+    assert_eq!(suggested("club", 2).await?, clubs[..2]);
+    assert_eq!(suggested("club", 1).await?, clubs[..1]);
+    assert_eq!(suggested("club", 0).await?, vec![], "limite nulle");
+    assert_eq!(
+        suggested("club", u32::MAX).await?,
+        clubs,
+        "limite plafonnée"
+    );
+    assert_eq!(suggested("zzz", 10).await?, vec![]);
+    assert_eq!(suggested("vide", 10).await?, vec![], "liste vide proposée");
+    assert_eq!(
+        suggested("", 10).await?,
+        vec![
+            ContactListSummary::from(&anciens),
+            ContactListSummary::from(&bis),
+            ContactListSummary::from(&lecture),
+            ContactListSummary::from(&voisins),
+        ]
+    );
+    assert_eq!(
+        suggested("club bis", 10)
+            .await?
+            .first()
+            .map(|l| (l.members, l.bcc)),
+        Some((2, true))
+    );
+
+    // Mêmes listes que les pages filtrées, privées des listes vides.
+    let same_as_pages = |text: &'static str| async move {
+        let filter = ContactListFilter::new(text);
+        let pages = all_pages(book, &filter, 2).await?;
+        for limit in [0_u32, 1, 2, 3, 10] {
+            let expected: Vec<ContactListSummary> = pages
+                .iter()
+                .filter(|l| l.members > 0)
+                .take(limit as usize)
+                .cloned()
+                .collect();
+            assert_eq!(
+                book.suggested_lists(&filter, PageSize::new(limit)).await?,
+                expected,
+                "{text:?}, limite {limit}"
+            );
+        }
+        Ok::<(), StoreError>(())
+    };
+    for text in ["", "club", "L", "s", "zzz", "%", "_", "\\"] {
+        same_as_pages(text).await?;
+    }
+
+    // Une liste dont le dernier membre est supprimé n'est plus proposée.
+    book.delete_many(&[bob])
+        .await
+        .map_err(|e| ContactListStoreError::Store(StoreError(e.to_string())))?;
+    assert_eq!(suggested("voisins", 10).await?, vec![]);
+    assert_eq!(
+        suggested("bis", 10).await?.first().map(|l| l.members),
+        Some(1)
+    );
+
+    // Plus d'une page de listes vides entre deux listes proposées : la
+    // suivante est trouvée quand même.
+    for i in 0..=MAX_PAGE_SIZE {
+        book.create_list(&sample_list(&format!("club {i:04}"), &[], false))
+            .await?;
+    }
+    assert_eq!(
+        names(&suggested("club", 2).await?),
+        vec!["Anciens du CLUB", "club bis"]
+    );
+    assert_eq!(
+        names(&suggested("club", 10).await?),
+        vec!["Anciens du CLUB", "club bis", "Club lecture"]
+    );
+    Ok(())
+}
+
 /// Contrat d'une liste corrompue en base : elle seule est écartée (absente
 /// des pages, des suggestions et de la relecture), les autres restent
 /// lisibles et la pagination ne saute ni ne répète aucune liste valide.
@@ -380,6 +501,15 @@ where
         .await?;
     assert_eq!(names(&suggested.items), valid);
     assert_eq!(suggested.next, None);
+    // Listes proposées : les corrompues n'entament pas la limite.
+    let liste = ContactListFilter::new("liste");
+    for (limit, expected) in [(1, &valid[..1]), (2, &valid[..]), (10, &valid[..])] {
+        assert_eq!(
+            names(&book.suggested_lists(&liste, PageSize::new(limit)).await?),
+            expected,
+            "suggestions, limite {limit}"
+        );
+    }
     assert_eq!(book.get_list(lists[1].id()).await?, None);
     assert_eq!(book.get_list(lists[4].id()).await?, None);
     assert_eq!(book.get_list(lists[0].id()).await?, Some(lists[0].clone()));
@@ -812,6 +942,19 @@ impl ContactListDirectory for InMemoryContactBook {
         })
     }
 
+    async fn suggested_lists(
+        &self,
+        filter: &ContactListFilter,
+        limit: PageSize,
+    ) -> Result<Vec<ContactListSummary>, StoreError> {
+        Ok(sorted(&self.lock_lists().1)
+            .iter()
+            .filter(|l| filter.matches(l.draft()) && !l.draft().members().is_empty())
+            .take(limit.get() as usize)
+            .map(ContactListSummary::from)
+            .collect())
+    }
+
     async fn get_list(&self, id: ContactListId) -> Result<Option<ContactList>, StoreError> {
         Ok(self.lock_lists().1.iter().find(|l| l.id() == id).cloned())
     }
@@ -859,6 +1002,11 @@ mod tests {
     #[tokio::test]
     async fn in_memory_contact_merge_passes_contract() -> Result<(), ContactListStoreError> {
         contact_merge_contract(&InMemoryContactBook::default()).await
+    }
+
+    #[tokio::test]
+    async fn in_memory_list_suggestions_pass_contract() -> Result<(), ContactListStoreError> {
+        contact_list_suggestion_contract(&InMemoryContactBook::default()).await
     }
 
     #[tokio::test]

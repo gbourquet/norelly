@@ -308,6 +308,16 @@ pub fn expand(
     })
 }
 
+/// Listes à demander au carnet pendant la saisie de `text` : `limit`
+/// borné à [`MAX_LIST_SUGGESTIONS`] ; texte vide : aucune.
+#[must_use]
+pub fn list_suggestion_limit(text: &str, limit: usize) -> usize {
+    if ContactListFilter::new(text).text().is_empty() {
+        return 0;
+    }
+    limit.min(MAX_LIST_SUGGESTIONS)
+}
+
 /// Listes proposées pendant la saisie de `text` : celles de `lists` (déjà
 /// filtrées par le nom, dans l'ordre du carnet) qui ont au moins un membre
 /// (une liste vide ne peut pas être envoyée), au plus `limit` (borné à
@@ -318,13 +328,10 @@ pub fn list_suggestions(
     lists: &[ContactListSummary],
     limit: usize,
 ) -> Vec<ContactListSummary> {
-    if ContactListFilter::new(text).text().is_empty() {
-        return Vec::new();
-    }
     lists
         .iter()
         .filter(|l| l.members > 0)
-        .take(limit.min(MAX_LIST_SUGGESTIONS))
+        .take(list_suggestion_limit(text, limit))
         .cloned()
         .collect()
 }
@@ -723,6 +730,15 @@ mod tests {
             list_suggestions("l", &many, 100).len(),
             MAX_LIST_SUGGESTIONS
         );
+    }
+
+    #[test]
+    fn suggestion_limit_is_bounded_and_needs_text() {
+        assert_eq!(list_suggestion_limit("cl", 3), 3);
+        assert_eq!(list_suggestion_limit(" Cl ", 100), MAX_LIST_SUGGESTIONS);
+        assert_eq!(list_suggestion_limit("cl", 0), 0);
+        assert_eq!(list_suggestion_limit("  ", 3), 0);
+        assert_eq!(list_suggestion_limit("", usize::MAX), 0);
     }
 
     #[test]

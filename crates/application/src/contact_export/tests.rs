@@ -4,8 +4,8 @@ use norelly_domain::contact_export::ContactSelection;
 use norelly_domain::contact_lists::{ContactList, ContactListFilter, ContactListId};
 use norelly_domain::contacts::{Contact, ContactFilter, ContactId};
 use norelly_domain::ports::{
-    ContactBook, ContactCursor, ContactListBook, ContactListCursor, ContactListPage, ContactPage,
-    MAX_CONTACT_LOOKUP, PageSize, StoreError,
+    ContactBook, ContactCursor, ContactListBook, ContactListCursor, ContactListPage,
+    ContactListSummary, ContactPage, MAX_CONTACT_LOOKUP, PageSize, StoreError,
 };
 use norelly_test_support::contact_lists_contracts::sample_list;
 use norelly_test_support::contact_photo_contracts::InMemoryPhotoStore;
@@ -192,6 +192,14 @@ impl ContactListDirectory for CrowdedDirectory {
         _: PageSize,
     ) -> Result<ContactListPage, StoreError> {
         Ok(ContactListPage::default())
+    }
+
+    async fn suggested_lists(
+        &self,
+        _: &ContactListFilter,
+        _: PageSize,
+    ) -> Result<Vec<ContactListSummary>, StoreError> {
+        Ok(Vec::new())
     }
 
     async fn get_list(&self, _: ContactListId) -> Result<Option<ContactList>, StoreError> {

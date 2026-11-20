@@ -1261,15 +1261,15 @@ mod tests {
     #[test]
     fn a_full_book_stays_exportable_scannable_and_synchronisable() {
         // Un carnet vide reçoit un fichier de taille maximale.
-        assert!(MAX_CONTACTS >= crate::contact_import::MAX_IMPORT_CARDS);
+        const { assert!(MAX_CONTACTS >= crate::contact_import::MAX_IMPORT_CARDS) };
         // Un carnet plein s'exporte en entier, et le fichier se réimporte.
-        assert!(MAX_CONTACTS <= crate::contact_export::MAX_EXPORT_CONTACTS);
-        assert!(MAX_CONTACTS <= crate::contact_import::MAX_IMPORT_CARDS);
+        const { assert!(MAX_CONTACTS <= crate::contact_export::MAX_EXPORT_CONTACTS) };
+        const { assert!(MAX_CONTACTS <= crate::contact_import::MAX_IMPORT_CARDS) };
         // La recherche des doublons le parcourt en entier.
-        assert!(MAX_CONTACTS <= crate::contact_duplicates::MAX_DUPLICATE_SCAN);
+        const { assert!(MAX_CONTACTS <= crate::contact_duplicates::MAX_DUPLICATE_SCAN) };
         // La synchronisation CardDAV l'envoie en entier, et le carnet
         // distant qui en résulte reste lisible.
-        assert!(MAX_CONTACTS <= crate::carddav::MAX_REMOTE_CARDS);
+        const { assert!(MAX_CONTACTS <= crate::carddav::MAX_REMOTE_CARDS) };
         // Le plafond tient dans l'espace des identifiants (qui, jamais
         // réattribués, s'épuisent au total des créations, pas au nombre de
         // fiches présentes : `new_id` refuse alors proprement).

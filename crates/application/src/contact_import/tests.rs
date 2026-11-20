@@ -10,7 +10,7 @@ use norelly_domain::contact_import::{
 use norelly_domain::contact_lists::{ContactListFilter, ContactListId};
 use norelly_domain::contact_photo::{EmbeddedPhoto, PhotoFormat};
 use norelly_domain::contacts::{
-    AddressKey, ContactDraft, ContactFilter, ContactId, ContactInput, EmailInput,
+    AddressKey, ContactDraft, ContactFilter, ContactId, ContactInput, EmailInput, MAX_CONTACTS,
 };
 use norelly_domain::ports::{
     ContactCursor, ContactListBook, ContactListCursor, ContactListPage, ContactPage,
@@ -206,6 +206,10 @@ fn count(cell: &Mutex<usize>) -> MutexGuard<'_, usize> {
 }
 
 impl ContactDirectory for EditedMeanwhile {
+    async fn count(&self) -> Result<usize, StoreError> {
+        self.inner.count().await
+    }
+
     async fn photo_ids(
         &self,
     ) -> Result<std::collections::BTreeSet<norelly_domain::ports::BlobId>, StoreError> {
@@ -603,6 +607,74 @@ async fn apply_gives_imported_contacts_their_reencoded_photo() -> Result<(), Imp
             ("Denis".to_owned(), None),
         ]
     );
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_file_that_would_overflow_the_book_is_refused_whole() -> Result<(), ImportFailure> {
+    let book = InMemoryContactBook::default();
+    book.create(&sample_contact("Alice", &["alice@example.com"]))
+        .await?;
+    // Une seule place libre.
+    book.fill(MAX_CONTACTS - 2);
+    let cards = vec![
+        card("Alice M.", &["alice@example.com", "alice@work.example"]),
+        card("Bob", &["bob@example.net"]),
+        card("Carole", &["carole@example.org"]),
+    ];
+    let preview = PreviewContactImport {
+        codec: &codec(cards.clone()),
+        directory: &book,
+        normalizer: &FakeNfc,
+    }
+    .execute(b"fichier")
+    .await;
+    assert_eq!(
+        preview,
+        Err(ImportFailure::Store(ContactStoreError::BookFull))
+    );
+    // L'import lui-même est refusé en entier, sans réencoder de photo.
+    let store = InMemoryPhotoStore::default();
+    let photos: CardPhotos = [(1, embedded(JPEG))].into_iter().collect();
+    for policy in [DuplicatePolicy::Skip, DuplicatePolicy::Complete] {
+        let outcome = ApplyContactImport {
+            book: &book,
+            normalizer: &FakeNfc,
+            photo_codec: &FakePhotoCodec,
+            photos: &store,
+        }
+        .execute(&cards, &photos, policy)
+        .await;
+        assert_eq!(
+            outcome,
+            Err(ImportFailure::Store(ContactStoreError::BookFull)),
+            "{policy:?}"
+        );
+    }
+    assert!(store.ids().is_empty(), "photo enregistrée pour rien");
+    assert_eq!(names(&book).await?, ["Alice"]);
+    assert_eq!(book.count().await?, MAX_CONTACTS - 1);
+
+    // Un fichier dont les nouvelles fiches tiennent passe, doublons compris.
+    let fits = &cards[..2];
+    let preview = PreviewContactImport {
+        codec: &codec(fits.to_vec()),
+        directory: &book,
+        normalizer: &FakeNfc,
+    }
+    .execute(b"fichier")
+    .await?;
+    assert_eq!(preview.complete.create.len(), 1);
+    let outcome = ApplyContactImport {
+        book: &book,
+        normalizer: &FakeNfc,
+        photo_codec: &FakePhotoCodec,
+        photos: &store,
+    }
+    .execute(fits, &CardPhotos::new(), DuplicatePolicy::Complete)
+    .await?;
+    assert_eq!((outcome.created, outcome.completed), (1, 1));
+    assert_eq!(book.count().await?, MAX_CONTACTS);
     Ok(())
 }
 

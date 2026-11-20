@@ -50,6 +50,10 @@ async fn duplicates_of_the_book_are_found_with_their_cards()
 struct HugeBook;
 
 impl ContactDirectory for HugeBook {
+    async fn count(&self) -> Result<usize, StoreError> {
+        Ok(0)
+    }
+
     async fn photo_ids(
         &self,
     ) -> Result<std::collections::BTreeSet<norelly_domain::ports::BlobId>, StoreError> {

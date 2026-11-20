@@ -220,6 +220,10 @@ fn failures_become_codes() {
         ErrorCodeDto::ContactImportConflict
     );
     assert_eq!(
+        code(ContactStoreError::BookFull.into()),
+        ErrorCodeDto::ContactBookFull
+    );
+    assert_eq!(
         code(StoreError("disque plein".into()).into()),
         ErrorCodeDto::Storage
     );

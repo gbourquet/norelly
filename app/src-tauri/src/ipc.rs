@@ -166,6 +166,9 @@ pub enum ErrorCodeDto {
     ContactListEmpty,
     /// Liste introuvable (supprimée entre-temps).
     ContactListNotFound,
+    /// Carnet plein : la fiche ou l'import le porterait au-delà de
+    /// `MAX_CONTACTS` fiches ; rien n'est écrit.
+    ContactBookFull,
     /// Fichier de contacts trop gros pour être importé.
     ContactImportTooLarge,
     /// Trop de fiches dans le fichier de contacts.

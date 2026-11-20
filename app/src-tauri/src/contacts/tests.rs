@@ -96,6 +96,10 @@ fn store_refusals_become_codes() {
         (ErrorCodeDto::ContactNotFound, None, None)
     );
     assert_eq!(
+        code(ContactStoreError::BookFull),
+        (ErrorCodeDto::ContactBookFull, None, None)
+    );
+    assert_eq!(
         code(ContactStoreError::Corrupted("x".into())).0,
         ErrorCodeDto::Storage
     );

@@ -1600,6 +1600,11 @@ pub enum ContactStoreError {
     /// Une fiche a changé depuis sa lecture (fusion, import).
     #[error("contact modifié entre-temps")]
     Conflict,
+    /// L'écriture porterait le carnet au-delà de
+    /// [`crate::contacts::MAX_CONTACTS`] fiches
+    /// ([`crate::contacts::fits_in_book`]) : rien n'est écrit.
+    #[error("carnet plein")]
+    BookFull,
     #[error("données de contact corrompues : {0}")]
     Corrupted(String),
     #[error(transparent)]
@@ -1612,7 +1617,8 @@ pub enum ContactStoreError {
 /// ([`AddressKey`]) : l'écriture qui la donnerait à un second contact est
 /// refusée sans effet.
 pub trait ContactBook: Send + Sync {
-    /// Enregistre une nouvelle fiche.
+    /// Enregistre une nouvelle fiche ; `BookFull`, sans effet, si le
+    /// carnet compte déjà [`crate::contacts::MAX_CONTACTS`] fiches.
     fn create(
         &self,
         draft: &ContactDraft,
@@ -1646,7 +1652,9 @@ pub trait ContactBook: Send + Sync {
     /// portée par un autre contact (`DuplicateAddress`), un contact inconnu
     /// (`NotFound`, membre compris), un contact qui a changé depuis sa
     /// lecture ([`ContactCompletion::read`], photo comprise, `Conflict`),
-    /// ou un nom de liste pris entre-temps (`Conflict`) annule tout
+    /// un nom de liste pris entre-temps (`Conflict`), ou des fiches
+    /// `create` qui porteraient le carnet au-delà de
+    /// [`crate::contacts::MAX_CONTACTS`] (`BookFull`) annule tout
     /// l'import. Une photo destinée à un contact du carnet qui n'est pas
     /// complété, ou à une fiche hors de `create`, est ignorée.
     fn import(
@@ -1845,6 +1853,10 @@ pub trait ContactDirectory: Send + Sync {
     /// Photos portées par au moins un contact du carnet (ménage du
     /// [`ContactPhotoStore`]).
     fn photo_ids(&self) -> impl Future<Output = Result<BTreeSet<BlobId>, StoreError>> + Send;
+
+    /// Nombre de fiches du carnet, illisibles comprises : celui que
+    /// [`crate::contacts::MAX_CONTACTS`] borne.
+    fn count(&self) -> impl Future<Output = Result<usize, StoreError>> + Send;
 }
 
 /// Échec du réencodage d'une photo de contact.

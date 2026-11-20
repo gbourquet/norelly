@@ -20,7 +20,7 @@ use crate::compose::draft::{ComposeError, Draft, DraftSync, Recipient, RemoteCop
 use crate::compose::outbox::OutboxEntry;
 use crate::connection::ConnectionError;
 use crate::contact_duplicates::DismissedPair;
-use crate::contact_export::{ContactSelection, ExportCard, ExportFormat, ExportList};
+use crate::contact_export::{ContactSelection, ExportCard, ExportFormat, ExportList, ExportMember};
 use crate::contact_import::{ContactCompletion, DecodedContacts, ListImport, PlacedPhoto};
 use crate::contact_lists::{ContactList, ContactListDraft, ContactListFilter, ContactListId};
 use crate::contact_photo::{PhotoFormat, PhotoRefusal};
@@ -1697,6 +1697,11 @@ pub enum ContactCodecError {
     /// Ni vCard, ni LDIF, ni CSV d'un format reconnu.
     #[error("format de fichier de contacts inconnu")]
     UnknownFormat,
+    /// Écriture par pages : une fiche ne tient pas dans ce qui a été
+    /// repéré ([`ContactEncoder::survey`] ; colonnes CSV), par exemple
+    /// modifiée depuis le repérage.
+    #[error("fiche différente de celle repérée")]
+    NotSurveyed,
 }
 
 /// Traduction d'un fichier de contacts (vCard, CSV, LDIF) en fiches à
@@ -1727,6 +1732,51 @@ pub trait ContactCodec: Send + Sync {
         lists: &[ExportList],
         format: ExportFormat,
     ) -> Result<Vec<u8>, ContactCodecError>;
+
+    /// Écriture par pages d'un fichier au format `format`
+    /// ([`ContactEncoder`]) : un export n'a jamais toutes ses fiches en
+    /// mémoire.
+    type Encoder: ContactEncoder + 'static;
+
+    /// Nouvelle écriture par pages au format `format`.
+    fn encoder(&self, format: ExportFormat) -> Self::Encoder;
+}
+
+/// Écriture d'un fichier de contacts par pages ([`ContactCodec::encoder`]).
+///
+/// Les fiches sont d'abord toutes repérées ([`Self::survey`] : le CSV y
+/// fixe ses colonnes), puis écrites page par page ([`Self::cards`]), dans
+/// le même ordre ; les listes suivent ([`Self::lists`]), puis la fin du
+/// fichier ([`Self::finish`]). Les octets rendus, mis bout à bout, sont
+/// ceux de [`ContactCodec::encode`] pour les mêmes fiches et listes, quel
+/// que soit le découpage en pages. Les bornes de `encode` portent sur le
+/// fichier entier : au-delà de
+/// [`crate::contact_export::MAX_EXPORT_CONTACTS`] fiches et listes
+/// (`TooManyCards`) ou de [`crate::contact_export::MAX_EXPORT_FILE_BYTES`]
+/// octets (`TooLarge`), l'écriture est refusée ; le fichier est alors à
+/// abandonner.
+pub trait ContactEncoder: Send {
+    /// Repère les fiches `cards` (suivantes) avant toute écriture.
+    fn survey(&mut self, cards: &[ExportCard]);
+
+    /// Octets des fiches `cards`, qui suivent celles déjà écrites (avec le
+    /// début du fichier pour les premières). Une fiche que le format ne
+    /// peut pas écrire telle quelle avec ce qu'il a repéré (une adresse de
+    /// plus que les colonnes CSV) est refusée (`NotSurveyed`), jamais
+    /// tronquée.
+    fn cards(&mut self, cards: &[ExportCard]) -> Result<Vec<u8>, ContactCodecError>;
+
+    /// Octets des listes `lists`, après toutes les fiches : leurs membres
+    /// désignent leur rang dans `members` (ce que le format écrit de leurs
+    /// fiches) ; le format qui ne sait pas les porter (CSV) les ignore.
+    fn lists(
+        &mut self,
+        lists: &[ExportList],
+        members: &[ExportMember],
+    ) -> Result<Vec<u8>, ContactCodecError>;
+
+    /// Derniers octets du fichier (son début s'il n'a aucune fiche).
+    fn finish(&mut self) -> Result<Vec<u8>, ContactCodecError>;
 }
 
 /// Normalisation Unicode d'un texte (formes NFC et NFD), fournie au
@@ -1841,6 +1891,16 @@ pub trait ContactDirectory: Send + Sync {
         selection: &ContactSelection,
         limit: usize,
     ) -> impl Future<Output = Result<Vec<Contact>, StoreError>> + Send;
+
+    /// Identifiants de `selection` (inconnus omis), dans l'ordre de
+    /// [`ContactCursor`], au plus `limit`, fiches invalides comprises :
+    /// les fiches complètes d'une page d'export sont ensuite lues par
+    /// [`Self::contacts`], qui écarte celles-ci (export par pages).
+    fn contact_ids(
+        &self,
+        selection: &ContactSelection,
+        limit: usize,
+    ) -> impl Future<Output = Result<Vec<ContactId>, StoreError>> + Send;
 
     /// Photos portées par au moins un contact du carnet (ménage du
     /// [`ContactPhotoStore`]).

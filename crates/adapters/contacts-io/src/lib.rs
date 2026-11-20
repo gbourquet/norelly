@@ -14,11 +14,13 @@
 
 use icu_normalizer::{ComposingNormalizerBorrowed, DecomposingNormalizerBorrowed};
 use norelly_domain::contact_details::Birthday;
-use norelly_domain::contact_export::{ExportCard, ExportFormat, ExportList, MAX_EXPORT_CONTACTS};
+use norelly_domain::contact_export::{
+    ExportCard, ExportFormat, ExportList, ExportMember, MAX_EXPORT_CONTACTS,
+};
 use norelly_domain::contact_import::{ContactFormat, DecodedContacts, MAX_IMPORT_FILE_BYTES};
 use norelly_domain::contact_lists::MAX_CONTACT_LIST_MEMBERS;
 use norelly_domain::contact_photo::CardPhotos;
-use norelly_domain::ports::{ContactCodec, ContactCodecError, TextNormalizer};
+use norelly_domain::ports::{ContactCodec, ContactCodecError, ContactEncoder, TextNormalizer};
 
 mod encode;
 mod groups;
@@ -33,6 +35,7 @@ mod vcard;
 /// [`MAX_CONTACT_LIST_MEMBERS`] membres distincts.
 pub const MAX_LIST_MEMBERS_READ: usize = 2 * MAX_CONTACT_LIST_MEMBERS;
 
+pub use encode::Encoder as ContactsIoEncoder;
 pub use photo::ImagePhotos;
 
 /// Longueur maximale d'un champ lu, en octets : au-delà, la fiche est
@@ -116,19 +119,20 @@ impl ContactCodec for ContactsIo {
         if cards.len().saturating_add(lists.len()) > MAX_EXPORT_CONTACTS {
             return Err(ContactCodecError::TooManyCards);
         }
-        let mut out = encode::Output::new();
-        match format {
-            ExportFormat::VCard4 => {
-                encode::vcard::encode(cards, lists, encode::vcard::Version::V4, &mut out)
-            }
-            ExportFormat::VCard3 => {
-                encode::vcard::encode(cards, lists, encode::vcard::Version::V3, &mut out)
-            }
-            // Le CSV de Google ne porte pas de listes.
-            ExportFormat::GoogleCsv => encode::csv::encode(cards, &mut out),
-            ExportFormat::Ldif => encode::ldif::encode(cards, lists, &mut out),
-        }?;
-        Ok(out.into_bytes())
+        // Une seule page : les membres des listes sont les fiches.
+        let members: Vec<ExportMember> = cards.iter().map(ExportMember::of).collect();
+        let mut encoder = self.encoder(format);
+        encoder.survey(cards);
+        let mut bytes = encoder.cards(cards)?;
+        bytes.extend(encoder.lists(lists, &members)?);
+        bytes.extend(encoder.finish()?);
+        Ok(bytes)
+    }
+
+    type Encoder = ContactsIoEncoder;
+
+    fn encoder(&self, format: ExportFormat) -> ContactsIoEncoder {
+        ContactsIoEncoder::new(format)
     }
 }
 

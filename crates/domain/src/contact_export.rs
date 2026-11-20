@@ -18,7 +18,7 @@ use crate::contact_import::{MAX_IMPORT_CARDS, MAX_IMPORT_FILE_BYTES};
 use crate::contact_labels::ContactLabelKind;
 use crate::contact_lists::ContactList;
 use crate::contacts::{
-    Contact, ContactDraft, ContactEmail, ContactId, ContactSelectionError, MAX_CONTACT_NAME_CHARS,
+    ContactDraft, ContactEmail, ContactId, ContactSelectionError, MAX_CONTACT_NAME_CHARS,
     MAX_CONTACT_SELECTION, contact_selection,
 };
 use crate::reading::safe_file_name_or;
@@ -258,14 +258,52 @@ pub fn exports_lists(selection: &ContactSelection, format: ExportFormat) -> bool
         )
 }
 
-/// Listes `lists` prêtes à écrire avec les fiches des contacts `contacts`
-/// (dans l'ordre de l'export) : un membre absent de l'export est omis.
+/// Membre d'une liste tel qu'un format l'écrit : le nom complet et
+/// l'adresse préférée de sa fiche (vCard : l'adresse ; LDIF : le nom
+/// distinctif de la fiche, fait des deux). Seul gardé pendant l'export
+/// pour chaque contact membre d'une liste, au lieu de toute sa fiche.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ExportMember {
+    pub full_name: Option<String>,
+    pub address: Option<String>,
+}
+
+impl ExportMember {
+    /// Membre écrit pour la fiche `card` (préparée par [`export_card`] :
+    /// adresse préférée en tête).
+    #[must_use]
+    pub fn of(card: &ExportCard) -> Self {
+        Self {
+            full_name: card.full_name.clone(),
+            address: card.emails.first().map(|e| e.address.clone()),
+        }
+    }
+}
+
+/// Contacts lus à la fois pendant un export : au plus une page de fiches
+/// (valeur reçue par une sélection explicite, donc au plus
+/// [`MAX_CONTACT_SELECTION`]).
+pub const EXPORT_PAGE_SIZE: usize = 500;
+const _: () = assert!(EXPORT_PAGE_SIZE > 0 && EXPORT_PAGE_SIZE <= MAX_CONTACT_SELECTION);
+
+/// Contacts membres d'au moins une des listes `lists`.
 #[must_use]
-pub fn export_lists(lists: &[ContactList], contacts: &[Contact]) -> Vec<ExportList> {
-    let rank: std::collections::HashMap<ContactId, usize> = contacts
+pub fn listed_contacts(lists: &[ContactList]) -> std::collections::HashSet<ContactId> {
+    lists
+        .iter()
+        .flat_map(|list| list.draft().members().iter().copied())
+        .collect()
+}
+
+/// Listes `lists` prêtes à écrire avec les contacts `exported` (dans
+/// l'ordre de l'export, chacun une fois) : un membre désigne le rang de
+/// son contact dans `exported` ; un membre absent de l'export est omis.
+#[must_use]
+pub fn export_lists(lists: &[ContactList], exported: &[ContactId]) -> Vec<ExportList> {
+    let rank: std::collections::HashMap<ContactId, usize> = exported
         .iter()
         .enumerate()
-        .map(|(i, c)| (c.id(), i))
+        .map(|(i, &id)| (id, i))
         .collect();
     lists
         .iter()

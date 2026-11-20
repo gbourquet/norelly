@@ -1484,14 +1484,18 @@ async fn trapped_list_import_and_export_cannot_alter_the_database()
         ExportFormat::VCard3,
         ExportFormat::Ldif,
     ] {
-        let prepared = PrepareContactExport {
+        let photos = norelly_test_support::contact_photo_contracts::InMemoryPhotoStore::default();
+        let mut export = PrepareContactExport {
             directory: &book,
-            photos: &norelly_test_support::contact_photo_contracts::InMemoryPhotoStore::default(),
+            photos: &photos,
+            codec: &ContactsIo,
         }
         .execute(&ContactSelection::All, format)
         .await?;
-        assert_eq!(prepared.lists.len(), PAYLOADS.len(), "{format:?}");
-        let bytes = ContactsIo.encode(&prepared.cards, &prepared.lists, format)?;
+        let mut bytes = Vec::new();
+        while let Some(chunk) = export.next_chunk().await? {
+            bytes.extend(chunk);
+        }
         let decoded = ContactsIo.decode(&bytes)?;
         let mut names: Vec<String> = decoded
             .cards

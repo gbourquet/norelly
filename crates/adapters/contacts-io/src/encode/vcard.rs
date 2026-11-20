@@ -9,7 +9,9 @@
 //! d'Apple en 3.0) dont chaque membre est l'adresse préférée de sa fiche
 //! (`mailto:`), copie cachée notée `X-NORELLY-BCC:TRUE`.
 
-use norelly_domain::contact_export::{ExportCard, ExportList, VCARD_FAVORITE_CATEGORY};
+use norelly_domain::contact_export::{
+    ExportCard, ExportList, ExportMember, VCARD_FAVORITE_CATEGORY,
+};
 use norelly_domain::ports::ContactCodecError;
 
 use super::Output;
@@ -87,17 +89,34 @@ fn optional(value: Option<&String>) -> String {
     value.map_or_else(String::new, |v| escape(v))
 }
 
-/// Cartes `cards` dans `out`.
+/// Cartes `cards`, puis cartes de groupe des listes `lists`, dans `out`.
+#[cfg(test)]
 pub(crate) fn encode(
     cards: &[ExportCard],
     lists: &[ExportList],
     version: Version,
     out: &mut Output,
 ) -> Result<(), ContactCodecError> {
-    let version_line = match version {
+    let members: Vec<ExportMember> = cards.iter().map(ExportMember::of).collect();
+    encode_cards(cards, version, out)?;
+    encode_lists(lists, &members, version, out)
+}
+
+/// Ligne de version.
+fn version_line(version: Version) -> &'static str {
+    match version {
         Version::V4 => "VERSION:4.0",
         Version::V3 => "VERSION:3.0",
-    };
+    }
+}
+
+/// Cartes `cards` dans `out`.
+pub(crate) fn encode_cards(
+    cards: &[ExportCard],
+    version: Version,
+    out: &mut Output,
+) -> Result<(), ContactCodecError> {
+    let version_line = version_line(version);
     for card in cards {
         let mut lines = vec![
             "BEGIN:VCARD".to_owned(),
@@ -204,6 +223,18 @@ pub(crate) fn encode(
             out.push(&fold(&line))?;
         }
     }
+    Ok(())
+}
+
+/// Cartes de groupe des listes `lists` dans `out`, chaque membre désigné
+/// par son rang dans `members`.
+pub(crate) fn encode_lists(
+    lists: &[ExportList],
+    members: &[ExportMember],
+    version: Version,
+    out: &mut Output,
+) -> Result<(), ContactCodecError> {
+    let version_line = version_line(version);
     for list in lists {
         let mut lines = vec!["BEGIN:VCARD".to_owned(), version_line.to_owned()];
         match version {
@@ -225,9 +256,9 @@ pub(crate) fn encode(
             Version::V4 => "MEMBER",
             Version::V3 => "X-ADDRESSBOOKSERVER-MEMBER",
         };
-        for card in list.members.iter().filter_map(|&i| cards.get(i)) {
-            if let Some(email) = card.emails.first() {
-                lines.push(format!("{property}:{}", mailto(&email.address)));
+        for member in list.members.iter().filter_map(|&i| members.get(i)) {
+            if let Some(address) = &member.address {
+                lines.push(format!("{property}:{}", mailto(address)));
             }
         }
         lines.push("END:VCARD".to_owned());

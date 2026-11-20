@@ -7,7 +7,7 @@ use std::sync::Mutex;
 use norelly_contacts_io::{ContactsIo, IcuNfc};
 use norelly_domain::carddav::{AddressBook, CardDavAccount, DavUsername, SyncFailure};
 use norelly_domain::contact_export::ContactSelection;
-use norelly_domain::contacts::{Contact, ContactDraft};
+use norelly_domain::contacts::{Contact, ContactDraft, MAX_CONTACTS};
 use norelly_domain::ports::{ContactBook, ContactDirectory, SecretKey, SecretStoreError};
 use norelly_test_support::carddav_contracts::{
     FakeCardDavClient, InMemoryCardDavStore, dav_url, sample_card,
@@ -371,6 +371,28 @@ async fn a_conflict_goes_to_the_latest_modification() {
         w.local().await[0].draft().display_name(),
         "Bob là-bas encore"
     );
+}
+
+#[tokio::test]
+async fn a_full_book_leaves_new_remote_cards_aside_and_syncs_the_rest() {
+    world!(w);
+    w.configure().await;
+    w.book
+        .create(&sample_contact("Alice", &["alice@example.com"]))
+        .await
+        .unwrap_or_else(|e| panic!("{e}"));
+    w.book.fill(MAX_CONTACTS - 1);
+    w.put_remote("bob.vcf", &sample_card("bob", "Bob", "bob@example.com"));
+
+    let report = w.run(100).await.unwrap_or_else(|e| panic!("{e:?}"));
+    // Bob ne tient pas dans le carnet : remis à plus tard, pas une panne.
+    assert_eq!(
+        (report.pulled, report.pushed, report.skipped),
+        (0, 1, 1),
+        "{report:?}"
+    );
+    assert_eq!(names(&w.local().await), ["Alice"]);
+    assert_eq!(w.remote().len(), 2, "Bob gardé sur le serveur");
 }
 
 #[tokio::test]

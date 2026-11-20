@@ -138,6 +138,9 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             "MAX_CONTACT_SELECTION",
             norelly_domain::contacts::MAX_CONTACT_SELECTION,
         )
+        // Taille maximale du carnet, citée par le message d'un carnet
+        // plein ; Rust seul la fait respecter.
+        .constant("MAX_CONTACTS", norelly_domain::contacts::MAX_CONTACTS)
         // Bornes d'une fiche : lignes d'adresses postales et de sites
         // proposées par le formulaire ; Rust revalide.
         .constant(

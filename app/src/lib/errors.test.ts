@@ -59,6 +59,10 @@ describe("traduction des erreurs IPC", () => {
     expect(errorText(new IpcFailure("contact_selection_too_many"))).toBe(
       `Vous pouvez sélectionner au plus ${new Intl.NumberFormat("fr").format(1000)} contacts à la fois.`,
     );
+    expect(errorText(new IpcFailure("contact_book_full"))).toBe(
+      `Le carnet d'adresses est plein : il ne peut pas contenir plus de ${new Intl.NumberFormat("fr").format(25000)} contacts, et rien n'a été ajouté. ` +
+        "Supprimez les contacts dont vous n'avez plus besoin, ou importez un fichier plus petit, puis réessayez.",
+    );
     expect(errorText(new IpcFailure("contact_name_looks_like_address", "display_name"))).toBe(
       "Un nom ne peut pas ressembler à une adresse e-mail : retirez « @ », « < », « > », les caractères qui leur ressemblent et « @ » écrit en toutes lettres (« (at) », « arobase »). " +
         "Saisissez par exemple « Alice Martin ».",
@@ -175,6 +179,7 @@ describe("traduction des erreurs IPC", () => {
       contact_list_too_many_members: true,
       contact_list_empty: true,
       contact_list_not_found: true,
+      contact_book_full: true,
       contact_import_too_large: true,
       contact_import_too_many_cards: true,
       contact_import_unknown_format: true,

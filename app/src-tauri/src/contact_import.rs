@@ -237,6 +237,7 @@ pub(crate) fn import_error(e: ImportFailure) -> IpcError {
             ContactStoreError::NotFound => IpcError::new(ErrorCodeDto::ContactNotFound),
             // Rendu par l'import seul : la fusion a son propre code.
             ContactStoreError::Conflict => IpcError::new(ErrorCodeDto::ContactImportConflict),
+            ContactStoreError::BookFull => IpcError::new(ErrorCodeDto::ContactBookFull),
             ContactStoreError::Corrupted(e) => IpcError::storage(e),
             ContactStoreError::Store(e) => IpcError::storage(e),
         },

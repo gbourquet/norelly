@@ -4,7 +4,7 @@
 // traduit. Aucune décision de sécurité ici.
 
 import type { ErrorCodeDto, FailureKindDto, FieldDto } from "./ipc/bindings";
-import { MAX_CONTACT_SELECTION, MAX_RECIPIENTS } from "./ipc/bindings";
+import { MAX_CONTACTS, MAX_CONTACT_SELECTION, MAX_RECIPIENTS } from "./ipc/bindings";
 import { activeLocale } from "./i18n";
 import { m } from "./paraglide/messages.js";
 
@@ -252,6 +252,10 @@ function codeText(code: ErrorCodeDto, field: FieldDto | null): string {
       return m.err_contact_list_too_many_members();
     case "contact_list_empty":
       return m.err_contact_list_empty();
+    case "contact_book_full":
+      return m.err_contact_book_full({
+        max: new Intl.NumberFormat(activeLocale()).format(MAX_CONTACTS),
+      });
     case "contact_import_too_large":
       return m.err_contact_import_too_large();
     case "contact_import_too_many_cards":

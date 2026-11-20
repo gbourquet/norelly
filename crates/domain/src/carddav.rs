@@ -1612,6 +1612,10 @@ pub struct SyncReport {
     /// Fiches distantes que le carnet ne peut pas reprendre, ou écritures
     /// remises à la prochaine synchronisation.
     pub skipped: usize,
+    /// Parmi `skipped`, les nouvelles fiches distantes qu'un carnet plein
+    /// ([`crate::contacts::MAX_CONTACTS`]) n'a pas pu recevoir : reprises
+    /// quand une place se libère.
+    pub book_full: usize,
 }
 
 impl SyncReport {

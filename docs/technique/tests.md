@@ -117,8 +117,31 @@ mesure unitaire.
 |---|---|---|
 | Liste : première page et changement de dossier, 50 000 messages (requête seule) | `cargo bench -p norelly-sqlite -- --test` | < 50 ms (mesuré ≈ 0,2 ms) |
 | Recherche, 50 000 messages de 300 mots | même commande (bancs `message_list` et `search`) | < 100 ms (mesuré 0,3 à 89 ms) |
+| Carnet plein (`MAX_CONTACTS` = 25 000 fiches) : première page, page suivante, liste filtrée | même commande (banc `contacts`) | < 50 ms (mesuré 0,7 à 18 ms) |
+| Carnet plein : suggestions de destinataires (lectures du carnet) | même commande (banc `contacts`) | < 100 ms (mesuré 13 à 45 ms) |
+| Import d'un fichier de 25 000 fiches qui remplit le carnet | même commande (banc `contacts`) | < 20 s (mesuré ≈ 2,2 s) |
 | Démarrage de bout en bout | `NORELLY_E2E_PERF=1 pnpm -C app e2e` | < 400 ms (seuil porté par le mainteneur) |
 | Changement de dossier de bout en bout | idem | < 200 ms (mesuré 13 à 16 ms) |
+
+Taille maximale du carnet : le banc `contacts` mesure aussi d'autres
+tailles (`NORELLY_BENCH_CONTACT_SIZES=25000,50000,100000`, au plus le
+plafond ; au-delà, le relever le temps de la mesure). Médianes mesurées
+(plafond relevé) :
+
+| Fiches | Première page | Liste filtrée, texte absent | Suggestions, texte courant | Suggestions, texte absent | Import de 25 000 fiches |
+|---|---|---|---|---|---|
+| 25 000 | 0,7 ms | 18 ms | 13 ms | 31 ms | 2,2 s |
+| 50 000 | 0,7 ms | 47 ms | 18 ms | 87 ms | 2,4 s |
+| 100 000 | 0,8 ms | 114 ms | 24 ms | 211 ms | 3,1 s |
+| 200 000 | 0,8 ms | 255 ms | 29 ms | 484 ms | 3,2 s |
+
+Un texte que ne contient aucune fiche fait parcourir tout le carnet (la
+liste filtrée et les suggestions croissent avec lui) : à 50 000 fiches,
+la liste filtrée (47 ms) et une suggestion (87 ms) sont déjà au bord de
+leurs seuils sur une machine calme, et les dépassent sur une machine
+chargée ; à 100 000, elles les dépassent toujours. Le plafond
+retenu est aussi la borne d'un fichier importé, de l'export, de la
+recherche des doublons et de CardDAV.
 
 Les bancs de bout en bout tournent dans le job nocturne
 (`.github/workflows/nightly.yml`), avec cinq minutes de fuzzing par cible

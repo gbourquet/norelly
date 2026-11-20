@@ -152,6 +152,9 @@ enum Step {
     /// Remise à la prochaine synchronisation (fiche changée entre-temps,
     /// adresse prise…).
     Skipped,
+    /// Nouvelle fiche distante qu'un carnet plein ne peut pas recevoir :
+    /// remise à plus tard elle aussi, et comptée à part.
+    BookFull,
 }
 
 /// Ordre d'application : suppressions ici d'abord (elles libèrent des
@@ -187,12 +190,15 @@ fn remote_step(error: CardDavError) -> Result<Step, SyncFailure> {
 }
 
 /// Erreur du carnet pendant une écriture : une fiche changée ou une
-/// adresse prise entre-temps est remise à plus tard.
+/// adresse prise entre-temps est remise à plus tard, comme une fiche
+/// distante qu'un carnet plein ne peut pas recevoir (elle reste sur le
+/// serveur et sera reprise quand une place se libère).
 fn local_step(error: ContactStoreError) -> Result<Step, SyncFailure> {
     match error {
         ContactStoreError::Conflict
         | ContactStoreError::NotFound
         | ContactStoreError::DuplicateAddress(_) => Ok(Step::Skipped),
+        ContactStoreError::BookFull => Ok(Step::BookFull),
         ContactStoreError::Corrupted(_) | ContactStoreError::Store(_) => Err(SyncFailure::Storage),
     }
 }
@@ -271,6 +277,10 @@ where
             match self.apply(book, &credentials, action, now).await? {
                 Step::Done => report.count(action),
                 Step::Skipped => report.skipped += 1,
+                Step::BookFull => {
+                    report.skipped += 1;
+                    report.book_full += 1;
+                }
             }
         }
         Ok(report)

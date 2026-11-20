@@ -15,7 +15,7 @@ use norelly_domain::contact_lists::{
 };
 use norelly_domain::contacts::{
     AddressKey, Contact, ContactDraft, ContactFilter, ContactId, ContactInput, EmailInput,
-    PhoneInput, PostalAddressInput, WebsiteInput,
+    MAX_CONTACTS, PhoneInput, PostalAddressInput, WebsiteInput, fits_in_book,
 };
 use norelly_domain::ports::{
     BlobId, ContactBook, ContactCursor, ContactDirectory, ContactListItem, ContactPage,
@@ -921,6 +921,90 @@ where
     Ok(())
 }
 
+/// Contrat du plafond du carnet ([`MAX_CONTACTS`], carnet vide au
+/// départ) : [`ContactDirectory::count`] suit les créations, imports et
+/// suppressions ; `fill(n)` ajoute `n` fiches de remplissage (illisibles
+/// possibles : elles comptent). Un carnet plein refuse une création ou un
+/// import qui crée (`BookFull`, rien n'est écrit), accepte un import qui
+/// ne fait que compléter, et retrouve de la place quand une fiche est
+/// supprimée.
+pub async fn contact_capacity_contract<B, F, Fut>(
+    book: &B,
+    fill: F,
+) -> Result<(), ContactStoreError>
+where
+    B: ContactBook + ContactDirectory,
+    F: Fn(usize) -> Fut,
+    Fut: Future<Output = Result<(), StoreError>>,
+{
+    assert_eq!(book.count().await?, 0);
+    let alice = book
+        .create(&sample_contact("Alice", &["alice@example.com"]))
+        .await?;
+    let bob = book
+        .create(&sample_contact("Bob", &["bob@example.com"]))
+        .await?;
+    assert_eq!(book.count().await?, 2);
+    assert!(book.delete(bob.id()).await?);
+    assert_eq!(book.count().await?, 1);
+    book.import(
+        &[
+            sample_contact("Bob", &["bob@example.com"]),
+            sample_contact("Carole", &["carole@example.com"]),
+        ],
+        &[],
+        &[],
+        &[],
+    )
+    .await?;
+    assert_eq!(book.count().await?, 3);
+
+    // Une place libre.
+    fill(MAX_CONTACTS - 4).await?;
+    assert_eq!(book.count().await?, MAX_CONTACTS - 1);
+    // Deux fiches ne tiennent pas : aucune n'est écrite.
+    let two = [
+        sample_contact("David", &["david@example.com"]),
+        sample_contact("Eve", &["eve@example.com"]),
+    ];
+    assert_eq!(
+        book.import(&two, &[], &[], &[]).await,
+        Err(ContactStoreError::BookFull)
+    );
+    assert_eq!(book.count().await?, MAX_CONTACTS - 1);
+    assert_eq!(
+        book.by_addresses(&[key("david@example.com"), key("eve@example.com")])
+            .await?,
+        Vec::<Contact>::new()
+    );
+    // La dernière place est prise, la suivante refusée.
+    let david = book.create(&two[0]).await?;
+    assert_eq!(book.count().await?, MAX_CONTACTS);
+    assert_eq!(book.create(&two[1]).await, Err(ContactStoreError::BookFull));
+    assert_eq!(
+        book.import(&two[1..], &[], &[], &[]).await,
+        Err(ContactStoreError::BookFull)
+    );
+    assert_eq!(book.by_addresses(&[key("eve@example.com")]).await?, vec![]);
+    // Compléter une fiche ne crée rien : accepté sur un carnet plein.
+    let completed = sample_contact("Alice", &["alice@example.com", "alice@example.net"]);
+    let outcome = book
+        .import(
+            &[],
+            &[ContactCompletion::new(alice.clone(), completed.clone())],
+            &[],
+            &[],
+        )
+        .await?;
+    assert_eq!(outcome.completed, 1);
+    assert_eq!(book.count().await?, MAX_CONTACTS);
+    // Une suppression rend une place.
+    assert!(book.delete(david.id()).await?);
+    book.create(&two[1]).await?;
+    assert_eq!(book.count().await?, MAX_CONTACTS);
+    Ok(())
+}
+
 /// Faux carnet d'adresses en mémoire, listes de diffusion comprises
 /// ([`crate::contact_lists_contracts`]).
 #[derive(Debug, Default)]
@@ -935,9 +1019,18 @@ pub struct InMemoryContactBook {
     /// avec le numéro de l'appel qui les a retenues
     /// ([`crate::contact_dismissals_contracts`]).
     dismissed: Mutex<Vec<(u64, DismissedPair)>>,
+    /// Fiches de remplissage ([`Self::fill`]) : comptées, jamais lues.
+    padding: Mutex<usize>,
 }
 
 impl InMemoryContactBook {
+    /// Ajoute `n` fiches de remplissage, comptées par
+    /// [`ContactDirectory::count`] comme des lignes illisibles
+    /// ([`contact_capacity_contract`]).
+    pub fn fill(&self, n: usize) {
+        *self.padding.lock().unwrap_or_else(PoisonError::into_inner) += n;
+    }
+
     /// Rend la fiche `id` illisible, comme une ligne invalide en base
     /// ([`contact_corruption_contract`]).
     pub fn corrupt(&self, id: ContactId) {
@@ -960,6 +1053,10 @@ impl InMemoryContactBook {
         let mut contacts = sorted(&self.lock().1);
         contacts.retain(|c| !self.is_unreadable(c.id()));
         contacts
+    }
+
+    fn padding(&self) -> usize {
+        *self.padding.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
     pub(crate) fn lock(&self) -> MutexGuard<'_, (i64, Vec<Contact>)> {
@@ -1027,6 +1124,9 @@ impl PartialOrd for SortKey {
 impl ContactBook for InMemoryContactBook {
     async fn create(&self, draft: &ContactDraft) -> Result<Contact, ContactStoreError> {
         let mut state = self.lock();
+        if !fits_in_book(state.1.len() + self.padding(), 1) {
+            return Err(ContactStoreError::BookFull);
+        }
         if let Some(address) = taken(&state.1, draft, None) {
             return Err(ContactStoreError::DuplicateAddress(address));
         }
@@ -1099,6 +1199,9 @@ impl ContactBook for InMemoryContactBook {
                 .clone()
                 .with_id(contact.id())
                 .with_photo(photo);
+        }
+        if !fits_in_book(contacts.len() + self.padding(), create.len()) {
+            return Err(ContactStoreError::BookFull);
         }
         let mut created = Vec::with_capacity(create.len());
         for (rank, draft) in create.iter().enumerate() {
@@ -1350,11 +1453,25 @@ impl ContactDirectory for InMemoryContactBook {
             .filter_map(|c| c.photo().cloned())
             .collect())
     }
+
+    async fn count(&self) -> Result<usize, StoreError> {
+        Ok(self.lock().1.len() + self.padding())
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn in_memory_contact_book_passes_capacity_contract() -> Result<(), ContactStoreError> {
+        let book = InMemoryContactBook::default();
+        contact_capacity_contract(&book, |n| {
+            book.fill(n);
+            std::future::ready(Ok(()))
+        })
+        .await
+    }
 
     #[tokio::test]
     async fn in_memory_contact_book_passes_photo_contract() -> Result<(), ContactStoreError> {

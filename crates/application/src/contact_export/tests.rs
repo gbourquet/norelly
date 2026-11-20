@@ -144,6 +144,10 @@ struct CrowdedDirectory {
 }
 
 impl ContactDirectory for CrowdedDirectory {
+    async fn count(&self) -> Result<usize, StoreError> {
+        Ok(self.contacts)
+    }
+
     async fn photo_ids(
         &self,
     ) -> Result<std::collections::BTreeSet<norelly_domain::ports::BlobId>, StoreError> {

@@ -1,7 +1,25 @@
 import { describe, expect, it, vi } from "vitest";
 import type { CardDavBookDto, CardDavStatus } from "./ipc/api";
 import { IpcFailure } from "./errors";
-import { CardDavState, type CardDavApi } from "./carddav.svelte";
+import { CardDavState, leftAside, type CardDavApi } from "./carddav.svelte";
+
+describe("fiches laissées de côté", () => {
+  it("sépare celles qu'un carnet plein n'a pas pu recevoir", () => {
+    expect(leftAside({ pulled: 0, pushed: 0, skipped: 5, book_full: 2 })).toEqual({
+      other: 3,
+      bookFull: 2,
+    });
+    expect(leftAside({ pulled: 0, pushed: 0, skipped: 1, book_full: 0 })).toEqual({
+      other: 1,
+      bookFull: 0,
+    });
+    // Bilan incohérent : jamais de nombre négatif.
+    expect(leftAside({ pulled: 0, pushed: 0, skipped: 1, book_full: 3 })).toEqual({
+      other: 0,
+      bookFull: 3,
+    });
+  });
+});
 
 const none: CardDavStatus = { account: null, last_sync: null, syncing: false };
 const linked: CardDavStatus = {
@@ -18,7 +36,7 @@ const synced: CardDavStatus = {
   ...linked,
   last_sync: {
     at: 1_700_000_000,
-    report: { pulled: 2, pushed: 1, skipped: 0 },
+    report: { pulled: 2, pushed: 1, skipped: 0, book_full: 0 },
     failure: null,
   },
 };
@@ -38,7 +56,7 @@ function fakeApi(start: CardDavStatus = none) {
     }),
     syncCarddav: vi.fn(async () => {
       status = synced;
-      return { pulled: 2, pushed: 1, skipped: 0 };
+      return { pulled: 2, pushed: 1, skipped: 0, book_full: 0 };
     }),
     disconnectCarddav: vi.fn(async () => {
       status = none;
@@ -97,7 +115,7 @@ describe("synchronisation CardDAV", () => {
     );
     expect(state.password).toBe("");
     expect(api.syncCarddav).toHaveBeenCalledOnce();
-    expect(report).toEqual({ pulled: 2, pushed: 1, skipped: 0 });
+    expect(report).toEqual({ pulled: 2, pushed: 1, skipped: 0, book_full: 0 });
     expect(state.status).toEqual(synced);
     expect(state.busy).toBe(false);
   });
@@ -139,7 +157,7 @@ describe("synchronisation CardDAV", () => {
   it("au lancement : synchronise un carnet relié, en silence", async () => {
     const api = fakeApi(linked);
     const state = new CardDavState(api);
-    expect(await state.background()).toEqual({ pulled: 2, pushed: 1, skipped: 0 });
+    expect(await state.background()).toEqual({ pulled: 2, pushed: 1, skipped: 0, book_full: 0 });
     expect(state.status).toEqual(synced);
     // Aucun carnet relié : rien n'est demandé au serveur.
     const idle = fakeApi();

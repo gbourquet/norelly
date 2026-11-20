@@ -386,6 +386,8 @@ export const events = {
 };
 
 /* Constants */
+export const MAX_CONTACTS = 25000 as const;
+
 export const MAX_CONTACT_SELECTION = 1000 as const;
 
 export const MAX_CONTACT_WEBSITES = 10 as const;
@@ -595,6 +597,11 @@ export type CardDavReportDto = {
 	 *  prochaine fois).
 	 */
 	skipped: number,
+	/**
+	 *  Parmi `skipped`, les nouvelles fiches du serveur qu'un carnet plein
+	 *  n'a pas pu recevoir.
+	 */
+	book_full: number,
 };
 
 /**  État de la synchronisation CardDAV. */
@@ -1527,6 +1534,11 @@ export type ErrorCodeDto =
 "contact_list_empty" | 
 /**  Liste introuvable (supprimée entre-temps). */
 "contact_list_not_found" | 
+/**
+ *  Carnet plein : la fiche ou l'import le porterait au-delà de
+ *  `MAX_CONTACTS` fiches ; rien n'est écrit.
+ */
+"contact_book_full" | 
 /**  Fichier de contacts trop gros pour être importé. */
 "contact_import_too_large" | 
 /**  Trop de fiches dans le fichier de contacts. */

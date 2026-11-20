@@ -695,7 +695,13 @@ fn stored_count(c: &Connection) -> Result<usize, StoreError> {
         .prepare_cached("SELECT COUNT(*) FROM contacts")
         .and_then(|mut s| s.query_row([], |r| r.get(0)))
         .map_err(store_error)?;
-    Ok(usize::try_from(n).unwrap_or(0))
+    Ok(count_of(n))
+}
+
+/// Nombre relu par SQLite ; une valeur hors de `usize` compte comme un
+/// carnet plein (le plafond refuse plutôt que de tomber).
+fn count_of(raw: i64) -> usize {
+    usize::try_from(raw).unwrap_or(usize::MAX)
 }
 
 /// Le carnet peut-il recevoir `adding` fiches de plus
@@ -1320,6 +1326,13 @@ mod tests {
     #[tokio::test]
     async fn contact_book_passes_page_size_contract() -> Result<(), ContactStoreError> {
         contact_page_size_contract(&book()).await
+    }
+
+    #[test]
+    fn an_unreadable_count_fills_the_book() {
+        assert_eq!(count_of(3), 3);
+        assert_eq!(count_of(-1), usize::MAX);
+        assert!(!fits_in_book(count_of(-1), 1));
     }
 
     #[tokio::test]

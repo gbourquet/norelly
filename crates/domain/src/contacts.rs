@@ -1270,7 +1270,9 @@ mod tests {
         // La synchronisation CardDAV l'envoie en entier, et le carnet
         // distant qui en résulte reste lisible.
         assert!(MAX_CONTACTS <= crate::carddav::MAX_REMOTE_CARDS);
-        // Les identifiants ne s'épuisent pas avant le plafond.
+        // Le plafond tient dans l'espace des identifiants (qui, jamais
+        // réattribués, s'épuisent au total des créations, pas au nombre de
+        // fiches présentes : `new_id` refuse alors proprement).
         assert!(i64::try_from(MAX_CONTACTS).is_ok_and(|max| max < MAX_CONTACT_ID));
     }
 

@@ -934,6 +934,7 @@
   "carddav_linked": "Relié au carnet « {book} » de {username} sur {server}.",
   "carddav_never": "Pas encore synchronisé.",
   "carddav_last_ok": "Dernière synchronisation : {date}. {pulled} fiche(s) reçue(s), {pushed} envoyée(s).",
+  "carddav_last_book_full": "{count} nouvelle(s) fiche(s) du serveur attend(ent) : le carnet est plein. Supprimez les contacts dont vous n'avez plus besoin, elles arriveront à la prochaine synchronisation.",
   "carddav_last_skipped": "{count} fiche(s) laissée(s) de côté (sans adresse ou en double).",
   "carddav_last_failed": "Dernière synchronisation échouée ({date}) : {reason}",
   "carddav_failure_unauthorized": "identifiant ou mot de passe refusé.",

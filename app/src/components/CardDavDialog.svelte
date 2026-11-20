@@ -5,7 +5,7 @@
   // parmi ceux que Rust a trouvés ; une fois relié, état de la dernière
   // synchronisation, « Synchroniser maintenant » et « Déconnecter ».
   import Modal from "./Modal.svelte";
-  import type { CardDavState } from "../lib/carddav.svelte";
+  import { leftAside, type CardDavState } from "../lib/carddav.svelte";
   import type { CardDavFailureDto, CardDavReportDto } from "../lib/ipc/api";
   import { longDate } from "../lib/format";
 
@@ -73,8 +73,12 @@
           pulled: last.report.pulled,
           pushed: last.report.pushed,
         })}
-        {#if last.report.skipped > 0}
-          <span class="skipped">{m.carddav_last_skipped({ count: last.report.skipped })}</span>
+        {@const aside = leftAside(last.report)}
+        {#if aside.other > 0}
+          <span class="skipped">{m.carddav_last_skipped({ count: aside.other })}</span>
+        {/if}
+        {#if aside.bookFull > 0}
+          <span class="skipped">{m.carddav_last_book_full({ count: aside.bookFull })}</span>
         {/if}
       {:else if last.failure !== null}
         {m.carddav_last_failed({ date: longDate(last.at), reason: failureText(last.failure) })}

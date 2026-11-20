@@ -387,8 +387,13 @@ async fn a_full_book_leaves_new_remote_cards_aside_and_syncs_the_rest() {
     let report = w.run(100).await.unwrap_or_else(|e| panic!("{e:?}"));
     // Bob ne tient pas dans le carnet : remis à plus tard, pas une panne.
     assert_eq!(
-        (report.pulled, report.pushed, report.skipped),
-        (0, 1, 1),
+        (
+            report.pulled,
+            report.pushed,
+            report.skipped,
+            report.book_full
+        ),
+        (0, 1, 1, 1),
         "{report:?}"
     );
     assert_eq!(names(&w.local().await), ["Alice"]);

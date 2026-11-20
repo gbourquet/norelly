@@ -602,6 +602,11 @@ export type CardDavReportDto = {
 	 *  prochaine fois).
 	 */
 	skipped: number,
+	/**
+	 *  Parmi `skipped`, les nouvelles fiches du serveur qu'un carnet plein
+	 *  n'a pas pu recevoir.
+	 */
+	book_full: number,
 };
 
 /**  État de la synchronisation CardDAV. */

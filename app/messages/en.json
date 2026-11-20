@@ -935,6 +935,7 @@
   "carddav_linked": "Connected to the “{book}” address book of {username} on {server}.",
   "carddav_never": "Not synced yet.",
   "carddav_last_ok": "Last sync: {date}. {pulled} card(s) received, {pushed} sent.",
+  "carddav_last_book_full": "{count} new card(s) from the server are waiting: the address book is full. Delete the contacts you no longer need, and they will arrive at the next sync.",
   "carddav_last_skipped": "{count} card(s) left aside (no address or duplicate).",
   "carddav_last_failed": "Last sync failed ({date}): {reason}",
   "carddav_failure_unauthorized": "username or password refused.",

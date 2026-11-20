@@ -139,6 +139,7 @@ fn the_status_never_carries_the_password() {
             pulled: 1,
             pushed: 2,
             skipped: 3,
+            book_full: 2,
         }),
     };
     let dto = status_dto(Some(&account), Some(&record), false);
@@ -147,8 +148,10 @@ fn the_status_never_carries_the_password() {
         Some("https://dav.example.com/c/")
     );
     assert_eq!(
-        dto.last_sync.and_then(|s| s.report).map(|r| r.pushed),
-        Some(2)
+        dto.last_sync
+            .and_then(|s| s.report)
+            .map(|r| (r.pushed, r.skipped, r.book_full)),
+        Some((2, 3, 2))
     );
     let failed = CardDavSyncRecord {
         at: 1,

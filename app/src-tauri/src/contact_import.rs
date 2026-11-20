@@ -181,6 +181,8 @@ pub(crate) fn import_error(e: ImportFailure) -> IpcError {
             ContactCodecError::TooLarge => ErrorCodeDto::ContactImportTooLarge,
             ContactCodecError::TooManyCards => ErrorCodeDto::ContactImportTooManyCards,
             ContactCodecError::UnknownFormat => ErrorCodeDto::ContactImportUnknownFormat,
+            // Propre à l'écriture d'un export : jamais rendu par la lecture.
+            ContactCodecError::NotSurveyed => ErrorCodeDto::Internal,
         }),
         ImportFailure::Store(e) => match e {
             ContactStoreError::DuplicateAddress(address) => {

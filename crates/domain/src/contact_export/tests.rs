@@ -1,7 +1,7 @@
 use proptest::prelude::*;
 
 use super::*;
-use crate::contacts::{ContactInput, EmailInput, PhoneInput};
+use crate::contacts::{Contact, ContactInput, EmailInput, PhoneInput};
 
 fn email(address: &str, label: &str, preferred: bool) -> EmailInput {
     EmailInput {
@@ -822,12 +822,20 @@ fn list_members_point_to_exported_cards() {
         stored_contact(2, "b@example.com"),
         stored_contact(9, "c@example.com"),
     ];
+    let exported: Vec<ContactId> = contacts.iter().map(Contact::id).collect();
     let lists = [
         stored_list(1, "Famille", "Les cousins", &[9, 4, 7], true),
         stored_list(2, "Vide", "", &[], false),
     ];
     assert_eq!(
-        export_lists(&lists, &contacts),
+        listed_contacts(&lists),
+        [9, 4, 7]
+            .map(|n| ContactId::new(n).unwrap_or_else(|| panic!("id")))
+            .into_iter()
+            .collect()
+    );
+    assert_eq!(
+        export_lists(&lists, &exported),
         [
             ExportList {
                 name: "Famille".into(),
@@ -843,6 +851,34 @@ fn list_members_point_to_exported_cards() {
                 members: vec![],
             },
         ]
+    );
+}
+
+#[test]
+fn a_list_member_is_written_by_the_name_and_preferred_address_of_its_card() {
+    let input = ContactInput {
+        display_name: "Hélène".into(),
+        emails: vec![
+            email("autre@example.org", "", false),
+            email("helene@example.fr", "", true),
+        ],
+        phones: vec![phone("06 00 00 00 00", "")],
+        ..ContactInput::default()
+    };
+    for format in [ExportFormat::VCard4, ExportFormat::Ldif] {
+        let card = export_card(&draft(input.clone()), format);
+        assert_eq!(
+            ExportMember::of(&card),
+            ExportMember {
+                full_name: card.full_name.clone(),
+                address: Some("helene@example.fr".into()),
+            },
+            "{format:?}"
+        );
+    }
+    assert_eq!(
+        ExportMember::of(&ExportCard::default()),
+        ExportMember::default()
     );
 }
 

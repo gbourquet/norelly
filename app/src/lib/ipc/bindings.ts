@@ -298,10 +298,10 @@ export const commands = {
 	 */
 	applyContactImport: (token: number, policy: DuplicatePolicyDto) => typedError<ContactImportOutcomeDto, IpcError_Serialize>(__TAURI_INVOKE("apply_contact_import", { token, policy })),
 	/**
-	 *  Prépare et produit le fichier, ouvre le sélecteur d'enregistrement du
+	 *  Repère les contacts visés, ouvre le sélecteur d'enregistrement du
 	 *  système (titre, nom du filtre et nom de base du fichier proposé
 	 *  localisés par l'interface, le nom revalidé par le domaine) et écrit le
-	 *  fichier choisi ; `None` si l'utilisateur annule.
+	 *  fichier choisi, page par page ; `None` si l'utilisateur annule.
 	 */
 	exportContacts: (selection: ContactExportSelectionDto, format: ContactExportFormatDto, title: string, filter: string, fileName: string) => typedError<ContactExportOutcomeDto | null, IpcError_Serialize>(__TAURI_INVOKE("export_contacts", { selection, format, title, filter, fileName })),
 	/**
@@ -1555,6 +1555,11 @@ export type ErrorCodeDto =
  *  trop lourd) : exporter une sélection.
  */
 "contact_export_too_large" | 
+/**
+ *  Carnet modifié pendant l'écriture de l'export (une fiche ne tient
+ *  plus dans les colonnes repérées) : fichier abandonné, réessayer.
+ */
+"contact_export_changed" | 
 /**  Carnet trop grand pour y chercher les doublons. */
 "contact_duplicates_too_many" | 
 /**

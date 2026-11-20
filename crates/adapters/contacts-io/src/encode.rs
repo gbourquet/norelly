@@ -5,8 +5,10 @@
 
 use std::io;
 
-use norelly_domain::contact_export::MAX_EXPORT_FILE_BYTES;
-use norelly_domain::ports::ContactCodecError;
+use norelly_domain::contact_export::{
+    ExportCard, ExportFormat, ExportList, ExportMember, MAX_EXPORT_CONTACTS, MAX_EXPORT_FILE_BYTES,
+};
+use norelly_domain::ports::{ContactCodecError, ContactEncoder};
 
 pub(crate) mod csv;
 pub(crate) mod ldif;
@@ -21,6 +23,7 @@ pub(crate) struct Output {
 }
 
 impl Output {
+    #[cfg(test)]
     pub(crate) fn new() -> Self {
         Self::with_limit(MAX_EXPORT_FILE_BYTES)
     }
@@ -58,6 +61,87 @@ impl io::Write for Output {
 
     fn flush(&mut self) -> io::Result<()> {
         Ok(())
+    }
+}
+
+/// Écriture d'un fichier par pages ([`ContactEncoder`]) : chaque morceau
+/// est écrit dans une sortie bornée à ce qui reste de
+/// [`MAX_EXPORT_FILE_BYTES`] ; fiches et listes comptent ensemble dans
+/// [`MAX_EXPORT_CONTACTS`].
+#[derive(Debug)]
+pub struct Encoder {
+    format: ExportFormat,
+    layout: csv::Layout,
+    started: bool,
+    bytes: usize,
+    entries: usize,
+}
+
+impl Encoder {
+    pub(crate) fn new(format: ExportFormat) -> Self {
+        Self {
+            format,
+            layout: csv::Layout::default(),
+            started: false,
+            bytes: 0,
+            entries: 0,
+        }
+    }
+
+    /// Un morceau écrit par `write`, précédé du début du fichier s'il n'est
+    /// pas encore écrit ; `entries` fiches ou listes de plus.
+    fn chunk(
+        &mut self,
+        entries: usize,
+        write: impl FnOnce(&Self, &mut Output) -> Result<(), ContactCodecError>,
+    ) -> Result<Vec<u8>, ContactCodecError> {
+        let entries = self.entries.saturating_add(entries);
+        if entries > MAX_EXPORT_CONTACTS {
+            return Err(ContactCodecError::TooManyCards);
+        }
+        let mut out = Output::with_limit(MAX_EXPORT_FILE_BYTES.saturating_sub(self.bytes));
+        if !self.started && self.format == ExportFormat::GoogleCsv {
+            csv::encode_header(&self.layout, &mut out)?;
+        }
+        write(self, &mut out)?;
+        let bytes = out.into_bytes();
+        self.started = true;
+        self.entries = entries;
+        self.bytes = self.bytes.saturating_add(bytes.len());
+        Ok(bytes)
+    }
+}
+
+impl ContactEncoder for Encoder {
+    fn survey(&mut self, cards: &[ExportCard]) {
+        self.layout.survey(cards);
+    }
+
+    fn cards(&mut self, cards: &[ExportCard]) -> Result<Vec<u8>, ContactCodecError> {
+        self.chunk(cards.len(), |this, out| match this.format {
+            ExportFormat::VCard4 => vcard::encode_cards(cards, vcard::Version::V4, out),
+            ExportFormat::VCard3 => vcard::encode_cards(cards, vcard::Version::V3, out),
+            ExportFormat::GoogleCsv => csv::encode_rows(cards, &this.layout, out),
+            ExportFormat::Ldif => ldif::encode_cards(cards, out),
+        })
+    }
+
+    fn lists(
+        &mut self,
+        lists: &[ExportList],
+        members: &[ExportMember],
+    ) -> Result<Vec<u8>, ContactCodecError> {
+        self.chunk(lists.len(), |this, out| match this.format {
+            ExportFormat::VCard4 => vcard::encode_lists(lists, members, vcard::Version::V4, out),
+            ExportFormat::VCard3 => vcard::encode_lists(lists, members, vcard::Version::V3, out),
+            // Le CSV de Google ne porte pas de listes.
+            ExportFormat::GoogleCsv => Ok(()),
+            ExportFormat::Ldif => ldif::encode_lists(lists, members, out),
+        })
+    }
+
+    fn finish(&mut self) -> Result<Vec<u8>, ContactCodecError> {
+        self.chunk(0, |_, _| Ok(()))
     }
 }
 

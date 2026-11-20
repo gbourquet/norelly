@@ -3,10 +3,10 @@
 //! ([`FakeNfc`], [`FakeContactCodec`]) et contre l'adaptateur
 //! `contacts-io`.
 
-use std::sync::{Mutex, PoisonError};
+use std::sync::{Arc, Mutex, PoisonError};
 
 use norelly_domain::contact_export::{
-    ContactSelection, ExportCard, ExportFormat, ExportList, MAX_EXPORT_CONTACTS,
+    ContactSelection, ExportCard, ExportFormat, ExportList, ExportMember, MAX_EXPORT_CONTACTS,
     MAX_EXPORT_FILE_BYTES, export_card, exports_lists,
 };
 use norelly_domain::contact_import::{
@@ -17,7 +17,7 @@ use norelly_domain::contact_photo::{CardPhotos, EmbeddedPhoto};
 use norelly_domain::contacts::{
     ContactDraft, ContactInput, EmailInput, PhoneInput, PostalAddressInput, WebsiteInput,
 };
-use norelly_domain::ports::{ContactCodec, ContactCodecError, TextNormalizer};
+use norelly_domain::ports::{ContactCodec, ContactCodecError, ContactEncoder, TextNormalizer};
 
 /// Compositions connues du faux : forme décomposée, forme NFC.
 const COMPOSITIONS: [(&str, &str); 7] = [
@@ -111,7 +111,115 @@ pub fn text_normalizer_contract(normalizer: &impl TextNormalizer) {
 pub struct FakeContactCodec {
     pub known: Vec<u8>,
     pub decoded: DecodedContacts,
-    exported: Mutex<Vec<(Vec<u8>, DecodedContacts)>>,
+    exported: Exported,
+}
+
+/// Fichiers écrits par le faux, avec les fiches qu'ils portent.
+type Exported = Arc<Mutex<Vec<(Vec<u8>, DecodedContacts)>>>;
+
+/// Enregistre un fichier écrit par le faux : son contenu est un numéro
+/// d'ordre.
+fn record(exported: &Exported, decoded: DecodedContacts) -> Vec<u8> {
+    let mut exported = exported.lock().unwrap_or_else(PoisonError::into_inner);
+    let bytes = format!("export factice n° {}", exported.len()).into_bytes();
+    exported.push((bytes.clone(), decoded));
+    bytes
+}
+
+/// Écriture par pages du faux : garde les fiches en mémoire et écrit tout
+/// le fichier (son numéro d'ordre) à la fin, aux bornes de
+/// [`FakeContactCodec::encode`] sur le fichier entier.
+#[derive(Debug)]
+pub struct FakeContactEncoder {
+    format: ExportFormat,
+    /// Plus grands nombres d'adresses, de téléphones, d'adresses postales
+    /// et de sites repérés, et présence d'un titre, d'un anniversaire
+    /// (colonnes CSV).
+    surveyed: ([usize; 4], bool, bool),
+    cards: Vec<ExportCard>,
+    lists: Vec<ExportList>,
+    size: usize,
+    exported: Exported,
+}
+
+impl ContactEncoder for FakeContactEncoder {
+    fn survey(&mut self, cards: &[ExportCard]) {
+        for card in cards {
+            let (counts, titles, birthdays) = &mut self.surveyed;
+            for (max, n) in counts.iter_mut().zip(shape(card)) {
+                *max = (*max).max(n);
+            }
+            *titles |= card.title.is_some();
+            *birthdays |= card.birthday.is_some();
+        }
+    }
+
+    fn cards(&mut self, cards: &[ExportCard]) -> Result<Vec<u8>, ContactCodecError> {
+        let (counts, titles, birthdays) = self.surveyed;
+        let fits = |card: &ExportCard| {
+            shape(card)
+                .iter()
+                .zip(counts)
+                .enumerate()
+                // Une adresse au moins a toujours sa colonne.
+                .all(|(i, (&n, max))| n <= if i == 0 { max.max(1) } else { max })
+                && (titles || card.title.is_none())
+                && (birthdays || card.birthday.is_none())
+        };
+        if self.format == ExportFormat::GoogleCsv && !cards.iter().all(fits) {
+            return Err(ContactCodecError::NotSurveyed);
+        }
+        if self.cards.len().saturating_add(cards.len()) > MAX_EXPORT_CONTACTS {
+            return Err(ContactCodecError::TooManyCards);
+        }
+        self.size = self
+            .size
+            .saturating_add(cards.iter().map(card_size).sum::<usize>());
+        if self.size > MAX_EXPORT_FILE_BYTES {
+            return Err(ContactCodecError::TooLarge);
+        }
+        self.cards.extend_from_slice(cards);
+        Ok(Vec::new())
+    }
+
+    fn lists(
+        &mut self,
+        lists: &[ExportList],
+        members: &[ExportMember],
+    ) -> Result<Vec<u8>, ContactCodecError> {
+        let entries = self.cards.len() + self.lists.len();
+        if entries.saturating_add(lists.len()) > MAX_EXPORT_CONTACTS {
+            return Err(ContactCodecError::TooManyCards);
+        }
+        // Un membre désigne la première fiche écrite qui lui correspond,
+        // comme à la relecture d'un vrai fichier.
+        let cards = &self.cards;
+        self.lists.extend(lists.iter().map(|list| {
+            ExportList {
+                members: list
+                    .members
+                    .iter()
+                    .filter_map(|&i| {
+                        let member = members.get(i)?;
+                        cards.iter().position(|c| ExportMember::of(c) == *member)
+                    })
+                    .collect(),
+                ..list.clone()
+            }
+        }));
+        Ok(Vec::new())
+    }
+
+    fn finish(&mut self) -> Result<Vec<u8>, ContactCodecError> {
+        Ok(record(
+            &self.exported,
+            DecodedContacts {
+                format: import_format(self.format),
+                cards: imported_file(&self.cards, &self.lists, self.format),
+                photos: imported_photos(&self.cards, self.format),
+            },
+        ))
+    }
 }
 
 impl FakeContactCodec {
@@ -120,7 +228,7 @@ impl FakeContactCodec {
         Self {
             known,
             decoded,
-            exported: Mutex::default(),
+            exported: Arc::default(),
         }
     }
 }
@@ -154,18 +262,39 @@ impl ContactCodec for FakeContactCodec {
         if size > MAX_EXPORT_FILE_BYTES {
             return Err(ContactCodecError::TooLarge);
         }
-        let mut exported = self.exported.lock().unwrap_or_else(PoisonError::into_inner);
-        let bytes = format!("export factice n° {}", exported.len()).into_bytes();
-        exported.push((
-            bytes.clone(),
+        Ok(record(
+            &self.exported,
             DecodedContacts {
                 format: import_format(format),
                 cards: imported_file(cards, lists, format),
                 photos: imported_photos(cards, format),
             },
-        ));
-        Ok(bytes)
+        ))
     }
+
+    type Encoder = FakeContactEncoder;
+
+    fn encoder(&self, format: ExportFormat) -> FakeContactEncoder {
+        FakeContactEncoder {
+            format,
+            surveyed: ([0; 4], false, false),
+            cards: Vec::new(),
+            lists: Vec::new(),
+            size: 0,
+            exported: Arc::clone(&self.exported),
+        }
+    }
+}
+
+/// Nombres d'adresses, de téléphones, d'adresses postales et de sites de
+/// `card`.
+fn shape(card: &ExportCard) -> [usize; 4] {
+    [
+        card.emails.len(),
+        card.phones.len(),
+        card.postal_addresses.len(),
+        card.websites.len(),
+    ]
 }
 
 /// Taille d'une fiche pour le faux : la somme de ses textes.
@@ -534,6 +663,122 @@ pub fn contact_encoding_contract(codec: &impl ContactCodec, drafts: &[ContactDra
     for format in EXPORT_FORMATS {
         assert_eq!(
             codec.encode(&heavy, &[], format),
+            Err(ContactCodecError::TooLarge),
+            "{format:?}"
+        );
+    }
+    contact_paged_encoding_contract(codec, drafts);
+}
+
+/// Fichier de `cards` et `lists` écrit par pages de `page` fiches
+/// ([`ContactCodec::encoder`]) : repérage, fiches, listes (membres
+/// désignés par leur fiche), fin.
+pub fn encode_by_pages(
+    codec: &impl ContactCodec,
+    cards: &[ExportCard],
+    lists: &[ExportList],
+    format: ExportFormat,
+    page: usize,
+) -> Result<Vec<u8>, ContactCodecError> {
+    let page = page.max(1);
+    let members: Vec<ExportMember> = cards.iter().map(ExportMember::of).collect();
+    let mut encoder = codec.encoder(format);
+    for chunk in cards.chunks(page) {
+        encoder.survey(chunk);
+    }
+    let mut bytes = Vec::new();
+    for chunk in cards.chunks(page) {
+        bytes.extend(encoder.cards(chunk)?);
+    }
+    bytes.extend(encoder.lists(lists, &members)?);
+    bytes.extend(encoder.finish()?);
+    Ok(bytes)
+}
+
+/// Contrat de l'écriture par pages : quel que soit le découpage, le
+/// fichier se relit comme celui écrit d'un seul tenant ; les bornes
+/// portent sur le fichier entier.
+fn contact_paged_encoding_contract(codec: &impl ContactCodec, drafts: &[ContactDraft]) {
+    let lists = sample_export_lists(drafts.len());
+    for format in EXPORT_FORMATS {
+        let mut cards: Vec<ExportCard> = drafts.iter().map(|d| export_card(d, format)).collect();
+        if let Some(last) = cards.last_mut() {
+            last.photo = Some(sample_export_photo());
+        }
+        let expected = DecodedContacts {
+            format: import_format(format),
+            cards: imported_file(&cards, &lists, format),
+            photos: imported_photos(&cards, format),
+        };
+        for page in [1, 2, cards.len()] {
+            let bytes = encode_by_pages(codec, &cards, &lists, format, page)
+                .unwrap_or_else(|e| panic!("{format:?}, pages de {page} : {e}"));
+            assert!(bytes.len() <= MAX_EXPORT_FILE_BYTES);
+            assert_eq!(
+                codec.decode(&bytes).as_ref(),
+                Ok(&expected),
+                "{format:?}, pages de {page}"
+            );
+        }
+        // Un fichier sans fiche s'écrit aussi.
+        assert!(encode_by_pages(codec, &[], &[], format, 1).is_ok());
+    }
+    // Colonnes CSV repérées : une fiche qui en demande plus (modifiée
+    // depuis le repérage) est refusée, jamais tronquée.
+    let bare = export_card(&drafts[0], ExportFormat::GoogleCsv);
+    let grown = [
+        ExportCard {
+            emails: [bare.emails.clone(), bare.emails.clone()].concat(),
+            ..bare.clone()
+        },
+        ExportCard {
+            emails: bare.emails[..1].to_vec(),
+            title: Some("Nouveau titre".into()),
+            ..bare.clone()
+        },
+    ];
+    for card in grown {
+        let mut surveyed = ExportCard {
+            title: None,
+            ..bare.clone()
+        };
+        surveyed.emails.truncate(1);
+        let mut encoder = codec.encoder(ExportFormat::GoogleCsv);
+        encoder.survey(std::slice::from_ref(&surveyed));
+        assert_eq!(
+            encoder.cards(&[card]),
+            Err(ContactCodecError::NotSurveyed),
+            "fiche agrandie après le repérage"
+        );
+    }
+    // Fiches réduites à une adresse : la borne du nombre est atteinte
+    // avant celle de la taille, quel que soit le format.
+    let full = export_card(&drafts[0], ExportFormat::VCard4);
+    let tiny = ExportCard {
+        emails: full.emails[..1].to_vec(),
+        ..ExportCard::default()
+    };
+    let many = vec![tiny.clone(); MAX_EXPORT_CONTACTS + 1];
+    let nearly = vec![tiny; MAX_EXPORT_CONTACTS - 1];
+    let notes = "é".repeat(norelly_domain::contacts::MAX_CONTACT_NOTES_CHARS);
+    let heavy = ExportCard {
+        notes: Some(notes),
+        ..export_card(&drafts[0], ExportFormat::VCard4)
+    };
+    let heavy = vec![heavy; MAX_EXPORT_FILE_BYTES / 20_000 + 1];
+    for format in EXPORT_FORMATS {
+        assert_eq!(
+            encode_by_pages(codec, &many, &[], format, 1000),
+            Err(ContactCodecError::TooManyCards),
+            "{format:?}"
+        );
+        assert_eq!(
+            encode_by_pages(codec, &nearly, &lists, format, 1000),
+            Err(ContactCodecError::TooManyCards),
+            "{format:?} : listes comptées"
+        );
+        assert_eq!(
+            encode_by_pages(codec, &heavy, &[], format, 7),
             Err(ContactCodecError::TooLarge),
             "{format:?}"
         );

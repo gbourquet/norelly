@@ -262,6 +262,14 @@ impl ContactDirectory for BrokenDirectory {
     ) -> Result<Vec<Contact>, StoreError> {
         Err(StoreError("carnet illisible".into()))
     }
+
+    async fn contact_ids(
+        &self,
+        _: &norelly_domain::contact_export::ContactSelection,
+        _: usize,
+    ) -> Result<Vec<ContactId>, StoreError> {
+        Err(StoreError("carnet illisible".into()))
+    }
 }
 
 #[tokio::test]

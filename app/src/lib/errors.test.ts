@@ -183,6 +183,7 @@ describe("traduction des erreurs IPC", () => {
       contact_import_conflict: true,
       contact_export_empty: true,
       contact_export_too_large: true,
+      contact_export_changed: true,
       contact_duplicates_too_many: true,
       contact_merge_too_large: true,
       contact_merge_conflict: true,

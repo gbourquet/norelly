@@ -85,6 +85,15 @@ impl ContactDirectory for HugeBook {
             limit
         ])
     }
+
+    async fn contact_ids(
+        &self,
+        _: &ContactSelection,
+        limit: usize,
+    ) -> Result<Vec<ContactId>, StoreError> {
+        let id = ContactId::new(1).ok_or_else(|| StoreError("id".into()))?;
+        Ok(vec![id; limit])
+    }
 }
 
 #[tokio::test]

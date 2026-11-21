@@ -18,7 +18,7 @@ use norelly_domain::contact_import::{ContactCompletion, ListImport, PhotoTarget,
 use norelly_domain::contacts::{
     AddressKey, Contact, ContactDraft, ContactFilter, ContactId, ContactInput, EmailInput,
     InvisibleCleanup, MAX_CONTACT_ID, PhoneInput, PostalAddressInput, WebsiteInput,
-    clean_invisible, clean_names_imitating_address,
+    clean_invisible, clean_names_imitating_address, lookup_ids,
 };
 use norelly_domain::ports::{
     BlobId, ContactBook, ContactCursor, ContactDirectory, ContactListItem, ContactPage,
@@ -1173,6 +1173,22 @@ impl ContactDirectory for SqliteContactBook {
         self.db.read(move |c| Ok(load(c, &[id.get()])?.pop())).await
     }
 
+    async fn get_many(&self, ids: &[ContactId]) -> Result<Vec<Contact>, StoreError> {
+        let wanted: Vec<i64> = lookup_ids(ids).iter().map(|id| id.get()).collect();
+        if wanted.is_empty() {
+            return Ok(Vec::new());
+        }
+        self.db
+            .read(move |c| {
+                // Une seule transaction : fiches, détails et photos lus
+                // dans le même état du carnet. Comme `get`, une fiche
+                // invalide fait échouer la lecture.
+                let tx = c.transaction().map_err(store_error)?;
+                load(&tx, &wanted)
+            })
+            .await
+    }
+
     async fn by_addresses(&self, keys: &[AddressKey]) -> Result<Vec<Contact>, StoreError> {
         let keys: Vec<&str> = keys
             .iter()
@@ -1263,9 +1279,9 @@ impl ContactDirectory for SqliteContactBook {
 #[cfg(test)]
 mod tests {
     use norelly_test_support::contacts_contracts::{
-        contact_book_contract, contact_corruption_contract, contact_import_contract,
-        contact_page_size_contract, contact_photo_contract, contact_selection_contract,
-        full_contact, photo_id, sample_contact,
+        contact_book_contract, contact_corruption_contract, contact_get_many_contract,
+        contact_import_contract, contact_page_size_contract, contact_photo_contract,
+        contact_selection_contract, full_contact, photo_id, sample_contact,
     };
 
     use super::*;
@@ -1290,6 +1306,11 @@ mod tests {
     #[tokio::test]
     async fn contact_book_passes_selection_contract() -> Result<(), ContactStoreError> {
         contact_selection_contract(&book()).await
+    }
+
+    #[tokio::test]
+    async fn contact_book_passes_get_many_contract() -> Result<(), ContactStoreError> {
+        contact_get_many_contract(&book()).await
     }
 
     #[tokio::test]

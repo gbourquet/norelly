@@ -15,7 +15,7 @@ use norelly_domain::contact_lists::{
 };
 use norelly_domain::contacts::{
     AddressKey, Contact, ContactDraft, ContactFilter, ContactId, ContactInput, EmailInput,
-    PhoneInput, PostalAddressInput, WebsiteInput,
+    PhoneInput, PostalAddressInput, WebsiteInput, lookup_ids,
 };
 use norelly_domain::ports::{
     BlobId, ContactBook, ContactCursor, ContactDirectory, ContactListItem, ContactPage,
@@ -433,6 +433,83 @@ pub async fn contact_selection_contract<B: ContactBook + ContactDirectory>(
     Ok(())
 }
 
+/// Contrat de la lecture des fiches par identifiants
+/// ([`ContactDirectory::get_many`]), carnet vide au départ : fiches
+/// complètes, photo comprise, chacune une fois, dans l'ordre demandé,
+/// inconnues omises, au plus [`MAX_CONTACT_LOOKUP`] identifiants
+/// distincts.
+pub async fn contact_get_many_contract<B: ContactBook + ContactDirectory>(
+    book: &B,
+) -> Result<(), ContactStoreError> {
+    assert!(book.get_many(&[]).await?.is_empty());
+    let bob = book
+        .create(&sample_contact("Bob", &["bob@example.net"]))
+        .await?;
+    let alice = book.create(&full_contact()).await?;
+    let carole = book
+        .create(&sample_contact("Carole", &["carole@example.org"]))
+        .await?;
+    let unknown = ContactId::new(i64::from(u32::MAX)).unwrap_or_else(|| panic!("id"));
+    assert!(book.get_many(&[unknown]).await?.is_empty());
+
+    // Ordre demandé, pas celui de la liste ; doublons et inconnues omis.
+    let ids = [carole.id(), unknown, alice.id(), carole.id(), bob.id()];
+    assert_eq!(
+        book.get_many(&ids).await?,
+        vec![carole.clone(), alice.clone(), bob.clone()]
+    );
+
+    // Fiche complète, photo comprise, comme lue seule.
+    book.import(
+        &[],
+        &[ContactCompletion::new(alice.clone(), alice.draft().clone())],
+        &[],
+        &[PlacedPhoto {
+            target: PhotoTarget::Existing(alice.id()),
+            photo: photo_id(7),
+        }],
+    )
+    .await?;
+    let pictured = book
+        .get(alice.id())
+        .await?
+        .unwrap_or_else(|| panic!("fiche perdue"));
+    assert_eq!(pictured.photo(), Some(&photo_id(7)), "photo non placée");
+    assert_eq!(
+        book.get_many(&[bob.id(), alice.id()]).await?,
+        vec![bob.clone(), pictured.clone()]
+    );
+
+    // Borne : les MAX_CONTACT_LOOKUP premiers identifiants distincts ; les
+    // doublons ne comptent pas.
+    let mut many: Vec<ContactId> = (1..=MAX_CONTACT_LOOKUP)
+        .map(|i| {
+            let id = i64::from(u32::MAX) - i64::try_from(i).unwrap_or_else(|_| panic!("id"));
+            ContactId::new(id).unwrap_or_else(|| panic!("id"))
+        })
+        .collect();
+    many.push(bob.id());
+    assert!(
+        book.get_many(&many).await?.is_empty(),
+        "au-delà de MAX_CONTACT_LOOKUP identifiants, le reste est ignoré"
+    );
+    let mut repeated = vec![carole.id(); MAX_CONTACT_LOOKUP + 10];
+    repeated.push(bob.id());
+    assert_eq!(
+        book.get_many(&repeated).await?,
+        vec![carole.clone(), bob.clone()],
+        "les doublons ne comptent pas dans la borne"
+    );
+
+    // Fiche supprimée : omise.
+    assert!(book.delete(carole.id()).await?);
+    assert_eq!(
+        book.get_many(&[carole.id(), bob.id()]).await?,
+        vec![bob.clone()]
+    );
+    Ok(())
+}
+
 /// Identifiant de photo de test, fait de l'octet `n` répété.
 #[must_use]
 pub fn photo_id(n: u8) -> BlobId {
@@ -834,7 +911,8 @@ async fn readable_page<D: ContactDirectory>(
 /// Contrat d'une fiche relue invalide (carnet vide au départ) : `corrupt`
 /// rend illisible en base la fiche désignée. Elle seule est écartée de la
 /// liste (pages pleines, pagination menée jusqu'au bout) et des fiches
-/// cherchées par adresse ; la lecture de cette fiche reste une erreur.
+/// cherchées par adresse ; la lecture de cette fiche, seule ou parmi
+/// d'autres par identifiants, reste une erreur.
 pub async fn contact_corruption_contract<B, F, Fut>(
     book: &B,
     corrupt: F,
@@ -885,6 +963,20 @@ where
     assert_eq!(
         found.iter().map(Contact::id).collect::<Vec<_>>(),
         vec![ids[0], ids[3]]
+    );
+
+    // Fiches par identifiants : comme la lecture d'une fiche, une fiche
+    // demandée invalide fait échouer la lecture (jamais omise en silence :
+    // une liste ouverte puis enregistrée la perdrait) ; les autres restent
+    // lisibles.
+    assert!(
+        book.get_many(&[ids[3], ids[1], ids[0]]).await.is_err(),
+        "fiche invalide omise en silence"
+    );
+    let found = book.get_many(&[ids[3], ids[0]]).await?;
+    assert_eq!(
+        found.iter().map(Contact::id).collect::<Vec<_>>(),
+        vec![ids[3], ids[0]]
     );
 
     assert!(book.get(ids[1]).await.is_err(), "fiche invalide relue");
@@ -1317,6 +1409,18 @@ impl ContactDirectory for InMemoryContactBook {
         Ok(self.lock().1.iter().find(|c| c.id() == id).cloned())
     }
 
+    async fn get_many(&self, ids: &[ContactId]) -> Result<Vec<Contact>, StoreError> {
+        let wanted = lookup_ids(ids);
+        if let Some(id) = wanted.iter().find(|&&id| self.is_unreadable(id)) {
+            return Err(StoreError(format!("contact {id} corrompu")));
+        }
+        let state = self.lock();
+        Ok(wanted
+            .into_iter()
+            .filter_map(|id| state.1.iter().find(|c| c.id() == id).cloned())
+            .collect())
+    }
+
     async fn by_addresses(&self, keys: &[AddressKey]) -> Result<Vec<Contact>, StoreError> {
         let keys = &keys[..keys.len().min(MAX_CONTACT_LOOKUP)];
         Ok(self
@@ -1374,6 +1478,11 @@ mod tests {
     #[tokio::test]
     async fn in_memory_contact_book_passes_selection_contract() -> Result<(), ContactStoreError> {
         contact_selection_contract(&InMemoryContactBook::default()).await
+    }
+
+    #[tokio::test]
+    async fn in_memory_contact_book_passes_get_many_contract() -> Result<(), ContactStoreError> {
+        contact_get_many_contract(&InMemoryContactBook::default()).await
     }
 
     #[tokio::test]

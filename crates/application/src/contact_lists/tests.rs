@@ -253,3 +253,155 @@ async fn suggestions_skip_empty_lists() -> Result<(), ContactListFailure> {
     assert!(suggest.execute("zzz", 10).await?.is_empty());
     Ok(())
 }
+
+/// Annuaire qui compte ses lectures de fiches.
+#[derive(Default)]
+struct CountingDirectory {
+    inner: InMemoryContactBook,
+    /// Lectures fiche par fiche, lectures par identifiants.
+    reads: std::sync::Mutex<(usize, usize)>,
+}
+
+impl CountingDirectory {
+    fn reads(&self) -> (usize, usize) {
+        *self
+            .reads
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    fn count(&self, one: usize, many: usize) {
+        let mut reads = self
+            .reads
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        reads.0 += one;
+        reads.1 += many;
+    }
+}
+
+impl ContactDirectory for CountingDirectory {
+    async fn page(
+        &self,
+        filter: &norelly_domain::contacts::ContactFilter,
+        cursor: Option<norelly_domain::ports::ContactCursor>,
+        limit: PageSize,
+    ) -> Result<norelly_domain::ports::ContactPage, StoreError> {
+        self.inner.page(filter, cursor, limit).await
+    }
+
+    async fn get(&self, id: ContactId) -> Result<Option<Contact>, StoreError> {
+        self.count(1, 0);
+        self.inner.get(id).await
+    }
+
+    async fn get_many(&self, ids: &[ContactId]) -> Result<Vec<Contact>, StoreError> {
+        self.count(0, 1);
+        self.inner.get_many(ids).await
+    }
+
+    async fn by_addresses(
+        &self,
+        keys: &[norelly_domain::contacts::AddressKey],
+    ) -> Result<Vec<Contact>, StoreError> {
+        self.inner.by_addresses(keys).await
+    }
+
+    async fn contacts(
+        &self,
+        selection: &norelly_domain::contact_export::ContactSelection,
+        limit: usize,
+    ) -> Result<Vec<Contact>, StoreError> {
+        self.inner.contacts(selection, limit).await
+    }
+
+    async fn photo_ids(
+        &self,
+    ) -> Result<std::collections::BTreeSet<norelly_domain::ports::BlobId>, StoreError> {
+        self.inner.photo_ids().await
+    }
+}
+
+#[tokio::test]
+async fn a_full_list_is_read_in_a_single_lookup() -> Result<(), ContactListFailure> {
+    let directory = CountingDirectory::default();
+    let mut members = Vec::new();
+    for i in 0..MAX_CONTACT_LIST_MEMBERS {
+        let c = contact(
+            &directory.inner,
+            &format!("C{i:03}"),
+            &format!("c{i}@example.com"),
+        )
+        .await;
+        members.push(c.id());
+    }
+    // Ordre de la liste, pas celui du carnet.
+    members.reverse();
+    let list = directory
+        .inner
+        .create_list(&sample_list("L", &members, false))
+        .await?;
+
+    let view = GetContactList {
+        lists: &directory.inner,
+        contacts: &directory,
+    }
+    .execute(list.id())
+    .await?;
+    assert_eq!(
+        view.members.iter().map(Contact::id).collect::<Vec<_>>(),
+        members
+    );
+    assert_eq!(directory.reads(), (0, 1), "lecture fiche par fiche");
+
+    let expansion = ExpandContactList {
+        lists: &directory.inner,
+        contacts: &directory,
+    }
+    .execute(list.id())
+    .await?;
+    assert_eq!(expansion.recipients.len(), MAX_CONTACT_LIST_MEMBERS);
+    assert_eq!(directory.reads(), (0, 2), "lecture fiche par fiche");
+    Ok(())
+}
+
+/// Un membre dont la fiche est invalide n'est jamais omis en silence : la
+/// liste enregistrée depuis sa vue le perdrait, un envoi partirait sans
+/// lui.
+#[tokio::test]
+async fn an_invalid_member_fails_the_read() -> Result<(), ContactListFailure> {
+    let book = InMemoryContactBook::default();
+    let alice = contact(&book, "Alice", "alice@example.com").await;
+    let bob = contact(&book, "Bob", "bob@example.net").await;
+    let list = book
+        .create_list(&sample_list("L", &[bob.id(), alice.id()], false))
+        .await?;
+    book.corrupt(bob.id());
+    let opened = GetContactList {
+        lists: &book,
+        contacts: &book,
+    }
+    .execute(list.id())
+    .await;
+    assert!(
+        matches!(
+            opened,
+            Err(ContactListFailure::Store(ContactListStoreError::Store(_)))
+        ),
+        "{opened:?}"
+    );
+    let expanded = ExpandContactList {
+        lists: &book,
+        contacts: &book,
+    }
+    .execute(list.id())
+    .await;
+    assert!(
+        matches!(
+            expanded,
+            Err(ContactListFailure::Store(ContactListStoreError::Store(_)))
+        ),
+        "{expanded:?}"
+    );
+    Ok(())
+}

@@ -455,6 +455,10 @@ export const api = {
     policy: DuplicatePolicyDto,
   ): Promise<ContactImportOutcomeDto> => unwrap(commands.applyContactImport(token, policy)),
 
+  /** Oublie l'aperçu `token` (fenêtre fermée sans importer). */
+  discardContactImport: (token: number): Promise<void> =>
+    unwrap(commands.discardContactImport(token)).then(() => undefined),
+
   /**
    * Prépare l'export de `selection` au format `format`, ouvre le sélecteur
    * d'enregistrement (titre, nom du filtre et nom de base du fichier

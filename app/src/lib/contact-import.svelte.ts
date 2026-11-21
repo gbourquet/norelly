@@ -11,7 +11,10 @@ import type {
 } from "./ipc/api";
 import { errorText } from "./errors";
 
-export type ContactImportApi = Pick<Api, "previewContactImport" | "applyContactImport">;
+export type ContactImportApi = Pick<
+  Api,
+  "previewContactImport" | "applyContactImport" | "discardContactImport"
+>;
 
 export class ContactImportState {
   readonly #api: ContactImportApi;
@@ -71,8 +74,15 @@ export class ContactImportState {
     }
   }
 
-  /** Oublie l'aperçu (dialogue fermé). */
+  /** Oublie l'aperçu (dialogue fermé), ici et en Rust qui en libère les
+   * fiches ; la fermeture n'attend pas Rust, dont l'échec est sans effet
+   * visible (les fiches seront remplacées par le prochain aperçu). La
+   * permission de la commande est garantie par les tests d'ACL. */
   close(): void {
+    const preview = this.preview;
+    if (preview !== null) {
+      this.#api.discardContactImport(preview.token).catch(() => undefined);
+    }
     this.preview = null;
     this.error = null;
     this.busy = false;

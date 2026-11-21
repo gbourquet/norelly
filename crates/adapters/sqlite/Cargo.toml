@@ -32,5 +32,9 @@ harness = false
 name = "search"
 harness = false
 
+[[bench]]
+name = "contacts_suggestions"
+harness = false
+
 [lints]
 workspace = true

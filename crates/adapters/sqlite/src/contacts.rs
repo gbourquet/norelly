@@ -1170,7 +1170,14 @@ impl ContactDirectory for SqliteContactBook {
     }
 
     async fn get(&self, id: ContactId) -> Result<Option<Contact>, StoreError> {
-        self.db.read(move |c| Ok(load(c, &[id.get()])?.pop())).await
+        // Une seule transaction : fiche, adresses, téléphones et photo lus
+        // dans le même état du carnet.
+        self.db
+            .read(move |c| {
+                let tx = c.transaction().map_err(store_error)?;
+                Ok(load(&tx, &[id.get()])?.pop())
+            })
+            .await
     }
 
     async fn get_many(&self, ids: &[ContactId]) -> Result<Vec<Contact>, StoreError> {
@@ -1202,7 +1209,8 @@ impl ContactDirectory for SqliteContactBook {
         let (contacts, skipped) = self
             .db
             .read(move |c| {
-                let ids: Vec<i64> = c
+                let tx = c.transaction().map_err(store_error)?;
+                let ids: Vec<i64> = tx
                     .prepare_cached(
                         "SELECT id FROM contacts WHERE id IN ( \
                            SELECT contact_id FROM contact_emails \
@@ -1211,7 +1219,7 @@ impl ContactDirectory for SqliteContactBook {
                     )
                     .and_then(|mut s| s.query_map(params![list], |r| r.get(0))?.collect())
                     .map_err(store_error)?;
-                load_valid(c, &ids)
+                load_valid(&tx, &ids)
             })
             .await?;
         self.report(&skipped);
@@ -1916,6 +1924,52 @@ mod tests {
         for secret in ["Secret", "secret", "adresse"] {
             assert!(!text.contains(secret), "contenu journalisé : {text}");
         }
+        Ok(())
+    }
+
+    /// Lecture par identifiants d'une fiche invalide : une erreur qui ne
+    /// porte ni le contenu de la fiche ni celui des autres, sans rien
+    /// journaliser (l'appelant décide).
+    #[tokio::test]
+    async fn an_invalid_contact_read_by_ids_fails_without_its_content()
+    -> Result<(), ContactStoreError> {
+        let logs = CapturedLogs::default();
+        let writer = logs.clone();
+        let subscriber = tracing_subscriber::fmt()
+            .with_ansi(false)
+            .with_writer(move || writer.clone())
+            .finish();
+        let book = book();
+        let bob = book
+            .create(&sample_contact("Bob Secret", &["bob.secret@example.com"]))
+            .await?;
+        let carole = book
+            .create(&sample_contact("Carole Privée", &["carole@example.com"]))
+            .await?;
+        book.db
+            .write_for_tests(
+                "UPDATE contact_emails SET address = 'adresse-secrete' \
+                 WHERE address_key = 'bob.secret@example.com';",
+            )
+            .await?;
+        // Abonné installé après l'ouverture de la base (voir le test
+        // précédent).
+        let _guard = tracing::subscriber::set_default(subscriber);
+        let error = match book.get_many(&[carole.id(), bob.id()]).await {
+            Err(e) => e.to_string(),
+            Ok(found) => panic!("fiche invalide omise en silence : {found:?}"),
+        };
+        for secret in ["Secret", "secret", "Carole", "Privée", "example"] {
+            assert!(!error.contains(secret), "contenu dans l'erreur : {error}");
+        }
+        let text = String::from_utf8_lossy(
+            &logs
+                .0
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner),
+        )
+        .into_owned();
+        assert!(text.is_empty(), "journalisé : {text}");
         Ok(())
     }
 }

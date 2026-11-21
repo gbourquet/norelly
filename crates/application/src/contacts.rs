@@ -152,9 +152,10 @@ impl<D: ContactDirectory> NameSenders<'_, D> {
 
 /// Cas d'usage : au plus `limit` destinataires proposés pendant la saisie
 /// de `text` ([`recipient_suggestions`]) :
-/// contacts du carnet (lus par la liste, favoris puis tous, puis fiche par
-/// fiche), puis adresses collectées du compte. Un carnet illisible laisse
-/// les seules adresses collectées (avertissement journalisé).
+/// contacts du carnet (lus par la liste, favoris puis tous, puis leurs
+/// fiches complètes en une fois), puis adresses collectées du compte. Un
+/// carnet illisible laisse les seules adresses collectées (avertissement
+/// journalisé).
 #[derive(Debug)]
 pub struct SuggestRecipients<'a, Q, D> {
     pub collected: &'a Q,
@@ -205,14 +206,10 @@ impl<Q: ContactQuery, D: ContactDirectory> SuggestRecipients<'_, Q, D> {
                 }
             }
         }
-        let mut contacts = Vec::with_capacity(ids.len());
-        for id in ids {
-            // Fiche supprimée entre les deux lectures : ignorée.
-            if let Some(contact) = self.directory.get(id).await? {
-                contacts.push(contact);
-            }
-        }
-        Ok(contacts)
+        // Fiches lues en une fois ; une fiche supprimée entre les deux
+        // lectures est omise, une fiche devenue invalide rend le carnet
+        // illisible (comme sa lecture seule).
+        self.directory.get_many(&ids).await
     }
 }
 

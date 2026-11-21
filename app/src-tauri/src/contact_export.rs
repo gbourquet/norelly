@@ -103,6 +103,8 @@ pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
 /// trop), le temporaire est retiré et `path` reste intact.
 pub(crate) struct ExportFile {
     path: std::path::PathBuf,
+    /// Dossier de `path`, synchronisé après le renommage (unix seulement).
+    #[cfg(unix)]
     dir: std::path::PathBuf,
     temp: std::path::PathBuf,
     /// Fermé (`None`) une fois renommé.
@@ -126,6 +128,7 @@ impl ExportFile {
         let (temp, file) = create_temporary(dir, name)?;
         Ok(Self {
             path: path.to_path_buf(),
+            #[cfg(unix)]
             dir: dir.to_path_buf(),
             temp,
             file: Some(file),

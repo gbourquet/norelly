@@ -1,6 +1,6 @@
 //! Bench des lectures du carnet faites par les suggestions de
-//! destinataires (`SuggestRecipients`) sur un carnet synthétique de
-//! 50 000 fiches : les favoris qui passent le filtre, puis tous, au plus
+//! destinataires (`SuggestRecipients`) sur un carnet synthétique plein
+//! ([`MAX_CONTACTS`] fiches) : les favoris qui passent le filtre, puis tous, au plus
 //! 20 chacun, puis leurs fiches complètes. Seuil exigé sur la lecture des
 //! fiches trouvées (en une fois) : 10 ms (médiane) pour chaque saisie
 //! type, vérifié avant les mesures `criterion` ;
@@ -14,7 +14,8 @@ use std::time::{Duration, Instant};
 
 use criterion::{Criterion, criterion_group, criterion_main};
 use norelly_domain::contacts::{
-    Contact, ContactDraft, ContactFilter, ContactId, ContactInput, EmailInput, PhoneInput,
+    Contact, ContactDraft, ContactFilter, ContactId, ContactInput, EmailInput, MAX_CONTACTS,
+    PhoneInput,
 };
 use norelly_domain::ports::{ContactBook, ContactDirectory, MAX_CONTACT_SUGGESTIONS, PageSize};
 use norelly_sqlite::Database;
@@ -22,8 +23,10 @@ use norelly_sqlite::contacts::SqliteContactBook;
 use norelly_test_support::synthetic::Rng;
 use tokio::runtime::Runtime;
 
-/// Nombre de fiches.
-const SIZE: usize = 50_000;
+/// Nombre de fiches : le carnet le plus gros qui puisse exister.
+const SIZE: usize = MAX_CONTACTS;
+/// Seule fiche au prénom rare (« Zéphyrin »).
+const RARE: usize = 12_345;
 /// Une fiche sur `FAVORITE_EVERY` est un favori.
 const FAVORITE_EVERY: usize = 20;
 /// Seuil exigé pour la lecture des fiches trouvées.
@@ -73,14 +76,14 @@ const ORGANIZATIONS: &[&str] = &["ACME", "Initech", "Globex", "", "", ""];
 const DOMAINS: &[&str] = &["example.com", "example.org", "example.net"];
 
 /// Fiche synthétique `n` : prénom, nom, organisation, une ou deux
-/// adresses uniques, un téléphone, une note ; la fiche 31 337 porte seule
+/// adresses uniques, un téléphone, une note ; la fiche [`RARE`] porte seule
 /// le prénom « Zéphyrin ».
 fn synthetic_contact(rng: &mut Rng, n: usize) -> ContactDraft {
     let pick = |rng: &mut Rng, list: &[&str]| {
         let i = usize::try_from(rng.below(list.len() as u64)).unwrap_or(0);
         list[i].to_owned()
     };
-    let given = if n == 31_337 {
+    let given = if n == RARE {
         "Zéphyrin".to_owned()
     } else {
         pick(rng, GIVEN)

@@ -117,7 +117,7 @@ mesure unitaire.
 |---|---|---|
 | Liste : première page et changement de dossier, 50 000 messages (requête seule) | `cargo bench -p norelly-sqlite -- --test` | < 50 ms (mesuré ≈ 0,2 ms) |
 | Recherche, 50 000 messages de 300 mots | même commande (bancs `message_list` et `search`) | < 100 ms (mesuré 0,3 à 89 ms) |
-| Suggestions de destinataires, carnet de 50 000 fiches : lecture des fiches trouvées en une fois | même commande (banc `contacts_suggestions`) | < 10 ms (mesuré 0,04 à 0,6 ms) |
+| Suggestions de destinataires, carnet plein (`MAX_CONTACTS` = 25 000 fiches) : lecture des fiches trouvées en une fois | même commande (banc `contacts_suggestions`) | < 10 ms (mesuré 0,06 à 1,1 ms) |
 | Carnet plein (`MAX_CONTACTS` = 25 000 fiches) : première page, page suivante, liste filtrée | même commande (banc `contacts`) | < 50 ms (mesuré 0,7 à 18 ms) |
 | Carnet plein : suggestions de destinataires (lectures du carnet) | même commande (banc `contacts`) | < 100 ms (mesuré 13 à 45 ms) |
 | Import d'un fichier de 25 000 fiches qui remplit le carnet | même commande (banc `contacts`) | < 20 s (mesuré ≈ 2,2 s) |

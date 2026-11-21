@@ -335,6 +335,14 @@ mod tests {
         ) -> Result<Vec<norelly_domain::contacts::Contact>, StoreError> {
             Err(StoreError("carnet illisible".into()))
         }
+
+        async fn contact_ids(
+            &self,
+            _: &norelly_domain::contact_export::ContactSelection,
+            _: usize,
+        ) -> Result<Vec<norelly_domain::contacts::ContactId>, StoreError> {
+            Err(StoreError("carnet illisible".into()))
+        }
     }
 
     /// Un carnet illisible n'empêche pas la notification : le nom de

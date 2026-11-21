@@ -186,6 +186,9 @@ pub enum ErrorCodeDto {
     /// Export trop gros pour être réimporté (trop de contacts, ou fichier
     /// trop lourd) : exporter une sélection.
     ContactExportTooLarge,
+    /// Carnet modifié pendant l'écriture de l'export (une fiche ne tient
+    /// plus dans les colonnes repérées) : fichier abandonné, réessayer.
+    ContactExportChanged,
     /// Carnet trop grand pour y chercher les doublons.
     ContactDuplicatesTooMany,
     /// Fusion refusée : la fiche obtenue dépasserait les bornes d'une

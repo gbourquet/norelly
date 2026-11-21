@@ -240,6 +240,14 @@ impl ContactDirectory for EditedMeanwhile {
     ) -> Result<Vec<Contact>, StoreError> {
         self.inner.contacts(selection, limit).await
     }
+
+    async fn contact_ids(
+        &self,
+        selection: &ContactSelection,
+        limit: usize,
+    ) -> Result<Vec<ContactId>, StoreError> {
+        self.inner.contact_ids(selection, limit).await
+    }
 }
 
 impl ContactListDirectory for EditedMeanwhile {

@@ -6,7 +6,7 @@
 //! membre est le nom distinctif de sa fiche, copie cachée notée
 //! `x-norelly-bcc: TRUE`.
 
-use norelly_domain::contact_export::{ExportCard, ExportList};
+use norelly_domain::contact_export::{ExportCard, ExportList, ExportMember};
 use norelly_domain::ports::ContactCodecError;
 
 use super::Output;
@@ -100,10 +100,21 @@ const OBJECT_CLASSES: [&str; 5] = [
     "mozillaAbPersonAlpha",
 ];
 
-/// Fiches `cards` dans `out`.
+/// Fiches `cards`, puis listes `lists`, dans `out`.
+#[cfg(test)]
 pub(crate) fn encode(
     cards: &[ExportCard],
     lists: &[ExportList],
+    out: &mut Output,
+) -> Result<(), ContactCodecError> {
+    let members: Vec<ExportMember> = cards.iter().map(ExportMember::of).collect();
+    encode_cards(cards, out)?;
+    encode_lists(lists, &members, out)
+}
+
+/// Fiches `cards` dans `out`.
+pub(crate) fn encode_cards(
+    cards: &[ExportCard],
     out: &mut Output,
 ) -> Result<(), ContactCodecError> {
     for card in cards {
@@ -184,6 +195,16 @@ pub(crate) fn encode(
         }
         out.push("\r\n")?;
     }
+    Ok(())
+}
+
+/// Listes `lists` dans `out`, chaque membre désigné par son rang dans
+/// `members`.
+pub(crate) fn encode_lists(
+    lists: &[ExportList],
+    members: &[ExportMember],
+    out: &mut Output,
+) -> Result<(), ContactCodecError> {
     for list in lists {
         out.push(&line("dn", &format!("cn={}", rdn_value(&list.name))))?;
         out.push(&line("objectclass", "top"))?;
@@ -195,20 +216,29 @@ pub(crate) fn encode(
         if list.bcc {
             out.push(&line("x-norelly-bcc", "TRUE"))?;
         }
-        for card in list.members.iter().filter_map(|&i| cards.get(i)) {
-            out.push(&line("member", &dn(card)))?;
+        for member in list.members.iter().filter_map(|&i| members.get(i)) {
+            let dn = dn_of(member.full_name.as_deref(), member.address.as_deref());
+            out.push(&line("member", &dn))?;
         }
         out.push("\r\n")?;
     }
     Ok(())
 }
 
-/// Nom distinctif d'une fiche, comme Thunderbird : `cn=<nom>,mail=<adresse
-/// préférée>`, ou `mail=<adresse>` sans nom.
+/// Nom distinctif d'une fiche.
 fn dn(card: &ExportCard) -> String {
-    let preferred = card.emails.first().map_or("", |e| e.address.as_str());
-    let mail = format!("mail={}", rdn_value(preferred));
-    match &card.full_name {
+    dn_of(
+        card.full_name.as_deref(),
+        card.emails.first().map(|e| e.address.as_str()),
+    )
+}
+
+/// Nom distinctif d'une fiche de nom complet `name` et d'adresse préférée
+/// `preferred`, comme Thunderbird : `cn=<nom>,mail=<adresse préférée>`, ou
+/// `mail=<adresse>` sans nom.
+fn dn_of(name: Option<&str>, preferred: Option<&str>) -> String {
+    let mail = format!("mail={}", rdn_value(preferred.unwrap_or_default()));
+    match name {
         Some(name) => format!("cn={},{mail}", rdn_value(name)),
         None => mail,
     }

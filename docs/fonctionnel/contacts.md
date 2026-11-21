@@ -438,7 +438,18 @@ serveur de contacts (voir [synchronisation-carnet.md](synchronisation-carnet.md)
   formule ; l'import de Norelly la retire.
 - Exports refusés, avec un message clair : rien à exporter, ou plus de
   contacts (25 000) ou de données (20 Mo) qu'un import n'en accepte ; il
-  faut alors en cocher une partie.
+  faut alors en cocher une partie. Rien à exporter et trop de contacts
+  sont annoncés avant la fenêtre d'enregistrement ; trop de données ne se
+  savent qu'en écrivant le fichier, après le choix de son emplacement : le
+  fichier n'est alors pas créé, et un fichier du même nom reste intact.
+- Le carnet peut changer pendant que la fenêtre d'enregistrement est
+  ouverte : un contact ou une liste supprimé entre-temps n'est pas
+  exporté (tous les contacts supprimés : rien à exporter, annoncé après
+  le choix du fichier). En CSV, un contact qui a gagné une adresse, un
+  téléphone ou un détail sans colonne prévue n'est jamais écrit à moitié :
+  l'export s'arrête sans créer le fichier et invite à réessayer.
+- Un grand carnet s'exporte sans être chargé en entier : les contacts
+  sont lus et écrits par petits groupes.
 
 ### Fusionner les doublons
 

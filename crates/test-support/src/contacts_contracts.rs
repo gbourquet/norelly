@@ -429,7 +429,27 @@ pub async fn contact_selection_contract<B: ContactBook + ContactDirectory>(
         book.contacts(&chosen, 10).await?,
         vec![alice.clone(), carole.clone()]
     );
-    assert_eq!(book.contacts(&chosen, 1).await?, vec![alice]);
+    assert_eq!(book.contacts(&chosen, 1).await?, vec![alice.clone()]);
+
+    // Identifiants seuls (export par pages) : même ordre, mêmes bornes.
+    assert_eq!(
+        book.contact_ids(&ContactSelection::All, 10).await?,
+        vec![alice.id(), bob.id(), carole.id()]
+    );
+    assert_eq!(
+        book.contact_ids(&ContactSelection::All, 2).await?,
+        vec![alice.id(), bob.id()]
+    );
+    assert!(
+        book.contact_ids(&ContactSelection::All, 0)
+            .await?
+            .is_empty()
+    );
+    assert_eq!(
+        book.contact_ids(&chosen, 10).await?,
+        vec![alice.id(), carole.id()]
+    );
+    assert_eq!(book.contact_ids(&chosen, 1).await?, vec![alice.id()]);
     Ok(())
 }
 
@@ -1003,6 +1023,13 @@ where
         everyone.iter().map(Contact::id).collect::<Vec<_>>(),
         vec![ids[0], ids[2], ids[3]]
     );
+    // Les identifiants d'un export par pages comprennent les fiches
+    // invalides, écartées ensuite à la lecture de leur page.
+    let listed = book
+        .contact_ids(&ContactSelection::All, 10)
+        .await
+        .unwrap_or_else(|e| panic!("une fiche invalide fait échouer l'export : {e}"));
+    assert_eq!(listed, ids);
     // La fusion, qui écrit, refuse une fiche invalide.
     let stale = sample_contact("Bob", &["bob@example.com"]).with_id(ids[1]);
     assert!(
@@ -1441,6 +1468,23 @@ impl ContactDirectory for InMemoryContactBook {
             .filter(|c| match selection {
                 ContactSelection::All => true,
                 ContactSelection::Contacts(ids) => ids.contains(&c.id()),
+            })
+            .take(limit)
+            .collect())
+    }
+
+    async fn contact_ids(
+        &self,
+        selection: &ContactSelection,
+        limit: usize,
+    ) -> Result<Vec<ContactId>, StoreError> {
+        // Fiches illisibles comprises : seules leurs lectures les écartent.
+        Ok(sorted(&self.lock().1)
+            .into_iter()
+            .map(|c| c.id())
+            .filter(|id| match selection {
+                ContactSelection::All => true,
+                ContactSelection::Contacts(ids) => ids.contains(id),
             })
             .take(limit)
             .collect())

@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use norelly_domain::contacts::{ContactId, MAX_CONTACT_SELECTION};
-use norelly_domain::ports::StoreError;
+use norelly_domain::ports::{ContactCodec, StoreError};
 
 use super::*;
 
@@ -62,6 +62,28 @@ fn failures_become_codes() {
     assert_eq!(
         export_error(ExportFailure::TooMany).code,
         ErrorCodeDto::ContactExportTooLarge
+    );
+    assert_eq!(
+        export_error(ExportFailure::Codec(ContactCodecError::TooLarge)).code,
+        ErrorCodeDto::ContactExportTooLarge
+    );
+    // Carnet modifié pendant l'écriture : réessayer.
+    assert_eq!(
+        export_error(ExportFailure::Codec(ContactCodecError::NotSurveyed)).code,
+        ErrorCodeDto::ContactExportChanged
+    );
+    assert_eq!(
+        export_error(ExportFailure::Interrupted).code,
+        ErrorCodeDto::Internal
+    );
+    // La borne revérifiée à l'écriture garde le code d'un fichier trop gros.
+    assert_eq!(
+        write_error(std::io::Error::from(std::io::ErrorKind::FileTooLarge)).code,
+        ErrorCodeDto::ContactExportTooLarge
+    );
+    assert_eq!(
+        write_error(std::io::Error::other("disque plein")).code,
+        ErrorCodeDto::WriteFailed
     );
     let store = export_error(ExportFailure::Store(StoreError("disque".into())));
     assert_eq!((store.code, store.detail), (ErrorCodeDto::Storage, None));
@@ -350,5 +372,149 @@ fn opening_a_temporary_never_follows_a_link_nor_blocks() {
         rx.recv_timeout(std::time::Duration::from_secs(5)).ok(),
         Some(true)
     );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn an_export_file_written_in_pieces_replaces_the_target_once_committed() {
+    let dir = scratch("morceaux");
+    let path = dir.join("contacts.vcf");
+    assert!(write_atomic(&path, b"ancien").is_ok());
+    let mut file = ExportFile::create(&path).unwrap_or_else(|e| panic!("{e}"));
+    for piece in [&b"pre"[..], b"", b"mier"] {
+        assert!(file.write(piece).is_ok());
+    }
+    // Rien n'est remplacé avant la fin.
+    assert_eq!(std::fs::read(&path).ok().as_deref(), Some(&b"ancien"[..]));
+    assert!(file.commit().is_ok());
+    assert_eq!(std::fs::read(&path).ok().as_deref(), Some(&b"premier"[..]));
+    assert_eq!(entries(&dir), ["contacts.vcf"]);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn an_abandoned_export_file_leaves_the_target_intact_and_no_temporary() {
+    let dir = scratch("abandon");
+    let path = dir.join("contacts.ldif");
+    assert!(write_atomic(&path, b"ancien").is_ok());
+    let mut file = ExportFile::create(&path).unwrap_or_else(|e| panic!("{e}"));
+    assert!(file.write(b"en cours").is_ok());
+    // Une erreur de l'export abandonne le fichier.
+    drop(file);
+    assert_eq!(std::fs::read(&path).ok().as_deref(), Some(&b"ancien"[..]));
+    assert_eq!(entries(&dir), ["contacts.ldif"]);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn an_export_file_refuses_to_grow_past_the_bound() {
+    let dir = scratch("borne-morceaux");
+    let path = dir.join("contacts.csv");
+    let mut file = ExportFile::create(&path).unwrap_or_else(|e| panic!("{e}"));
+    let half = vec![b'x'; MAX_EXPORT_FILE_BYTES / 2 + 1];
+    assert!(file.write(&half).is_ok());
+    let refused = file.write(&half).map_err(|e| e.kind());
+    assert_eq!(refused, Err(std::io::ErrorKind::FileTooLarge));
+    // Rien de plus n'est écrit dans le temporaire.
+    let temp = dir.join(&entries(&dir)[0]);
+    assert_eq!(
+        std::fs::metadata(&temp).map(|m| m.len()).ok(),
+        u64::try_from(half.len()).ok()
+    );
+    drop(file);
+    assert!(entries(&dir).is_empty());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Format qui refuse les fiches de sa deuxième page.
+#[derive(Debug, Clone, Copy)]
+struct SecondPageRefused;
+
+/// Écriture du faux : un octet par fiche, deuxième page refusée.
+#[derive(Debug)]
+struct SecondPageEncoder(usize);
+
+impl ContactCodec for SecondPageRefused {
+    fn decode(
+        &self,
+        _: &[u8],
+    ) -> Result<norelly_domain::contact_import::DecodedContacts, ContactCodecError> {
+        Err(ContactCodecError::UnknownFormat)
+    }
+
+    fn encode(
+        &self,
+        _: &[norelly_domain::contact_export::ExportCard],
+        _: &[norelly_domain::contact_export::ExportList],
+        _: ExportFormat,
+    ) -> Result<Vec<u8>, ContactCodecError> {
+        Err(ContactCodecError::TooLarge)
+    }
+
+    type Encoder = SecondPageEncoder;
+
+    fn encoder(&self, _: ExportFormat) -> SecondPageEncoder {
+        SecondPageEncoder(0)
+    }
+}
+
+impl ContactEncoder for SecondPageEncoder {
+    fn survey(&mut self, _: &[norelly_domain::contact_export::ExportCard]) {}
+
+    fn cards(
+        &mut self,
+        cards: &[norelly_domain::contact_export::ExportCard],
+    ) -> Result<Vec<u8>, ContactCodecError> {
+        self.0 += 1;
+        if self.0 == 2 {
+            return Err(ContactCodecError::TooLarge);
+        }
+        Ok(vec![b'x'; cards.len()])
+    }
+
+    fn lists(
+        &mut self,
+        _: &[norelly_domain::contact_export::ExportList],
+        _: &[norelly_domain::contact_export::ExportMember],
+    ) -> Result<Vec<u8>, ContactCodecError> {
+        Ok(Vec::new())
+    }
+
+    fn finish(&mut self) -> Result<Vec<u8>, ContactCodecError> {
+        Ok(Vec::new())
+    }
+}
+
+#[tokio::test]
+async fn an_export_refused_midway_leaves_the_target_intact_and_no_temporary() {
+    use norelly_domain::contact_export::EXPORT_PAGE_SIZE;
+    use norelly_domain::ports::ContactBook;
+    use norelly_test_support::contact_photo_contracts::InMemoryPhotoStore;
+    use norelly_test_support::contacts_contracts::{InMemoryContactBook, sample_contact};
+
+    let book = InMemoryContactBook::default();
+    let drafts: Vec<_> = (0..=EXPORT_PAGE_SIZE)
+        .map(|i| sample_contact(&format!("c{i:04}"), &[&format!("c{i}@example.com")]))
+        .collect();
+    book.import(&drafts, &[], &[], &[])
+        .await
+        .unwrap_or_else(|e| panic!("{e}"));
+    let photos = InMemoryPhotoStore::default();
+    let mut export = PrepareContactExport {
+        directory: &book,
+        photos: &photos,
+        codec: &SecondPageRefused,
+    }
+    .execute(&ContactSelection::All, ExportFormat::VCard4)
+    .await
+    .unwrap_or_else(|e| panic!("{e}"));
+    let dir = scratch("refus-en-route");
+    let path = dir.join("contacts.vcf");
+    assert!(write_atomic(&path, b"ancien").is_ok());
+    let file = ExportFile::create(&path).unwrap_or_else(|e| panic!("{e}"));
+    let e = write_export(&mut export, file).await.err().map(|e| e.code);
+    assert_eq!(e, Some(ErrorCodeDto::ContactExportTooLarge));
+    assert_eq!(std::fs::read(&path).ok().as_deref(), Some(&b"ancien"[..]));
+    assert_eq!(entries(&dir), ["contacts.vcf"]);
     let _ = std::fs::remove_dir_all(&dir);
 }

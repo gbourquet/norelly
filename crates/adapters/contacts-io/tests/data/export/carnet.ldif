@@ -1,0 +1,182 @@
+dn:: Y249SMOpbMOobmUgTGVmw6h2cmUsbWFpbD1oZWxlbmUubGVmZXZyZUBleGFtcGxlLmZy
+objectclass: top
+objectclass: person
+objectclass: organizationalPerson
+objectclass: inetOrgPerson
+objectclass: mozillaAbPersonAlpha
+givenName:: SMOpbMOobmU=
+sn:: TGVmw6h2cmU=
+cn:: SMOpbMOobmUgTGVmw6h2cmU=
+mozillaNickName:: TMOobmU=
+mail: helene.lefevre@example.fr
+mozillaSecondEmail: helene@example.org
+mail: lene@example.net
+mobile: +33 6 11 22 33 44
+telephoneNumber: 04 77 00 00 00
+o:: TWFpcmllIGRlIFNhaW50LcOJdGllbm5l
+title:: U2VjcsOpdGFpcmUgZ8OpbsOpcmFsZSwgYWRqb2ludGUgOyDCqyBpbnTDqXJpbSDCuw==
+birthyear: 1985
+birthmonth: 04
+birthday: 12
+street:: SMO0dGVsIGRlIHZpbGxl
+mozillaWorkStreet2:: MSBwbGFjZSBkZSBsJ0jDtHRlbC1kZS1WaWxsZTsgYnVyZWF1IDMsIGF
+ pbGUgIkIi
+l:: U2FpbnQtw4l0aWVubmU=
+st: Loire
+postalCode: 42000
+c: France
+mozillaHomeStreet: 12 rue des Roses
+mozillaHomeLocalityName: Firminy
+mozillaWorkUrl: https://www.saint-etienne.example/elus?id=3&x=a,b;c
+mozillaHomeUrl: http://helene.example
+description:: UHJlbWnDqHJlIGxpZ25lCnNlY29uZGUgbGlnbmUsIGF2ZWMgOyBldCBcIGV0IC
+ JndWlsbGVtZXRzIgoJaW5kZW50w6ll
+
+dn: mail=sans-annee@example.com
+objectclass: top
+objectclass: person
+objectclass: organizationalPerson
+objectclass: inetOrgPerson
+objectclass: mozillaAbPersonAlpha
+mail: sans-annee@example.com
+title: =SUM(A1)
+birthmonth: 02
+birthday: 29
+c: -Belgique
+mozillaWorkUrl: https://example.org
+
+dn: mail=sean@example.ie
+objectclass: top
+objectclass: person
+objectclass: organizationalPerson
+objectclass: inetOrgPerson
+objectclass: mozillaAbPersonAlpha
+givenName:: U2XDoW4=
+sn: O'Brien; dit, "Jo"
+mail: sean@example.ie
+telephoneNumber: -12
+o: =HYPERLINK("http://example.com")
+description:: LW1vaW5zCkBhcm9iYXNlCitwbHVz
+
+dn: mail=anonyme@example.com
+objectclass: top
+objectclass: person
+objectclass: organizationalPerson
+objectclass: inetOrgPerson
+objectclass: mozillaAbPersonAlpha
+mail: anonyme@example.com
+description:: VW5lIG5vdGUgbG9uZ3VlIHF1aSBkw6lwYXNzZSBsYXJnZW1lbnQgc29peGFudG
+ UtcXVpbnplIG9jdGV0cywgcG91ciBmb3JjZXIgbGUgcmVwbGkgZGVzIGxpZ25lcyA6IMOpw6nDq
+ cOpw6nDqcOpw6nDqcOpw6nDqcOpw6nDqcOpw6nDqcOpw6nDqcOpw6nDqcOpIMOnw6DDucWT4oKs
+ IPCfmIDwn5iA8J+YgPCfmIDwn5iA8J+YgPCfmIDwn5iA8J+YgPCfmIAgZmluLg==
+
+dn: mail=c@example.com
+objectclass: top
+objectclass: person
+objectclass: organizationalPerson
+objectclass: inetOrgPerson
+objectclass: mozillaAbPersonAlpha
+mozillaNickName: Lolo
+mail: c@example.com
+mozillaSecondEmail: a@example.com
+mail: b@example.com
+
+dn:: Y249SMOpbMOobmUgTGVmw6h2cmUsbWFpbD1oZWxlbmUubGVmZXZyZUBleGFtcGxlLmZy
+objectclass: top
+objectclass: person
+objectclass: organizationalPerson
+objectclass: inetOrgPerson
+objectclass: mozillaAbPersonAlpha
+givenName:: SMOpbMOobmU=
+sn:: TGVmw6h2cmU=
+cn:: SMOpbMOobmUgTGVmw6h2cmU=
+mozillaNickName:: TMOobmU=
+mail: helene.lefevre@example.fr
+mozillaSecondEmail: helene@example.org
+mail: lene@example.net
+mobile: +33 6 11 22 33 44
+telephoneNumber: 04 77 00 00 00
+o:: TWFpcmllIGRlIFNhaW50LcOJdGllbm5l
+title:: U2VjcsOpdGFpcmUgZ8OpbsOpcmFsZSwgYWRqb2ludGUgOyDCqyBpbnTDqXJpbSDCuw==
+birthyear: 1985
+birthmonth: 04
+birthday: 12
+street:: SMO0dGVsIGRlIHZpbGxl
+mozillaWorkStreet2:: MSBwbGFjZSBkZSBsJ0jDtHRlbC1kZS1WaWxsZTsgYnVyZWF1IDMsIGF
+ pbGUgIkIi
+l:: U2FpbnQtw4l0aWVubmU=
+st: Loire
+postalCode: 42000
+c: France
+mozillaHomeStreet: 12 rue des Roses
+mozillaHomeLocalityName: Firminy
+mozillaWorkUrl: https://www.saint-etienne.example/elus?id=3&x=a,b;c
+mozillaHomeUrl: http://helene.example
+description:: UHJlbWnDqHJlIGxpZ25lCnNlY29uZGUgbGlnbmUsIGF2ZWMgOyBldCBcIGV0IC
+ JndWlsbGVtZXRzIgoJaW5kZW50w6ll
+
+dn: mail=sans-annee@example.com
+objectclass: top
+objectclass: person
+objectclass: organizationalPerson
+objectclass: inetOrgPerson
+objectclass: mozillaAbPersonAlpha
+mail: sans-annee@example.com
+title: =SUM(A1)
+birthmonth: 02
+birthday: 29
+c: -Belgique
+mozillaWorkUrl: https://example.org
+
+dn: mail=sean@example.ie
+objectclass: top
+objectclass: person
+objectclass: organizationalPerson
+objectclass: inetOrgPerson
+objectclass: mozillaAbPersonAlpha
+givenName:: U2XDoW4=
+sn: O'Brien; dit, "Jo"
+mail: sean@example.ie
+telephoneNumber: -12
+o: =HYPERLINK("http://example.com")
+description:: LW1vaW5zCkBhcm9iYXNlCitwbHVz
+
+dn: mail=anonyme@example.com
+objectclass: top
+objectclass: person
+objectclass: organizationalPerson
+objectclass: inetOrgPerson
+objectclass: mozillaAbPersonAlpha
+mail: anonyme@example.com
+description:: VW5lIG5vdGUgbG9uZ3VlIHF1aSBkw6lwYXNzZSBsYXJnZW1lbnQgc29peGFudG
+ UtcXVpbnplIG9jdGV0cywgcG91ciBmb3JjZXIgbGUgcmVwbGkgZGVzIGxpZ25lcyA6IMOpw6nDq
+ cOpw6nDqcOpw6nDqcOpw6nDqcOpw6nDqcOpw6nDqcOpw6nDqcOpw6nDqcOpIMOnw6DDucWT4oKs
+ IPCfmIDwn5iA8J+YgPCfmIDwn5iA8J+YgPCfmIDwn5iA8J+YgPCfmIAgZmluLg==
+
+dn: mail=c@example.com
+objectclass: top
+objectclass: person
+objectclass: organizationalPerson
+objectclass: inetOrgPerson
+objectclass: mozillaAbPersonAlpha
+mozillaNickName: Lolo
+mail: c@example.com
+mozillaSecondEmail: a@example.com
+mail: b@example.com
+
+dn:: Y249Q2x1YiBcOyBkZVwsIGxlY3R1cmUgXFwgwqsgw6l0w6kgwrsgXD0gb2s6IG91aQ==
+objectclass: top
+objectclass: groupOfNames
+cn:: Q2x1YiA7IGRlLCBsZWN0dXJlIFwgwqsgw6l0w6kgwrsgPSBvazogb3Vp
+description:: TGUgamV1ZGkgOiAyMCBoLCBzYWxsZSAiQiIgOyBlbnRyw6llIGxpYnJl
+x-norelly-bcc: TRUE
+member: mail=c@example.com
+member:: Y249SMOpbMOobmUgTGVmw6h2cmUsbWFpbD1oZWxlbmUubGVmZXZyZUBleGFtcGxlLmZ
+ y
+member: mail=sans-annee@example.com
+
+dn: cn=Vide
+objectclass: top
+objectclass: groupOfNames
+cn: Vide
+

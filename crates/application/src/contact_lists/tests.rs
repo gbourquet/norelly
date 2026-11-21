@@ -319,6 +319,14 @@ impl ContactDirectory for CountingDirectory {
         self.inner.contacts(selection, limit).await
     }
 
+    async fn contact_ids(
+        &self,
+        selection: &norelly_domain::contact_export::ContactSelection,
+        limit: usize,
+    ) -> Result<Vec<ContactId>, StoreError> {
+        self.inner.contact_ids(selection, limit).await
+    }
+
     async fn photo_ids(
         &self,
     ) -> Result<std::collections::BTreeSet<norelly_domain::ports::BlobId>, StoreError> {

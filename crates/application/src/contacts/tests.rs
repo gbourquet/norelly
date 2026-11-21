@@ -396,6 +396,142 @@ async fn many_favorites_and_contacts_stay_bounded() -> Result<(), ContactFailure
     Ok(())
 }
 
+/// Carnet en mémoire qui compte ses lectures de fiches complètes.
+#[derive(Default)]
+struct CountingDirectory {
+    inner: InMemoryContactBook,
+    /// Lectures unitaires (`get`) et lectures en lot (`get_many`).
+    reads: std::sync::Mutex<(usize, usize)>,
+    /// Fiche rendue invalide juste avant la lecture des fiches complètes,
+    /// donc après la lecture de la liste.
+    corrupt_before_read: Option<ContactId>,
+}
+
+impl CountingDirectory {
+    fn corrupt_now(&self) {
+        if let Some(id) = self.corrupt_before_read {
+            self.inner.corrupt(id);
+        }
+    }
+
+    fn reads(&self) -> (usize, usize) {
+        *self
+            .reads
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    fn count(&self, update: impl FnOnce(&mut (usize, usize))) {
+        update(
+            &mut self
+                .reads
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner),
+        );
+    }
+}
+
+impl ContactDirectory for CountingDirectory {
+    async fn photo_ids(
+        &self,
+    ) -> Result<std::collections::BTreeSet<norelly_domain::ports::BlobId>, StoreError> {
+        self.inner.photo_ids().await
+    }
+
+    async fn page(
+        &self,
+        filter: &ContactFilter,
+        cursor: Option<ContactCursor>,
+        limit: PageSize,
+    ) -> Result<ContactPage, StoreError> {
+        self.inner.page(filter, cursor, limit).await
+    }
+
+    async fn get(&self, id: ContactId) -> Result<Option<Contact>, StoreError> {
+        self.count(|r| r.0 += 1);
+        self.corrupt_now();
+        self.inner.get(id).await
+    }
+
+    async fn get_many(&self, ids: &[ContactId]) -> Result<Vec<Contact>, StoreError> {
+        self.count(|r| r.1 += 1);
+        self.corrupt_now();
+        self.inner.get_many(ids).await
+    }
+
+    async fn by_addresses(
+        &self,
+        keys: &[norelly_domain::contacts::AddressKey],
+    ) -> Result<Vec<Contact>, StoreError> {
+        self.inner.by_addresses(keys).await
+    }
+
+    async fn contacts(
+        &self,
+        selection: &norelly_domain::contact_export::ContactSelection,
+        limit: usize,
+    ) -> Result<Vec<Contact>, StoreError> {
+        self.inner.contacts(selection, limit).await
+    }
+}
+
+/// Les fiches trouvées (favoris puis toutes) sont lues en une seule fois,
+/// sans relecture fiche par fiche, dans l'ordre des suggestions.
+#[tokio::test]
+async fn suggestions_read_the_found_contacts_at_once() -> Result<(), ContactFailure> {
+    let directory = CountingDirectory::default();
+    let create = CreateContact {
+        book: &directory.inner,
+    };
+    for i in 0..6 {
+        let mut c = input(&format!("Martin {i}"), &[&format!("m{i}@example.com")]);
+        c.favorite = i == 4;
+        create.execute(c).await?;
+    }
+    let found = SuggestRecipients {
+        collected: &Collected(Vec::new()),
+        directory: &directory,
+    }
+    .execute(account(), "martin", 10)
+    .await?;
+    assert_eq!(
+        found.iter().map(|s| s.name.as_str()).collect::<Vec<_>>(),
+        [
+            "Martin 4", "Martin 0", "Martin 1", "Martin 2", "Martin 3", "Martin 5"
+        ]
+    );
+    assert_eq!(directory.reads(), (0, 1), "(lectures unitaires, en lot)");
+    Ok(())
+}
+
+/// Une fiche devenue invalide entre la liste et la lecture des fiches
+/// rend le carnet illisible, comme sa lecture seule : restent les adresses
+/// collectées.
+#[tokio::test]
+async fn a_contact_invalid_meanwhile_leaves_the_collected_addresses() -> Result<(), ContactFailure>
+{
+    let mut directory = CountingDirectory::default();
+    let create = CreateContact {
+        book: &directory.inner,
+    };
+    let alice = create
+        .execute(input("Alice Martin", &["alice@example.com"]))
+        .await?;
+    create
+        .execute(input("Bob Martin", &["bob@example.com"]))
+        .await?;
+    directory.corrupt_before_read = Some(alice.id());
+    let collected = Collected(vec![Correspondent::new("Marc", "marc@example.com")]);
+    let found = SuggestRecipients {
+        collected: &collected,
+        directory: &directory,
+    }
+    .execute(account(), "m", 10)
+    .await?;
+    assert_eq!(suggested(&found), [("Marc", "marc@example.com", false)]);
+    Ok(())
+}
+
 #[tokio::test]
 async fn an_unreadable_book_leaves_the_collected_addresses() -> Result<(), StoreError> {
     let collected = Collected(vec![Correspondent::new("Bob", "bob@example.com")]);

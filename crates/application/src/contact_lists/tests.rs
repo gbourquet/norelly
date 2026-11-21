@@ -1,6 +1,10 @@
 //! Tests des cas d'usage des listes, sur le faux en mémoire.
 
-use norelly_domain::contact_lists::{ContactListField, MAX_CONTACT_LIST_MEMBERS};
+use std::sync::{Mutex, PoisonError};
+
+use norelly_domain::contact_lists::{
+    ContactListField, MAX_CONTACT_LIST_MEMBERS, MAX_LIST_SUGGESTIONS,
+};
 use norelly_domain::ports::ContactBook;
 use norelly_test_support::contact_import_contracts::FakeNfc;
 use norelly_test_support::contact_lists_contracts::sample_list;
@@ -322,6 +326,49 @@ impl ContactDirectory for CountingDirectory {
     }
 }
 
+/// Carnet qui note les listes proposées demandées et refuse de relire une
+/// page entière.
+#[derive(Default)]
+struct SuggestionSpy {
+    asked: Mutex<Vec<(String, u32)>>,
+    found: Vec<ContactListSummary>,
+}
+
+impl ContactListDirectory for SuggestionSpy {
+    async fn list_page(
+        &self,
+        _: &ContactListFilter,
+        _: Option<ContactListCursor>,
+        _: PageSize,
+    ) -> Result<ContactListPage, StoreError> {
+        Err(StoreError("page entière relue".into()))
+    }
+
+    async fn suggested_lists(
+        &self,
+        filter: &ContactListFilter,
+        limit: PageSize,
+    ) -> Result<Vec<ContactListSummary>, StoreError> {
+        self.asked
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push((filter.text().to_owned(), limit.get()));
+        Ok(self.found.clone())
+    }
+
+    async fn get_list(&self, _: ContactListId) -> Result<Option<ContactList>, StoreError> {
+        Ok(None)
+    }
+
+    async fn lists_named(&self, _: &[String]) -> Result<Vec<ContactList>, StoreError> {
+        Ok(Vec::new())
+    }
+
+    async fn all_lists(&self, _: usize) -> Result<Vec<ContactList>, StoreError> {
+        Ok(Vec::new())
+    }
+}
+
 #[tokio::test]
 async fn a_full_list_is_read_in_a_single_lookup() -> Result<(), ContactListFailure> {
     let directory = CountingDirectory::default();
@@ -403,5 +450,38 @@ async fn an_invalid_member_fails_the_read() -> Result<(), ContactListFailure> {
         ),
         "{expanded:?}"
     );
+    Ok(())
+}
+
+#[tokio::test]
+async fn suggestions_ask_the_book_for_a_bounded_number_of_lists() -> Result<(), StoreError> {
+    let summary = |id: i64| ContactListSummary {
+        id: ContactListId::new(id).unwrap_or_else(|| panic!("{id}")),
+        name: format!("Club {id}"),
+        members: usize::from(id != 2),
+        bcc: false,
+    };
+    let spy = SuggestionSpy {
+        found: (1..=8).map(summary).collect(),
+        ..SuggestionSpy::default()
+    };
+    let suggest = SuggestContactLists { directory: &spy };
+    // Le carnet ne rend ni plus que demandé ni de liste vide ; la règle du
+    // domaine le garantit quand même.
+    let found = suggest.execute(" CLUB ", 10).await?;
+    assert_eq!(
+        found.iter().map(|l| l.id.get()).collect::<Vec<_>>(),
+        [1, 3, 4, 5, 6]
+    );
+    suggest.execute("club", 3).await?;
+    suggest.execute("  ", 10).await?;
+    suggest.execute("club", 0).await?;
+    let asked = spy
+        .asked
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .clone();
+    let max = u32::try_from(MAX_LIST_SUGGESTIONS).unwrap_or(u32::MAX);
+    assert_eq!(asked, [("club".to_owned(), max), ("club".to_owned(), 3)]);
     Ok(())
 }

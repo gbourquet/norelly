@@ -13,8 +13,8 @@ use norelly_domain::contacts::{
     AddressKey, ContactDraft, ContactFilter, ContactId, ContactInput, EmailInput,
 };
 use norelly_domain::ports::{
-    ContactCursor, ContactListBook, ContactListCursor, ContactListPage, ContactPage,
-    MAX_CONTACT_LOOKUP, PageSize,
+    ContactCursor, ContactListBook, ContactListCursor, ContactListPage, ContactListSummary,
+    ContactPage, MAX_CONTACT_LOOKUP, PageSize,
 };
 use norelly_test_support::contact_import_contracts::{FakeContactCodec, FakeNfc};
 use norelly_test_support::contact_lists_contracts::sample_list;
@@ -250,6 +250,14 @@ impl ContactListDirectory for EditedMeanwhile {
         limit: PageSize,
     ) -> Result<ContactListPage, StoreError> {
         self.inner.list_page(filter, cursor, limit).await
+    }
+
+    async fn suggested_lists(
+        &self,
+        filter: &ContactListFilter,
+        limit: PageSize,
+    ) -> Result<Vec<ContactListSummary>, StoreError> {
+        self.inner.suggested_lists(filter, limit).await
     }
 
     async fn get_list(&self, id: ContactListId) -> Result<Option<ContactList>, StoreError> {

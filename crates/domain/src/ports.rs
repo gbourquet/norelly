@@ -2063,6 +2063,17 @@ pub trait ContactListDirectory: Send + Sync {
         limit: PageSize,
     ) -> impl Future<Output = Result<ContactListPage, StoreError>> + Send;
 
+    /// Listes proposées à la saisie d'un destinataire : au plus `limit`
+    /// listes lisibles ([`PageSize`], donc au plus [`MAX_PAGE_SIZE`]) qui
+    /// passent `filter` et ont au moins un membre, dans l'ordre de
+    /// [`ContactListCursor`] ; une liste vide ou écartée (corrompue)
+    /// n'entame pas la limite.
+    fn suggested_lists(
+        &self,
+        filter: &ContactListFilter,
+        limit: PageSize,
+    ) -> impl Future<Output = Result<Vec<ContactListSummary>, StoreError>> + Send;
+
     /// Liste complète (membres dans leur ordre).
     fn get_list(
         &self,

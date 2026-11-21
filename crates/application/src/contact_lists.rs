@@ -12,7 +12,8 @@
 
 use norelly_domain::contact_lists::{
     ContactList, ContactListDraft, ContactListError, ContactListFilter, ContactListId,
-    ContactListInput, Expansion, MAX_CONTACT_LIST_MEMBERS, expand, list_suggestions,
+    ContactListInput, Expansion, MAX_CONTACT_LIST_MEMBERS, expand, list_suggestion_limit,
+    list_suggestions,
 };
 use norelly_domain::contacts::{Contact, ContactId};
 use norelly_domain::ports::{
@@ -179,17 +180,18 @@ impl<D: ContactListDirectory> SuggestContactLists<'_, D> {
         text: &str,
         limit: usize,
     ) -> Result<Vec<ContactListSummary>, StoreError> {
-        let filter = ContactListFilter::new(text);
-        if filter.text().is_empty() || limit == 0 {
+        let wanted = list_suggestion_limit(text, limit);
+        if wanted == 0 {
             return Ok(Vec::new());
         }
-        // Les listes vides sont écartées après lecture : en lire un peu
-        // plus que demandé.
-        let page = self
+        let found = self
             .directory
-            .list_page(&filter, None, PageSize::MAX)
+            .suggested_lists(
+                &ContactListFilter::new(text),
+                PageSize::new(u32::try_from(wanted).unwrap_or(u32::MAX)),
+            )
             .await?;
-        Ok(list_suggestions(text, &page.items, limit))
+        Ok(list_suggestions(text, &found, limit))
     }
 }
 

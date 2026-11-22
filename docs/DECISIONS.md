@@ -997,3 +997,80 @@ est majoritairement écrit par Claude et relu par le mainteneur.
     (Radicale, Baïkal, Xandikos sont sous GPL) ; l'e2e utilise un faux
     serveur CardDAV en Node.js sur le réseau interne, de certificat signé
     par une autorité de test limitée à son nom.
+
+## ADR-015 : notifications natives par `notify-rust`, sans zbus
+
+- **Statut** : Acceptée (2026-11-22). Dérogation validée par le
+  mainteneur le 2026-11-22 : les notifications ne passent pas par le
+  plugin officiel de Tauri (ADR-001).
+- **Contexte** : les notifications des nouveaux messages passaient par
+  `tauri-plugin-notification`. Sous Linux, ce plugin tire zbus 5, dont
+  `zvariant`, `zbus_names` et `zvariant_derive` sont signalés non
+  maintenus (RUSTSEC-2026-0370 à 0372). `cargo deny` refuse ces avis
+  (ADR-009) : la vérification échouait.
+- **Options** :
+  - `tauri-plugin-notification`, avec les avis ignorés dans `deny.toml` ;
+  - `tauri-plugin-notification` tel quel, ce qui bloque `cargo deny` tant
+    qu'il tire zbus 5 ;
+  - `notify-rust` sans zbus, sur la libdbus du système.
+- **Décision** : **`notify-rust`** 4, sans ses fonctionnalités par défaut
+  (`default-features = false`) et avec la seule fonctionnalité `d` :
+  D-Bus par la libdbus du système (crate `dbus`), sans zbus ni libdbus
+  embarquée. L'appel est fait en Rust seulement, par la commande
+  `show_notification` (`app/src-tauri/src/settings.rs`). Aucune
+  permission de plugin n'est accordée à l'interface : elle n'a droit
+  qu'à cette commande de l'application, comme aux autres
+  (`permissions/main-window.toml`).
+- **Conséquences** :
+  - Le texte est composé par l'interface, dans la langue de l'utilisateur
+    (ADR-011), à partir de l'événement de nouveaux messages déjà filtré en
+    Rust (contenu retiré si l'utilisateur masque l'expéditeur et le
+    sujet). La commande revalide ce texte : caractères de contrôle et de
+    mise en forme remplacés, longueur bornée (titre 120 caractères, texte
+    300, avant échappement), puis `&`, `<` et `>` échappés dans le titre
+    et le texte sous Linux, où le serveur de notifications freedesktop
+    peut interpréter un balisage (liens, images). Aucun secret ni
+    identifiant n'y figure. Un échec d'affichage (pas de service de
+    notification) est seulement journalisé, sans le texte.
+  - Risque restant accepté : certains serveurs de notifications rendent
+    cliquable une adresse écrite en clair (par exemple dans un sujet). Rien
+    n'est chargé sans clic, et le lien s'ouvre hors de Norelly.
+  - Linux : dépendance à la libdbus du système, à l'exécution et à la
+    compilation. Paquets `libdbus-1-3` (.deb) et `dbus-libs` (.rpm)
+    déclarés dans `app/src-tauri/tauri.conf.json` ; `libdbus-1-dev` dans
+    la CI (`ci.yml`, `nightly.yml`, `release.yml`), dans l'image de l'e2e
+    (`app/e2e/Dockerfile`) et dans `premiers-pas.md`. Flatpak : libdbus est
+    fournie par le runtime GNOME ; le manifeste accorde
+    `--talk-name=org.freedesktop.Notifications` (portée limitée au
+    service de notifications). La même libdbus sert déjà au trousseau
+    (magasin Secret Service, choisi pour la même raison). Sa licence
+    (AFL-2.1 ou GPL-2.0+, au choix) est prise sous AFL et la bibliothèque
+    est liée dynamiquement : compatible avec l'ADR-009.
+  - Windows : notification « toast » par WinRT (`tauri-winrt-notification`),
+    sans D-Bus. Le nom passé par `appname` n'y sert pas et aucun
+    identifiant d'application (`app_id`) n'est fixé : la notification est
+    attribuée à l'identifiant par défaut de `notify-rust` (celui de
+    Windows PowerShell), et non à Norelly. Effets : l'utilisateur voit
+    « Windows PowerShell » comme origine, ce qui aide un autre programme
+    à se faire passer pour Norelly ; couper les notifications de
+    PowerShell coupe celles de Norelly, et inversement ; un clic sur la
+    notification active l'application liée à cet identifiant (non
+    vérifié sous Windows). Fixer l'identifiant de l'application
+    (`io.github.gbourquet.Norelly`) suppose que l'installateur NSIS le
+    pose sur le raccourci, et masquerait les notifications là où il n'est
+    pas enregistré (lancement de développement) : correction à vérifier
+    sur un Windows installé avant d'être faite.
+  - L'application ne dépend plus d'aucune version de zbus : un retour de
+    zbus 5 non maintenu, par une nouvelle dépendance, ferait de nouveau
+    échouer `cargo deny`.
+- **Alternatives écartées** :
+  - exception RUSTSEC dans `deny.toml` : les crates concernés seraient
+    livrés dans l'application, alors qu'un remplacement sans exception
+    existe ;
+  - plugin officiel `tauri-plugin-notification` : tire zbus 5 ; il
+    exposerait en outre des permissions de plugin à l'interface, inutiles
+    ici.
+- **Réexamen** : revenir au plugin officiel quand zbus et ses crates
+  (`zvariant`, `zbus_names`, `zvariant_derive`) seront de nouveau
+  maintenus et acceptés par `cargo deny` sans exception. La même condition vaut pour
+  `tauri-plugin-opener` (ADR-004) et le portail Secret (ADR-006).

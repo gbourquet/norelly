@@ -1,6 +1,6 @@
 # Privacy policy
 
-*Version française : [politique-de-confidentialite.md](politique-de-confidentialite.md).*
+*[Version française](politique-de-confidentialite.md)*
 
 Norelly is an email client that runs locally on your device. This policy
 describes the data Norelly processes and how it is processed. It covers

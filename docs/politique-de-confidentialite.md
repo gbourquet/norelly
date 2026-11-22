@@ -1,6 +1,6 @@
 # Politique de confidentialité
 
-*English version: [privacy-policy.md](privacy-policy.md).*
+*[English version](privacy-policy.md)*
 
 Norelly est un client de messagerie qui s'exécute localement sur votre
 appareil. Cette politique décrit les données que Norelly traite et la

@@ -445,7 +445,7 @@ impl<M: MailStore + PendingOpStore, B: BlobStore> SyncAccount<'_, M, B> {
             let mut progressed = false;
             for pending in pending {
                 // Gmail : corps déjà téléchargé dans un autre dossier du
-                // compte, recopié au lieu d'être téléchargé (ADR-015).
+                // compte, recopié au lieu d'être téléchargé (ADR-016).
                 if let Some(reuse) =
                     BodyReuse::for_pending(self.account, session.capabilities(), &pending)
                     && self.store.reuse_body(mailbox, pending.uid, &reuse).await?

@@ -68,7 +68,7 @@ allow-wildcard-paths = true
 unknown-registry = "deny"
 unknown-git = "deny"
 # Seule source git admise : le fork d'imap-codec et imap-types (variantes
-# X-GM-MSGID, ADR-015), figé par commit dans le `[patch.crates-io]` du
+# X-GM-MSGID, ADR-016), figé par commit dans le `[patch.crates-io]` du
 # Cargo.toml racine. Exception validée par le mainteneur le 2026-11-22 : à
 # retirer au retour à une version publiée sur crates.io.
 allow-git = ["https://github.com/gbourquet/imap-codec"]

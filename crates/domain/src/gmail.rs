@@ -1,4 +1,4 @@
-//! Messages Gmail présents dans plusieurs dossiers (ADR-015).
+//! Messages Gmail présents dans plusieurs dossiers (ADR-016).
 //!
 //! Gmail expose le même message dans « Tous les messages » et dans chaque
 //! dossier d'étiquette, sous un identifiant unique et stable,

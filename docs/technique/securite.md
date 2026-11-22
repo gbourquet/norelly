@@ -410,9 +410,9 @@ reçus de l'interface ; types MIME recalculés.
   refuse un verrou du fuzzing périmé.
 - Sources : crates.io seulement, plus une seule source git admise
   (`allow-git`, `unknown-git = "deny"`) : le fork `gbourquet/imap-codec`
-  d'`imap-codec`/`imap-types` (ADR-015), figé par commit complet dans le
+  d'`imap-codec`/`imap-types` (ADR-016), figé par commit complet dans le
   `[patch.crates-io]` du `Cargo.toml` racine.
-- Identifiant Gmail (`X-GM-MSGID`, ADR-015) : lu seulement si la session
+- Identifiant Gmail (`X-GM-MSGID`, ADR-016) : lu seulement si la session
   annonce `X-GM-EXT-1` ; un corps n'est recopié qu'entre messages du même
   compte, de même identifiant et de même taille. Un serveur qui ment ne
   peut afficher, dans son propre compte, qu'un contenu qu'il a lui-même

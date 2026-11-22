@@ -1,4 +1,4 @@
--- Version 29 : identifiant Gmail des messages (ADR-015).
+-- Version 29 : identifiant Gmail des messages (ADR-016).
 --
 -- gmail_msgid : X-GM-MSGID, identifiant unique et stable d'un message Gmail,
 -- le même dans tous les dossiers du compte ; NULL si le serveur n'annonce

@@ -59,7 +59,7 @@ ring = "0.17"
 rcgen = { version = "0.14", default-features = false, features = ["crypto", "ring", "pem"] }
 # Protocoles
 imap-next = { version = "0.3.4", default-features = false, features = ["starttls", "ext_condstore_qresync"] }
-# Déclaré pour la seule feature `ext_gmail` (X-GM-MSGID, ADR-015), absente
+# Déclaré pour la seule feature `ext_gmail` (X-GM-MSGID, ADR-016), absente
 # d'imap-next ; même version que celle tirée par imap-next.
 imap-codec = { version = "2.0.0-alpha.9", default-features = false, features = ["ext_gmail"] }
 # Sans backend TLS : la négociation TLS est faite par norelly-tls, le flux
@@ -113,12 +113,12 @@ todo = "warn"
 [profile.dev.package."*"]
 opt-level = 1
 
-# Fork d'imap-codec et imap-types (ADR-015) : variantes `X-GM-MSGID` de
+# Fork d'imap-codec et imap-types (ADR-016) : variantes `X-GM-MSGID` de
 # l'extension Gmail `X-GM-EXT-1` (feature `ext_gmail`), absentes des
 # versions publiées. Branche `gmail-x-gm-msgid` partie du tag
 # `imap-codec/v2.0.0-alpha.9`, figée par commit ; s'applique aussi à la
 # copie tirée par imap-next. Retour à crates.io dès qu'une version publiée
-# contient ces variantes (ADR-015).
+# contient ces variantes (ADR-016).
 [patch.crates-io]
 imap-codec = { git = "https://github.com/gbourquet/imap-codec", rev = "9c6a1eccf673f0df749d6ba56eb60353411e9028" }
 imap-types = { git = "https://github.com/gbourquet/imap-codec", rev = "9c6a1eccf673f0df749d6ba56eb60353411e9028" }

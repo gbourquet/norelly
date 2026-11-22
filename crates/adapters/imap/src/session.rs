@@ -694,7 +694,7 @@ impl Connection {
         if condstore {
             names.push(MessageDataItemName::ModSeq);
         }
-        // Identifiant Gmail : seulement si X-GM-EXT-1 est annoncé (ADR-015).
+        // Identifiant Gmail : seulement si X-GM-EXT-1 est annoncé (ADR-016).
         if gmail {
             names.push(MessageDataItemName::XGmMsgId);
         }

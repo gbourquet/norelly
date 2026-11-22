@@ -38,7 +38,7 @@ jobs:
           # Cache enregistré depuis master seulement : les caches de PR
           # (2 Go chacun) évinçaient celui de master (10 Go par dépôt).
           save-if: ${{ github.ref == 'refs/heads/master' }}
-      - uses: taiki-e/install-action@c509219cf42fba86913069efd0ade2458c59337b # v2
+      - uses: taiki-e/install-action@ab49d3c64680143e184118bed66a46419fc15519 # v2
         with:
           tool: cargo-nextest@0.9.151,cargo-deny@0.20.2,cargo-llvm-cov@0.9.1
           # Binaire du manifeste de l'action (somme SHA-256 vérifiée), sans repli.
@@ -171,7 +171,7 @@ jobs:
           # Cache enregistré depuis master seulement : les caches de PR
           # (2 Go chacun) évinçaient celui de master (10 Go par dépôt).
           save-if: ${{ github.ref == 'refs/heads/master' }}
-      - uses: taiki-e/install-action@c509219cf42fba86913069efd0ade2458c59337b # v2
+      - uses: taiki-e/install-action@ab49d3c64680143e184118bed66a46419fc15519 # v2
         with:
           tool: cargo-nextest@0.9.151,cargo-deny@0.20.2,cargo-llvm-cov@0.9.1
           # Binaire du manifeste de l'action (somme SHA-256 vérifiée), sans repli.

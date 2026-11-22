@@ -39,6 +39,8 @@ struct Message {
     flags: Flags,
     modseq: u64,
     internal_date: i64,
+    /// `X-GM-MSGID`, rendu seulement si `X-GM-EXT-1` est annoncé.
+    gmail_id: Option<u64>,
 }
 
 #[derive(Debug, Clone)]
@@ -103,6 +105,10 @@ struct State {
     permanent_flags: Option<Vec<String>>,
     /// `UID STORE` de mots-clés sur un ensemble : tailles des ensembles.
     keyword_stores: Vec<usize>,
+    /// `X-GM-EXT-1` annoncé (serveur Gmail).
+    gmail: bool,
+    /// Corps téléchargés (`fetch_body`), toutes sessions.
+    body_fetches: usize,
 }
 
 impl State {
@@ -169,6 +175,8 @@ impl FakeImap {
                 .to_vec(),
             ),
             keyword_stores: Vec::new(),
+            gmail: false,
+            body_fetches: 0,
         };
         Self {
             state: Arc::new(Mutex::new(state)),
@@ -198,6 +206,18 @@ impl FakeImap {
     pub fn set_permanent_flags(&self, tokens: Option<&[&str]>) {
         lock(&self.state).permanent_flags =
             tokens.map(|t| t.iter().map(|s| (*s).to_owned()).collect());
+    }
+
+    /// Annonce (ou masque) `X-GM-EXT-1` : les identifiants Gmail des
+    /// messages sont alors rendus avec les métadonnées.
+    pub fn set_gmail(&self, gmail: bool) {
+        lock(&self.state).gmail = gmail;
+    }
+
+    /// Nombre de corps téléchargés depuis la création du serveur.
+    #[must_use]
+    pub fn body_fetches(&self) -> usize {
+        lock(&self.state).body_fetches
     }
 
     /// Tailles des ensembles d'UID reçus par `store_keyword`, dans l'ordre.
@@ -316,6 +336,30 @@ impl FakeImap {
 
     /// Ajoute un message ; renvoie son UID.
     pub fn append(&self, name: &str, raw: &[u8], flags: Flags, internal_date: i64) -> Option<Uid> {
+        self.append_message(name, raw, flags, internal_date, None)
+    }
+
+    /// Ajoute un message d'identifiant Gmail `gmail_id` (`X-GM-MSGID`) ;
+    /// renvoie son UID.
+    pub fn append_gmail(
+        &self,
+        name: &str,
+        raw: &[u8],
+        flags: Flags,
+        internal_date: i64,
+        gmail_id: u64,
+    ) -> Option<Uid> {
+        self.append_message(name, raw, flags, internal_date, Some(gmail_id))
+    }
+
+    fn append_message(
+        &self,
+        name: &str,
+        raw: &[u8],
+        flags: Flags,
+        internal_date: i64,
+        gmail_id: Option<u64>,
+    ) -> Option<Uid> {
         let uid_value = {
             let mut s = lock(&self.state);
             let m = s.mailbox(name)?;
@@ -328,6 +372,7 @@ impl FakeImap {
                     flags,
                     modseq: m.modseq,
                     internal_date,
+                    gmail_id,
                 },
             );
             m.uid_next += 1;
@@ -414,6 +459,9 @@ impl FakeImap {
         }
         if s.idle {
             tokens.push("IDLE");
+        }
+        if s.gmail {
+            tokens.push(norelly_domain::gmail::GMAIL_EXTENSION);
         }
         ServerCapabilities::from_imap(tokens)
     }
@@ -766,6 +814,7 @@ impl RemoteMailboxSession for FakeImapSession {
     async fn fetch_meta(&mut self, uids: &[Uid]) -> Result<Vec<MessageMeta>, ConnectionError> {
         let name = self.selected_name()?;
         let condstore = self.extensions.condstore;
+        let gmail = norelly_domain::gmail::gmail_ids_enabled(&self.capabilities);
         let trust = self.trust.clone();
         self.throttle().await;
         let mut s = self.step()?;
@@ -787,7 +836,10 @@ impl RemoteMailboxSession for FakeImapSession {
                     size: u32::try_from(msg.raw.len()).unwrap_or(u32::MAX),
                     headers: headers_of(&msg.raw, &trust),
                     structure: None,
-                    gmail_id: None,
+                    gmail_id: msg
+                        .gmail_id
+                        .filter(|_| gmail)
+                        .and_then(norelly_domain::gmail::GmailMessageId::new),
                 })
             })
             .collect())
@@ -802,9 +854,10 @@ impl RemoteMailboxSession for FakeImapSession {
         self.throttle().await;
         let mut s = self.step()?;
         let m = s.mailbox(&name).ok_or(ConnectionError::Closed)?;
-        let Some(msg) = m.messages.get(&target.get()) else {
+        let Some(msg) = m.messages.get(&target.get()).cloned() else {
             return Ok(None);
         };
+        s.body_fetches += 1;
         Ok(Some(match fetch {
             BodyFetch::Full => FetchedBody::Full(msg.raw.clone()),
             BodyFetch::Partial { parts, .. } => {

@@ -122,8 +122,9 @@ Mise en place par le mainteneur, une fois :
    write** (celle qu'exige l'API
    `POST /repos/{owner}/{repo}/actions/workflows/{workflow}/dispatches`),
    aucune autre (Metadata en lecture est ajoutée d'office), avec une date
-   d'expiration. Ce jeton peut lancer les workflows du site, jamais
-   modifier son contenu.
+   d'expiration courte. Ce jeton ne peut pas modifier le code du site ;
+   il peut en revanche lancer, annuler, relancer ou désactiver ses
+   workflows et supprimer ses artefacts, journaux et caches.
 2. Dans ce dépôt, créer l'environnement GitHub **`site`**, limité aux tags
    `v*` (*Deployment branches and tags*), sans relecture obligatoire, et y
    ranger le jeton sous le nom **`SITE_DISPATCH_TOKEN`**.

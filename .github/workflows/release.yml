@@ -22,8 +22,10 @@
 # (lancement de son workflow `deploy.yml` sur `main`, ADR-017), qui se
 # reconstruit au dernier tag de version. Secret SITE_DISPATCH_TOKEN de
 # l'environnement GitHub `site` : jeton d'accès fin limité au dépôt
-# norelly-site, permission « Actions: write » seulement (lancer un
-# workflow, jamais écrire dans le dépôt).
+# norelly-site, permission « Actions: write » seulement : il ne peut pas
+# modifier le code du site, mais peut lancer, annuler ou désactiver ses
+# workflows et supprimer ses artefacts, journaux et caches (voir
+# docs/technique/securite.md).
 name: Release
 
 on:

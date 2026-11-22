@@ -526,9 +526,13 @@ reçus de l'interface ; types MIME recalculés.
   `site`, limité aux tags `v*`) : jeton fin limité à
   `gbourquet/norelly-site`, permission « Actions » en écriture
   seulement : il lance le workflow `deploy.yml` du site sur `main`
-  (`workflow_dispatch`), sans pouvoir écrire dans ce dépôt ni changer les
-  liens de téléchargement de norelly.fr ; le déploiement reste soumis à la
-  relecture de l'environnement `production` du site. Aucune donnée
+  (`workflow_dispatch`), sans pouvoir modifier le code du site ni donc les
+  liens de téléchargement de norelly.fr. Volé, il permettrait encore de
+  lancer un workflow du site sur une autre branche, d'annuler, relancer ou
+  désactiver ses workflows, et de supprimer artefacts, journaux et caches
+  (blocage d'une mise en ligne) ; l'envoi sur le serveur n'a lieu que
+  depuis `main`, pour le dernier commit, après relecture de
+  l'environnement `production`, et le jeton expire vite. Aucune donnée
   transmise : le site relit lui-même le dernier tag de version. Le tag est
   revérifié (version stable) avant l'envoi. Secret absent ou réponse autre
   que 204 : échec explicite. Les tags `v*` sont protégés par une règle du

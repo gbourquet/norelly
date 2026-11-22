@@ -237,6 +237,11 @@ de dépendances à la racine, resynchroniser en repartant du verrou racine :
 `libfuzzer-sys` et `arbitrary`, à relire dans le diff). Le job nocturne
 refuse un verrou périmé avant de compiler.
 
+`./scripts/check.sh full` compile aussi toutes les cibles
+(`cargo check --manifest-path fuzz/Cargo.toml --locked --bins`, Rust
+stable) : un changement d'API qui casserait une cible se voit dans la PR,
+pas seulement au job nocturne.
+
 ## Tests manuels
 
 Ce que l'automatisation ne peut pas vérifier (vrais fournisseurs,

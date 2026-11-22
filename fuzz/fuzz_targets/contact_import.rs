@@ -13,7 +13,7 @@ fuzz_target!(|bytes: &[u8]| {
     };
     assert!(decoded.cards.len() <= MAX_IMPORT_CARDS);
     for policy in [DuplicatePolicy::Skip, DuplicatePolicy::Complete] {
-        let plan = plan_import(&[], &decoded.cards, policy, &IcuNfc);
+        let plan = plan_import(&[], &[], &decoded.cards, policy, &IcuNfc);
         assert!(plan.create.len() + plan.rejected.len() + plan.duplicates <= decoded.cards.len());
     }
 });

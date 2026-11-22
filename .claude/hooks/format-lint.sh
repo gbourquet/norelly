@@ -22,7 +22,11 @@ case "$rel" in
     while [ "$dir" != "$root" ] && [ ! -f "$dir/Cargo.toml" ]; do dir=$(dirname "$dir"); done
     pkg=$(sed -n 's/^name *= *"\(.*\)"/\1/p' "$dir/Cargo.toml" | head -1)
     [ -n "$pkg" ] || exit 0
-    out=$(cd "$root" && cargo clippy -p "$pkg" --all-targets --quiet --message-format short -- -D warnings 2>&1)
+    # Crate d'un workspace à part (fuzz/) : clippy sur son propre manifeste.
+    manifest=()
+    ws=$(cd "$dir" && cargo locate-project --workspace --message-format plain 2>/dev/null)
+    [ "$ws" = "$root/Cargo.toml" ] || manifest=(--manifest-path "$dir/Cargo.toml")
+    out=$(cd "$root" && cargo clippy "${manifest[@]}" -p "$pkg" --all-targets --quiet --message-format short -- -D warnings 2>&1)
     [ $? -eq 0 ] || fail "clippy ($pkg) :
 $(grep -E '^(error|warning)|^[^ ].*\.rs:[0-9]+' <<<"$out" | head -30)"
     ;;

@@ -78,13 +78,13 @@ fuzz_target!(|bytes: &[u8]| {
     let Ok(decoded) = ContactsIo.decode(bytes) else {
         return;
     };
-    let plan = plan_import(&[], &decoded.cards, DuplicatePolicy::Skip, &IcuNfc);
+    let plan = plan_import(&[], &[], &decoded.cards, DuplicatePolicy::Skip, &IcuNfc);
     if plan.create.is_empty() {
         return;
     }
     for format in FORMATS {
         let cards: Vec<ExportCard> = plan.create.iter().map(|d| export_card(d, format)).collect();
-        let Ok(written) = ContactsIo.encode(&cards, format) else {
+        let Ok(written) = ContactsIo.encode(&cards, &[], format) else {
             continue;
         };
         assert!(written.len() <= MAX_EXPORT_FILE_BYTES);

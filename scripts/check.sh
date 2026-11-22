@@ -64,6 +64,9 @@ step "Front : lint";           pnpm -C app lint
 step "Front : tests (couverture)"; pnpm -C app coverage
 
 if [ "$mode" = "full" ]; then
+  # Cibles de fuzzing (workspace à part, jouées par le job nocturne) :
+  # compilées ici pour qu'un changement d'API ne les casse pas en silence.
+  step "Fuzzing : cibles compilées"; cargo check --manifest-path fuzz/Cargo.toml --locked --bins
   # Réseau : chaque empreinte d'action est celle d'une étiquette amont de
   # la version annoncée en commentaire.
   step "Actions GitHub : empreintes amont"; node scripts/check-actions.mjs --upstream

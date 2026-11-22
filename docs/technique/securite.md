@@ -376,9 +376,10 @@ reçus de l'interface ; types MIME recalculés.
   `remote-img://`…) comptent comme locaux pour l'ACL de Tauri : une requête
   présentée avec une telle origine sur la fenêtre `main` serait accordée.
   L'isolation de `mailview://` ne repose donc pas sur la capability, mais
-  sur le cadre sans `allow-same-origin` (origine `null`, refusée par l'IPC),
-  l'absence de la clé d'invocation dans le cadre et la CSP (e2e
-  `reading-security`).
+  sur le cadre sans `allow-same-origin` (origine `null`, refusée par le
+  transport IPC par protocole), l'absence de la clé d'invocation dans le
+  cadre et la CSP (e2e `reading-security`) ; sur le transport de repli par
+  `postMessage`, seules la clé absente et la CSP protègent.
 - Le raccourci des outils de développement que Tauri ajoute en
   développement (Ctrl+Maj+I) est refusé ; ils restent ouverts par le clic
   droit. La commande n'existe pas dans les versions publiées.

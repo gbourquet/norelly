@@ -514,7 +514,9 @@ async fn a_message_waiting_for_an_action_gets_no_reused_body() -> Result<(), Sto
         new: vec![message],
         state: state(1, 1, 100),
     };
-    store.apply_sync(all, &batch(gmail_message(1, 42, 500, true))).await?;
+    store
+        .apply_sync(all, &batch(gmail_message(1, 42, 500, true)))
+        .await?;
     store
         .apply_sync(projets, &batch(gmail_message(10, 42, 500, false)))
         .await?;
@@ -565,7 +567,9 @@ async fn a_provisional_copy_is_never_a_body_source() -> Result<(), StoreError> {
         new: vec![message],
         state: state(1, 1, 100),
     };
-    store.apply_sync(all, &batch(gmail_message(1, 42, 500, true))).await?;
+    store
+        .apply_sync(all, &batch(gmail_message(1, 42, 500, true)))
+        .await?;
     store
         .apply_sync(projets, &batch(gmail_message(10, 42, 500, false)))
         .await?;

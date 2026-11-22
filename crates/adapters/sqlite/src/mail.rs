@@ -459,8 +459,7 @@ const MAX_REUSE_CANDIDATES: i64 = 8;
 /// Messages du compte `?2` dont le corps peut être recopié sur le message
 /// `?4` : même identifiant Gmail `?1`, même taille `?3`, corps présent, hors
 /// copie provisoire ; au plus `?5`.
-pub(super) const REUSE_CANDIDATES: &str =
-    "SELECT m.id, b.account_id, m.size, m.gmail_msgid, m.pending_op IS NOT NULL \
+pub(super) const REUSE_CANDIDATES: &str = "SELECT m.id, b.account_id, m.size, m.gmail_msgid, m.pending_op IS NOT NULL \
      FROM messages m JOIN mailboxes b ON b.id = m.mailbox_id \
      WHERE m.gmail_msgid = ?1 AND b.account_id = ?2 AND m.size = ?3 \
      AND m.body_state IN ('full', 'partial') AND m.pending_op IS NULL AND m.id <> ?4 \
@@ -492,9 +491,7 @@ fn reuse_body(
         return Ok(false);
     };
     let candidates: Vec<(i64, i64, i64, Option<i64>, bool)> = {
-        let mut stmt = tx
-            .prepare_cached(REUSE_CANDIDATES)
-            .map_err(store_error)?;
+        let mut stmt = tx.prepare_cached(REUSE_CANDIDATES).map_err(store_error)?;
         let rows = stmt
             .query_map(
                 params![

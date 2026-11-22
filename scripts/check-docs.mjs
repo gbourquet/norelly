@@ -13,6 +13,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { isEntryPoint } from "./entry-point.mjs";
 
 /** Liens et images d'un texte Markdown, hors blocs et extraits de code. */
 export function markdownLinks(markdown) {
@@ -173,7 +174,7 @@ export function checkRepository(root) {
   return problems;
 }
 
-if (process.argv[1] === fileURLToPath(import.meta.url)) {
+if (isEntryPoint(import.meta.url)) {
   const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
   const problems = checkRepository(root);
   for (const p of problems) console.error(`✗ ${p}`);

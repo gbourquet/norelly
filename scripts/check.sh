@@ -49,6 +49,9 @@ step "Instantané apt de l'e2e"
 node --test scripts/check-apt-snapshot.test.mjs
 node scripts/check-apt-snapshot.mjs
 step "e2e : dossiers de build par copie de travail"; ./app/e2e/target-name.test.sh; ./app/e2e/prune-targets.test.sh; ./app/e2e/verify-crates.test.sh
+step "Chaîne Rust et outils de la CI figés"
+node --test scripts/check-toolchain.test.mjs
+node scripts/check-toolchain.mjs
 # Paquets Linux (desktop-file-utils, appstream) : vérifiés sous Linux.
 if [ "$(uname -s)" = Linux ]; then step "Métadonnées de bureau"; ./scripts/check-packaging.sh; fi
 # Fichiers d'une version et SHA256SUMS (release.yml, sous Ubuntu) : outils GNU.

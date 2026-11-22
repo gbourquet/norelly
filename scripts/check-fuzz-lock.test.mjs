@@ -2,7 +2,11 @@
 // lancés par ./scripts/check.sh avec `node --test`.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { lockPackages, misalignedPackages } from "./check-fuzz-lock.mjs";
+import {
+  lockPackages,
+  lockProblems,
+  misalignedPackages,
+} from "./check-fuzz-lock.mjs";
 
 const REGISTRY = "registry+https://github.com/rust-lang/crates.io-index";
 
@@ -67,4 +71,59 @@ test("les paquets propres au fuzzing et ceux du dépôt sont ignorés", () => {
     pkg("norelly-render", "0.1.0"),
   );
   assert.deepEqual(misalignedPackages(root, fuzz), []);
+});
+
+test("des verrous aux fins de ligne CRLF sont lus de même", () => {
+  const crlf = (text) => text.replaceAll("\n", "\r\n");
+  const root = crlf(lock(pkg("ammonia", "4.2.5", "aa")));
+  assert.equal(lockPackages(root).length, 1);
+  assert.deepEqual(
+    misalignedPackages(root, crlf(lock(pkg("ammonia", "4.2.4", "bb")))),
+    ["ammonia 4.2.4 (racine : 4.2.5)"],
+  );
+});
+
+test("verrous lisibles et alignés : aucun problème", () => {
+  const root = lock(pkg("ammonia", "4.2.5", "aa"));
+  const fuzz = lock(
+    pkg("ammonia", "4.2.5", "aa"),
+    pkg("arbitrary", "1.5.0", "ar"),
+  );
+  assert.deepEqual(lockProblems(root, fuzz), []);
+});
+
+test("un verrou sans paquet reconnu est un problème, pas un alignement", () => {
+  const fuzz = lock(pkg("ammonia", "4.2.5", "aa"));
+  assert.deepEqual(lockProblems("", fuzz), ["Cargo.lock : aucun paquet lu"]);
+  assert.deepEqual(
+    lockProblems(fuzz.replaceAll("[[package]]", "[[ package ]]"), fuzz),
+    ["Cargo.lock : aucun paquet lu"],
+  );
+});
+
+test("un bloc sans nom ou sans version est un problème", () => {
+  const root = lock(pkg("ammonia", "4.2.5", "aa"));
+  const fuzz = lock(
+    pkg("ammonia", "4.2.5", "aa"),
+    '[[package]]\nname = "cc"\n',
+  );
+  assert.deepEqual(lockProblems(root, fuzz), [
+    "fuzz/Cargo.lock : paquet sans nom ou sans version",
+  ]);
+});
+
+test("aucun paquet commun aux deux verrous est un problème", () => {
+  const root = lock(pkg("ammonia", "4.2.5", "aa"));
+  const fuzz = lock(pkg("libfuzzer-sys", "0.4.13", "lf"));
+  assert.deepEqual(lockProblems(root, fuzz), [
+    "aucun paquet commun à Cargo.lock et fuzz/Cargo.lock",
+  ]);
+});
+
+test("un écart de version figure parmi les problèmes", () => {
+  const root = lock(pkg("ammonia", "4.2.5", "aa"), pkg("cc", "1.10.0", "c"));
+  const fuzz = lock(pkg("ammonia", "4.2.4", "bb"), pkg("cc", "1.10.0", "c"));
+  assert.deepEqual(lockProblems(root, fuzz), [
+    "fuzz/Cargo.lock : ammonia 4.2.4 (racine : 4.2.5)",
+  ]);
 });

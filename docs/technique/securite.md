@@ -478,7 +478,7 @@ Signalés au mainteneur dans chaque PR qui les touche (ADR-008) :
 - `app/src/lib/agent.ts` ;
 - infrastructure : `deny.toml`, `.github/workflows/*.yml`,
   `packaging/flatpak/*.yml`, `scripts/check.sh`,
-  `scripts/check-fuzz-lock.mjs`, `fuzz/Cargo.lock`.
+  `scripts/check-fuzz-lock.mjs` (et ses tests), `fuzz/Cargo.lock`.
 
 ## Revues
 

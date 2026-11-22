@@ -56,17 +56,37 @@ export function misalignedPackages(rootText, fuzzText) {
   return problems;
 }
 
+// Problèmes à signaler : un verrou illisible (aucun paquet reconnu, bloc
+// incomplet) ou sans paquet commun avec l'autre ferait passer le contrôle à
+// tort ; il échoue donc, avant toute comparaison des versions.
+export function lockProblems(rootText, fuzzText) {
+  const locks = [
+    ["Cargo.lock", lockPackages(rootText)],
+    ["fuzz/Cargo.lock", lockPackages(fuzzText)],
+  ];
+  const problems = [];
+  for (const [file, packages] of locks) {
+    if (packages.length === 0) problems.push(`${file} : aucun paquet lu`);
+    else if (packages.some((p) => !p.name || !p.version))
+      problems.push(`${file} : paquet sans nom ou sans version`);
+  }
+  if (problems.length > 0) return problems;
+  const rootNames = new Set(locks[0][1].map((p) => p.name));
+  if (!locks[1][1].some((p) => p.source !== undefined && rootNames.has(p.name)))
+    return ["aucun paquet commun à Cargo.lock et fuzz/Cargo.lock"];
+  return misalignedPackages(rootText, fuzzText).map(
+    (p) => `fuzz/Cargo.lock : ${p}`,
+  );
+}
+
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
   const read = (file) => readFileSync(path.join(repo, file), "utf8");
-  const problems = misalignedPackages(
-    read("Cargo.lock"),
-    read("fuzz/Cargo.lock"),
-  );
-  for (const p of problems) console.error(`✗ fuzz/Cargo.lock : ${p}`);
+  const problems = lockProblems(read("Cargo.lock"), read("fuzz/Cargo.lock"));
+  for (const p of problems) console.error(`✗ ${p}`);
   if (problems.length > 0) {
     console.error(
-      `\n${problems.length} paquet(s) du fuzzing désaligné(s) sur Cargo.lock.` +
+      `\n${problems.length} problème(s) dans le verrou du fuzzing.` +
         "\nResynchroniser : cp Cargo.lock fuzz/Cargo.lock && " +
         "cargo metadata --manifest-path fuzz/Cargo.toml --format-version 1 > /dev/null",
     );

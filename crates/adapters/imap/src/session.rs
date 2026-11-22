@@ -33,6 +33,7 @@ use norelly_domain::fetch_policy::{
     BodyFetch, Disposition, MAX_MIME_DEPTH, MAX_MIME_PARTS, MimePart, PartPath, attachment_name,
     mime_token,
 };
+use norelly_domain::gmail::GmailMessageId;
 use norelly_domain::labels::KeywordPermission;
 use norelly_domain::mailbox::{
     Flags, ListedMailbox, MailboxName, MessageHeaders, MessageMeta, ModSeq, RawHeaders, Uid,
@@ -309,8 +310,15 @@ fn nstring_bytes(data: &NString<'_>) -> Vec<u8> {
         .unwrap_or_default()
 }
 
-fn meta_of(items: &Vec1<MessageDataItem<'_>>, trust: &AuthServTrust) -> Option<MessageMeta> {
+/// Métadonnées d'une réponse `FETCH` ; l'identifiant Gmail n'est lu que
+/// s'il a été demandé (`gmail`), jamais d'une réponse non sollicitée.
+fn meta_of(
+    items: &Vec1<MessageDataItem<'_>>,
+    trust: &AuthServTrust,
+    gmail: bool,
+) -> Option<MessageMeta> {
     let mut uid = None;
+    let mut gmail_id = None;
     let mut flags = Flags::default();
     let mut modseq = None;
     let mut internal_date = 0;
@@ -322,6 +330,7 @@ fn meta_of(items: &Vec1<MessageDataItem<'_>>, trust: &AuthServTrust) -> Option<M
             MessageDataItem::Uid(u) => uid = Some(Uid::from_nonzero(*u)),
             MessageDataItem::Flags(f) => flags = flags_of(f),
             MessageDataItem::ModSeq(m) => modseq = ModSeq::new(m.get()),
+            MessageDataItem::XGmMsgId(id) if gmail => gmail_id = GmailMessageId::new(*id),
             MessageDataItem::InternalDate(d) => internal_date = d.as_ref().timestamp(),
             MessageDataItem::Rfc822Size(s) => size = *s,
             MessageDataItem::BodyStructure(b) | MessageDataItem::Body(b) => {
@@ -344,7 +353,7 @@ fn meta_of(items: &Vec1<MessageDataItem<'_>>, trust: &AuthServTrust) -> Option<M
         size,
         headers,
         structure,
-        gmail_id: None,
+        gmail_id,
     })
 }
 
@@ -627,6 +636,7 @@ impl Connection {
         &mut self,
         uids: &[Uid],
         condstore: bool,
+        gmail: bool,
         trust: &AuthServTrust,
     ) -> Result<Vec<MessageMeta>, ConnectionError> {
         if uids.len() > MAX_FETCH_BATCH {
@@ -639,7 +649,7 @@ impl Connection {
                 break;
             };
             let (metas, skipped) = self
-                .fetch_meta_tier(set, &missing, condstore, tier, trust)
+                .fetch_meta_tier(set, &missing, condstore, gmail, tier, trust)
                 .await?;
             for meta in metas {
                 if missing.remove(&meta.uid) {
@@ -665,6 +675,7 @@ impl Connection {
         set: SequenceSet,
         wanted: &BTreeSet<Uid>,
         condstore: bool,
+        gmail: bool,
         tier: MetaTier,
         trust: &AuthServTrust,
     ) -> Result<(Vec<MessageMeta>, usize), ConnectionError> {
@@ -682,6 +693,10 @@ impl Connection {
         }
         if condstore {
             names.push(MessageDataItemName::ModSeq);
+        }
+        // Identifiant Gmail : seulement si X-GM-EXT-1 est annoncé (ADR-015).
+        if gmail {
+            names.push(MessageDataItemName::XGmMsgId);
         }
         let body = CommandBody::Fetch {
             sequence_set: set,
@@ -704,7 +719,7 @@ impl Connection {
             .data
             .iter()
             .filter_map(|d| match d {
-                Data::Fetch { items, .. } => meta_of(items, trust),
+                Data::Fetch { items, .. } => meta_of(items, trust, gmail),
                 _ => None,
             })
             // Réponses non sollicitées ou hors demande ignorées.

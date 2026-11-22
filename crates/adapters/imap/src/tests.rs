@@ -2352,3 +2352,85 @@ async fn keywords_are_stored_searched_and_permanent_flags_read() -> TestResult {
     server.finish().await.result?;
     Ok(())
 }
+
+/// Métadonnées de deux messages par une session aux capacités
+/// `capabilities` ; le serveur répond `X-GM-MSGID` dans tous les cas
+/// (réponse non sollicitée quand l'extension n'est pas annoncée).
+async fn metas_with_gmail_ids(
+    capabilities: &str,
+) -> Result<(Vec<norelly_domain::mailbox::MessageMeta>, String), Box<dyn std::error::Error>> {
+    use norelly_domain::mailbox::Uid;
+
+    let f = fixture()?;
+    let cert = f.ca.issue(&["localhost"])?;
+    let fetch = |uid: u32, gmail_id: &str| {
+        format!(
+            "* {uid} FETCH (UID {uid} X-GM-MSGID {gmail_id} FLAGS () \
+             INTERNALDATE \"02-Nov-2026 10:00:00 +0000\" RFC822.SIZE 10)\r\n"
+        )
+    };
+    let script = authenticated_with(
+        capabilities,
+        Script::new()
+            .expect("UID FETCH 1:2")
+            .send(format!(
+                "{}{}{{tag}} OK termine\r\n",
+                fetch(1, "1278455344230334865"),
+                // Zéro : aucun message Gmail n'a cet identifiant.
+                fetch(2, "0")
+            ))
+            .expect("LOGOUT")
+            .send("* BYE au revoir\r\n{tag} OK termine\r\n")
+            .expect_eof(),
+    );
+    let server = ScriptedServer::start_tls(script, cert.server_config()?).await?;
+    let mut session = f
+        .connector
+        .connect(&request(
+            server.port(),
+            Security::Tls,
+            PlaintextPolicy::deny_all(),
+        ))
+        .await
+        .map_err(|e| format!("connect : {e}"))?;
+    let uids: Vec<Uid> = [1, 2].into_iter().filter_map(Uid::new).collect();
+    let metas = session
+        .fetch_meta(&uids)
+        .await
+        .map_err(|e| format!("fetch_meta : {e}"))?;
+    session
+        .logout()
+        .await
+        .map_err(|e| format!("logout : {e}"))?;
+    let outcome = server.finish().await;
+    let text = outcome.transcript.text();
+    outcome.result?;
+    Ok((metas, text))
+}
+
+/// `X-GM-EXT-1` annoncé : l'identifiant Gmail est demandé avec les
+/// métadonnées et enregistré (zéro écarté).
+#[tokio::test]
+async fn gmail_message_id_is_requested_when_announced() -> TestResult {
+    use norelly_domain::gmail::GmailMessageId;
+
+    let (metas, text) = metas_with_gmail_ids("IMAP4rev1 X-GM-EXT-1").await?;
+    assert!(text.contains("X-GM-MSGID"), "{text}");
+    assert_eq!(
+        metas.iter().map(|m| m.gmail_id).collect::<Vec<_>>(),
+        [GmailMessageId::new(1_278_455_344_230_334_865), None]
+    );
+    Ok(())
+}
+
+/// Sans `X-GM-EXT-1` : rien ne change dans la commande, et un
+/// `X-GM-MSGID` non sollicité est ignoré (un serveur quelconque ne peut
+/// pas désigner un message par cet identifiant).
+#[tokio::test]
+async fn gmail_message_id_is_ignored_without_the_extension() -> TestResult {
+    let (metas, text) = metas_with_gmail_ids("IMAP4rev1").await?;
+    assert!(!text.contains("X-GM-MSGID"), "{text}");
+    assert_eq!(metas.len(), 2);
+    assert!(metas.iter().all(|m| m.gmail_id.is_none()), "{metas:?}");
+    Ok(())
+}

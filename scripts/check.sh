@@ -43,6 +43,11 @@ node scripts/check-fuzz-lock.mjs
 step "Règle de dépendance du domaine"; ./scripts/check-domain-deps.sh
 step "SQL : requêtes paramétrées"; ./scripts/check-sql.sh
 step "Documentation";          ./scripts/check-docs.sh
+# Âge de l'instantané apt de l'image e2e : avertissement seulement au-delà
+# de MAX_AGE_DAYS ; date absente ou invalide : échec.
+step "Instantané apt de l'e2e"
+node --test scripts/check-apt-snapshot.test.mjs
+node scripts/check-apt-snapshot.mjs
 # Paquets Linux (desktop-file-utils, appstream) : vérifiés sous Linux.
 if [ "$(uname -s)" = Linux ]; then step "Métadonnées de bureau"; ./scripts/check-packaging.sh; fi
 step "Front : svelte-check";   pnpm -C app check

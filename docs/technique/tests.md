@@ -130,6 +130,12 @@ conteneurs sont éphémères (`tmpfs`) : cargo réextrait les sources des
 archives à chaque lancement, en quelques secondes, sans recompiler les
 dépendances.
 
+Les dépôts git des dépendances (`cargo/git`, clones et extractions) sont
+retirés au début de chaque lancement (`app/e2e/run.sh`) : cargo réutilise
+une extraction existante sans la revérifier, et ce dossier est partagé par
+toutes les copies de travail. Le build reclone donc le dépôt, puis les
+scénarios (`cargo test --offline`) se servent de cette extraction.
+
 Toutes les copies de travail (worktrees git) sont montées sur `/work` dans
 le conteneur : avec un seul dossier de build, cargo reprendrait les
 fichiers compilés d'une autre branche, les dates de modification ne

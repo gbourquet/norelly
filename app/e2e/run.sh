@@ -69,6 +69,12 @@ fi
 app/e2e/prune-targets.sh "$cache"
 # Archives .crate partagées : cargo ne revérifie pas celles déjà présentes.
 app/e2e/verify-crates.sh Cargo.lock "$cache/cargo/registry/cache"
+# Dépôts git des dépendances (clones et extractions) : cargo réutilise une
+# extraction existante sans la revérifier, et ce dossier est partagé par
+# toutes les copies de travail. Il est retiré à chaque lancement : cargo
+# reclone au build, et l'extraction sert ensuite aux scénarios
+# (`cargo test --offline`).
+rm -rf -- "$cache/cargo/git"
 
 if ! docker image inspect "$image" >/dev/null 2>&1; then
   echo "==> Construction de l'image $image"

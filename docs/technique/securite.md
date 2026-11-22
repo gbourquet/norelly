@@ -530,7 +530,8 @@ reçus de l'interface ; types MIME recalculés.
   téléchargement) ; aucune configuration de cargo, refusée aussi par
   `app/e2e/run.sh`. En local, chaque conteneur ne voit que le dossier de
   build de sa copie de travail ; sources extraites du registre et `HOME`
-  éphémères ; image de l'e2e renouvelée chaque semaine et
+  éphémères ; dépôts git des dépendances (`cargo/git`) retirés à chaque
+  lancement, car cargo réutilise une extraction sans la revérifier ; image de l'e2e renouvelée chaque semaine et
   acceptée seulement sous son tag attendu. Risque résiduel accepté : un
   dossier de build empoisonné depuis `master` (build script compromis)
   servirait jusqu'à la semaine suivante, dans un job sans secret.

@@ -178,11 +178,18 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           persist-credentials: false
-      # Un dossier par artefact (pas de fusion, qui écraserait sans bruit
-      # deux fichiers du même nom) ; release-assets.sh les met à plat.
+      # Les seuls artefacts des builds, nommés (jamais `release`, laissé par
+      # une tentative précédente de ce job), un dossier chacun (pas de
+      # fusion, qui écraserait sans bruit deux fichiers du même nom) ;
+      # release-assets.sh les met à plat.
       - uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
         with:
-          path: artifacts
+          name: linux
+          path: artifacts/linux
+      - uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
+        with:
+          name: windows
+          path: artifacts/windows
       - name: Manifestes winget (à proposer à microsoft/winget-pkgs)
         env:
           VERSION: ${{ needs.version.outputs.version }}
@@ -210,6 +217,8 @@ jobs:
           name: release
           path: dist/
           if-no-files-found: error
+          # Relance du job : remplace l'artefact de la tentative précédente.
+          overwrite: true
 
   publish:
     name: Version GitHub (brouillon)

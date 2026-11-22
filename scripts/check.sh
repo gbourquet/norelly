@@ -35,6 +35,9 @@ step "cargo deny";             cargo deny --locked check
 # (deny.toml racine). --locked : fuzz/Cargo.lock doit rester synchronisé
 # avec les crates du workspace qu'il fuzze.
 step "cargo deny (fuzz)";      cargo deny --manifest-path fuzz/Cargo.toml --config deny.toml --locked check
+# Le fuzzing porte sur les versions livrées : fuzz/Cargo.lock reprend celles
+# du Cargo.lock racine (scripts/check-fuzz-lock.mjs).
+step "Fuzz : verrou aligné";   node --test scripts/check-fuzz-lock.test.mjs && node scripts/check-fuzz-lock.mjs
 step "Règle de dépendance du domaine"; ./scripts/check-domain-deps.sh
 step "SQL : requêtes paramétrées"; ./scripts/check-sql.sh
 step "Documentation";          ./scripts/check-docs.sh

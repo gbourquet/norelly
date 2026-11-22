@@ -40,6 +40,11 @@ La fenêtre est partagée en trois parties :
    « conversation » ;
 3. **à droite**, le message que vous lisez.
 
+Norelly prend les couleurs de votre ordinateur : claires, ou sombres si
+vous avez choisi le mode sombre dans les réglages de Windows ou de Linux.
+
+![La même fenêtre en mode sombre : fond foncé et texte clair](captures/inbox-dark.png)
+
 ## Sommaire
 
 1. [Installer Norelly](install.md), sous Windows ou Linux.

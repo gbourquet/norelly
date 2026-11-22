@@ -144,9 +144,9 @@ export async function canaryHits() {
 }
 
 /** Commandes IMAP brèves, à la suite, sur une session authentifiée
- * (étiquetées c1, c2…) ; renvoie toute la réponse, une fois la dernière
- * terminée. */
-export async function imapCommands(commands) {
+ * (étiquetées c0, c1…) ; renvoie toute la réponse, une fois la dernière
+ * terminée. Boîte de `user` (par défaut celle des scénarios). */
+export async function imapCommands(commands, user = "norelly") {
   const socket = tls.connect({
     host: "imap.norelly.test",
     port: 31993,
@@ -164,7 +164,7 @@ export async function imapCommands(commands) {
     }
   };
   await waitFor(/^\* OK/m);
-  socket.write(`a LOGIN norelly "${password}"\r\n`);
+  socket.write(`a LOGIN ${user} "${password}"\r\n`);
   await waitFor(/^a (OK|NO|BAD)/m);
   for (const [i, command] of commands.entries()) {
     socket.write(`c${i} ${command}\r\n`);

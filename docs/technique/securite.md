@@ -428,6 +428,16 @@ reçus de l'interface ; types MIME recalculés.
   montés par PR ; restent flottants Node.js et pnpm (version majeure),
   les paquets apt des jobs de la CI et le Rust du SDK Flatpak
   ([méthode](methode.md#versions-figées-de-la-chaîne-et-des-outils)).
+- Actions GitHub : chaque action des workflows est figée par une empreinte de
+  commit complète suivie de sa version en commentaire (`@<sha> # v5`),
+  vérifié par `scripts/check-actions.mjs` (lancé par `scripts/check.sh`).
+- Mises à jour des actions signalées par Dependabot
+  (`.github/dependabot.yml`, écosystème `github-actions` seulement) : une
+  fois par semaine, une PR remplace l'empreinte et le commentaire de
+  version, à relire et à faire passer par la CI comme toute autre
+  modification ; correctifs et versions mineures regroupés, version
+  majeure proposée seule, trois PR ouvertes au plus, commits préfixés
+  `deps:`. Dependabot ne s'active que depuis la branche par défaut.
 - Mises à jour (NSIS) signées **minisign**, signature faite dans un
   environnement de publication séparé de la compilation ; délais bornés
   (`docs/CODE_SIGNING.md`).

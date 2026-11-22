@@ -34,6 +34,10 @@ jobs:
           # Absent des manifestes de l'action : compilé depuis crates.io (sommes
           # du registre), jamais un binaire non vérifié de cargo-binstall.
           fallback: cargo-install
+        # Compilé avec le nightly du job, sans installer aussi la chaîne de
+        # rust-toolchain.toml.
+        env:
+          RUSTUP_TOOLCHAIN: nightly-2026-11-20
       # cargo-fuzz résoudrait en silence un fuzz/Cargo.lock périmé : le code
       # fuzzé doit être celui que `cargo deny` a contrôlé.
       - name: Verrou du fuzzing à jour

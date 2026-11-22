@@ -1,13 +1,8 @@
 // Tests du contrôle des versions figées (scripts/check-toolchain.mjs),
 // lancés par scripts/check.sh avec `node --test`.
-import { mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import path from "node:path";
-import { pathToFileURL } from "node:url";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { parseToolchain, toolchainFileProblems, toolchainProblems } from "./check-toolchain.mjs";
-import { isEntryPoint } from "./entry-point.mjs";
 
 const TOOLCHAIN = [
   "[toolchain]",
@@ -77,9 +72,10 @@ test("une configuration entièrement figée ne signale rien", () => {
     "  with:",
     "    tool: cargo-fuzz@0.13.2",
     "    fallback: cargo-install",
+    "  env:",
+    "    RUSTUP_TOOLCHAIN: nightly-2026-11-20",
     "- run: cargo +nightly-2026-11-20 fuzz run cible",
-    "- run: cargo install --locked tauri-driver --version 2.1.0",
-    "- run: cargo binstall cargo-xyz@1.2.3",
+    "- run: cargo install --locked tauri-driver --version 2.1.0 && echo fait # cargo install x",
   ]);
   assert.deepEqual(check({ "ci.yml": ci, "nightly.yml": nightly }), []);
 });
@@ -251,16 +247,66 @@ test("RUSTUP_TOOLCHAIN : version exacte ou nightly daté seulement", () => {
   assert.deepEqual(check({ "a.yml": ci }), ["a.yml:9 : RUSTUP_TOOLCHAIN « stable » non figé"]);
 });
 
-test("cargo install ou binstall exige une version exacte (et --locked pour install)", () => {
+test("cargo install exige une version exacte et --locked ; cargo-binstall refusé", () => {
   const ci = workflow([
     "- run: cargo install cargo-xyz",
     "- run: cargo install cargo-xyz --version 1.2.3",
-    "- run: cargo binstall cargo-xyz",
+    "- run: cargo binstall cargo-xyz@1.2.3",
+    "- run: cargo install --locked --version 1.2.3 a && cargo install b",
+    "- run: cargo-binstall -y foo",
   ]);
+  const install =
+    "« cargo install » sans version exacte (--version X.Y.Z ou outil@X.Y.Z) et --locked";
+  const binstall = "cargo-binstall refusé (binaire non vérifié) : cargo install --locked --version X.Y.Z";
   assert.deepEqual(check({ "a.yml": ci }), [
-    "a.yml:4 : « cargo install » sans version exacte (--version X.Y.Z ou outil@X.Y.Z) et --locked",
-    "a.yml:5 : « cargo install » sans version exacte (--version X.Y.Z ou outil@X.Y.Z) et --locked",
-    "a.yml:6 : « cargo binstall » sans version exacte (--version X.Y.Z ou outil@X.Y.Z)",
+    `a.yml:4 : ${install}`,
+    `a.yml:5 : ${install}`,
+    `a.yml:6 : ${binstall}`,
+    `a.yml:7 : ${install}`,
+    `a.yml:8 : ${binstall}`,
+  ]);
+});
+
+test("rustc, rustdoc et cargo +… (même entre guillemets) : chaîne installée par le job", () => {
+  const ci = workflow([...RUST_STEP, "- run: rustc +nightly -vV", '- run: cargo "+nightly" build', "- run: rustdoc +1.100.0 x.rs"]);
+  assert.deepEqual(check({ "a.yml": ci }), [
+    "a.yml:8 : rustc +nightly : chaîne non installée par une étape de ce job",
+    "a.yml:9 : cargo +nightly : chaîne non installée par une étape de ce job",
+  ]);
+});
+
+test("jobs reconnus malgré un commentaire en colonne 0 ou une autre indentation", () => {
+  const ci = [
+    "jobs:",
+    "    fuzz:",
+    "        steps:",
+    "            - uses: dtolnay/rust-toolchain@2c76c034f9e32a5d6e2c104dc4df23a22476db04 # nightly",
+    "              with:",
+    "                toolchain: nightly-2026-11-20",
+    "# commentaire",
+    "    other:",
+    "        steps:",
+    "            - run: cargo +nightly-2026-11-20 fuzz run cible",
+    "",
+  ].join("\n");
+  assert.deepEqual(check({ "a.yml": ci }), [
+    "a.yml:4 : dtolnay/rust-toolchain avec « nightly-2026-11-20 » sans « cargo +nightly-2026-11-20 » dans ce job",
+    "a.yml:10 : cargo +nightly-2026-11-20 : chaîne non installée par une étape de ce job",
+  ]);
+});
+
+test("RUSTUP_TOOLCHAIN daté : installé par le job, et compte comme utilisation", () => {
+  const nightlyStep = [
+    "- uses: dtolnay/rust-toolchain@2c76c034f9e32a5d6e2c104dc4df23a22476db04 # nightly",
+    "  with:",
+    "    toolchain: nightly-2026-11-20",
+  ];
+  const ci = jobs({
+    fuzz: [...nightlyStep, "- run: cargo install --locked cargo-fuzz@0.13.2", "  env:", "    RUSTUP_TOOLCHAIN: nightly-2026-11-20"],
+    other: ["- run: RUSTUP_TOOLCHAIN=nightly-2026-11-20 cargo build"],
+  });
+  assert.deepEqual(check({ "a.yml": ci }), [
+    "a.yml:12 : RUSTUP_TOOLCHAIN « nightly-2026-11-20 » : chaîne non installée par une étape de ce job",
   ]);
 });
 
@@ -295,17 +341,4 @@ test("un seul fichier de chaîne : rust-toolchain.toml à la racine", () => {
   assert.deepEqual(toolchainFileProblems(["rust-toolchain", "rust-toolchain.toml"]), [
     "rust-toolchain : fichier de chaîne en plus de rust-toolchain.toml (racine)",
   ]);
-});
-
-test("point d'entrée reconnu même lancé par un lien symbolique", () => {
-  const dir = mkdtempSync(path.join(tmpdir(), "check-toolchain-"));
-  const real = path.join(dir, "script.mjs");
-  writeFileSync(real, "");
-  const link = path.join(dir, "lien.mjs");
-  symlinkSync(real, link);
-  const url = pathToFileURL(real).href;
-  assert.equal(isEntryPoint(url, real), true);
-  assert.equal(isEntryPoint(url, link), true);
-  assert.equal(isEntryPoint(url, path.join(dir, "autre.mjs")), false);
-  assert.equal(isEntryPoint(url, undefined), false);
 });

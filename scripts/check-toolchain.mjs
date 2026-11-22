@@ -5,22 +5,23 @@
 //     version et ces composants (entrée `with:`), ou un nightly daté
 //     (nightly-AAAA-MM-JJ) utilisé par un `cargo +…` du même job ; aucune
 //     autre action d'installation de Rust ;
-//   - `cargo +<chaîne>` n'utilise qu'une chaîne installée par son job ;
-//     `RUSTUP_TOOLCHAIN` et `rustup` ne nomment qu'une chaîne figée ;
+//   - `cargo|rustc|rustdoc +<chaîne>` et un `RUSTUP_TOOLCHAIN` daté
+//     n'utilisent qu'une chaîne installée par leur job ; `RUSTUP_TOOLCHAIN`
+//     et `rustup` ne nomment qu'une chaîne figée ;
 //   - chaque outil de `taiki-e/install-action` est figé en outil@X.Y.Z,
 //     avec un repli vérifié (`fallback: none` ou `cargo-install`) ;
-//     `cargo install` et `cargo binstall` donnent une version exacte ;
+//     `cargo install` donne une version exacte et `--locked` ; cargo-binstall
+//     (binaires non vérifiés) est refusé ;
 //   - l'image e2e (app/e2e/Dockerfile) installe la même version et les
 //     mêmes composants.
 // Détection ligne à ligne (lignes continuées par « \ » réunies), sans
 // analyseur YAML : un garde-fou contre les oublis, pas contre une
 // modification volontaire, qui passe de toute façon par la revue.
-// Procédure de montée de version : docs/technique/methode.md.
+// Point d'entrée : scripts/check-toolchain-cli.mjs. Procédure de montée
+// de version : docs/technique/methode.md.
 import { execFileSync } from "node:child_process";
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
-import { isEntryPoint } from "./entry-point.mjs";
 
 const EXACT = /^\d+\.\d+\.\d+$/;
 const DATED_NIGHTLY = /^nightly-\d{4}-\d{2}-\d{2}$/;
@@ -82,20 +83,30 @@ function input(block, key) {
   return null;
 }
 
-/** Lignes logiques (« \ » final réuni à la suivante), hors commentaires. */
+/** Ligne sans son commentaire final (« # » en début ou après une espace). */
+function withoutComment(line) {
+  return line.replace(/(^|\s)#.*$/, "$1");
+}
+
+/** Lignes logiques (« \ » final réuni à la suivante), sans commentaires. */
 function logicalLines(lines) {
   const out = [];
   for (let i = 0; i < lines.length; i++) {
     if (lines[i].trimStart().startsWith("#")) continue;
     const no = i + 1;
-    let text = lines[i];
+    let text = withoutComment(lines[i]);
     while (/\\\s*$/.test(text) && i + 1 < lines.length) {
       i += 1;
-      text = text.replace(/\\\s*$/, " ") + lines[i];
+      text = text.replace(/\\\s*$/, " ") + withoutComment(lines[i]);
     }
     out.push({ no, text });
   }
   return out;
+}
+
+/** Chaînes nommées par `RUSTUP_TOOLCHAIN` dans une ligne. */
+function rustupToolchains(text) {
+  return [...text.matchAll(/\bRUSTUP_TOOLCHAIN\s*[:=]\s*["']?([^"'\s]*)/g)].map((m) => m[1]);
 }
 
 /** Problèmes communs aux lignes de commandes (workflows et Dockerfile). */
@@ -103,35 +114,49 @@ function commandProblems(text, channel) {
   const problems = [];
   const floating = text.match(/\brustup\b.*?\b(stable|beta|nightly)\b(?!-\d)/);
   if (floating) problems.push(`chaîne « ${floating[1]} » non figée`);
-  for (const m of text.matchAll(/\bRUSTUP_TOOLCHAIN\s*[:=]\s*["']?([^"'\s]*)/g)) {
-    if (m[1] !== channel && !DATED_NIGHTLY.test(m[1])) {
-      problems.push(`RUSTUP_TOOLCHAIN « ${m[1]} » non figé`);
+  for (const toolchain of rustupToolchains(text)) {
+    if (toolchain !== channel && !DATED_NIGHTLY.test(toolchain)) {
+      problems.push(`RUSTUP_TOOLCHAIN « ${toolchain} » non figé`);
     }
   }
   if (/sh\.rustup\.rs/.test(text)) problems.push("installation de rustup par script (sh.rustup.rs)");
-  const install = text.match(/\bcargo\s+(install|binstall)\b(.*)/);
-  if (install) {
-    const args = install[2];
+  // Chaque commande d'une ligne (séparée par &&, ||, ; ou |) à part.
+  for (const command of text.split(/&&|\|\||;|\|/)) {
+    // `fallback: cargo-binstall` d'install-action : signalé avec son étape.
+    if (/\bcargo(\s+|-)binstall\b/.test(command) && !/^\s*fallback:/.test(command)) {
+      problems.push("cargo-binstall refusé (binaire non vérifié) : cargo install --locked --version X.Y.Z");
+      continue;
+    }
+    const install = command.match(/\bcargo\s+install\b(.*)/);
+    if (!install) continue;
+    const args = install[1];
     const versioned = /--version[\s=]+["']?\d+\.\d+\.\d+\b/.test(args) || /@\d+\.\d+\.\d+\b/.test(args);
-    if (install[1] === "install" && !(versioned && /--locked\b/.test(args))) {
+    if (!(versioned && /--locked\b/.test(args))) {
       problems.push("« cargo install » sans version exacte (--version X.Y.Z ou outil@X.Y.Z) et --locked");
-    } else if (install[1] === "binstall" && !versioned) {
-      problems.push("« cargo binstall » sans version exacte (--version X.Y.Z ou outil@X.Y.Z)");
     }
   }
   return problems;
 }
 
-/** Job de chaque ligne (index du job sous `jobs:`, -1 hors job). */
+/**
+ * Job de chaque ligne (index du job sous `jobs:`, -1 hors job). Les jobs
+ * sont les clés à l'indentation de la première clé sous `jobs:` ; lignes
+ * vides et commentaires ne changent rien.
+ */
 function jobOfLines(lines) {
   let inJobs = false;
+  let jobIndent = -1;
   let job = -1;
   return lines.map((line) => {
+    const trimmed = line.trimStart();
+    if (trimmed === "" || trimmed.startsWith("#")) return inJobs ? job : -1;
     if (/^\S/.test(line)) {
       inJobs = /^jobs:\s*(#.*)?$/.test(line);
+      jobIndent = -1;
       job = -1;
-    } else if (inJobs && /^ {2}["']?[\w-]+["']?:\s*(#.*)?$/.test(line)) {
-      job += 1;
+    } else if (inJobs) {
+      if (jobIndent === -1) jobIndent = indentOf(line);
+      if (indentOf(line) === jobIndent && /^["']?[\w-]+["']?:\s*(#.*)?$/.test(trimmed)) job += 1;
     }
     return inJobs ? job : -1;
   });
@@ -195,10 +220,16 @@ function workflowProblems(name, text, { channel, components }) {
   const used = new Set(); // "job toolchain"
   for (const { no, text: line } of logicalLines(lines)) {
     const job = jobOf[no - 1];
-    for (const m of line.matchAll(/\bcargo\s+\+([\w.-]+)/g)) {
-      used.add(`${job} ${m[1]}`);
-      if (!installed.get(job)?.has(m[1])) {
-        report(no, `cargo +${m[1]} : chaîne non installée par une étape de ce job`);
+    for (const m of line.matchAll(/\b(cargo|rustc|rustdoc)\s+["']?\+([\w.-]+)/g)) {
+      used.add(`${job} ${m[2]}`);
+      if (!installed.get(job)?.has(m[2])) {
+        report(no, `${m[1]} +${m[2]} : chaîne non installée par une étape de ce job`);
+      }
+    }
+    for (const toolchain of rustupToolchains(line).filter((t) => DATED_NIGHTLY.test(t))) {
+      used.add(`${job} ${toolchain}`);
+      if (!installed.get(job)?.has(toolchain)) {
+        report(no, `RUSTUP_TOOLCHAIN « ${toolchain} » : chaîne non installée par une étape de ce job`);
       }
     }
     for (const message of commandProblems(line, channel)) report(no, message);
@@ -254,8 +285,8 @@ export function toolchainProblems({ toolchain, workflows, dockerfile }) {
   ];
 }
 
-if (isEntryPoint(import.meta.url)) {
-  const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+/** Vérification du dépôt `root` ; renvoie la liste des problèmes. */
+export function checkRepository(root) {
   const dir = path.join(root, ".github", "workflows");
   const workflows = Object.fromEntries(
     readdirSync(dir)
@@ -269,7 +300,7 @@ if (isEntryPoint(import.meta.url)) {
   })
     .split("\n")
     .filter(Boolean);
-  const problems = [
+  return [
     ...toolchainFileProblems(files),
     ...toolchainProblems({
       toolchain: readFileSync(path.join(root, "rust-toolchain.toml"), "utf8"),
@@ -277,10 +308,4 @@ if (isEntryPoint(import.meta.url)) {
       dockerfile: readFileSync(path.join(root, "app", "e2e", "Dockerfile"), "utf8"),
     }),
   ];
-  for (const p of problems) console.error(`✗ ${p}`);
-  if (problems.length > 0) {
-    console.error(`\n${problems.length} version(s) non figée(s) (procédure : docs/technique/methode.md).`);
-    process.exit(1);
-  }
-  console.log("Chaîne Rust et outils de la CI : versions figées et cohérentes.");
 }

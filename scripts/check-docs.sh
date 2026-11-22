@@ -13,6 +13,6 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 node --test scripts/check-docs.test.mjs
-node scripts/check-docs.mjs
+node scripts/check-docs-cli.mjs
 pnpm -C app i18n
 pnpm -C app exec vitest run src/docs.test.ts

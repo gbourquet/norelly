@@ -581,8 +581,8 @@ Signalés au mainteneur dans chaque PR qui les touche (ADR-008) :
   `app/e2e/Dockerfile`, cache de build de l'e2e (`app/e2e/run.sh`,
   `target-name.sh`, `prune-targets.sh`, `verify-crates.sh`),
   `scripts/release-assets.sh`, `rust-toolchain.toml`,
-  `scripts/check-toolchain.mjs`, `scripts/check-toolchain.test.mjs`,
-  `scripts/entry-point.mjs`.
+  `scripts/check-toolchain.mjs`, `scripts/check-toolchain-cli.mjs`,
+  `scripts/check-toolchain.test.mjs`.
 
 ## Revues
 

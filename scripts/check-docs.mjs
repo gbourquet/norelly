@@ -9,11 +9,10 @@
 // raccourcis est vérifiée par app/src/docs.test.ts (registre réel).
 //
 // Sans dépendance : Node seul (fonctionne aussi sous Windows, Git Bash).
+// Point d'entrée : scripts/check-docs-cli.mjs.
 import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
-import { isEntryPoint } from "./entry-point.mjs";
 
 /** Liens et images d'un texte Markdown, hors blocs et extraits de code. */
 export function markdownLinks(markdown) {
@@ -172,15 +171,4 @@ export function checkRepository(root) {
     problems.push(...captureProblems(path.join(user, lang)).map((p) => `utilisateur/${lang} : ${p}`));
   }
   return problems;
-}
-
-if (isEntryPoint(import.meta.url)) {
-  const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-  const problems = checkRepository(root);
-  for (const p of problems) console.error(`✗ ${p}`);
-  if (problems.length > 0) {
-    console.error(`\n${problems.length} problème(s) dans la documentation.`);
-    process.exit(1);
-  }
-  console.log("Documentation : liens, pages et captures en ordre.");
 }

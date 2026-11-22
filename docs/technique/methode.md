@@ -181,9 +181,9 @@ les vérifications.
 | Rust (postes avec rustup, CI, image e2e) | `rust-toolchain.toml` : `channel` et `components` | version exacte `X.Y.Z` |
 | Rust dans les workflows | entrée `toolchain:` (et `components:`) de chaque étape `dtolnay/rust-toolchain` | la même version, les mêmes composants |
 | Rust dans l'image e2e | `ARG RUST_VERSION` et `--component` de `app/e2e/Dockerfile` | la même version, les mêmes composants |
-| Nightly du fuzzing | `toolchain:` et `cargo +…` de `nightly.yml` | nightly daté `nightly-AAAA-MM-JJ` |
+| Nightly du fuzzing | `toolchain:`, `RUSTUP_TOOLCHAIN` (installation de `cargo-fuzz`) et `cargo +…` de `nightly.yml` | nightly daté `nightly-AAAA-MM-JJ` |
 | Outils cargo de la CI | `tool:` de chaque étape `taiki-e/install-action` | `outil@X.Y.Z`, avec `fallback: none` (binaire du manifeste de l'action, somme vérifiée) ou `fallback: cargo-install` (outil absent du manifeste, compilé depuis crates.io), jamais le repli par défaut `cargo-binstall` (binaire non vérifié) |
-| Autres outils cargo (`run:`, Dockerfile) | `cargo install` | `--version X.Y.Z --locked` (ou `outil@X.Y.Z --locked`) |
+| Autres outils cargo (`run:`, Dockerfile) | `cargo install` | `--version X.Y.Z --locked` (ou `outil@X.Y.Z --locked`) ; `cargo-binstall` refusé (binaires non vérifiés) |
 
 `scripts/check-toolchain.mjs` (lancé par `check.sh`) vérifie ces règles et
 la cohérence entre les fichiers : une version oubliée à un endroit fait
@@ -191,8 +191,8 @@ la cohérence entre les fichiers : une version oubliée à un endroit fait
 empreinte SHA (le commentaire `# stable` ou `# nightly` d'une étape
 `dtolnay/rust-toolchain` désigne la branche de l'action, pas la chaîne
 installée). Le contrôle porte aussi sur les formes qui passeraient outre
-`rust-toolchain.toml` : `cargo +…` (chaîne installée par le même job),
-`RUSTUP_TOOLCHAIN`, `rustup … stable`, un second fichier de chaîne, une
+`rust-toolchain.toml` : `cargo +…`, `rustc +…` et `RUSTUP_TOOLCHAIN` (chaîne
+installée par le même job), `rustup … stable`, un second fichier de chaîne, une
 autre action d'installation de Rust. C'est un garde-fou contre les oublis
 (lecture ligne à ligne, sans analyseur YAML), pas contre une modification
 volontaire, qui passe par la revue.
@@ -209,15 +209,15 @@ vérifie, est une décision du mainteneur.
 
 Effets de `rust-toolchain.toml` : toute commande `cargo` lancée dans le
 dépôt l'applique. Un job qui utilise une autre chaîne (le fuzzing, en
-nightly daté) télécharge donc aussi la version figée dès qu'un outil y
-appelle `cargo` ou `rustc` sans `+…` (installation de `cargo-fuzz`, par
-exemple) ; c'est voulu, la chaîne venant du même canal vérifié.
+nightly daté) la nomme donc à chaque appel : `cargo +nightly-…`, ou
+`RUSTUP_TOOLCHAIN` sur l'étape qui compile `cargo-fuzz` ; sinon rustup y
+téléchargerait aussi la version figée.
 
 Monter Rust (à chaque version stable, toutes les six semaines environ) :
 
 1. remplacer la version dans `rust-toolchain.toml`, puis la reporter dans
    chaque `toolchain:` des workflows et dans `ARG RUST_VERSION` de
-   `app/e2e/Dockerfile` (`node scripts/check-toolchain.mjs` liste les
+   `app/e2e/Dockerfile` (`node scripts/check-toolchain-cli.mjs` liste les
    endroits oubliés) ;
 2. corriger les nouveaux avertissements de Clippy et de `rustfmt`, sans
    les désactiver ;
@@ -226,8 +226,8 @@ Monter Rust (à chaque version stable, toutes les six semaines environ) :
 
 Monter le nightly du fuzzing : choisir une date récente pour laquelle le
 nightly existe (`https://static.rust-lang.org/dist/AAAA-MM-JJ/channel-rust-nightly.toml`),
-la reporter dans `toolchain:` et dans `cargo +nightly-AAAA-MM-JJ` de
-`nightly.yml`, puis lancer le workflow à la main (`workflow_dispatch`)
+la reporter dans `toolchain:`, `RUSTUP_TOOLCHAIN` et
+`cargo +nightly-AAAA-MM-JJ` de `nightly.yml`, puis lancer le workflow à la main (`workflow_dispatch`)
 depuis la branche.
 
 Monter un outil cargo : choisir une version publiée (notes de version

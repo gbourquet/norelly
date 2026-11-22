@@ -79,9 +79,8 @@ jobs:
           cache: pnpm
           cache-dependency-path: app/pnpm-lock.yaml
       - run: pnpm -C app install --frozen-lockfile
-      # Image e2e : clé = Dockerfile + semaine, pour reconstruire l'image
-      # (paquets du système) au moins chaque semaine ; la chaîne Rust y est
-      # figée (RUST_VERSION du Dockerfile).
+      # Image e2e : clé = Dockerfile + semaine ; la chaîne Rust (RUST_VERSION)
+      # et les paquets apt (instantané daté) y sont figés par le Dockerfile.
       - name: Clés des caches e2e
         id: keys
         run: |

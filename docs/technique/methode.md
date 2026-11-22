@@ -121,8 +121,8 @@ façon écrire que dans sa propre portée, jamais lue par `master` ni par une
 autre PR.
 
 - Compilation Rust des jobs `check.sh` : `Swatinem/rust-cache`.
-- End-to-end : l'image Docker (clé : `app/e2e/Dockerfile` et la semaine,
-  pour reconstruire l'image au moins chaque semaine) et le dossier de build `~/.cache/norelly-e2e`
+- End-to-end : l'image Docker (clé : `app/e2e/Dockerfile` et la semaine ;
+  chaîne Rust et paquets apt figés par le Dockerfile) et le dossier de build `~/.cache/norelly-e2e`
   (clé : la même, plus `Cargo.lock`), réduit à `target/` (sans
   `incremental`) et aux archives `.crate` ; une image restaurée n'est
   acceptée que sous son tag attendu. Le

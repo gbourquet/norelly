@@ -1,0 +1,30 @@
+# Propositions de mise à jour des actions GitHub des workflows.
+#
+# Les actions restent figées par empreinte de commit (`@<sha> # vX`,
+# vérifié par scripts/check-actions.mjs) : Dependabot propose une PR qui
+# remplace l'empreinte et le commentaire de version, à relire et à faire
+# passer par la CI comme toute autre modification. Seul l'écosystème
+# github-actions est surveillé ici.
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Europe/Paris"
+    # Peu de PR ouvertes à la fois : chacune se relit.
+    open-pull-requests-limit: 3
+    # Correctifs et versions mineures regroupés en une PR par semaine ; une
+    # version majeure, qui peut changer le comportement, arrive seule.
+    groups:
+      github-actions:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+    # Format des commits du dépôt : `deps: …` (Dependabot ajoute les deux-points).
+    commit-message:
+      prefix: "deps"

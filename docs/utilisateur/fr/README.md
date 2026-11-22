@@ -64,3 +64,8 @@ La fenêtre est partagée en trois parties :
 - **Vous cherchez une fonction ?** Appuyez en même temps sur **Ctrl** et
   **K** : une liste de toutes les actions possibles s'ouvre, avec une
   zone pour en chercher une par son nom.
+- **Ce guide est aussi en ligne**, sur le site de Norelly
+  (<https://norelly.fr/fr/guide/>). Dans Norelly, cliquez sur **Aide** en
+  bas à gauche, puis sur **Guide d'utilisation** : il s'ouvre dans votre
+  navigateur, dans la langue de Norelly. **Site de Norelly**, dans le même
+  menu, ouvre la page d'accueil du site.

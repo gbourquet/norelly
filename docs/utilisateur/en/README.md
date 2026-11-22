@@ -59,3 +59,8 @@ The window is split into three parts:
   open window or goes back to the list.
 - **Looking for a feature?** Press **Ctrl** and **K** together: a list of
   every possible action opens, with a box to find one by its name.
+- **This guide is also online**, on the Norelly website
+  (<https://norelly.fr/en/guide/>). In Norelly, click **Help** at the bottom
+  left, then **User guide**: it opens in your browser, in Norelly's
+  language. **Norelly website**, in the same menu, opens the website's home
+  page.

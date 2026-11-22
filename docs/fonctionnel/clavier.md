@@ -24,6 +24,11 @@ l'interface soit utilisable avec un lecteur d'écran.
   raccourci). Les menus affichent le raccourci à droite de chaque entrée.
 - **Bouton « ? »**, toujours visible en haut du panneau de navigation : il
   ouvre l'aide des raccourcis, d'où un bouton ouvre aussi la palette.
+- **Menu « Aide »**, en bas du panneau de navigation : **Guide
+  d'utilisation**, **Aide des raccourcis clavier** et **Site de Norelly**.
+  Le guide et le site s'ouvrent dans le navigateur du système, sur le site
+  de Norelly, dans la langue de l'interface (le français si l'interface est
+  en français, l'anglais sinon).
 - **Palette** : recherche par libellé, groupe et mots-clés ; seules les
   commandes possibles à cet instant sont proposées ; Entrée exécute.
 - **Aide** (`?` ou bouton « ? ») : toutes les commandes qui ont un
@@ -51,6 +56,9 @@ l'interface soit utilisable avec un lecteur d'écran.
   caractères qui l'exigent déjà sur le clavier (`?`).
 - Chaque commande figure dans l'aide-mémoire de la documentation
   utilisateur, en français et en anglais.
+- Le guide et le site ouverts depuis le menu « Aide » sont toujours des
+  pages du site de Norelly, choisies dans une liste fixe : aucune autre
+  adresse ne peut être ouverte par ce menu.
 
 ## Liste des commandes
 
@@ -59,7 +67,7 @@ La liste est reprise, avec les mêmes libellés, dans
 
 | Groupe | Commandes (raccourci) |
 |---|---|
-| Général | Palette de commandes (`Ctrl+K`), Aide des raccourcis clavier (`?`), Paramètres… (`Ctrl+,`) |
+| Général | Palette de commandes (`Ctrl+K`), Aide des raccourcis clavier (`?`), Guide d'utilisation, Site de Norelly, Paramètres… (`Ctrl+,`) |
 | Lecture | Conversation suivante (`j`), Conversation précédente (`k`), Ouvrir la conversation (`Entrée`), Retour à la liste (`Échap`), Rechercher dans les messages (`/`), Boîte de réception unifiée, Préférer le texte brut (ou le HTML), Imprimer (`Ctrl+P`) |
 | Actions | Archiver (`e`), Supprimer (`#`), Suivre (ou ne plus suivre) (`s`), Marquer comme lu (`Maj+I`), Marquer comme non lu (`Maj+U`), Déplacer vers… (`v`), Sélectionner la conversation (`x`), Tout désélectionner, Annuler la dernière action (`z`) |
 | Rédaction | Nouveau message (`c`), Répondre (`r`), Répondre à tous (`a`), Transférer (`f`), Brouillons…, Boîte d'envoi |
@@ -82,6 +90,8 @@ d'une ligne de liste).
   puis la fenêtre de rédaction. Avec des conversations cochées : indisponible.
 - Une commande indisponible reste visible dans les barres et les menus,
   grisée.
+- Navigateur du système impossible à ouvrir (guide, site) : un message le
+  signale en bas de la fenêtre ; rien d'autre ne change.
 
 ## Messages affichés
 
@@ -89,6 +99,8 @@ d'une ligne de liste).
 |---|---|
 | Palette | Rechercher une commande…, Aucune commande |
 | Aide | Raccourcis clavier, Dans la fenêtre de rédaction, Envoyer le message, Fermer en gardant le brouillon, Toutes les commandes sont aussi accessibles par la palette :, Palette de commandes |
+| Menu « Aide » | Aide, Guide d'utilisation, Aide des raccourcis clavier, Site de Norelly |
+| Guide ou site impossible à ouvrir | Ouverture impossible. |
 | Infobulle | {label} — {keys} |
 | Fenêtres | Fermer |
 | Noms des touches | Maj, Échap, Espace, Entrée |

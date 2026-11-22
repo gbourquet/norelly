@@ -102,6 +102,33 @@ fichier modifié par l'assistant.
 | `ci.yml` | push sur `master`, PR | trois jobs en parallèle : Linux `./scripts/check.sh full` ; Linux `pnpm -C app e2e` ; Windows `./scripts/check.sh` puis `cargo build --workspace` |
 | `nightly.yml` | chaque nuit | fuzzing (5 min par cible), bancs (liste 50k, démarrage de bout en bout), Stalwart en second serveur |
 | `release.yml` | tag de version | NSIS (Windows, mise à jour signée minisign dans un environnement séparé), .deb et .rpm, manifeste `latest.json`, manifestes winget, `SHA256SUMS` et attestation de provenance Sigstore de chaque fichier (`scripts/release-assets.sh`, `actions/attest`), revérifiées avant le brouillon de version |
+| `release.yml` (job `site`) | publication du brouillon par le mainteneur | signal `repository_dispatch` de type `norelly-release` (`client_payload` : `{"tag": "v…"}`) au dépôt du site `gbourquet/norelly-site`, qui se reconstruit à ce tag (ADR-017) ; voir « Signal de publication au site » |
+
+### Signal de publication au site
+
+Le site norelly.fr lit le guide, la politique de confidentialité et les
+captures au tag de la dernière version publiée. Quand le mainteneur publie
+le brouillon de version (jamais avant : un brouillon ne se télécharge
+pas), le job `site` de `release.yml` prévient le dépôt du site ; les jobs
+de construction ne tournent pas à cette occasion. Une préversion publiée
+ne prévient pas le site, qui suit la dernière version stable.
+
+Mise en place par le mainteneur, une fois :
+
+1. Créer un **jeton d'accès personnel fin** (*fine-grained personal access
+   token*) : propriétaire `gbourquet`, accès au seul dépôt
+   `gbourquet/norelly-site`, permission de dépôt **Contents : Read and
+   write** (celle qu'exige l'API `POST /repos/{owner}/{repo}/dispatches`),
+   aucune autre (Metadata en lecture est ajoutée d'office), avec une date
+   d'expiration.
+2. Dans ce dépôt, créer l'environnement GitHub **`site`**, limité aux tags
+   `v*` (*Deployment branches and tags*), sans relecture obligatoire, et y
+   ranger le jeton sous le nom **`SITE_DISPATCH_TOKEN`**.
+3. Le dépôt du site écoute `repository_dispatch` de type `norelly-release`.
+
+Secret absent, jeton expiré ou refusé : le job `site` échoue, avec un
+message explicite, et la version reste publiée ; renouveler le jeton puis
+relancer le job (ou déclencher le site à la main) met le site à jour.
 
 `./scripts/check.sh` (rapide) enchaîne : build du front, format Rust,
 Clippy (avec et sans `updater`), tests unitaires avec couverture, tests du

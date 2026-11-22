@@ -518,6 +518,17 @@ reçus de l'interface ; types MIME recalculés.
   qui a `contents: write`. La commande `gh` documentée vérifie en plus que
   le runner est hébergé par GitHub, ce que la commande `cosign` ne fait
   pas (tous les jobs de `release.yml` le sont).
+- Signal au site (`release.yml`, job `site`) : seul job qui tourne à la
+  publication du brouillon par le mainteneur, sans aucune permission du
+  `GITHUB_TOKEN` (`permissions: {}`), sans dépôt extrait ni action
+  tierce. Il reçoit seul le secret `SITE_DISPATCH_TOKEN` (environnement
+  `site`, limité aux tags `v*`) : jeton fin limité à
+  `gbourquet/norelly-site`, permission « Contents » en écriture, la
+  seule qu'accepte l'API `dispatches` ; elle permettrait aussi d'écrire
+  dans ce dépôt, d'où sa portée réduite à lui et son expiration. Seule
+  donnée transmise : le tag, revérifié (forme semver) avant l'envoi, en
+  JSON construit par `jq`. Secret absent ou réponse autre que 204 : échec
+  explicite.
 - Flatpak : autorisations minimales, aucun accès direct aux fichiers de
   l'utilisateur (liste fermée d'autorisations vérifiée par
   `scripts/check-packaging.sh`, `ALLOWED_FINISH_ARGS`) :

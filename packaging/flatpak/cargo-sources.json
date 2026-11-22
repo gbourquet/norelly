@@ -2977,16 +2977,23 @@
     "dest-filename": ".cargo-checksum.json"
   },
   {
-    "type": "archive",
-    "archive-type": "tar-gzip",
-    "url": "https://static.crates.io/crates/imap-codec/imap-codec-2.0.0-alpha.9.crate",
-    "sha256": "6d97d123085ef99031a01544307235eb189ecf23df66e37c41a046e3d6614b9f",
-    "dest": "cargo/vendor/imap-codec-2.0.0-alpha.9"
+    "type": "git",
+    "url": "https://github.com/gbourquet/imap-codec",
+    "commit": "9c6a1eccf673f0df749d6ba56eb60353411e9028",
+    "dest": "cargo/git/imap-codec-9c6a1eccf673"
+  },
+  {
+    "type": "shell",
+    "commands": [
+      "cp -r \"cargo/git/imap-codec-9c6a1eccf673/imap-codec\" \"cargo/vendor/imap-codec\"",
+      "sed -i \"/^rust-version\\.workspace = true$/d\" \"cargo/vendor/imap-codec/Cargo.toml\"",
+      "! grep -q \"workspace\" \"cargo/vendor/imap-codec/Cargo.toml\""
+    ]
   },
   {
     "type": "inline",
-    "contents": "{\"package\": \"6d97d123085ef99031a01544307235eb189ecf23df66e37c41a046e3d6614b9f\", \"files\": {}}",
-    "dest": "cargo/vendor/imap-codec-2.0.0-alpha.9",
+    "contents": "{\"package\": null, \"files\": {}}",
+    "dest": "cargo/vendor/imap-codec",
     "dest-filename": ".cargo-checksum.json"
   },
   {
@@ -3003,16 +3010,17 @@
     "dest-filename": ".cargo-checksum.json"
   },
   {
-    "type": "archive",
-    "archive-type": "tar-gzip",
-    "url": "https://static.crates.io/crates/imap-types/imap-types-2.0.0-alpha.7.crate",
-    "sha256": "15aa08dfdb68ab0aa77bf3de6de5217bfcae4893f33573c8625be183fca621c8",
-    "dest": "cargo/vendor/imap-types-2.0.0-alpha.7"
+    "type": "shell",
+    "commands": [
+      "cp -r \"cargo/git/imap-codec-9c6a1eccf673/imap-types\" \"cargo/vendor/imap-types\"",
+      "sed -i \"/^rust-version\\.workspace = true$/d\" \"cargo/vendor/imap-types/Cargo.toml\"",
+      "! grep -q \"workspace\" \"cargo/vendor/imap-types/Cargo.toml\""
+    ]
   },
   {
     "type": "inline",
-    "contents": "{\"package\": \"15aa08dfdb68ab0aa77bf3de6de5217bfcae4893f33573c8625be183fca621c8\", \"files\": {}}",
-    "dest": "cargo/vendor/imap-types-2.0.0-alpha.7",
+    "contents": "{\"package\": null, \"files\": {}}",
+    "dest": "cargo/vendor/imap-types",
     "dest-filename": ".cargo-checksum.json"
   },
   {
@@ -8451,7 +8459,7 @@
   },
   {
     "type": "inline",
-    "contents": "[source.vendored-sources]\ndirectory = \"cargo/vendor\"\n\n[source.crates-io]\nreplace-with = \"vendored-sources\"\n\n[net]\noffline = true\n",
+    "contents": "[source.vendored-sources]\ndirectory = \"cargo/vendor\"\n\n[source.crates-io]\nreplace-with = \"vendored-sources\"\n\n[source.\"git+https://github.com/gbourquet/imap-codec?rev=9c6a1eccf673f0df749d6ba56eb60353411e9028\"]\ngit = \"https://github.com/gbourquet/imap-codec\"\nrev = \"9c6a1eccf673f0df749d6ba56eb60353411e9028\"\nreplace-with = \"vendored-sources\"\n\n[net]\noffline = true\n",
     "dest": "cargo",
     "dest-filename": "config.toml"
   }

@@ -6,8 +6,11 @@ Lit `Cargo.lock` et `app/pnpm-lock.yaml` et écrit, dans
 
 - `cargo-sources.json` : une archive `.crate` par paquet de crates.io,
   vérifiée par la somme SHA-256 du lockfile, dépaquetée dans
-  `cargo/vendor/<nom>-<version>`, avec son `.cargo-checksum.json`, et la
-  configuration cargo qui remplace crates.io par ce répertoire ;
+  `cargo/vendor/<nom>-<version>`, avec son `.cargo-checksum.json` ; pour
+  un dépôt git admis par `allow-git` de deny.toml et figé par commit, le
+  dépôt cloné à ce commit et ses crates recopiées dans `cargo/vendor/<nom>` ;
+  puis la configuration cargo qui remplace crates.io et ces dépôts par ce
+  répertoire ;
 - `node-sources.json` : une archive `.tgz` par paquet npm, vérifiée par
   l'intégrité SHA-512 du lockfile, rangée dans `npm-registry/` selon les
   chemins du registre npm (`<nom>/-/<base>-<version>.tgz`) ; le build sert
@@ -36,19 +39,81 @@ directory = "cargo/vendor"
 
 [source.crates-io]
 replace-with = "vendored-sources"
+"""
 
+CARGO_CONFIG_END = """
 [net]
 offline = true
 """
 
+# Source git du Cargo.lock : `git+<url>?rev=<commit>#<commit résolu>`.
+GIT_SOURCE = re.compile(r"git\+(https://[^?#\s]+)\?rev=([0-9a-f]{40})#([0-9a-f]{40})")
+CRATE_NAME = re.compile(r"[A-Za-z0-9_-]+")
 
-def cargo_sources() -> list[dict]:
-    lock = tomllib.loads((ROOT / "Cargo.lock").read_text(encoding="utf-8"))
+
+def allowed_git(deny_toml: str) -> list[str]:
+    """Dépôts git admis : la liste `[sources] allow-git` de deny.toml."""
+    return list(tomllib.loads(deny_toml).get("sources", {}).get("allow-git", []))
+
+
+def git_sources(name: str, source: str, allowed: list[str], cloned: set[str]) -> list[dict]:
+    """Crate d'un dépôt git admis : le dépôt cloné à son commit (une fois),
+    puis le dossier de la crate recopié dans le répertoire vendorisé.
+
+    Une crate git est rangée sous `cargo/vendor/<nom>` : les dépendances
+    `path = "../<nom>"` entre crates du même dépôt s'y retrouvent. Le
+    manifeste hérite de `rust-version` du workspace du dépôt, absent du
+    répertoire vendorisé : la ligne est retirée, et le build échoue si un
+    autre héritage subsiste."""
+    url = source.removeprefix("git+").split("?", 1)[0]
+    if url not in allowed:
+        raise SystemExit(f"source git non admise (absente de allow-git) : {name} ({source})")
+    match = GIT_SOURCE.fullmatch(source)
+    if match is None or match.group(1) != url or match.group(2) != match.group(3):
+        raise SystemExit(f"source git non figée par commit : {name} ({source})")
+    if not CRATE_NAME.fullmatch(name):
+        raise SystemExit(f"nom de crate invalide : {name}")
+    rev = match.group(2)
+    clone = f"cargo/git/{url.rstrip('/').rsplit('/', 1)[-1]}-{rev[:12]}"
+    vendor = f"cargo/vendor/{name}"
     sources: list[dict] = []
+    if clone not in cloned:
+        cloned.add(clone)
+        sources.append({"type": "git", "url": url, "commit": rev, "dest": clone})
+    sources.append(
+        {
+            "type": "shell",
+            "commands": [
+                f'cp -r "{clone}/{name}" "{vendor}"',
+                f'sed -i "/^rust-version\\.workspace = true$/d" "{vendor}/Cargo.toml"',
+                f'! grep -q "workspace" "{vendor}/Cargo.toml"',
+            ],
+        }
+    )
+    sources.append(
+        {
+            "type": "inline",
+            "contents": json.dumps({"package": None, "files": {}}),
+            "dest": vendor,
+            "dest-filename": ".cargo-checksum.json",
+        }
+    )
+    return sources
+
+
+def cargo_sources(lock: dict, allowed: list[str]) -> list[dict]:
+    sources: list[dict] = []
+    git_config: dict[str, tuple[str, str]] = {}
+    cloned: set[str] = set()
     for package in lock.get("package", []):
         source = package.get("source")
         if source is None:
             continue  # paquet du workspace
+        if source.startswith("git+"):
+            sources.extend(git_sources(package["name"], source, allowed, cloned))
+            url, rev = source.removeprefix("git+").split("#", 1)[0].split("?rev=", 1)
+            git_config[f"git+{url}?rev={rev}"] = (url, rev)
+            continue
         if source != CRATES_IO:
             raise SystemExit(f"source non prise en charge : {package['name']} ({source})")
         name, version, checksum = package["name"], package["version"], package["checksum"]
@@ -72,8 +137,12 @@ def cargo_sources() -> list[dict]:
                 "dest-filename": ".cargo-checksum.json",
             }
         )
+    config = CARGO_CONFIG
+    for key, (url, rev) in git_config.items():
+        config += f'\n[source."{key}"]\ngit = "{url}"\nrev = "{rev}"\nreplace-with = "vendored-sources"\n'
+    config += CARGO_CONFIG_END
     sources.append(
-        {"type": "inline", "contents": CARGO_CONFIG, "dest": "cargo", "dest-filename": "config.toml"}
+        {"type": "inline", "contents": config, "dest": "cargo", "dest-filename": "config.toml"}
     )
     return sources
 
@@ -135,7 +204,12 @@ def main() -> int:
         print("usage : flatpak-sources.py [--check]", file=sys.stderr)
         return 2
     outputs = {
-        OUT / "cargo-sources.json": render(cargo_sources()),
+        OUT / "cargo-sources.json": render(
+            cargo_sources(
+                tomllib.loads((ROOT / "Cargo.lock").read_text(encoding="utf-8")),
+                allowed_git((ROOT / "deny.toml").read_text(encoding="utf-8")),
+            )
+        ),
         OUT / "node-sources.json": render(node_sources()),
     }
     stale = []

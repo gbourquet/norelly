@@ -141,7 +141,12 @@ et les sources vendorisées.
   `flatpak-builder --force-clean build packaging/flatpak/io.github.gbourquet.Norelly.yml`.
 - **Sources vendorisées** (crates et paquets npm) :
   `./scripts/flatpak-sources.py` après tout changement de `Cargo.lock` ou
-  de `app/pnpm-lock.yaml` (`--check` dans `check-packaging.sh`).
+  de `app/pnpm-lock.yaml` (`--check` dans `check-packaging.sh`). Une
+  dépendance git n'est acceptée que si son dépôt figure dans `allow-git`
+  de `deny.toml` et qu'elle est figée par commit complet. Le dépôt est
+  alors cloné à ce commit au moment des sources, et ses crates sont
+  recopiées dans le répertoire vendorisé. Le build s'arrête si un
+  manifeste hérite encore d'un réglage du workspace du dépôt.
 - **Manifeste Flathub**, une fois le tag `vX.Y.Z` publié et récupéré
   (`git fetch --tags`) :
   `./scripts/flathub-manifest.py --tag vX.Y.Z --out <clone du dépôt Flathub>`.

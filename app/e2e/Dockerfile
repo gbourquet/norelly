@@ -80,13 +80,17 @@ ARG NODE_SHA256=48cc0e21e048790e54c0cf5749c2725005313d652651c40b7a21feb9697aaf75
 ARG PNPM_VERSION=10.34.9
 ARG PNPM_SHA256=7e8a946108e7baab119e51d27c24d6178b46545422643dbc91e34e2f1ee32e0f
 
-# Rust (on suit stable, comme la CI).
+# Rust : version et composants de rust-toolchain.toml (même chaîne que la
+# CI, vérifié par scripts/check-toolchain.mjs), installés dans l'image pour
+# que rustup n'ait rien à télécharger dans le conteneur.
+ARG RUST_VERSION=1.100.0
 ENV RUSTUP_HOME=/opt/rustup CARGO_HOME=/opt/cargo PATH=/opt/node/bin:/opt/cargo/bin:$PATH
 RUN curl --proto '=https' --tlsv1.2 -fsSLo /tmp/rustup-init \
       "https://static.rust-lang.org/rustup/archive/${RUSTUP_VERSION}/x86_64-unknown-linux-gnu/rustup-init" \
     && echo "${RUSTUP_SHA256}  /tmp/rustup-init" | sha256sum -c - \
     && chmod +x /tmp/rustup-init \
-    && /tmp/rustup-init -y --no-modify-path --profile minimal --default-toolchain stable \
+    && /tmp/rustup-init -y --no-modify-path --profile minimal --default-toolchain ${RUST_VERSION} \
+      --component rustfmt,clippy,llvm-tools-preview \
     && rm /tmp/rustup-init \
     && chmod -R a+rwX /opt/rustup /opt/cargo
 RUN cargo install tauri-driver --version 2.1.0 --locked \

@@ -1,0 +1,9 @@
+# Chaîne Rust figée : postes de développement (avec rustup), CI et image
+# e2e. Montée de version volontaire, procédure dans
+# docs/technique/methode.md ; scripts/check-toolchain.mjs vérifie que les
+# workflows et app/e2e/Dockerfile installent la même version.
+[toolchain]
+channel = "1.100.0"
+components = ["rustfmt", "clippy", "llvm-tools-preview"]
+# Installation automatique par rustup : profil minimal plus ces composants.
+profile = "minimal"

@@ -128,9 +128,10 @@ Mise en place par le mainteneur, une fois :
 2. Dans ce dépôt, créer l'environnement GitHub **`site`**, limité aux tags
    `v*` (*Deployment branches and tags*), sans relecture obligatoire, et y
    ranger le jeton sous le nom **`SITE_DISPATCH_TOKEN`**.
-3. Le workflow `deploy.yml` du dépôt du site accepte `workflow_dispatch`
-   ; son déploiement reste soumis à la relecture de l'environnement
-   `production`.
+3. Le workflow `deploy.yml` du dépôt du site accepte `workflow_dispatch`.
+   Son envoi est automatique (pas de relecture obligatoire pour un dépôt
+   privé avec l'offre GitHub gratuite) : il ne part que depuis `main`,
+   pour son dernier commit, après une construction vérifiée.
 4. Protéger les tags `v*` de ce dépôt par une règle (*Settings → Rules →
    Rulesets*, cible « Tags », motif `v*`) : création, mise à jour et
    suppression réservées au mainteneur. L'environnement `site` accepte tout

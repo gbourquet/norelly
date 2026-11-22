@@ -531,8 +531,10 @@ reçus de l'interface ; types MIME recalculés.
   lancer un workflow du site sur une autre branche, d'annuler, relancer ou
   désactiver ses workflows, et de supprimer artefacts, journaux et caches
   (blocage d'une mise en ligne) ; l'envoi sur le serveur n'a lieu que
-  depuis `main`, pour le dernier commit, après relecture de
-  l'environnement `production`, et le jeton expire vite. Aucune donnée
+  depuis `main` (environnement `production` limité à `main`), pour le
+  dernier commit, après une construction vérifiée, et le jeton expire
+  vite. Pas de relecture obligatoire : indisponible pour le dépôt privé
+  du site avec l'offre GitHub gratuite. Aucune donnée
   transmise : le site relit lui-même le dernier tag de version. Le tag est
   revérifié (version stable) avant l'envoi. Secret absent ou réponse autre
   que 204 : échec explicite. Les tags `v*` sont protégés par une règle du

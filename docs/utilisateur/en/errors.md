@@ -71,7 +71,7 @@ servers, incoming and outgoing, have the names of Google's servers.
 **What to do**: follow the three steps in the box. The **Open the Google
 page** button opens the page where you create the app password; then
 paste it into the **Password** field, which was cleared for it. Details
-are in [Adding your email address](first-account.md#gmail).
+are in [Adding your email address](first-account.md#gmail-the-app-password).
 
 ## Google account already added: "Google asks for a new app password"
 

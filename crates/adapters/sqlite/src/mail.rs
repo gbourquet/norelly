@@ -500,15 +500,7 @@ fn reuse_body(
                     target,
                     MAX_REUSE_CANDIDATES,
                 ],
-                |r| {
-                    Ok((
-                        r.get(0)?,
-                        r.get(1)?,
-                        r.get(2)?,
-                        r.get(3)?,
-                        r.get(4)?,
-                    ))
-                },
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
             )
             .map_err(store_error)?;
         rows.collect::<Result<_, _>>().map_err(store_error)?
@@ -663,7 +655,9 @@ impl MailStore for SqliteMailStore {
         reuse: &BodyReuse,
     ) -> Result<bool, StoreError> {
         let reuse = *reuse;
-        self.db.run(move |c| reuse_body(c, mailbox, uid, &reuse)).await
+        self.db
+            .run(move |c| reuse_body(c, mailbox, uid, &reuse))
+            .await
     }
 }
 

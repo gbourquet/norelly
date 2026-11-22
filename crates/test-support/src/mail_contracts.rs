@@ -803,11 +803,21 @@ where
     // Rien ne convient : pas de corps téléchargé (43), taille différente
     // (12 demande 501), autre compte, boîte d'un autre compte que la clé.
     for (target_box, target, reuse, why) in [
-        (projets, 11, key(account, 43, 600), "corps pas encore téléchargé"),
+        (
+            projets,
+            11,
+            key(account, 43, 600),
+            "corps pas encore téléchargé",
+        ),
         (projets, 12, key(account, 42, 501), "aucune taille égale"),
         (projets, 13, key(account, 44, 500), "identifiant inconnu"),
         (other_box, 5, key(other, 42, 500), "autre compte"),
-        (other_box, 5, key(account, 42, 500), "boîte hors du compte de la clé"),
+        (
+            other_box,
+            5,
+            key(account, 42, 500),
+            "boîte hors du compte de la clé",
+        ),
     ] {
         assert!(
             !store.reuse_body(target_box, uid(target), &reuse).await?,

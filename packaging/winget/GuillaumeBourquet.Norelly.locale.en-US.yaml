@@ -4,8 +4,9 @@ PackageVersion: "{{version}}"
 PackageLocale: en-US
 Publisher: Guillaume Bourquet
 PublisherUrl: https://github.com/gbourquet
+PrivacyUrl: https://norelly.fr/en/privacy/
 PackageName: Norelly
-PackageUrl: https://github.com/gbourquet/norelly
+PackageUrl: https://norelly.fr/en/
 License: MIT OR Apache-2.0
 LicenseUrl: https://github.com/gbourquet/norelly/blob/master/LICENSE-MIT
 ShortDescription: Fast email client you can drive from the keyboard
@@ -17,5 +18,8 @@ Tags:
   - imap
   - smtp
   - mail-client
+Documentations:
+  - DocumentLabel: User guide
+    DocumentUrl: https://norelly.fr/en/guide/
 ManifestType: defaultLocale
 ManifestVersion: 1.10.0

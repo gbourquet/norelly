@@ -43,7 +43,8 @@
   <launchable type="desktop-id">io.github.gbourquet.Norelly.desktop</launchable>
   <icon type="stock">io.github.gbourquet.Norelly</icon>
 
-  <url type="homepage">https://github.com/gbourquet/norelly</url>
+  <url type="homepage">https://norelly.fr/</url>
+  <url type="help">https://norelly.fr/en/guide/</url>
   <url type="bugtracker">https://github.com/gbourquet/norelly/issues</url>
   <url type="vcs-browser">https://github.com/gbourquet/norelly</url>
 

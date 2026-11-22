@@ -428,16 +428,32 @@ reçus de l'interface ; types MIME recalculés.
   montés par PR ; restent flottants Node.js et pnpm (version majeure),
   les paquets apt des jobs de la CI et le Rust du SDK Flatpak
   ([méthode](methode.md#versions-figées-de-la-chaîne-et-des-outils)).
-- Actions GitHub : chaque action des workflows est figée par une empreinte de
-  commit complète suivie de sa version en commentaire (`@<sha> # v5`),
-  vérifié par `scripts/check-actions.mjs` (lancé par `scripts/check.sh`).
+- Actions GitHub : chaque action des workflows et des actions composites du
+  dépôt est figée par une empreinte de commit complète suivie de sa
+  version en commentaire (`@<sha> # v5`), vérifié par
+  `scripts/check-actions.mjs` (lancé par `scripts/check.sh`), qui refuse
+  aussi une forme de `uses:` qu'il ne sait pas lire et une action locale
+  absente ou hors du dépôt. `check.sh full` vérifie en plus, par le
+  réseau (`git ls-remote --tags`), que chaque empreinte est celle d'une
+  étiquette du dépôt amont correspondant à la version du commentaire :
+  ni commit d'un fork, ni version annoncée à tort. Exception :
+  `dtolnay/rust-toolchain`, figée sur la branche d'un canal (`# stable`,
+  `# nightly`), sans étiquette, non vérifiée par le réseau.
 - Mises à jour des actions signalées par Dependabot
   (`.github/dependabot.yml`, écosystème `github-actions` seulement) : une
   fois par semaine, une PR remplace l'empreinte et le commentaire de
   version, à relire et à faire passer par la CI comme toute autre
-  modification ; correctifs et versions mineures regroupés, version
-  majeure proposée seule, trois PR ouvertes au plus, commits préfixés
-  `deps:`. Dependabot ne s'active que depuis la branche par défaut.
+  modification ; une version publiée depuis moins de 7 jours n'est pas
+  proposée (`cooldown`) ; correctifs et versions mineures regroupés,
+  version majeure proposée seule, cinq PR ouvertes au plus, commits
+  préfixés `deps:` (message en anglais, écrit par Dependabot).
+  `dtolnay/rust-toolchain` est exclue (pas d'étiquette de version) et se
+  met à jour à la main. Des actions composites sous `.github/actions`
+  devront être ajoutées à la surveillance (`directories`), exigé par le
+  vérificateur. Dependabot ne s'active que depuis la branche par défaut ;
+  ses mises à jour de sécurité, qui ignorent le délai et la limite de PR,
+  s'activent dans les réglages du dépôt (alertes et mises à jour de
+  sécurité Dependabot).
 - Mises à jour (NSIS) signées **minisign**, signature faite dans un
   environnement de publication séparé de la compilation ; délais bornés
   (`docs/CODE_SIGNING.md`).
@@ -605,7 +621,8 @@ Signalés au mainteneur dans chaque PR qui les touche (ADR-008) :
   `target-name.sh`, `prune-targets.sh`, `verify-crates.sh`),
   `scripts/release-assets.sh`, `rust-toolchain.toml`,
   `scripts/check-toolchain.mjs`, `scripts/check-toolchain-cli.mjs`,
-  `scripts/check-toolchain.test.mjs`.
+  `scripts/check-toolchain.test.mjs`, `.github/dependabot.yml`,
+  `scripts/check-actions.mjs` (et son test).
 
 ## Revues
 

@@ -56,7 +56,8 @@ pub fn sha256_hex(bytes: &[u8]) -> String {
         .collect()
 }
 
-fn blob_id(bytes: &[u8]) -> Result<BlobId, StoreError> {
+/// Empreinte de contenu de `bytes`, pour les corps de test.
+pub fn blob_id(bytes: &[u8]) -> Result<BlobId, StoreError> {
     BlobId::parse(&sha256_hex(bytes)).ok_or_else(|| StoreError("empreinte".into()))
 }
 
@@ -185,7 +186,8 @@ pub fn sample_message(n: u32, date: i64, seen: bool) -> StoredMessage {
     }
 }
 
-pub(crate) fn state(validity: u32, modseq: u64, next: u32) -> MailboxSyncState {
+/// État de synchronisation de test : UIDVALIDITY, MODSEQ le plus haut, UIDNEXT.
+pub fn state(validity: u32, modseq: u64, next: u32) -> MailboxSyncState {
     MailboxSyncState {
         uid_validity: UidValidity::new(validity),
         highest_modseq: ModSeq::new(modseq),
@@ -654,7 +656,7 @@ where
 
 /// Message Gmail de test : UID `n`, identifiant Gmail `gmail_id`, taille
 /// `size`.
-fn gmail_message(n: u32, gmail_id: u64, size: u32, seen: bool) -> StoredMessage {
+pub fn gmail_message(n: u32, gmail_id: u64, size: u32, seen: bool) -> StoredMessage {
     let mut message = sample_message(n, 1_000 + i64::from(n), seen);
     message.meta.gmail_id = GmailMessageId::new(gmail_id);
     message.meta.size = size;

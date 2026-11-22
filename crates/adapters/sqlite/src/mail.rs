@@ -456,6 +456,16 @@ fn local(conn: &Connection, mailbox: MailboxId) -> Result<LocalMailbox, StoreErr
 /// Nombre maximal de messages candidats examinés pour une réutilisation.
 const MAX_REUSE_CANDIDATES: i64 = 8;
 
+/// Messages du compte `?2` dont le corps peut être recopié sur le message
+/// `?4` : même identifiant Gmail `?1`, même taille `?3`, corps présent, hors
+/// copie provisoire ; au plus `?5`.
+pub(super) const REUSE_CANDIDATES: &str =
+    "SELECT m.id, b.account_id, m.size, m.gmail_msgid, m.pending_op IS NOT NULL \
+     FROM messages m JOIN mailboxes b ON b.id = m.mailbox_id \
+     WHERE m.gmail_msgid = ?1 AND b.account_id = ?2 AND m.size = ?3 \
+     AND m.body_state IN ('full', 'partial') AND m.pending_op IS NULL AND m.id <> ?4 \
+     LIMIT ?5";
+
 /// Recopie le corps d'un message accepté par `reuse` sur le message `uid`
 /// de `mailbox` encore sans corps (`MailStore::reuse_body`). La requête
 /// présélectionne ; la règle du domaine (`BodyReuse::accepts`) décide.
@@ -472,7 +482,7 @@ fn reuse_body(
         .query_row(
             "SELECT m.id FROM messages m JOIN mailboxes b ON b.id = m.mailbox_id \
              WHERE m.mailbox_id = ?1 AND m.uid = ?2 AND b.account_id = ?3 \
-             AND m.body_state = 'missing'",
+             AND m.body_state = 'missing' AND m.pending_op IS NULL",
             params![mailbox.get(), i64_of(uid.get()), reuse.account.get()],
             |r| r.get(0),
         )
@@ -483,13 +493,7 @@ fn reuse_body(
     };
     let candidates: Vec<(i64, i64, i64, Option<i64>, bool)> = {
         let mut stmt = tx
-            .prepare_cached(
-                "SELECT m.id, b.account_id, m.size, m.gmail_msgid, m.pending_op IS NOT NULL \
-                 FROM messages m JOIN mailboxes b ON b.id = m.mailbox_id \
-                 WHERE m.gmail_msgid = ?1 AND b.account_id = ?2 AND m.size = ?3 \
-                 AND m.body_state <> 'missing' AND m.pending_op IS NULL AND m.id <> ?4 \
-                 LIMIT ?5",
-            )
+            .prepare_cached(REUSE_CANDIDATES)
             .map_err(store_error)?;
         let rows = stmt
             .query_map(

@@ -8,5 +8,9 @@
 -- dossier du même compte, au lieu de le télécharger à nouveau.
 ALTER TABLE messages ADD COLUMN gmail_msgid INTEGER;
 
-CREATE INDEX messages_by_gmail_msgid ON messages (gmail_msgid)
+-- Index sur l'identifiant et la taille : un serveur qui donne le même
+-- identifiant à beaucoup de messages de tailles différentes ne fait pas
+-- parcourir toutes ces lignes à chaque corps recopié, ni ceux qui n'ont
+-- pas encore de corps.
+CREATE INDEX messages_by_gmail_msgid ON messages (gmail_msgid, size, body_state)
     WHERE gmail_msgid IS NOT NULL;

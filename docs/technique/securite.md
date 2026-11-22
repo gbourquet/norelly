@@ -415,8 +415,9 @@ reçus de l'interface ; types MIME recalculés.
 - Provenance des versions (`release.yml`, sans clé ni secret) : le job
   `assets` met à plat les fichiers des artefacts et écrit `SHA256SUMS`
   (`scripts/release-assets.sh` : noms restreints à `[A-Za-z0-9._+-]`, sans
-  tiret initial ; doublon, lien, fichier spécial ou `SHA256SUMS` déjà
-  présent refusés ; testé par `release-assets.test.sh`), puis
+  tiret initial ; doublon, même à la casse près, lien, fichier spécial ou
+  `SHA256SUMS` déjà présent refusés ; testé par `release-assets.test.sh`),
+  puis
   `actions/attest` produit **une** attestation de provenance SLSA
   (`https://slsa.dev/provenance/v1`) dont les sujets sont tous les
   fichiers publiés, `SHA256SUMS` compris. Elle est signée par Sigstore
@@ -428,12 +429,24 @@ reçus de l'interface ; types MIME recalculés.
   dépôt ; le job `publish` (`contents: write`, sans jeton OIDC) revérifie
   avant de créer le brouillon : `sha256sum --check`, aucun fichier hors de
   `SHA256SUMS` (sauf l'attestation), et `gh attestation verify` de chaque
-  fichier contre ce workflow, ce tag, ce commit, runner hébergé par GitHub.
-  Vérification par l'utilisateur, sans compte (`cosign
-  verify-blob-attestation`, identité exacte du certificat) ou avec `gh` :
-  `docs/utilisateur/*/install.md`. Limite : l'attestation prouve d'où vient
-  un fichier, pas que le code de ce tag est sain ; le tag lui-même est
-  protégé par la relecture des PR et l'environnement `release`.
+  fichier contre l'identité exacte du certificat (`--cert-identity`,
+  égalité : `--signer-workflow` n'est qu'un préfixe dans les versions de
+  `gh` antérieures à 2.102), ce tag, ce commit, runner hébergé par GitHub.
+  La version du tag est contrôlée (semver) avant d'entrer dans les noms
+  de fichiers. Vérification par l'utilisateur, sans compte (`cosign`
+  2.4 ou plus, `verify-blob-attestation`) ou avec `gh` 2.102 ou plus,
+  toujours par l'identité exacte, numéro de version lu sur la page des
+  versions (une ancienne version authentique passerait aussi) :
+  `docs/utilisateur/*/install.md`. Ce que prouve l'attestation : chaque
+  fichier a été haché par le job `assets` du `release.yml` **du commit
+  tagué**, sur un runner hébergé par GitHub. Elle ne prouve ni que ce
+  commit a été relu ou est sur `master` (rien ne l'impose à un tag), ni
+  l'innocuité des dépendances, ni la reproductibilité ; les jobs de build
+  `linux` et `windows` ne sont pas attestés séparément. La barrière réelle
+  est la règle des tags `v*` (création, modification et suppression
+  réservées aux administrateurs) : un tag posé sur un commit dont le
+  `release.yml` serait modifié (par exemple sans l'environnement
+  `release`) produirait des fichiers attestés.
 - Flatpak : autorisations minimales, aucun accès direct aux fichiers de
   l'utilisateur (liste fermée d'autorisations vérifiée par
   `scripts/check-packaging.sh`, `ALLOWED_FINISH_ARGS`) :

@@ -116,14 +116,17 @@ installateurs :
   du dépôt `gbourquet/norelly`, à partir de cette version précise.
 
 Dans les commandes ci-dessous, remplacez `1.0.0` par le numéro de la
-version téléchargée (il apparaît plusieurs fois) et
+version téléchargée (il apparaît plusieurs fois), lu sur la page des
+versions de `https://github.com/gbourquet/norelly` et non sur le fichier :
+vérifiez qu'il s'agit bien de la dernière version, car une ancienne
+version authentique passerait aussi la vérification. Remplacez aussi
 `Norelly_1.0.0_x64-setup.exe` par le nom de votre fichier (`.deb`, `.rpm`,
 ou `SHA256SUMS`).
 
 ### Avec cosign, sans compte
 
-Installez [cosign](https://docs.sigstore.dev/cosign/system_config/installation/),
-placez le fichier et l'attestation dans le même dossier, puis lancez, dans
+Installez [cosign](https://docs.sigstore.dev/cosign/system_config/installation/)
+(version 2.4 ou plus récente), placez le fichier et l'attestation dans le même dossier, puis lancez, dans
 ce dossier :
 
 ```
@@ -136,11 +139,12 @@ l'installez pas.
 
 ### Avec GitHub CLI, avec un compte GitHub
 
-Si vous utilisez [GitHub CLI](https://cli.github.com) (`gh`), connecté à
-votre compte, l'attestation est retrouvée sur GitHub, sans la télécharger :
+Si vous utilisez [GitHub CLI](https://cli.github.com) (`gh`, version 2.102
+ou plus récente), connecté à votre compte, l'attestation est retrouvée sur
+GitHub, sans la télécharger :
 
 ```
-gh attestation verify Norelly_1.0.0_x64-setup.exe --repo gbourquet/norelly --signer-workflow gbourquet/norelly/.github/workflows/release.yml --source-ref refs/tags/v1.0.0 --deny-self-hosted-runners
+gh attestation verify Norelly_1.0.0_x64-setup.exe --repo gbourquet/norelly --cert-identity https://github.com/gbourquet/norelly/.github/workflows/release.yml@refs/tags/v1.0.0 --source-ref refs/tags/v1.0.0 --deny-self-hosted-runners
 ```
 
 La réponse doit indiquer **`Verification succeeded!`** ; en cas de refus,

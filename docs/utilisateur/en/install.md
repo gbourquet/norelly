@@ -107,13 +107,15 @@ On the releases page, every version contains, besides the installers:
   repository, from that exact version.
 
 In the commands below, replace `1.0.0` with the number of the version you
-downloaded (it appears several times) and `Norelly_1.0.0_x64-setup.exe`
-with the name of your file (`.deb`, `.rpm`, or `SHA256SUMS`).
+downloaded (it appears several times), read on the releases page of
+`https://github.com/gbourquet/norelly` rather than on the file: make sure
+it is the latest version, since an older genuine version would pass the
+check too. Also replace `Norelly_1.0.0_x64-setup.exe` with the name of your file (`.deb`, `.rpm`, or `SHA256SUMS`).
 
 ### With cosign, no account needed
 
-Install [cosign](https://docs.sigstore.dev/cosign/system_config/installation/),
-put the file and the attestation in the same folder, then run, in that
+Install [cosign](https://docs.sigstore.dev/cosign/system_config/installation/)
+(version 2.4 or later), put the file and the attestation in the same folder, then run, in that
 folder:
 
 ```
@@ -125,11 +127,12 @@ message (signature, fingerprint or identity refused): do not install it.
 
 ### With GitHub CLI, with a GitHub account
 
-If you use [GitHub CLI](https://cli.github.com) (`gh`), signed in to your
-account, the attestation is fetched from GitHub, without downloading it:
+If you use [GitHub CLI](https://cli.github.com) (`gh`, version 2.102 or
+later), signed in to your account, the attestation is fetched from GitHub,
+without downloading it:
 
 ```
-gh attestation verify Norelly_1.0.0_x64-setup.exe --repo gbourquet/norelly --signer-workflow gbourquet/norelly/.github/workflows/release.yml --source-ref refs/tags/v1.0.0 --deny-self-hosted-runners
+gh attestation verify Norelly_1.0.0_x64-setup.exe --repo gbourquet/norelly --cert-identity https://github.com/gbourquet/norelly/.github/workflows/release.yml@refs/tags/v1.0.0 --source-ref refs/tags/v1.0.0 --deny-self-hosted-runners
 ```
 
 The answer must say **`Verification succeeded!`**; if it is refused, `gh`

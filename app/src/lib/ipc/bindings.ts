@@ -96,6 +96,11 @@ export const commands = {
 	 */
 	openExternal: (url: string) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("open_external", { url })),
 	/**
+	 *  Ouvre une page du site de Norelly (guide, accueil) dans le navigateur
+	 *  du système, dans la langue de l'interface.
+	 */
+	openSitePage: (page: SitePageDto, language: SiteLanguageDto) => typedError<null, IpcError_Serialize>(__TAURI_INVOKE("open_site_page", { page, language })),
+	/**
 	 *  Enregistre une pièce jointe dans un dossier choisi par l'utilisateur
 	 *  (sélecteur du système) ; renvoie le nom du fichier écrit, `None` si
 	 *  l'utilisateur a annulé. `title` : titre du sélecteur, localisé par
@@ -2238,6 +2243,16 @@ export type SettingsDto_Serialize = {
 	 */
 	mark_seen_delay_secs: number | null,
 };
+
+/**  Langue d'une page du site : celle de l'interface. */
+export type SiteLanguageDto = "fr" | "en";
+
+/**
+ *  Page du site de Norelly ouverte depuis le menu « Aide » ; l'adresse est
+ *  construite en Rust (`norelly_domain::site`), jamais fournie par
+ *  l'interface.
+ */
+export type SitePageDto = "home" | "guide";
 
 /**  Événement de synchronisation relayé à l'interface. */
 export type SyncEventDto = SyncEventDto_Serialize | SyncEventDto_Deserialize;

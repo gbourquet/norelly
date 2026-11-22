@@ -1,5 +1,8 @@
 # Norelly
 
+Site : **[norelly.fr](https://norelly.fr/)** (présentation, téléchargement,
+guide d'utilisation).
+
 Client mail IMAP/SMTP desktop pour Windows et Linux : rapide, sobre,
 utilisable entièrement à la souris (et plus vite encore au clavier),
 configuration quasi automatique. Aucune télémétrie.

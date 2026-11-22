@@ -797,18 +797,20 @@ Fiche : [clavier.md](../fonctionnel/clavier.md).
 | Les composants relisent le registre à l'abonnement (commandes enregistrées avant) | `app/src/lib/commands/watch.svelte.ts` |
 | Touches de la fenêtre de rédaction et de l'éditeur, affichées dans les infobulles et l'aide | `app/src/lib/fixed-shortcuts.ts` |
 | Bouton Fermer de chaque fenêtre, dernier dans l'ordre de tabulation | `app/src/components/Modal.svelte` |
-| Bouton « ? », « Nouveau message », menu « ⋯ » des comptes, « Ajouter un compte » et « Paramètres » toujours visibles | `app/src/components/Sidebar.svelte` |
+| Bouton « ? », « Nouveau message », menu « ⋯ » des comptes, « Ajouter un compte », « Paramètres » et menu « Aide » toujours visibles | `app/src/components/Sidebar.svelte` |
+| Menu « Aide » : guide, aide des raccourcis, site | `app/src/lib/visible-actions.ts` (`helpMenuActions`) |
+| Guide et site : l'interface ne choisit qu'une page (`home`, `guide`) et une langue (`fr`, `en`, celle de l'interface ; même type des deux côtés), listes fermées revalidées par les DTO ; l'adresse est construite en Rust sous `https://norelly.fr`, passée par `ExternalLink`, puis ouverte dans le navigateur du système (`open_site_page`) ; échec : `open_failed` dans la bande d'information | `crates/domain/src/site.rs` (`site_page_url`), `app/src-tauri/src/reading.rs` (`open_site_page`), `app/src/lib/app.svelte.ts` |
 
 ### Clés des messages
 
-`palette_placeholder`, `palette_empty`, `help_title`, `help_palette_hint`, `help_group_compose_window`, `help_send`, `help_close_compose`, `tooltip_shortcut`, `common_close`, `key_shift`, `key_escape`, `key_space`, `key_enter`, `sidebar_account_menu`, `sidebar_sync`, `sidebar_remove`, `sidebar_settings`, `search_button`.
+`palette_placeholder`, `palette_empty`, `help_title`, `help_palette_hint`, `help_group_compose_window`, `help_send`, `help_close_compose`, `tooltip_shortcut`, `common_close`, `key_shift`, `key_escape`, `key_space`, `key_enter`, `sidebar_account_menu`, `sidebar_sync`, `sidebar_remove`, `sidebar_settings`, `sidebar_help`, `cmd_help_guide`, `cmd_help_website`, `search_button`.
 
 
 ### Commandes
 
 | Groupe | Identifiants (raccourci) |
 |---|---|
-| Général | `palette.open` (`Ctrl+K`), `help.shortcuts` (`?`), `settings.open` (`Ctrl+,`) |
+| Général | `palette.open` (`Ctrl+K`), `help.shortcuts` (`?`), `help.guide`, `help.website`, `settings.open` (`Ctrl+,`) |
 | Lecture | `conversation.next` (`j`), `conversation.previous` (`k`), `conversation.open` (`Entrée`), `conversation.back` (`Échap`), `search.open` (`/`), `mailbox.unified`, `reading.plain-text`, `reading.print` (`Ctrl+P`) |
 | Actions | `action.archive` (`e`), `action.delete` (`#`), `action.flag` (`s`), `action.mark-read` (`Maj+I`), `action.mark-unread` (`Maj+U`), `action.move` (`v`), `action.toggle-mark` (`x`), `selection.clear`, `action.undo` (`z`) |
 | Rédaction | `compose.new` (`c`), `compose.reply` (`r`), `compose.reply-all` (`a`), `compose.forward` (`f`), `drafts.open`, `compose.outbox` |

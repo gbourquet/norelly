@@ -79,7 +79,7 @@ portent les noms de ceux de Google.
 la page Google** ouvre la page où créer le mot de passe d'application ;
 collez-le ensuite dans le champ **Mot de passe**, qui a été vidé pour lui.
 Le détail est dans
-[Ajouter votre adresse](first-account.md#gmail).
+[Ajouter votre adresse](first-account.md#gmail--le-mot-de-passe-dapplication).
 
 ## Compte Google déjà ajouté : « Google demande un nouveau mot de passe d'application »
 

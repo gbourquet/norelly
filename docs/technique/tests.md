@@ -93,6 +93,7 @@ Dockerfile change, la CI reconstruit donc son image.
 | `compose.e2e.mjs` | Réponse `r` + Ctrl+Entrée reçue par Mailpit (In-Reply-To, texte et HTML), copie dans Envoyés, Cci hors des en-têtes, HTML saisi jamais interprété |
 | `search.e2e.mjs` | Mot du texte trouvé et surligné, échappement, filtre `from:` |
 | `captures/captures.e2e.mjs` | Produit les captures de `docs/utilisateur/{fr,en}/captures/` sur un profil neuf par langue (boîte Dovecot dédiée), en passant par la souris comme un utilisateur débutant (boutons, cases à cocher, clic droit, menus « Plus… » et « ⋯ ») ; vérifie la langue de l'interface |
+| `captures/inbox-dark.e2e.mjs` | Lancé juste avant, sur son propre profil neuf et avec `GTK_THEME=Adwaita:dark` : capture `inbox-dark` (même compte, mêmes messages, même taille que `inbox`, `captures/shared.mjs`) ; vérifie la langue et que le thème sombre est appliqué (`prefers-color-scheme`), puis vide la boîte Dovecot de la capture |
 | `perf/perf.e2e.mjs` | Démarrage et changement de dossier sur 50 000 + 20 000 messages (`NORELLY_E2E_PERF=1`, build release) |
 
 Menus sous WebKitWebDriver : il ne synthétise que `mousedown`, `mouseup`

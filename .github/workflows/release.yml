@@ -15,11 +15,26 @@
 # même environnement : non confidentiels, ils sont compilés dans
 # l'application (jobs Linux et Windows). Aucun cache dans les builds de publication
 # (empoisonnement de cache).
+#
+# Quand le mainteneur publie une version stable (événement `release`
+# `released` : brouillon publié ou préversion promue), le
+# job `site` seul s'exécute : il signale la version au dépôt du site
+# (lancement de son workflow `deploy.yml` sur `main`, ADR-017), qui se
+# reconstruit au dernier tag de version. Secret SITE_DISPATCH_TOKEN de
+# l'environnement GitHub `site` : jeton d'accès fin limité au dépôt
+# norelly-site, permission « Actions: write » seulement : il ne peut pas
+# modifier le code du site, mais peut lancer, annuler ou désactiver ses
+# workflows et supprimer ses artefacts, journaux et caches (voir
+# docs/technique/securite.md).
 name: Release
 
 on:
   push:
     tags: ["v*"]
+  release:
+    # `released` : publication d'une version stable, ou promotion d'une
+    # préversion en version stable (que `published` ne signale pas).
+    types: [released]
 
 permissions:
   contents: read
@@ -34,6 +49,9 @@ env:
 jobs:
   version:
     name: Version du tag
+    # Tous les jobs de construction en dépendent : ils ne tournent que sur
+    # le tag, jamais à la publication du brouillon.
+    if: github.event_name == 'push'
     runs-on: ubuntu-24.04
     outputs:
       version: ${{ steps.check.outputs.version }}
@@ -275,3 +293,39 @@ jobs:
           gh release create "$TAG" dist/*
           --repo "$GITHUB_REPOSITORY" --draft --verify-tag
           --title "Norelly $TAG" --generate-notes
+
+  site:
+    name: Signal de publication au site
+    # Version stable publiée par le mainteneur (brouillon relu, ou
+    # préversion promue), jamais un brouillon : le site ne propose que ce
+    # qui se télécharge. Une préversion ne change pas le site, qui suit la
+    # dernière version stable.
+    if: >-
+      github.event_name == 'release'
+      && !github.event.release.draft
+      && !github.event.release.prerelease
+    runs-on: ubuntu-24.04
+    environment: site
+    permissions: {}
+    steps:
+      - name: Lancement du déploiement de gbourquet/norelly-site
+        env:
+          SITE_DISPATCH_TOKEN: ${{ secrets.SITE_DISPATCH_TOKEN }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          if [ -z "$SITE_DISPATCH_TOKEN" ]; then
+            echo "::error::secret SITE_DISPATCH_TOKEN absent de l'environnement « site » : norelly.fr ne sera pas mis à jour (docs/technique/methode.md)" >&2
+            exit 1
+          fi
+          # Tag d'une version stable (même forme que celle contrôlée à la
+          # construction). Rien n'est transmis au site : il relit lui-même
+          # le dernier tag de version de norelly.
+          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] \
+            || { echo "::error::tag de version stable invalide : $TAG" >&2; exit 1; }
+          # Réponse attendue : 204. Toute autre (jeton refusé, expiré, sans
+          # la permission, workflow introuvable) fait échouer le job.
+          GH_TOKEN="$SITE_DISPATCH_TOKEN" gh api --method POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            repos/gbourquet/norelly-site/actions/workflows/deploy.yml/dispatches \
+            -f ref=main

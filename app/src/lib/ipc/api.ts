@@ -38,6 +38,8 @@ import {
   type SearchHitDto_Serialize,
   type SearchPageDto_Serialize,
   type SearchScopeDto,
+  type SiteLanguageDto,
+  type SitePageDto,
   type SettingsDto_Serialize,
   type DraftsDto,
   type UpdateEventDto,
@@ -130,6 +132,8 @@ export type {
   SecurityDto,
   ServerDto,
   SearchScopeDto,
+  SiteLanguageDto,
+  SitePageDto,
   SegmentDto,
   DraftSummaryDto,
   DraftsDto,
@@ -270,6 +274,10 @@ export const api = {
 
   openExternal: (url: string): Promise<void> =>
     unwrap(commands.openExternal(url)).then(() => undefined),
+
+  /** Ouvre une page du site de Norelly ; l'adresse est construite en Rust. */
+  openSitePage: (page: SitePageDto, language: SiteLanguageDto): Promise<void> =>
+    unwrap(commands.openSitePage(page, language)).then(() => undefined),
 
   /** `title` : titre du sélecteur de dossier, localisé. */
   saveAttachment: (message: number, part: string, title: string): Promise<string | null> =>

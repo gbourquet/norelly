@@ -29,6 +29,7 @@
 //! - [`contact_photo`] : photos de contact (contrôle, dimensions) ;
 //! - [`oauth`] : connexion OAuth (fournisseurs, PKCE, XOAUTH2) ;
 //! - [`sender`] : nom affiché d'un correspondant (carnet, en-tête) ;
+//! - [`site`] : pages du site de Norelly ouvertes depuis l'application ;
 //! - [`sender_auth`] : authentification de l'expéditeur (`Authentication-Results`) ;
 //! - [`ports`] : traits implémentés par les adaptateurs.
 
@@ -65,5 +66,6 @@ pub mod security;
 pub mod sender;
 pub mod sender_auth;
 pub mod settings;
+pub mod site;
 pub mod suggestions;
 pub mod sync;

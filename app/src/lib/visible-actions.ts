@@ -33,6 +33,9 @@ import UsersIcon from "@lucide/svelte/icons/users";
 import CloudSyncIcon from "@lucide/svelte/icons/cloud-sync";
 import FolderPlusIcon from "@lucide/svelte/icons/folder-plus";
 import FolderXIcon from "@lucide/svelte/icons/folder-x";
+import BookOpenIcon from "@lucide/svelte/icons/book-open";
+import KeyboardIcon from "@lucide/svelte/icons/keyboard";
+import GlobeIcon from "@lucide/svelte/icons/globe";
 import { m } from "./paraglide/messages.js";
 import type { FolderDto } from "./ipc/api";
 import { isEditableFolder } from "./folder-edit.svelte";
@@ -369,4 +372,14 @@ export function contactsHeaderActions(): { primary: VisibleAction[]; more: Visib
       { command: "contacts.carddav", icon: CloudSyncIcon },
     ],
   };
+}
+
+/** Menu « Aide » du bas du panneau de navigation : le guide (sur le site),
+ * l'aide des raccourcis, puis le site lui-même. */
+export function helpMenuActions(): VisibleAction[] {
+  return [
+    { command: "help.guide", icon: BookOpenIcon, section: 0 },
+    { command: "help.shortcuts", icon: KeyboardIcon, section: 0 },
+    { command: "help.website", icon: GlobeIcon, section: 1 },
+  ];
 }

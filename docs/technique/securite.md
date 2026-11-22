@@ -518,6 +518,26 @@ reçus de l'interface ; types MIME recalculés.
   qui a `contents: write`. La commande `gh` documentée vérifie en plus que
   le runner est hébergé par GitHub, ce que la commande `cosign` ne fait
   pas (tous les jobs de `release.yml` le sont).
+- Signal au site (`release.yml`, job `site`) : seul job qui tourne à la
+  publication d'une version stable par le mainteneur (`release: released`,
+  qui couvre aussi la promotion d'une préversion), sans aucune permission du
+  `GITHUB_TOKEN` (`permissions: {}`), sans dépôt extrait ni action
+  tierce. Il reçoit seul le secret `SITE_DISPATCH_TOKEN` (environnement
+  `site`, limité aux tags `v*`) : jeton fin limité à
+  `gbourquet/norelly-site`, permission « Actions » en écriture
+  seulement : il lance le workflow `deploy.yml` du site sur `main`
+  (`workflow_dispatch`), sans pouvoir modifier le code du site ni donc les
+  liens de téléchargement de norelly.fr. Volé, il permettrait encore de
+  lancer un workflow du site sur une autre branche, d'annuler, relancer ou
+  désactiver ses workflows, et de supprimer artefacts, journaux et caches
+  (blocage d'une mise en ligne) ; l'envoi sur le serveur n'a lieu que
+  depuis `main`, pour le dernier commit, après relecture de
+  l'environnement `production`, et le jeton expire vite. Aucune donnée
+  transmise : le site relit lui-même le dernier tag de version. Le tag est
+  revérifié (version stable) avant l'envoi. Secret absent ou réponse autre
+  que 204 : échec explicite. Les tags `v*` sont protégés par une règle du
+  dépôt (création réservée au mainteneur), car l'environnement `site`
+  accepte tout tag `v*`.
 - Flatpak : autorisations minimales, aucun accès direct aux fichiers de
   l'utilisateur (liste fermée d'autorisations vérifiée par
   `scripts/check-packaging.sh`, `ALLOWED_FINISH_ARGS`) :

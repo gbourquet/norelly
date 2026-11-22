@@ -408,7 +408,13 @@ reçus de l'interface ; types MIME recalculés.
   au moins mensuelle et immédiate pour un avis touchant un paquet de
   l'image (WebKitGTK, libsoup, OpenSSL, curl…) ; `scripts/check.sh`
   avertit au-delà de 35 jours (`scripts/check-apt-snapshot.mjs`) ;
-  procédure dans `docs/technique/tests.md`.
+  procédure dans `docs/technique/tests.md`. Chaîne Rust (`rust-toolchain.toml`, nightly du fuzzing daté)
+  et outils cargo de la CI (`outil@X.Y.Z`, binaire du manifeste vérifié
+  ou compilation depuis crates.io, jamais de binaire `cargo-binstall`
+  non vérifié) figés, contrôlés par `scripts/check-toolchain.mjs` et
+  montés par PR ; restent flottants Node.js et pnpm (version majeure),
+  les paquets apt des jobs de la CI et le Rust du SDK Flatpak
+  ([méthode](methode.md#versions-figées-de-la-chaîne-et-des-outils)).
 - Mises à jour (NSIS) signées **minisign**, signature faite dans un
   environnement de publication séparé de la compilation ; délais bornés
   (`docs/CODE_SIGNING.md`).
@@ -574,7 +580,9 @@ Signalés au mainteneur dans chaque PR qui les touche (ADR-008) :
   `scripts/check-fuzz-lock.mjs` (et ses tests), `fuzz/Cargo.lock`,
   `app/e2e/Dockerfile`, cache de build de l'e2e (`app/e2e/run.sh`,
   `target-name.sh`, `prune-targets.sh`, `verify-crates.sh`),
-  `scripts/release-assets.sh`.
+  `scripts/release-assets.sh`, `rust-toolchain.toml`,
+  `scripts/check-toolchain.mjs`, `scripts/check-toolchain.test.mjs`,
+  `scripts/entry-point.mjs`.
 
 ## Revues
 

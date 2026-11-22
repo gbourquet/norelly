@@ -48,6 +48,11 @@ allow = [
     "BSL-1.0",
     "CDLA-Permissive-2.0",
     "MPL-2.0",
+    # University of Illinois/NCSA : licence permissive de type BSD,
+    # approuvée OSI, ancienne licence de LLVM. Requise par libfuzzer-sys
+    # (cargo-fuzz, workspace `fuzz/`, jamais distribué). Ajout validé par
+    # le mainteneur le 2026-11-22.
+    "NCSA",
 ]
 confidence-threshold = 0.9
 

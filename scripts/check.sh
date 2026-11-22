@@ -31,6 +31,10 @@ cargo llvm-cov nextest --workspace --locked --no-tests=warn --summary-only --fai
 step "Tests du shell (updater)"; cargo nextest run -p norelly-app --features updater --locked
 step "Doctests";               cargo test --workspace --doc --locked
 step "cargo deny";             cargo deny --locked check
+# Workspace de fuzzing (fuzz/, hors du workspace principal) : même politique
+# (deny.toml racine). --locked : fuzz/Cargo.lock doit rester synchronisé
+# avec les crates du workspace qu'il fuzze.
+step "cargo deny (fuzz)";      cargo deny --manifest-path fuzz/Cargo.toml --config deny.toml --locked check
 step "Règle de dépendance du domaine"; ./scripts/check-domain-deps.sh
 step "SQL : requêtes paramétrées"; ./scripts/check-sql.sh
 step "Documentation";          ./scripts/check-docs.sh

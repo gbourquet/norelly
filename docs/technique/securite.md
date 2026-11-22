@@ -408,6 +408,15 @@ reçus de l'interface ; types MIME recalculés.
   `scripts/check-fuzz-lock.mjs` qu'il reprenne les versions du verrou
   racine (le fuzzing porte sur les versions livrées). Le job nocturne
   refuse un verrou du fuzzing périmé.
+- Sources : crates.io seulement, plus une seule source git admise
+  (`allow-git`, `unknown-git = "deny"`) : le fork `gbourquet/imap-codec`
+  d'`imap-codec`/`imap-types` (ADR-015), figé par commit complet dans le
+  `[patch.crates-io]` du `Cargo.toml` racine.
+- Identifiant Gmail (`X-GM-MSGID`, ADR-015) : lu seulement si la session
+  annonce `X-GM-EXT-1` ; un corps n'est recopié qu'entre messages du même
+  compte, de même identifiant et de même taille. Un serveur qui ment ne
+  peut afficher, dans son propre compte, qu'un contenu qu'il a lui-même
+  fourni.
 - Versions figées côté front ; actions GitHub et images Docker figées par
   empreinte. Paquets apt de l'image e2e figés par un instantané daté de
   l'archive Ubuntu (date `snapshot=` de `app/e2e/Dockerfile`), signatures

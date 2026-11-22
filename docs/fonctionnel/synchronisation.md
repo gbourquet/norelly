@@ -53,6 +53,11 @@ redevient identique au serveur après toute interruption.
   serveur** ; synchroniser deux fois de suite ne change rien.
 - Seul ce qui a changé depuis la dernière fois est téléchargé, quand le
   serveur le permet ; un dossier qui n'a pas bougé ne coûte presque rien.
+- **Gmail** : un même message apparaît dans « Tous les messages » et dans
+  chacun de ses libellés. Son contenu n'est téléchargé qu'une fois ; les
+  autres dossiers du même compte le reprennent tel quel. Chaque dossier
+  garde ses propres états (lu, suivi…). Rien n'est jamais partagé entre
+  deux comptes.
 - **Seuil de téléchargement des pièces jointes** : entre 64 Kio et 64 Mio.
 - Messages à la structure démesurée (imbrication, nombre de parties) :
   traités dans des limites fixes, pour qu'un message piégé ne bloque pas

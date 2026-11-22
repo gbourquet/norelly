@@ -550,10 +550,11 @@ export const api = {
   onComposeEvent: async (listener: (event: ComposeEventDto) => void): Promise<() => void> =>
     events.composeEventDto.listen((e) => listener(e.payload)),
 
-  /** Focus de la fenêtre native (permissions de `core:default`). */
+  /** Focus de la fenêtre native (permission `core:window:allow-is-focused`). */
   isWindowFocused: (): Promise<boolean> => getCurrentWindow().isFocused(),
 
-  /** Abonnement aux changements de focus de la fenêtre native ; renvoie le retrait. */
+  /** Abonnement aux changements de focus de la fenêtre native ; renvoie le retrait
+   * (permissions `core:event:allow-listen` et `core:event:allow-unlisten`). */
   onWindowFocusChanged: async (listener: (focused: boolean) => void): Promise<() => void> =>
     getCurrentWindow().onFocusChanged((e) => listener(e.payload)),
 

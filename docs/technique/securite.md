@@ -357,6 +357,12 @@ reçus de l'interface ; types MIME recalculés.
   jour appelés depuis Rust. Notifications par `notify-rust` (ADR-015),
   depuis la seule commande `show_notification`, qui revalide le texte
   (contrôles retirés, longueur bornée, balisage freedesktop échappé).
+- Noyau Tauri réduit au strict usage de l'interface, sans l'ensemble
+  `core:default` : écoute et retrait des événements
+  (`core:event:allow-listen`, `core:event:allow-unlisten`) et lecture du
+  focus de la fenêtre (`core:window:allow-is-focused`). Émettre un
+  événement, lire ou modifier les fenêtres et vues, résoudre des chemins,
+  créer des menus, icônes ou images est refusé (test `acl_tests`).
 - Toute entrée IPC revalidée par les constructeurs du domaine.
 - `unsafe` interdit dans tout le workspace.
 

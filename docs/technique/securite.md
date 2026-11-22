@@ -363,7 +363,10 @@ reçus de l'interface ; types MIME recalculés.
 - `cargo deny` : licences (ADR-009) et avis RUSTSEC ; exceptions commentées
   et validées par le mainteneur dans `deny.toml`. Le workspace de fuzzing
   (`fuzz/`, verrouillé séparément par `fuzz/Cargo.lock`) est contrôlé avec
-  la même politique ; `--locked` impose que son lockfile reste à jour.
+  la même politique ; `--locked` impose que son lockfile reste à jour, et
+  `scripts/check-fuzz-lock.mjs` qu'il reprenne les versions du verrou
+  racine (le fuzzing porte sur les versions livrées). Le job nocturne
+  refuse un verrou du fuzzing périmé.
 - Versions figées côté front ; actions GitHub et images Docker figées par
   empreinte.
 - Mises à jour (NSIS) signées **minisign**, signature faite dans un
@@ -474,7 +477,8 @@ Signalés au mainteneur dans chaque PR qui les touche (ADR-008) :
   `capabilities/`, `permissions/` ;
 - `app/src/lib/agent.ts` ;
 - infrastructure : `deny.toml`, `.github/workflows/*.yml`,
-  `packaging/flatpak/*.yml`, `scripts/check.sh`.
+  `packaging/flatpak/*.yml`, `scripts/check.sh`,
+  `scripts/check-fuzz-lock.mjs`, `fuzz/Cargo.lock`.
 
 ## Revues
 

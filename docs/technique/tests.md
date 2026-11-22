@@ -149,13 +149,17 @@ Les bancs de bout en bout tournent dans le job nocturne
 (`mime_message`, `sanitize_html`, `sanitize_css`, `autoconfig_xml`,
 `search_query`, `contact_import`, `contact_export`) et la suite de contrat contre Stalwart.
 
-Le workspace de fuzzing a son propre verrou, `fuzz/Cargo.lock`, contrôlé
-par `cargo deny` dans `./scripts/check.sh` avec `--locked`. Après un
-changement de dépendances d'une crate fuzzée (domaine, `render`,
-`discovery`, `contacts-io`), le resynchroniser avec
-`cargo update --manifest-path fuzz/Cargo.toml --workspace`, en gardant
-les versions du `Cargo.lock` racine pour que le fuzzing porte sur le code
-livré.
+Le workspace de fuzzing a son propre verrou, `fuzz/Cargo.lock`. Dans
+`./scripts/check.sh`, `cargo deny` le contrôle avec `--locked` (verrou à
+jour), et `scripts/check-fuzz-lock.mjs` vérifie que chaque crate qu'il
+partage avec le `Cargo.lock` racine y a la même version et la même
+empreinte : le fuzzing porte ainsi sur le code livré. Après un changement
+de dépendances à la racine, resynchroniser en repartant du verrou racine :
+`cp Cargo.lock fuzz/Cargo.lock` puis
+`cargo metadata --manifest-path fuzz/Cargo.toml --format-version 1 > /dev/null`
+(cargo retire les paquets inutiles au fuzzing et résout les siens,
+`libfuzzer-sys` et `arbitrary`, à relire dans le diff). Le job nocturne
+refuse un verrou périmé avant de compiler.
 
 ## Tests manuels
 

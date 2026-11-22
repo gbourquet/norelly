@@ -149,6 +149,14 @@ Les bancs de bout en bout tournent dans le job nocturne
 (`mime_message`, `sanitize_html`, `sanitize_css`, `autoconfig_xml`,
 `search_query`, `contact_import`, `contact_export`) et la suite de contrat contre Stalwart.
 
+Le workspace de fuzzing a son propre verrou, `fuzz/Cargo.lock`, contrôlé
+par `cargo deny` dans `./scripts/check.sh` avec `--locked`. Après un
+changement de dépendances d'une crate fuzzée (domaine, `render`,
+`discovery`, `contacts-io`), le resynchroniser avec
+`cargo update --manifest-path fuzz/Cargo.toml --workspace`, en gardant
+les versions du `Cargo.lock` racine pour que le fuzzing porte sur le code
+livré.
+
 ## Tests manuels
 
 Ce que l'automatisation ne peut pas vérifier (vrais fournisseurs,

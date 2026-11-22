@@ -446,6 +446,11 @@ est majoritairement écrit par Claude et relu par le mainteneur.
   `imap-next`, et fait donc partie de l'application livrée. Aucun
   remplacement n'est possible sans changer de bibliothèque IMAP : retirer
   l'exception quand `imap-codec` abandonnera `chrono`.
+- **Précision validée par le mainteneur (2026-11-22)** : la licence
+  University of Illinois/NCSA (permissive, de type BSD, ancienne licence
+  de LLVM) est ajoutée à la liste `allow` de `deny.toml`. Elle est
+  requise par `libfuzzer-sys`, dépendance de cargo-fuzz dans le
+  workspace `fuzz/`, contrôlé lui aussi par `cargo deny`.
 
 ## ADR-010 : éditeur de rédaction
 

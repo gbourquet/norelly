@@ -361,7 +361,9 @@ reçus de l'interface ; types MIME recalculés.
 ### Chaîne d'approvisionnement et distribution
 
 - `cargo deny` : licences (ADR-009) et avis RUSTSEC ; exceptions commentées
-  et validées par le mainteneur dans `deny.toml`.
+  et validées par le mainteneur dans `deny.toml`. Le workspace de fuzzing
+  (`fuzz/`, verrouillé séparément par `fuzz/Cargo.lock`) est contrôlé avec
+  la même politique ; `--locked` impose que son lockfile reste à jour.
 - Versions figées côté front ; actions GitHub et images Docker figées par
   empreinte.
 - Mises à jour (NSIS) signées **minisign**, signature faite dans un

@@ -105,8 +105,8 @@ fichier modifié par l'assistant.
 
 `./scripts/check.sh` (rapide) enchaîne : build du front, format Rust,
 Clippy (avec et sans `updater`), tests unitaires avec couverture, tests du
-module de mise à jour, doctests, `cargo deny`, règle de dépendance du
-domaine, contrôle SQL, **documentation** (`check-docs.sh`), métadonnées de
+module de mise à jour, doctests, `cargo deny` (workspace principal puis
+workspace de fuzzing `fuzz/`), règle de dépendance du domaine, contrôle SQL, **documentation** (`check-docs.sh`), métadonnées de
 bureau (Linux), `svelte-check`, lint et tests du front avec couverture.
 `./scripts/check.sh full` ajoute le build du workspace et les tests
 d'intégration.

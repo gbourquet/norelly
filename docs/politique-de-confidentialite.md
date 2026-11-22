@@ -101,6 +101,13 @@ Le site norelly.fr ne dépose aucun cookie et ne contient aucun traceur :
 ni statistiques de visite, ni publicité, ni contenu chargé depuis un autre
 site.
 
+Le serveur du site ne tient aucun journal des visites. Il ne garde qu'un
+journal des erreurs techniques (par exemple une demande impossible à
+traiter), qui peut contenir l'adresse IP de l'ordinateur concerné et la
+page demandée. Ce journal sert seulement à corriger le fonctionnement du
+site, n'est communiqué à personne et est effacé automatiquement au plus
+tard au bout de 11 jours.
+
 ## Suppression des données
 
 Supprimer un compte dans l'application efface de votre appareil ses

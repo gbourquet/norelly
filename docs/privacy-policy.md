@@ -87,6 +87,12 @@ access in the security settings of your Google or Microsoft account.
 The norelly.fr website sets no cookies and contains no trackers: no visit
 statistics, no advertising, no content loaded from another site.
 
+The website's server keeps no log of visits. It only keeps a log of
+technical errors (for example a request it could not handle), which may
+contain the IP address of the computer involved and the requested page.
+This log is used only to fix the website, is shared with no one, and is
+deleted automatically after 11 days at most.
+
 ## Deleting data
 
 Removing an account in the application deletes its messages, its

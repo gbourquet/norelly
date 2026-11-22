@@ -78,6 +78,7 @@ ALLOWED_FINISH_ARGS = frozenset(
     }
 )
 FINISH_ARGS_KEY = re.compile(r"^\s*(?:\?\s*)?['\"]?finish-args\b", re.MULTILINE)
+TOP_LEVEL_KEY = re.compile(r"([a-z][a-z0-9-]*):(?: [^\n]*)?\n?")
 FINISH_ARG_ITEM = re.compile(r"  - (--[a-z-]+=[A-Za-z0-9._-]+)\n")
 
 HEADER = (
@@ -101,6 +102,25 @@ def check_finish_args(manifest: str) -> None:
     if len(FINISH_ARGS_KEY.findall(manifest)) != 1:
         raise ManifestError("une seule clé `finish-args` attendue")
     lines = manifest.splitlines(keepends=True)
+    # Grammaire fermée : hors commentaires, chaque ligne en colonne 0 est
+    # une clé simple, unique (ni étiquette, ancre, alias, clé explicite,
+    # séparateur de document, liste non indentée) ; aucune chaîne entre
+    # apostrophes ni sur plusieurs lignes, aucun commentaire en fin de ligne.
+    keys: set[str] = set()
+    for line in lines:
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        if "'" in line or line.count('"') % 2 or " #" in line:
+            raise ManifestError(f"ligne refusée (guillemets, commentaire) : {line.rstrip()!r}")
+        if line.startswith(" "):
+            continue
+        key = TOP_LEVEL_KEY.fullmatch(line)
+        if not key:
+            raise ManifestError(f"clé de premier niveau illisible : {line.rstrip()!r}")
+        if key.group(1) in keys:
+            raise ManifestError(f"clé répétée : {key.group(1)}")
+        keys.add(key.group(1))
     try:
         start = lines.index("finish-args:\n")
     except ValueError:
@@ -122,6 +142,8 @@ def check_finish_args(manifest: str) -> None:
         if value in seen:
             raise ManifestError(f"autorisation répétée : {value}")
         seen.add(value)
+    if not seen:
+        raise ManifestError("finish-args vide")
 
 
 def to_flathub(manifest: str, tag: str, commit: str) -> str:

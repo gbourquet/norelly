@@ -152,11 +152,17 @@ et les sources vendorisées.
   dossier donné, sans toucher à ses autres fichiers ; il reste à les
   commiter dans le dépôt Flathub. Tests : `scripts/flathub-manifest.test.py`.
 - **Autorisations** : liste fermée (`ALLOWED_FINISH_ARGS` de
-  `flathub-manifest.py`, une valeur par ligne, sans guillemets ni
-  échappements), vérifiée par `check-packaging.sh` et à la production du
+  `flathub-manifest.py`, une valeur par ligne, indentée de deux espaces,
+  sans guillemets ni échappements), vérifiée par `check-packaging.sh` et à la production du
   manifeste Flathub ; aucun `--filesystem`, les fichiers passent par les
   portails (ADR-006). Ajouter une autorisation, c'est modifier cette
-  liste, en revue.
+  liste, en revue. Pour que cette lecture ligne à ligne soit celle de
+  flatpak-builder, le manifeste s'en tient à un YAML simple : une clé de
+  premier niveau unique par ligne en colonne 0 (ni étiquette, ancre,
+  alias, clé explicite, séparateur de document), aucune chaîne entre
+  apostrophes ou sur plusieurs lignes, aucun commentaire en fin de ligne ;
+  un test compare la liste à la lecture de `flatpak-builder --show-manifest`
+  quand l'outil est installé.
 - **Note de version** : le tag n'est accepté que si le fichier AppStream
   (`packaging/linux/…metainfo.xml`) a, au même commit, une entrée
   `<release>` pour cette version.

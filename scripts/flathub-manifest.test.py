@@ -202,6 +202,51 @@ class FinishArgs(unittest.TestCase):
             with self.subTest(manifest=manifest[-60:]), self.assertRaises(fm.ManifestError):
                 fm.check_finish_args(manifest)
 
+    def test_refuse_une_liste_non_indentee(self) -> None:
+        # YAML lit `- …` en colonne 0 comme les éléments de finish-args.
+        flat = self.manifest.replace("finish-args:\n", "finish-args:\n- --filesystem=home\n", 1)
+        with self.assertRaises(fm.ManifestError):
+            fm.check_finish_args(flat)
+
+    def test_refuse_une_liste_vide(self) -> None:
+        lines = self.manifest.splitlines(keepends=True)
+        start = lines.index("finish-args:\n")
+        end = lines.index("build-options:\n")
+        empty = "".join(lines[: start + 1] + ["\n"] + lines[end:])
+        with self.assertRaises(fm.ManifestError):
+            fm.check_finish_args(empty)
+
+    def test_refuse_une_cle_de_premier_niveau_deguisee(self) -> None:
+        # flatpak-builder garde la dernière valeur d'une clé répétée.
+        for extra in (
+            "!!str finish-args:\n  - --filesystem=home\n",
+            "!x finish-args:\n  - --filesystem=home\n",
+            "&k finish-args:\n  - --filesystem=home\n",
+            "x-k: &k finish-args\n*k :\n  - --filesystem=home\n",
+            "? !!str finish-args\n:\n  - --filesystem=home\n",
+            "---\nfinish-args:\n  - --filesystem=home\n",
+            "\ufefffinish-args:\n  - --filesystem=home\n",
+            "command: autre\n",
+        ):
+            with self.subTest(extra=extra), self.assertRaises(fm.ManifestError):
+                fm.check_finish_args(self.manifest + extra)
+
+    def test_refuse_une_chaine_sur_plusieurs_lignes_ou_entre_apostrophes(self) -> None:
+        for replacement in ('command: "norelly\n  x"\n', "command: 'norelly'\n"):
+            manifest = self.manifest.replace("command: norelly\n", replacement, 1)
+            with self.subTest(replacement=replacement), self.assertRaises(fm.ManifestError):
+                fm.check_finish_args(manifest)
+
+    @unittest.skipUnless(shutil.which("flatpak-builder"), "flatpak-builder absent")
+    def test_flatpak_builder_lit_les_memes_autorisations(self) -> None:
+        shown = subprocess.run(
+            ["flatpak-builder", "--show-manifest", str(MANIFEST)],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout
+        self.assertLessEqual(set(json.loads(shown)["finish-args"]), fm.ALLOWED_FINISH_ARGS)
+
     def test_refuse_un_echappement_n_importe_ou(self) -> None:
         escaped = self.manifest.replace("command: norelly\n", 'command: "norel\\x6cy"\n', 1)
         with self.assertRaises(fm.ManifestError):

@@ -519,16 +519,21 @@ reçus de l'interface ; types MIME recalculés.
   le runner est hébergé par GitHub, ce que la commande `cosign` ne fait
   pas (tous les jobs de `release.yml` le sont).
 - Signal au site (`release.yml`, job `site`) : seul job qui tourne à la
-  publication du brouillon par le mainteneur, sans aucune permission du
+  publication d'une version stable par le mainteneur (`release: released`,
+  qui couvre aussi la promotion d'une préversion), sans aucune permission du
   `GITHUB_TOKEN` (`permissions: {}`), sans dépôt extrait ni action
   tierce. Il reçoit seul le secret `SITE_DISPATCH_TOKEN` (environnement
   `site`, limité aux tags `v*`) : jeton fin limité à
-  `gbourquet/norelly-site`, permission « Contents » en écriture, la
-  seule qu'accepte l'API `dispatches` ; elle permettrait aussi d'écrire
-  dans ce dépôt, d'où sa portée réduite à lui et son expiration. Seule
-  donnée transmise : le tag, revérifié (forme semver) avant l'envoi, en
-  JSON construit par `jq`. Secret absent ou réponse autre que 204 : échec
-  explicite.
+  `gbourquet/norelly-site`, permission « Actions » en écriture
+  seulement : il lance le workflow `deploy.yml` du site sur `main`
+  (`workflow_dispatch`), sans pouvoir écrire dans ce dépôt ni changer les
+  liens de téléchargement de norelly.fr ; le déploiement reste soumis à la
+  relecture de l'environnement `production` du site. Aucune donnée
+  transmise : le site relit lui-même le dernier tag de version. Le tag est
+  revérifié (version stable) avant l'envoi. Secret absent ou réponse autre
+  que 204 : échec explicite. Les tags `v*` sont protégés par une règle du
+  dépôt (création réservée au mainteneur), car l'environnement `site`
+  accepte tout tag `v*`.
 - Flatpak : autorisations minimales, aucun accès direct aux fichiers de
   l'utilisateur (liste fermée d'autorisations vérifiée par
   `scripts/check-packaging.sh`, `ALLOWED_FINISH_ARGS`) :

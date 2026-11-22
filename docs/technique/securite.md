@@ -475,7 +475,11 @@ reçus de l'interface ; types MIME recalculés.
   sécurité Dependabot).
 - Mises à jour (NSIS) signées **minisign**, signature faite dans un
   environnement de publication séparé de la compilation ; délais bornés
-  (`docs/CODE_SIGNING.md`).
+  (`docs/CODE_SIGNING.md`). Une version stable installée n'accepte
+  jamais une préversion, même publiée par erreur comme dernière version
+  (`update_offer_allowed`, comparateur du module). Préversion
+  (`X.Y.Z-suffixe`) : brouillon marqué préversion, ni .rpm ni manifestes
+  winget ; une version stable exige ses deux paquets Linux.
 - Provenance des versions (`release.yml`, sans clé ni secret) : le job
   `assets` met à plat les fichiers des artefacts et écrit `SHA256SUMS`
   (`scripts/release-assets.sh` : noms restreints à `[A-Za-z0-9._+-]`, sans
@@ -535,7 +539,9 @@ reçus de l'interface ; types MIME recalculés.
   dernier commit, après une construction vérifiée, et le jeton expire
   vite. Pas de relecture obligatoire : indisponible pour le dépôt privé
   du site avec l'offre GitHub gratuite. Aucune donnée
-  transmise : le site relit lui-même le dernier tag de version. Le tag est
+  transmise : le site relit lui-même le dernier tag de version stable
+  (`scripts/lib/ref.mjs` du site : tags `vX.Y.Z` seulement, jamais une
+  préversion). Le tag est
   revérifié (version stable) avant l'envoi. Secret absent ou réponse autre
   que 204 : échec explicite. Les tags `v*` sont protégés par une règle du
   dépôt (création réservée au mainteneur), car l'environnement `site`

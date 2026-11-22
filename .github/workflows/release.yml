@@ -117,11 +117,18 @@ jobs:
           bundles=deb,rpm
           if [[ "$PRERELEASE" == true ]]; then bundles=deb; fi
           pnpm -C app tauri build --bundles "$bundles" -- --locked
+          # Les deux paquets d'une version stable, le .deb d'une préversion
+          # (`if-no-files-found` n'exige qu'un fichier pour tous les chemins).
+          shopt -s nullglob
+          debs=(target/release/bundle/deb/*.deb) rpms=(target/release/bundle/rpm/*.rpm)
+          [ ${#debs[@]} -eq 1 ] || { echo ".deb attendu : ${#debs[@]} trouvé(s)" >&2; exit 1; }
+          if [[ "$PRERELEASE" == true ]]; then expected=0; else expected=1; fi
+          [ ${#rpms[@]} -eq "$expected" ] || { echo ".rpm attendu(s) : $expected, ${#rpms[@]} trouvé(s)" >&2; exit 1; }
       - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
         with:
           name: linux
-          # Au moins un fichier exigé : le .deb (le .rpm manque pour une
-          # préversion).
+          # Paquets comptés à la construction ; le .rpm manque pour une
+          # préversion.
           path: |
             target/release/bundle/deb/*.deb
             target/release/bundle/rpm/*.rpm
@@ -230,7 +237,10 @@ jobs:
         with:
           name: windows
           path: artifacts/windows
+      # Jamais pour une préversion : winget la distribuerait comme une
+      # version ordinaire du paquet.
       - name: Manifestes winget (à proposer à microsoft/winget-pkgs)
+        if: needs.version.outputs.prerelease == 'false'
         env:
           VERSION: ${{ needs.version.outputs.version }}
         run: |

@@ -1191,7 +1191,7 @@ est majoritairement écrit par Claude et relu par le mainteneur.
   - outil : Astro ; Zola ; HTML écrit à la main ;
   - emplacement : dossier `site/` de ce dépôt ; dépôt séparé.
 - **Décision** :
-  - **domaine** : un domaine à nous, déjà acheté par le mainteneur chez
+  - **domaine** : **`norelly.fr`**, déjà acheté par le mainteneur chez
     Bookmyname (Scaleway) ; le mainteneur règle le DNS ;
   - **hébergement** : le VPS Hostinger du mainteneur, en HTTPS. Le site
     y est publié par un workflow GitHub Actions, en `rsync` sur SSH, avec

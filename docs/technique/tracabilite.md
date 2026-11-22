@@ -746,7 +746,7 @@ Fiche : [notifications.md](../fonctionnel/notifications.md).
 | Confidentialité : contenu retiré **en Rust** (`NewMail::without_content`) avant d'atteindre l'interface | `notify.rs`, `app/src-tauri/src/settings.rs` (`new_mail_event`) |
 | Expéditeur nommé d'après le carnet (`NameSenders`, `SenderNames::label`) comme dans la liste ; carnet illisible : nom de l'en-tête filtré, la notification part quand même ; carnet non interrogé sans contenu (confidentialité) | `app/src-tauri/src/settings.rs` (`new_mail_event`), `crates/domain/src/sender.rs` |
 | Texte composé par l'interface dans la langue de l'utilisateur, revalidé par la commande `show_notification` (balisage freedesktop neutralisé) | ADR-011, `app/src-tauri/src/settings.rs` |
-| Affichage par `notify-rust` (sans zbus) depuis Rust seulement | dérogation à consigner |
+| Affichage par `notify-rust` (sans zbus) depuis Rust seulement, aucune permission de plugin accordée à l'interface | ADR-015, `app/src-tauri/src/settings.rs` (`show_notification`) |
 
 ### Clés des messages
 

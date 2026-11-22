@@ -354,7 +354,9 @@ reçus de l'interface ; types MIME recalculés.
   fenêtre `main`, depuis l'origine de l'application (`ipc-commands.rs`,
   `permissions/main-window.toml`, test `acl_tests`).
 - Aucune permission de plugin accordée à l'interface : dialogues et mises à
-  jour appelés depuis Rust.
+  jour appelés depuis Rust. Notifications par `notify-rust` (ADR-015),
+  depuis la seule commande `show_notification`, qui revalide le texte
+  (contrôles retirés, longueur bornée, balisage freedesktop échappé).
 - Toute entrée IPC revalidée par les constructeurs du domaine.
 - `unsafe` interdit dans tout le workspace.
 

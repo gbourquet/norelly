@@ -229,6 +229,10 @@ async fn an_invalid_contact_only_leaves_out_itself() -> Result<(), ContactFailur
 struct BrokenDirectory;
 
 impl ContactDirectory for BrokenDirectory {
+    async fn count(&self) -> Result<usize, StoreError> {
+        Err(StoreError("carnet illisible".into()))
+    }
+
     async fn photo_ids(
         &self,
     ) -> Result<std::collections::BTreeSet<norelly_domain::ports::BlobId>, StoreError> {
@@ -465,6 +469,10 @@ impl ContactDirectory for CountingDirectory {
         self.count(|r| r.1 += 1);
         self.corrupt_now();
         self.inner.get_many(ids).await
+    }
+
+    async fn count(&self) -> Result<usize, StoreError> {
+        self.inner.count().await
     }
 
     async fn by_addresses(

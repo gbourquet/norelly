@@ -12,6 +12,12 @@ export type CardDavApi = Pick<
   "carddavStatus" | "findCarddavBooks" | "connectCarddav" | "syncCarddav" | "disconnectCarddav"
 >;
 
+/** Fiches laissées de côté par une synchronisation : celles qu'un carnet
+ * plein n'a pas pu recevoir, et les autres (sans adresse, en double). */
+export function leftAside(report: CardDavReportDto): { other: number; bookFull: number } {
+  return { other: Math.max(0, report.skipped - report.book_full), bookFull: report.book_full };
+}
+
 export class CardDavState {
   readonly #api: CardDavApi;
   status = $state<CardDavStatus | null>(null);

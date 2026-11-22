@@ -15,6 +15,11 @@
 //! l'écriture est refusée, le carnet relu et le plan recalculé, au plus
 //! [`MAX_IMPORT_ATTEMPTS`] fois.
 //!
+//! Un import dont les nouvelles fiches porteraient le carnet au-delà de
+//! [`norelly_domain::contacts::MAX_CONTACTS`] est refusé en entier
+//! (`BookFull`), dès l'aperçu, puis de nouveau avant toute écriture, et
+//! par le carnet lui-même dans la transaction : jamais d'import partiel.
+//!
 //! Les photos intégrées aux fiches suivent le plan
 //! ([`norelly_domain::contact_import::plan_import_with_photos`]) : chaque
 //! photo retenue est réencodée par le port [`PhotoCodec`] (hors des fils
@@ -31,7 +36,7 @@ use norelly_domain::contact_import::{
 };
 use norelly_domain::contact_lists::ContactList;
 use norelly_domain::contact_photo::{CardPhotos, DecodeBudget};
-use norelly_domain::contacts::Contact;
+use norelly_domain::contacts::{Contact, fits_in_book};
 use norelly_domain::ports::{
     BlobId, ContactBook, ContactCodec, ContactCodecError, ContactDirectory, ContactListDirectory,
     ContactPhotoStore, ContactStoreError, ImportOutcome, MAX_CONTACT_LOOKUP, PhotoCodec,
@@ -45,7 +50,8 @@ pub enum ImportFailure {
     /// inconnu) : rien n'est lu.
     #[error(transparent)]
     File(#[from] ContactCodecError),
-    /// Refus du carnet ou stockage : rien n'est écrit.
+    /// Refus du carnet (carnet plein compris) ou stockage : rien n'est
+    /// écrit.
     #[error(transparent)]
     Store(#[from] ContactStoreError),
 }
@@ -90,6 +96,20 @@ async fn existing<D: ContactDirectory>(
     Ok(contacts)
 }
 
+/// Refus d'un plan qui créerait plus de fiches que le carnet de
+/// `directory` n'en peut recevoir ([`fits_in_book`]).
+async fn check_room<D: ContactDirectory>(
+    directory: &D,
+    plans: &[&ImportPlan],
+) -> Result<(), ImportFailure> {
+    let current = directory.count().await?;
+    if plans.iter().all(|p| fits_in_book(current, p.create.len())) {
+        Ok(())
+    } else {
+        Err(ContactStoreError::BookFull.into())
+    }
+}
+
 /// Listes du carnet qui portent le nom d'une liste du fichier.
 async fn existing_lists<D: ContactListDirectory>(
     directory: &D,
@@ -126,7 +146,8 @@ impl<C: ContactCodec, D: ContactDirectory + ContactListDirectory, N: TextNormali
     }
 
     /// Chiffre l'import de fiches déjà lues (lecture faite hors des fils
-    /// asynchrones par l'appelant).
+    /// asynchrones par l'appelant). Refusé (`BookFull`) si l'un des deux
+    /// plans ne tient pas dans le carnet.
     pub async fn plan(&self, decoded: DecodedContacts) -> Result<ImportPreview, ImportFailure> {
         let existing = existing(self.directory, &decoded.cards, self.normalizer).await?;
         let lists = existing_lists(self.directory, &decoded.cards, self.normalizer).await?;
@@ -140,10 +161,12 @@ impl<C: ContactCodec, D: ContactDirectory + ContactListDirectory, N: TextNormali
                 self.normalizer,
             )
         };
+        let (skip, complete) = (plan(DuplicatePolicy::Skip), plan(DuplicatePolicy::Complete));
+        check_room(self.directory, &[&skip, &complete]).await?;
         Ok(ImportPreview {
             format: decoded.format,
-            skip: plan(DuplicatePolicy::Skip),
-            complete: plan(DuplicatePolicy::Complete),
+            skip,
+            complete,
             cards: decoded.cards,
             photos: decoded.photos,
         })
@@ -184,6 +207,8 @@ where
             let lists = existing_lists(self.book, cards, self.normalizer).await?;
             let mut plan =
                 plan_import_with_photos(&existing, &lists, cards, photos, policy, self.normalizer);
+            // Carnet trop plein : refusé avant de réencoder les photos.
+            check_room(self.book, &[&plan]).await?;
             let mut placed = Vec::with_capacity(plan.photos.len());
             for placement in &plan.photos {
                 let photo = match stored.get(&placement.card) {

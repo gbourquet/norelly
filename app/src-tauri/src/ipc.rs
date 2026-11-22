@@ -166,6 +166,9 @@ pub enum ErrorCodeDto {
     ContactListEmpty,
     /// Liste introuvable (supprimée entre-temps).
     ContactListNotFound,
+    /// Carnet plein : la fiche ou l'import le porterait au-delà de
+    /// `MAX_CONTACTS` fiches ; rien n'est écrit.
+    ContactBookFull,
     /// Fichier de contacts trop gros pour être importé.
     ContactImportTooLarge,
     /// Trop de fiches dans le fichier de contacts.
@@ -2501,6 +2504,9 @@ pub struct CardDavReportDto {
     /// Fiches laissées de côté (sans adresse, en double, ou remises à la
     /// prochaine fois).
     pub skipped: u32,
+    /// Parmi `skipped`, les nouvelles fiches du serveur qu'un carnet plein
+    /// n'a pas pu recevoir.
+    pub book_full: u32,
 }
 
 /// Raison de l'échec de la dernière synchronisation.

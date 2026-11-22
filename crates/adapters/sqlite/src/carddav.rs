@@ -31,9 +31,9 @@ const SAVE_LINK: &str = "INSERT INTO carddav_links \
 const FORGET_LINK: &str = "DELETE FROM carddav_links WHERE href = ?1";
 const MODIFICATION_TIMES: &str = "SELECT id, modified_at FROM contacts";
 const SAVE_SYNC: &str = "INSERT OR REPLACE INTO carddav_sync \
-     (id, at, pulled, pushed, skipped, failure) VALUES (1, ?1, ?2, ?3, ?4, ?5)";
+     (id, at, pulled, pushed, skipped, failure, book_full) VALUES (1, ?1, ?2, ?3, ?4, ?5, ?6)";
 const LAST_SYNC: &str =
-    "SELECT at, pulled, pushed, skipped, failure FROM carddav_sync WHERE id = 1";
+    "SELECT at, pulled, pushed, skipped, failure, book_full FROM carddav_sync WHERE id = 1";
 
 /// État de la synchronisation CardDAV.
 #[derive(Debug, Clone)]
@@ -261,7 +261,8 @@ impl CardDavStore for SqliteCardDavStore {
                         count(report.pulled),
                         count(report.pushed),
                         count(report.skipped),
-                        failure
+                        failure,
+                        count(report.book_full)
                     ],
                 )
                 .map_err(store_error)?;
@@ -281,14 +282,15 @@ impl CardDavStore for SqliteCardDavStore {
                         row.get::<_, i64>(2)?,
                         row.get::<_, i64>(3)?,
                         row.get::<_, Option<String>>(4)?,
+                        row.get::<_, i64>(5)?,
                     ))
                 })
                 .optional()
                 .map_err(store_error)
             })
             .await?;
-        Ok(
-            row.map(|(at, pulled, pushed, skipped, failure)| CardDavSyncRecord {
+        Ok(row.map(
+            |(at, pulled, pushed, skipped, failure, book_full)| CardDavSyncRecord {
                 at,
                 outcome: match failure {
                     // Code inconnu (base d'une version plus récente) :
@@ -298,10 +300,11 @@ impl CardDavStore for SqliteCardDavStore {
                         pulled: uncount(pulled),
                         pushed: uncount(pushed),
                         skipped: uncount(skipped),
+                        book_full: uncount(book_full),
                     }),
                 },
-            }),
-        )
+            },
+        ))
     }
 }
 

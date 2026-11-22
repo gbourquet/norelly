@@ -152,6 +152,7 @@ pub(crate) fn report_dto(report: SyncReport) -> CardDavReportDto {
         pulled: count(report.pulled),
         pushed: count(report.pushed),
         skipped: count(report.skipped),
+        book_full: count(report.book_full),
     }
 }
 

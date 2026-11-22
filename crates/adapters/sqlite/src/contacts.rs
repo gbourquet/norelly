@@ -18,7 +18,7 @@ use norelly_domain::contact_import::{ContactCompletion, ListImport, PhotoTarget,
 use norelly_domain::contacts::{
     AddressKey, Contact, ContactDraft, ContactFilter, ContactId, ContactInput, EmailInput,
     InvisibleCleanup, MAX_CONTACT_ID, PhoneInput, PostalAddressInput, WebsiteInput,
-    clean_invisible, clean_names_imitating_address, lookup_ids,
+    clean_invisible, clean_names_imitating_address, fits_in_book, lookup_ids,
 };
 use norelly_domain::ports::{
     BlobId, ContactBook, ContactCursor, ContactDirectory, ContactListItem, ContactPage,
@@ -689,6 +689,27 @@ fn new_id(tx: &Transaction<'_>) -> Result<i64, StoreError> {
     Ok(raw)
 }
 
+/// Nombre de fiches en base, illisibles comprises.
+fn stored_count(c: &Connection) -> Result<usize, StoreError> {
+    let n: i64 = c
+        .prepare_cached("SELECT COUNT(*) FROM contacts")
+        .and_then(|mut s| s.query_row([], |r| r.get(0)))
+        .map_err(store_error)?;
+    Ok(count_of(n))
+}
+
+/// Nombre relu par SQLite ; une valeur hors de `usize` compte comme un
+/// carnet plein (le plafond refuse plutôt que de tomber).
+fn count_of(raw: i64) -> usize {
+    usize::try_from(raw).unwrap_or(usize::MAX)
+}
+
+/// Le carnet peut-il recevoir `adding` fiches de plus
+/// ([`fits_in_book`]) ? Compté dans la transaction qui les écrit.
+fn has_room(tx: &Transaction<'_>, adding: usize) -> Result<bool, StoreError> {
+    Ok(fits_in_book(stored_count(tx)?, adding))
+}
+
 /// Première adresse de `draft` déjà portée par un contact autre que
 /// `except`.
 fn taken(
@@ -832,6 +853,9 @@ impl ContactBook for SqliteContactBook {
         self.db
             .run(move |c| {
                 let tx = c.transaction().map_err(store_error)?;
+                if !has_room(&tx, 1)? {
+                    return Ok(Err(ContactStoreError::BookFull));
+                }
                 if let Some(address) = taken(&tx, &draft, None)? {
                     return Ok(Err(ContactStoreError::DuplicateAddress(address)));
                 }
@@ -926,6 +950,9 @@ impl ContactBook for SqliteContactBook {
                     if let Some(p) = photo {
                         set_photo(&tx, contact.id().get(), &p.photo)?;
                     }
+                }
+                if !has_room(&tx, create.len())? {
+                    return Ok(Err(ContactStoreError::BookFull));
                 }
                 let mut created = Vec::with_capacity(create.len());
                 for (rank, draft) in create.iter().enumerate() {
@@ -1312,14 +1339,18 @@ impl ContactDirectory for SqliteContactBook {
             })
             .await
     }
+
+    async fn count(&self) -> Result<usize, StoreError> {
+        self.db.read(|c| stored_count(c)).await
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use norelly_test_support::contacts_contracts::{
-        contact_book_contract, contact_corruption_contract, contact_get_many_contract,
-        contact_import_contract, contact_page_size_contract, contact_photo_contract,
-        contact_selection_contract, full_contact, photo_id, sample_contact,
+        contact_book_contract, contact_capacity_contract, contact_corruption_contract,
+        contact_get_many_contract, contact_import_contract, contact_page_size_contract,
+        contact_photo_contract, contact_selection_contract, full_contact, photo_id, sample_contact,
     };
 
     use super::*;
@@ -1354,6 +1385,37 @@ mod tests {
     #[tokio::test]
     async fn contact_book_passes_page_size_contract() -> Result<(), ContactStoreError> {
         contact_page_size_contract(&book()).await
+    }
+
+    #[test]
+    fn an_unreadable_count_fills_the_book() {
+        assert_eq!(count_of(3), 3);
+        assert_eq!(count_of(-1), usize::MAX);
+        assert!(!fits_in_book(count_of(-1), 1));
+    }
+
+    #[tokio::test]
+    async fn contact_book_passes_capacity_contract() -> Result<(), ContactStoreError> {
+        let book = book();
+        contact_capacity_contract(&book, |n| {
+            let db = book.db.clone();
+            async move {
+                let n = i64::try_from(n).map_err(|e| StoreError(e.to_string()))?;
+                // Lignes sans contenu : illisibles, mais comptées.
+                db.run(move |c| {
+                    c.execute(
+                        "WITH RECURSIVE seq(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM seq \
+                         WHERE n < ?1) INSERT INTO contacts (sort_key, search_text) \
+                         SELECT '', '' FROM seq",
+                        params![n],
+                    )
+                    .map(drop)
+                    .map_err(store_error)
+                })
+                .await
+            }
+        })
+        .await
     }
 
     #[tokio::test]

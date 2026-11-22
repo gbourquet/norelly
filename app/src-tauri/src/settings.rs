@@ -292,6 +292,10 @@ mod tests {
     struct BrokenDirectory;
 
     impl ContactDirectory for BrokenDirectory {
+        async fn count(&self) -> Result<usize, StoreError> {
+            Err(StoreError("carnet illisible".into()))
+        }
+
         async fn photo_ids(
             &self,
         ) -> Result<std::collections::BTreeSet<norelly_domain::ports::BlobId>, StoreError> {

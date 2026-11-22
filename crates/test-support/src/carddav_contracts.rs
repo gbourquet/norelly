@@ -628,6 +628,7 @@ where
             pulled: 1,
             pushed: 2,
             skipped: 3,
+            book_full: 2,
         }),
     };
     store.record_sync(&done).await?;

@@ -1,7 +1,9 @@
 //! Générateur de boîtes synthétiques (bench et tests de volume) :
 //! messages déterministes (même graine, mêmes messages), dates étalées,
-//! expéditeurs et sujets variés, un tiers non lus, quelques pièces jointes.
+//! expéditeurs et sujets variés, un tiers non lus, quelques pièces jointes ;
+//! carnets d'adresses synthétiques ([`synthetic_contacts`]).
 
+use norelly_domain::contacts::{ContactDraft, ContactInput, EmailInput, PhoneInput};
 use norelly_domain::fetch_policy::{Disposition, MimePart};
 use norelly_domain::mailbox::{Correspondent, Flags, MessageHeaders, MessageMeta, ModSeq, Uid};
 use norelly_domain::ports::{StoredBody, StoredMessage};
@@ -196,9 +198,128 @@ pub fn synthetic_text(n: u32, seed: u64, words: usize) -> String {
     out.join(" ")
 }
 
+const GIVEN_NAMES: &[&str] = &[
+    "Alice",
+    "Bruno",
+    "Chloé",
+    "David",
+    "Émilie",
+    "François",
+    "Gaëlle",
+    "Hugo",
+    "Inès",
+    "Julien",
+    "Karine",
+    "Louis",
+    "Manon",
+    "Nicolas",
+    "Océane",
+    "Pierre",
+    "Quentin",
+    "Rose",
+    "Samuel",
+    "Théo",
+];
+const FAMILY_NAMES: &[&str] = &[
+    "Martin",
+    "Petit",
+    "Durand",
+    "Leroy",
+    "Moreau",
+    "Simon",
+    "Laurent",
+    "Michel",
+    "Garcia",
+    "Roux",
+    "Bernard",
+    "Thomas",
+    "Robert",
+    "Richard",
+    "Dubois",
+    "Lefebvre",
+    "Fontaine",
+    "Chevalier",
+    "Mercier",
+    "Blanc",
+];
+const ORGANIZATIONS: &[&str] = &["ACME", "Initech", "Globex", "Umbrella", "Hooli", ""];
+
+/// `count` fiches de contact valides et déterministes (même graine, mêmes
+/// fiches) : prénom, nom, organisation, une ou deux adresses uniques
+/// (`<prénom>.<nom>.<n>@s<graine>.example`), un téléphone, un favori sur
+/// cinquante environ. Deux graines différentes ne partagent aucune adresse.
+#[must_use]
+pub fn synthetic_contacts(count: usize, seed: u64) -> Vec<ContactDraft> {
+    let mut rng = Rng::new(seed.wrapping_mul(7_919).wrapping_add(3));
+    let pick = |rng: &mut Rng, list: &[&'static str]| {
+        list[usize::try_from(rng.below(list.len() as u64)).unwrap_or(0)]
+    };
+    (0..count)
+        .filter_map(|n| {
+            let given = pick(&mut rng, GIVEN_NAMES);
+            let family = pick(&mut rng, FAMILY_NAMES);
+            let organization = pick(&mut rng, ORGANIZATIONS);
+            let login = format!("{}.{}.{n}", ascii(given), ascii(family));
+            let mut emails = vec![EmailInput {
+                address: format!("{login}@s{seed}.example"),
+                label: "travail".into(),
+                preferred: true,
+            }];
+            if rng.below(4) == 0 {
+                emails.push(EmailInput {
+                    address: format!("{login}@perso.s{seed}.example"),
+                    ..EmailInput::default()
+                });
+            }
+            ContactDraft::new(ContactInput {
+                given_name: given.into(),
+                family_name: family.into(),
+                organization: organization.into(),
+                emails,
+                phones: vec![PhoneInput {
+                    number: format!("+33 6 {:08}", rng.below(100_000_000)),
+                    label: "mobile".into(),
+                }],
+                favorite: rng.below(50) == 0,
+                ..ContactInput::default()
+            })
+            .ok()
+        })
+        .collect()
+}
+
+/// Forme ASCII minuscule d'un prénom ou d'un nom, pour une adresse.
+fn ascii(name: &str) -> String {
+    name.chars()
+        .map(|c| match c {
+            'é' | 'É' | 'è' | 'ë' => 'e',
+            'ç' => 'c',
+            c => c.to_ascii_lowercase(),
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn synthetic_contacts_are_deterministic_valid_and_distinct() {
+        let a = synthetic_contacts(500, 1);
+        assert_eq!(a.len(), 500);
+        assert_eq!(a, synthetic_contacts(500, 1));
+        let mut keys: Vec<String> = a
+            .iter()
+            .chain(&synthetic_contacts(500, 2))
+            .flat_map(|c| c.emails().iter().map(|e| e.key().as_str().to_owned()))
+            .collect();
+        let total = keys.len();
+        keys.sort();
+        keys.dedup();
+        assert_eq!(keys.len(), total, "adresse partagée");
+        let favorites = a.iter().filter(|c| c.favorite()).count();
+        assert!((1..50).contains(&favorites), "{favorites}");
+    }
 
     #[test]
     fn synthetic_text_is_deterministic_and_distinct() {

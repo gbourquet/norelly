@@ -304,6 +304,10 @@ impl ContactDirectory for CountingDirectory {
         self.inner.get_many(ids).await
     }
 
+    async fn count(&self) -> Result<usize, StoreError> {
+        self.inner.count().await
+    }
+
     async fn by_addresses(
         &self,
         keys: &[norelly_domain::contacts::AddressKey],

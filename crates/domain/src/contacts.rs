@@ -43,6 +43,14 @@ pub const MAX_CONTACT_SELECTION: usize = 1000;
 /// 32 bits (`u32::MAX`).
 pub const MAX_CONTACT_ID: i64 = u32::MAX as i64;
 
+/// Nombre maximal de fiches du carnet, tous chemins d'écriture confondus
+/// (saisie, import, synchronisation) : sans borne, une suite d'imports
+/// ferait grossir la base et ralentir la liste et les suggestions sans
+/// limite (bancs `contacts` de l'adaptateur SQLite). Celle d'un fichier
+/// importé : un carnet plein s'exporte, se réimporte, se parcourt (doublons)
+/// et se synchronise encore en entier.
+pub const MAX_CONTACTS: usize = 25_000;
+
 /// Identifiant local d'un contact, attribué par le carnet (strictement
 /// positif, au plus [`MAX_CONTACT_ID`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -1233,6 +1241,21 @@ pub fn lookup_ids(ids: &[ContactId]) -> Vec<ContactId> {
     kept
 }
 
+/// Fiches qu'un carnet de `current` fiches peut encore recevoir avant
+/// [`MAX_CONTACTS`] (aucune s'il en compte déjà autant ou plus).
+#[must_use]
+pub fn contacts_room(current: usize) -> usize {
+    MAX_CONTACTS.saturating_sub(current)
+}
+
+/// Un carnet de `current` fiches peut-il en recevoir `adding` de plus sans
+/// dépasser [`MAX_CONTACTS`] ? Tout ou rien : un import qui ne tient pas
+/// en entier est refusé, jamais tronqué.
+#[must_use]
+pub fn fits_in_book(current: usize, adding: usize) -> bool {
+    adding <= contacts_room(current)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1252,6 +1275,40 @@ mod tests {
         assert_eq!(kept.len(), MAX_CONTACT_LOOKUP);
         assert_eq!(kept.first(), Some(&id(1)));
         assert_eq!(kept.last(), Some(&id(MAX_CONTACT_LOOKUP as i64)));
+    }
+
+    #[test]
+    fn the_book_takes_cards_up_to_its_cap_and_no_more() {
+        assert_eq!(contacts_room(0), MAX_CONTACTS);
+        assert_eq!(contacts_room(MAX_CONTACTS - 3), 3);
+        assert_eq!(contacts_room(MAX_CONTACTS), 0);
+        // Carnet déjà au-delà (plafond abaissé, écriture étrangère) : rien.
+        assert_eq!(contacts_room(MAX_CONTACTS + 10), 0);
+        assert!(fits_in_book(0, MAX_CONTACTS));
+        assert!(!fits_in_book(0, MAX_CONTACTS + 1));
+        assert!(fits_in_book(MAX_CONTACTS - 1, 1));
+        assert!(!fits_in_book(MAX_CONTACTS - 1, 2));
+        assert!(fits_in_book(MAX_CONTACTS, 0), "rien à ajouter : accepté");
+        assert!(!fits_in_book(MAX_CONTACTS, 1));
+        assert!(!fits_in_book(usize::MAX, usize::MAX));
+    }
+
+    #[test]
+    fn a_full_book_stays_exportable_scannable_and_synchronisable() {
+        // Un carnet vide reçoit un fichier de taille maximale.
+        const { assert!(MAX_CONTACTS >= crate::contact_import::MAX_IMPORT_CARDS) };
+        // Un carnet plein s'exporte en entier, et le fichier se réimporte.
+        const { assert!(MAX_CONTACTS <= crate::contact_export::MAX_EXPORT_CONTACTS) };
+        const { assert!(MAX_CONTACTS <= crate::contact_import::MAX_IMPORT_CARDS) };
+        // La recherche des doublons le parcourt en entier.
+        const { assert!(MAX_CONTACTS <= crate::contact_duplicates::MAX_DUPLICATE_SCAN) };
+        // La synchronisation CardDAV l'envoie en entier, et le carnet
+        // distant qui en résulte reste lisible.
+        const { assert!(MAX_CONTACTS <= crate::carddav::MAX_REMOTE_CARDS) };
+        // Le plafond tient dans l'espace des identifiants (qui, jamais
+        // réattribués, s'épuisent au total des créations, pas au nombre de
+        // fiches présentes : `new_id` refuse alors proprement).
+        assert!(i64::try_from(MAX_CONTACTS).is_ok_and(|max| max < MAX_CONTACT_ID));
     }
 
     fn email(address: &str) -> EmailInput {

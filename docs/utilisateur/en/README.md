@@ -38,6 +38,11 @@ The window is split into three parts:
    that answer each other are grouped on a single line: a "conversation";
 3. **on the right**, the message you are reading.
 
+Norelly follows your computer's colours: light, or dark if you chose dark
+mode in the Windows or Linux settings.
+
+![The same window in dark mode: dark background and light text](captures/inbox-dark.png)
+
 ## Contents
 
 1. [Installing Norelly](install.md), on Windows or Linux.

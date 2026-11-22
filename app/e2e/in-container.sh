@@ -32,14 +32,24 @@ case "${1:-}" in
     # langue, chacune sur un profil neuf (question du premier lancement
     # comprise). Langue imposée par LANGUAGE (lue par WebKitGTK), vérifiée
     # par le scénario. Sortie : /captures/<langue>, recopiée par run.sh.
+    # D'abord la boîte de réception en thème sombre (GTK_THEME, vérifié par
+    # le scénario), sur son propre profil neuf ; puis toutes les autres.
     data="$HOME/.local/share/io.github.gbourquet.Norelly"
-    for lang in fr en; do
+    fresh_profile() {
       rm -rf "$data" "$HOME/.config/io.github.gbourquet.Norelly" "$HOME/.cache/io.github.gbourquet.Norelly"
+    }
+    for lang in fr en; do
       mkdir -p "/captures/$lang"
       case "$lang" in
         fr) locale_env=(LANG=fr_FR.UTF-8 LANGUAGE=fr) ;;
         en) locale_env=(LANG=C.UTF-8 LANGUAGE=en_GB:en) ;;
       esac
+      fresh_profile
+      env "${locale_env[@]}" GTK_THEME=Adwaita:dark \
+        NORELLY_E2E_LANG="$lang" NORELLY_E2E_CAPTURES="/captures/$lang" \
+        xvfb-run -a --server-args="-screen 0 1280x900x24" \
+        node_modules/.bin/wdio run e2e/wdio.conf.mjs --spec e2e/captures/inbox-dark.e2e.mjs
+      fresh_profile
       env "${locale_env[@]}" NORELLY_E2E_LANG="$lang" NORELLY_E2E_CAPTURES="/captures/$lang" \
         xvfb-run -a --server-args="-screen 0 1280x900x24" \
         node_modules/.bin/wdio run e2e/wdio.conf.mjs --spec e2e/captures/captures.e2e.mjs

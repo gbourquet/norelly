@@ -62,6 +62,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             reading::set_prefer_plain_text,
             reading::sync_account,
             reading::open_external,
+            reading::open_site_page,
             reading::save_attachment,
             reading::open_attachment,
             actions::perform_action,

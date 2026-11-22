@@ -1417,6 +1417,24 @@ pub enum LanguageDto {
     En,
 }
 
+/// Page du site de Norelly ouverte depuis le menu « Aide » ; l'adresse est
+/// construite en Rust (`norelly_domain::site`), jamais fournie par
+/// l'interface.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum SitePageDto {
+    Home,
+    Guide,
+}
+
+/// Langue d'une page du site : celle de l'interface.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum SiteLanguageDto {
+    Fr,
+    En,
+}
+
 /// Recherche de mises à jour.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "snake_case")]

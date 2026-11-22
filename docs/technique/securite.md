@@ -446,7 +446,14 @@ reçus de l'interface ; types MIME recalculés.
   est la règle des tags `v*` (création, modification et suppression
   réservées aux administrateurs) : un tag posé sur un commit dont le
   `release.yml` serait modifié (par exemple sans l'environnement
-  `release`) produirait des fichiers attestés.
+  `release`) produirait des fichiers attestés. L'attestation prouve
+  l'origine, pas la publication : elle est inscrite (Rekor, stockage de
+  GitHub) avant la relecture du brouillon, et reste valide si le brouillon
+  est rejeté ; le numéro de version d'un brouillon rejeté n'est donc jamais
+  réutilisé. La placer après la relecture donnerait le jeton OIDC au job
+  qui a `contents: write`. La commande `gh` documentée vérifie en plus que
+  le runner est hébergé par GitHub, ce que la commande `cosign` ne fait
+  pas (tous les jobs de `release.yml` le sont).
 - Flatpak : autorisations minimales, aucun accès direct aux fichiers de
   l'utilisateur (liste fermée d'autorisations vérifiée par
   `scripts/check-packaging.sh`, `ALLOWED_FINISH_ARGS`) :

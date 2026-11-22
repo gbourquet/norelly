@@ -76,10 +76,10 @@
   <content_rating type="oars-1.1" />
 
   <releases>
-    <release version="0.1.0" date="2026-11-04">
+    <release version="0.1.0-beta.1" date="2026-11-22" type="development">
       <description>
-        <p>First release.</p>
-        <p xml:lang="fr">Première version.</p>
+        <p>First beta release.</p>
+        <p xml:lang="fr">Première version bêta.</p>
       </description>
     </release>
   </releases>

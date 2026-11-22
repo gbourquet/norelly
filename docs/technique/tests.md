@@ -70,6 +70,21 @@ autorités du système dans ce conteneur sans Internet). Le conseil « mot de
 passe d'application » exige en effet des serveurs de Google joints sans
 exception de certificat.
 
+L'image part d'Ubuntu 24.04 figée par empreinte ; ses paquets apt viennent
+d'un instantané daté de l'archive (`snapshot.ubuntu.com`, date `snapshot=`
+écrite dans le Dockerfile), si bien que deux constructions installent les
+mêmes versions ; la construction échoue si un index ne vient pas de cet
+instantané. Rustup, Node.js et pnpm sont des archives figées vérifiées par
+SHA-256. Les correctifs Ubuntu n'arrivent donc qu'avec une montée de la
+date : au moins une fois par mois, et dès qu'un avis de sécurité Ubuntu
+touche un paquet de l'image (WebKitGTK, libsoup, OpenSSL, curl…) ;
+`./scripts/check.sh` avertit, sans échouer, au-delà de 35 jours
+(`scripts/check-apt-snapshot.mjs`, testé par
+`scripts/check-apt-snapshot.test.mjs`). Montée :
+remplacer la date par une date récente, postérieure à l'image de base (UTC,
+format `AAAAMMJJTHHMMSSZ`), et relancer `pnpm -C app e2e` ; l'empreinte du
+Dockerfile change, la CI reconstruit donc son image.
+
 | Scénario | Vérifie |
 |---|---|
 | `add-account.e2e.mjs` | Ajout d'un compte de bout en bout (saisie manuelle, confiance dans les certificats) |

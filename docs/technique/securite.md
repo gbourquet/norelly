@@ -370,7 +370,19 @@ reçus de l'interface ; types MIME recalculés.
   racine (le fuzzing porte sur les versions livrées). Le job nocturne
   refuse un verrou du fuzzing périmé.
 - Versions figées côté front ; actions GitHub et images Docker figées par
-  empreinte.
+  empreinte. Paquets apt de l'image e2e figés par un instantané daté de
+  l'archive Ubuntu (date `snapshot=` de `app/e2e/Dockerfile`), signatures
+  de l'archive vérifiées comme d'habitude ; seule la connexion TLS à
+  l'instantané s'appuie sur le ca-certificates de l'archive courante, pris
+  dans une étape jetable de la construction. Cette connexion TLS est un vrai
+  contrôle : les `InRelease` d'Ubuntu n'expirent pas, et elle seule empêche
+  un intermédiaire de servir un instantané plus ancien à l'URL datée (ne
+  jamais désactiver la vérification du certificat). Contrepartie : les correctifs
+  de sécurité Ubuntu n'entrent dans l'image qu'avec une montée de la date,
+  au moins mensuelle et immédiate pour un avis touchant un paquet de
+  l'image (WebKitGTK, libsoup, OpenSSL, curl…) ; `scripts/check.sh`
+  avertit au-delà de 35 jours (`scripts/check-apt-snapshot.mjs`) ;
+  procédure dans `docs/technique/tests.md`.
 - Mises à jour (NSIS) signées **minisign**, signature faite dans un
   environnement de publication séparé de la compilation ; délais bornés
   (`docs/CODE_SIGNING.md`).
@@ -486,7 +498,8 @@ Signalés au mainteneur dans chaque PR qui les touche (ADR-008) :
 - infrastructure : `deny.toml`, `.github/workflows/*.yml`,
   `packaging/flatpak/*.yml`, `scripts/flathub-manifest.py`,
   `scripts/check-packaging.sh`, `scripts/check.sh`,
-  `scripts/check-fuzz-lock.mjs` (et ses tests), `fuzz/Cargo.lock`.
+  `scripts/check-fuzz-lock.mjs` (et ses tests), `fuzz/Cargo.lock`,
+  `app/e2e/Dockerfile`.
 
 ## Revues
 

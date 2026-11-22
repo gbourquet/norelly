@@ -24,7 +24,9 @@ site, norelly.fr.
 Norelly se connecte directement aux serveurs IMAP et SMTP de vos
 fournisseurs de messagerie, ainsi qu'à leurs services d'authentification
 OAuth (Microsoft, Google) lorsque vous le demandez. Ces connexions sont
-chiffrées (TLS) et n'ont lieu qu'entre votre appareil et ces serveurs.
+chiffrées (TLS) et n'ont lieu qu'entre votre appareil et ces serveurs. Si
+un serveur ne propose pas le chiffrement, Norelly refuse de s'y connecter,
+sauf si vous l'autorisez vous-même expressément pour ce compte.
 
 ## Autres connexions
 
@@ -61,9 +63,10 @@ fait :
   ajoutez.
 - **Microsoft** : la réception (IMAP) et l'envoi (SMTP) des messages de
   votre boîte Outlook.com (ou Hotmail, Live), le maintien de la connexion
-  sans vous redemander votre mot de passe, et votre adresse électronique
-  et votre nom, pour vérifier que le compte choisi est bien celui que vous
-  ajoutez.
+  sans vous redemander votre mot de passe, et votre adresse électronique,
+  pour vérifier que le compte choisi est bien celui que vous ajoutez.
+  Microsoft transmet aussi votre nom avec cette autorisation ; Norelly ne
+  s'en sert pas.
 
 Norelly ne demande l'accès ni à vos contacts, ni à votre agenda, ni à vos
 fichiers chez Google ou Microsoft.
@@ -100,8 +103,19 @@ site.
 
 ## Suppression des données
 
-Désinstaller Norelly, ou supprimer un compte dans l'application,
-supprime les données locales associées depuis votre appareil.
+Supprimer un compte dans l'application efface de votre appareil ses
+messages, ses réglages et ses mots de passe ou autorisations enregistrés.
+
+Désinstaller Norelly peut laisser en place son dossier de données. Pour
+tout effacer, supprimez ce dossier après la désinstallation :
+
+- sous Windows : `%APPDATA%\io.github.gbourquet.Norelly` ;
+- sous Linux : `~/.local/share/io.github.gbourquet.Norelly` (ou
+  `~/.var/app/io.github.gbourquet.Norelly` avec Flathub).
+
+Les mots de passe rangés dans le trousseau du système sont effacés quand
+vous supprimez le compte dans Norelly ; supprimez les comptes avant de
+désinstaller.
 
 ## Éditeur et contact
 

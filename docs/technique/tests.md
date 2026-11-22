@@ -210,6 +210,14 @@ Les bancs de bout en bout tournent dans le job nocturne
 (`.github/workflows/nightly.yml`), avec cinq minutes de fuzzing par cible
 (`mime_message`, `sanitize_html`, `sanitize_css`, `autoconfig_xml`,
 `search_query`, `contact_import`, `contact_export`) et la suite de contrat contre Stalwart.
+La cible `sanitize_html` vérifie chaque sortie avec l'oracle
+`norelly_render::oracle` (fonctionnalité `fuzz-oracle` du crate, activée
+par `fuzz/` seulement, jamais par l'application ; ses tests unitaires
+tournent avec ceux du crate) : aucune balise active, aucun attribut
+`on…`, aucune adresse `javascript:`, `vbscript:` ou `data:` hors image
+matricielle, aucune adresse d'image ou de lien inattendue (ni
+`remote-img://` quand les images distantes sont bloquées), la sortie
+étant analysée comme par le tokeniseur HTML du navigateur.
 
 Le workspace de fuzzing a son propre verrou, `fuzz/Cargo.lock`. Dans
 `./scripts/check.sh`, `cargo deny` le contrôle avec `--locked` (verrou à

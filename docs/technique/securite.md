@@ -205,8 +205,21 @@ du domaine de l'adresse soumis à confirmation ; XML hostile sans panique
   résolution, couleurs, `prefers-color-scheme`) jamais vraies, `screen`
   toujours vraie ; `print-color-adjust` imposé par Norelly, fonds imprimés
   comme à l'écran : un mail ne peut rien montrer seulement à
-  l'impression) ; suite de 56 vecteurs
-  hostiles (`crates/adapters/render/tests/hostile_html.rs`).
+  l'impression) ; suite de 57 vecteurs
+  hostiles (`crates/adapters/render/tests/hostile_html.rs`) ; fuzzing
+  nocturne (`fuzz/fuzz_targets/sanitize_html.rs`) dont l'oracle
+  (`crates/adapters/render/src/oracle.rs`) analyse la sortie comme le
+  tokeniseur HTML du navigateur (casse, guillemets, références de
+  caractères, texte brut de `<style>`), signale d'office les contextes
+  que le navigateur analyse autrement, et y refuse les balises actives (`<script>`, `<iframe>`,
+  `<object>`, `<embed>`, `<base>`, `<meta>`, `<link>`, `<form>`…), le
+  SVG, le MathML, `<noscript>`, `<select>`, `<template>` et les éléments
+  de texte brut autres que `<style>` (dont l'analyse ne se modélise pas
+  simplement), tout attribut `on…`, les adresses `javascript:`,
+  `vbscript:` ou `data:` (hors image matricielle en base64 dans `src`), et
+  toute adresse inattendue (`src` hors `mailpart://`, `remote-img://` si
+  les images distantes sont autorisées, ou image en ligne ; `href` hors
+  `http`, `https`, `mailto`).
 - Cadre `sandbox="allow-scripts"` sans `allow-same-origin` (origine opaque),
   servi par `mailview://` avec une CSP stricte ; seul l'agent s'exécute
   (empreinte SHA-256 vérifiée).
@@ -563,7 +576,7 @@ Signalés au mainteneur dans chaque PR qui les touche (ADR-008) :
 - `crates/adapters/tls/src/lib.rs`, `crates/adapters/imap/src/connection.rs`,
   `crates/adapters/smtp/src/stream.rs` ;
 - `crates/adapters/render/src/sanitize.rs`, `css.rs`, `compose.rs`,
-  `agent.js` ;
+  `agent.js`, `oracle.rs` (oracle du fuzzing de l'assainissement) ;
 - `crates/adapters/contacts-io/src/` (lecture et écriture de fichiers
   externes, décodage des photos `photo.rs`),
   `crates/domain/src/contact_import.rs`, `contact_export.rs`,

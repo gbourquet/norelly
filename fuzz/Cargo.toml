@@ -18,7 +18,7 @@ members = ["."]
 [dependencies]
 libfuzzer-sys = "0.4"
 norelly-domain = { path = "../crates/domain" }
-norelly-render = { path = "../crates/adapters/render" }
+norelly-render = { path = "../crates/adapters/render", features = ["fuzz-oracle"] }
 norelly-discovery = { path = "../crates/adapters/discovery" }
 norelly-contacts-io = { path = "../crates/adapters/contacts-io" }
 

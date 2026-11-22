@@ -113,6 +113,52 @@ Les captures ne sont recopiées dans `docs/` que si tous les scénarios ont
 réussi. Elles ne se modifient jamais à la main : relancer
 `pnpm -C app e2e`, puis commiter les PNG modifiés.
 
+### Cache de build
+
+Le build de l'application dans le conteneur garde ses fichiers compilés
+dans `~/.cache/norelly-e2e` (ou `$XDG_CACHE_HOME/norelly-e2e`) ; le
+dossier utilisé est affiché au lancement (« Cache de build : … ») :
+
+| Dossier | Contenu | Partagé entre copies de travail |
+|---|---|---|
+| `target-<empreinte>/` | Fichiers compilés (`CARGO_TARGET_DIR`) | Non : un par copie de travail, seul monté dans le conteneur |
+| `cargo/registry/cache/`, `cargo/registry/index/` | Archives `.crate` et index du registre | Oui ; archives revérifiées contre `Cargo.lock` à chaque lancement |
+
+Les sources extraites du registre (`cargo/registry/src`) et le `HOME` des
+conteneurs sont éphémères (`tmpfs`) : cargo réextrait les sources des
+archives à chaque lancement, en quelques secondes, sans recompiler les
+dépendances.
+
+Toutes les copies de travail (worktrees git) sont montées sur `/work` dans
+le conteneur : avec un seul dossier de build, cargo reprendrait les
+fichiers compilés d'une autre branche, les dates de modification ne
+suffisant pas à les distinguer. L'empreinte est donc tirée du chemin réel
+des sources (`app/e2e/target-name.sh`) : chaque copie de travail
+recompile seulement ce qui a changé depuis son lancement précédent. La CI
+calcule le même nom pour le chemin du dépôt sur le runner, qui est
+stable, et sauve ou restaure ce dossier.
+
+cargo ne contrôle l'empreinte d'une archive `.crate` qu'à son
+téléchargement, pas quand elle est déjà dans le cache. Au lancement,
+`app/e2e/verify-crates.sh` compare donc chaque archive d'un paquet de
+`Cargo.lock` à son `checksum` et retire celle qui diffère (ou qui n'est
+pas un fichier ordinaire) : cargo la télécharge et la vérifie à nouveau.
+
+Nettoyage : chaque dossier de build note dans `.source` le chemin des
+sources qui l'ont produit. Au lancement, `app/e2e/prune-targets.sh` retire
+ceux dont la copie de travail n'existe plus ; un dossier d'origine
+inconnue, un lien symbolique et le registre de cargo ne sont jamais
+touchés. Une copie de travail neuve compile tout à son premier lancement.
+Pour tout libérer :
+`rm -rf "${XDG_CACHE_HOME:-$HOME/.cache}"/norelly-e2e/target-*` (chaque
+dossier sera recompilé au lancement suivant) ; le nom propre à une copie
+de travail s'obtient avec `app/e2e/target-name.sh <chemin>`. Les dossiers
+`target/`, `home/` et `cargo/registry/src/` des versions précédentes ne
+servent plus : les supprimer à la main.
+
+Ces trois scripts sont testés par `app/e2e/*.test.sh`, lancés par
+`./scripts/check.sh`.
+
 ## Couverture et seuils
 
 Vérifiés par `./scripts/check.sh`, **à relever, jamais à baisser** :

@@ -419,12 +419,17 @@ reçus de l'interface ; types MIME recalculés.
   (ADR-006). Manifeste Flathub figé sur un tag et son commit, vérifiés par
   flatpak-builder à la récupération (`scripts/flathub-manifest.py`).
 - Caches de la CI enregistrés depuis `master` seulement, jamais utilisés
-  par `release.yml`. Cache de build de l'e2e réduit à `target/` et aux
-  archives `.crate` (aucune configuration de cargo, refusée aussi par
-  `app/e2e/run.sh`) ; image de l'e2e renouvelée chaque semaine et
+  par `release.yml`. Cache de build de l'e2e réduit au dossier de build
+  de la copie de travail (`target-<empreinte>/`, `app/e2e/target-name.sh`)
+  et aux archives `.crate`, revérifiées contre `Cargo.lock` à chaque
+  lancement (`app/e2e/verify-crates.sh` : cargo ne le fait qu'au
+  téléchargement) ; aucune configuration de cargo, refusée aussi par
+  `app/e2e/run.sh`. En local, chaque conteneur ne voit que le dossier de
+  build de sa copie de travail ; sources extraites du registre et `HOME`
+  éphémères ; image de l'e2e renouvelée chaque semaine et
   acceptée seulement sous son tag attendu. Risque résiduel accepté : un
-  `target/` empoisonné depuis `master` (build script compromis) servirait
-  jusqu'à la semaine suivante, dans un job sans secret.
+  dossier de build empoisonné depuis `master` (build script compromis)
+  servirait jusqu'à la semaine suivante, dans un job sans secret.
 
 ## Synchronisation CardDAV (ADR-014)
 
@@ -525,7 +530,8 @@ Signalés au mainteneur dans chaque PR qui les touche (ADR-008) :
   `packaging/flatpak/*.yml`, `scripts/flathub-manifest.py`,
   `scripts/check-packaging.sh`, `scripts/check.sh`,
   `scripts/check-fuzz-lock.mjs` (et ses tests), `fuzz/Cargo.lock`,
-  `app/e2e/Dockerfile`.
+  `app/e2e/Dockerfile`, cache de build de l'e2e (`app/e2e/run.sh`,
+  `target-name.sh`, `prune-targets.sh`, `verify-crates.sh`).
 
 ## Revues
 

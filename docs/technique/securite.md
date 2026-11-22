@@ -362,7 +362,26 @@ reçus de l'interface ; types MIME recalculés.
   (`core:event:allow-listen`, `core:event:allow-unlisten`) et lecture du
   focus de la fenêtre (`core:window:allow-is-focused`). Émettre un
   événement, lire ou modifier les fenêtres et vues, résoudre des chemins,
-  créer des menus, icônes ou images est refusé (test `acl_tests`).
+  créer des menus, icônes ou images est refusé : le test `acl_tests`
+  vérifie chaque commande de plugin connue de l'ACL, d'après le manifeste
+  généré à la compilation.
+- L'écoute des événements n'est pas limitée par nom ni par fenêtre (Tauri
+  ne le permet pas) : l'interface peut écouter `tauri://drag-drop`, dont la
+  charge contient les chemins des fichiers déposés, alors que Rust ne lui
+  transmet qu'un jeton. Fuite mineure, possible seulement depuis une
+  interface déjà compromise, qui a de toute façon accès aux commandes de
+  l'application. Une seconde fenêtre aurait sa propre capability, et
+  aucun événement sensible ne lui serait émis.
+- Les schémas personnalisés (`mailview://`, `mailpart://`,
+  `remote-img://`…) comptent comme locaux pour l'ACL de Tauri : une requête
+  présentée avec une telle origine sur la fenêtre `main` serait accordée.
+  L'isolation de `mailview://` ne repose donc pas sur la capability, mais
+  sur le cadre sans `allow-same-origin` (origine `null`, refusée par l'IPC),
+  l'absence de la clé d'invocation dans le cadre et la CSP (e2e
+  `reading-security`).
+- Le raccourci des outils de développement que Tauri ajoute en
+  développement (Ctrl+Maj+I) est refusé ; ils restent ouverts par le clic
+  droit. La commande n'existe pas dans les versions publiées.
 - Toute entrée IPC revalidée par les constructeurs du domaine.
 - `unsafe` interdit dans tout le workspace.
 

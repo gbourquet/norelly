@@ -93,29 +93,49 @@ const CORE_COMMANDS_USED: &[&str] = &[
     "plugin:window|is_focused",
 ];
 
-/// Commandes du noyau que l'interface n'appelle pas : refusées, même
-/// celles qu'accorde l'ensemble `core:default`.
-const CORE_COMMANDS_UNUSED: &[&str] = &[
-    "plugin:event|emit",
-    "plugin:event|emit_to",
-    "plugin:window|get_all_windows",
-    "plugin:window|title",
-    "plugin:window|inner_size",
-    "plugin:window|is_visible",
-    "plugin:window|close",
-    "plugin:window|set_title",
-    "plugin:webview|get_all_webviews",
-    "plugin:webview|webview_position",
-    "plugin:webview|create_webview",
-    "plugin:app|version",
-    "plugin:app|name",
-    "plugin:app|tauri_version",
-    "plugin:path|resolve_directory",
-    "plugin:path|resolve",
-    "plugin:resources|close",
-    "plugin:menu|new",
-    "plugin:image|new",
-];
+/// Toutes les commandes des plugins (noyau compris) connues de l'ACL, au
+/// format de l'IPC (`plugin:<plugin>|<commande>`), d'après le manifeste que
+/// `tauri-build` génère avant la compilation. Les commandes de
+/// l'application (`__app-acl__`) sont vérifiées par le test précédent.
+fn plugin_commands() -> Vec<String> {
+    let manifests: serde_json::Value = serde_json::from_str(include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/gen/schemas/acl-manifests.json"
+    )))
+    .unwrap_or_else(|e| panic!("{e}"));
+    let manifests = manifests
+        .as_object()
+        .unwrap_or_else(|| panic!("manifeste ACL : objet attendu"));
+    let mut commands = std::collections::BTreeSet::new();
+    for (plugin, manifest) in manifests {
+        if plugin == "__app-acl__" {
+            continue;
+        }
+        let name = plugin.strip_prefix("core:").unwrap_or(plugin);
+        let permissions = manifest["permissions"]
+            .as_object()
+            .unwrap_or_else(|| panic!("{plugin} : permissions attendues"));
+        for permission in permissions.values() {
+            for cmd in permission["commands"]["allow"]
+                .as_array()
+                .unwrap_or_else(|| panic!("{plugin} : commandes attendues"))
+            {
+                let cmd = cmd.as_str().unwrap_or_else(|| panic!("{plugin} : {cmd}"));
+                commands.insert(format!("plugin:{name}|{cmd}"));
+            }
+        }
+    }
+    commands.into_iter().collect()
+}
+
+/// Accordée par l'ACL : la commande s'exécute, ou échoue ensuite sur ses
+/// arguments absents (ni « not allowed », ni commande inconnue).
+fn passes_acl(result: &Result<(), String>) -> bool {
+    result
+        .as_ref()
+        .err()
+        .is_none_or(|e| !e.contains("not allowed") && !e.contains("not found"))
+}
 
 #[test]
 fn main_window_is_granted_only_the_core_commands_the_front_uses() {
@@ -128,17 +148,27 @@ fn main_window_is_granted_only_the_core_commands_the_front_uses() {
     let other = WebviewWindowBuilder::new(&app, "other", WebviewUrl::default())
         .build()
         .unwrap_or_else(|e| panic!("{e}"));
+    let known = plugin_commands();
+    // Garde-fou : le manifeste est bien lu (le noyau seul compte plus de
+    // cent commandes).
+    assert!(known.len() > 100, "{known:?}");
     let mut failures = Vec::new();
     for cmd in CORE_COMMANDS_USED {
-        // Accordée : l'ACL laisse passer, la commande échoue ensuite sur ses
-        // arguments absents.
+        // Les canaux ne sont pas des commandes de l'ACL ; les autres doivent
+        // exister sous ce nom (une faute de frappe serait refusée en silence).
+        if !cmd.starts_with("plugin:__TAURI_CHANNEL__|") && !known.iter().any(|k| k == cmd) {
+            failures.push(format!("{cmd} absente du manifeste ACL"));
+        }
         let result = invoke(&main, cmd, APP_ORIGIN);
-        if result.as_ref().is_err_and(|e| e.contains("not allowed")) {
+        if !passes_acl(&result) {
             failures.push(format!("{cmd} refusée : {result:?}"));
         }
     }
     // Les canaux échappent à l'ACL ; les permissions du noyau, elles, ne
     // valent que pour la fenêtre principale et l'origine de l'application.
+    // Les schémas personnalisés (`mailview://`…) comptent comme locaux pour
+    // l'ACL : leur isolation repose sur le cadre sans `allow-same-origin`,
+    // la clé d'invocation et la CSP (e2e `reading-security`), pas ici.
     for cmd in CORE_COMMANDS_USED
         .iter()
         .filter(|c| c.starts_with("plugin:event|") || c.starts_with("plugin:window|"))
@@ -153,7 +183,12 @@ fn main_window_is_granted_only_the_core_commands_the_front_uses() {
             }
         }
     }
-    for cmd in CORE_COMMANDS_UNUSED {
+    // Toute autre commande de plugin est refusée, quelle que soit la
+    // permission qui l'aurait accordée (capability ou `main-window.toml`).
+    for cmd in known
+        .iter()
+        .filter(|k| !CORE_COMMANDS_USED.contains(&k.as_str()))
+    {
         let result = invoke(&main, cmd, APP_ORIGIN);
         if !result.as_ref().is_err_and(|e| e.contains("not allowed")) {
             failures.push(format!("{cmd} accordée : {result:?}"));

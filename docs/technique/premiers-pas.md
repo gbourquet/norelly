@@ -42,6 +42,11 @@ adresse Gmail passe par le mot de passe d'application (ADR-013). Pour essayer sa
 Mailpit en local comme le font les e2e, ou utilisez un compte de test
 dédié (jamais un compte personnel dans les tests).
 
+Les outils de développement de la vue s'ouvrent par le clic droit
+« Inspecter l'élément » : le raccourci Ctrl+Maj+I que Tauri ajoute en
+développement passe par une commande du noyau que la fenêtre n'a pas le
+droit d'appeler ([sécurité](securite.md#application-tauri)).
+
 ## 3. Tester
 
 | Quoi | Commande |

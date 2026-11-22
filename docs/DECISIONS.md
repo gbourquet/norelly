@@ -467,9 +467,11 @@ est majoritairement écrit par Claude et relu par le mainteneur.
   l'exception quand `imap-codec` abandonnera `chrono`.
 - **Précision validée par le mainteneur (2026-11-22)** : la licence
   University of Illinois/NCSA (permissive, de type BSD, ancienne licence
-  de LLVM) est ajoutée à la liste `allow` de `deny.toml`. Elle est
-  requise par `libfuzzer-sys`, dépendance de cargo-fuzz dans le
-  workspace `fuzz/`, contrôlé lui aussi par `cargo deny`.
+  de LLVM) est admise dans `deny.toml`, par une exception limitée à
+  `libfuzzer-sys`. Cette crate est une dépendance de cargo-fuzz dans le
+  workspace `fuzz/`, contrôlé lui aussi par `cargo deny`, et n'est jamais
+  distribuée. Une dépendance de l'application sous cette licence reste
+  refusée.
 
 ## ADR-010 : éditeur de rédaction
 

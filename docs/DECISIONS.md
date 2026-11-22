@@ -431,6 +431,14 @@ est majoritairement écrit par Claude et relu par le mainteneur.
     assainisseur, protocoles personnalisés, écriture des pièces jointes.
     Ces fichiers sont signalés au mainteneur dans chaque PR qui les
     touche.
+- **Dérogation (2026-11-22, acceptée par le mainteneur)** : l'oracle du
+  fuzzing de l'assainisseur HTML (`norelly_render::oracle`) vit dans
+  l'adaptateur `render`, alors qu'il ne sert qu'aux tests.
+  - Il n'est compilé que pour les tests du crate (`cfg(test)`) ou avec
+    la fonctionnalité `fuzz-oracle`, que seul `fuzz/` active.
+  - Le binaire de l'application ne le contient donc pas.
+  - Il ne pouvait pas aller dans `crates/test-support`, qui ne peut pas
+    dépendre de `render`.
 
 ## ADR-009 : licence et politique de dépendances
 

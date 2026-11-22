@@ -451,7 +451,9 @@ reçus de l'interface ; types MIME recalculés.
   modification ; une version publiée depuis moins de 7 jours n'est pas
   proposée (`cooldown`) ; correctifs et versions mineures regroupés,
   version majeure proposée seule, cinq PR ouvertes au plus, commits
-  préfixés `deps:` (message en anglais, écrit par Dependabot).
+  préfixés `deps:`. Le reste du message est en anglais, écrit par
+  Dependabot : c'est une exception à la règle des commits en français,
+  acceptée par le mainteneur le 2026-11-22.
   `dtolnay/rust-toolchain` est exclue (pas d'étiquette de version) et se
   met à jour à la main. Le vérificateur exige ces réglages : délai de 1 à
   30 jours, aucune limite de PR à 0, aucun `ignore` à motif hors versions

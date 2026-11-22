@@ -4,7 +4,8 @@
 // Ubuntu n'entrent dans l'image qu'avec une montée de la date (procédure :
 // docs/technique/tests.md). Une date absente, multiple ou invalide est une
 // erreur.
-import { readFileSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
+import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 /** Âge au-delà duquel une montée de l'instantané est rappelée. */
@@ -42,7 +43,10 @@ export function snapshotStatus(dockerfile, now) {
   return { snapshot, ageDays, stale: ageDays > MAX_AGE_DAYS };
 }
 
-if (process.argv[1] === fileURLToPath(import.meta.url)) {
+// Lancé directement (et non importé par ses tests), y compris par un
+// chemin qui traverse un lien symbolique.
+const self = realpathSync(fileURLToPath(import.meta.url));
+if (process.argv[1] && realpathSync(path.resolve(process.argv[1])) === self) {
   const file = new URL("../app/e2e/Dockerfile", import.meta.url);
   try {
     const status = snapshotStatus(readFileSync(file, "utf8"), new Date());

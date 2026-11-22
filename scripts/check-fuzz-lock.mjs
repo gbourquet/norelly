@@ -4,7 +4,7 @@
 // doit y figurer avec la même version, la même source et la même empreinte.
 // Les paquets inconnus de la racine (libfuzzer-sys, arbitrary…) sont propres
 // au fuzzing ; les paquets sans source sont les crates du dépôt.
-import { readFileSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -79,7 +79,10 @@ export function lockProblems(rootText, fuzzText) {
   );
 }
 
-if (process.argv[1] === fileURLToPath(import.meta.url)) {
+// Lancé directement (et non importé par ses tests), y compris par un
+// chemin qui traverse un lien symbolique.
+const self = realpathSync(fileURLToPath(import.meta.url));
+if (process.argv[1] && realpathSync(path.resolve(process.argv[1])) === self) {
   const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
   const read = (file) => readFileSync(path.join(repo, file), "utf8");
   const problems = lockProblems(read("Cargo.lock"), read("fuzz/Cargo.lock"));

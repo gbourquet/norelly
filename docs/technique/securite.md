@@ -612,6 +612,9 @@ Signalés au mainteneur dans chaque PR qui les touche (ADR-008) :
 - `crates/domain/src/security.rs`, `discovery.rs`, `reading.rs`,
   `credentials.rs`, `oauth.rs`, `auth.rs`, `sender_auth.rs`, `labels.rs`
   (encodage des mots-clés, couleurs) ;
+- Gmail : `crates/domain/src/gmail.rs` (réutilisation d'un corps),
+  `crates/adapters/sqlite/src/mail.rs` (`reuse_body`), `Cargo.toml`
+  (`[patch.crates-io]` du fork d'imap-codec) ;
 - `crates/adapters/oauth/src/lib.rs`, `crates/application/src/oauth.rs` ;
 - synchronisation CardDAV : `crates/domain/src/carddav.rs` (adresses,
   même origine, fusion des fiches), `crates/adapters/webdav/src/`,
@@ -633,6 +636,7 @@ Signalés au mainteneur dans chaque PR qui les touche (ADR-008) :
 - `app/src/lib/agent.ts` ;
 - infrastructure : `deny.toml`, `.github/workflows/*.yml`,
   `packaging/flatpak/*.yml`, `scripts/flathub-manifest.py`,
+  `scripts/flatpak-sources.py` (et son test), `scripts/check-apt-snapshot.mjs`,
   `scripts/check-packaging.sh`, `scripts/check.sh`,
   `scripts/check-fuzz-lock.mjs` (et ses tests), `fuzz/Cargo.lock`,
   `app/e2e/Dockerfile`, cache de build de l'e2e (`app/e2e/run.sh`,

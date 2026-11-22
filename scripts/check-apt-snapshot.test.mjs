@@ -69,3 +69,27 @@ test("date dans le futur : erreur", () => {
     /instantané/,
   );
 });
+
+test("lancé par un chemin qui traverse un lien symbolique, le contrôle s'exécute", async () => {
+  const { execFileSync } = await import("node:child_process");
+  const { mkdtempSync, symlinkSync, rmSync } = await import("node:fs");
+  const os = await import("node:os");
+  const path = await import("node:path");
+  const { fileURLToPath } = await import("node:url");
+  const scripts = path.dirname(fileURLToPath(import.meta.url));
+  const dir = mkdtempSync(path.join(os.tmpdir(), "norelly-lien-"));
+  try {
+    const link = path.join(dir, "scripts");
+    try {
+      symlinkSync(scripts, link, "dir");
+    } catch {
+      return; // pas de lien symbolique possible (Windows sans droits)
+    }
+    const out = execFileSync(process.execPath, [path.join(link, "check-apt-snapshot.mjs")], {
+      encoding: "utf8",
+    });
+    assert.match(out, /Instantané apt de l'e2e/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

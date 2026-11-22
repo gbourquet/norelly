@@ -127,3 +127,27 @@ test("un écart de version figure parmi les problèmes", () => {
     "fuzz/Cargo.lock : ammonia 4.2.4 (racine : 4.2.5)",
   ]);
 });
+
+test("lancé par un chemin qui traverse un lien symbolique, le contrôle s'exécute", async () => {
+  const { execFileSync } = await import("node:child_process");
+  const { mkdtempSync, symlinkSync, rmSync } = await import("node:fs");
+  const os = await import("node:os");
+  const path = await import("node:path");
+  const { fileURLToPath } = await import("node:url");
+  const scripts = path.dirname(fileURLToPath(import.meta.url));
+  const dir = mkdtempSync(path.join(os.tmpdir(), "norelly-lien-"));
+  try {
+    const link = path.join(dir, "scripts");
+    try {
+      symlinkSync(scripts, link, "dir");
+    } catch {
+      return; // pas de lien symbolique possible (Windows sans droits)
+    }
+    const out = execFileSync(process.execPath, [path.join(link, "check-fuzz-lock.mjs")], {
+      encoding: "utf8",
+    });
+    assert.match(out, /aligné sur Cargo.lock/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

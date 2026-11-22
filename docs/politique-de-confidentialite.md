@@ -106,7 +106,7 @@ supprime les données locales associées depuis votre appareil.
 ## Éditeur et contact
 
 Norelly est un logiciel libre développé par Guillaume Bourquet —
-contact : gbourquet@gmail.com.
+contact : contact@norelly.fr.
 Code source : https://github.com/gbourquet/norelly
 
 *Dernière mise à jour : 22 novembre 2026.*

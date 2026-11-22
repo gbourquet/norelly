@@ -92,7 +92,7 @@ the associated local data from your device.
 ## Publisher and contact
 
 Norelly is free software developed by Guillaume Bourquet —
-contact: gbourquet@gmail.com.
+contact: contact@norelly.fr.
 Source code: https://github.com/gbourquet/norelly
 
 *Last updated: 22 November 2026.*

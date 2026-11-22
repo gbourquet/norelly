@@ -52,6 +52,7 @@ step "e2e : dossiers de build par copie de travail"; ./app/e2e/target-name.test.
 step "Chaîne Rust et outils de la CI figés"
 node --test scripts/check-toolchain.test.mjs
 node scripts/check-toolchain-cli.mjs
+step "Actions GitHub figées";  node --test scripts/check-actions.test.mjs && node scripts/check-actions.mjs
 # Paquets Linux (desktop-file-utils, appstream) : vérifiés sous Linux.
 if [ "$(uname -s)" = Linux ]; then step "Métadonnées de bureau"; ./scripts/check-packaging.sh; fi
 # Fichiers d'une version et SHA256SUMS (release.yml, sous Ubuntu) : outils GNU.

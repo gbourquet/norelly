@@ -27,6 +27,8 @@ laissez la souris dessus un instant.
 |---|---|
 | Palette de commandes | `Ctrl+K` |
 | Aide des raccourcis clavier | `?` |
+| Guide d'utilisation | palette |
+| Site de Norelly | palette |
 | Paramètres… | `Ctrl+,` |
 
 ## Lecture

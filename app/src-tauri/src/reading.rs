@@ -1,5 +1,6 @@
 //! Commandes IPC de lecture : dossiers, conversations, message ouvert,
-//! images distantes, préférences, liens externes, pièces jointes.
+//! images distantes, préférences, liens externes et pages du site, pièces
+//! jointes.
 //!
 //! Toute entrée de l'interface est revalidée ici (identifiants, portée,
 //! chemin de partie, lien) ; les décisions de sécurité (schéma d'un lien,
@@ -23,6 +24,7 @@ use norelly_domain::ports::{
 use norelly_domain::reading::{
     ExternalLink, is_unsafe_to_open, numbered_file_name, safe_file_name,
 };
+use norelly_domain::site::{SiteLanguage, SitePage, site_page_url};
 use norelly_render::BodyMode;
 use tauri::{AppHandle, State};
 use tauri_plugin_dialog::DialogExt;
@@ -30,7 +32,8 @@ use tauri_plugin_dialog::DialogExt;
 use crate::ipc::{
     AttachmentDto, BodyModeDto, ConversationCursorDto, ConversationDto, ConversationMessageDto,
     ConversationPageDto, CorrespondentDto, ErrorCodeDto, FieldDto, FolderDto, IpcError,
-    MessageViewDto, ReadingPreferencesDto, ScopeDto, date_dto, date_from_dto, id32,
+    MessageViewDto, ReadingPreferencesDto, ScopeDto, SiteLanguageDto, SitePageDto, date_dto,
+    date_from_dto, id32,
 };
 use crate::labels::HiddenLabels;
 use crate::state::AppState;
@@ -327,6 +330,31 @@ pub async fn open_external(url: String) -> Result<(), IpcError> {
         .map_err(|e| IpcError::new(ErrorCodeDto::OpenFailed).with_detail(e))
 }
 
+/// Lien d'une page du site : page et langue choisies dans une liste
+/// fermée, adresse construite par le domaine.
+fn site_link(page: SitePageDto, language: SiteLanguageDto) -> Result<ExternalLink, IpcError> {
+    let page = match page {
+        SitePageDto::Home => SitePage::Home,
+        SitePageDto::Guide => SitePage::Guide,
+    };
+    let language = match language {
+        SiteLanguageDto::Fr => SiteLanguage::French,
+        SiteLanguageDto::En => SiteLanguage::English,
+    };
+    ExternalLink::parse(site_page_url(page, language))
+        .map_err(|_| IpcError::new(ErrorCodeDto::LinkRefused))
+}
+
+/// Ouvre une page du site de Norelly (guide, accueil) dans le navigateur
+/// du système, dans la langue de l'interface.
+#[tauri::command]
+#[specta::specta]
+pub async fn open_site_page(page: SitePageDto, language: SiteLanguageDto) -> Result<(), IpcError> {
+    let link = site_link(page, language)?;
+    open::that_detached(link.as_str())
+        .map_err(|e| IpcError::new(ErrorCodeDto::OpenFailed).with_detail(e))
+}
+
 /// Écrit `bytes` dans `dir` sous un nom assaini, sans jamais écraser ni
 /// suivre un lien existant (création exclusive) ; renvoie le chemin.
 pub fn write_new_file(dir: &Path, name: &str, bytes: &[u8]) -> std::io::Result<PathBuf> {
@@ -455,6 +483,44 @@ pub async fn open_attachment(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn site_pages_open_the_site_in_the_interface_language() {
+        let url = |page, language| {
+            site_link(page, language)
+                .map(|l| l.as_str().to_owned())
+                .unwrap_or_else(|e| panic!("{e:?}"))
+        };
+        assert_eq!(
+            url(SitePageDto::Guide, SiteLanguageDto::Fr),
+            "https://norelly.fr/fr/guide/"
+        );
+        assert_eq!(
+            url(SitePageDto::Guide, SiteLanguageDto::En),
+            "https://norelly.fr/en/guide/"
+        );
+        assert_eq!(
+            url(SitePageDto::Home, SiteLanguageDto::Fr),
+            "https://norelly.fr/fr/"
+        );
+        assert_eq!(
+            url(SitePageDto::Home, SiteLanguageDto::En),
+            "https://norelly.fr/en/"
+        );
+    }
+
+    #[test]
+    fn site_page_and_language_outside_the_list_are_refused() {
+        for bad in ["\"about\"", "\"https://example.com\"", "\"\""] {
+            assert!(serde_json::from_str::<SitePageDto>(bad).is_err(), "{bad}");
+        }
+        for bad in ["\"de\"", "\"system\"", "\"FR\""] {
+            assert!(
+                serde_json::from_str::<SiteLanguageDto>(bad).is_err(),
+                "{bad}"
+            );
+        }
+    }
 
     #[test]
     fn scope_is_revalidated() {

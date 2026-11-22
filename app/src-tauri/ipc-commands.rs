@@ -26,6 +26,7 @@ const APP_COMMANDS: &[&str] = &[
     "set_prefer_plain_text",
     "sync_account",
     "open_external",
+    "open_site_page",
     "save_attachment",
     "open_attachment",
     "perform_action",

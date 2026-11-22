@@ -108,6 +108,13 @@ settings to fill in: see
 See the [shortcuts cheat sheet](shortcuts.md). In Norelly, the **?** key
 also shows the list of shortcuts.
 
+## Where can I find help online?
+
+On the Norelly website, <https://norelly.fr/en/>, which presents Norelly and
+includes this guide. In Norelly, the **Help** menu, at the bottom left,
+offers **User guide** (this guide, on the website), **Keyboard shortcuts
+help** and **Norelly website**.
+
 ## Where can I report a problem?
 
 At <https://github.com/gbourquet/norelly/issues> (in English or French).

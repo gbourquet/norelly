@@ -28,6 +28,7 @@ permissions = [
   "allow-set-prefer-plain-text",
   "allow-sync-account",
   "allow-open-external",
+  "allow-open-site-page",
   "allow-save-attachment",
   "allow-open-attachment",
   "allow-perform-action",

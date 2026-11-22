@@ -10,6 +10,7 @@ import {
   contactListToolbar,
   fitByPriority,
   folderMenuActions,
+  helpMenuActions,
   menuActions,
   personActions,
   readerActions,
@@ -345,5 +346,11 @@ describe("fitByPriority", () => {
       );
       expect(fitted).toEqual([true, true, true, true, true]);
     }
+  });
+});
+
+describe("menu « Aide »", () => {
+  it("guide d'utilisation, raccourcis clavier, site de Norelly", () => {
+    expect(ids(helpMenuActions())).toEqual(["help.guide", "help.shortcuts", "help.website"]);
   });
 });

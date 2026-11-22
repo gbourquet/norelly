@@ -100,6 +100,22 @@ pub const fn update_check_due(check: UpdateCheck, last: Option<u64>, now: u64) -
     }
 }
 
+/// Une version proposée par le manifeste de mise à jour peut être offerte
+/// à la version installée : jamais une préversion (suffixe semver après un
+/// tiret, avant d'éventuelles métadonnées `+…`) à une version stable, qui
+/// ne reçoit que des versions stables même si une préversion est publiée
+/// comme dernière version. Une préversion installée reçoit tout.
+#[must_use]
+pub fn update_offer_allowed(installed: &str, offered: &str) -> bool {
+    fn is_prerelease(version: &str) -> bool {
+        version
+            .split('+')
+            .next()
+            .is_some_and(|core| core.contains('-'))
+    }
+    is_prerelease(installed) || !is_prerelease(offered)
+}
+
 /// Paramètres de l'application.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Settings {
@@ -269,6 +285,19 @@ mod tests {
                 date: 1,
             }),
         }
+    }
+
+    #[test]
+    fn a_stable_install_is_never_offered_a_prerelease() {
+        assert!(update_offer_allowed("0.1.0", "0.2.0"));
+        assert!(update_offer_allowed("0.1.0", "0.2.0+build.5"));
+        assert!(!update_offer_allowed("0.1.0", "0.2.0-beta.1"));
+        assert!(!update_offer_allowed("0.1.0+build.5", "0.2.0-rc.1+build.7"));
+        // Le tiret des métadonnées de build ne fait pas une préversion.
+        assert!(update_offer_allowed("0.1.0", "0.2.0+build-5"));
+        assert!(!update_offer_allowed("0.1.0+build-5", "0.2.0-beta.1"));
+        assert!(update_offer_allowed("0.1.0-beta.1", "0.1.0-beta.2"));
+        assert!(update_offer_allowed("0.1.0-beta.1", "0.1.0"));
     }
 
     #[test]

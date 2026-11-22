@@ -532,3 +532,128 @@ async fn a_message_waiting_for_an_action_gets_no_reused_body() -> Result<(), Sto
     assert!(!store.reuse_body(projets, uid(10)?, &reuse).await?);
     Ok(())
 }
+
+/// Une copie provisoire (message créé par une action locale en attente)
+/// ne sert jamais de source à une réutilisation de corps, même si elle
+/// porte le même identifiant Gmail et la même taille.
+#[tokio::test]
+async fn a_provisional_copy_is_never_a_body_source() -> Result<(), StoreError> {
+    use norelly_domain::gmail::{BodyReuse, GmailMessageId};
+    use norelly_domain::mailbox::MailboxRole;
+    use norelly_test_support::mail_contracts::{blob_id, gmail_message, mailbox, state};
+    let db = Database::open_in_memory(norelly_test_support::contact_import_contracts::FakeNfc)
+        .map_err(|e| StoreError(e.to_string()))?;
+    let (a, _) = two_accounts(&db).await?;
+    let store = SqliteMailStore::new(db.clone());
+    let boxes = store
+        .replace_mailboxes(
+            a,
+            &[
+                mailbox("[Gmail]/Tous les messages", MailboxRole::All, true),
+                mailbox("Projets", MailboxRole::Normal, true),
+            ],
+        )
+        .await?;
+    let (all, projets) = match boxes.as_slice() {
+        [x, y] => (x.id, y.id),
+        _ => return Err(StoreError("boîtes".into())),
+    };
+    let batch = |message| SyncBatch {
+        reset: false,
+        removed: vec![],
+        flag_changes: vec![],
+        new: vec![message],
+        state: state(1, 1, 100),
+    };
+    store.apply_sync(all, &batch(gmail_message(1, 42, 500, true))).await?;
+    store
+        .apply_sync(projets, &batch(gmail_message(10, 42, 500, false)))
+        .await?;
+    let uid = |n| Uid::new(n).ok_or_else(|| StoreError("uid".into()));
+    store
+        .set_body(all, uid(1)?, &StoredBody::Full(blob_id(b"corps 42")?), None)
+        .await?;
+    db.write_for_tests("UPDATE messages SET pending_op = 7 WHERE uid = 1")
+        .await?;
+    let reuse = BodyReuse {
+        account: a,
+        gmail_id: GmailMessageId::new(42).ok_or_else(|| StoreError("identifiant".into()))?,
+        size: 500,
+    };
+    assert!(!store.reuse_body(projets, uid(10)?, &reuse).await?);
+    Ok(())
+}
+
+/// Un identifiant Gmail au-delà de `i64::MAX` (jusqu'à `u64::MAX`, valeur
+/// qu'un serveur hostile peut envoyer) se relit tel quel, et sa
+/// réutilisation de corps ne touche que le message visé.
+#[tokio::test]
+async fn gmail_ids_beyond_i64_round_trip_and_reuse_only_the_target() -> Result<(), StoreError> {
+    use norelly_domain::gmail::{BodyReuse, GmailMessageId};
+    use norelly_domain::mailbox::MailboxRole;
+    use norelly_test_support::mail_contracts::{blob_id, gmail_message, mailbox, state};
+    let db = Database::open_in_memory(norelly_test_support::contact_import_contracts::FakeNfc)
+        .map_err(|e| StoreError(e.to_string()))?;
+    let (a, _) = two_accounts(&db).await?;
+    let store = SqliteMailStore::new(db.clone());
+    let boxes = store
+        .replace_mailboxes(
+            a,
+            &[
+                mailbox("[Gmail]/Tous les messages", MailboxRole::All, true),
+                mailbox("Projets", MailboxRole::Normal, true),
+            ],
+        )
+        .await?;
+    let (all, projets) = match boxes.as_slice() {
+        [x, y] => (x.id, y.id),
+        _ => return Err(StoreError("boîtes".into())),
+    };
+    let batch = |messages: Vec<StoredMessage>| SyncBatch {
+        reset: false,
+        removed: vec![],
+        flag_changes: vec![],
+        new: messages,
+        state: state(1, 1, 100),
+    };
+    let big = u64::MAX;
+    let just_over = (i64::MAX as u64) + 1;
+    store
+        .apply_sync(all, &batch(vec![gmail_message(1, big, 500, true)]))
+        .await?;
+    store
+        .apply_sync(
+            projets,
+            &batch(vec![
+                gmail_message(10, big, 500, false),
+                gmail_message(11, just_over, 500, false),
+            ]),
+        )
+        .await?;
+    let ids: Vec<(u32, Option<u64>)> = store
+        .missing_bodies(projets, 10)
+        .await?
+        .iter()
+        .map(|p| (p.uid.get(), p.gmail_id.map(GmailMessageId::get)))
+        .collect();
+    assert_eq!(ids, [(11, Some(just_over)), (10, Some(big))]);
+
+    let uid = |n| Uid::new(n).ok_or_else(|| StoreError("uid".into()));
+    store
+        .set_body(all, uid(1)?, &StoredBody::Full(blob_id(b"corps")?), None)
+        .await?;
+    let reuse = BodyReuse {
+        account: a,
+        gmail_id: GmailMessageId::new(big).ok_or_else(|| StoreError("identifiant".into()))?,
+        size: 500,
+    };
+    assert!(store.reuse_body(projets, uid(10)?, &reuse).await?);
+    let still_missing: Vec<u32> = store
+        .missing_bodies(projets, 10)
+        .await?
+        .iter()
+        .map(|p| p.uid.get())
+        .collect();
+    assert_eq!(still_missing, [11]);
+    Ok(())
+}

@@ -19,11 +19,15 @@ run_ok() {
   "$script" "$tmp/in" "$tmp/out" >"$tmp/log" 2>&1 || { fail "$1 : refusé ($(cat "$tmp/log"))"; return 1; }
 }
 
-# Le script doit échouer sans laisser de SHA256SUMS.
+# Le script doit échouer pour la raison attendue ($2, motif du message),
+# sans laisser de SHA256SUMS. Entrée et sortie : $3 et $4 s'ils sont donnés.
 run_ko() {
-  if "$script" "$tmp/in" "$tmp/out" >"$tmp/log" 2>&1; then
+  local in="${3:-$tmp/in}" out="${4:-$tmp/out}"
+  if "$script" "$in" "$out" >"$tmp/log" 2>&1; then
     fail "$1 : accepté"
-  elif [ -e "$tmp/out/SHA256SUMS" ]; then
+  elif ! grep -q -- "$2" "$tmp/log"; then
+    fail "$1 : refusé pour une autre raison ($(cat "$tmp/log"))"
+  elif [ -e "$out/SHA256SUMS" ]; then
     fail "$1 : SHA256SUMS écrit malgré le refus"
   fi
 }
@@ -59,46 +63,67 @@ fi
 
 # Rien à publier.
 setup
-run_ko "dossier d'entrée vide"
+run_ko "dossier d'entrée vide" "aucun fichier"
 
 # Deux artefacts du même nom : l'un écraserait l'autre.
 setup
 mkdir -p "$tmp/in/a" "$tmp/in/b"
 printf '1' >"$tmp/in/a/latest.json"
 printf '2' >"$tmp/in/b/latest.json"
-run_ko "deux fichiers du même nom"
+run_ko "deux fichiers du même nom" "deux fichiers nommés latest.json"
 
 # Un SHA256SUMS venu d'un artefact serait remplacé sans bruit.
 setup
 printf 'faux' >"$tmp/in/SHA256SUMS"
-run_ko "SHA256SUMS dans les artefacts"
+run_ko "SHA256SUMS dans les artefacts" "SHA256SUMS déjà présent"
 
 # Nom qui casserait le format de SHA256SUMS ou la commande de publication.
 setup
 printf 'x' >"$tmp/in/nom avec espace.deb"
-run_ko "nom avec une espace"
+run_ko "nom avec une espace" "nom refusé"
 setup
 printf 'x' >"$tmp/in/$(printf 'a\nb.deb')"
-run_ko "nom avec un saut de ligne"
+run_ko "nom avec un saut de ligne" "nom refusé"
 setup
 printf 'x' >"$tmp/in/-n.deb"
-run_ko "nom commençant par un tiret"
+run_ko "nom commençant par un tiret" "nom refusé"
 
 # Lien symbolique : il ferait publier un fichier hors des artefacts.
 setup
 printf 'secret' >"$tmp/hors.txt"
 ln -s "$tmp/hors.txt" "$tmp/in/lien.deb"
-run_ko "lien symbolique"
+run_ko "lien symbolique" "lien ou fichier spécial"
+
+# Fichier spécial (tube nommé) : ni copié, ni publié.
+setup
+mkfifo "$tmp/in/tube.deb"
+run_ko "tube nommé" "lien ou fichier spécial"
 
 # Dossier de sortie déjà rempli : des restes seraient publiés.
 setup
 printf 'x' >"$tmp/in/a.deb"
 mkdir -p "$tmp/out"
 printf 'reste' >"$tmp/out/ancien.deb"
-run_ko "dossier de sortie non vide"
+run_ko "dossier de sortie non vide" "sortie non vide"
+
+# Entrée absente.
+setup
+run_ko "entrée absente" "dossier d'entrée absent" "$tmp/absent"
+
+# Sortie égale à l'entrée, ou dedans : les copies seraient relues.
+setup
+printf 'x' >"$tmp/in/a.deb"
+run_ko "sortie égale à l'entrée" "dans l'entrée" "$tmp/in" "$tmp/in"
+setup
+printf 'x' >"$tmp/in/a.deb"
+run_ko "sortie dans l'entrée" "dans l'entrée" "$tmp/in" "$tmp/in/dist"
 
 # Arguments manquants.
-if "$script" >"$tmp/log" 2>&1; then fail "sans argument : accepté"; fi
+if "$script" >"$tmp/log" 2>&1; then
+  fail "sans argument : accepté"
+elif ! grep -q usage "$tmp/log"; then
+  fail "sans argument : refusé pour une autre raison ($(cat "$tmp/log"))"
+fi
 
 if [ "$failures" -ne 0 ]; then
   echo "$failures échec(s)" >&2

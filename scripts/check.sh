@@ -51,6 +51,8 @@ node scripts/check-apt-snapshot.mjs
 step "e2e : dossiers de build par copie de travail"; ./app/e2e/target-name.test.sh; ./app/e2e/prune-targets.test.sh; ./app/e2e/verify-crates.test.sh
 # Paquets Linux (desktop-file-utils, appstream) : vérifiés sous Linux.
 if [ "$(uname -s)" = Linux ]; then step "Métadonnées de bureau"; ./scripts/check-packaging.sh; fi
+# Fichiers d'une version et SHA256SUMS (release.yml, sous Ubuntu) : outils GNU.
+if [ "$(uname -s)" = Linux ]; then step "Scripts de publication"; ./scripts/release-assets.test.sh; fi
 step "Front : svelte-check";   pnpm -C app check
 step "Front : lint";           pnpm -C app lint
 step "Front : tests (couverture)"; pnpm -C app coverage

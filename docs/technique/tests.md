@@ -20,6 +20,7 @@ messagerie ni à un vrai DNS : conteneurs, faux serveurs en processus.
 | **Performance** | `crates/adapters/sqlite/benches/`, `app/e2e/perf/` | `criterion`, scénario e2e mesuré | voir plus bas |
 | **Fuzzing** | `fuzz/fuzz_targets/` | `cargo-fuzz` | job nocturne |
 | **Documentation** | `scripts/check-docs.*`, `app/src/docs.test.ts` | Node, Vitest | `./scripts/check-docs.sh` |
+| **Scripts de publication** | `scripts/release-assets.test.sh` | Bash et coreutils, fichiers factices (Linux) | `./scripts/release-assets.test.sh` (lancé par `check.sh`) |
 
 Profils nextest (`.config/nextest.toml`) : `default` exclut les binaires
 `integration*` ; `integration` les lance (sauf Stalwart) ; `stalwart` le

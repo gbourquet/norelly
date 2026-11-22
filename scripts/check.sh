@@ -48,6 +48,7 @@ step "Documentation";          ./scripts/check-docs.sh
 step "Instantané apt de l'e2e"
 node --test scripts/check-apt-snapshot.test.mjs
 node scripts/check-apt-snapshot.mjs
+step "e2e : dossiers de build par copie de travail"; ./app/e2e/target-name.test.sh; ./app/e2e/prune-targets.test.sh; ./app/e2e/verify-crates.test.sh
 # Paquets Linux (desktop-file-utils, appstream) : vérifiés sous Linux.
 if [ "$(uname -s)" = Linux ]; then step "Métadonnées de bureau"; ./scripts/check-packaging.sh; fi
 step "Front : svelte-check";   pnpm -C app check

@@ -22,7 +22,9 @@ the Norelly application and its website, norelly.fr.
 Norelly connects directly to your email providers' IMAP and SMTP servers,
 and to their OAuth sign-in services (Microsoft, Google) when you ask it
 to. These connections are encrypted (TLS) and only take place between
-your device and those servers.
+your device and those servers. If a server does not offer encryption,
+Norelly refuses to connect to it, unless you explicitly allow it yourself
+for that account.
 
 ## Other connections
 
@@ -54,8 +56,9 @@ do what an email client does:
   account you chose is the one you are adding.
 - **Microsoft**: receiving (IMAP) and sending (SMTP) the messages of your
   Outlook.com (or Hotmail, Live) mailbox, staying signed in without asking
-  for your password again, and your email address and name, to check that
-  the account you chose is the one you are adding.
+  for your password again, and your email address, to check that the
+  account you chose is the one you are adding. Microsoft also sends your
+  name with this authorization; Norelly does not use it.
 
 Norelly does not ask for access to your contacts, your calendar or your
 files at Google or Microsoft.
@@ -84,10 +87,26 @@ access in the security settings of your Google or Microsoft account.
 The norelly.fr website sets no cookies and contains no trackers: no visit
 statistics, no advertising, no content loaded from another site.
 
+The website's server keeps no log of visits. It only keeps a log of
+technical errors (for example a request it could not handle), which may
+contain the IP address of the computer involved and the requested page.
+This log is used only to fix the website, is shared with no one, and is
+deleted automatically after 11 days at most.
+
 ## Deleting data
 
-Uninstalling Norelly, or removing an account in the application, deletes
-the associated local data from your device.
+Removing an account in the application deletes its messages, its
+settings and its saved passwords or authorizations from your device.
+
+Uninstalling Norelly may leave its data folder in place. To erase
+everything, delete that folder after uninstalling:
+
+- on Windows: `%APPDATA%\io.github.gbourquet.Norelly`;
+- on Linux: `~/.local/share/io.github.gbourquet.Norelly` (or
+  `~/.var/app/io.github.gbourquet.Norelly` with Flathub).
+
+Passwords stored in the system keyring are erased when you remove the
+account in Norelly; remove your accounts before uninstalling.
 
 ## Publisher and contact
 

@@ -14,8 +14,14 @@ updates:
       day: "monday"
       time: "06:00"
       timezone: "Europe/Paris"
-    # Peu de PR ouvertes à la fois : chacune se relit.
-    open-pull-requests-limit: 3
+    # Une version publiée depuis moins d'une semaine n'est pas proposée :
+    # le temps qu'une publication malveillante soit repérée et retirée.
+    # Les mises à jour de sécurité de Dependabot n'attendent pas.
+    cooldown:
+      default-days: 7
+    # Peu de PR ouvertes à la fois (chacune se relit), assez pour que des
+    # versions majeures en attente ne bloquent pas la PR des correctifs.
+    open-pull-requests-limit: 5
     # Correctifs et versions mineures regroupés en une PR par semaine ; une
     # version majeure, qui peut changer le comportement, arrive seule.
     groups:
@@ -25,6 +31,14 @@ updates:
         update-types:
           - "minor"
           - "patch"
-    # Format des commits du dépôt : `deps: …` (Dependabot ajoute les deux-points).
+    # dtolnay/rust-toolchain est figée sur la branche d'un canal (`# stable`,
+    # `# nightly`), sans étiquette de version : Dependabot la déplacerait
+    # vers une autre référence dont les entrées diffèrent. Mise à jour à la
+    # main, avec la version de Rust de la CI.
+    ignore:
+      - dependency-name: "dtolnay/rust-toolchain"
+    # Zone des commits du dépôt : `deps: …` (Dependabot ajoute les
+    # deux-points) ; le reste du message, écrit par Dependabot, est en
+    # anglais.
     commit-message:
       prefix: "deps"

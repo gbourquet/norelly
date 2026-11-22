@@ -1093,3 +1093,81 @@ est majoritairement écrit par Claude et relu par le mainteneur.
   (`zvariant`, `zbus_names`, `zvariant_derive`) seront de nouveau
   maintenus et acceptés par `cargo deny` sans exception. La même condition vaut pour
   `tauri-plugin-opener` (ADR-004) et le portail Secret (ADR-006).
+
+## ADR-016 : messages Gmail présents dans plusieurs dossiers (`X-GM-MSGID`, fork d'imap-codec)
+
+- **Statut** : Acceptée (2026-11-22). Décisions du mainteneur : fork
+  d'`imap-types`/`imap-codec` en dépendance git figée par commit, seule
+  source git admise par `deny.toml` ; ADR validé par avance, code dans la
+  même livraison.
+- **Contexte** : Gmail expose le même message dans « Tous les messages »
+  et dans chaque dossier d'étiquette. La synchronisation traite chaque
+  dossier séparément : le corps d'un même message est téléchargé autant
+  de fois qu'il apparaît (premier tour d'un gros compte très long). Gmail
+  attribue à chaque message un identifiant unique et stable,
+  `X-GM-MSGID` (extension `X-GM-EXT-1`), le même dans tous les dossiers.
+  `imap-types` 2.0.0-alpha.7 et `imap-codec` 2.0.0-alpha.9 (ADR-002)
+  n'ont aucune variante pour `X-GM-MSGID`, ni générique : une réponse
+  `FETCH` qui le contient n'est pas décodée.
+- **Options** :
+  - reconnaissance du même message : `X-GM-MSGID` ; Message-ID et taille ;
+    ignorer « Tous les messages » ;
+  - dépendance : attendre un correctif publié en amont ; fork en
+    dépendance git ; copie vendue dans le dépôt ; extension maison hors
+    du codec (réponse brute réanalysée).
+- **Décision** :
+  - **identifiant** : `X-GM-MSGID`, demandé avec les métadonnées
+    **seulement** si le serveur annonce `X-GM-EXT-1` ; sans l'annonce,
+    rien ne change (ni la commande, ni la lecture d'un `X-GM-MSGID` non
+    sollicité). L'identifiant est enregistré par message (migration 29) ;
+  - **réutilisation** (règle du domaine, `norelly_domain::gmail`) : avant
+    de télécharger le corps d'un message, s'il porte un identifiant et
+    que la session annonce `X-GM-EXT-1`, le corps et le texte cherchable
+    d'un message **du même compte**, de **même identifiant** et de
+    **même taille**, déjà téléchargé et hors copie provisoire d'une action
+    en attente, sont recopiés au lieu d'être téléchargés. Les messages
+    bruts sont rangés par empreinte de contenu et jamais supprimés message
+    par message : deux messages qui partagent un même contenu stocké ne
+    se gênent pas. Les drapeaux restent ceux de chaque dossier ;
+  - **dépendance** : fork
+    [`gbourquet/imap-codec`](https://github.com/gbourquet/imap-codec),
+    branche `gmail-x-gm-msgid` partie exactement du tag
+    `imap-codec/v2.0.0-alpha.9` (dont `imap-types` est identique au tag
+    `imap-types/v2.0.0-alpha.7`), avec un seul commit : variantes
+    `MessageDataItemName::XGmMsgId` et `MessageDataItem::XGmMsgId(u64)`,
+    encodage et décodage (`X-GM-MSGID SP number64`), tests dans le style
+    du projet, derrière une feature `ext_gmail` (rien ne change sans
+    elle). Branché par `[patch.crates-io]` dans le `Cargo.toml` racine,
+    `rev` = commit complet, ce qui l'applique aussi à la copie tirée par
+    `imap-next` ; `norelly-imap` déclare `imap-codec` pour la seule
+    feature `ext_gmail`. `deny.toml` n'admet que cette source git
+    (`allow-git`), `unknown-git = "deny"` reste. Licence inchangée
+    (`MIT OR Apache-2.0`, ADR-009).
+- **Suivi de l'amont et retour à crates.io** : le correctif est proposable
+  tel quel en amont (`duesee/imap-codec`). À chaque montée d'`imap-next`,
+  `imap-codec` ou `imap-types` : rebaser la branche du fork sur le tag de
+  la nouvelle version (nouvelle branche, nouveau commit figé). Dès qu'une
+  version publiée contient `X-GM-MSGID` (quel qu'en soit le nom) :
+  supprimer `[patch.crates-io]` et l'exception `allow-git`, adapter
+  l'adaptateur IMAP, clore cette dérogation.
+- **Risques** :
+  - fork à maintenir à la main : les correctifs de sécurité de l'amont
+    n'arrivent qu'au rebasage (avis surveillés par `cargo deny` sur le
+    nom des crates, l'avis de l'amont reste visible) ;
+  - dépôt git indisponible : compilation impossible sans cache local ;
+    commit figé, donc pas de changement silencieux du code tiré ;
+  - un serveur peut annoncer `X-GM-EXT-1` sans être Gmail, ou envoyer des
+    identifiants faux : il ne peut alors qu'afficher, dans son propre
+    compte, un corps qu'il a lui-même fourni ; la portée par compte et la
+    taille identique exigée empêchent tout mélange entre comptes.
+- **Alternatives écartées** :
+  - ignorer « Tous les messages » : les messages archivés n'existent que
+    là, ils disparaîtraient ;
+  - réutiliser d'après Message-ID et taille : un expéditeur choisit son
+    Message-ID, il pourrait faire afficher son contenu à la place d'un
+    message légitime ;
+  - attendre l'amont : délai inconnu (versions alpha) ;
+  - copie vendue dans le dépôt : historique et provenance moins lisibles
+    qu'un fork figé, et rien ne l'apparenterait à l'amont ;
+  - réanalyse maison de la réponse brute : contourne le codec strict et
+    fuzzé choisi par ADR-002.

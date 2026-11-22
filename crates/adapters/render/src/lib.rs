@@ -5,6 +5,8 @@
 //! - [`sanitize`] : liste blanche `ammonia`, réécriture des images ;
 //! - [`css`] : CSS des mails ;
 //! - [`search_text`] : texte cherchable d'un message (recherche) ;
+//! - `oracle` (tests et fonctionnalité `fuzz-oracle`) : oracle du fuzzing
+//!   de l'assainissement ;
 //! - [`render`] : document complet, prêt à servir ;
 //! - [`content_security_policy`] : CSP du document, qui n'autorise que
 //!   l'agent ([`AGENT_JS`]) par son empreinte SHA-256, calculée à la
@@ -16,6 +18,8 @@
 pub mod compose;
 pub mod css;
 pub mod mime;
+#[cfg(any(test, feature = "fuzz-oracle"))]
+pub mod oracle;
 pub mod sanitize;
 pub mod search_text;
 

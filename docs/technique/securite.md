@@ -448,11 +448,13 @@ reçus de l'interface ; types MIME recalculés.
   (`git ls-remote --tags`), que chaque empreinte est celle d'une
   étiquette du dépôt amont correspondant à la version du commentaire :
   ni commit d'un fork, ni version annoncée à tort. Exception :
-  `dtolnay/rust-toolchain`, figée sur la branche d'un canal (`# stable`,
-  `# nightly`), sans étiquette. Ces branches sont régénérées par leur
-  auteur : une empreinte figée n'en est plus ni la tête ni un ancêtre,
-  et n'est donc pas vérifiée par le réseau. Risque résiduel : une
-  empreinte de fork sur cette action ne serait vue qu'à la relecture.
+  `dtolnay/rust-toolchain`, sans étiquette, figée sur un commit de sa
+  branche `master` (`# master`), dont l'historique n'est pas réécrit. Ses
+  branches de canal (`stable`, `nightly`) sont régénérées par leur auteur
+  et sont refusées : une empreinte qui y était figée finissait hors de
+  tout historique. Risque résiduel : le contrôle par le réseau ne lit que
+  les étiquettes, une empreinte de fork sur cette action ne serait donc
+  vue qu'à la relecture.
 - Mises à jour des actions signalées par Dependabot
   (`.github/dependabot.yml`, écosystème `github-actions` seulement) : une
   fois par semaine, une PR remplace l'empreinte et le commentaire de

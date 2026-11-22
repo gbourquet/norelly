@@ -136,18 +136,29 @@ test("échoue fermé sur une forme de uses: qu'il ne sait pas lire", () => {
   ]);
 });
 
-test("le commentaire doit être une version, sauf canal suivi de dtolnay/rust-toolchain", () => {
+test("le commentaire doit être une version, sauf dtolnay/rust-toolchain figée sur master", () => {
   const workflow = [
     `      - uses: actions/checkout@${SHA} # à voir`,
     `      - uses: actions/checkout@${SHA} # v5.0.1`,
     `      - uses: actions/checkout@${SHA} # 5.0`,
-    `      - uses: dtolnay/rust-toolchain@${SHA} # stable`,
-    `      - uses: dtolnay/rust-toolchain@${SHA} # nightly`,
-    `      - uses: actions/checkout@${SHA} # stable`,
+    `      - uses: dtolnay/rust-toolchain@${SHA} # master`,
+    `      - uses: actions/checkout@${SHA} # master`,
   ].join("\n");
   assert.deepEqual(unpinnedActions(workflow, "ci.yml"), [
     `ci.yml:1 : actions/checkout@${SHA} sans version en commentaire (# vX)`,
-    `ci.yml:6 : actions/checkout@${SHA} sans version en commentaire (# vX)`,
+    `ci.yml:5 : actions/checkout@${SHA} sans version en commentaire (# vX)`,
+  ]);
+});
+
+test("dtolnay/rust-toolchain n'est pas figée sur une branche de canal, que son auteur régénère", () => {
+  const workflow = [
+    `      - uses: dtolnay/rust-toolchain@${SHA} # stable`,
+    `      - uses: dtolnay/rust-toolchain@${SHA} # nightly`,
+  ].join("\n");
+  const why = "figer sur un commit de master (# master), les branches de canal sont régénérées";
+  assert.deepEqual(unpinnedActions(workflow, "ci.yml"), [
+    `ci.yml:1 : dtolnay/rust-toolchain@${SHA} : ${why}`,
+    `ci.yml:2 : dtolnay/rust-toolchain@${SHA} : ${why}`,
   ]);
 });
 
@@ -281,12 +292,12 @@ test("une action locale qui sort du dépôt par lien symbolique est refusée", (
 test("relève les actions figées, chemin d'action réduit au dépôt", () => {
   const workflow = [
     `      - uses: actions/cache/restore@${SHA} # v6.1.0`,
-    `      - uses: dtolnay/rust-toolchain@${SHA} # stable`,
+    `      - uses: dtolnay/rust-toolchain@${SHA} # master`,
     "      - uses: ./.github/actions/locale",
   ].join("\n");
   assert.deepEqual(pinnedActions(workflow, "ci.yml"), [
     { where: "ci.yml:1", repo: "actions/cache", sha: SHA, version: "v6.1.0", channel: false },
-    { where: "ci.yml:2", repo: "dtolnay/rust-toolchain", sha: SHA, version: "stable", channel: true },
+    { where: "ci.yml:2", repo: "dtolnay/rust-toolchain", sha: SHA, version: "master", channel: true },
   ]);
 });
 

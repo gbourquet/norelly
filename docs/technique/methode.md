@@ -193,9 +193,11 @@ les vérifications.
 `scripts/check-toolchain.mjs` (lancé par `check.sh`) vérifie ces règles et
 la cohérence entre les fichiers : une version oubliée à un endroit fait
 échouer la vérification. Les actions elles-mêmes restent figées par
-empreinte SHA (le commentaire `# stable` ou `# nightly` d'une étape
-`dtolnay/rust-toolchain` désigne la branche de l'action, pas la chaîne
-installée). Le contrôle porte aussi sur les formes qui passeraient outre
+empreinte SHA. `dtolnay/rust-toolchain`, sans étiquette de version, est
+figée sur un commit de sa branche `master` (`# master`), dont l'historique
+n'est pas réécrit ; la chaîne installée est celle de `toolchain:`. Ses
+branches de canal (`stable`, `nightly`) sont régénérées par son auteur et
+sont refusées par `scripts/check-actions.mjs`. Le contrôle porte aussi sur les formes qui passeraient outre
 `rust-toolchain.toml` : `cargo +…`, `rustc +…` et `RUSTUP_TOOLCHAIN` (chaîne
 installée par le même job), `rustup … stable`, un second fichier de chaîne, une
 autre action d'installation de Rust. C'est un garde-fou contre les oublis

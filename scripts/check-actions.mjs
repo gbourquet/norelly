@@ -25,9 +25,13 @@ const USES = /^\s*(?:-\s+)?(["']?)uses\1\s*:\s*(["']?)([A-Za-z0-9.][^"'\s#]*)\2\
 const PINNED = /^([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)(?:\/[A-Za-z0-9_./-]+)?@([0-9a-f]{40})$/;
 const DOCKER_PINNED = /^docker:\/\/[^@\s]+@sha256:[0-9a-f]{64}$/;
 const VERSION_COMMENT = /^#\s*(v?\d+(?:\.\d+)*)(?:\s|$)/;
-// dtolnay/rust-toolchain se fige sur la branche d'un canal (pas
-// d'étiquette de version) ; Dependabot l'ignore (.github/dependabot.yml).
-const CHANNEL_COMMENT = /^#\s*(stable|beta|nightly)(?:\s|$)/;
+// dtolnay/rust-toolchain n'a pas d'étiquette de version : elle se fige sur
+// un commit de master, dont l'historique n'est pas réécrit, avec la chaîne
+// passée par `toolchain:` (scripts/check-toolchain.mjs). Ses branches de
+// canal (stable, nightly…) sont régénérées : un commit qui y est figé
+// disparaît de leur historique. Dependabot l'ignore (.github/dependabot.yml).
+const CHANNEL_COMMENT = /^#\s*(master)(?:\s|$)/;
+const REGENERATED_CHANNEL = /^#\s*(stable|beta|nightly)(?:\s|$)/;
 const CHANNEL_REPO = "dtolnay/rust-toolchain";
 
 // Formes YAML que USES ne sait pas lire et que GitHub accepterait : clé
@@ -96,6 +100,10 @@ export function unpinnedActions(text, file, status = () => "ok") {
     const channel = pin?.[1] === CHANNEL_REPO && CHANNEL_COMMENT.test(comment);
     if (!pin) {
       problems.push(`${where} : ${ref} n'est pas figée par une empreinte de 40 caractères`);
+    } else if (pin[1] === CHANNEL_REPO && REGENERATED_CHANNEL.test(comment)) {
+      problems.push(
+        `${where} : ${ref} : figer sur un commit de master (# master), les branches de canal sont régénérées`,
+      );
     } else if (!VERSION_COMMENT.test(comment) && !channel) {
       problems.push(`${where} : ${ref} sans version en commentaire (# vX)`);
     }
@@ -120,7 +128,7 @@ export function pinnedActions(text, file) {
  * Empreintes qui ne sont celles d'aucune étiquette amont de leur version
  * (`v5` : `v5` ou `v5.x…`). `refs` : dépôt → [{ sha, name }] tel que lu
  * par `git ls-remote --tags` (étiquettes annotées : nom suivi de `^{}`).
- * Un canal suivi (`# stable`) n'a pas d'étiquette : il n'est pas vérifié ici.
+ * dtolnay/rust-toolchain (`# master`) n'a pas d'étiquette : elle n'est pas vérifiée ici.
  */
 export function upstreamProblems(pins, refs) {
   const problems = [];

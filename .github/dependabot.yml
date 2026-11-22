@@ -31,10 +31,9 @@ updates:
         update-types:
           - "minor"
           - "patch"
-    # dtolnay/rust-toolchain est figée sur la branche d'un canal (`# stable`,
-    # `# nightly`), sans étiquette de version : Dependabot la déplacerait
-    # vers une autre référence dont les entrées diffèrent. Mise à jour à la
-    # main, avec la version de Rust de la CI.
+    # dtolnay/rust-toolchain n'a pas d'étiquette de version : elle est figée
+    # sur un commit de master (`# master`), avec la chaîne passée par
+    # `toolchain:`. Mise à jour à la main.
     ignore:
       - dependency-name: "dtolnay/rust-toolchain"
     # Zone des commits du dépôt : `deps: …` (Dependabot ajoute les

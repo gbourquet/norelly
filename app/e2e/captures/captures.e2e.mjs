@@ -989,4 +989,13 @@ ${lang === "fr" ? "Cliquez ici." : "Click here."}
     });
     await capture("sender-domain-name");
   });
+
+  // En dernier : ouvrir ce menu ramène le focus en bas de la barre latérale,
+  // ce qui déplacerait la liste des dossiers des scénarios suivants.
+  it("menu « Aide » (à la souris)", async () => {
+    await openMenu(button(msg("sidebar_help")));
+    await menuItem(msg("cmd_help_guide")).waitForDisplayed({ timeout: 10000 });
+    await capture("help-menu");
+    await browser.keys("Escape");
+  });
 });

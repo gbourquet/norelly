@@ -115,6 +115,8 @@ includes this guide. In Norelly, the **Help** menu, at the bottom left,
 offers **User guide** (this guide, on the website), **Keyboard shortcuts
 help** and **Norelly website**.
 
+![The Help menu open at the bottom of the sidebar](captures/help-menu.png)
+
 ## Where can I report a problem?
 
 At <https://github.com/gbourquet/norelly/issues> (in English or French).

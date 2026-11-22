@@ -126,6 +126,8 @@ reprend ce guide. Dans Norelly, le menu **Aide**, en bas à gauche, propose
 **Guide d'utilisation** (ce guide, sur le site), **Aide des raccourcis
 clavier** et **Site de Norelly**.
 
+![Le menu « Aide » ouvert en bas de la barre latérale](captures/help-menu.png)
+
 ## Où signaler un problème ?
 
 Sur <https://github.com/gbourquet/norelly/issues> (en français ou en

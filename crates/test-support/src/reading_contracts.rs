@@ -51,6 +51,7 @@ fn threaded(
                 ..MessageHeaders::default()
             },
             structure: None,
+            gmail_id: None,
         },
         body: StoredBody::Missing,
     }

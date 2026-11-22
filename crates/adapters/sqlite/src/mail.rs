@@ -507,6 +507,7 @@ impl MailStore for SqliteMailStore {
                         // Structure illisible : traitée comme inconnue.
                         structure: structure
                             .and_then(|s| serde_json::from_str::<MimePart>(&s).ok()),
+                        gmail_id: None,
                     });
                 }
                 Ok(out)

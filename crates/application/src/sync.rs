@@ -444,6 +444,7 @@ impl<M: MailStore + PendingOpStore, B: BlobStore> SyncAccount<'_, M, B> {
                 uid,
                 size,
                 structure,
+                ..
             } in pending
             {
                 let fetch = self.policy.decide(size, structure.as_ref());

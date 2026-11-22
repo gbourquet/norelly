@@ -787,6 +787,7 @@ impl RemoteMailboxSession for FakeImapSession {
                     size: u32::try_from(msg.raw.len()).unwrap_or(u32::MAX),
                     headers: headers_of(&msg.raw, &trust),
                     structure: None,
+                    gmail_id: None,
                 })
             })
             .collect())

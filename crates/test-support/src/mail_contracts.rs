@@ -178,6 +178,7 @@ pub fn sample_message(n: u32, date: i64, seen: bool) -> StoredMessage {
                 ..MessageHeaders::default()
             },
             structure: None,
+            gmail_id: None,
         },
         body: StoredBody::Missing,
     }
@@ -883,6 +884,7 @@ impl MailStore for InMemoryMailStore {
                         uid: m.stored.meta.uid,
                         size: m.stored.meta.size,
                         structure: m.stored.meta.structure.clone(),
+                        gmail_id: None,
                     })
                     .collect()
             })

@@ -18,6 +18,7 @@ fn meta(n: u32, date: i64, seen: bool) -> MessageMeta {
             ..MessageHeaders::default()
         },
         structure: None,
+        gmail_id: None,
     }
 }
 

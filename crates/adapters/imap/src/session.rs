@@ -344,6 +344,7 @@ fn meta_of(items: &Vec1<MessageDataItem<'_>>, trust: &AuthServTrust) -> Option<M
         size,
         headers,
         structure,
+        gmail_id: None,
     })
 }
 

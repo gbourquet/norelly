@@ -798,6 +798,8 @@ pub struct PendingBody {
     pub uid: Uid,
     pub size: u32,
     pub structure: Option<MimePart>,
+    /// Identifiant Gmail (`X-GM-MSGID`), s'il a été reçu.
+    pub gmail_id: Option<crate::gmail::GmailMessageId>,
 }
 
 /// Boîte locale d'un compte.

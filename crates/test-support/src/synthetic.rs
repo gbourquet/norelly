@@ -128,6 +128,7 @@ pub fn synthetic_messages(count: u32, start: i64, seed: u64) -> Vec<StoredMessag
                         ..MessageHeaders::default()
                     },
                     structure,
+                    gmail_id: None,
                 },
                 body: StoredBody::Missing,
             })

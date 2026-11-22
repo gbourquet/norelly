@@ -52,7 +52,9 @@ step "e2e : dossiers de build par copie de travail"; ./app/e2e/target-name.test.
 step "Chaîne Rust et outils de la CI figés"
 node --test scripts/check-toolchain.test.mjs
 node scripts/check-toolchain-cli.mjs
-step "Actions GitHub figées";  node --test scripts/check-actions.test.mjs && node scripts/check-actions.mjs
+step "Actions GitHub figées"
+node --test scripts/check-actions.test.mjs
+node scripts/check-actions.mjs
 # Paquets Linux (desktop-file-utils, appstream) : vérifiés sous Linux.
 if [ "$(uname -s)" = Linux ]; then step "Métadonnées de bureau"; ./scripts/check-packaging.sh; fi
 # Fichiers d'une version et SHA256SUMS (release.yml, sous Ubuntu) : outils GNU.
@@ -62,6 +64,9 @@ step "Front : lint";           pnpm -C app lint
 step "Front : tests (couverture)"; pnpm -C app coverage
 
 if [ "$mode" = "full" ]; then
+  # Réseau : chaque empreinte d'action est celle d'une étiquette amont de
+  # la version annoncée en commentaire.
+  step "Actions GitHub : empreintes amont"; node scripts/check-actions.mjs --upstream
   step "Build workspace";      cargo build --workspace --locked
   step "Tests d'intégration";  cargo nextest run --workspace --locked --profile integration
 fi

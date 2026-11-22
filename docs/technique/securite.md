@@ -412,6 +412,28 @@ reçus de l'interface ; types MIME recalculés.
 - Mises à jour (NSIS) signées **minisign**, signature faite dans un
   environnement de publication séparé de la compilation ; délais bornés
   (`docs/CODE_SIGNING.md`).
+- Provenance des versions (`release.yml`, sans clé ni secret) : le job
+  `assets` met à plat les fichiers des artefacts et écrit `SHA256SUMS`
+  (`scripts/release-assets.sh` : noms restreints à `[A-Za-z0-9._+-]`, sans
+  tiret initial ; doublon, lien, fichier spécial ou `SHA256SUMS` déjà
+  présent refusés ; testé par `release-assets.test.sh`), puis
+  `actions/attest` produit **une** attestation de provenance SLSA
+  (`https://slsa.dev/provenance/v1`) dont les sujets sont tous les
+  fichiers publiés, `SHA256SUMS` compris. Elle est signée par Sigstore
+  (instance publique, certificat éphémère émis pour l'identité OIDC du
+  workflow `release.yml@refs/tags/v…`, inscrit au journal de transparence
+  Rekor), enregistrée sur GitHub et jointe à la version
+  (`Norelly_<version>_provenance.sigstore.json`). Seul ce job reçoit
+  `id-token: write` et `attestations: write`, sans droit d'écriture sur le
+  dépôt ; le job `publish` (`contents: write`, sans jeton OIDC) revérifie
+  avant de créer le brouillon : `sha256sum --check`, aucun fichier hors de
+  `SHA256SUMS` (sauf l'attestation), et `gh attestation verify` de chaque
+  fichier contre ce workflow, ce tag, ce commit, runner hébergé par GitHub.
+  Vérification par l'utilisateur, sans compte (`cosign
+  verify-blob-attestation`, identité exacte du certificat) ou avec `gh` :
+  `docs/utilisateur/*/install.md`. Limite : l'attestation prouve d'où vient
+  un fichier, pas que le code de ce tag est sain ; le tag lui-même est
+  protégé par la relecture des PR et l'environnement `release`.
 - Flatpak : autorisations minimales, aucun accès direct aux fichiers de
   l'utilisateur (liste fermée d'autorisations vérifiée par
   `scripts/check-packaging.sh`, `ALLOWED_FINISH_ARGS`) :
@@ -531,7 +553,8 @@ Signalés au mainteneur dans chaque PR qui les touche (ADR-008) :
   `scripts/check-packaging.sh`, `scripts/check.sh`,
   `scripts/check-fuzz-lock.mjs` (et ses tests), `fuzz/Cargo.lock`,
   `app/e2e/Dockerfile`, cache de build de l'e2e (`app/e2e/run.sh`,
-  `target-name.sh`, `prune-targets.sh`, `verify-crates.sh`).
+  `target-name.sh`, `prune-targets.sh`, `verify-crates.sh`),
+  `scripts/release-assets.sh`.
 
 ## Revues
 

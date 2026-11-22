@@ -25,10 +25,12 @@ la partie qui correspond à votre ordinateur.
    ordinateur »**. C'est normal : Norelly n'a pas encore de signature
    numérique reconnue par Microsoft (elle est demandée) : l'éditeur
    apparaît comme **« Éditeur inconnu »**. Cette fenêtre ne peut donc pas
-   vous dire si le fichier est authentique : la seule garantie est de
-   l'avoir téléchargé vous-même depuis l'adresse ci-dessus (vérifiez
-   qu'elle commence bien par `https://github.com/gbourquet/norelly` dans
-   la barre d'adresse). Si c'est le cas, cliquez sur **Informations
+   vous dire si le fichier est authentique : la garantie est de l'avoir
+   téléchargé vous-même depuis l'adresse ci-dessus (vérifiez qu'elle
+   commence bien par `https://github.com/gbourquet/norelly` dans la barre
+   d'adresse), ou de le vérifier
+   ([voir plus bas](#vérifier-un-fichier-téléchargé-facultatif)). Si c'est
+   le cas, cliquez sur **Informations
    complémentaires**, puis sur **Exécuter quand même**. Dans le doute,
    préférez la méthode winget ci-dessous, qui vérifie le fichier pour
    vous.
@@ -96,6 +98,69 @@ applications.
 
 Avec un paquet .deb ou .rpm, Norelly ne se met pas à jour tout seul :
 retournez sur la page des versions de temps en temps.
+
+## Vérifier un fichier téléchargé (facultatif)
+
+Cette partie s'adresse aux personnes à l'aise avec un terminal : elle
+n'est pas nécessaire pour utiliser Norelly. Elle permet de s'assurer qu'un
+fichier téléchargé est bien celui que le projet a construit, et qu'il n'a
+pas été modifié depuis.
+
+Sur la page des versions, chaque version contient, en plus des
+installateurs :
+
+- **`SHA256SUMS`** : l'empreinte de chaque fichier de la version ;
+- **`Norelly_<version>_provenance.sigstore.json`** : une attestation de
+  provenance signée. Elle prouve que chaque fichier de la version, et
+  `SHA256SUMS` lui-même, a été construit par le programme de publication
+  du dépôt `gbourquet/norelly`, à partir de cette version précise.
+
+Dans les commandes ci-dessous, remplacez `1.0.0` par le numéro de la
+version téléchargée (il apparaît plusieurs fois) et
+`Norelly_1.0.0_x64-setup.exe` par le nom de votre fichier (`.deb`, `.rpm`,
+ou `SHA256SUMS`).
+
+### Avec cosign, sans compte
+
+Installez [cosign](https://docs.sigstore.dev/cosign/system_config/installation/),
+placez le fichier et l'attestation dans le même dossier, puis lancez, dans
+ce dossier :
+
+```
+cosign verify-blob-attestation --new-bundle-format --type slsaprovenance1 --bundle Norelly_1.0.0_provenance.sigstore.json --certificate-oidc-issuer https://token.actions.githubusercontent.com --certificate-identity https://github.com/gbourquet/norelly/.github/workflows/release.yml@refs/tags/v1.0.0 Norelly_1.0.0_x64-setup.exe
+```
+
+La réponse **`Verified OK`** confirme que le fichier est authentique.
+Tout autre message (signature, empreinte ou identité refusée) : ne
+l'installez pas.
+
+### Avec GitHub CLI, avec un compte GitHub
+
+Si vous utilisez [GitHub CLI](https://cli.github.com) (`gh`), connecté à
+votre compte, l'attestation est retrouvée sur GitHub, sans la télécharger :
+
+```
+gh attestation verify Norelly_1.0.0_x64-setup.exe --repo gbourquet/norelly --signer-workflow gbourquet/norelly/.github/workflows/release.yml --source-ref refs/tags/v1.0.0 --deny-self-hosted-runners
+```
+
+La réponse doit indiquer **`Verification succeeded!`** ; en cas de refus,
+`gh` affiche une erreur : n'installez pas le fichier.
+
+### Par les empreintes
+
+Une fois `SHA256SUMS` vérifié par l'une des commandes ci-dessus, il suffit
+de comparer les empreintes des autres fichiers téléchargés :
+
+- sous Linux, dans le dossier des fichiers :
+  `sha256sum --check --ignore-missing SHA256SUMS` (chaque fichier doit
+  afficher **OK**) ;
+- sous Windows, dans PowerShell : `Get-FileHash Norelly_1.0.0_x64-setup.exe`,
+  puis comparez l'empreinte affichée à la ligne du fichier dans
+  `SHA256SUMS` (majuscules et minuscules sans importance).
+
+Comparer les empreintes **sans** avoir vérifié `SHA256SUMS` détecte
+seulement un téléchargement abîmé, pas un faux fichier : un site qui
+propose un faux fichier peut aussi proposer de fausses empreintes.
 
 ## Premier lancement
 

@@ -101,14 +101,15 @@ fichier modifié par l'assistant.
 |---|---|---|
 | `ci.yml` | push sur `master`, PR | trois jobs en parallèle : Linux `./scripts/check.sh full` ; Linux `pnpm -C app e2e` ; Windows `./scripts/check.sh` puis `cargo build --workspace` |
 | `nightly.yml` | chaque nuit | fuzzing (5 min par cible), bancs (liste 50k, démarrage de bout en bout), Stalwart en second serveur |
-| `release.yml` | tag de version | NSIS (Windows, mise à jour signée minisign dans un environnement séparé), .deb et .rpm, sommes SHA-256, manifeste `latest.json`, manifestes winget, brouillon de version |
+| `release.yml` | tag de version | NSIS (Windows, mise à jour signée minisign dans un environnement séparé), .deb et .rpm, manifeste `latest.json`, manifestes winget, `SHA256SUMS` et attestation de provenance Sigstore de chaque fichier (`scripts/release-assets.sh`, `actions/attest`), revérifiées avant le brouillon de version |
 
 `./scripts/check.sh` (rapide) enchaîne : build du front, format Rust,
 Clippy (avec et sans `updater`), tests unitaires avec couverture, tests du
 module de mise à jour, doctests, `cargo deny` (workspace principal puis
 workspace de fuzzing `fuzz/`), alignement du verrou du fuzzing sur le
 verrou racine, règle de dépendance du domaine, contrôle SQL,
-**documentation** (`check-docs.sh`), métadonnées de bureau (Linux), `svelte-check`, lint et tests du front avec couverture.
+**documentation** (`check-docs.sh`), métadonnées de bureau et scripts de
+publication (Linux), `svelte-check`, lint et tests du front avec couverture.
 `./scripts/check.sh full` ajoute le build du workspace et les tests
 d'intégration.
 

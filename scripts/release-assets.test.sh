@@ -72,6 +72,12 @@ printf '1' >"$tmp/in/a/latest.json"
 printf '2' >"$tmp/in/b/latest.json"
 run_ko "deux fichiers du même nom" "deux fichiers nommés latest.json"
 
+# Même nom à la casse près : ils ne cohabiteraient pas sous Windows.
+setup
+printf '1' >"$tmp/in/A.deb"
+printf '2' >"$tmp/in/a.deb"
+run_ko "deux fichiers du même nom à la casse près" "deux fichiers nommés"
+
 # Un SHA256SUMS venu d'un artefact serait remplacé sans bruit.
 setup
 printf 'faux' >"$tmp/in/SHA256SUMS"

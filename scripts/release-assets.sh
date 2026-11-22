@@ -23,13 +23,17 @@ odd="$(find "$in" -mindepth 1 ! -type d ! -type f -print -quit)"
 [ -z "$odd" ] || die "lien ou fichier spécial refusé : $(printf '%q' "$odd")"
 
 mkdir -p -- "$out"
+# Noms déjà vus, en minuscules : deux noms égaux à la casse près ne
+# cohabiteraient pas dans un dossier Windows.
+declare -A seen=()
 while IFS= read -r -d '' file; do
   name="${file##*/}"
   # Noms des fichiers de Tauri, de winget et du manifeste : ni espace, ni
   # saut de ligne (format de SHA256SUMS), ni tiret initial (options).
   [[ "$name" =~ ^[A-Za-z0-9][A-Za-z0-9._+-]*$ ]] || die "nom refusé : $(printf '%q' "$name")"
   [ "$name" != SHA256SUMS ] || die "SHA256SUMS déjà présent dans les artefacts"
-  [ ! -e "$out/$name" ] || die "deux fichiers nommés $name"
+  [ -z "${seen[${name,,}]:-}" ] || die "deux fichiers nommés $name (casse ignorée)"
+  seen[${name,,}]=1
   cp -- "$file" "$out/$name"
 done < <(find "$in" -type f -print0)
 

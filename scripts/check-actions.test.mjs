@@ -1,8 +1,34 @@
 // Tests du vérificateur des actions GitHub (scripts/check-actions.mjs),
 // lancés par scripts/check.sh avec `node --test`.
-import { test } from "node:test";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { after, test } from "node:test";
 import assert from "node:assert/strict";
-import { dependabotProblems, pinnedActions, unpinnedActions, upstreamProblems } from "./check-actions.mjs";
+import {
+  checkRepository,
+  dependabotProblems,
+  pinnedActions,
+  unpinnedActions,
+  upstreamProblems,
+} from "./check-actions.mjs";
+
+const roots = [];
+after(() => {
+  for (const root of roots) rmSync(root, { recursive: true, force: true });
+});
+
+/** Arborescence temporaire : { "chemin/relatif": contenu }. */
+function tree(files) {
+  const root = mkdtempSync(path.join(tmpdir(), "check-actions-"));
+  roots.push(root);
+  for (const [rel, content] of Object.entries(files)) {
+    const file = path.join(root, rel);
+    mkdirSync(path.dirname(file), { recursive: true });
+    writeFileSync(file, content);
+  }
+  return root;
+}
 
 const SHA = "fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09";
 
@@ -73,6 +99,8 @@ const DEPENDABOT = [
   '    directory: "/"',
   "    schedule:",
   '      interval: "weekly"',
+  "    cooldown:",
+  "      default-days: 7",
 ].join("\n");
 
 test("Dependabot surveille les actions GitHub", () => {
@@ -131,7 +159,7 @@ test("l'entrée github-actions de Dependabot vise la racine et a un rythme", () 
     '      interval: "weekly"',
   ].join("\n");
   const noDir = DEPENDABOT.replace('directory: "/"', 'directory: "/app"');
-  const noSchedule = [DEPENDABOT.split("\n").slice(0, 4).join("\n"), cargo].join("\n");
+  const noSchedule = [DEPENDABOT.replace('    schedule:\n      interval: "weekly"\n', ""), cargo].join("\n");
   assert.deepEqual(dependabotProblems(noDir), [
     '.github/dependabot.yml : l\'entrée github-actions doit viser directory: "/"',
   ]);
@@ -159,32 +187,95 @@ test("action locale : dans le dépôt et présente", () => {
     "      - uses: ./.github/actions/absente",
     "      - uses: ./../ailleurs",
   ].join("\n");
-  const exists = (p) => p === ".github/actions/presente";
-  assert.deepEqual(unpinnedActions(workflow, "ci.yml", exists), [
+  const status = (p) => (p === ".github/actions/presente" ? "ok" : "absent");
+  assert.deepEqual(unpinnedActions(workflow, "ci.yml", status), [
     "ci.yml:2 : action locale ./.github/actions/absente introuvable",
     "ci.yml:3 : action locale ./../ailleurs hors du dépôt",
   ]);
 });
 
-test("actions composites locales : Dependabot doit les surveiller aussi", () => {
-  assert.deepEqual(dependabotProblems(DEPENDABOT, { localActions: true }), [
-    '.github/dependabot.yml : l\'entrée github-actions doit aussi viser "/.github/actions/*" (actions composites locales)',
+test("actions composites locales : Dependabot doit surveiller leur dossier", () => {
+  const dirs = { localActionDirs: [".github/actions/setup", "ci/outils"] };
+  assert.deepEqual(dependabotProblems(DEPENDABOT, dirs), [
+    '.github/dependabot.yml : l\'entrée github-actions doit aussi viser "/.github/actions/setup" (action composite locale)',
+    '.github/dependabot.yml : l\'entrée github-actions doit aussi viser "/ci/outils" (action composite locale)',
   ]);
-  const both = DEPENDABOT.replace('directory: "/"', 'directories:\n      - "/"\n      - "/.github/actions/*"');
-  assert.deepEqual(dependabotProblems(both, { localActions: true }), []);
+  const both = DEPENDABOT.replace(
+    'directory: "/"',
+    'directories:\n      - "/"\n      - "/.github/actions/*"\n      - "/ci/outils"',
+  );
+  assert.deepEqual(dependabotProblems(both, dirs), []);
 });
 
-test("refuse une configuration Dependabot qui coupe les propositions", () => {
-  const zero = `${DEPENDABOT}\n    open-pull-requests-limit: 0`;
-  const all = `${DEPENDABOT}\n    ignore:\n      - dependency-name: "*"`;
-  const majors = `${DEPENDABOT}\n    ignore:\n      - dependency-name: "*"\n        update-types: ["version-update:semver-major"]`;
-  assert.deepEqual(dependabotProblems(zero), [
+test("refuse une configuration Dependabot qui coupe ou retarde trop les propositions", () => {
+  const ignore = (pattern, types) =>
+    `${DEPENDABOT}\n    ignore:\n      - dependency-name: "${pattern}"${types ? `\n        update-types: ${types}` : ""}`;
+  const message = (pattern) =>
+    `.github/dependabot.yml : ignore à motif (dependency-name: "${pattern}") hors versions majeures seules`;
+  assert.deepEqual(dependabotProblems(`${DEPENDABOT}\n    open-pull-requests-limit: 0`), [
     ".github/dependabot.yml : open-pull-requests-limit: 0 coupe les propositions de mise à jour",
   ]);
-  assert.deepEqual(dependabotProblems(all), [
-    '.github/dependabot.yml : ignore de toutes les actions (dependency-name: "*") sans update-types',
+  assert.deepEqual(dependabotProblems(ignore("*")), [message("*")]);
+  assert.deepEqual(dependabotProblems(ignore("actions/*")), [message("actions/*")]);
+  assert.deepEqual(dependabotProblems(ignore("*", '["version-update:semver-major", "version-update:semver-minor"]')), [
+    message("*"),
   ]);
-  assert.deepEqual(dependabotProblems(majors), []);
+  assert.deepEqual(dependabotProblems(ignore("*", '["version-update:semver-major"]')), []);
+  assert.deepEqual(dependabotProblems(ignore("dtolnay/rust-toolchain")), []);
+});
+
+test("exige un délai avant de proposer une version, entre 1 et 30 jours", () => {
+  const message = ".github/dependabot.yml : l'entrée github-actions doit avoir cooldown.default-days entre 1 et 30";
+  assert.deepEqual(dependabotProblems(DEPENDABOT.replace("    cooldown:\n      default-days: 7", "")), [message]);
+  assert.deepEqual(dependabotProblems(DEPENDABOT.replace("default-days: 7", "default-days: 0")), [message]);
+  assert.deepEqual(dependabotProblems(DEPENDABOT.replace("default-days: 7", "default-days: 31")), [message]);
+  assert.deepEqual(dependabotProblems(DEPENDABOT.replace("default-days: 7", "default-days: 30")), []);
+});
+
+test("refuse retours chariot seuls, sauts de ligne Unicode, clé explicite ou échappée", () => {
+  assert.deepEqual(unpinnedActions("steps:\r      - uses: actions/checkout@v5\r", "a.yml"), [
+    "a.yml:2 : actions/checkout@v5 n'est pas figée par une empreinte de 40 caractères",
+  ]);
+  assert.deepEqual(unpinnedActions(`steps:\u2028      - uses: x/y@${SHA} # v1`, "b.yml"), [
+    "b.yml : saut de ligne Unicode (U+0085, U+2028, U+2029) refusé",
+  ]);
+  const workflow = ["      - ? uses", "        : actions/checkout@v5", '      - "u\\x73es": actions/checkout@v5'].join("\n");
+  assert.deepEqual(unpinnedActions(workflow, "c.yml"), [
+    "c.yml:1 : forme de « uses: » non reconnue, à écrire « uses: <action>@<empreinte> # vX »",
+    "c.yml:3 : forme de « uses: » non reconnue, à écrire « uses: <action>@<empreinte> # vX »",
+  ]);
+});
+
+test("parcourt workflows, actions composites où qu'elles soient et action racine", () => {
+  const steps = (...uses) => ["jobs:", "  a:", "    steps:", ...uses.map((u) => `      - uses: ${u}`)].join("\n");
+  const root = tree({
+    ".github/workflows/ci.yml": steps(`actions/checkout@${SHA} # v5`, "./ci/setup", "./absente", "./.github/actions/lien"),
+    ".github/dependabot.yml": DEPENDABOT,
+    "ci/setup/action.yml": ["runs:", "  using: composite", "  steps:", "    - uses: a/b@v1", "    - uses: ./ci/setup"].join(
+      "\n",
+    ),
+    "action.yml": ["runs:", "  using: composite", "  steps:", "    - uses: c/d@v2"].join("\n"),
+  });
+  mkdirSync(path.join(root, ".github", "actions"), { recursive: true });
+  symlinkSync(path.join(root, "ci", "setup"), path.join(root, ".github", "actions", "lien"));
+  assert.deepEqual(checkRepository(root), [
+    ".github/actions/lien : lien symbolique refusé sous .github",
+    ".github/workflows/ci.yml:6 : action locale ./absente introuvable",
+    "action.yml:4 : c/d@v2 n'est pas figée par une empreinte de 40 caractères",
+    "ci/setup/action.yml:4 : a/b@v1 n'est pas figée par une empreinte de 40 caractères",
+    '.github/dependabot.yml : l\'entrée github-actions doit aussi viser "/.github/actions/lien" (action composite locale)',
+    '.github/dependabot.yml : l\'entrée github-actions doit aussi viser "/ci/setup" (action composite locale)',
+  ]);
+});
+
+test("une action locale qui sort du dépôt par lien symbolique est refusée", () => {
+  const outside = tree({ "action.yml": "runs:\n  using: composite\n  steps: []\n" });
+  const root = tree({
+    ".github/workflows/ci.yml": "jobs:\n  a:\n    steps:\n      - uses: ./outils\n",
+    ".github/dependabot.yml": DEPENDABOT,
+  });
+  symlinkSync(outside, path.join(root, "outils"));
+  assert.deepEqual(checkRepository(root), [".github/workflows/ci.yml:4 : action locale ./outils hors du dépôt"]);
 });
 
 test("relève les actions figées, chemin d'action réduit au dépôt", () => {

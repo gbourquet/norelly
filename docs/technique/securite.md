@@ -429,16 +429,21 @@ reçus de l'interface ; types MIME recalculés.
   les paquets apt des jobs de la CI et le Rust du SDK Flatpak
   ([méthode](methode.md#versions-figées-de-la-chaîne-et-des-outils)).
 - Actions GitHub : chaque action des workflows et des actions composites du
-  dépôt est figée par une empreinte de commit complète suivie de sa
-  version en commentaire (`@<sha> # v5`), vérifié par
-  `scripts/check-actions.mjs` (lancé par `scripts/check.sh`), qui refuse
-  aussi une forme de `uses:` qu'il ne sait pas lire et une action locale
-  absente ou hors du dépôt. `check.sh full` vérifie en plus, par le
-  réseau (`git ls-remote --tags`), que chaque empreinte est celle d'une
+  dépôt (celles de `.github`, l'action racine, et toute action locale
+  citée, lue à son tour) est figée par une empreinte de commit complète
+  suivie de sa version en commentaire (`@<sha> # v5`), vérifié par
+  `scripts/check-actions.mjs` (lancé par `scripts/check.sh`). Il refuse
+  aussi une forme de `uses:` qu'il ne sait pas lire (échec fermé), une
+  action locale absente ou hors du dépôt, et un lien symbolique sous
+  `.github`. `check.sh full` vérifie en plus, par le réseau
+  (`git ls-remote --tags`), que chaque empreinte est celle d'une
   étiquette du dépôt amont correspondant à la version du commentaire :
   ni commit d'un fork, ni version annoncée à tort. Exception :
   `dtolnay/rust-toolchain`, figée sur la branche d'un canal (`# stable`,
-  `# nightly`), sans étiquette, non vérifiée par le réseau.
+  `# nightly`), sans étiquette. Ces branches sont régénérées par leur
+  auteur : une empreinte figée n'en est plus ni la tête ni un ancêtre,
+  et n'est donc pas vérifiée par le réseau. Risque résiduel : une
+  empreinte de fork sur cette action ne serait vue qu'à la relecture.
 - Mises à jour des actions signalées par Dependabot
   (`.github/dependabot.yml`, écosystème `github-actions` seulement) : une
   fois par semaine, une PR remplace l'empreinte et le commentaire de
@@ -448,9 +453,10 @@ reçus de l'interface ; types MIME recalculés.
   version majeure proposée seule, cinq PR ouvertes au plus, commits
   préfixés `deps:` (message en anglais, écrit par Dependabot).
   `dtolnay/rust-toolchain` est exclue (pas d'étiquette de version) et se
-  met à jour à la main. Des actions composites sous `.github/actions`
-  devront être ajoutées à la surveillance (`directories`), exigé par le
-  vérificateur. Dependabot ne s'active que depuis la branche par défaut ;
+  met à jour à la main. Le vérificateur exige ces réglages : délai de 1 à
+  30 jours, aucune limite de PR à 0, aucun `ignore` à motif hors versions
+  majeures, et le dossier de chaque action composite locale dans la
+  surveillance (`directories`). Dependabot ne s'active que depuis la branche par défaut ;
   ses mises à jour de sécurité, qui ignorent le délai et la limite de PR,
   s'activent dans les réglages du dépôt (alertes et mises à jour de
   sécurité Dependabot).

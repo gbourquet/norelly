@@ -30,13 +30,30 @@ const VERSION_COMMENT = /^#\s*(v?\d+(?:\.\d+)*)(?:\s|$)/;
 const CHANNEL_COMMENT = /^#\s*(stable|beta|nightly)(?:\s|$)/;
 const CHANNEL_REPO = "dtolnay/rust-toolchain";
 
+// Formes YAML que USES ne sait pas lire et que GitHub accepterait : clé
+// explicite (`? uses`), clé entre guillemets doubles avec échappement
+// (`"u\x73es"`).
+const EXPLICIT_KEY = /^\s*(?:-\s+)*\?(?:\s|$)/;
+const ESCAPED_KEY = /(?:^\s*(?:-\s+)*|[{,]\s*)"[^"]*\\[^"]*"\s*:/;
+// Sauts de ligne que YAML reconnaît en plus de \n et \r.
+const UNICODE_BREAK = new RegExp(`[${String.fromCharCode(0x85, 0x2028, 0x2029)}]`);
+
+/** Chemin normalisé d'une action locale (`./x/y` → `x/y`, racine : `.`). */
+function localPath(ref) {
+  return path.posix.normalize(ref).replace(/\/$/, "");
+}
+
 /** Déclarations `uses:` d'un fichier : { where, ref, comment } ou { where, unreadable }. */
 function usesLines(text, file) {
   const found = [];
-  text.split("\n").forEach((raw, i) => {
-    const line = raw.replace(/\r$/, "");
-    if (/^\s*#/.test(line) || !USES_KEY.test(line)) return;
+  text.split(/\r\n|\r|\n/).forEach((line, i) => {
+    if (/^\s*#/.test(line)) return;
     const where = `${file}:${i + 1}`;
+    if (EXPLICIT_KEY.test(line) || ESCAPED_KEY.test(line)) {
+      found.push({ where, unreadable: true });
+      return;
+    }
+    if (!USES_KEY.test(line)) return;
     const m = line.match(USES);
     if (!m) found.push({ where, unreadable: true });
     else found.push({ where, ref: m[3], comment: m[4] ?? "" });
@@ -44,11 +61,20 @@ function usesLines(text, file) {
   return found;
 }
 
+/** Actions locales (`./…`) citées par un fichier, chemins normalisés. */
+export function localActions(text, file) {
+  return usesLines(text, file)
+    .filter(({ ref }) => ref?.startsWith("./"))
+    .map(({ ref }) => localPath(ref));
+}
+
 /**
- * Actions non figées d'un fichier ; `file` sert aux messages, `exists`
- * dit si un chemin relatif à la racine du dépôt est une action locale.
+ * Actions non figées d'un fichier ; `file` sert aux messages, `status`
+ * dit d'un chemin relatif à la racine du dépôt s'il désigne une action
+ * locale : "ok", "absent" ou "outside" (hors du dépôt).
  */
-export function unpinnedActions(text, file, exists = () => true) {
+export function unpinnedActions(text, file, status = () => "ok") {
+  if (UNICODE_BREAK.test(text)) return [`${file} : saut de ligne Unicode (U+0085, U+2028, U+2029) refusé`];
   const problems = [];
   for (const { where, ref, comment, unreadable } of usesLines(text, file)) {
     if (unreadable) {
@@ -56,9 +82,10 @@ export function unpinnedActions(text, file, exists = () => true) {
       continue;
     }
     if (ref.startsWith("./")) {
-      const local = path.posix.normalize(ref);
-      if (local === ".." || local.startsWith("../")) problems.push(`${where} : action locale ${ref} hors du dépôt`);
-      else if (!exists(local)) problems.push(`${where} : action locale ${ref} introuvable`);
+      const local = localPath(ref);
+      const state = local === ".." || local.startsWith("../") ? "outside" : status(local);
+      if (state === "outside") problems.push(`${where} : action locale ${ref} hors du dépôt`);
+      else if (state !== "ok") problems.push(`${where} : action locale ${ref} introuvable`);
       continue;
     }
     if (ref.startsWith("docker://")) {
@@ -124,9 +151,10 @@ function itemBlock(lines, start) {
 
 /**
  * Problèmes de `.github/dependabot.yml` (`undefined` : fichier absent) ;
- * `localActions` : le dépôt a des actions composites sous `.github/actions`.
+ * `localActionDirs` : dossiers des actions composites locales citées,
+ * chacun à surveiller (son chemin, ou `parent/*`).
  */
-export function dependabotProblems(text, { localActions = false } = {}) {
+export function dependabotProblems(text, { localActionDirs = [] } = {}) {
   if (text === undefined) {
     return [".github/dependabot.yml absent : les mises à jour des actions ne sont pas proposées"];
   }
@@ -141,58 +169,110 @@ export function dependabotProblems(text, { localActions = false } = {}) {
   }
   const block = itemBlock(lines, start);
   const entry = block.join("\n");
-  const dir = /^\s*(?:directory:\s*|-\s+)["']?\/["']?\s*(#.*)?$/m;
-  if (!dir.test(entry)) problems.push(`${name} : l'entrée github-actions doit viser directory: "/"`);
-  if (localActions && !/^\s*-\s+["']?\/\.github\/actions\/\*["']?\s*(#.*)?$/m.test(entry)) {
-    problems.push(
-      `${name} : l'entrée github-actions doit aussi viser "/.github/actions/*" (actions composites locales)`,
-    );
+  const listItem = (value) => new RegExp(`^\\s*(?:directory:\\s*|-\\s+)["']?${escape(value)}["']?\\s*(#.*)?$`, "m");
+  if (!listItem("/").test(entry)) problems.push(`${name} : l'entrée github-actions doit viser directory: "/"`);
+  for (const dir of localActionDirs) {
+    if (!listItem(`/${dir}`).test(entry) && !listItem(`/${path.posix.dirname(dir)}/*`).test(entry)) {
+      problems.push(`${name} : l'entrée github-actions doit aussi viser "/${dir}" (action composite locale)`);
+    }
   }
   if (!/^\s*interval:\s*["']?\w/m.test(entry)) {
     problems.push(`${name} : l'entrée github-actions n'a pas de rythme (schedule.interval)`);
   }
+  const cooldown = entry.match(/^\s*default-days:\s*["']?(\d+)["']?\s*(#.*)?$/m);
+  if (!cooldown || Number(cooldown[1]) < 1 || Number(cooldown[1]) > 30) {
+    problems.push(`${name} : l'entrée github-actions doit avoir cooldown.default-days entre 1 et 30`);
+  }
   if (/^\s*open-pull-requests-limit:\s*["']?0["']?\s*(#.*)?$/m.test(entry)) {
     problems.push(`${name} : open-pull-requests-limit: 0 coupe les propositions de mise à jour`);
   }
+  // Un ignore à motif n'est admis que pour les versions majeures : il ne
+  // doit pas faire taire les correctifs.
   block.forEach((line, i) => {
-    if (!/^\s*-\s+dependency-name:\s*["']?\*["']?\s*(#.*)?$/.test(line)) return;
-    if (!itemBlock(block, i).some((l) => /^\s*update-types:/.test(l))) {
-      problems.push(`${name} : ignore de toutes les actions (dependency-name: "*") sans update-types`);
+    const m = line.match(/^\s*-\s+dependency-name:\s*["']?([^"'\s#]+)["']?\s*(#.*)?$/);
+    if (!m || !m[1].includes("*")) return;
+    const types = itemBlock(block, i).join("\n").match(/version-update:semver-\w+/g) ?? [];
+    if (types.length === 0 || types.some((t) => t !== "version-update:semver-major")) {
+      problems.push(`${name} : ignore à motif (dependency-name: "${m[1]}") hors versions majeures seules`);
     }
   });
   return problems;
 }
 
-/** Fichiers YAML à contrôler : workflows et actions composites de `.github`, action racine. */
+function escape(text) {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * Fichiers YAML de `.github` (hors dependabot.yml) et action racine ; un
+ * lien symbolique sous `.github` est refusé (son contenu échapperait au
+ * contrôle ou serait lu hors du dépôt).
+ */
 function actionFiles(root) {
   const files = [];
+  const problems = [];
   const walk = (rel) => {
     for (const entry of readdirSync(path.join(root, rel), { withFileTypes: true })) {
       const child = path.posix.join(rel, entry.name);
-      if (entry.isDirectory()) walk(child);
+      if (entry.isSymbolicLink()) problems.push(`${child} : lien symbolique refusé sous .github`);
+      else if (entry.isDirectory()) walk(child);
       else if (/\.ya?ml$/.test(entry.name) && child !== ".github/dependabot.yml") files.push(child);
     }
   };
   if (existsSync(path.join(root, ".github"))) walk(".github");
   for (const f of ["action.yml", "action.yaml"]) if (existsSync(path.join(root, f))) files.push(f);
-  return files.sort();
+  return { files: files.sort(), problems: problems.sort() };
+}
+
+/**
+ * Fichiers d'actions du dépôt : ceux de `actionFiles`, puis les actions
+ * locales citées, lues à leur tour (une fois chacune) où qu'elles soient
+ * dans le dépôt. Renvoie { problems, texts: [{ file, text }], dirs }.
+ */
+function scanRepository(root) {
+  const rootReal = realpathSync(root);
+  const inside = (real) => real === rootReal || real.startsWith(rootReal + path.sep);
+  const manifest = (dir) => ["action.yml", "action.yaml"].find((f) => existsSync(path.join(dir, f)));
+  const status = (rel) => {
+    const target = path.join(root, rel);
+    if (!existsSync(target)) return "absent";
+    if (!inside(realpathSync(target))) return "outside";
+    if (statSync(target).isFile()) return /\.ya?ml$/.test(rel) ? "ok" : "absent";
+    return manifest(target) ? "ok" : "absent";
+  };
+  const { files, problems } = actionFiles(root);
+  const queue = [...files];
+  const seen = new Set(queue.map((f) => realpathSync(path.join(root, f))));
+  const dirs = new Set();
+  const texts = [];
+  while (queue.length > 0) {
+    const f = queue.shift();
+    const text = readFileSync(path.join(root, f), "utf8");
+    texts.push({ file: f, text });
+    problems.push(...unpinnedActions(text, f, status));
+    for (const local of localActions(text, f)) {
+      if (status(local) !== "ok" || statSync(path.join(root, local)).isFile()) continue;
+      if (local !== ".") dirs.add(local);
+      const file = path.posix.join(local, manifest(path.join(root, local)));
+      const real = realpathSync(path.join(root, file));
+      if (!seen.has(real)) {
+        seen.add(real);
+        queue.push(file);
+      }
+    }
+  }
+  return { problems, texts, dirs: [...dirs].sort() };
 }
 
 /** Vérification du dépôt ; renvoie la liste des problèmes. */
 export function checkRepository(root) {
-  const isAction = (rel) => {
-    const target = path.join(root, rel);
-    if (!existsSync(target)) return false;
-    if (statSync(target).isFile()) return /\.ya?ml$/.test(rel);
-    return ["action.yml", "action.yaml"].some((f) => existsSync(path.join(target, f)));
-  };
-  const problems = [];
-  for (const f of actionFiles(root)) {
-    problems.push(...unpinnedActions(readFileSync(path.join(root, f), "utf8"), f, isAction));
-  }
+  const { problems, dirs } = scanRepository(root);
   const config = path.join(root, ".github", "dependabot.yml");
-  const localActions = existsSync(path.join(root, ".github", "actions"));
-  problems.push(...dependabotProblems(existsSync(config) ? readFileSync(config, "utf8") : undefined, { localActions }));
+  problems.push(
+    ...dependabotProblems(existsSync(config) ? readFileSync(config, "utf8") : undefined, {
+      localActionDirs: dirs,
+    }),
+  );
   return problems;
 }
 
@@ -204,6 +284,7 @@ function upstreamTags(repo) {
       const out = execFileSync("git", ["ls-remote", "--tags", `https://github.com/${repo}.git`], {
         encoding: "utf8",
         timeout: 30_000,
+        maxBuffer: 16 * 1024 * 1024,
         env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
         stdio: ["ignore", "pipe", "pipe"],
       });
@@ -223,7 +304,8 @@ function upstreamTags(repo) {
 
 /** Vérification des empreintes contre les dépôts amont (réseau). */
 export function checkUpstream(root) {
-  const pins = actionFiles(root).flatMap((f) => pinnedActions(readFileSync(path.join(root, f), "utf8"), f));
+  const { texts } = scanRepository(root);
+  const pins = texts.flatMap(({ file, text }) => pinnedActions(text, file));
   const refs = new Map();
   const problems = [];
   for (const repo of new Set(pins.filter((p) => !p.channel).map((p) => p.repo))) {

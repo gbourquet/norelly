@@ -877,6 +877,20 @@ pub trait MailStore: Send + Sync {
         body: &StoredBody,
         text: Option<&str>,
     ) -> impl Future<Output = Result<(), StoreError>> + Send;
+
+    /// Recopie sur le message `uid` de `mailbox`, encore sans corps, le
+    /// corps et le texte cherchable d'un autre message que `reuse` accepte
+    /// ([`crate::gmail::BodyReuse::accepts`]) : même compte, même
+    /// identifiant Gmail, même taille, corps déjà téléchargé, pas une copie
+    /// provisoire. Renvoie vrai si un corps a été recopié ; faux (sans
+    /// effet) si aucun message ne convient, si le message a disparu ou a
+    /// déjà son corps, ou si `mailbox` n'est pas du compte `reuse.account`.
+    fn reuse_body(
+        &self,
+        mailbox: MailboxId,
+        uid: Uid,
+        reuse: &crate::gmail::BodyReuse,
+    ) -> impl Future<Output = Result<bool, StoreError>> + Send;
 }
 
 // ---------------------------------------------------------------------------

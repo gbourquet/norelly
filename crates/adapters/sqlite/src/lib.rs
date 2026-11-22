@@ -97,6 +97,7 @@ fn migrations(normalizer: &Arc<dyn TextNormalizer>) -> Migrations<'static> {
         ),
         M::up(include_str!("../migrations/0027_contact_photos.sql")),
         M::up(include_str!("../migrations/0028_carddav_book_full.sql")),
+        M::up(include_str!("../migrations/0029_gmail_message_id.sql")),
     ])
 }
 
@@ -783,6 +784,8 @@ mod tests {
         // v28 : un bilan CardDAV avec des fiches remises faute de place.
         "INSERT OR REPLACE INTO carddav_sync (id, at, pulled, pushed, skipped, failure, \
          book_full) VALUES (1, 28, 0, 0, 2, NULL, 1);",
+        // v29 : identifiant Gmail d'un message (au-delà de i64::MAX).
+        "UPDATE messages SET gmail_msgid = -2 WHERE id = 1;",
     ];
 
     /// Montée vers la version 24 : les fiches existantes ne sont pas

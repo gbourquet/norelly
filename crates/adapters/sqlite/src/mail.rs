@@ -11,6 +11,7 @@ use std::collections::BTreeSet;
 use norelly_domain::account::AccountId;
 use norelly_domain::conversation::ThreadKeys;
 use norelly_domain::fetch_policy::{MimePart, PartPath};
+use norelly_domain::gmail::{BodyCandidate, BodyReuse, GmailMessageId};
 use norelly_domain::mailbox::{
     Correspondent, Flags, Keyword, MAX_SUBJECT_CHARS, MailboxId, MailboxName, MailboxRole, ModSeq,
     RemoteMailbox, Uid, UidValidity, folder_display_order, header_text,
@@ -66,6 +67,15 @@ pub(crate) fn flags_from(bits: i64, keywords: &str) -> Flags {
 
 fn i64_of(v: u32) -> i64 {
     i64::from(v)
+}
+
+/// Identifiant Gmail en base : même motif binaire, en entier signé.
+fn gmail_sql(id: Option<GmailMessageId>) -> Option<i64> {
+    id.map(|id| i64::from_be_bytes(id.get().to_be_bytes()))
+}
+
+fn gmail_of(raw: Option<i64>) -> Option<GmailMessageId> {
+    raw.and_then(|v| GmailMessageId::new(u64::from_be_bytes(v.to_be_bytes())))
 }
 
 fn modseq_sql(m: Option<ModSeq>) -> Option<i64> {
@@ -173,9 +183,9 @@ fn insert_message(
             "INSERT INTO messages (mailbox_id, uid, modseq, flags, keywords, internal_date, \
              sort_date, size, subject, from_name, from_address, to_json, cc_json, message_id, \
              in_reply_to, refs, header_date, has_attachments, structure, conversation_id, \
-             sender_auth) \
+             sender_auth, gmail_msgid) \
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, \
-             ?17, ?18, ?19, ?20, ?21)",
+             ?17, ?18, ?19, ?20, ?21, ?22)",
         )
         .map_err(store_error)?;
     stmt.execute(params![
@@ -200,6 +210,7 @@ fn insert_message(
         structure,
         conversation,
         h.sender_auth.code(),
+        gmail_sql(meta.gmail_id),
     ])
     .map_err(store_error)?;
     let id = tx.last_insert_rowid();
@@ -442,6 +453,98 @@ fn local(conn: &Connection, mailbox: MailboxId) -> Result<LocalMailbox, StoreErr
     Ok(LocalMailbox { state, messages })
 }
 
+/// Nombre maximal de messages candidats examinés pour une réutilisation.
+const MAX_REUSE_CANDIDATES: i64 = 8;
+
+/// Recopie le corps d'un message accepté par `reuse` sur le message `uid`
+/// de `mailbox` encore sans corps (`MailStore::reuse_body`). La requête
+/// présélectionne ; la règle du domaine (`BodyReuse::accepts`) décide.
+fn reuse_body(
+    conn: &mut Connection,
+    mailbox: MailboxId,
+    uid: Uid,
+    reuse: &BodyReuse,
+) -> Result<bool, StoreError> {
+    let tx = conn
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(store_error)?;
+    let target: Option<i64> = tx
+        .query_row(
+            "SELECT m.id FROM messages m JOIN mailboxes b ON b.id = m.mailbox_id \
+             WHERE m.mailbox_id = ?1 AND m.uid = ?2 AND b.account_id = ?3 \
+             AND m.body_state = 'missing'",
+            params![mailbox.get(), i64_of(uid.get()), reuse.account.get()],
+            |r| r.get(0),
+        )
+        .optional()
+        .map_err(store_error)?;
+    let Some(target) = target else {
+        return Ok(false);
+    };
+    let candidates: Vec<(i64, i64, i64, Option<i64>, bool)> = {
+        let mut stmt = tx
+            .prepare_cached(
+                "SELECT m.id, b.account_id, m.size, m.gmail_msgid, m.pending_op IS NOT NULL \
+                 FROM messages m JOIN mailboxes b ON b.id = m.mailbox_id \
+                 WHERE m.gmail_msgid = ?1 AND b.account_id = ?2 AND m.size = ?3 \
+                 AND m.body_state <> 'missing' AND m.pending_op IS NULL AND m.id <> ?4 \
+                 LIMIT ?5",
+            )
+            .map_err(store_error)?;
+        let rows = stmt
+            .query_map(
+                params![
+                    gmail_sql(Some(reuse.gmail_id)),
+                    reuse.account.get(),
+                    i64_of(reuse.size),
+                    target,
+                    MAX_REUSE_CANDIDATES,
+                ],
+                |r| {
+                    Ok((
+                        r.get(0)?,
+                        r.get(1)?,
+                        r.get(2)?,
+                        r.get(3)?,
+                        r.get(4)?,
+                    ))
+                },
+            )
+            .map_err(store_error)?;
+        rows.collect::<Result<_, _>>().map_err(store_error)?
+    };
+    for (source, account, size, gmail_id, provisional) in candidates {
+        let Some(body) = read_body(&tx, source)? else {
+            continue;
+        };
+        let (Ok(account), Ok(size)) = (AccountId::new(account), u32::try_from(size)) else {
+            continue;
+        };
+        let candidate = BodyCandidate {
+            account,
+            gmail_id: gmail_of(gmail_id),
+            size,
+            body: &body,
+            provisional,
+        };
+        if !reuse.accepts(&candidate) {
+            continue;
+        }
+        write_body(&tx, target, &body)?;
+        tx.execute(
+            "UPDATE message_texts SET body = \
+             (SELECT body FROM message_texts WHERE message_id = ?2) \
+             WHERE message_id = ?1 \
+             AND EXISTS (SELECT 1 FROM message_texts WHERE message_id = ?2)",
+            params![target, source],
+        )
+        .map_err(store_error)?;
+        tx.commit().map_err(store_error)?;
+        return Ok(true);
+    }
+    Ok(false)
+}
+
 impl MailStore for SqliteMailStore {
     async fn rename_mailboxes(
         &self,
@@ -483,7 +586,7 @@ impl MailStore for SqliteMailStore {
             .run(move |c| {
                 let mut stmt = c
                     .prepare_cached(
-                        "SELECT uid, size, structure FROM messages \
+                        "SELECT uid, size, structure, gmail_msgid FROM messages \
                          WHERE mailbox_id = ?1 AND body_state = 'missing' \
                          AND pending_op IS NULL \
                          ORDER BY uid DESC LIMIT ?2",
@@ -495,19 +598,20 @@ impl MailStore for SqliteMailStore {
                             r.get::<_, i64>(0)?,
                             r.get::<_, i64>(1)?,
                             r.get::<_, Option<String>>(2)?,
+                            r.get::<_, Option<i64>>(3)?,
                         ))
                     })
                     .map_err(store_error)?;
                 let mut out = Vec::new();
                 for row in rows {
-                    let (uid, size, structure) = row.map_err(store_error)?;
+                    let (uid, size, structure, gmail_id) = row.map_err(store_error)?;
                     out.push(PendingBody {
                         uid: uid_of(uid)?,
                         size: u32::try_from(size).unwrap_or(u32::MAX),
                         // Structure illisible : traitée comme inconnue.
                         structure: structure
                             .and_then(|s| serde_json::from_str::<MimePart>(&s).ok()),
-                        gmail_id: None,
+                        gmail_id: gmail_of(gmail_id),
                     });
                 }
                 Ok(out)
@@ -550,6 +654,16 @@ impl MailStore for SqliteMailStore {
                 tx.commit().map_err(store_error)
             })
             .await
+    }
+
+    async fn reuse_body(
+        &self,
+        mailbox: MailboxId,
+        uid: Uid,
+        reuse: &BodyReuse,
+    ) -> Result<bool, StoreError> {
+        let reuse = *reuse;
+        self.db.run(move |c| reuse_body(c, mailbox, uid, &reuse)).await
     }
 }
 

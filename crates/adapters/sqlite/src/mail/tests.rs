@@ -2,7 +2,9 @@ use norelly_domain::ports::AccountRepository;
 use norelly_test_support::actions_contracts::pending_op_store_contract;
 use norelly_test_support::contracts::sample_account;
 use norelly_test_support::labels_contracts::label_store_contract;
-use norelly_test_support::mail_contracts::{mail_store_contract, sample_message};
+use norelly_test_support::mail_contracts::{
+    gmail_body_reuse_contract, mail_store_contract, sample_message,
+};
 use norelly_test_support::reading_contracts::{conversation_query_contract, forged_copy_contract};
 
 use super::*;
@@ -35,6 +37,16 @@ async fn in_memory_store_passes_contract() -> Result<(), StoreError> {
         .map_err(|e| StoreError(e.to_string()))?;
     let (a, b) = two_accounts(&db).await?;
     mail_store_contract(&SqliteMailStore::new(db), a, b).await
+}
+
+#[tokio::test]
+async fn gmail_body_reuse_passes_contract() -> Result<(), StoreError> {
+    let db = Database::open_in_memory(norelly_test_support::contact_import_contracts::FakeNfc)
+        .map_err(|e| StoreError(e.to_string()))?;
+    let (a, b) = two_accounts(&db).await?;
+    gmail_body_reuse_contract(&SqliteMailStore::new(db.clone()), a, b).await?;
+    assert_eq!(db.integrity_problems().await?, Vec::<String>::new());
+    Ok(())
 }
 
 #[tokio::test]

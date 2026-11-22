@@ -26,6 +26,8 @@ for a moment.
 |---|---|
 | Command palette | `Ctrl+K` |
 | Keyboard shortcuts help | `?` |
+| User guide | palette |
+| Norelly website | palette |
 | Settings… | `Ctrl+,` |
 
 ## Reading

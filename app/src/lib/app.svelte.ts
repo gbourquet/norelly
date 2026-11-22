@@ -30,13 +30,14 @@ import {
 import { SearchState } from "./search.svelte";
 import { SettingsState, markSeenDelayMs } from "./settings.svelte";
 import { LabelMenuState, LabelSettingsState, LabelsState, labelQuery } from "./labels.svelte";
-import type { LabelDto } from "./ipc/api";
+import type { LabelDto, SitePageDto } from "./ipc/api";
 import { UpdatesState } from "./updates.svelte";
 import type { ConversationMessage } from "./ipc/api";
 import { failureLabel } from "./outbox";
 import type { PersonKind } from "./visible-actions";
 import { m } from "./paraglide/messages.js";
 import { errorText } from "./errors";
+import { activeLocale } from "./i18n";
 
 /** Mots-clés de recherche d'un message « a b c ». */
 const words = (s: string): string[] => s.split(" ").filter(Boolean);
@@ -578,6 +579,18 @@ export function moveAccount(): number | null {
   return accounts.length === 1 ? (accounts[0] ?? null) : null;
 }
 
+/** Ouvre une page du site dans la langue de l'interface (les langues du
+ * site sont celles de l'interface : une langue ajoutée à l'une sans
+ * l'autre ne compile pas) ; un échec s'affiche dans la bande
+ * d'information. */
+async function openSitePage(page: SitePageDto): Promise<void> {
+  try {
+    await api.openSitePage(page, activeLocale());
+  } catch (e) {
+    mail.notice = { text: errorText(e), undoable: false };
+  }
+}
+
 /** Commandes de base de l'application. Renvoie la fonction de retrait. */
 export function registerAppCommands(): () => void {
   const offs = [
@@ -596,6 +609,20 @@ export function registerAppCommands(): () => void {
       shortcut: "?",
       keywords: words(m.cmd_help_keywords()),
       run: () => app.open("help"),
+    }),
+    registry.register({
+      id: "help.guide",
+      title: m.cmd_help_guide(),
+      group: m.group_general(),
+      keywords: words(m.cmd_help_guide_keywords()),
+      run: () => openSitePage("guide"),
+    }),
+    registry.register({
+      id: "help.website",
+      title: m.cmd_help_website(),
+      group: m.group_general(),
+      keywords: words(m.cmd_help_website_keywords()),
+      run: () => openSitePage("home"),
     }),
     registry.register({
       id: "settings.open",

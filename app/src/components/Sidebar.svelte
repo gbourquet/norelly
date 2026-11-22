@@ -5,7 +5,7 @@
   import { folderLabel, folderServerName } from "../lib/folder-label";
   // Panneau de navigation : « Nouveau message », boîte de réception
   // unifiée, comptes et leurs dossiers (chacun avec son menu d'actions),
-  // puis ajout de compte et paramètres en bas.
+  // puis carnet, ajout de compte, paramètres et menu « Aide » en bas.
   import InboxIcon from "@lucide/svelte/icons/inbox";
   import FolderIcon from "@lucide/svelte/icons/folder";
   import SendIcon from "@lucide/svelte/icons/send";
@@ -24,12 +24,13 @@
   import EllipsisIcon from "@lucide/svelte/icons/ellipsis";
   import FolderPlusIcon from "@lucide/svelte/icons/folder-plus";
   import ContactIcon from "@lucide/svelte/icons/book-user";
+  import HelpIcon from "@lucide/svelte/icons/circle-question-mark";
   import { folderPayload, type DragMove } from "../lib/drag-move.svelte";
   import type { AccountDto, FolderDto, ScopeDto } from "../lib/ipc/api";
   import type { CommandRegistry } from "../lib/commands/registry";
   import { RegistryWatch } from "../lib/commands/watch.svelte";
   import { describeCommand } from "../lib/commands/describe";
-  import { folderMenuActions, type VisibleAction } from "../lib/visible-actions";
+  import { folderMenuActions, helpMenuActions, type VisibleAction } from "../lib/visible-actions";
   import CommandMenu from "./CommandMenu.svelte";
   import CommandContextMenu from "./CommandContextMenu.svelte";
 
@@ -404,6 +405,22 @@
         <SettingsIcon size={16} aria-hidden="true" />
         <span class="label">{settings?.label}</span>
       </button>
+    </li>
+    <li>
+      <CommandMenu
+        actions={helpMenuActions()}
+        {registry}
+        {context}
+        label={m.sidebar_help()}
+        align="start"
+      >
+        {#snippet trigger({ props })}
+          <button {...props} class="folder" type="button" title={m.sidebar_help()}>
+            <HelpIcon size={16} aria-hidden="true" />
+            <span class="label">{m.sidebar_help()}</span>
+          </button>
+        {/snippet}
+      </CommandMenu>
     </li>
   </ul>
 </div>

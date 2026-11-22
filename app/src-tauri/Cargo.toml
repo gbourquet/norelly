@@ -39,15 +39,15 @@ open = "5.3"
 # Sélecteur de dossier, appelé depuis Rust seulement (aucune permission
 # accordée à l'interface).
 tauri-plugin-dialog = "2.6"
-# Notifications natives, appelées depuis Rust seulement : le
+# Mises à jour (ADR-006) : installateur NSIS seulement, fonctionnalité
+# `updater` activée par release.yml pour Windows ; absent des autres canaux.
+tauri-plugin-updater = { version = "2", optional = true }
+# Notifications natives (ADR-015), appelées depuis Rust seulement : le
 # texte composé par l'interface passe par une commande IPC qui le
 # revalide ; aucune permission accordée à l'interface. notify-rust sans
 # zbus (fonctionnalité `d` : libdbus du système sous Linux) :
 # tauri-plugin-notification tire zbus 5, dont des dépendances sont
-# signalées non maintenues (voir deny.toml).
-# Mises à jour (ADR-006) : installateur NSIS seulement, fonctionnalité
-# `updater` activée par release.yml pour Windows ; absent des autres canaux.
-tauri-plugin-updater = { version = "2", optional = true }
+# signalées non maintenues (avis refusés par cargo deny, ADR-009).
 notify-rust = { version = "4", default-features = false, features = ["d"] }
 norelly-domain.workspace = true
 norelly-application.workspace = true

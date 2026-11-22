@@ -35,6 +35,10 @@ image="norelly-e2e:$(sha256sum app/e2e/Dockerfile | cut -c1-12)"
 run_id="norelly-e2e-$$"
 network="$run_id"
 cache="${XDG_CACHE_HOME:-$HOME/.cache}/norelly-e2e"
+# Dossier de build propre à cette copie de travail (toutes sont montées sur
+# /work) ; seules les archives .crate et l'index du registre de cargo sont
+# partagés (docs/technique/tests.md, « Cache de build »).
+target=$(app/e2e/target-name.sh "$root")
 password="mot-de-passe-de-test"
 # Images figées par empreinte (chaîne d'approvisionnement).
 dovecot_image="dovecot/dovecot:2.4.5@sha256:43c14def08a57f25107593cbcf64a0a6fbae84a7b9de7aa038513c9b21e91914"
@@ -56,11 +60,21 @@ fi
 # Cache de build (monté dans le conteneur) : une configuration de cargo
 # n'y a pas sa place, elle pourrait lancer un programme (rustc-wrapper,
 # runner) aux étapes suivantes. La CI ne garde d'une exécution à l'autre
-# que target/ et les archives .crate.
+# que le dossier de build et les archives .crate.
 if compgen -G "$cache/cargo/config*" >/dev/null; then
   echo "Configuration cargo inattendue dans $cache/cargo : la supprimer" >&2
   exit 1
 fi
+# Dossiers de build des copies de travail retirées.
+app/e2e/prune-targets.sh "$cache"
+# Archives .crate partagées : cargo ne revérifie pas celles déjà présentes.
+app/e2e/verify-crates.sh Cargo.lock "$cache/cargo/registry/cache"
+# Dépôts git des dépendances (clones et extractions) : cargo réutilise une
+# extraction existante sans la revérifier, et ce dossier est partagé par
+# toutes les copies de travail. Il est retiré à chaque lancement : cargo
+# reclone au build, et l'extraction sert ensuite aux scénarios
+# (`cargo test --offline`).
+rm -rf -- "$cache/cargo/git"
 
 if ! docker image inspect "$image" >/dev/null 2>&1; then
   echo "==> Construction de l'image $image"
@@ -147,12 +161,21 @@ docker run -d --name "$run_id-carddav" --network "$network" --network-alias card
   -v "$workdir/carddav.key:/certs/tls.key:ro" \
   "$image" node /carddav.mjs >/dev/null
 
-mkdir -p "$cache/target" "$cache/cargo" "$cache/home"
+echo "==> Cache de build : $cache/$target"
+mkdir -p "$cache/$target" "$cache/cargo/registry/src"
+# Chemin des sources, pour le retrait du dossier quand la copie de travail
+# n'existe plus (app/e2e/prune-targets.sh).
+printf '%s' "$(pwd -P)" > "$cache/$target/.source"
 # Le cache n'est jamais placé dans le PATH : un binaire déposé là par un
 # build ne peut pas remplacer pnpm ou cargo lors d'une exécution suivante.
+# Seul le dossier de build de cette copie de travail est monté, jamais ceux
+# des autres. Sources extraites du registre (registry/src) et HOME sont
+# éphémères : un build ne peut pas y laisser de quoi modifier le suivant ;
+# cargo les réextrait des archives .crate vérifiées ci-dessus.
 common=(
   --rm --user "$(id -u):$(id -g)"
-  -e HOME=/cache/home -e CARGO_HOME=/cache/cargo -e CARGO_TARGET_DIR=/cache/target
+  --tmpfs /tmp/home:exec,mode=1777 -e HOME=/tmp/home
+  -e CARGO_HOME=/cache/cargo -e CARGO_TARGET_DIR="/cache/$target"
   -e RUSTUP_HOME=/opt/rustup
   # Réglages de compilation de la CI (sans compilation incrémentale ni
   # informations de débogage) : transmis seulement s'ils sont définis, et
@@ -165,7 +188,9 @@ common=(
   -e NORELLY_GOOGLE_CLIENT_SECRET=norelly-e2e
   ${CARGO_INCREMENTAL:+-e CARGO_INCREMENTAL}
   ${CARGO_PROFILE_DEV_DEBUG:+-e CARGO_PROFILE_DEV_DEBUG}
-  -v "$cache:/cache" -w /work
+  -v "$cache/$target:/cache/$target" -v "$cache/cargo:/cache/cargo"
+  --tmpfs /cache/cargo/registry/src:exec,mode=1777
+  -w /work
 )
 
 echo "==> Build de l'application (conteneur, réseau extérieur pour crates.io)"
@@ -185,12 +210,11 @@ fi
 chmod 644 "$workdir/passwd" "$workdir/group"
 
 echo "==> Scénarios (conteneur, réseau interne, dépôt en lecture seule)"
-# HOME éphémère : base SQLite et trousseau neufs à chaque exécution (les
-# certificats de test sont régénérés, une ancienne exception serait vue,
-# à juste titre, comme un changement d'empreinte). Locale fr imposée : les
+# HOME éphémère (voir common) : base SQLite et trousseau neufs à chaque
+# exécution (les certificats de test sont régénérés, une ancienne exception
+# serait vue, à juste titre, comme un changement d'empreinte). Locale fr imposée : les
 # scénarios ciblent des textes français (ADR-011).
 docker run "${common[@]}" --network "$network" \
-  --tmpfs /tmp/home:exec,mode=1777 -e HOME=/tmp/home \
   -v "$workdir/passwd:/etc/passwd:ro" -v "$workdir/group:/etc/group:ro" \
   -e NORELLY_E2E_PASSWORD="$password" \
   -v "$workdir/test-cas.crt:/etc/norelly-e2e/test-ca.crt:ro" \

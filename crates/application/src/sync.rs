@@ -13,7 +13,9 @@
 //!    lot enregistre l'état final ;
 //! 4. corps des messages selon la politique de rapatriement, du plus
 //!    récent au plus ancien, enregistrés un à un (reprise naturelle après
-//!    interruption).
+//!    interruption) ; sur Gmail, un corps déjà téléchargé dans un autre
+//!    dossier du compte sous le même `X-GM-MSGID` est recopié
+//!    ([`norelly_domain::gmail`]).
 //!
 //! Chaque boîte modifiée produit un événement [`SyncEvent::FolderChanged`].
 
@@ -24,6 +26,7 @@ use norelly_domain::account::AccountId;
 use norelly_domain::connection::ConnectionError;
 use norelly_domain::fetch_policy::MimePart;
 use norelly_domain::fetch_policy::{BodyFetch, FetchPolicy};
+use norelly_domain::gmail::BodyReuse;
 use norelly_domain::mailbox::{MailboxId, MailboxName, classify_mailboxes};
 use norelly_domain::notify::{NewMail, new_mail};
 use norelly_domain::ports::{
@@ -440,12 +443,23 @@ impl<M: MailStore + PendingOpStore, B: BlobStore> SyncAccount<'_, M, B> {
                 return Ok(done);
             }
             let mut progressed = false;
-            for PendingBody {
-                uid,
-                size,
-                structure,
-            } in pending
-            {
+            for pending in pending {
+                // Gmail : corps déjà téléchargé dans un autre dossier du
+                // compte, recopié au lieu d'être téléchargé (ADR-016).
+                if let Some(reuse) =
+                    BodyReuse::for_pending(self.account, session.capabilities(), &pending)
+                    && self.store.reuse_body(mailbox, pending.uid, &reuse).await?
+                {
+                    done += 1;
+                    progressed = true;
+                    continue;
+                }
+                let PendingBody {
+                    uid,
+                    size,
+                    structure,
+                    ..
+                } = pending;
                 let fetch = self.policy.decide(size, structure.as_ref());
                 let body = match session.fetch_body(uid, &fetch).await {
                     // Disparu entre-temps (ou réponse écartée) : la

@@ -222,6 +222,7 @@ fn sort_date_rejects_future_header_dates() {
         size: 10,
         headers: MessageHeaders::default(),
         structure: None,
+        gmail_id: None,
     };
     assert_eq!(meta.sort_date(), 1_000_000);
     meta.headers.date = Some(999_000);

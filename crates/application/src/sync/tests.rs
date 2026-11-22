@@ -502,3 +502,66 @@ async fn inbox_first_and_virtual_folders_last() -> Result<(), SyncFailure> {
     assert_eq!(order, vec!["INBOX", "Archives", "Tous"]);
     Ok(())
 }
+
+/// Compte Gmail (ou non) : le message 1 est dans la boîte de réception
+/// (lu) et dans « Tous les messages » (non lu), sous le même identifiant
+/// Gmail ; le message 2 n'est que dans « Tous les messages ». Renvoie le
+/// monde synchronisé.
+async fn gmail_world(gmail: bool) -> Result<World, SyncFailure> {
+    let w = World::new();
+    w.imap.set_gmail(gmail);
+    w.imap.create_mailbox("Tous", &["\\All"]);
+    let date = 1_700_000_000;
+    for (mailbox, n, flags, gmail_id) in [
+        ("INBOX", 1, seen(), 42),
+        ("Tous", 1, Flags::default(), 42),
+        ("Tous", 2, Flags::default(), 43),
+    ] {
+        w.imap
+            .append_gmail(mailbox, &raw(n), flags, date, gmail_id)
+            .unwrap_or_else(|| panic!("boîte {mailbox}"));
+    }
+    w.sync().await?;
+    w.assert_converged(&["INBOX", "Tous"]).await;
+    Ok(w)
+}
+
+/// Gmail (`X-GM-EXT-1`) : un message présent dans deux dossiers n'est
+/// téléchargé qu'une fois ; chaque dossier garde ses drapeaux, et la copie
+/// recopiée est cherchable.
+#[tokio::test]
+async fn gmail_message_in_two_folders_is_downloaded_once() -> Result<(), SyncFailure> {
+    use norelly_domain::ports::{SearchIndex, SearchRequest, SearchScope};
+
+    let w = gmail_world(true).await?;
+    assert_eq!(w.imap.body_fetches(), 2, "un corps par message Gmail");
+    let (inbox, all) = (w.id("INBOX").await, w.id("Tous").await);
+    let first = Uid::new(1).unwrap_or_else(|| panic!("uid"));
+    assert_eq!(
+        w.store.body_of(inbox, first),
+        w.store.body_of(all, first),
+        "même corps stocké"
+    );
+    assert!(w.imap.flags_of("INBOX").values().all(|f| f.seen));
+    assert!(w.imap.flags_of("Tous").values().all(|f| !f.seen));
+    let page = w
+        .store
+        .search(SearchRequest {
+            query: norelly_domain::search::parse_query("corps").unwrap_or_default(),
+            scope: SearchScope::Mailbox(inbox),
+            utc_offset_seconds: 0,
+            offset: 0,
+            limit: 10,
+        })
+        .await?;
+    assert_eq!(page.items.len(), 1, "texte cherchable recopié");
+    Ok(())
+}
+
+/// Sans `X-GM-EXT-1` : aucune réutilisation, chaque copie est téléchargée.
+#[tokio::test]
+async fn without_gmail_extension_every_copy_is_downloaded() -> Result<(), SyncFailure> {
+    let w = gmail_world(false).await?;
+    assert_eq!(w.imap.body_fetches(), 3);
+    Ok(())
+}

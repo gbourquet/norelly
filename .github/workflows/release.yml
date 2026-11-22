@@ -1,7 +1,8 @@
 # Publication sur tag `v*` (ADR-006) : installateur NSIS (Windows, avec mise
-# à jour signée minisign), .deb et .rpm (Linux), sommes SHA-256 et manifeste
-# `latest.json` du module de mise à jour, dans une version GitHub en
-# brouillon que le mainteneur relit puis publie. Le Flatpak passe par Flathub
+# à jour signée minisign), .deb et .rpm (Linux), manifeste `latest.json` du
+# module de mise à jour, sommes `SHA256SUMS` et attestation de provenance
+# Sigstore de chaque fichier (sans clé ni secret), dans une version GitHub
+# en brouillon que le mainteneur relit puis publie. Le Flatpak passe par Flathub
 # (packaging/flatpak).
 #
 # Secrets de l'environnement GitHub `release` (tags `v*` seulement, relecture
@@ -46,6 +47,9 @@ jobs:
         run: |
           version="$(python3 -c 'import json; print(json.load(open("app/src-tauri/tauri.conf.json"))["version"])')"
           test "v$version" = "$TAG" || { echo "tag $TAG ≠ version $version" >&2; exit 1; }
+          # Semver, éventuelle préversion : la version entre dans les noms des
+          # fichiers publiés et l'identité vérifiée de l'attestation.
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || { echo "version invalide : $version" >&2; exit 1; }
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
   linux:
@@ -63,7 +67,10 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           persist-credentials: false
-      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+      - uses: dtolnay/rust-toolchain@df2a88e9fe4098bad09cb42c3dec7187f15861fc # master
+        with:
+          toolchain: 1.100.0
+          components: rustfmt, clippy, llvm-tools-preview
       - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6
         with:
           version: 10
@@ -101,7 +108,10 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           persist-credentials: false
-      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+      - uses: dtolnay/rust-toolchain@df2a88e9fe4098bad09cb42c3dec7187f15861fc # master
+        with:
+          toolchain: 1.100.0
+          components: rustfmt, clippy, llvm-tools-preview
       - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6
         with:
           version: 10
@@ -162,28 +172,101 @@ jobs:
             target/release/bundle/nsis/latest.json
           if-no-files-found: error
 
-  publish:
-    name: Version GitHub (brouillon)
+  assets:
+    name: Fichiers, sommes et provenance
     needs: [version, linux, windows]
     runs-on: ubuntu-24.04
+    # Jeton OIDC (certificat Sigstore éphémère, sans clé à garder) et
+    # écriture des attestations : ce job seul, sans droit d'écriture sur le
+    # dépôt ni secret.
     permissions:
-      contents: write
+      contents: read
+      id-token: write
+      attestations: write
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           persist-credentials: false
+      # Les seuls artefacts des builds, nommés (jamais `release`, laissé par
+      # une tentative précédente de ce job), un dossier chacun (pas de
+      # fusion, qui écraserait sans bruit deux fichiers du même nom) ;
+      # release-assets.sh les met à plat.
       - uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
         with:
-          path: dist
-          merge-multiple: true
+          name: linux
+          path: artifacts/linux
+      - uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
+        with:
+          name: windows
+          path: artifacts/windows
       - name: Manifestes winget (à proposer à microsoft/winget-pkgs)
         env:
           VERSION: ${{ needs.version.outputs.version }}
         run: |
-          ./scripts/winget-manifests.sh "$VERSION" "dist/Norelly_${VERSION}_x64-setup.exe" winget
-          (cd winget && zip -q "../dist/winget-manifests-${VERSION}.zip" ./*.yaml)
-      - name: Sommes SHA-256
-        run: cd dist && sha256sum -- * > SHA256SUMS && cat SHA256SUMS
+          ./scripts/winget-manifests.sh "$VERSION" "artifacts/windows/Norelly_${VERSION}_x64-setup.exe" winget
+          mkdir -p artifacts/winget
+          (cd winget && zip -q "../artifacts/winget/winget-manifests-${VERSION}.zip" ./*.yaml)
+      - name: Fichiers publiés et sommes SHA-256
+        run: ./scripts/release-assets.sh artifacts dist
+      # Une attestation de provenance SLSA, signée par Sigstore avec
+      # l'identité de ce workflow, couvre chaque fichier publié, SHA256SUMS
+      # compris ; enregistrée sur GitHub et jointe à la version.
+      - name: Attestation de provenance
+        id: provenance
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: dist/*
+      - name: Attestation jointe à la version
+        env:
+          BUNDLE: ${{ steps.provenance.outputs.bundle-path }}
+          VERSION: ${{ needs.version.outputs.version }}
+        run: cp -- "$BUNDLE" "dist/Norelly_${VERSION}_provenance.sigstore.json"
+      - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        with:
+          name: release
+          path: dist/
+          if-no-files-found: error
+          # Relance du job : remplace l'artefact de la tentative précédente.
+          overwrite: true
+
+  publish:
+    name: Version GitHub (brouillon)
+    needs: [version, assets]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
+        with:
+          name: release
+          path: dist
+      # Ce qui part est exactement ce qui a été sommé et attesté par ce
+      # workflow, pour ce tag et ce commit (même vérification que celle
+      # proposée aux utilisateurs).
+      - name: Vérification des sommes et de la provenance
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          cd dist
+          bundle="Norelly_${VERSION}_provenance.sigstore.json"
+          sha256sum --check --strict SHA256SUMS
+          mapfile -t listed < <(cut -d' ' -f3- SHA256SUMS)
+          expected="$(printf '%s\n' "${listed[@]}" SHA256SUMS "$bundle" | LC_ALL=C sort)"
+          if [ "$(LC_ALL=C ls -A)" != "$expected" ]; then
+            echo "fichiers non sommés dans la version" >&2
+            exit 1
+          fi
+          gh --version
+          # Identité exacte du certificat (égalité, pas un préfixe) : ce
+          # workflow, à ce tag.
+          for file in "${listed[@]}" SHA256SUMS; do
+            gh attestation verify "$file" --bundle "$bundle" \
+              --repo "$GITHUB_REPOSITORY" \
+              --cert-identity "https://github.com/$GITHUB_WORKFLOW_REF" \
+              --source-ref "$GITHUB_REF" --source-digest "$GITHUB_SHA" \
+              --deny-self-hosted-runners
+          done
       - name: Brouillon de version
         env:
           GH_TOKEN: ${{ github.token }}

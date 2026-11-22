@@ -25,12 +25,25 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           persist-credentials: false
-      - uses: dtolnay/rust-toolchain@2c76c034f9e32a5d6e2c104dc4df23a22476db04 # nightly
+      - uses: dtolnay/rust-toolchain@df2a88e9fe4098bad09cb42c3dec7187f15861fc # master
+        with:
+          toolchain: nightly-2026-11-20
       - uses: taiki-e/install-action@c509219cf42fba86913069efd0ade2458c59337b # v2
         with:
-          tool: cargo-fuzz
+          tool: cargo-fuzz@0.13.2
+          # Absent des manifestes de l'action : compilé depuis crates.io (sommes
+          # du registre), jamais un binaire non vérifié de cargo-binstall.
+          fallback: cargo-install
+        # Compilé avec le nightly du job, sans installer aussi la chaîne de
+        # rust-toolchain.toml.
+        env:
+          RUSTUP_TOOLCHAIN: nightly-2026-11-20
+      # cargo-fuzz résoudrait en silence un fuzz/Cargo.lock périmé : le code
+      # fuzzé doit être celui que `cargo deny` a contrôlé.
+      - name: Verrou du fuzzing à jour
+        run: cargo +nightly-2026-11-20 metadata --manifest-path fuzz/Cargo.toml --locked --format-version 1 > /dev/null
       - name: Cinq minutes par cible
-        run: cargo +nightly fuzz run ${{ matrix.target }} -- -max_total_time=300 -max_len=65536 -timeout=10
+        run: cargo +nightly-2026-11-20 fuzz run ${{ matrix.target }} -- -max_total_time=300 -max_len=65536 -timeout=10
       - if: failure()
         uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
         with:
@@ -50,7 +63,10 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           persist-credentials: false
-      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+      - uses: dtolnay/rust-toolchain@df2a88e9fe4098bad09cb42c3dec7187f15861fc # master
+        with:
+          toolchain: 1.100.0
+          components: rustfmt, clippy, llvm-tools-preview
       - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6
         with:
           version: 10
@@ -72,8 +88,12 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           persist-credentials: false
-      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+      - uses: dtolnay/rust-toolchain@df2a88e9fe4098bad09cb42c3dec7187f15861fc # master
+        with:
+          toolchain: 1.100.0
+          components: rustfmt, clippy, llvm-tools-preview
       - uses: taiki-e/install-action@c509219cf42fba86913069efd0ade2458c59337b # v2
         with:
-          tool: cargo-nextest
+          tool: cargo-nextest@0.9.151
+          fallback: none
       - run: cargo nextest run -p norelly-application --locked --profile stalwart

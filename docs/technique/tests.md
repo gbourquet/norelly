@@ -20,6 +20,7 @@ messagerie ni à un vrai DNS : conteneurs, faux serveurs en processus.
 | **Performance** | `crates/adapters/sqlite/benches/`, `app/e2e/perf/` | `criterion`, scénario e2e mesuré | voir plus bas |
 | **Fuzzing** | `fuzz/fuzz_targets/` | `cargo-fuzz` | job nocturne |
 | **Documentation** | `scripts/check-docs.*`, `app/src/docs.test.ts` | Node, Vitest | `./scripts/check-docs.sh` |
+| **Scripts de publication** | `scripts/release-assets.test.sh` | Bash et coreutils, fichiers factices (Linux) | `./scripts/release-assets.test.sh` (lancé par `check.sh`) |
 
 Profils nextest (`.config/nextest.toml`) : `default` exclut les binaires
 `integration*` ; `integration` les lance (sauf Stalwart) ; `stalwart` le
@@ -70,6 +71,21 @@ autorités du système dans ce conteneur sans Internet). Le conseil « mot de
 passe d'application » exige en effet des serveurs de Google joints sans
 exception de certificat.
 
+L'image part d'Ubuntu 24.04 figée par empreinte ; ses paquets apt viennent
+d'un instantané daté de l'archive (`snapshot.ubuntu.com`, date `snapshot=`
+écrite dans le Dockerfile), si bien que deux constructions installent les
+mêmes versions ; la construction échoue si un index ne vient pas de cet
+instantané. Rustup, Node.js et pnpm sont des archives figées vérifiées par
+SHA-256. Les correctifs Ubuntu n'arrivent donc qu'avec une montée de la
+date : au moins une fois par mois, et dès qu'un avis de sécurité Ubuntu
+touche un paquet de l'image (WebKitGTK, libsoup, OpenSSL, curl…) ;
+`./scripts/check.sh` avertit, sans échouer, au-delà de 35 jours
+(`scripts/check-apt-snapshot.mjs`, testé par
+`scripts/check-apt-snapshot.test.mjs`). Montée :
+remplacer la date par une date récente, postérieure à l'image de base (UTC,
+format `AAAAMMJJTHHMMSSZ`), et relancer `pnpm -C app e2e` ; l'empreinte du
+Dockerfile change, la CI reconstruit donc son image.
+
 | Scénario | Vérifie |
 |---|---|
 | `add-account.e2e.mjs` | Ajout d'un compte de bout en bout (saisie manuelle, confiance dans les certificats) |
@@ -97,6 +113,61 @@ seul l'e2e le prouve.
 Les captures ne sont recopiées dans `docs/` que si tous les scénarios ont
 réussi. Elles ne se modifient jamais à la main : relancer
 `pnpm -C app e2e`, puis commiter les PNG modifiés.
+
+### Cache de build
+
+Le build de l'application dans le conteneur garde ses fichiers compilés
+dans `~/.cache/norelly-e2e` (ou `$XDG_CACHE_HOME/norelly-e2e`) ; le
+dossier utilisé est affiché au lancement (« Cache de build : … ») :
+
+| Dossier | Contenu | Partagé entre copies de travail |
+|---|---|---|
+| `target-<empreinte>/` | Fichiers compilés (`CARGO_TARGET_DIR`) | Non : un par copie de travail, seul monté dans le conteneur |
+| `cargo/registry/cache/`, `cargo/registry/index/` | Archives `.crate` et index du registre | Oui ; archives revérifiées contre `Cargo.lock` à chaque lancement |
+
+Les sources extraites du registre (`cargo/registry/src`) et le `HOME` des
+conteneurs sont éphémères (`tmpfs`) : cargo réextrait les sources des
+archives à chaque lancement, en quelques secondes, sans recompiler les
+dépendances.
+
+Les dépôts git des dépendances (`cargo/git`, clones et extractions) sont
+retirés au début de chaque lancement (`app/e2e/run.sh`) : cargo réutilise
+une extraction existante sans la revérifier, et ce dossier est partagé par
+toutes les copies de travail. Le build reclone donc le dépôt, puis les
+scénarios (`cargo test --offline`) se servent de cette extraction.
+
+Toutes les copies de travail (worktrees git) sont montées sur `/work` dans
+le conteneur : avec un seul dossier de build, cargo reprendrait les
+fichiers compilés d'une autre branche, les dates de modification ne
+suffisant pas à les distinguer. L'empreinte est donc tirée du chemin réel
+des sources (`app/e2e/target-name.sh`) : chaque copie de travail
+recompile seulement ce qui a changé depuis son lancement précédent. La CI
+calcule le même nom pour le chemin du dépôt sur le runner, qui est
+stable, et sauve ou restaure ce dossier.
+
+cargo ne contrôle l'empreinte d'une archive `.crate` qu'à son
+téléchargement, pas quand elle est déjà dans le cache. Au lancement,
+`app/e2e/verify-crates.sh` compare donc chaque archive d'un paquet de
+`Cargo.lock` à son `checksum` et retire celle qui diffère (ou qui n'est
+pas un fichier ordinaire) : cargo la télécharge et la vérifie à nouveau.
+Si une archive ne peut pas être lue, le lancement s'arrête. Le script
+ne lit que les empreintes de `sha256sum`, jamais les chemins qu'il
+réécrit (préfixe `*` du mode binaire sous Windows, chemins échappés).
+
+Nettoyage : chaque dossier de build note dans `.source` le chemin des
+sources qui l'ont produit. Au lancement, `app/e2e/prune-targets.sh` retire
+ceux dont la copie de travail n'existe plus ; un dossier d'origine
+inconnue, un lien symbolique et le registre de cargo ne sont jamais
+touchés. Une copie de travail neuve compile tout à son premier lancement.
+Pour tout libérer :
+`rm -rf "${XDG_CACHE_HOME:-$HOME/.cache}"/norelly-e2e/target-*` (chaque
+dossier sera recompilé au lancement suivant) ; le nom propre à une copie
+de travail s'obtient avec `app/e2e/target-name.sh <chemin>`. Les dossiers
+`target/`, `home/` et `cargo/registry/src/` des versions précédentes ne
+servent plus : les supprimer à la main.
+
+Ces trois scripts sont testés par `app/e2e/*.test.sh`, lancés par
+`./scripts/check.sh`.
 
 ## Couverture et seuils
 
@@ -148,6 +219,31 @@ Les bancs de bout en bout tournent dans le job nocturne
 (`.github/workflows/nightly.yml`), avec cinq minutes de fuzzing par cible
 (`mime_message`, `sanitize_html`, `sanitize_css`, `autoconfig_xml`,
 `search_query`, `contact_import`, `contact_export`) et la suite de contrat contre Stalwart.
+La cible `sanitize_html` vérifie chaque sortie avec l'oracle
+`norelly_render::oracle` (fonctionnalité `fuzz-oracle` du crate, activée
+par `fuzz/` seulement, jamais par l'application ; ses tests unitaires
+tournent avec ceux du crate) : aucune balise active, aucun attribut
+`on…`, aucune adresse `javascript:`, `vbscript:` ou `data:` hors image
+matricielle, aucune adresse d'image ou de lien inattendue (ni
+`remote-img://` quand les images distantes sont bloquées), la sortie
+étant analysée comme par le tokeniseur HTML du navigateur.
+
+Le workspace de fuzzing a son propre verrou, `fuzz/Cargo.lock`. Dans
+`./scripts/check.sh`, `cargo deny` le contrôle avec `--locked` (verrou à
+jour), et `scripts/check-fuzz-lock.mjs` vérifie que chaque crate qu'il
+partage avec le `Cargo.lock` racine y a la même version et la même
+empreinte : le fuzzing porte ainsi sur le code livré. Après un changement
+de dépendances à la racine, resynchroniser en repartant du verrou racine :
+`cp Cargo.lock fuzz/Cargo.lock` puis
+`cargo metadata --manifest-path fuzz/Cargo.toml --format-version 1 > /dev/null`
+(cargo retire les paquets inutiles au fuzzing et résout les siens,
+`libfuzzer-sys` et `arbitrary`, à relire dans le diff). Le job nocturne
+refuse un verrou périmé avant de compiler.
+
+`./scripts/check.sh full` compile aussi toutes les cibles
+(`cargo check --manifest-path fuzz/Cargo.toml --locked --bins`, Rust
+stable) : un changement d'API qui casserait une cible se voit dans la PR,
+pas seulement au job nocturne.
 
 ## Tests manuels
 

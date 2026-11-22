@@ -8,6 +8,11 @@ license.workspace = true
 repository.workspace = true
 publish.workspace = true
 
+[features]
+# Oracle du fuzzing (`oracle`), pour le crate `fuzz/` seulement : jamais
+# activé dans l'application.
+fuzz-oracle = []
+
 [dependencies]
 norelly-domain.workspace = true
 # Charsets hérités (ISO-2022-JP, windows-125x…) : full_encoding.

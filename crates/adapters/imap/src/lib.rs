@@ -33,6 +33,7 @@ use norelly_domain::connection::{
 };
 use norelly_domain::endpoint::{Security, ServerEndpoint};
 use norelly_domain::fetch_policy::BodyFetch;
+use norelly_domain::gmail::gmail_ids_enabled;
 use norelly_domain::mailbox::{
     Flags, Keyword, ListedMailbox, MailboxName, MessageMeta, ModSeq, Uid,
 };
@@ -483,7 +484,12 @@ impl RemoteMailboxSession for ImapSession {
 
     async fn fetch_meta(&mut self, uids: &[Uid]) -> Result<Vec<MessageMeta>, ConnectionError> {
         self.conn
-            .fetch_meta(uids, self.selected_condstore, &self.trust)
+            .fetch_meta(
+                uids,
+                self.selected_condstore,
+                gmail_ids_enabled(&self.capabilities),
+                &self.trust,
+            )
             .await
     }
 

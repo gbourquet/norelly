@@ -6,11 +6,15 @@
 
 Prérequis :
 
-- **Rust** ≥ 1.90 (via rustup de préférence), avec `rustfmt`, `clippy` et
-  `llvm-tools-preview` (`rustup component add llvm-tools-preview`) ; sans
-  rustup, `llvm-cov` et `llvm-profdata` du système, de même version majeure
-  que `rustc` ;
-- outils cargo : `cargo install --locked cargo-nextest cargo-deny cargo-llvm-cov` ;
+- **Rust** via rustup de préférence : la version de la CI et ses
+  composants (`rustfmt`, `clippy`, `llvm-tools-preview`) sont installés
+  d'eux-mêmes à la première commande `cargo` du dépôt
+  (`rust-toolchain.toml` ; avec `RUSTUP_AUTO_INSTALL=0`, lancer
+  `rustup toolchain install` dans le dépôt). Sans rustup, Rust du système (≥ 1.90, idéalement
+  la version de `rust-toolchain.toml`), avec `llvm-cov` et `llvm-profdata`
+  de même version majeure que `rustc` ;
+- outils cargo : `cargo install --locked cargo-nextest cargo-deny cargo-llvm-cov`
+  (versions de la CI : entrées `tool:` de `.github/workflows/ci.yml`) ;
 - **Node** ≥ 22 et **pnpm** 10 ;
 - **Docker** (tests d'intégration et e2e) ;
 - dépendances système de Tauri. Linux (Debian, Ubuntu) :
@@ -41,6 +45,11 @@ tauri dev`, valeurs de la console Google Cloud du projet) ; sans eux, une
 adresse Gmail passe par le mot de passe d'application (ADR-013). Pour essayer sans compte personnel, lancez Dovecot et
 Mailpit en local comme le font les e2e, ou utilisez un compte de test
 dédié (jamais un compte personnel dans les tests).
+
+Les outils de développement de la vue s'ouvrent par le clic droit
+« Inspecter l'élément » : le raccourci Ctrl+Maj+I que Tauri ajoute en
+développement passe par une commande du noyau que la fenêtre n'a pas le
+droit d'appeler ([sécurité](securite.md#application-tauri)).
 
 ## 3. Tester
 

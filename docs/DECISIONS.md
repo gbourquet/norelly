@@ -340,12 +340,23 @@ est majoritairement écrit par Claude et relu par le mainteneur.
     l'application, passe par `oo7` et donc par zbus, écarté par
     `deny.toml`. On garde l'accès direct, comme les autres clients mail
     sous Flatpak. À réexaminer si zbus redevient acceptable.
-  - `--filesystem=xdg-download` (lecture et écriture) et
-    `--filesystem=xdg-documents:ro` : le sélecteur de fichiers GTK3 de
-    `tauri-plugin-dialog` ne passe pas par le portail. Les pièces jointes
-    s'enregistrent dans Téléchargements et se joignent depuis
-    Téléchargements ou Documents. À retirer quand le sélecteur passera par
-    le portail.
+- **Accès aux fichiers (2026-11-22)** : le Flatpak n'a aucune
+  autorisation `--filesystem`. Les autorisations `xdg-download` et
+  `xdg-documents:ro`, accordées en dérogation le 2026-11-05 au motif que
+  le sélecteur de `tauri-plugin-dialog` ne passerait pas par le portail,
+  sont retirées comme le prévoyait cette dérogation : ce sélecteur
+  (`rfd`, moteur GTK3) est un `GtkFileChooserNative`, que GTK 3 fait
+  passer par le portail FileChooser dès qu'il tourne dans un bac à sable
+  Flatpak (dossier choisi compris), et le glisser-déposer passe par le
+  portail Documents. Seul ce que l'utilisateur choisit est exposé, en
+  écriture pour un dossier ou un fichier à enregistrer.
+  `scripts/check-packaging.sh` n'accepte que la liste fermée des
+  autorisations ci-dessus (`ALLOWED_FINISH_ARGS` de
+  `scripts/flathub-manifest.py`).
+- **Source Flathub** : le manifeste du dépôt construit l'arbre local
+  (`type: dir`) ; le manifeste soumis à Flathub en est dérivé par
+  `scripts/flathub-manifest.py` (source `git`, tag et commit lus dans le
+  dépôt, fichiers pris au commit du tag).
 
 ## ADR-007 : stratégie de tests
 
@@ -420,6 +431,14 @@ est majoritairement écrit par Claude et relu par le mainteneur.
     assainisseur, protocoles personnalisés, écriture des pièces jointes.
     Ces fichiers sont signalés au mainteneur dans chaque PR qui les
     touche.
+- **Dérogation (2026-11-22, acceptée par le mainteneur)** : l'oracle du
+  fuzzing de l'assainisseur HTML (`norelly_render::oracle`) vit dans
+  l'adaptateur `render`, alors qu'il ne sert qu'aux tests.
+  - Il n'est compilé que pour les tests du crate (`cfg(test)`) ou avec
+    la fonctionnalité `fuzz-oracle`, que seul `fuzz/` active.
+  - Le binaire de l'application ne le contient donc pas.
+  - Il ne pouvait pas aller dans `crates/test-support`, qui ne peut pas
+    dépendre de `render`.
 
 ## ADR-009 : licence et politique de dépendances
 
@@ -446,6 +465,13 @@ est majoritairement écrit par Claude et relu par le mainteneur.
   `imap-next`, et fait donc partie de l'application livrée. Aucun
   remplacement n'est possible sans changer de bibliothèque IMAP : retirer
   l'exception quand `imap-codec` abandonnera `chrono`.
+- **Précision validée par le mainteneur (2026-11-22)** : la licence
+  University of Illinois/NCSA (permissive, de type BSD, ancienne licence
+  de LLVM) est admise dans `deny.toml`, par une exception limitée à
+  `libfuzzer-sys`. Cette crate est une dépendance de cargo-fuzz dans le
+  workspace `fuzz/`, contrôlé lui aussi par `cargo deny`, et n'est jamais
+  distribuée. Une dépendance de l'application sous cette licence reste
+  refusée.
 
 ## ADR-010 : éditeur de rédaction
 
@@ -992,3 +1018,158 @@ est majoritairement écrit par Claude et relu par le mainteneur.
     (Radicale, Baïkal, Xandikos sont sous GPL) ; l'e2e utilise un faux
     serveur CardDAV en Node.js sur le réseau interne, de certificat signé
     par une autorité de test limitée à son nom.
+
+## ADR-015 : notifications natives par `notify-rust`, sans zbus
+
+- **Statut** : Acceptée (2026-11-22). Dérogation validée par le
+  mainteneur le 2026-11-22 : les notifications ne passent pas par le
+  plugin officiel de Tauri (ADR-001).
+- **Contexte** : les notifications des nouveaux messages passaient par
+  `tauri-plugin-notification`. Sous Linux, ce plugin tire zbus 5, dont
+  `zvariant`, `zbus_names` et `zvariant_derive` sont signalés non
+  maintenus (RUSTSEC-2026-0370 à 0372). `cargo deny` refuse ces avis
+  (ADR-009) : la vérification échouait.
+- **Options** :
+  - `tauri-plugin-notification`, avec les avis ignorés dans `deny.toml` ;
+  - `tauri-plugin-notification` tel quel, ce qui bloque `cargo deny` tant
+    qu'il tire zbus 5 ;
+  - `notify-rust` sans zbus, sur la libdbus du système.
+- **Décision** : **`notify-rust`** 4, sans ses fonctionnalités par défaut
+  (`default-features = false`) et avec la seule fonctionnalité `d` :
+  D-Bus par la libdbus du système (crate `dbus`), sans zbus ni libdbus
+  embarquée. L'appel est fait en Rust seulement, par la commande
+  `show_notification` (`app/src-tauri/src/settings.rs`). Aucune
+  permission de plugin n'est accordée à l'interface : elle n'a droit
+  qu'à cette commande de l'application, comme aux autres
+  (`permissions/main-window.toml`).
+- **Conséquences** :
+  - Le texte est composé par l'interface, dans la langue de l'utilisateur
+    (ADR-011), à partir de l'événement de nouveaux messages déjà filtré en
+    Rust (contenu retiré si l'utilisateur masque l'expéditeur et le
+    sujet). La commande revalide ce texte : caractères de contrôle et de
+    mise en forme remplacés, longueur bornée (titre 120 caractères, texte
+    300, avant échappement), puis `&`, `<` et `>` échappés dans le titre
+    et le texte sous Linux, où le serveur de notifications freedesktop
+    peut interpréter un balisage (liens, images). Aucun secret ni
+    identifiant n'y figure. Un échec d'affichage (pas de service de
+    notification) est seulement journalisé, sans le texte.
+  - Risque restant accepté : certains serveurs de notifications rendent
+    cliquable une adresse écrite en clair (par exemple dans un sujet). Rien
+    n'est chargé sans clic, et le lien s'ouvre hors de Norelly.
+  - Linux : dépendance à la libdbus du système, à l'exécution et à la
+    compilation. Paquets `libdbus-1-3` (.deb) et `dbus-libs` (.rpm)
+    déclarés dans `app/src-tauri/tauri.conf.json` ; `libdbus-1-dev` dans
+    la CI (`ci.yml`, `nightly.yml`, `release.yml`), dans l'image de l'e2e
+    (`app/e2e/Dockerfile`) et dans `premiers-pas.md`. Flatpak : libdbus est
+    fournie par le runtime GNOME ; le manifeste accorde
+    `--talk-name=org.freedesktop.Notifications` (portée limitée au
+    service de notifications). La même libdbus sert déjà au trousseau
+    (magasin Secret Service, choisi pour la même raison). Sa licence
+    (AFL-2.1 ou GPL-2.0+, au choix) est prise sous AFL et la bibliothèque
+    est liée dynamiquement : compatible avec l'ADR-009.
+  - Windows : notification « toast » par WinRT (`tauri-winrt-notification`),
+    sans D-Bus. Le nom passé par `appname` n'y sert pas et aucun
+    identifiant d'application (`app_id`) n'est fixé : la notification est
+    attribuée à l'identifiant par défaut de `notify-rust` (celui de
+    Windows PowerShell), et non à Norelly. Effets : l'utilisateur voit
+    « Windows PowerShell » comme origine, ce qui aide un autre programme
+    à se faire passer pour Norelly ; couper les notifications de
+    PowerShell coupe celles de Norelly, et inversement ; un clic sur la
+    notification active l'application liée à cet identifiant (non
+    vérifié sous Windows). Fixer l'identifiant de l'application
+    (`io.github.gbourquet.Norelly`) suppose que l'installateur NSIS le
+    pose sur le raccourci, et masquerait les notifications là où il n'est
+    pas enregistré (lancement de développement) : correction à vérifier
+    sur un Windows installé avant d'être faite.
+  - L'application ne dépend plus d'aucune version de zbus : un retour de
+    zbus 5 non maintenu, par une nouvelle dépendance, ferait de nouveau
+    échouer `cargo deny`.
+- **Alternatives écartées** :
+  - exception RUSTSEC dans `deny.toml` : les crates concernés seraient
+    livrés dans l'application, alors qu'un remplacement sans exception
+    existe ;
+  - plugin officiel `tauri-plugin-notification` : tire zbus 5 ; il
+    exposerait en outre des permissions de plugin à l'interface, inutiles
+    ici.
+- **Réexamen** : revenir au plugin officiel quand zbus et ses crates
+  (`zvariant`, `zbus_names`, `zvariant_derive`) seront de nouveau
+  maintenus et acceptés par `cargo deny` sans exception. La même condition vaut pour
+  `tauri-plugin-opener` (ADR-004) et le portail Secret (ADR-006).
+
+## ADR-016 : messages Gmail présents dans plusieurs dossiers (`X-GM-MSGID`, fork d'imap-codec)
+
+- **Statut** : Acceptée (2026-11-22). Décisions du mainteneur : fork
+  d'`imap-types`/`imap-codec` en dépendance git figée par commit, seule
+  source git admise par `deny.toml` ; ADR validé par avance, code dans la
+  même livraison.
+- **Contexte** : Gmail expose le même message dans « Tous les messages »
+  et dans chaque dossier d'étiquette. La synchronisation traite chaque
+  dossier séparément : le corps d'un même message est téléchargé autant
+  de fois qu'il apparaît (premier tour d'un gros compte très long). Gmail
+  attribue à chaque message un identifiant unique et stable,
+  `X-GM-MSGID` (extension `X-GM-EXT-1`), le même dans tous les dossiers.
+  `imap-types` 2.0.0-alpha.7 et `imap-codec` 2.0.0-alpha.9 (ADR-002)
+  n'ont aucune variante pour `X-GM-MSGID`, ni générique : une réponse
+  `FETCH` qui le contient n'est pas décodée.
+- **Options** :
+  - reconnaissance du même message : `X-GM-MSGID` ; Message-ID et taille ;
+    ignorer « Tous les messages » ;
+  - dépendance : attendre un correctif publié en amont ; fork en
+    dépendance git ; copie vendue dans le dépôt ; extension maison hors
+    du codec (réponse brute réanalysée).
+- **Décision** :
+  - **identifiant** : `X-GM-MSGID`, demandé avec les métadonnées
+    **seulement** si le serveur annonce `X-GM-EXT-1` ; sans l'annonce,
+    rien ne change (ni la commande, ni la lecture d'un `X-GM-MSGID` non
+    sollicité). L'identifiant est enregistré par message (migration 29) ;
+  - **réutilisation** (règle du domaine, `norelly_domain::gmail`) : avant
+    de télécharger le corps d'un message, s'il porte un identifiant et
+    que la session annonce `X-GM-EXT-1`, le corps et le texte cherchable
+    d'un message **du même compte**, de **même identifiant** et de
+    **même taille**, déjà téléchargé et hors copie provisoire d'une action
+    en attente, sont recopiés au lieu d'être téléchargés. Les messages
+    bruts sont rangés par empreinte de contenu et jamais supprimés message
+    par message : deux messages qui partagent un même contenu stocké ne
+    se gênent pas. Les drapeaux restent ceux de chaque dossier ;
+  - **dépendance** : fork
+    [`gbourquet/imap-codec`](https://github.com/gbourquet/imap-codec),
+    branche `gmail-x-gm-msgid` partie exactement du tag
+    `imap-codec/v2.0.0-alpha.9` (dont `imap-types` est identique au tag
+    `imap-types/v2.0.0-alpha.7`), avec un seul commit : variantes
+    `MessageDataItemName::XGmMsgId` et `MessageDataItem::XGmMsgId(u64)`,
+    encodage et décodage (`X-GM-MSGID SP number64`), tests dans le style
+    du projet, derrière une feature `ext_gmail` (rien ne change sans
+    elle). Branché par `[patch.crates-io]` dans le `Cargo.toml` racine,
+    `rev` = commit complet, ce qui l'applique aussi à la copie tirée par
+    `imap-next` ; `norelly-imap` déclare `imap-codec` pour la seule
+    feature `ext_gmail`. `deny.toml` n'admet que cette source git
+    (`allow-git`), `unknown-git = "deny"` reste. Licence inchangée
+    (`MIT OR Apache-2.0`, ADR-009).
+- **Suivi de l'amont et retour à crates.io** : le correctif est proposable
+  tel quel en amont (`duesee/imap-codec`). À chaque montée d'`imap-next`,
+  `imap-codec` ou `imap-types` : rebaser la branche du fork sur le tag de
+  la nouvelle version (nouvelle branche, nouveau commit figé). Dès qu'une
+  version publiée contient `X-GM-MSGID` (quel qu'en soit le nom) :
+  supprimer `[patch.crates-io]` et l'exception `allow-git`, adapter
+  l'adaptateur IMAP, clore cette dérogation.
+- **Risques** :
+  - fork à maintenir à la main : les correctifs de sécurité de l'amont
+    n'arrivent qu'au rebasage (avis surveillés par `cargo deny` sur le
+    nom des crates, l'avis de l'amont reste visible) ;
+  - dépôt git indisponible : compilation impossible sans cache local ;
+    commit figé, donc pas de changement silencieux du code tiré ;
+  - un serveur peut annoncer `X-GM-EXT-1` sans être Gmail, ou envoyer des
+    identifiants faux : il ne peut alors qu'afficher, dans son propre
+    compte, un corps qu'il a lui-même fourni ; la portée par compte et la
+    taille identique exigée empêchent tout mélange entre comptes.
+- **Alternatives écartées** :
+  - ignorer « Tous les messages » : les messages archivés n'existent que
+    là, ils disparaîtraient ;
+  - réutiliser d'après Message-ID et taille : un expéditeur choisit son
+    Message-ID, il pourrait faire afficher son contenu à la place d'un
+    message légitime ;
+  - attendre l'amont : délai inconnu (versions alpha) ;
+  - copie vendue dans le dépôt : historique et provenance moins lisibles
+    qu'un fork figé, et rien ne l'apparenterait à l'amont ;
+  - réanalyse maison de la réponse brute : contourne le codec strict et
+    fuzzé choisi par ADR-002.

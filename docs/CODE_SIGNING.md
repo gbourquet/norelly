@@ -16,6 +16,12 @@ minisign.
 - Rien d'autre : aucun binaire construit hors de GitHub Actions, aucun
   composant tiers resigné.
 
+Indépendamment de cette signature, chaque fichier d'une version (et le
+fichier `SHA256SUMS` de leurs empreintes) porte une attestation de
+provenance Sigstore, sans clé, émise par le même workflow : elle est jointe
+à la version et vérifiable par chacun (voir « Vérifier un fichier
+téléchargé » dans [l'installation](utilisateur/fr/install.md)).
+
 ## Rôles
 
 | Rôle | Personnes |

@@ -1,5 +1,6 @@
 # Cibles cargo-fuzz (ADR-007), lancées par le job nocturne (nightly.yml) :
-#   cargo +nightly fuzz run <cible> -- -max_total_time=300
+#   cargo +nightly-AAAA-MM-JJ fuzz run <cible> -- -max_total_time=300
+# (nightly daté de nightly.yml, pour reproduire un plantage de la CI).
 # Hors du workspace : jamais distribué, Rust nightly requis par cargo-fuzz.
 [package]
 name = "norelly-fuzz"
@@ -17,7 +18,7 @@ members = ["."]
 [dependencies]
 libfuzzer-sys = "0.4"
 norelly-domain = { path = "../crates/domain" }
-norelly-render = { path = "../crates/adapters/render" }
+norelly-render = { path = "../crates/adapters/render", features = ["fuzz-oracle"] }
 norelly-discovery = { path = "../crates/adapters/discovery" }
 norelly-contacts-io = { path = "../crates/adapters/contacts-io" }
 

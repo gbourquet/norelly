@@ -11,6 +11,7 @@ use norelly_domain::conversation::{
     ConversationScope, MessageCopy, ShownCopy, ThreadKeys, ThreadMessage, shown_copies, thread,
 };
 use norelly_domain::fetch_policy::PartPath;
+use norelly_domain::gmail::{BodyCandidate, BodyReuse, GmailMessageId};
 use norelly_domain::labels::{
     KeywordPermission, LabelRewrite, PendingFollow, StoredLabel, rewrite_flags,
 };
@@ -55,7 +56,8 @@ pub fn sha256_hex(bytes: &[u8]) -> String {
         .collect()
 }
 
-fn blob_id(bytes: &[u8]) -> Result<BlobId, StoreError> {
+/// Empreinte de contenu de `bytes`, pour les corps de test.
+pub fn blob_id(bytes: &[u8]) -> Result<BlobId, StoreError> {
     BlobId::parse(&sha256_hex(bytes)).ok_or_else(|| StoreError("empreinte".into()))
 }
 
@@ -178,12 +180,14 @@ pub fn sample_message(n: u32, date: i64, seen: bool) -> StoredMessage {
                 ..MessageHeaders::default()
             },
             structure: None,
+            gmail_id: None,
         },
         body: StoredBody::Missing,
     }
 }
 
-pub(crate) fn state(validity: u32, modseq: u64, next: u32) -> MailboxSyncState {
+/// État de synchronisation de test : UIDVALIDITY, MODSEQ le plus haut, UIDNEXT.
+pub fn state(validity: u32, modseq: u64, next: u32) -> MailboxSyncState {
     MailboxSyncState {
         uid_validity: UidValidity::new(validity),
         highest_modseq: ModSeq::new(modseq),
@@ -650,6 +654,202 @@ where
     Ok(())
 }
 
+/// Message Gmail de test : UID `n`, identifiant Gmail `gmail_id`, taille
+/// `size`.
+pub fn gmail_message(n: u32, gmail_id: u64, size: u32, seen: bool) -> StoredMessage {
+    let mut message = sample_message(n, 1_000 + i64::from(n), seen);
+    message.meta.gmail_id = GmailMessageId::new(gmail_id);
+    message.meta.size = size;
+    message
+}
+
+/// Contrat de [`MailStore::reuse_body`] et de l'enregistrement de
+/// l'identifiant Gmail, pour le compte `account` (qui doit exister et
+/// n'avoir aucune boîte) ; `other` : un second compte (isolation).
+pub async fn gmail_body_reuse_contract<S>(
+    store: &S,
+    account: AccountId,
+    other: AccountId,
+) -> Result<(), StoreError>
+where
+    S: MailStore + norelly_domain::ports::SearchIndex,
+{
+    let boxes = store
+        .replace_mailboxes(
+            account,
+            &[
+                mailbox("[Gmail]/Tous les messages", MailboxRole::All, true),
+                mailbox("Projets", MailboxRole::Normal, true),
+            ],
+        )
+        .await?;
+    let (all, projets) = match boxes.as_slice() {
+        [a, p] => (a.id, p.id),
+        _ => return Err(StoreError("boîtes".into())),
+    };
+    let other_box = store
+        .replace_mailboxes(other, &[mailbox("Projets", MailboxRole::Normal, true)])
+        .await?
+        .first()
+        .map(|m| m.id)
+        .ok_or_else(|| StoreError("boîte".into()))?;
+    let batch = |messages: Vec<StoredMessage>| SyncBatch {
+        reset: false,
+        removed: vec![],
+        flag_changes: vec![],
+        new: messages,
+        state: state(1, 1, 100),
+    };
+    // « Tous les messages » : le message 42 (lu), déjà téléchargé, et le
+    // message 43, pas encore téléchargé.
+    store
+        .apply_sync(
+            all,
+            &batch(vec![
+                gmail_message(1, 42, 500, true),
+                gmail_message(2, 43, 600, false),
+            ]),
+        )
+        .await?;
+    // « Projets » : les mêmes messages (non lu), sous d'autres UID, une
+    // taille qui ne correspond pas, un message sans identifiant.
+    store
+        .apply_sync(
+            projets,
+            &batch(vec![
+                gmail_message(10, 42, 500, false),
+                gmail_message(11, 43, 600, false),
+                gmail_message(12, 42, 501, false),
+                gmail_message(13, 0, 500, false),
+            ]),
+        )
+        .await?;
+    // L'autre compte a aussi un message 42.
+    store
+        .apply_sync(other_box, &batch(vec![gmail_message(5, 42, 500, false)]))
+        .await?;
+
+    // L'identifiant est rendu avec les corps manquants.
+    let pending: Vec<(u32, Option<u64>)> = store
+        .missing_bodies(projets, 10)
+        .await?
+        .iter()
+        .map(|p| (p.uid.get(), p.gmail_id.map(GmailMessageId::get)))
+        .collect();
+    assert_eq!(
+        pending,
+        [(13, None), (12, Some(42)), (11, Some(43)), (10, Some(42))]
+    );
+
+    let key = |owner: AccountId, id: u64, size: u32| BodyReuse {
+        account: owner,
+        gmail_id: GmailMessageId::new(id).unwrap_or_else(|| panic!("identifiant")),
+        size,
+    };
+    let body = StoredBody::Partial {
+        header: blob_id(b"en-tete 42")?,
+        parts: vec![(
+            PartPath::parse("1").unwrap_or_else(|| panic!("chemin")),
+            blob_id(b"texte 42")?,
+        )],
+        deferred: vec![PartPath::parse("2").unwrap_or_else(|| panic!("chemin"))],
+    };
+    store
+        .set_body(all, uid(1), &body, Some("zygomatique et compagnie"))
+        .await?;
+
+    // Corps du même message, même compte, même taille : recopié, avec son
+    // texte cherchable ; les drapeaux restent ceux du dossier.
+    assert!(
+        store
+            .reuse_body(projets, uid(10), &key(account, 42, 500))
+            .await?
+    );
+    assert!(
+        store
+            .missing_bodies(projets, 10)
+            .await?
+            .iter()
+            .all(|p| p.uid != uid(10)),
+        "corps enregistré"
+    );
+    let hits = store
+        .search(SearchRequest {
+            query: norelly_domain::search::parse_query("zygomatique")
+                .map_err(|e| StoreError(format!("requête : {e}")))?,
+            scope: SearchScope::Mailbox(projets),
+            utc_offset_seconds: 0,
+            offset: 0,
+            limit: 10,
+        })
+        .await?;
+    assert_eq!(
+        hits.items.iter().map(|h| h.uid.get()).collect::<Vec<_>>(),
+        [10],
+        "texte cherchable recopié"
+    );
+    assert!(
+        hits.items.iter().all(|h| !h.flags.seen),
+        "drapeaux du dossier gardés"
+    );
+    assert!(
+        store
+            .local_mailbox(all)
+            .await?
+            .messages
+            .get(&uid(1))
+            .is_some_and(|f| f.seen),
+        "drapeaux de l'autre dossier inchangés"
+    );
+
+    // Rien ne convient : pas de corps téléchargé (43), taille différente
+    // (12 demande 501), autre compte, boîte d'un autre compte que la clé.
+    for (target_box, target, reuse, why) in [
+        (
+            projets,
+            11,
+            key(account, 43, 600),
+            "corps pas encore téléchargé",
+        ),
+        (projets, 12, key(account, 42, 501), "aucune taille égale"),
+        (projets, 13, key(account, 44, 500), "identifiant inconnu"),
+        (other_box, 5, key(other, 42, 500), "autre compte"),
+        (
+            other_box,
+            5,
+            key(account, 42, 500),
+            "boîte hors du compte de la clé",
+        ),
+    ] {
+        assert!(
+            !store.reuse_body(target_box, uid(target), &reuse).await?,
+            "{why}"
+        );
+    }
+    assert_eq!(
+        store
+            .missing_bodies(other_box, 10)
+            .await?
+            .iter()
+            .map(|p| p.uid.get())
+            .collect::<Vec<_>>(),
+        [5],
+        "l'autre compte n'a rien reçu"
+    );
+    // Message déjà pourvu ou disparu : sans effet.
+    assert!(
+        !store
+            .reuse_body(projets, uid(10), &key(account, 42, 500))
+            .await?
+    );
+    assert!(
+        !store
+            .reuse_body(projets, uid(99), &key(account, 42, 500))
+            .await?
+    );
+    Ok(())
+}
+
 #[derive(Debug, Clone)]
 struct MemMessage {
     id: MessageId,
@@ -883,6 +1083,7 @@ impl MailStore for InMemoryMailStore {
                         uid: m.stored.meta.uid,
                         size: m.stored.meta.size,
                         structure: m.stored.meta.structure.clone(),
+                        gmail_id: m.stored.meta.gmail_id,
                     })
                     .collect()
             })
@@ -909,9 +1110,70 @@ impl MailStore for InMemoryMailStore {
         }
         Ok(())
     }
+
+    async fn reuse_body(
+        &self,
+        mailbox: MailboxId,
+        target: Uid,
+        reuse: &BodyReuse,
+    ) -> Result<bool, StoreError> {
+        self.reuse_body_impl(mailbox, target, reuse).await
+    }
 }
 
 impl InMemoryMailStore {
+    async fn reuse_body_impl(
+        &self,
+        mailbox: MailboxId,
+        target: Uid,
+        reuse: &BodyReuse,
+    ) -> Result<bool, StoreError> {
+        let mut s = lock(&self.state);
+        let account_of = |s: &MemState, id: MailboxId| {
+            s.mailboxes
+                .iter()
+                .find(|(_, m, _)| m.id == id)
+                .map(|(a, _, _)| *a)
+        };
+        if account_of(&s, mailbox) != Some(reuse.account) {
+            return Ok(false);
+        }
+        let waiting = s
+            .messages
+            .get(&mailbox)
+            .and_then(|msgs| msgs.get(&target))
+            .is_some_and(|m| m.stored.body == StoredBody::Missing);
+        if !waiting {
+            return Ok(false);
+        }
+        let found = s.messages.iter().find_map(|(id, msgs)| {
+            let owner = account_of(&s, *id)?;
+            msgs.values()
+                .find(|m| {
+                    reuse.accepts(&BodyCandidate {
+                        account: owner,
+                        gmail_id: m.stored.meta.gmail_id,
+                        size: m.stored.meta.size,
+                        body: &m.stored.body,
+                        provisional: m.pending_op.is_some(),
+                    })
+                })
+                .map(|m| (m.stored.body.clone(), m.text.clone()))
+        });
+        let Some((body, text)) = found else {
+            return Ok(false);
+        };
+        if let Some(m) = s
+            .messages
+            .get_mut(&mailbox)
+            .and_then(|msgs| msgs.get_mut(&target))
+        {
+            m.stored.body = body;
+            m.text = text;
+        }
+        Ok(true)
+    }
+
     /// Corps enregistré d'un message (vérifications des tests).
     #[must_use]
     pub fn body_of(&self, mailbox: MailboxId, target: Uid) -> Option<StoredBody> {
@@ -2037,5 +2299,14 @@ mod tests {
             AccountId::new(2).map_err(|e| StoreError(e.to_string()))?,
         );
         mail_store_contract(&InMemoryMailStore::default(), a, b).await
+    }
+
+    #[tokio::test]
+    async fn in_memory_mail_store_passes_gmail_body_reuse_contract() -> Result<(), StoreError> {
+        let (a, b) = (
+            AccountId::new(1).map_err(|e| StoreError(e.to_string()))?,
+            AccountId::new(2).map_err(|e| StoreError(e.to_string()))?,
+        );
+        gmail_body_reuse_contract(&InMemoryMailStore::default(), a, b).await
     }
 }

@@ -101,13 +101,16 @@ fichier modifié par l'assistant.
 |---|---|---|
 | `ci.yml` | push sur `master`, PR | trois jobs en parallèle : Linux `./scripts/check.sh full` ; Linux `pnpm -C app e2e` ; Windows `./scripts/check.sh` puis `cargo build --workspace` |
 | `nightly.yml` | chaque nuit | fuzzing (5 min par cible), bancs (liste 50k, démarrage de bout en bout), Stalwart en second serveur |
-| `release.yml` | tag de version | NSIS (Windows, mise à jour signée minisign dans un environnement séparé), .deb et .rpm, sommes SHA-256, manifeste `latest.json`, manifestes winget, brouillon de version |
+| `release.yml` | tag de version | NSIS (Windows, mise à jour signée minisign dans un environnement séparé), .deb et .rpm, manifeste `latest.json`, manifestes winget, `SHA256SUMS` et attestation de provenance Sigstore de chaque fichier (`scripts/release-assets.sh`, `actions/attest`), revérifiées avant le brouillon de version |
 
 `./scripts/check.sh` (rapide) enchaîne : build du front, format Rust,
 Clippy (avec et sans `updater`), tests unitaires avec couverture, tests du
-module de mise à jour, doctests, `cargo deny`, règle de dépendance du
-domaine, contrôle SQL, **documentation** (`check-docs.sh`), métadonnées de
-bureau (Linux), `svelte-check`, lint et tests du front avec couverture.
+module de mise à jour, doctests, `cargo deny` (workspace principal puis
+workspace de fuzzing `fuzz/`), alignement du verrou du fuzzing sur le
+verrou racine, règle de dépendance du domaine, contrôle SQL,
+**documentation** (`check-docs.sh`), versions figées de la chaîne et des
+outils de la CI (`check-toolchain.mjs`), métadonnées de bureau et scripts de
+publication (Linux), `svelte-check`, lint et tests du front avec couverture.
 `./scripts/check.sh full` ajoute le build du workspace et les tests
 d'intégration.
 
@@ -118,11 +121,126 @@ façon écrire que dans sa propre portée, jamais lue par `master` ni par une
 autre PR.
 
 - Compilation Rust des jobs `check.sh` : `Swatinem/rust-cache`.
-- End-to-end : l'image Docker (clé : `app/e2e/Dockerfile` et la semaine,
-  pour suivre Rust stable) et le dossier de build `~/.cache/norelly-e2e`
+- End-to-end : l'image Docker (clé : `app/e2e/Dockerfile` et la semaine ;
+  chaîne Rust et paquets apt figés par le Dockerfile) et le dossier de build `~/.cache/norelly-e2e`
   (clé : la même, plus `Cargo.lock`), réduit à `target/` (sans
   `incremental`) et aux archives `.crate` ; une image restaurée n'est
   acceptée que sous son tag attendu. Le
   build y est fait sans compilation incrémentale ni informations de
   débogage (`CARGO_INCREMENTAL=0`, `CARGO_PROFILE_DEV_DEBUG=0`, transmis
   au conteneur par `app/e2e/run.sh`).
+
+### Flatpak et Flathub
+
+Le Flatpak n'est pas produit par `release.yml` : Flathub le construit
+depuis le dépôt de l'application chez Flathub, qui contient le manifeste
+et les sources vendorisées.
+
+- **Build local**, depuis l'arbre de travail (source `type: dir` du
+  manifeste du dépôt) :
+  `flatpak-builder --force-clean build packaging/flatpak/io.github.gbourquet.Norelly.yml`.
+- **Sources vendorisées** (crates et paquets npm) :
+  `./scripts/flatpak-sources.py` après tout changement de `Cargo.lock` ou
+  de `app/pnpm-lock.yaml` (`--check` dans `check-packaging.sh`). Une
+  dépendance git n'est acceptée que si son dépôt figure dans `allow-git`
+  de `deny.toml` et qu'elle est figée par commit complet. Le dépôt est
+  alors cloné à ce commit au moment des sources, et ses crates sont
+  recopiées dans le répertoire vendorisé. Le build s'arrête si un
+  manifeste hérite encore d'un réglage du workspace du dépôt.
+- **Manifeste Flathub**, une fois le tag `vX.Y.Z` publié et récupéré
+  (`git fetch --tags`) :
+  `./scripts/flathub-manifest.py --tag vX.Y.Z --out <clone du dépôt Flathub>`.
+  Le script lit le manifeste et les sources vendorisées **au commit du
+  tag** (pas dans l'arbre de travail), vérifie que le tag est `v` suivi
+  de la version de `tauri.conf.json` à ce commit, et remplace la source
+  locale par une source `git` (`url`, `tag`, `commit`) ; flatpak-builder
+  refuse la construction si le tag ne désigne plus ce commit. Il écrit
+  le manifeste, `cargo-sources.json` et `node-sources.json` dans le
+  dossier donné, sans toucher à ses autres fichiers ; il reste à les
+  commiter dans le dépôt Flathub. Tests : `scripts/flathub-manifest.test.py`.
+- **Autorisations** : liste fermée (`ALLOWED_FINISH_ARGS` de
+  `flathub-manifest.py`, une valeur par ligne, indentée de deux espaces,
+  sans guillemets ni échappements), vérifiée par `check-packaging.sh` et à la production du
+  manifeste Flathub ; aucun `--filesystem`, les fichiers passent par les
+  portails (ADR-006). Ajouter une autorisation, c'est modifier cette
+  liste, en revue. Pour que cette lecture ligne à ligne soit celle de
+  flatpak-builder, le manifeste s'en tient à un YAML simple : une clé de
+  premier niveau unique par ligne en colonne 0 (ni étiquette, ancre,
+  alias, clé explicite, séparateur de document), aucune chaîne entre
+  apostrophes ou sur plusieurs lignes, aucun commentaire en fin de ligne ;
+  un test compare la liste à la lecture de `flatpak-builder --show-manifest`
+  quand l'outil est installé.
+- **Note de version** : le tag n'est accepté que si le fichier AppStream
+  (`packaging/linux/…metainfo.xml`) a, au même commit, une entrée
+  `<release>` pour cette version.
+
+### Versions figées de la chaîne et des outils
+
+La chaîne Rust et les outils cargo de la CI ne sont jamais installés en
+version flottante (`stable`, `nightly`, outil sans version) : une nouvelle
+version n'entre dans la CI que par une PR, qui la fait passer par toutes
+les vérifications.
+
+| Quoi | Où | Forme |
+|---|---|---|
+| Rust (postes avec rustup, CI, image e2e) | `rust-toolchain.toml` : `channel` et `components` | version exacte `X.Y.Z` |
+| Rust dans les workflows | entrée `toolchain:` (et `components:`) de chaque étape `dtolnay/rust-toolchain` | la même version, les mêmes composants |
+| Rust dans l'image e2e | `ARG RUST_VERSION` et `--component` de `app/e2e/Dockerfile` | la même version, les mêmes composants |
+| Nightly du fuzzing | `toolchain:`, `RUSTUP_TOOLCHAIN` (installation de `cargo-fuzz`) et `cargo +…` de `nightly.yml` | nightly daté `nightly-AAAA-MM-JJ` |
+| Outils cargo de la CI | `tool:` de chaque étape `taiki-e/install-action` | `outil@X.Y.Z`, avec `fallback: none` (binaire du manifeste de l'action, somme vérifiée) ou `fallback: cargo-install` (outil absent du manifeste, compilé depuis crates.io), jamais le repli par défaut `cargo-binstall` (binaire non vérifié) |
+| Autres outils cargo (`run:`, Dockerfile) | `cargo install` | `--version X.Y.Z --locked` (ou `outil@X.Y.Z --locked`) ; `cargo-binstall` refusé (binaires non vérifiés) |
+
+`scripts/check-toolchain.mjs` (lancé par `check.sh`) vérifie ces règles et
+la cohérence entre les fichiers : une version oubliée à un endroit fait
+échouer la vérification. Les actions elles-mêmes restent figées par
+empreinte SHA. `dtolnay/rust-toolchain`, sans étiquette de version, est
+figée sur un commit de sa branche `master` (`# master`), dont l'historique
+n'est pas réécrit ; la chaîne installée est celle de `toolchain:`. Ses
+branches de canal (`stable`, `nightly`) sont régénérées par son auteur et
+sont refusées par `scripts/check-actions.mjs`. Le contrôle porte aussi sur les formes qui passeraient outre
+`rust-toolchain.toml` : `cargo +…`, `rustc +…` et `RUSTUP_TOOLCHAIN` (chaîne
+installée par le même job), `rustup … stable`, un second fichier de chaîne, une
+autre action d'installation de Rust. C'est un garde-fou contre les oublis
+(lecture ligne à ligne, sans analyseur YAML), pas contre une modification
+volontaire, qui passe par la revue.
+
+Hors de ce contrôle, et toujours flottants : Node.js et pnpm des
+workflows (version majeure seulement, `setup-node` et `pnpm/action-setup`),
+les paquets apt des jobs (ceux de l'image e2e sont figés par un
+instantané daté, voir [tests](tests.md)) et le Rust du
+Flatpak, qui compile avec l'extension `rust-stable` de son SDK, pas avec la
+version de `rust-toolchain.toml`. La version minimale déclarée
+(`rust-version` de `Cargo.toml`) n'est pas vérifiée par la CI, qui ne
+compile qu'avec la version figée : la remonter, ou ajouter un job qui la
+vérifie, est une décision du mainteneur.
+
+Effets de `rust-toolchain.toml` : toute commande `cargo` lancée dans le
+dépôt l'applique. Un job qui utilise une autre chaîne (le fuzzing, en
+nightly daté) la nomme donc à chaque appel : `cargo +nightly-…`, ou
+`RUSTUP_TOOLCHAIN` sur l'étape qui compile `cargo-fuzz` ; sinon rustup y
+téléchargerait aussi la version figée.
+
+Monter Rust (à chaque version stable, toutes les six semaines environ) :
+
+1. remplacer la version dans `rust-toolchain.toml`, puis la reporter dans
+   chaque `toolchain:` des workflows et dans `ARG RUST_VERSION` de
+   `app/e2e/Dockerfile` (`node scripts/check-toolchain-cli.mjs` liste les
+   endroits oubliés) ;
+2. corriger les nouveaux avertissements de Clippy et de `rustfmt`, sans
+   les désactiver ;
+3. `./scripts/check.sh full`, puis une PR `ci: Rust X.Y.Z` : l'image e2e
+   est reconstruite (son empreinte change).
+
+Monter le nightly du fuzzing : choisir une date récente pour laquelle le
+nightly existe (`https://static.rust-lang.org/dist/AAAA-MM-JJ/channel-rust-nightly.toml`),
+la reporter dans `toolchain:`, `RUSTUP_TOOLCHAIN` et
+`cargo +nightly-AAAA-MM-JJ` de `nightly.yml`, puis lancer le workflow à la main (`workflow_dispatch`)
+depuis la branche.
+
+Monter un outil cargo : choisir une version publiée (notes de version
+lues, licence inchangée), la reporter dans chaque `tool:` qui le cite
+(`ci.yml`, `nightly.yml`), et de préférence installer la même en local
+(`cargo install --locked outil@X.Y.Z`). Avec `fallback: none`, une version
+absente du manifeste de l'action figée fait échouer l'étape : monter
+l'action (nouvelle empreinte), ou passer l'outil en
+`fallback: cargo-install`.

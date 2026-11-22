@@ -205,8 +205,21 @@ du domaine de l'adresse soumis à confirmation ; XML hostile sans panique
   résolution, couleurs, `prefers-color-scheme`) jamais vraies, `screen`
   toujours vraie ; `print-color-adjust` imposé par Norelly, fonds imprimés
   comme à l'écran : un mail ne peut rien montrer seulement à
-  l'impression) ; suite de 56 vecteurs
-  hostiles (`crates/adapters/render/tests/hostile_html.rs`).
+  l'impression) ; suite de 57 vecteurs
+  hostiles (`crates/adapters/render/tests/hostile_html.rs`) ; fuzzing
+  nocturne (`fuzz/fuzz_targets/sanitize_html.rs`) dont l'oracle
+  (`crates/adapters/render/src/oracle.rs`) analyse la sortie comme le
+  tokeniseur HTML du navigateur (casse, guillemets, références de
+  caractères, texte brut de `<style>`), signale d'office les contextes
+  que le navigateur analyse autrement, et y refuse les balises actives (`<script>`, `<iframe>`,
+  `<object>`, `<embed>`, `<base>`, `<meta>`, `<link>`, `<form>`…), le
+  SVG, le MathML, `<noscript>`, `<select>`, `<template>` et les éléments
+  de texte brut autres que `<style>` (dont l'analyse ne se modélise pas
+  simplement), tout attribut `on…`, les adresses `javascript:`,
+  `vbscript:` ou `data:` (hors image matricielle en base64 dans `src`), et
+  toute adresse inattendue (`src` hors `mailpart://`, `remote-img://` si
+  les images distantes sont autorisées, ou image en ligne ; `href` hors
+  `http`, `https`, `mailto`).
 - Cadre `sandbox="allow-scripts"` sans `allow-same-origin` (origine opaque),
   servi par `mailview://` avec une CSP stricte ; seul l'agent s'exécute
   (empreinte SHA-256 vérifiée).
@@ -354,27 +367,176 @@ reçus de l'interface ; types MIME recalculés.
   fenêtre `main`, depuis l'origine de l'application (`ipc-commands.rs`,
   `permissions/main-window.toml`, test `acl_tests`).
 - Aucune permission de plugin accordée à l'interface : dialogues et mises à
-  jour appelés depuis Rust.
+  jour appelés depuis Rust. Notifications par `notify-rust` (ADR-015),
+  depuis la seule commande `show_notification`, qui revalide le texte
+  (contrôles retirés, longueur bornée, balisage freedesktop échappé).
+- Noyau Tauri réduit au strict usage de l'interface, sans l'ensemble
+  `core:default` : écoute et retrait des événements
+  (`core:event:allow-listen`, `core:event:allow-unlisten`) et lecture du
+  focus de la fenêtre (`core:window:allow-is-focused`). Émettre un
+  événement, lire ou modifier les fenêtres et vues, résoudre des chemins,
+  créer des menus, icônes ou images est refusé : le test `acl_tests`
+  vérifie chaque commande de plugin connue de l'ACL, d'après le manifeste
+  généré à la compilation.
+- L'écoute des événements n'est pas limitée par nom ni par fenêtre (Tauri
+  ne le permet pas) : l'interface peut écouter `tauri://drag-drop`, dont la
+  charge contient les chemins des fichiers déposés, alors que Rust ne lui
+  transmet qu'un jeton. Fuite mineure, possible seulement depuis une
+  interface déjà compromise, qui a de toute façon accès aux commandes de
+  l'application. Une seconde fenêtre aurait sa propre capability, et
+  aucun événement sensible ne lui serait émis.
+- Les schémas personnalisés (`mailview://`, `mailpart://`,
+  `remote-img://`…) comptent comme locaux pour l'ACL de Tauri : une requête
+  présentée avec une telle origine sur la fenêtre `main` serait accordée.
+  L'isolation de `mailview://` ne repose donc pas sur la capability, mais
+  sur le cadre sans `allow-same-origin` (origine `null`, refusée par le
+  transport IPC par protocole), l'absence de la clé d'invocation dans le
+  cadre et la CSP (e2e `reading-security`) ; sur le transport de repli par
+  `postMessage`, seules la clé absente et la CSP protègent.
+- Le raccourci des outils de développement que Tauri ajoute en
+  développement (Ctrl+Maj+I) est refusé ; ils restent ouverts par le clic
+  droit. La commande n'existe pas dans les versions publiées.
 - Toute entrée IPC revalidée par les constructeurs du domaine.
 - `unsafe` interdit dans tout le workspace.
 
 ### Chaîne d'approvisionnement et distribution
 
 - `cargo deny` : licences (ADR-009) et avis RUSTSEC ; exceptions commentées
-  et validées par le mainteneur dans `deny.toml`.
+  et validées par le mainteneur dans `deny.toml`. Le workspace de fuzzing
+  (`fuzz/`, verrouillé séparément par `fuzz/Cargo.lock`) est contrôlé avec
+  la même politique ; `--locked` impose que son lockfile reste à jour, et
+  `scripts/check-fuzz-lock.mjs` qu'il reprenne les versions du verrou
+  racine (le fuzzing porte sur les versions livrées). Le job nocturne
+  refuse un verrou du fuzzing périmé.
+- Sources : crates.io seulement, plus une seule source git admise
+  (`allow-git`, `unknown-git = "deny"`) : le fork `gbourquet/imap-codec`
+  d'`imap-codec`/`imap-types` (ADR-016), figé par commit complet dans le
+  `[patch.crates-io]` du `Cargo.toml` racine.
+- Identifiant Gmail (`X-GM-MSGID`, ADR-016) : lu seulement si la session
+  annonce `X-GM-EXT-1` ; un corps n'est recopié qu'entre messages du même
+  compte, de même identifiant et de même taille. Un serveur qui ment ne
+  peut afficher, dans son propre compte, qu'un contenu qu'il a lui-même
+  fourni.
 - Versions figées côté front ; actions GitHub et images Docker figées par
-  empreinte.
+  empreinte. Paquets apt de l'image e2e figés par un instantané daté de
+  l'archive Ubuntu (date `snapshot=` de `app/e2e/Dockerfile`), signatures
+  de l'archive vérifiées comme d'habitude ; seule la connexion TLS à
+  l'instantané s'appuie sur le ca-certificates de l'archive courante, pris
+  dans une étape jetable de la construction. Cette connexion TLS est un vrai
+  contrôle : les `InRelease` d'Ubuntu n'expirent pas, et elle seule empêche
+  un intermédiaire de servir un instantané plus ancien à l'URL datée (ne
+  jamais désactiver la vérification du certificat). Contrepartie : les correctifs
+  de sécurité Ubuntu n'entrent dans l'image qu'avec une montée de la date,
+  au moins mensuelle et immédiate pour un avis touchant un paquet de
+  l'image (WebKitGTK, libsoup, OpenSSL, curl…) ; `scripts/check.sh`
+  avertit au-delà de 35 jours (`scripts/check-apt-snapshot.mjs`) ;
+  procédure dans `docs/technique/tests.md`. Chaîne Rust (`rust-toolchain.toml`, nightly du fuzzing daté)
+  et outils cargo de la CI (`outil@X.Y.Z`, binaire du manifeste vérifié
+  ou compilation depuis crates.io, jamais de binaire `cargo-binstall`
+  non vérifié) figés, contrôlés par `scripts/check-toolchain.mjs` et
+  montés par PR ; restent flottants Node.js et pnpm (version majeure),
+  les paquets apt des jobs de la CI et le Rust du SDK Flatpak
+  ([méthode](methode.md#versions-figées-de-la-chaîne-et-des-outils)).
+- Actions GitHub : chaque action des workflows et des actions composites du
+  dépôt (celles de `.github`, l'action racine, et toute action locale
+  citée, lue à son tour) est figée par une empreinte de commit complète
+  suivie de sa version en commentaire (`@<sha> # v5`), vérifié par
+  `scripts/check-actions.mjs` (lancé par `scripts/check.sh`). Il refuse
+  aussi une forme de `uses:` qu'il ne sait pas lire (échec fermé), une
+  action locale absente ou hors du dépôt, et un lien symbolique sous
+  `.github`. `check.sh full` vérifie en plus, par le réseau
+  (`git ls-remote --tags`), que chaque empreinte est celle d'une
+  étiquette du dépôt amont correspondant à la version du commentaire :
+  ni commit d'un fork, ni version annoncée à tort. Exception :
+  `dtolnay/rust-toolchain`, sans étiquette, figée sur un commit de sa
+  branche `master` (`# master`), dont l'historique n'est pas réécrit. Ses
+  branches de canal (`stable`, `nightly`) sont régénérées par leur auteur
+  et sont refusées : une empreinte qui y était figée finissait hors de
+  tout historique. Risque résiduel : le contrôle par le réseau ne lit que
+  les étiquettes, une empreinte de fork sur cette action ne serait donc
+  vue qu'à la relecture.
+- Mises à jour des actions signalées par Dependabot
+  (`.github/dependabot.yml`, écosystème `github-actions` seulement) : une
+  fois par semaine, une PR remplace l'empreinte et le commentaire de
+  version, à relire et à faire passer par la CI comme toute autre
+  modification ; une version publiée depuis moins de 7 jours n'est pas
+  proposée (`cooldown`) ; correctifs et versions mineures regroupés,
+  version majeure proposée seule, cinq PR ouvertes au plus, commits
+  préfixés `deps:`. Le reste du message est en anglais, écrit par
+  Dependabot : c'est une exception à la règle des commits en français,
+  acceptée par le mainteneur le 2026-11-22.
+  `dtolnay/rust-toolchain` est exclue (pas d'étiquette de version) et se
+  met à jour à la main. Le vérificateur exige ces réglages : délai de 1 à
+  30 jours, aucune limite de PR à 0, aucun `ignore` à motif hors versions
+  majeures, et le dossier de chaque action composite locale dans la
+  surveillance (`directories`). Dependabot ne s'active que depuis la branche par défaut ;
+  ses mises à jour de sécurité, qui ignorent le délai et la limite de PR,
+  s'activent dans les réglages du dépôt (alertes et mises à jour de
+  sécurité Dependabot).
 - Mises à jour (NSIS) signées **minisign**, signature faite dans un
   environnement de publication séparé de la compilation ; délais bornés
   (`docs/CODE_SIGNING.md`).
-- Flatpak : autorisations minimales.
+- Provenance des versions (`release.yml`, sans clé ni secret) : le job
+  `assets` met à plat les fichiers des artefacts et écrit `SHA256SUMS`
+  (`scripts/release-assets.sh` : noms restreints à `[A-Za-z0-9._+-]`, sans
+  tiret initial ; doublon, même à la casse près, lien, fichier spécial ou
+  `SHA256SUMS` déjà présent refusés ; testé par `release-assets.test.sh`),
+  puis
+  `actions/attest` produit **une** attestation de provenance SLSA
+  (`https://slsa.dev/provenance/v1`) dont les sujets sont tous les
+  fichiers publiés, `SHA256SUMS` compris. Elle est signée par Sigstore
+  (instance publique, certificat éphémère émis pour l'identité OIDC du
+  workflow `release.yml@refs/tags/v…`, inscrit au journal de transparence
+  Rekor), enregistrée sur GitHub et jointe à la version
+  (`Norelly_<version>_provenance.sigstore.json`). Seul ce job reçoit
+  `id-token: write` et `attestations: write`, sans droit d'écriture sur le
+  dépôt ; le job `publish` (`contents: write`, sans jeton OIDC) revérifie
+  avant de créer le brouillon : `sha256sum --check`, aucun fichier hors de
+  `SHA256SUMS` (sauf l'attestation), et `gh attestation verify` de chaque
+  fichier contre l'identité exacte du certificat (`--cert-identity`,
+  égalité : `--signer-workflow` n'est qu'un préfixe dans les versions de
+  `gh` antérieures à 2.102), ce tag, ce commit, runner hébergé par GitHub.
+  La version du tag est contrôlée (semver) avant d'entrer dans les noms
+  de fichiers. Vérification par l'utilisateur, sans compte (`cosign`
+  2.4 ou plus, `verify-blob-attestation`) ou avec `gh` 2.102 ou plus,
+  toujours par l'identité exacte, numéro de version lu sur la page des
+  versions (une ancienne version authentique passerait aussi) :
+  `docs/utilisateur/*/install.md`. Ce que prouve l'attestation : chaque
+  fichier a été haché par le job `assets` du `release.yml` **du commit
+  tagué**, sur un runner hébergé par GitHub. Elle ne prouve ni que ce
+  commit a été relu ou est sur `master` (rien ne l'impose à un tag), ni
+  l'innocuité des dépendances, ni la reproductibilité ; les jobs de build
+  `linux` et `windows` ne sont pas attestés séparément. La barrière réelle
+  est la règle des tags `v*` (création, modification et suppression
+  réservées aux administrateurs) : un tag posé sur un commit dont le
+  `release.yml` serait modifié (par exemple sans l'environnement
+  `release`) produirait des fichiers attestés. L'attestation prouve
+  l'origine, pas la publication : elle est inscrite (Rekor, stockage de
+  GitHub) avant la relecture du brouillon, et reste valide si le brouillon
+  est rejeté ; le numéro de version d'un brouillon rejeté n'est donc jamais
+  réutilisé. La placer après la relecture donnerait le jeton OIDC au job
+  qui a `contents: write`. La commande `gh` documentée vérifie en plus que
+  le runner est hébergé par GitHub, ce que la commande `cosign` ne fait
+  pas (tous les jobs de `release.yml` le sont).
+- Flatpak : autorisations minimales, aucun accès direct aux fichiers de
+  l'utilisateur (liste fermée d'autorisations vérifiée par
+  `scripts/check-packaging.sh`, `ALLOWED_FINISH_ARGS`) :
+  sélecteur de fichiers et glisser-déposer passent par les portails
+  (ADR-006). Manifeste Flathub figé sur un tag et son commit, vérifiés par
+  flatpak-builder à la récupération (`scripts/flathub-manifest.py`).
 - Caches de la CI enregistrés depuis `master` seulement, jamais utilisés
-  par `release.yml`. Cache de build de l'e2e réduit à `target/` et aux
-  archives `.crate` (aucune configuration de cargo, refusée aussi par
-  `app/e2e/run.sh`) ; image de l'e2e renouvelée chaque semaine et
+  par `release.yml`. Cache de build de l'e2e réduit au dossier de build
+  de la copie de travail (`target-<empreinte>/`, `app/e2e/target-name.sh`)
+  et aux archives `.crate`, revérifiées contre `Cargo.lock` à chaque
+  lancement (`app/e2e/verify-crates.sh` : cargo ne le fait qu'au
+  téléchargement) ; aucune configuration de cargo, refusée aussi par
+  `app/e2e/run.sh`. En local, chaque conteneur ne voit que le dossier de
+  build de sa copie de travail ; sources extraites du registre et `HOME`
+  éphémères ; dépôts git des dépendances (`cargo/git`) retirés à chaque
+  lancement, car cargo réutilise une extraction sans la revérifier ; image de l'e2e renouvelée chaque semaine et
   acceptée seulement sous son tag attendu. Risque résiduel accepté : un
-  `target/` empoisonné depuis `master` (build script compromis) servirait
-  jusqu'à la semaine suivante, dans un job sans secret.
+  dossier de build empoisonné depuis `master` (build script compromis)
+  servirait jusqu'à la semaine suivante, dans un job sans secret.
 
 ## Synchronisation CardDAV (ADR-014)
 
@@ -452,6 +614,9 @@ Signalés au mainteneur dans chaque PR qui les touche (ADR-008) :
 - `crates/domain/src/security.rs`, `discovery.rs`, `reading.rs`,
   `credentials.rs`, `oauth.rs`, `auth.rs`, `sender_auth.rs`, `labels.rs`
   (encodage des mots-clés, couleurs) ;
+- Gmail : `crates/domain/src/gmail.rs` (réutilisation d'un corps),
+  `crates/adapters/sqlite/src/mail.rs` (`reuse_body`), `Cargo.toml`
+  (`[patch.crates-io]` du fork d'imap-codec) ;
 - `crates/adapters/oauth/src/lib.rs`, `crates/application/src/oauth.rs` ;
 - synchronisation CardDAV : `crates/domain/src/carddav.rs` (adresses,
   même origine, fusion des fiches), `crates/adapters/webdav/src/`,
@@ -460,7 +625,7 @@ Signalés au mainteneur dans chaque PR qui les touche (ADR-008) :
 - `crates/adapters/tls/src/lib.rs`, `crates/adapters/imap/src/connection.rs`,
   `crates/adapters/smtp/src/stream.rs` ;
 - `crates/adapters/render/src/sanitize.rs`, `css.rs`, `compose.rs`,
-  `agent.js` ;
+  `agent.js`, `oracle.rs` (oracle du fuzzing de l'assainissement) ;
 - `crates/adapters/contacts-io/src/` (lecture et écriture de fichiers
   externes, décodage des photos `photo.rs`),
   `crates/domain/src/contact_import.rs`, `contact_export.rs`,
@@ -472,7 +637,16 @@ Signalés au mainteneur dans chaque PR qui les touche (ADR-008) :
   `capabilities/`, `permissions/` ;
 - `app/src/lib/agent.ts` ;
 - infrastructure : `deny.toml`, `.github/workflows/*.yml`,
-  `packaging/flatpak/*.yml`, `scripts/check.sh`.
+  `packaging/flatpak/*.yml`, `scripts/flathub-manifest.py`,
+  `scripts/flatpak-sources.py` (et son test), `scripts/check-apt-snapshot.mjs`,
+  `scripts/check-packaging.sh`, `scripts/check.sh`,
+  `scripts/check-fuzz-lock.mjs` (et ses tests), `fuzz/Cargo.lock`,
+  `app/e2e/Dockerfile`, cache de build de l'e2e (`app/e2e/run.sh`,
+  `target-name.sh`, `prune-targets.sh`, `verify-crates.sh`),
+  `scripts/release-assets.sh`, `rust-toolchain.toml`,
+  `scripts/check-toolchain.mjs`, `scripts/check-toolchain-cli.mjs`,
+  `scripts/check-toolchain.test.mjs`, `.github/dependabot.yml`,
+  `scripts/check-actions.mjs` (et son test).
 
 ## Revues
 

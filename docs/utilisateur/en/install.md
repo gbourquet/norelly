@@ -24,9 +24,10 @@ that matches your computer.
    This is expected: Norelly does not yet have a digital signature
    recognised by Microsoft (it has been requested): the publisher shows as
    **"Unknown publisher"**. This window therefore cannot tell you whether
-   the file is genuine: the only guarantee is that you downloaded it
-   yourself from the address above (check that it starts with
-   `https://github.com/gbourquet/norelly` in the address bar). If so,
+   the file is genuine: the guarantee is that you downloaded it yourself
+   from the address above (check that it starts with
+   `https://github.com/gbourquet/norelly` in the address bar), or that you
+   checked it ([see below](#checking-a-downloaded-file-optional)). If so,
    click **More info**, then **Run anyway**. If in doubt, prefer the winget
    method below, which checks the file for you.
 5. The installer opens. Click **Next**, then **Install**. No administrator
@@ -89,6 +90,69 @@ applications.
 
 With a .deb or .rpm package, Norelly does not update itself: visit the
 releases page from time to time.
+
+## Checking a downloaded file (optional)
+
+This part is for people comfortable with a terminal: you do not need it to
+use Norelly. It lets you make sure that a downloaded file is the one the
+project built, and that it has not been modified since.
+
+On the releases page, every version contains, besides the installers:
+
+- **`SHA256SUMS`**: the fingerprint (checksum) of every file of the
+  version;
+- **`Norelly_<version>_provenance.sigstore.json`**: a signed provenance
+  attestation. It proves that every file of the version, and `SHA256SUMS`
+  itself, was built by the release workflow of the `gbourquet/norelly`
+  repository, from that exact version.
+
+In the commands below, replace `1.0.0` with the number of the version you
+downloaded (it appears several times), read on the releases page of
+`https://github.com/gbourquet/norelly` rather than on the file: make sure
+it is the latest version, since an older genuine version would pass the
+check too. Also replace `Norelly_1.0.0_x64-setup.exe` with the name of your file (`.deb`, `.rpm`, or `SHA256SUMS`).
+
+### With cosign, no account needed
+
+Install [cosign](https://docs.sigstore.dev/cosign/system_config/installation/)
+(version 2.4 or later), put the file and the attestation in the same folder, then run, in that
+folder:
+
+```
+cosign verify-blob-attestation --new-bundle-format --type slsaprovenance1 --bundle Norelly_1.0.0_provenance.sigstore.json --certificate-oidc-issuer https://token.actions.githubusercontent.com --certificate-identity https://github.com/gbourquet/norelly/.github/workflows/release.yml@refs/tags/v1.0.0 Norelly_1.0.0_x64-setup.exe
+```
+
+The answer **`Verified OK`** confirms that the file is genuine. Any other
+message (signature, fingerprint or identity refused): do not install it.
+
+### With GitHub CLI, with a GitHub account
+
+If you use [GitHub CLI](https://cli.github.com) (`gh`, version 2.102 or
+later), signed in to your account, the attestation is fetched from GitHub,
+without downloading it:
+
+```
+gh attestation verify Norelly_1.0.0_x64-setup.exe --repo gbourquet/norelly --cert-identity https://github.com/gbourquet/norelly/.github/workflows/release.yml@refs/tags/v1.0.0 --source-ref refs/tags/v1.0.0 --deny-self-hosted-runners
+```
+
+The answer must say **`Verification succeeded!`**; if it is refused, `gh`
+shows an error: do not install the file.
+
+### With the fingerprints
+
+Once `SHA256SUMS` is checked with one of the commands above, comparing the
+fingerprints of the other downloaded files is enough:
+
+- on Linux, in the folder of the files:
+  `sha256sum --check --ignore-missing SHA256SUMS` (every file must show
+  **OK**);
+- on Windows, in PowerShell: `Get-FileHash Norelly_1.0.0_x64-setup.exe`,
+  then compare the fingerprint shown with the file's line in `SHA256SUMS`
+  (upper or lower case does not matter).
+
+Comparing fingerprints **without** having checked `SHA256SUMS` only
+detects a damaged download, not a fake file: a website offering a fake
+file can offer fake fingerprints too.
 
 ## First launch
 

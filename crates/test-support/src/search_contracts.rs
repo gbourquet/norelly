@@ -73,6 +73,7 @@ impl Mail<'_> {
                     ..MessageHeaders::default()
                 },
                 structure,
+                gmail_id: None,
             },
             body: StoredBody::Missing,
         }

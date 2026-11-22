@@ -1197,6 +1197,10 @@ pub struct MessageMeta {
     /// Structure MIME (`BODYSTRUCTURE`) ; `None` si le serveur ne l'a pas
     /// fournie ou si elle est inexploitable.
     pub structure: Option<MimePart>,
+    /// Identifiant Gmail (`X-GM-MSGID`) ; `None` si le serveur n'annonce
+    /// pas `X-GM-EXT-1` ([`crate::gmail`]).
+    #[serde(default)]
+    pub gmail_id: Option<crate::gmail::GmailMessageId>,
 }
 
 impl MessageMeta {

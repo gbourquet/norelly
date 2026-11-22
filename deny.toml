@@ -50,6 +50,12 @@ allow = [
     "MPL-2.0",
 ]
 confidence-threshold = 0.9
+# University of Illinois/NCSA : licence permissive de type BSD, approuvée
+# OSI, ancienne licence de LLVM. Admise pour libfuzzer-sys seulement
+# (cargo-fuzz, workspace `fuzz/`, jamais distribué) : une dépendance de
+# l'application sous cette licence reste refusée. Validé par le mainteneur
+# le 2026-11-22.
+exceptions = [{ crate = "libfuzzer-sys", allow = ["NCSA"] }]
 
 [licenses.private]
 ignore = true
@@ -62,3 +68,11 @@ allow-wildcard-paths = true
 [sources]
 unknown-registry = "deny"
 unknown-git = "deny"
+# Une source git doit être figée par commit (`rev`), jamais par branche ni
+# par étiquette.
+required-git-spec = "rev"
+# Seule source git admise : le fork d'imap-codec et imap-types (variantes
+# X-GM-MSGID, ADR-016), figé par commit dans le `[patch.crates-io]` du
+# Cargo.toml racine. Exception validée par le mainteneur le 2026-11-22 : à
+# retirer au retour à une version publiée sur crates.io.
+allow-git = ["https://github.com/gbourquet/imap-codec"]

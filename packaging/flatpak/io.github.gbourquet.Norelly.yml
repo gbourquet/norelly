@@ -1,5 +1,8 @@
 # Manifeste Flatpak de Norelly (canal Linux principal, ADR-006).
-# Build local : flatpak-builder --force-clean build packaging/flatpak/io.github.gbourquet.Norelly.yml
+# Build local, depuis l'arbre de travail (source `type: dir`) :
+#   flatpak-builder --force-clean build packaging/flatpak/io.github.gbourquet.Norelly.yml
+# Manifeste Flathub (source git figée par tag et commit) :
+#   ./scripts/flathub-manifest.py --tag vX.Y.Z --out <clone du dépôt Flathub>
 # Sources vendorisées : ./scripts/flatpak-sources.py après chaque changement
 # de Cargo.lock ou de app/pnpm-lock.yaml (vérifié par check-packaging.sh).
 id: io.github.gbourquet.Norelly
@@ -27,12 +30,12 @@ finish-args:
   - --talk-name=org.freedesktop.secrets
   # Notifications des nouveaux messages (notify-rust, D-Bus).
   - --talk-name=org.freedesktop.Notifications
-  # Pièces jointes : enregistrées dans Téléchargements, ou jointes depuis
-  # Téléchargements et Documents (le sélecteur GTK3 de tauri-plugin-dialog
-  # ne passe pas par le portail ; le glisser-déposer, si). Dérogation
-  # validée (ADR-006).
-  - --filesystem=xdg-download
-  - --filesystem=xdg-documents:ro
+  # Aucun accès aux fichiers de l'utilisateur : pièces jointes (jointes,
+  # enregistrées) et carnet (import, export) passent par le sélecteur de
+  # fichiers de tauri-plugin-dialog (GtkFileChooserNative, donc le portail
+  # FileChooser dans le bac à sable), le glisser-déposer par le portail
+  # Documents ; seul ce que l'utilisateur choisit est exposé
+  # (vérifié par scripts/check-packaging.sh).
 
 build-options:
   append-path: /usr/lib/sdk/rust-stable/bin:/usr/lib/sdk/node24/bin

@@ -57,6 +57,15 @@ file app/src-tauri/icons/128x128@2x.png | grep -q "256 x 256" || { echo "icône 
 file app/src-tauri/icons/icon.png | grep -q "512 x 512" || { echo "icône 512 : taille inattendue" >&2; exit 1; }
 
 # Sources vendorisées du Flatpak à jour avec Cargo.lock et pnpm-lock.yaml.
+python3 -I scripts/flatpak-sources.test.py
 python3 -I scripts/flatpak-sources.py --check
+
+# Flatpak : autorisations du manifeste dans la liste fermée de
+# flathub-manifest.py (aucun accès direct aux fichiers : le sélecteur,
+# GtkFileChooserNative de tauri-plugin-dialog, et le glisser-déposer passent
+# par les portails) ; manifeste Flathub (source git au tag) : script testé,
+# transformation applicable au manifeste du dépôt.
+python3 -I scripts/flathub-manifest.test.py
+python3 -I scripts/flathub-manifest.py --check
 
 echo "Métadonnées de bureau valides"

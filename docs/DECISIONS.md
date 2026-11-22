@@ -1173,3 +1173,60 @@ est majoritairement écrit par Claude et relu par le mainteneur.
     qu'un fork figé, et rien ne l'apparenterait à l'amont ;
   - réanalyse maison de la réponse brute : contourne le codec strict et
     fuzzé choisi par ADR-002.
+
+## ADR-017 : site de présentation (Astro, dépôt séparé, VPS, domaine à nous)
+
+- **Statut** : Acceptée (2026-11-22), choix du mainteneur.
+- **Contexte** : Norelly n'a pas de site ; sa seule page publique est le
+  dépôt GitHub. La vérification de l'application par Google, la
+  candidature SignPath et les fiches Flathub et winget demandent une page
+  d'accueil et une politique de confidentialité publiées sur un domaine
+  dont on prouve la propriété. Le site doit tenir la promesse du produit :
+  aucun traceur, aucune statistique de visite, aucune ressource chargée
+  chez un tiers.
+- **Options** :
+  - domaine : un domaine à nous ; `gbourquet.github.io` ;
+  - hébergement : GitHub Pages ; Cloudflare Pages ; serveur du
+    mainteneur ;
+  - outil : Astro ; Zola ; HTML écrit à la main ;
+  - emplacement : dossier `site/` de ce dépôt ; dépôt séparé.
+- **Décision** :
+  - **domaine** : **`norelly.fr`**, déjà acheté par le mainteneur chez
+    Bookmyname (Scaleway) ; le mainteneur règle le DNS ;
+  - **hébergement** : le VPS Hostinger du mainteneur, en HTTPS. Le site
+    y est publié par un workflow GitHub Actions, en `rsync` sur SSH, avec
+    une clé dédiée au déploiement, un utilisateur limité au dossier du
+    site et l'empreinte du serveur figée (`known_hosts` en secret, jamais
+    d'acceptation automatique d'une clé inconnue). Aucun mot de passe ;
+  - **outil** : **Astro** (licence MIT), site entièrement statique, sans
+    JavaScript obligatoire, en français et en anglais. La télémétrie
+    d'Astro est coupée partout (`ASTRO_TELEMETRY_DISABLED=1` en local et
+    en CI). L'optimisation d'images n'est pas utilisée : `sharp`, dépendance
+    optionnelle d'Astro qui embarque `libvips` sous LGPL-3.0, n'est pas
+    installé ;
+  - **emplacement** : un **dépôt séparé**. Le guide
+    (`docs/utilisateur/{fr,en}/`), la politique de confidentialité
+    (`docs/politique-de-confidentialite.md`) et les captures (générées par
+    `pnpm -C app e2e`) restent ici, seule source : la construction du site
+    les lit au **tag de la dernière version publiée** de Norelly, sans
+    jamais les recopier. Le site décrit ainsi toujours la version que l'on
+    peut télécharger.
+- **Conséquences** :
+  - le dépôt du site applique les règles de dépendances d'ADR-009
+    (licences contrôlées, `pnpm audit`) et fige ses actions GitHub par
+    empreinte, comme ce dépôt ;
+  - une correction du guide n'apparaît sur le site qu'à la version
+    suivante de Norelly ;
+  - la sécurité du site dépend de l'administration du VPS par le
+    mainteneur (mises à jour, certificat TLS, en-têtes HTTP).
+- **Alternatives écartées** :
+  - `gbourquet.github.io` : domaine partagé, dont Google ne peut pas faire
+    vérifier la propriété ; adresse liée à l'hébergeur ;
+  - GitHub Pages ou Cloudflare Pages : le mainteneur dispose déjà d'un
+    serveur ; Cloudflare ajoute un compte et un tiers ;
+  - Zola : moins souple pour proposer la bonne version selon le système
+    sur la page « Télécharger » ;
+  - HTML écrit à la main : le guide devrait être recopié et maintenu deux
+    fois ;
+  - dossier `site/` de ce dépôt : choix du mainteneur de garder le site à
+    part de l'application.

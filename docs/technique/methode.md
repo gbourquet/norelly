@@ -101,7 +101,7 @@ fichier modifié par l'assistant.
 |---|---|---|
 | `ci.yml` | push sur `master`, PR | trois jobs en parallèle : Linux `./scripts/check.sh full` ; Linux `pnpm -C app e2e` ; Windows `./scripts/check.sh` puis `cargo build --workspace` |
 | `nightly.yml` | chaque nuit | fuzzing (5 min par cible), bancs (liste 50k, démarrage de bout en bout), Stalwart en second serveur |
-| `release.yml` | tag de version | NSIS (Windows, mise à jour signée minisign dans un environnement séparé), .deb et .rpm, manifeste `latest.json`, manifestes winget, `SHA256SUMS` et attestation de provenance Sigstore de chaque fichier (`scripts/release-assets.sh`, `actions/attest`), revérifiées avant le brouillon de version |
+| `release.yml` | tag de version | NSIS (Windows, mise à jour signée minisign dans un environnement séparé), .deb et .rpm, manifeste `latest.json`, manifestes winget, `SHA256SUMS` et attestation de provenance Sigstore de chaque fichier (`scripts/release-assets.sh`, `actions/attest`), revérifiées avant le brouillon de version ; préversion (`X.Y.Z-suffixe`) : pas de .rpm (le tiret est refusé dans une version rpm), brouillon marqué préversion |
 | `release.yml` (job `site`) | publication d'une version stable par le mainteneur (`release: released`) | lancement du workflow `deploy.yml` du dépôt du site `gbourquet/norelly-site` sur `main`, qui se reconstruit au dernier tag de version (ADR-017) ; voir « Signal de publication au site » |
 
 ### Signal de publication au site

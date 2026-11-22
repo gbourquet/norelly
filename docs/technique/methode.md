@@ -151,6 +151,12 @@ et les sources vendorisées.
   le manifeste, `cargo-sources.json` et `node-sources.json` dans le
   dossier donné, sans toucher à ses autres fichiers ; il reste à les
   commiter dans le dépôt Flathub. Tests : `scripts/flathub-manifest.test.py`.
-- **Autorisations** : aucun `--filesystem` (refusé par
-  `check-packaging.sh`) ; les fichiers passent par les portails
-  (ADR-006).
+- **Autorisations** : liste fermée (`ALLOWED_FINISH_ARGS` de
+  `flathub-manifest.py`, une valeur par ligne, sans guillemets ni
+  échappements), vérifiée par `check-packaging.sh` et à la production du
+  manifeste Flathub ; aucun `--filesystem`, les fichiers passent par les
+  portails (ADR-006). Ajouter une autorisation, c'est modifier cette
+  liste, en revue.
+- **Note de version** : le tag n'est accepté que si le fichier AppStream
+  (`packaging/linux/…metainfo.xml`) a, au même commit, une entrée
+  `<release>` pour cette version.

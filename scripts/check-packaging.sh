@@ -59,17 +59,11 @@ file app/src-tauri/icons/icon.png | grep -q "512 x 512" || { echo "icône 512 : 
 # Sources vendorisées du Flatpak à jour avec Cargo.lock et pnpm-lock.yaml.
 python3 -I scripts/flatpak-sources.py --check
 
-# Flatpak : aucun accès direct aux fichiers de l'utilisateur. Le sélecteur
-# (GtkFileChooserNative de tauri-plugin-dialog) et le glisser-déposer
-# passent par les portails, qui n'exposent que ce que l'utilisateur choisit.
-manifest="packaging/flatpak/$id.yml"
-if grep -n -- '--filesystem=' "$manifest" | grep -v '^[0-9]*: *#' >&2; then
-  echo "$manifest : accès direct aux fichiers (passer par les portails)" >&2
-  exit 1
-fi
-
-# Manifeste Flathub (source git au tag) : script testé, transformation
-# applicable au manifeste du dépôt.
+# Flatpak : autorisations du manifeste dans la liste fermée de
+# flathub-manifest.py (aucun accès direct aux fichiers : le sélecteur,
+# GtkFileChooserNative de tauri-plugin-dialog, et le glisser-déposer passent
+# par les portails) ; manifeste Flathub (source git au tag) : script testé,
+# transformation applicable au manifeste du dépôt.
 python3 -I scripts/flathub-manifest.test.py
 python3 -I scripts/flathub-manifest.py --check
 

@@ -350,7 +350,9 @@ est majoritairement écrit par Claude et relu par le mainteneur.
   Flatpak (dossier choisi compris), et le glisser-déposer passe par le
   portail Documents. Seul ce que l'utilisateur choisit est exposé, en
   écriture pour un dossier ou un fichier à enregistrer.
-  `scripts/check-packaging.sh` refuse toute autorisation `--filesystem`.
+  `scripts/check-packaging.sh` n'accepte que la liste fermée des
+  autorisations ci-dessus (`ALLOWED_FINISH_ARGS` de
+  `scripts/flathub-manifest.py`).
 - **Source Flathub** : le manifeste du dépôt construit l'arbre local
   (`type: dir`) ; le manifeste soumis à Flathub en est dérivé par
   `scripts/flathub-manifest.py` (source `git`, tag et commit lus dans le

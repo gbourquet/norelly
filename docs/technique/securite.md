@@ -375,7 +375,8 @@ reçus de l'interface ; types MIME recalculés.
   environnement de publication séparé de la compilation ; délais bornés
   (`docs/CODE_SIGNING.md`).
 - Flatpak : autorisations minimales, aucun accès direct aux fichiers de
-  l'utilisateur (`--filesystem` refusé par `scripts/check-packaging.sh`) :
+  l'utilisateur (liste fermée d'autorisations vérifiée par
+  `scripts/check-packaging.sh`, `ALLOWED_FINISH_ARGS`) :
   sélecteur de fichiers et glisser-déposer passent par les portails
   (ADR-006). Manifeste Flathub figé sur un tag et son commit, vérifiés par
   flatpak-builder à la récupération (`scripts/flathub-manifest.py`).

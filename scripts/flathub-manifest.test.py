@@ -9,6 +9,7 @@ import contextlib
 import importlib.util
 import io
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -53,6 +54,11 @@ def git(repo: Path, *args: str) -> str:
             "PATH": "/usr/bin:/bin:/usr/local/bin",
         },
     ).stdout.strip()
+
+
+def metainfo(*versions: str) -> str:
+    releases = "".join(f'<release version="{v}" date="2026-11-01"/>' for v in versions)
+    return f'<?xml version="1.0"?><component><releases>{releases}</releases></component>\n'
 
 
 class Transform(unittest.TestCase):
@@ -128,6 +134,79 @@ class Transform(unittest.TestCase):
         out = fm.to_flathub(self.manifest, "v1.2.3", digits)
         self.assertIn(f'        commit: "{digits}"\n', out)
 
+    def test_refuse_une_source_locale_coupee_par_une_ligne_vide(self) -> None:
+        for inserted in ("\n", "    # commentaire\n", "      # commentaire\n"):
+            broken = self.manifest.replace(
+                "      - type: dir\n", "      - type: dir\n" + inserted, 1
+            )
+            with self.subTest(inserted=inserted), self.assertRaises(fm.ManifestError):
+                fm.to_flathub(broken, "v1.2.3", COMMIT)
+
+    def test_refuse_une_autre_source_locale_ecrite_autrement(self) -> None:
+        other = self.manifest.replace(
+            "      - cargo-sources.json\n", "      -  type: dir\n        path: .\n      - cargo-sources.json\n"
+        )
+        with self.assertRaises(fm.ManifestError):
+            fm.to_flathub(other, "v1.2.3", COMMIT)
+
+    def test_applique_la_liste_des_autorisations(self) -> None:
+        wider = self.manifest.replace(
+            "  - --share=network\n", "  - --share=network\n  - --filesystem=home\n"
+        )
+        with self.assertRaises(fm.ManifestError):
+            fm.to_flathub(wider, "v1.2.3", COMMIT)
+
+
+class FinishArgs(unittest.TestCase):
+    """Autorisations du Flatpak : liste fermée, écrite sous une seule forme."""
+
+    def setUp(self) -> None:
+        self.manifest = MANIFEST.read_text(encoding="utf-8")
+
+    def with_args(self, extra: str) -> str:
+        return self.manifest.replace("  - --share=network\n", "  - --share=network\n" + extra, 1)
+
+    def test_le_manifeste_du_depot_est_accepte(self) -> None:
+        fm.check_finish_args(self.manifest)
+
+    def test_un_commentaire_est_accepte(self) -> None:
+        fm.check_finish_args(self.with_args("  # - --filesystem=home\n\n"))
+
+    def test_refuse_les_acces_hors_de_la_liste(self) -> None:
+        for extra in (
+            "  - --filesystem=xdg-download\n",
+            "  - --filesystem=home\n",
+            # Deux arguments : flatpak build-finish lit `--filesystem home`.
+            "  - --filesystem\n  - home\n",
+            "  - --talk-name=org.freedesktop.Flatpak\n",
+            "  - --socket=session-bus\n",
+            "  - --device=all\n",
+            '  - "--file\\x73ystem=host"\n',
+            "  - '--filesystem=host'\n",
+            "  - --share=network # x\n",
+            "  - --share=network\n",
+            "    - --filesystem=host\n",
+            "  -\n    --filesystem=host\n",
+            # Un commentaire en colonne 0 ne termine pas la liste YAML.
+            "# commentaire\n  - --filesystem=host\n",
+        ):
+            with self.subTest(extra=extra), self.assertRaises(fm.ManifestError):
+                fm.check_finish_args(self.with_args(extra))
+
+    def test_refuse_une_liste_en_flux_ou_une_cle_repetee(self) -> None:
+        flow = self.manifest.replace("finish-args:\n", "finish-args: [--filesystem=host]\nx:\n", 1)
+        repeated = self.manifest + "finish-args:\n  - --filesystem=host\n"
+        quoted = self.manifest + '"finish-args":\n  - --filesystem=host\n'
+        missing = self.manifest.replace("finish-args:\n", "autre:\n", 1)
+        for manifest in (flow, repeated, quoted, missing):
+            with self.subTest(manifest=manifest[-60:]), self.assertRaises(fm.ManifestError):
+                fm.check_finish_args(manifest)
+
+    def test_refuse_un_echappement_n_importe_ou(self) -> None:
+        escaped = self.manifest.replace("command: norelly\n", 'command: "norel\\x6cy"\n', 1)
+        with self.assertRaises(fm.ManifestError):
+            fm.check_finish_args(escaped)
+
 
 class FromTag(unittest.TestCase):
     """Dépôt temporaire : manifeste, sources vendorisées et version au tag."""
@@ -144,6 +223,9 @@ class FromTag(unittest.TestCase):
         conf = self.repo / "app" / "src-tauri"
         conf.mkdir(parents=True)
         (conf / "tauri.conf.json").write_text(json.dumps({"version": "1.2.3"}), encoding="utf-8")
+        self.metainfo = self.repo / "packaging" / "linux" / "io.github.gbourquet.Norelly.metainfo.xml"
+        self.metainfo.parent.mkdir(parents=True)
+        self.metainfo.write_text(metainfo("1.2.3"), encoding="utf-8")
         git(self.repo, "init", "-q")
         git(self.repo, "add", ".")
         git(self.repo, "commit", "-q", "-m", "version")
@@ -210,6 +292,41 @@ class FromTag(unittest.TestCase):
         )
 
 
+    def test_refuse_un_tag_sans_note_de_version_appstream(self) -> None:
+        self.metainfo.write_text(metainfo("1.2.2", "1.2.30"), encoding="utf-8")
+        git(self.repo, "commit", "-q", "-am", "notes")
+        (self.repo / "app" / "src-tauri" / "tauri.conf.json").write_text(
+            json.dumps({"version": "1.2.4"}), encoding="utf-8"
+        )
+        git(self.repo, "commit", "-q", "-am", "1.2.4")
+        git(self.repo, "tag", "v1.2.4")
+        self.assertNotEqual(self.run_main("--tag", "v1.2.4", "--out", str(self.out)), 0)
+        self.assertFalse(self.out.exists())
+
+    def test_ne_suit_pas_un_lien_dans_le_dossier_de_sortie(self) -> None:
+        self.out.mkdir()
+        elsewhere = self.tmp / "ailleurs.json"
+        elsewhere.write_text("intact\n", encoding="utf-8")
+        (self.out / "cargo-sources.json").symlink_to(elsewhere)
+        self.assertNotEqual(self.run_main("--tag", "v1.2.3", "--out", str(self.out)), 0)
+        self.assertEqual(elsewhere.read_text(encoding="utf-8"), "intact\n")
+        self.assertFalse((self.out / MANIFEST.name).exists())
+
+    def test_ignore_git_dir_de_l_environnement(self) -> None:
+        other = self.tmp / "autre"
+        other.mkdir()
+        git(other, "init", "-q")
+        old = os.environ.get("GIT_DIR")
+        os.environ["GIT_DIR"] = str(other / ".git")
+        try:
+            self.assertEqual(self.run_main("--tag", "v1.2.3", "--out", str(self.out)), 0)
+        finally:
+            if old is None:
+                del os.environ["GIT_DIR"]
+            else:
+                os.environ["GIT_DIR"] = old
+
+
 class Check(unittest.TestCase):
     def test_le_manifeste_du_depot_se_transforme(self) -> None:
         self.assertEqual(fm.main(["--check"]), 0)
@@ -218,6 +335,10 @@ class Check(unittest.TestCase):
         for args in ([], ["--tag", "v1.2.3"], ["--out", "x"], ["--check", "--tag", "v1.2.3"]):
             with self.subTest(args=args), contextlib.redirect_stderr(io.StringIO()):
                 self.assertNotEqual(fm.main(args), 0)
+
+    def test_aide(self) -> None:
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(fm.main(["--help"]), 0)
 
 
 if __name__ == "__main__":

@@ -340,12 +340,21 @@ est majoritairement écrit par Claude et relu par le mainteneur.
     l'application, passe par `oo7` et donc par zbus, écarté par
     `deny.toml`. On garde l'accès direct, comme les autres clients mail
     sous Flatpak. À réexaminer si zbus redevient acceptable.
-  - `--filesystem=xdg-download` (lecture et écriture) et
-    `--filesystem=xdg-documents:ro` : le sélecteur de fichiers GTK3 de
-    `tauri-plugin-dialog` ne passe pas par le portail. Les pièces jointes
-    s'enregistrent dans Téléchargements et se joignent depuis
-    Téléchargements ou Documents. À retirer quand le sélecteur passera par
-    le portail.
+- **Accès aux fichiers (2026-11-22)** : le Flatpak n'a aucune
+  autorisation `--filesystem`. Les autorisations `xdg-download` et
+  `xdg-documents:ro`, accordées en dérogation le 2026-11-05 au motif que
+  le sélecteur de `tauri-plugin-dialog` ne passerait pas par le portail,
+  sont retirées comme le prévoyait cette dérogation : ce sélecteur
+  (`rfd`, moteur GTK3) est un `GtkFileChooserNative`, que GTK 3 fait
+  passer par le portail FileChooser dès qu'il tourne dans un bac à sable
+  Flatpak (dossier choisi compris), et le glisser-déposer passe par le
+  portail Documents. Seul ce que l'utilisateur choisit est exposé, en
+  écriture pour un dossier ou un fichier à enregistrer.
+  `scripts/check-packaging.sh` refuse toute autorisation `--filesystem`.
+- **Source Flathub** : le manifeste du dépôt construit l'arbre local
+  (`type: dir`) ; le manifeste soumis à Flathub en est dérivé par
+  `scripts/flathub-manifest.py` (source `git`, tag et commit lus dans le
+  dépôt, fichiers pris au commit du tag).
 
 ## ADR-007 : stratégie de tests
 

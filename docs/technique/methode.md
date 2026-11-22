@@ -127,3 +127,30 @@ autre PR.
   build y est fait sans compilation incrémentale ni informations de
   débogage (`CARGO_INCREMENTAL=0`, `CARGO_PROFILE_DEV_DEBUG=0`, transmis
   au conteneur par `app/e2e/run.sh`).
+
+### Flatpak et Flathub
+
+Le Flatpak n'est pas produit par `release.yml` : Flathub le construit
+depuis le dépôt de l'application chez Flathub, qui contient le manifeste
+et les sources vendorisées.
+
+- **Build local**, depuis l'arbre de travail (source `type: dir` du
+  manifeste du dépôt) :
+  `flatpak-builder --force-clean build packaging/flatpak/io.github.gbourquet.Norelly.yml`.
+- **Sources vendorisées** (crates et paquets npm) :
+  `./scripts/flatpak-sources.py` après tout changement de `Cargo.lock` ou
+  de `app/pnpm-lock.yaml` (`--check` dans `check-packaging.sh`).
+- **Manifeste Flathub**, une fois le tag `vX.Y.Z` publié et récupéré
+  (`git fetch --tags`) :
+  `./scripts/flathub-manifest.py --tag vX.Y.Z --out <clone du dépôt Flathub>`.
+  Le script lit le manifeste et les sources vendorisées **au commit du
+  tag** (pas dans l'arbre de travail), vérifie que le tag est `v` suivi
+  de la version de `tauri.conf.json` à ce commit, et remplace la source
+  locale par une source `git` (`url`, `tag`, `commit`) ; flatpak-builder
+  refuse la construction si le tag ne désigne plus ce commit. Il écrit
+  le manifeste, `cargo-sources.json` et `node-sources.json` dans le
+  dossier donné, sans toucher à ses autres fichiers ; il reste à les
+  commiter dans le dépôt Flathub. Tests : `scripts/flathub-manifest.test.py`.
+- **Autorisations** : aucun `--filesystem` (refusé par
+  `check-packaging.sh`) ; les fichiers passent par les portails
+  (ADR-006).

@@ -374,7 +374,11 @@ reçus de l'interface ; types MIME recalculés.
 - Mises à jour (NSIS) signées **minisign**, signature faite dans un
   environnement de publication séparé de la compilation ; délais bornés
   (`docs/CODE_SIGNING.md`).
-- Flatpak : autorisations minimales.
+- Flatpak : autorisations minimales, aucun accès direct aux fichiers de
+  l'utilisateur (`--filesystem` refusé par `scripts/check-packaging.sh`) :
+  sélecteur de fichiers et glisser-déposer passent par les portails
+  (ADR-006). Manifeste Flathub figé sur un tag et son commit, vérifiés par
+  flatpak-builder à la récupération (`scripts/flathub-manifest.py`).
 - Caches de la CI enregistrés depuis `master` seulement, jamais utilisés
   par `release.yml`. Cache de build de l'e2e réduit à `target/` et aux
   archives `.crate` (aucune configuration de cargo, refusée aussi par
@@ -479,7 +483,8 @@ Signalés au mainteneur dans chaque PR qui les touche (ADR-008) :
   `capabilities/`, `permissions/` ;
 - `app/src/lib/agent.ts` ;
 - infrastructure : `deny.toml`, `.github/workflows/*.yml`,
-  `packaging/flatpak/*.yml`, `scripts/check.sh`,
+  `packaging/flatpak/*.yml`, `scripts/flathub-manifest.py`,
+  `scripts/check-packaging.sh`, `scripts/check.sh`,
   `scripts/check-fuzz-lock.mjs` (et ses tests), `fuzz/Cargo.lock`.
 
 ## Revues

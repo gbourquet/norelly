@@ -150,6 +150,9 @@ téléchargement, pas quand elle est déjà dans le cache. Au lancement,
 `app/e2e/verify-crates.sh` compare donc chaque archive d'un paquet de
 `Cargo.lock` à son `checksum` et retire celle qui diffère (ou qui n'est
 pas un fichier ordinaire) : cargo la télécharge et la vérifie à nouveau.
+Si une archive ne peut pas être lue, le lancement s'arrête. Le script
+ne lit que les empreintes de `sha256sum`, jamais les chemins qu'il
+réécrit (préfixe `*` du mode binaire sous Windows, chemins échappés).
 
 Nettoyage : chaque dossier de build note dans `.source` le chemin des
 sources qui l'ont produit. Au lancement, `app/e2e/prune-targets.sh` retire

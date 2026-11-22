@@ -63,13 +63,27 @@ while read -r name version checksum; do
   done
 done <<< "$packages"
 
-# Une seule passe de sha256sum. Un chemin qu'il échappe (barre oblique
-# inverse, saut de ligne) ne correspond à aucune empreinte attendue :
-# l'archive est retirée, puis téléchargée et vérifiée par cargo.
+# Une seule passe de sha256sum, une ligne par fichier dans l'ordre donné.
+# Seule l'empreinte est lue : le chemin qu'il réécrit (« * » du mode
+# binaire sous Windows, « \ » en tête d'une ligne échappée) n'est jamais
+# relu. Une ligne illisible ne donne aucune empreinte : archive retirée,
+# puis téléchargée et vérifiée par cargo. Un échec de sha256sum, ou une
+# ligne manquante qui décalerait les empreintes, arrête tout.
 if [ "${#files[@]}" -ne 0 ]; then
-  while read -r sum archive; do
-    [ "$sum" = "${expected[$archive]:-}" ] || remove "$archive"
-  done < <(sha256sum -- "${files[@]}")
+  sums=$(sha256sum -- "${files[@]}") || {
+    echo "sha256sum a échoué sur le cache de cargo" >&2
+    exit 1
+  }
+  mapfile -t lines <<< "$sums"
+  if [ "${#lines[@]}" -ne "${#files[@]}" ]; then
+    echo "sha256sum : ${#lines[@]} empreinte(s) pour ${#files[@]} archive(s)" >&2
+    exit 1
+  fi
+  for i in "${!files[@]}"; do
+    archive=${files[i]}
+    line=${lines[i]#\\}
+    [ "${line:0:64}" = "${expected[$archive]}" ] || remove "$archive"
+  done
 fi
 if [ "$removed" -ne 0 ]; then
   echo "==> $removed archive(s) .crate retirée(s), à télécharger à nouveau"

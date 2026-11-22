@@ -15,7 +15,7 @@ check() { # libellé, obtenu, attendu
   fi
 }
 present() { if [ -e "$1" ] || [ -L "$1" ]; then echo présent; else echo absent; fi; }
-verdict() { if "$@" >/dev/null 2>&1; then echo accepté; else echo refusé; fi; }
+verdict() { if "$@" </dev/null >/dev/null 2>&1; then echo accepté; else echo refusé; fi; }
 sum() { sha256sum "$1" | cut -d' ' -f1; }
 
 registry="$tmp/registry/cache"
@@ -72,6 +72,27 @@ if [ -L "$index/lien-1.0.0.crate" ] || [ ! -e "$index/lien-1.0.0.crate" ]; then
 else
   echo "-     liens symboliques : indisponibles, ignoré"
 fi
+# Sous Windows (Git Bash), sha256sum écrit « empreinte *chemin » (mode
+# binaire) : simulé ici par un sha256sum qui force -b.
+bin="$tmp/bin"
+mkdir -p "$bin"
+real_sha256sum=$(command -v sha256sum)
+printf '#!/usr/bin/env bash\nexec %q -b "$@"\n' "$real_sha256sum" > "$bin/sha256sum"
+chmod +x "$bin/sha256sum"
+printf 'archive saine' > "$index/saine-1.0.0.crate"
+printf 'archive empoisonnée' > "$index/empoisonnee-2.1.0.crate"
+binary_log=$(PATH="$bin:$PATH" "$script" "$tmp/Cargo.lock" "$registry" 2>&1 >/dev/null || true)
+check "mode binaire : archive conforme gardée" "$(present "$index/saine-1.0.0.crate")" présent
+check "mode binaire : archive conforme non signalée" "$(grep -c saine-1.0.0 <<<"$binary_log" || true)" 0
+check "mode binaire : archive différente retirée" "$(present "$index/empoisonnee-2.1.0.crate")" absent
+# Une archive que sha256sum ne lit pas ne donne aucune ligne : refus, sans
+# décaler les empreintes des archives suivantes.
+rm -f "$index/lien-1.0.0.crate"
+printf 'archive saine' > "$index/lien-1.0.0.crate"
+printf '#!/usr/bin/env bash\necho "sha256sum: illisible" >&2\nexit 1\n' > "$bin/sha256sum"
+check "sha256sum en échec refusé" "$(PATH="$bin:$PATH" verdict "$script" "$tmp/Cargo.lock" "$registry")" refusé
+printf '#!/usr/bin/env bash\nshift\n%q -- "${@:2}"\n' "$real_sha256sum" > "$bin/sha256sum"
+check "ligne manquante refusée" "$(PATH="$bin:$PATH" verdict "$script" "$tmp/Cargo.lock" "$registry")" refusé
 check "registre absent accepté" "$(verdict "$script" "$tmp/Cargo.lock" "$tmp/absent")" accepté
 check "Cargo.lock absent refusé" "$(verdict "$script" "$tmp/absent.lock" "$registry")" refusé
 check "arguments obligatoires" "$(verdict "$script" "$tmp/Cargo.lock")" refusé

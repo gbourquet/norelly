@@ -28,8 +28,8 @@ souhaitez-vous ? » est posée, **Oui** étant proposé par défaut. Fermer la
 question sans répondre ne vaut pas « Oui ». Si une version est disponible,
 un bandeau propose « Installer et redémarrer » ou « Plus tard ». Une
 version stable ne propose jamais une version bêta. Installé
-depuis Flathub ou par un paquet .deb ou .rpm, Norelly est mis à jour par le
-système : ni question ni bandeau.
+depuis Flathub, par un paquet .deb ou .rpm ou par l'AUR (Arch Linux),
+Norelly est mis à jour par le système : ni question ni bandeau.
 
 **Langue** : langue du système par défaut (français si la langue préférée
 est le français, anglais pour toute autre langue). Dates, heures, tailles

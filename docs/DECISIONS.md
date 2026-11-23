@@ -357,6 +357,17 @@ est majoritairement écrit par Claude et relu par le mainteneur.
   (`type: dir`) ; le manifeste soumis à Flathub en est dérivé par
   `scripts/flathub-manifest.py` (source `git`, tag et commit lus dans le
   dépôt, fichiers pris au commit du tag).
+- **Arch Linux, paquet AUR (2026-11-23)** : canal Linux secondaire
+  ajouté, validé par le mainteneur. Paquet `norelly-bin` seul, qui reprend
+  le .deb publié (même binaire, connexion Google comprise : un paquet
+  compilé chez l'utilisateur n'aurait pas les identifiants du client
+  Google, ADR-013). Envoi **automatique** sur l'AUR par le job `aur` de
+  `release.yml` à chaque version stable publiée, avec une clé SSH dédiée
+  (choix du mainteneur, plutôt qu'un envoi manuel), dans un environnement
+  à relecture obligatoire ; jamais pour une préversion. La 0.1.0, publiée
+  avant ce job, est envoyée une fois à la main par les mêmes scripts. Pas de module de mise à jour intégré : pacman s'en charge.
+  Détails : `docs/technique/methode.md` (« Paquet AUR ») et
+  `docs/technique/securite.md`.
 
 ## ADR-007 : stratégie de tests
 

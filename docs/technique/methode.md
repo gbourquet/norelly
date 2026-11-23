@@ -103,6 +103,7 @@ fichier modifié par l'assistant.
 | `nightly.yml` | chaque nuit | fuzzing (5 min par cible), bancs (liste 50k, démarrage de bout en bout), Stalwart en second serveur |
 | `release.yml` | tag de version | NSIS (Windows, mise à jour signée minisign dans un environnement séparé, signature vérifiée avec la clé publique embarquée par le job `update-signature`, sans secret), .deb et .rpm, manifeste `latest.json`, manifestes winget, `SHA256SUMS` et attestation de provenance Sigstore de chaque fichier (`scripts/release-assets.sh`, `actions/attest`), revérifiées avant le brouillon de version ; préversion (`X.Y.Z-suffixe`) : pas de .rpm (le tiret est refusé dans une version rpm) ni de manifestes winget, brouillon marqué préversion ; version stable : .deb et .rpm exigés |
 | `release.yml` (job `site`) | publication d'une version stable par le mainteneur (`release: released`) | lancement du workflow `deploy.yml` du dépôt du site `gbourquet/norelly-site` sur `main`, qui se reconstruit au dernier tag de version (ADR-017) ; voir « Signal de publication au site » |
+| `release.yml` (job `aur`) | publication d'une version stable par le mainteneur (`release: released`) | paquet AUR `norelly-bin` : .deb publié vérifié (somme et attestation de provenance), PKGBUILD et `.SRCINFO` régénérés (`scripts/aur-pkgbuild.sh`), envoyés sur `aur.archlinux.org` ; voir « Paquet AUR » |
 
 ### Signal de publication au site
 
@@ -141,6 +142,107 @@ Secret absent, jeton expiré ou refusé : le job `site` échoue, avec un
 message explicite, et la version reste publiée ; renouveler le jeton puis
 relancer le job (ou déclencher le site à la main) met le site à jour.
 
+### Enregistrer un secret
+
+Un secret d'environnement s'enregistre par l'interface de GitHub
+(*Settings → Environments → nom de l'environnement → Environment
+secrets*), ou par `gh secret set NOM --env ENVIRONNEMENT` lancé dans un
+**vrai terminal**. Sans terminal interactif (commande lancée par un agent,
+préfixe `!` de Claude Code, script), `gh secret set` ne demande pas la
+valeur : il lit une entrée vide et enregistre un secret vide, sans erreur.
+Le job qui l'utilise échoue alors en le signalant absent.
+
+### Paquet AUR
+
+Le paquet `norelly-bin` de l'AUR (Arch Linux et dérivées) reprend le .deb
+de la version publiée : même binaire que les autres paquets Linux,
+connexion Google comprise. Le modèle est dans `packaging/aur`. À chaque
+version stable publiée, le job `aur` de `release.yml` :
+
+1. télécharge le .deb publié et le vérifie : somme dans `SHA256SUMS`,
+   attestation de provenance du .deb et de `SHA256SUMS` émise par ce
+   workflow à ce tag et à ce commit (`scripts/aur-deb.sh`) ;
+2. remplit le PKGBUILD et le `.SRCINFO` (`scripts/aur-pkgbuild.sh`) ;
+3. les envoie sur l'AUR s'ils sont strictement plus récents
+   (`scripts/aur-push.sh`) : version comparée sur `pkgver-pkgrel`, jamais
+   de retour en arrière ; relance à l'identique : rien n'est envoyé ; même
+   version, autre contenu : refusé.
+
+Une préversion ne change pas l'AUR (tiret interdit dans `pkgver`). Clé
+d'hôte de `aur.archlinux.org` commitée (`packaging/aur/known_hosts`,
+empreinte vérifiée par `aur-push.test.sh`). Contrôles : tests des trois
+scripts dans `check.sh` ; `check-aur.sh` dans `check.sh full` (Docker,
+sur un .deb factice : `.SRCINFO` égal à `makepkg --printsrcinfo`, namcap,
+construction et installation sous Arch). Les dépendances (`depends`) ont
+été relevées sur le vrai binaire (`namcap` sur le paquet de la 0.1.0) :
+à revoir si l'application lie une nouvelle bibliothèque.
+
+Mise en place par le mainteneur, une fois :
+
+1. Créer un compte sur <https://aur.archlinux.org> dédié à Norelly, qui ne
+   maintiendra que `norelly-bin`. Rien ne l'impose côté AUR : la clé de la
+   CI peut agir sur tout ce que le compte peut faire (voir « Clé AUR
+   compromise »).
+2. Créer une clé SSH dédiée, sans phrase de passe :
+   `ssh-keygen -t ed25519 -N '' -C norelly-aur -f ~/norelly-aur`. Coller
+   la clé publique (`~/norelly-aur.pub`) dans *My Account → SSH Public
+   Key* du compte AUR.
+3. Premier envoi, pour une version publiée avant l'existence du job `aur`
+   (la 0.1.0 : le workflow de son tag n'a pas ce job, et un tag publié ne
+   se déplace ni ne se recrée jamais). Depuis une copie de travail de
+   `master` à jour, avec les mêmes vérifications que le job :
+
+   ```
+   git fetch --tags
+   git diff --exit-code v0.1.0 HEAD -- LICENSE-MIT
+   ./scripts/aur-deb.sh v0.1.0 "$(git rev-parse 'v0.1.0^{commit}')" /tmp/aur-deb
+   ./scripts/aur-pkgbuild.sh 0.1.0 /tmp/aur-deb/Norelly_0.1.0_amd64.deb /tmp/aur-pkg
+   GIT_SSH_COMMAND="ssh -F /dev/null -i $HOME/norelly-aur -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$PWD/packaging/aur/known_hosts -o GlobalKnownHostsFile=/dev/null" \
+     ./scripts/aur-push.sh /tmp/aur-pkg ssh://aur@aur.archlinux.org/norelly-bin.git
+   ```
+
+   La deuxième ligne vérifie que la licence n'a pas changé depuis le tag
+   (le PKGBUILD la télécharge au tag). Le premier envoi crée le paquet sur
+   l'AUR.
+4. Dans ce dépôt, créer l'environnement GitHub **`aur`**, limité aux tags
+   `v*` (*Deployment branches and tags*), avec **relecture obligatoire**
+   par le mainteneur (*Required reviewers*) : la clé permet de publier un
+   PKGBUILD exécuté chez les utilisateurs, comme la clé de mise à jour de
+   l'environnement `release`. Y ranger **`AUR_SSH_PRIVATE_KEY`** depuis le
+   fichier, sans passer par le presse-papiers (un gestionnaire de
+   presse-papiers en garderait l'historique) :
+
+   ```
+   gh secret set AUR_SSH_PRIVATE_KEY --env aur -R gbourquet/norelly < ~/norelly-aur
+   shred -u ~/norelly-aur
+   ```
+
+5. La règle des tags `v*` (étape 4 de « Signal de publication au site ») :
+   création, mise à jour et suppression réservées au mainteneur, sans
+   liste de contournement. Les environnements `site` et `aur` acceptent
+   tout tag `v*`.
+
+À chaque version stable publiée ensuite, GitHub demande d'approuver le job
+`aur`. Secret absent ou mal formé, clé refusée : le job échoue avec un
+message explicite et la version reste publiée ; corriger le secret puis
+relancer le job met l'AUR à jour.
+
+#### Clé AUR compromise
+
+L'interface SSH de l'AUR ne sert pas qu'à pousser : la clé permet aussi
+d'ajouter des co-mainteneurs, d'adopter ou d'abandonner des paquets, et de
+créer un paquet par un premier envoi. En cas de doute sur la clé :
+
+1. retirer la clé publique du compte AUR et changer le mot de passe du
+   compte ;
+2. vider la liste des co-mainteneurs (`ssh aur@aur.archlinux.org
+   set-comaintainers norelly-bin` sans nom, avec une nouvelle clé) et
+   vérifier les paquets du compte (`list-repos`) ;
+3. relire l'historique git de `norelly-bin` et rétablir le dernier
+   PKGBUILD légitime par un nouvel envoi (`pkgrel` augmenté si la version
+   ne change pas) ;
+4. créer une nouvelle clé et remplacer le secret (étapes 2 et 4).
+
 `./scripts/check.sh` (rapide) enchaîne : build du front, format Rust,
 Clippy (avec et sans `updater`), tests unitaires avec couverture, tests du
 module de mise à jour, doctests, `cargo deny` (workspace principal puis
@@ -149,8 +251,9 @@ verrou racine, règle de dépendance du domaine, contrôle SQL,
 **documentation** (`check-docs.sh`), versions figées de la chaîne et des
 outils de la CI (`check-toolchain.mjs`), métadonnées de bureau et scripts de
 publication (Linux), `svelte-check`, lint et tests du front avec couverture.
-`./scripts/check.sh full` ajoute le build du workspace et les tests
-d'intégration.
+`./scripts/check.sh full` ajoute le build du workspace, les tests
+d'intégration et le contrôle du paquet AUR sous Arch (`check-aur.sh`,
+Docker).
 
 Caches de la CI (10 Go par dépôt sur GitHub) : ceux des jobs Rust et
 end-to-end ne sont **enregistrés que depuis `master`**, pour ne pas

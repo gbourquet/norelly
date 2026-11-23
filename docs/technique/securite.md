@@ -528,10 +528,11 @@ reçus de l'interface ; types MIME recalculés.
   qui a `contents: write`. La commande `gh` documentée vérifie en plus que
   le runner est hébergé par GitHub, ce que la commande `cosign` ne fait
   pas (tous les jobs de `release.yml` le sont).
-- Signal au site (`release.yml`, job `site`) : seul job qui tourne à la
+- Signal au site (`release.yml`, job `site`) : tourne à la
   publication d'une version stable par le mainteneur (`release: released`,
-  qui couvre aussi la promotion d'une préversion), sans aucune permission du
-  `GITHUB_TOKEN` (`permissions: {}`), sans dépôt extrait ni action
+  qui couvre aussi la promotion d'une préversion), comme le job `aur`
+  (point suivant). Le job `site` n'a aucune permission du
+  `GITHUB_TOKEN` (`permissions: {}`), ni dépôt extrait ni action
   tierce. Il reçoit seul le secret `SITE_DISPATCH_TOKEN` (environnement
   `site`, limité aux tags `v*`) : jeton fin limité à
   `gbourquet/norelly-site`, permission « Actions » en écriture
@@ -545,13 +546,49 @@ reçus de l'interface ; types MIME recalculés.
   dernier commit, après une construction vérifiée, et le jeton expire
   vite. Pas de relecture obligatoire : indisponible pour le dépôt privé
   du site avec l'offre GitHub gratuite. Aucune donnée
-  transmise : le site relit lui-même le dernier tag de version stable
-  (`scripts/lib/ref.mjs` du site : tags `vX.Y.Z` seulement, jamais une
-  préversion). Le tag est
+  transmise : le site relit lui-même la dernière version stable publiée
+  (`scripts/lib/ref.mjs` du site : version GitHub publiée, jamais un
+  brouillon ni une préversion, tag `vX.Y.Z`). Le tag est
   revérifié (version stable) avant l'envoi. Secret absent ou réponse autre
   que 204 : échec explicite. Les tags `v*` sont protégés par une règle du
-  dépôt (création réservée au mainteneur), car l'environnement `site`
-  accepte tout tag `v*`.
+  dépôt (création, mise à jour et suppression réservées au mainteneur,
+  sans liste de contournement), car les environnements `site` et `aur`
+  acceptent tout tag `v*`.
+- Paquet AUR (`release.yml`, job `aur`, `packaging/aur`) : à la
+  publication d'une version stable seulement (jamais un brouillon, dont le
+  .deb ne se télécharge pas, ni une préversion). `GITHUB_TOKEN` en lecture
+  seule, dépôt extrait au tag publié (version du dépôt égale au tag),
+  aucune action hormis `actions/checkout`, délai maximal de 10 minutes.
+  Le .deb publié n'est référencé qu'après vérification
+  (`scripts/aur-deb.sh`, testé avec un faux `gh`) : sa somme dans
+  `SHA256SUMS`, et `gh attestation verify` du .deb et de `SHA256SUMS`
+  contre l'identité exacte du workflow de publication à ce tag et à ce
+  commit (comme le job `publish`) ; le PKGBUILD fige sa somme SHA-256 et
+  celle de la licence. La version entre dans un PKGBUILD que makepkg
+  exécute chez l'utilisateur : forme stricte `X.Y.Z`
+  (`scripts/aur-pkgbuild.sh`, testé, injection comprise) ; modèle sans
+  `install=`, sans `pkgver()` ni source VCS ; `package()` extrait le .deb
+  sans chemin absolu. Envoi (`scripts/aur-push.sh`, testé contre un dépôt
+  git local) seulement si `pkgver-pkgrel` est strictement plus récent que
+  celui de l'AUR (jamais de retour à une version ni à une révision
+  d'empaquetage plus ancienne) ; même version, même contenu : rien n'est
+  envoyé ; même version, autre contenu : refusé ; version de l'AUR
+  (donnée externe) validée, jamais recopiée dans les messages. Secret
+  `AUR_SSH_PRIVATE_KEY` de l'environnement `aur` (tags `v*`, **relecture
+  obligatoire** du mainteneur) : clé SSH dédiée au compte AUR de Norelly,
+  forme vérifiée (début et fin), écrite en fichier `0600` dans la seule
+  étape d'envoi puis effacée. Hôte vérifié par la seule clé ed25519
+  commitée (`packaging/aur/known_hosts`, empreinte égale à celle publiée
+  par l'AUR, vérifiée par `aur-push.test.sh`) : `ssh -F /dev/null`,
+  `GlobalKnownHostsFile=/dev/null`, `StrictHostKeyChecking=yes`. Volée,
+  la clé permettrait de publier un PKGBUILD arbitraire pour `norelly-bin`
+  (exécuté par makepkg, fichiers installés par pacman en root chez ses
+  utilisateurs), et, l'interface SSH de l'AUR n'étant pas restreignable à
+  un paquet ni à une commande, d'ajouter des co-mainteneurs, d'adopter des
+  paquets ou d'en créer sous l'identité de Norelly : procédure de réponse
+  dans `docs/technique/methode.md` (« Clé AUR compromise »). Secret
+  enregistré depuis le fichier, sans presse-papiers. Pas de module de mise
+  à jour intégré (pacman s'en charge).
 - Flatpak : autorisations minimales, aucun accès direct aux fichiers de
   l'utilisateur (liste fermée d'autorisations vérifiée par
   `scripts/check-packaging.sh`, `ALLOWED_FINISH_ARGS`) :
@@ -680,7 +717,9 @@ Signalés au mainteneur dans chaque PR qui les touche (ADR-008) :
   `scripts/release-assets.sh`, `tools/verify-update-signature/`, `rust-toolchain.toml`,
   `scripts/check-toolchain.mjs`, `scripts/check-toolchain-cli.mjs`,
   `scripts/check-toolchain.test.mjs`, `.github/dependabot.yml`,
-  `scripts/check-actions.mjs` (et son test).
+  `scripts/check-actions.mjs` (et son test), `packaging/aur/`,
+  `scripts/aur-pkgbuild.sh`, `scripts/aur-deb.sh`, `scripts/aur-push.sh`
+  (et leurs tests), `scripts/check-aur.sh`.
 
 ## Revues
 

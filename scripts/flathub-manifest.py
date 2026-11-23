@@ -28,9 +28,9 @@ Usage :
                                    scripts/check-packaging.sh)
 
 Le tag doit être `v` suivi de la version de `app/src-tauri/tauri.conf.json`
-au même commit (règle de `release.yml`), et cette version avoir sa note
-dans le fichier AppStream, une préversion avec un tilde à la place du
-tiret (`1.2.4~beta.1`). Bibliothèque standard seulement.
+au même commit (règle de `release.yml`), et cette version avoir la
+première note du fichier AppStream, une préversion avec un tilde à la
+place du tiret (`1.2.4~beta.1`). Bibliothèque standard seulement.
 """
 
 from __future__ import annotations
@@ -53,7 +53,7 @@ TAURI_CONF = "app/src-tauri/tauri.conf.json"
 METAINFO = "packaging/linux/io.github.gbourquet.Norelly.metainfo.xml"
 UPSTREAM = "https://github.com/gbourquet/norelly.git"
 
-TAG = re.compile(r"v[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.]+)?")
+TAG = re.compile(r"v[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?")  # celle de release.yml
 COMMIT = re.compile(r"[0-9a-f]{40}")
 # Source locale : l'élément `- type: dir` de la liste `sources` du module
 # et ses lignes plus indentées, jusqu'à l'élément suivant.
@@ -222,8 +222,10 @@ def from_tag(repo: Path, tag: str) -> dict[str, str]:
     # AppStream classe « 1.2.4-beta.1 » après « 1.2.4 » : une préversion y
     # est notée avec un tilde (« 1.2.4~beta.1 »), classé avant.
     note = version.replace("-", "~", 1)
-    if not any(r.get("version") == note for r in releases):
-        raise ManifestError(f"{METAINFO} au tag {tag} : aucune note pour la version {note}")
+    if not releases or releases[0].get("version") != note:
+        raise ManifestError(
+            f"{METAINFO} au tag {tag} : la première note n'est pas celle de la version {note}"
+        )
     files = {MANIFEST: to_flathub(show(f"{FLATPAK}/{MANIFEST}"), tag, commit)}
     for name in VENDORED:
         files[name] = show(f"{FLATPAK}/{name}")

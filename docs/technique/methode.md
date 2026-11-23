@@ -276,6 +276,12 @@ autre PR.
   build y est fait sans compilation incrémentale ni informations de
   débogage (`CARGO_INCREMENTAL=0`, `CARGO_PROFILE_DEV_DEBUG=0`, transmis
   au conteneur par `app/e2e/run.sh`).
+- Contrôle AUR (`scripts/check-aur.sh`) : bases et paquets Arch de
+  l'instantané daté de l'archive, dans `~/.cache/norelly-aur/<date>` en
+  local comme en CI (clé : `scripts/check-aur.sh`). L'archive Arch, lente
+  et parfois injoignable, n'est lue qu'au premier lancement pour une date ;
+  ensuite le contrôle se fait sans réseau, en quelques secondes. Changer
+  la date efface le dossier de l'ancienne.
 
 ### Flatpak et Flathub
 

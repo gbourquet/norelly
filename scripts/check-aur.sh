@@ -17,14 +17,36 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 image="archlinux:base-devel@sha256:949ecb1661609ab7e8f6854ba03efd62792e7a796313738e94b040c095c20d91"
-archive="https://archive.archlinux.org/repos/2026/11/23"
+snapshot=2026/11/23
+archive="https://archive.archlinux.org/repos/$snapshot"
 
-docker run --rm -i -v "$PWD:/src:ro" -e ARCHIVE="$archive" "$image" bash -euo pipefail -s <<'SH'
+# Cache des bases et des paquets de l'instantané, qui ne changent jamais :
+# l'archive Arch, lente et parfois injoignable, n'est sollicitée qu'au
+# premier lancement pour une date donnée. Un dossier par date, les autres
+# sont effacés. Paquets toujours vérifiés par leur signature (trousseau de
+# l'image figée). En CI : cache restauré depuis master (ci.yml).
+cache_root="${NORELLY_AUR_CACHE:-${XDG_CACHE_HOME:-$HOME/.cache}/norelly-aur}"
+cache="$cache_root/${snapshot//\//-}"
+mkdir -p "$cache/pkg" "$cache/sync"
+find "$cache_root" -mindepth 1 -maxdepth 1 ! -name "${snapshot//\//-}" -exec rm -rf {} +
+
+docker run --rm -i -v "$PWD:/src:ro" \
+  -v "$cache/pkg:/var/cache/pacman/pkg" -v "$cache/sync:/var/lib/pacman/sync" \
+  -e ARCHIVE="$archive" -e HOST_ID="$(id -u):$(id -g)" "$image" bash -euo pipefail -s <<'SH'
+  # Cache rendu à l'utilisateur de l'hôte, même en cas d'échec.
+  trap 'chown -R "$HOST_ID" /var/cache/pacman/pkg /var/lib/pacman/sync' EXIT
   echo "Server = $ARCHIVE/\$repo/os/\$arch" >/etc/pacman.d/mirrorlist
-  # L'archive Arch répond parfois en près de 10 s, délai de connexion de
-  # pacman (non réglable) : trois tentatives.
+  # Archive parfois lente ou injoignable (connexion en près de 10 s, délai
+  # de pacman non réglable ; transferts qui s'arrêtent) : délais de pacman
+  # gardés, cinq minutes au plus par tentative, trois tentatives. Bases déjà
+  # en cache : pas de nouvelle lecture (l'instantané ne change pas).
   for attempt in 1 2 3; do
-    pacman -Syyuu --noconfirm --needed --disable-download-timeout namcap reuse devtools >/dev/null && break
+    refresh=-yy
+    if [ -s /var/lib/pacman/sync/core.db ] && [ -s /var/lib/pacman/sync/extra.db ]; then refresh=; fi
+    # devtools sans ses dépendances (outils de gestion de versions) : seul
+    # `pkgctl license check` sert, qui n'a besoin que de reuse et jq.
+    timeout 300 pacman -S $refresh -uu --noconfirm --needed namcap reuse jq >/dev/null \
+      && timeout 300 pacman -Sdd --noconfirm --needed devtools >/dev/null && break
     [ "$attempt" -lt 3 ] || { echo "archive Arch injoignable après 3 tentatives" >&2; exit 1; }
     sleep 15
   done

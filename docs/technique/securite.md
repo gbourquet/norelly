@@ -596,7 +596,10 @@ reçus de l'interface ; types MIME recalculés.
   (ADR-006). Manifeste Flathub figé sur un tag et son commit, vérifiés par
   flatpak-builder à la récupération (`scripts/flathub-manifest.py`).
 - Caches de la CI enregistrés depuis `master` seulement, jamais utilisés
-  par `release.yml`. Cache de build de l'e2e réduit au dossier de build
+  par `release.yml`. Cache du contrôle AUR (`~/.cache/norelly-aur`) :
+  bases et paquets Arch d'un instantané daté ; chaque paquet est revérifié
+  par sa signature (trousseau de l'image figée par empreinte) à chaque
+  lancement, et le conteneur ne reçoit aucun secret. Cache de build de l'e2e réduit au dossier de build
   de la copie de travail (`target-<empreinte>/`, `app/e2e/target-name.sh`)
   et aux archives `.crate`, revérifiées contre `Cargo.lock` à chaque
   lancement (`app/e2e/verify-crates.sh` : cargo ne le fait qu'au

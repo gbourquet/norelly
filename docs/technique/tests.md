@@ -21,7 +21,7 @@ messagerie ni à un vrai DNS : conteneurs, faux serveurs en processus.
 | **Fuzzing** | `fuzz/fuzz_targets/` | `cargo-fuzz` | job nocturne |
 | **Documentation** | `scripts/check-docs.*`, `app/src/docs.test.ts` | Node, Vitest | `./scripts/check-docs.sh` |
 | **Scripts de publication** | `scripts/release-assets.test.sh`, `scripts/aur-pkgbuild.test.sh`, `scripts/aur-deb.test.sh`, `scripts/aur-push.test.sh` | Bash et coreutils, fichiers factices, faux `gh`, dépôt git local à la place de l'AUR (Linux) | lancés par `check.sh` |
-| **Paquet AUR** | `scripts/check-aur.sh` | conteneur Arch Linux figé (image par empreinte, dépôts datés de l'archive Arch) : `makepkg`, `namcap`, `pkgctl license check`, `pacman`, .deb factice | lancé par `check.sh full` (Docker) |
+| **Paquet AUR** | `scripts/check-aur.sh` | conteneur Arch Linux figé (image par empreinte, dépôts datés de l'archive Arch) : `makepkg`, `namcap`, `pkgctl license check`, `pacman`, .deb factice | lancé par `check.sh full` (Docker ; paquets Arch en cache dans `~/.cache/norelly-aur`, archive lue au premier lancement seulement) |
 | **Signature de mise à jour** | `tools/verify-update-signature/src/main.rs` | `minisign-verify`, clés publiques et signature factices (`tools/verify-update-signature/tests/fixtures/`, clés privées jetées) | `cargo nextest run -p norelly-verify-update-signature` (lancé par `check.sh`) |
 
 Profils nextest (`.config/nextest.toml`) : `default` exclut les binaires

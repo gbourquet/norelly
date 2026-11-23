@@ -208,9 +208,14 @@ et les sources vendorisées.
   apostrophes ou sur plusieurs lignes, aucun commentaire en fin de ligne ;
   un test compare la liste à la lecture de `flatpak-builder --show-manifest`
   quand l'outil est installé.
-- **Note de version** : le tag n'est accepté que si le fichier AppStream
-  (`packaging/linux/…metainfo.xml`) a, au même commit, une entrée
-  `<release>` pour cette version.
+- **Note de version** : le tag n'est accepté que si la première entrée
+  `<release>` du fichier AppStream (`packaging/linux/…metainfo.xml`), au
+  même commit, est celle de cette version. Une préversion y est notée
+  avec un tilde à la place du tiret (`0.1.0~beta.1`,
+  `type="development"`) : AppStream classe `0.1.0-beta.1` après `0.1.0`,
+  et `appstreamcli validate` refuse alors l'entrée de la version stable
+  placée au-dessus. Le tag `v0.1.0-beta.1`, antérieur à cette règle, n'a
+  pas de manifeste Flathub (préversion non publiée sur Flathub).
 
 ### Versions figées de la chaîne et des outils
 

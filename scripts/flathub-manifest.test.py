@@ -128,6 +128,10 @@ class Transform(unittest.TestCase):
         out = fm.to_flathub(self.manifest, "v1.2.3-rc.1", COMMIT)
         self.assertIn('        tag: "v1.2.3-rc.1"\n', out)
 
+    def test_accepte_un_tiret_dans_le_suffixe_comme_release_yml(self) -> None:
+        out = fm.to_flathub(self.manifest, "v1.2.3-beta-1", COMMIT)
+        self.assertIn('        tag: "v1.2.3-beta-1"\n', out)
+
     def test_commit_entre_guillemets_meme_tout_en_chiffres(self) -> None:
         # Sans guillemets, YAML lirait ce commit comme un nombre.
         digits = "1234567890" * 4
@@ -340,6 +344,33 @@ class FromTag(unittest.TestCase):
     def test_refuse_un_tag_sans_note_de_version_appstream(self) -> None:
         self.metainfo.write_text(metainfo("1.2.2", "1.2.30"), encoding="utf-8")
         git(self.repo, "commit", "-q", "-am", "notes")
+        (self.repo / "app" / "src-tauri" / "tauri.conf.json").write_text(
+            json.dumps({"version": "1.2.4"}), encoding="utf-8"
+        )
+        git(self.repo, "commit", "-q", "-am", "1.2.4")
+        git(self.repo, "tag", "v1.2.4")
+        self.assertNotEqual(self.run_main("--tag", "v1.2.4", "--out", str(self.out)), 0)
+        self.assertFalse(self.out.exists())
+
+    def tag_preversion(self, note: str) -> int:
+        self.metainfo.write_text(metainfo(note, "1.2.3"), encoding="utf-8")
+        (self.repo / "app" / "src-tauri" / "tauri.conf.json").write_text(
+            json.dumps({"version": "1.2.4-beta.1"}), encoding="utf-8"
+        )
+        git(self.repo, "commit", "-q", "-am", "1.2.4-beta.1")
+        git(self.repo, "tag", "v1.2.4-beta.1")
+        return self.run_main("--tag", "v1.2.4-beta.1", "--out", str(self.out))
+
+    def test_preversion_notee_avec_un_tilde_dans_appstream(self) -> None:
+        # AppStream classe 1.2.4-beta.1 après 1.2.4, mais 1.2.4~beta.1 avant.
+        self.assertEqual(self.tag_preversion("1.2.4~beta.1"), 0)
+
+    def test_refuse_une_preversion_notee_avec_un_tiret_dans_appstream(self) -> None:
+        self.assertNotEqual(self.tag_preversion("1.2.4-beta.1"), 0)
+        self.assertFalse(self.out.exists())
+
+    def test_refuse_une_note_qui_n_est_pas_la_plus_recente(self) -> None:
+        self.metainfo.write_text(metainfo("1.2.5", "1.2.4", "1.2.3"), encoding="utf-8")
         (self.repo / "app" / "src-tauri" / "tauri.conf.json").write_text(
             json.dumps({"version": "1.2.4"}), encoding="utf-8"
         )

@@ -19,7 +19,13 @@ archive="https://archive.archlinux.org/repos/2026/11/23"
 
 docker run --rm -i -v "$PWD:/src:ro" -e ARCHIVE="$archive" "$image" bash -euo pipefail -s <<'SH'
   echo "Server = $ARCHIVE/\$repo/os/\$arch" >/etc/pacman.d/mirrorlist
-  pacman -Syyuu --noconfirm --needed --disable-download-timeout namcap >/dev/null
+  # L'archive Arch répond parfois en près de 10 s, délai de connexion de
+  # pacman (non réglable) : trois tentatives.
+  for attempt in 1 2 3; do
+    pacman -Syyuu --noconfirm --needed --disable-download-timeout namcap >/dev/null && break
+    [ "$attempt" -lt 3 ] || { echo "archive Arch injoignable après 3 tentatives" >&2; exit 1; }
+    sleep 15
+  done
   useradd -m builder
   work=/home/builder/aur version=1.2.3
   mkdir -p "$work/deb/usr/bin" "$work/deb/usr/share/applications"

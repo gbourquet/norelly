@@ -1,0 +1,52 @@
+# Maintainer: Guillaume Bourquet <contact at norelly dot fr>
+#
+# Généré à chaque version stable publiée depuis packaging/aur/PKGBUILD du
+# dépôt https://github.com/gbourquet/norelly (scripts/aur-pkgbuild.sh), puis
+# poussé sur l'AUR par le job `aur` de .github/workflows/release.yml : les
+# modifications se proposent dans ce dépôt, pas ici.
+# Le paquet reprend le .deb publié : même binaire que les autres paquets
+# Linux, connexion Google comprise (identifiants compilés par la CI).
+# Pas de module de mise à jour intégré : pacman s'en charge.
+pkgname=norelly-bin
+pkgver={{version}}
+pkgrel=1
+pkgdesc='Simple, fast IMAP/SMTP mail client, usable entirely with the mouse'
+arch=('x86_64')
+url='https://norelly.fr/'
+license=('MIT OR Apache-2.0')
+depends=(
+  'cairo'
+  'dbus'
+  'gdk-pixbuf2'
+  'glib2'
+  'glibc'
+  'gtk3'
+  'hicolor-icon-theme'
+  'libgcc'
+  'libsoup3'
+  'webkit2gtk-4.1'
+)
+optdepends=(
+  'gnome-keyring: Secret Service to store account passwords'
+  'kwallet: Secret Service to store account passwords (KDE)'
+)
+provides=('norelly')
+conflicts=('norelly')
+options=('!strip' '!debug')
+source=(
+  "https://github.com/gbourquet/norelly/releases/download/v${pkgver}/Norelly_${pkgver}_amd64.deb"
+  "LICENSE-MIT-${pkgver}::https://raw.githubusercontent.com/gbourquet/norelly/v${pkgver}/LICENSE-MIT"
+)
+noextract=("Norelly_${pkgver}_amd64.deb")
+sha256sums=('{{sha256_deb}}'
+            '{{sha256_license}}')
+
+package() {
+  bsdtar -xOf "Norelly_${pkgver}_amd64.deb" 'data.tar.*' | bsdtar -xf - -C "$pkgdir"
+  # Dossier d'icône 256 px nommé « 256x256@2 » dans le .deb : rangé là où
+  # les thèmes d'icônes le cherchent.
+  if [ -d "$pkgdir/usr/share/icons/hicolor/256x256@2" ]; then
+    mv "$pkgdir/usr/share/icons/hicolor/256x256@2" "$pkgdir/usr/share/icons/hicolor/256x256"
+  fi
+  install -Dm644 "LICENSE-MIT-${pkgver}" "$pkgdir/usr/share/licenses/$pkgname/LICENSE-MIT"
+}

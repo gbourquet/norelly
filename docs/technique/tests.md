@@ -21,6 +21,7 @@ messagerie ni à un vrai DNS : conteneurs, faux serveurs en processus.
 | **Fuzzing** | `fuzz/fuzz_targets/` | `cargo-fuzz` | job nocturne |
 | **Documentation** | `scripts/check-docs.*`, `app/src/docs.test.ts` | Node, Vitest | `./scripts/check-docs.sh` |
 | **Scripts de publication** | `scripts/release-assets.test.sh` | Bash et coreutils, fichiers factices (Linux) | `./scripts/release-assets.test.sh` (lancé par `check.sh`) |
+| **Signature de mise à jour** | `tools/verify-update-signature/src/main.rs` | `minisign-verify`, clés publiques et signature factices (`tools/verify-update-signature/tests/fixtures/`, clés privées jetées) | `cargo nextest run -p norelly-verify-update-signature` (lancé par `check.sh`) |
 
 Profils nextest (`.config/nextest.toml`) : `default` exclut les binaires
 `integration*` ; `integration` les lance (sauf Stalwart) ; `stalwart` le

@@ -475,7 +475,12 @@ reçus de l'interface ; types MIME recalculés.
   sécurité Dependabot).
 - Mises à jour (NSIS) signées **minisign**, signature faite dans un
   environnement de publication séparé de la compilation ; délais bornés
-  (`docs/CODE_SIGNING.md`). Une version stable installée n'accepte
+  (`docs/CODE_SIGNING.md`). La signature envoyée est ensuite vérifiée
+  avec la clé publique embarquée, dans un job séparé sans secret
+  (`update-signature`), par un outil à dépendances minimales
+  (`tools/verify-update-signature`) : une clé du secret qui ne serait pas
+  celle du dépôt arrête la publication ; un test vérifie que la clé
+  embarquée se lit et que son commentaire cite son propre identifiant. Une version stable installée n'accepte
   jamais une préversion, même publiée par erreur comme dernière version
   (`update_offer_allowed`, comparateur du module). Préversion
   (`X.Y.Z-suffixe`) : brouillon marqué préversion, ni .rpm ni manifestes
@@ -518,7 +523,8 @@ reçus de l'interface ; types MIME recalculés.
   l'origine, pas la publication : elle est inscrite (Rekor, stockage de
   GitHub) avant la relecture du brouillon, et reste valide si le brouillon
   est rejeté ; le numéro de version d'un brouillon rejeté n'est donc jamais
-  réutilisé. La placer après la relecture donnerait le jeton OIDC au job
+  réutilisé (un tag dont le workflow a échoué avant toute attestation,
+  sans brouillon, peut être reposé). La placer après la relecture donnerait le jeton OIDC au job
   qui a `contents: write`. La commande `gh` documentée vérifie en plus que
   le runner est hébergé par GitHub, ce que la commande `cosign` ne fait
   pas (tous les jobs de `release.yml` le sont).
@@ -671,7 +677,7 @@ Signalés au mainteneur dans chaque PR qui les touche (ADR-008) :
   `scripts/check-fuzz-lock.mjs` (et ses tests), `fuzz/Cargo.lock`,
   `app/e2e/Dockerfile`, cache de build de l'e2e (`app/e2e/run.sh`,
   `target-name.sh`, `prune-targets.sh`, `verify-crates.sh`),
-  `scripts/release-assets.sh`, `rust-toolchain.toml`,
+  `scripts/release-assets.sh`, `tools/verify-update-signature/`, `rust-toolchain.toml`,
   `scripts/check-toolchain.mjs`, `scripts/check-toolchain-cli.mjs`,
   `scripts/check-toolchain.test.mjs`, `.github/dependabot.yml`,
   `scripts/check-actions.mjs` (et son test).

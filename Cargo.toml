@@ -7,6 +7,7 @@ members = [
     "crates/adapters/*",
     "crates/test-support",
     "app/src-tauri",
+    "tools/verify-update-signature",
 ]
 
 [workspace.package]
@@ -26,6 +27,9 @@ norelly-test-support = { path = "crates/test-support" }
 thiserror = "2.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+# Vérification en CI de la signature de mise à jour (même format que
+# tauri-plugin-updater, qui en dépend déjà).
+minisign-verify = "0.3"
 # Adaptateurs internes
 norelly-tls = { path = "crates/adapters/tls" }
 norelly-imap = { path = "crates/adapters/imap" }

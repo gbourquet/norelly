@@ -58,7 +58,7 @@ node scripts/check-actions.mjs
 # Paquets Linux (desktop-file-utils, appstream) : vérifiés sous Linux.
 if [ "$(uname -s)" = Linux ]; then step "Métadonnées de bureau"; ./scripts/check-packaging.sh; fi
 # Fichiers d'une version et SHA256SUMS (release.yml, sous Ubuntu) : outils GNU.
-if [ "$(uname -s)" = Linux ]; then step "Scripts de publication"; ./scripts/release-assets.test.sh; fi
+if [ "$(uname -s)" = Linux ]; then step "Scripts de publication"; ./scripts/release-assets.test.sh; ./scripts/aur-pkgbuild.test.sh; ./scripts/aur-deb.test.sh; ./scripts/aur-push.test.sh; fi
 step "Front : svelte-check";   pnpm -C app check
 step "Front : lint";           pnpm -C app lint
 step "Front : tests (couverture)"; pnpm -C app coverage
@@ -72,6 +72,8 @@ if [ "$mode" = "full" ]; then
   step "Actions GitHub : empreintes amont"; node scripts/check-actions.mjs --upstream
   step "Build workspace";      cargo build --workspace --locked
   step "Tests d'intégration";  cargo nextest run --workspace --locked --profile integration
+  # Paquet AUR construit, contrôlé par namcap et installé sous Arch (Docker).
+  step "Paquet AUR";           ./scripts/check-aur.sh
 fi
 
 printf '\nOK (%s)\n' "$mode"

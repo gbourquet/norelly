@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
-# PKGBUILD et .SRCINFO du paquet AUR norelly-bin d'une version stable
-# publiée : remplit les modèles de packaging/aur avec la version et les
-# sommes SHA-256 du .deb publié et de la licence MIT du dépôt.
+# Fichiers du dépôt AUR de norelly-bin pour une version stable publiée :
+# PKGBUILD et .SRCINFO, modèles de packaging/aur remplis avec la version et
+# les sommes SHA-256 du .deb publié et de la licence MIT du dépôt ; licence
+# 0BSD des fichiers du paquet (règles de l'AUR), dans la disposition de
+# `pkgctl license setup` : LICENSE et REUSE.toml copiés tels quels,
+# LICENSES/0BSD.txt lien vers ../LICENSE (créé ici, pas commité : une copie
+# de travail Windows le transformerait en fichier).
 #   ./scripts/aur-pkgbuild.sh <version> <Norelly_<version>_amd64.deb> <dossier de sortie>
 set -euo pipefail
 version="$1" deb="$2" out="$3"
@@ -23,5 +27,7 @@ for f in PKGBUILD .SRCINFO; do
 done
 if grep -q '{{' "$tmp/PKGBUILD" "$tmp/.SRCINFO"; then echo "modèle AUR incomplet" >&2; exit 1; fi
 mkdir -p "$out"
-cp "$tmp/PKGBUILD" "$tmp/.SRCINFO" "$out/"
-echo "PKGBUILD et .SRCINFO de norelly-bin $version dans $out"
+cp "$tmp/PKGBUILD" "$tmp/.SRCINFO" "$root/packaging/aur/LICENSE" "$root/packaging/aur/REUSE.toml" "$out/"
+mkdir -p "$out/LICENSES"
+ln -sfn ../LICENSE "$out/LICENSES/0BSD.txt"
+echo "Paquet AUR norelly-bin $version dans $out"

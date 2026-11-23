@@ -32,10 +32,11 @@ optdepends=(
 )
 provides=('norelly')
 conflicts=('norelly')
+# Binaire publié installé tel quel (fichier du .deb vérifié par sa somme).
 options=('!strip' '!debug')
 source=(
   "https://github.com/gbourquet/norelly/releases/download/v${pkgver}/Norelly_${pkgver}_amd64.deb"
-  "LICENSE-MIT-${pkgver}::https://raw.githubusercontent.com/gbourquet/norelly/v${pkgver}/LICENSE-MIT"
+  "LICENSE-MIT-${pkgver}::https://github.com/gbourquet/norelly/raw/v${pkgver}/LICENSE-MIT"
 )
 noextract=("Norelly_${pkgver}_amd64.deb")
 sha256sums=('{{sha256_deb}}'

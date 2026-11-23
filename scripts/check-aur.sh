@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # Paquet AUR norelly-bin contrôlé sous Arch Linux (Docker), sur un .deb
 # factice de même structure que celui de Tauri : .SRCINFO identique à
-# `makepkg --printsrcinfo`, PKGBUILD et paquet sans erreur namcap, paquet
+# `makepkg --printsrcinfo`, PKGBUILD et paquet sans erreur namcap, fichiers
+# du dépôt AUR conformes à `pkgctl license check` (licence 0BSD d'Arch,
+# REUSE ; règles de l'AUR), paquet
 # construit et installé avec les fichiers attendus. Lancé par
 # `scripts/check.sh full`.
 #
@@ -22,7 +24,7 @@ docker run --rm -i -v "$PWD:/src:ro" -e ARCHIVE="$archive" "$image" bash -euo pi
   # L'archive Arch répond parfois en près de 10 s, délai de connexion de
   # pacman (non réglable) : trois tentatives.
   for attempt in 1 2 3; do
-    pacman -Syyuu --noconfirm --needed --disable-download-timeout namcap >/dev/null && break
+    pacman -Syyuu --noconfirm --needed --disable-download-timeout namcap reuse devtools >/dev/null && break
     [ "$attempt" -lt 3 ] || { echo "archive Arch injoignable après 3 tentatives" >&2; exit 1; }
     sleep 15
   done
@@ -42,6 +44,11 @@ docker run --rm -i -v "$PWD:/src:ro" -e ARCHIVE="$archive" "$image" bash -euo pi
   (cd "$work" && ar rc "$deb" debian-binary control.tar.gz data.tar.gz)
 
   /src/scripts/aur-pkgbuild.sh "$version" "$deb" "$work/pkg"
+  # Les fichiers envoyés sur l'AUR, seuls : contrôle officiel d'Arch.
+  mkdir "$work/lint"
+  cp -P "$work/pkg/"{PKGBUILD,.SRCINFO,LICENSE,REUSE.toml} "$work/lint/"
+  cp -RP "$work/pkg/LICENSES" "$work/lint/"
+  (cd "$work/lint" && pkgctl license check) || { echo "fichiers du dépôt AUR : pkgctl license check refuse" >&2; exit 1; }
   # Sources déjà présentes : makepkg ne télécharge rien.
   cp "$deb" "$work/pkg/"
   cp /src/LICENSE-MIT "$work/pkg/LICENSE-MIT-$version"

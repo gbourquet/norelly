@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Envoi du PKGBUILD et du .SRCINFO de norelly-bin sur l'AUR, seulement
-# s'ils sont strictement plus récents que ceux de l'AUR.
+# Envoi des fichiers de norelly-bin (PKGBUILD, .SRCINFO, LICENSE,
+# REUSE.toml, lien LICENSES/0BSD.txt) sur l'AUR, seulement s'ils sont strictement plus récents que
+# ceux de l'AUR.
 #   ./scripts/aur-push.sh <dossier du paquet> <dépôt AUR>
 # Dépôt AUR : ssh://aur@aur.archlinux.org/norelly-bin.git (clé SSH par
 # GIT_SSH_COMMAND), ou un dépôt local dans les tests.
@@ -23,7 +24,19 @@ version_of() {
   printf '%s-%s' "$ver" "$rel"
 }
 
-[ -f "$pkg/PKGBUILD" ] && [ -f "$pkg/.SRCINFO" ] || { echo "PKGBUILD ou .SRCINFO absent de $pkg" >&2; exit 1; }
+files=(PKGBUILD .SRCINFO LICENSE REUSE.toml LICENSES/0BSD.txt)
+for f in "${files[@]}"; do
+  [ -f "$pkg/$f" ] || { echo "$f absent de $pkg" >&2; exit 1; }
+done
+
+# Même fichier : même contenu, et même cible pour un lien symbolique.
+same_file() {
+  if [ -L "$1" ] || [ -L "$2" ]; then
+    [ -L "$1" ] && [ -L "$2" ] && [ "$(readlink "$1")" = "$(readlink "$2")" ]
+  else
+    cmp -s "$1" "$2"
+  fi
+}
 new="$(version_of "$pkg/.SRCINFO")"
 [ -n "$new" ] || { echo "version du paquet à envoyer illisible" >&2; exit 1; }
 
@@ -37,7 +50,9 @@ if [ -e .SRCINFO ]; then
   current="$(version_of .SRCINFO)"
   [ -n "$current" ] || { echo "version de l'AUR illisible : envoi refusé" >&2; exit 1; }
   if [ "$current" = "$new" ]; then
-    if cmp -s "$pkg/PKGBUILD" PKGBUILD && cmp -s "$pkg/.SRCINFO" .SRCINFO; then
+    same=true
+    for f in "${files[@]}"; do same_file "$pkg/$f" "$f" || same=false; done
+    if "$same"; then
       echo "norelly-bin $new déjà sur l'AUR"
       exit 0
     fi
@@ -50,8 +65,12 @@ if [ -e .SRCINFO ]; then
   fi
 fi
 
-cp -- "$pkg/PKGBUILD" "$pkg/.SRCINFO" .
-git add PKGBUILD .SRCINFO
+for f in "${files[@]}"; do
+  mkdir -p "$(dirname "$f")"
+  rm -f -- "$f"
+  cp -P -- "$pkg/$f" "$f"
+done
+git add -- "${files[@]}"
 git -c user.name="Norelly" -c user.email="contact@norelly.fr" \
   commit --quiet -m "norelly-bin $new"
 git push --quiet origin HEAD:master

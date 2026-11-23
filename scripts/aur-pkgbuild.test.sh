@@ -32,17 +32,26 @@ run_ko() {
     fail "$1 : accepté"
   elif ! grep -q -- "$3" "$tmp/log"; then
     fail "$1 : refusé pour une autre raison ($(cat "$tmp/log"))"
-  elif [ -e "$tmp/out/PKGBUILD" ] || [ -e "$tmp/out/.SRCINFO" ]; then
+  elif [ -e "$tmp/out" ]; then
     fail "$1 : fichiers écrits malgré le refus"
   fi
 }
 
-# Version stable : PKGBUILD et .SRCINFO seulement, remplis, avec la somme
-# du .deb et celle de la licence MIT du dépôt.
+# Version stable : PKGBUILD et .SRCINFO remplis, avec la somme du .deb et
+# celle de la licence MIT du dépôt, plus la licence 0BSD des fichiers du
+# paquet (LICENSE et REUSE.toml, règles de l'AUR), copiées telles quelles.
 setup 1.2.3
 if run_ok "version stable" 1.2.3; then
   actual="$(cd "$tmp/out" && LC_ALL=C ls -A)"
-  [ "$actual" = "$(printf '.SRCINFO\nPKGBUILD')" ] || fail "fichiers écrits : $actual"
+  [ "$actual" = "$(printf '.SRCINFO\nLICENSE\nLICENSES\nPKGBUILD\nREUSE.toml')" ] || fail "fichiers écrits : $actual"
+  # Disposition de `pkgctl license setup` : LICENSES/0BSD.txt, lien vers
+  # ../LICENSE.
+  [ -L "$tmp/out/LICENSES/0BSD.txt" ] && [ "$(readlink "$tmp/out/LICENSES/0BSD.txt")" = ../LICENSE ] \
+    || fail "LICENSES/0BSD.txt : lien vers ../LICENSE attendu"
+  [ "$(cd "$tmp/out/LICENSES" && LC_ALL=C ls -A)" = 0BSD.txt ] || fail "LICENSES : contenu inattendu"
+  for f in LICENSE REUSE.toml; do
+    cmp -s "packaging/aur/$f" "$tmp/out/$f" || fail "$f : copie différente du modèle"
+  done
   deb_sum="$(sha256sum "$deb" | cut -d' ' -f1)"
   mit_sum="$(sha256sum LICENSE-MIT | cut -d' ' -f1)"
   url="https://github.com/gbourquet/norelly/releases/download/v1.2.3/Norelly_1.2.3_amd64.deb"
@@ -56,7 +65,7 @@ if run_ok "version stable" 1.2.3; then
   grep -qx 'pkgbase = norelly-bin' "$tmp/out/.SRCINFO" || fail ".SRCINFO : pkgbase"
   grep -qx $'\tpkgver = 1.2.3' "$tmp/out/.SRCINFO" || fail ".SRCINFO : pkgver"
   grep -qxF $'\tsource = '"$url" "$tmp/out/.SRCINFO" || fail ".SRCINFO : source du .deb"
-  grep -qxF $'\tsource = LICENSE-MIT-1.2.3::https://raw.githubusercontent.com/gbourquet/norelly/v1.2.3/LICENSE-MIT' "$tmp/out/.SRCINFO" \
+  grep -qxF $'\tsource = LICENSE-MIT-1.2.3::https://github.com/gbourquet/norelly/raw/v1.2.3/LICENSE-MIT' "$tmp/out/.SRCINFO" \
     || fail ".SRCINFO : source de la licence"
 fi
 

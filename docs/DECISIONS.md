@@ -365,7 +365,9 @@ est majoritairement écrit par Claude et relu par le mainteneur.
   `release.yml` à chaque version stable publiée, avec une clé SSH dédiée
   (choix du mainteneur, plutôt qu'un envoi manuel), dans un environnement
   à relecture obligatoire ; jamais pour une préversion. La 0.1.0, publiée
-  avant ce job, est envoyée une fois à la main par les mêmes scripts. Pas de module de mise à jour intégré : pacman s'en charge.
+  avant ce job, est envoyée une fois à la main par les mêmes scripts.
+  Fichiers du dépôt AUR sous licence 0BSD au texte d'Arch, comme le
+  recommandent les règles de l'AUR (le reste du dépôt garde sa licence). Pas de module de mise à jour intégré : pacman s'en charge.
   Détails : `docs/technique/methode.md` (« Paquet AUR ») et
   `docs/technique/securite.md`.
 

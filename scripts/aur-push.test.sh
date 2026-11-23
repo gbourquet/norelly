@@ -25,6 +25,10 @@ package() {
   mkdir -p "$tmp/pkg"
   printf 'pkgbase = norelly-bin\n\tpkgver = %s\n\tpkgrel = %s\n\npkgname = norelly-bin\n' "$1" "$2" >"$tmp/pkg/.SRCINFO"
   printf '%s\n' "${3:-pkgver=$1}" >"$tmp/pkg/PKGBUILD"
+  printf 'licence\n' >"$tmp/pkg/LICENSE"
+  printf 'version = 1\n' >"$tmp/pkg/REUSE.toml"
+  mkdir -p "$tmp/pkg/LICENSES"
+  ln -s ../LICENSE "$tmp/pkg/LICENSES/0BSD.txt"
 }
 
 # État de l'AUR posé directement : .SRCINFO brut $1.
@@ -64,6 +68,11 @@ if run_ok "premier envoi"; then
   [ "$(commits)" = 1 ] || fail "premier envoi : $(commits) commit(s)"
   [ "$(git -C "$tmp/aur.git" show master:PKGBUILD)" = "pkgver=1.2.3" ] || fail "premier envoi : PKGBUILD"
   git -C "$tmp/aur.git" show master:.SRCINFO | grep -qx $'\tpkgver = 1.2.3' || fail "premier envoi : .SRCINFO"
+  [ "$(git -C "$tmp/aur.git" ls-tree --name-only master | LC_ALL=C sort | tr '\n' ' ')" = ".SRCINFO LICENSE LICENSES PKGBUILD REUSE.toml " ] \
+    || fail "premier envoi : fichiers $(git -C "$tmp/aur.git" ls-tree --name-only master | tr '\n' ' ')"
+  # Lien symbolique gardé comme tel (mode 120000), pas copié en fichier.
+  [ "$(git -C "$tmp/aur.git" ls-tree master LICENSES/0BSD.txt | cut -d' ' -f1)" = 120000 ] \
+    || fail "premier envoi : LICENSES/0BSD.txt n'est pas un lien"
   [ "$(git -C "$tmp/aur.git" log -1 --format=%s master)" = "norelly-bin 1.2.3-1" ] || fail "premier envoi : message"
 fi
 
@@ -85,6 +94,12 @@ run_ko "version plus ancienne" "plus récente"
 # sans changement de version).
 package 1.2.4 1 "autre contenu"
 run_ko "même version, autre contenu" "déjà sur l'AUR avec un autre contenu"
+package 1.2.4 1
+printf 'autre licence\n' >"$tmp/pkg/LICENSE"
+run_ko "même version, autre licence" "déjà sur l'AUR avec un autre contenu"
+package 1.2.4 1
+ln -sfn ../PKGBUILD "$tmp/pkg/LICENSES/0BSD.txt"
+run_ko "même version, autre lien" "déjà sur l'AUR avec un autre contenu"
 
 # Même version de l'application, révision d'empaquetage plus récente sur
 # l'AUR : jamais remplacée par la révision 1.

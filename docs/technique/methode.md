@@ -162,7 +162,10 @@ version stable publiée, le job `aur` de `release.yml` :
 1. télécharge le .deb publié et le vérifie : somme dans `SHA256SUMS`,
    attestation de provenance du .deb et de `SHA256SUMS` émise par ce
    workflow à ce tag et à ce commit (`scripts/aur-deb.sh`) ;
-2. remplit le PKGBUILD et le `.SRCINFO` (`scripts/aur-pkgbuild.sh`) ;
+2. remplit le PKGBUILD et le `.SRCINFO` (`scripts/aur-pkgbuild.sh`), et
+   y joint la licence des fichiers du paquet : 0BSD au texte exact d'Arch
+   (`LICENSE`, `REUSE.toml`, lien `LICENSES/0BSD.txt`), comme le demandent
+   les règles de l'AUR (*AUR submission guidelines*) ;
 3. les envoie sur l'AUR s'ils sont strictement plus récents
    (`scripts/aur-push.sh`) : version comparée sur `pkgver-pkgrel`, jamais
    de retour en arrière ; relance à l'identique : rien n'est envoyé ; même
@@ -173,7 +176,7 @@ d'hôte de `aur.archlinux.org` commitée (`packaging/aur/known_hosts`,
 empreinte vérifiée par `aur-push.test.sh`). Contrôles : tests des trois
 scripts dans `check.sh` ; `check-aur.sh` dans `check.sh full` (Docker,
 sur un .deb factice : `.SRCINFO` égal à `makepkg --printsrcinfo`, namcap,
-construction et installation sous Arch). Les dépendances (`depends`) ont
+`pkgctl license check`, construction et installation sous Arch). Les dépendances (`depends`) ont
 été relevées sur le vrai binaire (`namcap` sur le paquet de la 0.1.0) :
 à revoir si l'application lie une nouvelle bibliothèque.
 
@@ -223,7 +226,10 @@ Mise en place par le mainteneur, une fois :
    tout tag `v*`.
 
 À chaque version stable publiée ensuite, GitHub demande d'approuver le job
-`aur`. Secret absent ou mal formé, clé refusée : le job échoue avec un
+`aur`. Les règles de l'AUR rappellent qu'une mise à jour automatique ne
+dispense pas de vérifier le paquet : avant d'approuver, s'assurer que la
+version n'ajoute ni bibliothèque liée (dépendances du PKGBUILD) ni
+changement de licence ; sinon, corriger `packaging/aur` d'abord. Secret absent ou mal formé, clé refusée : le job échoue avec un
 message explicite et la version reste publiée ; corriger le secret puis
 relancer le job met l'AUR à jour.
 

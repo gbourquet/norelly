@@ -23,7 +23,7 @@ pkgbase = norelly-bin
 	options = !strip
 	options = !debug
 	source = https://github.com/gbourquet/norelly/releases/download/v{{version}}/Norelly_{{version}}_amd64.deb
-	source = LICENSE-MIT-{{version}}::https://raw.githubusercontent.com/gbourquet/norelly/v{{version}}/LICENSE-MIT
+	source = LICENSE-MIT-{{version}}::https://github.com/gbourquet/norelly/raw/v{{version}}/LICENSE-MIT
 	sha256sums = {{sha256_deb}}
 	sha256sums = {{sha256_license}}
 

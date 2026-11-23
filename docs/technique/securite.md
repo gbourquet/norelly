@@ -556,7 +556,10 @@ reçus de l'interface ; types MIME recalculés.
   acceptent tout tag `v*`.
 - Paquet AUR (`release.yml`, job `aur`, `packaging/aur`) : à la
   publication d'une version stable seulement (jamais un brouillon, dont le
-  .deb ne se télécharge pas, ni une préversion). `GITHUB_TOKEN` en lecture
+  .deb ne se télécharge pas, ni une préversion), et seulement si la
+  variable du dépôt `AUR_ENABLED` vaut `true` : sans elle, aucun
+  environnement `aur` n'est créé à vide (GitHub le créerait sans relecture
+  ni restriction aux tags). `GITHUB_TOKEN` en lecture
   seule, dépôt extrait au tag publié (version du dépôt égale au tag),
   aucune action hormis `actions/checkout`, délai maximal de 10 minutes.
   Le .deb publié n'est référencé qu'après vérification

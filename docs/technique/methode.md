@@ -224,6 +224,12 @@ Mise en place par le mainteneur, une fois :
    création, mise à jour et suppression réservées au mainteneur, sans
    liste de contournement. Les environnements `site` et `aur` acceptent
    tout tag `v*`.
+6. Activer le job : variable du dépôt **`AUR_ENABLED`** = `true`
+   (*Settings → Secrets and variables → Actions → Variables*, ou
+   `gh variable set AUR_ENABLED --body true -R gbourquet/norelly`). Sans
+   elle, le job `aur` ne tourne pas : GitHub ne crée pas l'environnement
+   `aur` à vide, et la publication d'une version n'échoue pas faute de
+   compte. La retirer suspend l'envoi sur l'AUR.
 
 À chaque version stable publiée ensuite, GitHub demande d'approuver le job
 `aur`. Les règles de l'AUR rappellent qu'une mise à jour automatique ne

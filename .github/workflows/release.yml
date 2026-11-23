@@ -33,7 +33,8 @@
 # de la version publiée vérifié (somme et attestation,
 # scripts/aur-deb.sh), PKGBUILD régénéré (scripts/aur-pkgbuild.sh), envoyé
 # sur aur.archlinux.org s'il est strictement plus récent
-# (scripts/aur-push.sh). Secret AUR_SSH_PRIVATE_KEY de l'environnement
+# (scripts/aur-push.sh), si la variable du dépôt AUR_ENABLED vaut `true`.
+# Secret AUR_SSH_PRIVATE_KEY de l'environnement
 # GitHub `aur` (tags `v*` seulement, relecture obligatoire du mainteneur) :
 # clé SSH dédiée du compte AUR de Norelly ; clé d'hôte de aur.archlinux.org
 # commitée (packaging/aur/known_hosts).
@@ -407,11 +408,15 @@ jobs:
     # Version stable publiée par le mainteneur, jamais un brouillon (son
     # .deb ne se télécharge pas) ni une préversion (tiret interdit dans
     # pkgver). Le PKGBUILD reprend le .deb publié, vérifié avant d'être
-    # référencé.
+    # référencé. Activé par la variable du dépôt AUR_ENABLED (`true`), posée
+    # une fois le compte AUR et l'environnement `aur` en place : sans elle,
+    # le job ne tourne pas (pas d'environnement créé à vide ni d'échec à
+    # chaque version).
     if: >-
       github.event_name == 'release'
       && !github.event.release.draft
       && !github.event.release.prerelease
+      && vars.AUR_ENABLED == 'true'
     runs-on: ubuntu-24.04
     # La clé SSH ne reste pas sur le runner si l'AUR ne répond plus.
     timeout-minutes: 10

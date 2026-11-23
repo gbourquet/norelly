@@ -439,6 +439,16 @@ est majoritairement écrit par Claude et relu par le mainteneur.
   - Le binaire de l'application ne le contient donc pas.
   - Il ne pouvait pas aller dans `crates/test-support`, qui ne peut pas
     dépendre de `render`.
+- **Dérogation (2026-11-23, acceptée par le mainteneur)** : l'outil de
+  publication `tools/verify-update-signature` est une crate du workspace
+  hors des couches.
+  - Il vérifie, dans `release.yml`, la signature minisign de l'installateur
+    avec la clé publique embarquée ; il ne fait partie ni de l'application
+    ni des tests.
+  - Il ne dépend que de `minisign-verify`, `base64` et `serde_json`, et
+    d'aucune crate de Norelly : sa compilation dans la chaîne de
+    publication reste minimale (en exemple de `norelly-app`, il tirait les
+    dépendances de test de l'application).
 
 ## ADR-009 : licence et politique de dépendances
 

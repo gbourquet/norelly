@@ -210,9 +210,39 @@ jobs:
             target/release/bundle/nsis/latest.json
           if-no-files-found: error
 
+  update-signature:
+    name: Signature de mise à jour vérifiée
+    # Sans secret ni environnement, hors du job qui produit l'installateur :
+    # la signature envoyée doit être valide pour la clé publique embarquée,
+    # sinon tous les postes refuseraient la mise à jour (clé du secret
+    # différente de celle du dépôt). Outil à dépendances minimales
+    # (tools/verify-update-signature).
+    needs: [version, windows]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@df2a88e9fe4098bad09cb42c3dec7187f15861fc # master
+        with:
+          toolchain: 1.100.0
+          components: rustfmt, clippy, llvm-tools-preview
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: windows
+          path: artifacts/windows
+      - name: Signature et clé publique embarquée
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        run: >
+          cargo run --locked -p norelly-verify-update-signature --
+          app/src-tauri/tauri.updater.conf.json
+          "artifacts/windows/Norelly_${VERSION}_x64-setup.exe"
+          "artifacts/windows/Norelly_${VERSION}_x64-setup.exe.sig"
+
   assets:
     name: Fichiers, sommes et provenance
-    needs: [version, linux, windows]
+    needs: [version, linux, windows, update-signature]
     runs-on: ubuntu-24.04
     # Jeton OIDC (certificat Sigstore éphémère, sans clé à garder) et
     # écriture des attestations : ce job seul, sans droit d'écriture sur le

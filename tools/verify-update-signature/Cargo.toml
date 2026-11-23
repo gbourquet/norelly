@@ -1,0 +1,19 @@
+[package]
+name = "norelly-verify-update-signature"
+description = "Outil de publication : signature minisign de l'installateur vérifiée avec la clé publique embarquée."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+# Dépendances limitées au strict nécessaire : l'outil tourne dans la
+# chaîne de publication (release.yml).
+[dependencies]
+base64.workspace = true
+minisign-verify.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true

@@ -768,6 +768,7 @@ Fiche : [parametres.md](../fonctionnel/parametres.md).
 |---|---|
 | Recherche de mises à jour : demandée au premier lancement, « oui » présélectionné (`UpdateCheck::PROPOSED`), modifiable | `crates/domain/src/settings.rs`, ADR-006 |
 | Vérification au plus une fois par jour, sans identifiant envoyé ; mise à jour signée (minisign) vérifiée avant installation | `settings.rs` (`UPDATE_CHECK_INTERVAL_SECS`), `app/src-tauri/src/updates.rs` |
+| Jamais de préversion proposée à une version stable installée ; une préversion installée reçoit les versions plus récentes, stables ou non | `settings.rs` (`update_offer_allowed`, `a_stable_install_is_never_offered_a_prerelease`), `app/src-tauri/src/updates.rs` (`offer_accepted`, `only_newer_versions_allowed_by_the_domain_are_accepted`) |
 | Module de mise à jour compilé seulement avec la fonctionnalité `updater` (NSIS) | ADR-006, `app/src-tauri/Cargo.toml` |
 | Seuil de rapatriement entre 64 Kio et 64 Mio ; valeur illisible ou hors bornes remplacée par la valeur par défaut | `settings.rs`, port `SettingsStore` |
 | Langue : choix de la locale parmi les préférences du système, anglais en repli ; dates, heures, tailles par `Intl` avec la locale active | `app/src/lib/i18n.ts`, ADR-011 |

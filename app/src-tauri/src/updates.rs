@@ -11,7 +11,8 @@
 //!   GitHub), sans aucun identifiant.
 //! - Le paquet téléchargé est vérifié par sa signature minisign (clé
 //!   publique de la configuration) avant toute installation ; une version
-//!   antérieure ou égale est ignorée par le module.
+//!   antérieure ou égale est ignorée par le module, comme une préversion
+//!   proposée à une version stable (`offer_accepted`).
 
 use tauri::State;
 
@@ -33,6 +34,19 @@ pub fn available_version(raw: &str) -> Option<String> {
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '+'));
     valid.then(|| raw.to_owned())
+}
+
+/// Version annoncée acceptée par le module de mise à jour : strictement
+/// plus récente que la version installée (jamais de retour en arrière), et
+/// permise par la règle du domaine (pas de préversion pour une version
+/// stable). Remplace la comparaison par défaut du module.
+#[must_use]
+pub fn offer_accepted<V: PartialOrd + std::fmt::Display>(installed: &V, offered: &V) -> bool {
+    offered > installed
+        && norelly_domain::settings::update_offer_allowed(
+            &installed.to_string(),
+            &offered.to_string(),
+        )
 }
 
 /// Mise à jour en attente d'installation.
@@ -141,7 +155,13 @@ pub fn spawn_checks(app: &tauri::AppHandle) {
                 .map_or(UpdateCheck::NotAsked, |s| s.update_check);
             if update_check_due(check, last, now) {
                 last = Some(now);
-                let updater = handle.updater_builder().timeout(REQUEST_TIMEOUT).build();
+                let updater = handle
+                    .updater_builder()
+                    .timeout(REQUEST_TIMEOUT)
+                    .version_comparator(|current, release| {
+                        offer_accepted(&current, &release.version)
+                    })
+                    .build();
                 let checked = match updater {
                     Ok(updater) => tokio::time::timeout(CHECK_TIMEOUT, updater.check())
                         .await
@@ -183,6 +203,31 @@ mod tests {
     use super::*;
     use tauri::Manager;
     use tauri::test::mock_app;
+
+    /// Version de test : ordre sur le numéro, affichage tel quel.
+    #[derive(PartialEq)]
+    struct V(u32, &'static str);
+
+    impl PartialOrd for V {
+        fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+            self.0.partial_cmp(&other.0)
+        }
+    }
+
+    impl std::fmt::Display for V {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.write_str(self.1)
+        }
+    }
+
+    #[test]
+    fn only_newer_versions_allowed_by_the_domain_are_accepted() {
+        assert!(offer_accepted(&V(1, "0.1.0"), &V(2, "0.2.0")));
+        assert!(!offer_accepted(&V(2, "0.2.0"), &V(1, "0.1.0")));
+        assert!(!offer_accepted(&V(1, "0.1.0"), &V(1, "0.1.0")));
+        assert!(!offer_accepted(&V(1, "0.1.0"), &V(2, "0.2.0-beta.1")));
+        assert!(offer_accepted(&V(1, "0.1.0-beta.1"), &V(2, "0.1.0")));
+    }
 
     #[test]
     fn announced_versions_are_revalidated() {

@@ -1114,7 +1114,7 @@ dependencies = [
 
 [[package]]
 name = "norelly-contacts-io"
-version = "0.1.0"
+version = "0.1.0-beta.1"
 dependencies = [
  "csv",
  "icu_normalizer",
@@ -1124,7 +1124,7 @@ dependencies = [
 
 [[package]]
 name = "norelly-discovery"
-version = "0.1.0"
+version = "0.1.0-beta.1"
 dependencies = [
  "hickory-resolver",
  "norelly-domain",
@@ -1138,7 +1138,7 @@ dependencies = [
 
 [[package]]
 name = "norelly-domain"
-version = "0.1.0"
+version = "0.1.0-beta.1"
 dependencies = [
  "serde",
  "thiserror",
@@ -1157,7 +1157,7 @@ dependencies = [
 
 [[package]]
 name = "norelly-render"
-version = "0.1.0"
+version = "0.1.0-beta.1"
 dependencies = [
  "ammonia",
  "getrandom 0.3.4",
@@ -1170,7 +1170,7 @@ dependencies = [
 
 [[package]]
 name = "norelly-tls"
-version = "0.1.0"
+version = "0.1.0-beta.1"
 dependencies = [
  "norelly-domain",
  "ring",

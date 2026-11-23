@@ -26,7 +26,8 @@ visible en bas du panneau de navigation (ou `Ctrl+,`) :
 « Norelly peut rechercher automatiquement ses mises à jour. Le
 souhaitez-vous ? » est posée, **Oui** étant proposé par défaut. Fermer la
 question sans répondre ne vaut pas « Oui ». Si une version est disponible,
-un bandeau propose « Installer et redémarrer » ou « Plus tard ». Installé
+un bandeau propose « Installer et redémarrer » ou « Plus tard ». Une
+version stable ne propose jamais une version bêta. Installé
 depuis Flathub ou par un paquet .deb ou .rpm, Norelly est mis à jour par le
 système : ni question ni bandeau.
 

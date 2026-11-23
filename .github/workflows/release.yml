@@ -124,7 +124,7 @@ jobs:
           [ ${#debs[@]} -eq 1 ] || { echo ".deb attendu : ${#debs[@]} trouvé(s)" >&2; exit 1; }
           if [[ "$PRERELEASE" == true ]]; then expected=0; else expected=1; fi
           [ ${#rpms[@]} -eq "$expected" ] || { echo ".rpm attendu(s) : $expected, ${#rpms[@]} trouvé(s)" >&2; exit 1; }
-      - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: linux
           # Paquets comptés à la construction ; le .rpm manque pour une
@@ -201,7 +201,7 @@ jobs:
           }
           json.dump(manifest, open("latest.json", "w", encoding="utf-8"), indent=2)
           PY
-      - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: windows
           path: |
@@ -292,7 +292,7 @@ jobs:
           BUNDLE: ${{ steps.provenance.outputs.bundle-path }}
           VERSION: ${{ needs.version.outputs.version }}
         run: cp -- "$BUNDLE" "dist/Norelly_${VERSION}_provenance.sigstore.json"
-      - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release
           path: dist/

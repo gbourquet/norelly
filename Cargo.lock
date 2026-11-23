@@ -3157,7 +3157,7 @@ dependencies = [
 
 [[package]]
 name = "norelly-app"
-version = "0.1.0-beta.1"
+version = "0.1.0"
 dependencies = [
  "libc",
  "norelly-application",
@@ -3195,7 +3195,7 @@ dependencies = [
 
 [[package]]
 name = "norelly-application"
-version = "0.1.0-beta.1"
+version = "0.1.0"
 dependencies = [
  "norelly-blobs",
  "norelly-contacts-io",
@@ -3214,7 +3214,7 @@ dependencies = [
 
 [[package]]
 name = "norelly-blobs"
-version = "0.1.0-beta.1"
+version = "0.1.0"
 dependencies = [
  "norelly-domain",
  "norelly-test-support",
@@ -3225,7 +3225,7 @@ dependencies = [
 
 [[package]]
 name = "norelly-contacts-io"
-version = "0.1.0-beta.1"
+version = "0.1.0"
 dependencies = [
  "csv",
  "icu_normalizer",
@@ -3237,7 +3237,7 @@ dependencies = [
 
 [[package]]
 name = "norelly-discovery"
-version = "0.1.0-beta.1"
+version = "0.1.0"
 dependencies = [
  "hickory-resolver",
  "norelly-domain",
@@ -3253,7 +3253,7 @@ dependencies = [
 
 [[package]]
 name = "norelly-domain"
-version = "0.1.0-beta.1"
+version = "0.1.0"
 dependencies = [
  "proptest",
  "serde",
@@ -3262,7 +3262,7 @@ dependencies = [
 
 [[package]]
 name = "norelly-imap"
-version = "0.1.0-beta.1"
+version = "0.1.0"
 dependencies = [
  "imap-codec",
  "imap-next",
@@ -3280,7 +3280,7 @@ dependencies = [
 
 [[package]]
 name = "norelly-keyring"
-version = "0.1.0-beta.1"
+version = "0.1.0"
 dependencies = [
  "dbus-secret-service-keyring-store",
  "keyring-core",
@@ -3295,7 +3295,7 @@ dependencies = [
 
 [[package]]
 name = "norelly-oauth"
-version = "0.1.0-beta.1"
+version = "0.1.0"
 dependencies = [
  "getrandom 0.3.4",
  "norelly-domain",
@@ -3312,7 +3312,7 @@ dependencies = [
 
 [[package]]
 name = "norelly-render"
-version = "0.1.0-beta.1"
+version = "0.1.0"
 dependencies = [
  "ammonia",
  "getrandom 0.3.4",
@@ -3326,7 +3326,7 @@ dependencies = [
 
 [[package]]
 name = "norelly-smtp"
-version = "0.1.0-beta.1"
+version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
  "lettre",
@@ -3341,7 +3341,7 @@ dependencies = [
 
 [[package]]
 name = "norelly-sqlite"
-version = "0.1.0-beta.1"
+version = "0.1.0"
 dependencies = [
  "criterion",
  "norelly-domain",
@@ -3358,7 +3358,7 @@ dependencies = [
 
 [[package]]
 name = "norelly-test-support"
-version = "0.1.0-beta.1"
+version = "0.1.0"
 dependencies = [
  "mail-parser",
  "norelly-domain",
@@ -3373,7 +3373,7 @@ dependencies = [
 
 [[package]]
 name = "norelly-tls"
-version = "0.1.0-beta.1"
+version = "0.1.0"
 dependencies = [
  "norelly-domain",
  "norelly-test-support",
@@ -3389,7 +3389,7 @@ dependencies = [
 
 [[package]]
 name = "norelly-verify-update-signature"
-version = "0.1.0-beta.1"
+version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
  "minisign-verify",
@@ -3398,7 +3398,7 @@ dependencies = [
 
 [[package]]
 name = "norelly-webdav"
-version = "0.1.0-beta.1"
+version = "0.1.0"
 dependencies = [
  "getrandom 0.3.4",
  "norelly-domain",

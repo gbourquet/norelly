@@ -29,7 +29,8 @@ Usage :
 
 Le tag doit être `v` suivi de la version de `app/src-tauri/tauri.conf.json`
 au même commit (règle de `release.yml`), et cette version avoir sa note
-dans le fichier AppStream. Bibliothèque standard seulement.
+dans le fichier AppStream, une préversion avec un tilde à la place du
+tiret (`1.2.4~beta.1`). Bibliothèque standard seulement.
 """
 
 from __future__ import annotations
@@ -218,8 +219,11 @@ def from_tag(repo: Path, tag: str) -> dict[str, str]:
         releases = ET.fromstring(show(METAINFO)).findall("releases/release")
     except ET.ParseError as e:
         raise ManifestError(f"{METAINFO} au tag {tag} : illisible ({e})") from None
-    if not any(r.get("version") == version for r in releases):
-        raise ManifestError(f"{METAINFO} au tag {tag} : aucune note pour la version {version}")
+    # AppStream classe « 1.2.4-beta.1 » après « 1.2.4 » : une préversion y
+    # est notée avec un tilde (« 1.2.4~beta.1 »), classé avant.
+    note = version.replace("-", "~", 1)
+    if not any(r.get("version") == note for r in releases):
+        raise ManifestError(f"{METAINFO} au tag {tag} : aucune note pour la version {note}")
     files = {MANIFEST: to_flathub(show(f"{FLATPAK}/{MANIFEST}"), tag, commit)}
     for name in VENDORED:
         files[name] = show(f"{FLATPAK}/{name}")

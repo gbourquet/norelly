@@ -210,7 +210,10 @@ et les sources vendorisées.
   quand l'outil est installé.
 - **Note de version** : le tag n'est accepté que si le fichier AppStream
   (`packaging/linux/…metainfo.xml`) a, au même commit, une entrée
-  `<release>` pour cette version.
+  `<release>` pour cette version. Une préversion y est notée avec un
+  tilde à la place du tiret (`0.1.0~beta.1`, `type="development"`) :
+  AppStream classe `0.1.0-beta.1` après `0.1.0`, et `appstreamcli
+  validate` refuse alors l'entrée de la version stable placée au-dessus.
 
 ### Versions figées de la chaîne et des outils
 

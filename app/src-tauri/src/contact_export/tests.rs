@@ -235,8 +235,8 @@ fn old_file(path: &Path) {
 fn write_atomic_removes_the_temporaries_left_by_an_interrupted_export() {
     let dir = scratch("orphelins");
     let path = dir.join("contacts.vcf");
-    // Le même numéro de processus d'un lancement à l'autre (bac à sable
-    // Flatpak) n'empêche pas le nettoyage ; la casse non plus.
+    // Le même numéro de processus d'un lancement à l'autre (bac à sable,
+    // conteneur) n'empêche pas le nettoyage ; la casse non plus.
     for stale in [
         temporary("contacts.vcf", 0),
         temporary("contacts.vcf", 7),

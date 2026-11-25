@@ -117,8 +117,7 @@ Désinstaller Norelly peut laisser en place son dossier de données. Pour
 tout effacer, supprimez ce dossier après la désinstallation :
 
 - sous Windows : `%APPDATA%\io.github.gbourquet.Norelly` ;
-- sous Linux : `~/.local/share/io.github.gbourquet.Norelly` (ou
-  `~/.var/app/io.github.gbourquet.Norelly` avec Flathub).
+- sous Linux : `~/.local/share/io.github.gbourquet.Norelly`.
 
 Les mots de passe rangés dans le trousseau du système sont effacés quand
 vous supprimez le compte dans Norelly ; supprimez les comptes avant de
@@ -130,4 +129,4 @@ Norelly est un logiciel libre développé par Guillaume Bourquet —
 contact : contact@norelly.fr.
 Code source : https://github.com/gbourquet/norelly
 
-*Dernière mise à jour : 22 novembre 2026.*
+*Dernière mise à jour : 25 novembre 2026.*

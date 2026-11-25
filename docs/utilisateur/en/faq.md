@@ -50,8 +50,7 @@ To protect your privacy: see [blocked images](everyday.md#blocked-images).
 In Norelly's data folder, which belongs to your session only:
 
 - on Windows: `%APPDATA%\io.github.gbourquet.Norelly`;
-- on Linux: `~/.local/share/io.github.gbourquet.Norelly` (or
-  `~/.var/app/io.github.gbourquet.Norelly` with Flathub).
+- on Linux: `~/.local/share/io.github.gbourquet.Norelly`.
 
 If you agreed to store your passwords in an unencrypted file (Linux
 without a keyring), this folder also contains `mots-de-passe.json`: never

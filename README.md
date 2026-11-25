@@ -40,7 +40,7 @@ pnpm -C app tauri dev     # lancer l'application
 
 - Windows : installateur NSIS (versions GitHub), winget ; mises à jour
   signées (minisign). Politique de signature : `docs/CODE_SIGNING.md`.
-- Linux : Flathub (`packaging/flatpak`), paquets .deb et .rpm.
+- Linux : paquets .deb et .rpm (versions GitHub).
 
 ## Licence
 

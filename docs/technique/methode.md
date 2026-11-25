@@ -168,54 +168,16 @@ autre PR.
   débogage (`CARGO_INCREMENTAL=0`, `CARGO_PROFILE_DEV_DEBUG=0`, transmis
   au conteneur par `app/e2e/run.sh`).
 
-### Flatpak et Flathub
+### Note de version AppStream
 
-Le Flatpak n'est pas produit par `release.yml` : Flathub le construit
-depuis le dépôt de l'application chez Flathub, qui contient le manifeste
-et les sources vendorisées.
-
-- **Build local**, depuis l'arbre de travail (source `type: dir` du
-  manifeste du dépôt) :
-  `flatpak-builder --force-clean build packaging/flatpak/io.github.gbourquet.Norelly.yml`.
-- **Sources vendorisées** (crates et paquets npm) :
-  `./scripts/flatpak-sources.py` après tout changement de `Cargo.lock` ou
-  de `app/pnpm-lock.yaml` (`--check` dans `check-packaging.sh`). Une
-  dépendance git n'est acceptée que si son dépôt figure dans `allow-git`
-  de `deny.toml` et qu'elle est figée par commit complet. Le dépôt est
-  alors cloné à ce commit au moment des sources, et ses crates sont
-  recopiées dans le répertoire vendorisé. Le build s'arrête si un
-  manifeste hérite encore d'un réglage du workspace du dépôt.
-- **Manifeste Flathub**, une fois le tag `vX.Y.Z` publié et récupéré
-  (`git fetch --tags`) :
-  `./scripts/flathub-manifest.py --tag vX.Y.Z --out <clone du dépôt Flathub>`.
-  Le script lit le manifeste et les sources vendorisées **au commit du
-  tag** (pas dans l'arbre de travail), vérifie que le tag est `v` suivi
-  de la version de `tauri.conf.json` à ce commit, et remplace la source
-  locale par une source `git` (`url`, `tag`, `commit`) ; flatpak-builder
-  refuse la construction si le tag ne désigne plus ce commit. Il écrit
-  le manifeste, `cargo-sources.json` et `node-sources.json` dans le
-  dossier donné, sans toucher à ses autres fichiers ; il reste à les
-  commiter dans le dépôt Flathub. Tests : `scripts/flathub-manifest.test.py`.
-- **Autorisations** : liste fermée (`ALLOWED_FINISH_ARGS` de
-  `flathub-manifest.py`, une valeur par ligne, indentée de deux espaces,
-  sans guillemets ni échappements), vérifiée par `check-packaging.sh` et à la production du
-  manifeste Flathub ; aucun `--filesystem`, les fichiers passent par les
-  portails (ADR-006). Ajouter une autorisation, c'est modifier cette
-  liste, en revue. Pour que cette lecture ligne à ligne soit celle de
-  flatpak-builder, le manifeste s'en tient à un YAML simple : une clé de
-  premier niveau unique par ligne en colonne 0 (ni étiquette, ancre,
-  alias, clé explicite, séparateur de document), aucune chaîne entre
-  apostrophes ou sur plusieurs lignes, aucun commentaire en fin de ligne ;
-  un test compare la liste à la lecture de `flatpak-builder --show-manifest`
-  quand l'outil est installé.
-- **Note de version** : le tag n'est accepté que si la première entrée
-  `<release>` du fichier AppStream (`packaging/linux/…metainfo.xml`), au
-  même commit, est celle de cette version. Une préversion y est notée
-  avec un tilde à la place du tiret (`0.1.0~beta.1`,
-  `type="development"`) : AppStream classe `0.1.0-beta.1` après `0.1.0`,
-  et `appstreamcli validate` refuse alors l'entrée de la version stable
-  placée au-dessus. Le tag `v0.1.0-beta.1`, antérieur à cette règle, n'a
-  pas de manifeste Flathub (préversion non publiée sur Flathub).
+Les paquets .deb et .rpm installent le fichier AppStream
+(`packaging/linux/io.github.gbourquet.Norelly.metainfo.xml`), lu par les
+logithèques. `release.yml` refuse un tag dont la première entrée
+`<release>` de ce fichier, au même commit, n'est pas celle de la version.
+Une préversion y est notée avec un tilde à la place du tiret
+(`0.1.0~beta.1`, `type="development"`) : AppStream classe `0.1.0-beta.1`
+après `0.1.0`, et `appstreamcli validate` refuse alors l'entrée de la
+version stable placée au-dessus.
 
 ### Versions figées de la chaîne et des outils
 
@@ -249,10 +211,8 @@ volontaire, qui passe par la revue.
 
 Hors de ce contrôle, et toujours flottants : Node.js et pnpm des
 workflows (version majeure seulement, `setup-node` et `pnpm/action-setup`),
-les paquets apt des jobs (ceux de l'image e2e sont figés par un
-instantané daté, voir [tests](tests.md)) et le Rust du
-Flatpak, qui compile avec l'extension `rust-stable` de son SDK, pas avec la
-version de `rust-toolchain.toml`. La version minimale déclarée
+et les paquets apt des jobs (ceux de l'image e2e sont figés par un
+instantané daté, voir [tests](tests.md)). La version minimale déclarée
 (`rust-version` de `Cargo.toml`) n'est pas vérifiée par la CI, qui ne
 compile qu'avec la version figée : la remonter, ou ajouter un job qui la
 vérifie, est une décision du mainteneur.

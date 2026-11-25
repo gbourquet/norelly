@@ -25,7 +25,8 @@ est majoritairement écrit par Claude et relu par le mainteneur.
   - Toute la logique métier et toutes les décisions de sécurité sont en
     Rust. Le TypeScript ne fait que de la présentation.
   - Risque WebKitGTK sous Linux (performances, versions selon les
-    distributions), atténué par Flatpak (ADR-006).
+    distributions) : les paquets .deb et .rpm utilisent celui de la
+    distribution (ADR-006).
   - Les listes doivent être paginées côté Rust, jamais transmises en masse
     par l'IPC.
 
@@ -315,13 +316,13 @@ est majoritairement écrit par Claude et relu par le mainteneur.
 
 ## ADR-006 : packaging et mises à jour
 
-- **Statut** : Acceptée (2026-11-01)
+- **Statut** : Acceptée (2026-11-01), révisée le 2026-11-25 (canaux Linux).
 - **Options** : artefacts directs non signés (avec AppImage) ; canaux
-  libres et gratuits ; magasins (Microsoft Store + Flathub).
+  libres et gratuits ; magasins d'applications.
 - **Décision** :
   - **Windows** : NSIS par utilisateur, signé via SignPath Foundation
     (dès que le projet est accepté), et winget ;
-  - **Linux** : Flathub en canal principal, .deb et .rpm en secondaire,
+  - **Linux** : paquets .deb et .rpm joints aux versions GitHub,
     **pas d'AppImage** ;
   - `tauri-plugin-updater` (signature minisign) pour NSIS uniquement, le
     module étant désactivé à la compilation pour les autres canaux ;
@@ -332,31 +333,16 @@ est majoritairement écrit par Claude et relu par le mainteneur.
 - **Conséquences** :
   - Binaires Windows non signés tant que SignPath n'a pas validé le
     projet.
-  - Build Flathub hors ligne (dépendances cargo et npm vendorisées).
-- **Dérogations validées par le mainteneur (2026-11-05)**, autorisations
-  du Flatpak :
-  - `--talk-name=org.freedesktop.secrets` : accès direct au Secret
-    Service, donc à tout le trousseau de session. Le portail Secret, qui donne un trousseau propre à
-    l'application, passe par `oo7` et donc par zbus, écarté par
-    `deny.toml`. On garde l'accès direct, comme les autres clients mail
-    sous Flatpak. À réexaminer si zbus redevient acceptable.
-- **Accès aux fichiers (2026-11-22)** : le Flatpak n'a aucune
-  autorisation `--filesystem`. Les autorisations `xdg-download` et
-  `xdg-documents:ro`, accordées en dérogation le 2026-11-05 au motif que
-  le sélecteur de `tauri-plugin-dialog` ne passerait pas par le portail,
-  sont retirées comme le prévoyait cette dérogation : ce sélecteur
-  (`rfd`, moteur GTK3) est un `GtkFileChooserNative`, que GTK 3 fait
-  passer par le portail FileChooser dès qu'il tourne dans un bac à sable
-  Flatpak (dossier choisi compris), et le glisser-déposer passe par le
-  portail Documents. Seul ce que l'utilisateur choisit est exposé, en
-  écriture pour un dossier ou un fichier à enregistrer.
-  `scripts/check-packaging.sh` n'accepte que la liste fermée des
-  autorisations ci-dessus (`ALLOWED_FINISH_ARGS` de
-  `scripts/flathub-manifest.py`).
-- **Source Flathub** : le manifeste du dépôt construit l'arbre local
-  (`type: dir`) ; le manifeste soumis à Flathub en est dérivé par
-  `scripts/flathub-manifest.py` (source `git`, tag et commit lus dans le
-  dépôt, fichiers pris au commit du tag).
+  - Sous Linux, les paquets .deb et .rpm ne se mettent pas à jour seuls :
+    la personne retélécharge chaque version. Les autres canaux possibles
+    (dépôts de paquets, autres magasins) sont à l'étude.
+- **Révision (2026-11-25, décision du mainteneur)** : Flathub, prévu
+  comme canal Linux principal, est abandonné avant toute soumission. Sa
+  politique sur l'IA générative interdit les manifestes écrits ou
+  assistés par une IA et les demandes de soumission préparées par un
+  agent, ce que le mainteneur refuse. Le Flatpak, qui n'existait que pour
+  Flathub, est retiré du dépôt avec ses scripts, ses contrôles et ses
+  dérogations (accès au Secret Service, accès aux fichiers).
 
 ## ADR-007 : stratégie de tests
 
@@ -853,14 +839,6 @@ est majoritairement écrit par Claude et relu par le mainteneur.
     `ProviderNotConfigured`) ; les e2e compilent avec des valeurs
     factices ; secrets rangés dans l'environnement `release` (jobs Linux et
     Windows) ;
-  - Flatpak (2026-11-15, décision du mainteneur) : **pas de « Se connecter
-    avec Google »**. Flathub compile depuis le manifeste public
-    (`packaging/flatpak/`), sans secret : le manifeste ne fournit pas les
-    identifiants, et l'application en est compilée sans eux (même
-    comportement qu'en développement). Une adresse Gmail y passe par le
-    mot de passe d'application ; l'aide d'installation et l'ajout d'un
-    compte le disent. Les paquets .deb, .rpm et Windows de la CI gardent la
-    connexion Google ;
   - identité Google : `iss`, `aud` et `email_verified` vérifiés ; scope de
     messagerie exigé parmi les scopes accordés (Google permet d'en
     décocher) ;
@@ -1070,10 +1048,7 @@ est majoritairement écrit par Claude et relu par le mainteneur.
     compilation. Paquets `libdbus-1-3` (.deb) et `dbus-libs` (.rpm)
     déclarés dans `app/src-tauri/tauri.conf.json` ; `libdbus-1-dev` dans
     la CI (`ci.yml`, `nightly.yml`, `release.yml`), dans l'image de l'e2e
-    (`app/e2e/Dockerfile`) et dans `premiers-pas.md`. Flatpak : libdbus est
-    fournie par le runtime GNOME ; le manifeste accorde
-    `--talk-name=org.freedesktop.Notifications` (portée limitée au
-    service de notifications). La même libdbus sert déjà au trousseau
+    (`app/e2e/Dockerfile`) et dans `premiers-pas.md`. La même libdbus sert déjà au trousseau
     (magasin Secret Service, choisi pour la même raison). Sa licence
     (AFL-2.1 ou GPL-2.0+, au choix) est prise sous AFL et la bibliothèque
     est liée dynamiquement : compatible avec l'ADR-009.
@@ -1104,7 +1079,7 @@ est majoritairement écrit par Claude et relu par le mainteneur.
 - **Réexamen** : revenir au plugin officiel quand zbus et ses crates
   (`zvariant`, `zbus_names`, `zvariant_derive`) seront de nouveau
   maintenus et acceptés par `cargo deny` sans exception. La même condition vaut pour
-  `tauri-plugin-opener` (ADR-004) et le portail Secret (ADR-006).
+  `tauri-plugin-opener` (ADR-004).
 
 ## ADR-016 : messages Gmail présents dans plusieurs dossiers (`X-GM-MSGID`, fork d'imap-codec)
 
@@ -1189,7 +1164,7 @@ est majoritairement écrit par Claude et relu par le mainteneur.
 - **Statut** : Acceptée (2026-11-22), choix du mainteneur.
 - **Contexte** : Norelly n'a pas de site ; sa seule page publique est le
   dépôt GitHub. La vérification de l'application par Google, la
-  candidature SignPath et les fiches Flathub et winget demandent une page
+  candidature SignPath et la fiche winget demandent une page
   d'accueil et une politique de confidentialité publiées sur un domaine
   dont on prouve la propriété. Le site doit tenir la promesse du produit :
   aucun traceur, aucune statistique de visite, aucune ressource chargée

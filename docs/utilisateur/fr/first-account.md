@@ -90,9 +90,7 @@ son administrateur vous a confirmé l'**empreinte** affichée.
 ## Gmail : se connecter avec Google
 
 Avec une adresse Gmail, vous vous connectez sur la page de Google, dans
-votre navigateur, sans donner votre mot de passe à Norelly. (La version
-installée depuis Flathub n'a pas ce bouton : utilisez-y
-[le mot de passe d'application](#gmail--le-mot-de-passe-dapplication).)
+votre navigateur, sans donner votre mot de passe à Norelly.
 
 1. Dans la fenêtre **Ajouter un compte**, tapez votre adresse (par exemple
    `marie.durand@gmail.com`). Le champ **Mot de passe** disparaît et le

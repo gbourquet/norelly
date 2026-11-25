@@ -435,7 +435,7 @@ reçus de l'interface ; types MIME recalculés.
   ou compilation depuis crates.io, jamais de binaire `cargo-binstall`
   non vérifié) figés, contrôlés par `scripts/check-toolchain.mjs` et
   montés par PR ; restent flottants Node.js et pnpm (version majeure),
-  les paquets apt des jobs de la CI et le Rust du SDK Flatpak
+  et les paquets apt des jobs de la CI
   ([méthode](methode.md#versions-figées-de-la-chaîne-et-des-outils)).
 - Actions GitHub : chaque action des workflows et des actions composites du
   dépôt (celles de `.github`, l'action racine, et toute action locale
@@ -552,12 +552,6 @@ reçus de l'interface ; types MIME recalculés.
   que 204 : échec explicite. Les tags `v*` sont protégés par une règle du
   dépôt (création réservée au mainteneur), car l'environnement `site`
   accepte tout tag `v*`.
-- Flatpak : autorisations minimales, aucun accès direct aux fichiers de
-  l'utilisateur (liste fermée d'autorisations vérifiée par
-  `scripts/check-packaging.sh`, `ALLOWED_FINISH_ARGS`) :
-  sélecteur de fichiers et glisser-déposer passent par les portails
-  (ADR-006). Manifeste Flathub figé sur un tag et son commit, vérifiés par
-  flatpak-builder à la récupération (`scripts/flathub-manifest.py`).
 - Caches de la CI enregistrés depuis `master` seulement, jamais utilisés
   par `release.yml`. Cache de build de l'e2e réduit au dossier de build
   de la copie de travail (`target-<empreinte>/`, `app/e2e/target-name.sh`)
@@ -671,8 +665,7 @@ Signalés au mainteneur dans chaque PR qui les touche (ADR-008) :
   `capabilities/`, `permissions/` ;
 - `app/src/lib/agent.ts` ;
 - infrastructure : `deny.toml`, `.github/workflows/*.yml`,
-  `packaging/flatpak/*.yml`, `scripts/flathub-manifest.py`,
-  `scripts/flatpak-sources.py` (et son test), `scripts/check-apt-snapshot.mjs`,
+  `scripts/check-apt-snapshot.mjs`,
   `scripts/check-packaging.sh`, `scripts/check.sh`,
   `scripts/check-fuzz-lock.mjs` (et ses tests), `fuzz/Cargo.lock`,
   `app/e2e/Dockerfile`, cache de build de l'e2e (`app/e2e/run.sh`,

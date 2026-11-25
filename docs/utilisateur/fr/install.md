@@ -99,6 +99,20 @@ applications.
 Avec un paquet .deb ou .rpm, Norelly ne se met pas à jour tout seul :
 retournez sur la page des versions de temps en temps.
 
+### Arch Linux et dérivées : paquet AUR
+
+Sous Arch Linux, Manjaro, EndeavourOS, CachyOS et les autres dérivées
+d'Arch, Norelly est sur l'AUR sous le nom **`norelly-bin`**. Installez-le
+avec votre assistant AUR habituel, par exemple :
+
+```
+yay -S norelly-bin
+```
+
+ou `paru -S norelly-bin`. Les mises à jour arrivent avec celles de votre
+système (`yay` ou `paru` sans argument). Le paquet reprend le .deb publié :
+le bouton **Se connecter avec Google** y est.
+
 ## Vérifier un fichier téléchargé (facultatif)
 
 Cette partie s'adresse aux personnes à l'aise avec un terminal : elle

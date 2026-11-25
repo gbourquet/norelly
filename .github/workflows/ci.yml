@@ -52,7 +52,21 @@ jobs:
           cache: pnpm
           cache-dependency-path: app/pnpm-lock.yaml
       - run: pnpm -C app install --frozen-lockfile
+      # Bases et paquets Arch du contrôle AUR (scripts/check-aur.sh), figés à
+      # une date de l'archive Arch, lente et parfois injoignable. Cache écrit
+      # depuis master seulement ; paquets vérifiés par signature à chaque
+      # lancement.
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: aur
+        with:
+          path: ~/.cache/norelly-aur
+          key: aur-arch-${{ hashFiles('scripts/check-aur.sh') }}
       - run: ./scripts/check.sh full
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master' && steps.aur.outputs.cache-hit != 'true'
+        with:
+          path: ~/.cache/norelly-aur
+          key: ${{ steps.aur.outputs.cache-primary-key }}
 
   e2e:
     name: Linux (end-to-end, tauri-driver)

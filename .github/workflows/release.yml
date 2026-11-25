@@ -19,15 +19,25 @@
 # (empoisonnement de cache).
 #
 # Quand le mainteneur publie une version stable (événement `release`
-# `released` : brouillon publié ou préversion promue), le
-# job `site` seul s'exécute : il signale la version au dépôt du site
-# (lancement de son workflow `deploy.yml` sur `main`, ADR-017), qui se
-# reconstruit au dernier tag de version. Secret SITE_DISPATCH_TOKEN de
+# `released` : brouillon publié ou préversion promue), seuls les jobs
+# `site` et `aur` s'exécutent. Le job `site` signale la version au dépôt du
+# site (lancement de son workflow `deploy.yml` sur `main`, ADR-017), qui se
+# reconstruit à la dernière version publiée. Secret SITE_DISPATCH_TOKEN de
 # l'environnement GitHub `site` : jeton d'accès fin limité au dépôt
 # norelly-site, permission « Actions: write » seulement : il ne peut pas
 # modifier le code du site, mais peut lancer, annuler ou désactiver ses
 # workflows et supprimer ses artefacts, journaux et caches (voir
 # docs/technique/securite.md).
+#
+# Le job `aur` met à jour le paquet AUR norelly-bin (packaging/aur) : .deb
+# de la version publiée vérifié (somme et attestation,
+# scripts/aur-deb.sh), PKGBUILD régénéré (scripts/aur-pkgbuild.sh), envoyé
+# sur aur.archlinux.org s'il est strictement plus récent
+# (scripts/aur-push.sh), si la variable du dépôt AUR_ENABLED vaut `true`.
+# Secret AUR_SSH_PRIVATE_KEY de l'environnement
+# GitHub `aur` (tags `v*` seulement, relecture obligatoire du mainteneur) :
+# clé SSH dédiée du compte AUR de Norelly ; clé d'hôte de aur.archlinux.org
+# commitée (packaging/aur/known_hosts).
 name: Release
 
 on:
@@ -277,6 +287,14 @@ jobs:
           ./scripts/winget-manifests.sh "$VERSION" "artifacts/windows/Norelly_${VERSION}_x64-setup.exe" winget
           mkdir -p artifacts/winget
           (cd winget && zip -q "../artifacts/winget/winget-manifests-${VERSION}.zip" ./*.yaml)
+      # Contrôle seulement, avant le brouillon : le PKGBUILD publié sur
+      # l'AUR est régénéré par le job `aur` depuis le .deb de la version
+      # publiée. Jamais pour une préversion (tiret interdit dans pkgver).
+      - name: PKGBUILD AUR (contrôle)
+        if: needs.version.outputs.prerelease == 'false'
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        run: ./scripts/aur-pkgbuild.sh "$VERSION" "artifacts/linux/deb/Norelly_${VERSION}_amd64.deb" "$RUNNER_TEMP/aur"
       - name: Fichiers publiés et sommes SHA-256
         run: ./scripts/release-assets.sh artifacts dist
       # Une attestation de provenance SLSA, signée par Sigstore avec
@@ -384,3 +402,60 @@ jobs:
             -H "X-GitHub-Api-Version: 2022-11-28" \
             repos/gbourquet/norelly-site/actions/workflows/deploy.yml/dispatches \
             -f ref=main
+
+  aur:
+    name: Paquet AUR norelly-bin
+    # Version stable publiée par le mainteneur, jamais un brouillon (son
+    # .deb ne se télécharge pas) ni une préversion (tiret interdit dans
+    # pkgver). Le PKGBUILD reprend le .deb publié, vérifié avant d'être
+    # référencé. Activé par la variable du dépôt AUR_ENABLED (`true`), posée
+    # une fois le compte AUR et l'environnement `aur` en place : sans elle,
+    # le job ne tourne pas (pas d'environnement créé à vide ni d'échec à
+    # chaque version).
+    if: >-
+      github.event_name == 'release'
+      && !github.event.release.draft
+      && !github.event.release.prerelease
+      && vars.AUR_ENABLED == 'true'
+    runs-on: ubuntu-24.04
+    # La clé SSH ne reste pas sur le runner si l'AUR ne répond plus.
+    timeout-minutes: 10
+    environment: aur
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - name: .deb publié, vérifié
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          # Le dépôt extrait est celui du tag publié.
+          test "v$(python3 -c 'import json; print(json.load(open("app/src-tauri/tauri.conf.json"))["version"])')" = "$TAG" \
+            || { echo "::error::tag ≠ version du dépôt extrait" >&2; exit 1; }
+          ./scripts/aur-deb.sh "$TAG" "$GITHUB_SHA" "$RUNNER_TEMP/release"
+      - name: PKGBUILD et .SRCINFO
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: ./scripts/aur-pkgbuild.sh "${TAG#v}" "$RUNNER_TEMP/release/Norelly_${TAG#v}_amd64.deb" "$RUNNER_TEMP/pkg"
+      # Clé SSH dédiée au compte AUR, présente dans cette étape seulement,
+      # en fichier 0600 effacé à la fin ; hôte vérifié par la seule clé
+      # commitée (jamais StrictHostKeyChecking=no).
+      - name: Envoi sur l'AUR
+        env:
+          AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+        run: |
+          # Forme contrôlée sans jamais afficher la valeur (un secret vide ou
+          # tronqué est signalé, docs/technique/methode.md).
+          if [[ "$AUR_SSH_PRIVATE_KEY" != "-----BEGIN OPENSSH PRIVATE KEY-----"* ]] \
+            || ! grep -qx -- "-----END OPENSSH PRIVATE KEY-----" <<<"$AUR_SSH_PRIVATE_KEY"; then
+            echo "::error::secret AUR_SSH_PRIVATE_KEY absent ou mal formé dans l'environnement « aur » (docs/technique/methode.md)" >&2
+            exit 1
+          fi
+          ssh_dir="$RUNNER_TEMP/aur-ssh"
+          trap 'rm -rf "$ssh_dir"' EXIT
+          (umask 077 && mkdir -p "$ssh_dir" && printf '%s\n' "$AUR_SSH_PRIVATE_KEY" >"$ssh_dir/key")
+          export GIT_SSH_COMMAND="ssh -F /dev/null -i $ssh_dir/key -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$PWD/packaging/aur/known_hosts -o GlobalKnownHostsFile=/dev/null -o ConnectTimeout=30"
+          ./scripts/aur-push.sh "$RUNNER_TEMP/pkg" ssh://aur@aur.archlinux.org/norelly-bin.git

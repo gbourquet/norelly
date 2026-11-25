@@ -57,8 +57,7 @@ Dans le dossier de données de Norelly, qui appartient à votre seule
 session :
 
 - sous Windows : `%APPDATA%\io.github.gbourquet.Norelly` ;
-- sous Linux : `~/.local/share/io.github.gbourquet.Norelly` (ou
-  `~/.var/app/io.github.gbourquet.Norelly` avec Flathub).
+- sous Linux : `~/.local/share/io.github.gbourquet.Norelly`.
 
 Si vous avez accepté d'enregistrer vos mots de passe dans un fichier non
 chiffré (Linux sans trousseau), ce dossier contient aussi

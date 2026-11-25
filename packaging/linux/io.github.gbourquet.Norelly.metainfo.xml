@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- Métadonnées AppStream (Flathub, logithèques) ; anglais par défaut,
+<!-- Métadonnées AppStream (paquets .deb et .rpm, logithèques) ; anglais par défaut,
      traduction française (ADR-011). Vérifié par scripts/check-packaging.sh. -->
 <component type="desktop-application">
   <id>io.github.gbourquet.Norelly</id>

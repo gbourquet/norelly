@@ -2303,7 +2303,7 @@ export type UpdateStatusDto_Deserialize = {
 	/**
 	 *  Canal qui se met à jour lui-même (installateur NSIS, aussi
 	 *  distribué par winget) ; ailleurs, la question n'est pas posée
-	 *  (Flathub, .deb, .rpm).
+	 *  (.deb, .rpm).
 	 */
 	supported: boolean,
 	/**
@@ -2318,7 +2318,7 @@ export type UpdateStatusDto_Serialize = {
 	/**
 	 *  Canal qui se met à jour lui-même (installateur NSIS, aussi
 	 *  distribué par winget) ; ailleurs, la question n'est pas posée
-	 *  (Flathub, .deb, .rpm).
+	 *  (.deb, .rpm).
 	 */
 	supported: boolean,
 	/**

@@ -4,8 +4,7 @@
 # module de mise à jour, sommes `SHA256SUMS` et attestation de provenance
 # Sigstore de chaque fichier (sans clé ni secret), dans une version GitHub
 # en brouillon (marquée préversion pour une préversion) que le mainteneur
-# relit puis publie. Le Flatpak passe par Flathub
-# (packaging/flatpak).
+# relit puis publie.
 #
 # Secrets de l'environnement GitHub `release` (tags `v*` seulement, relecture
 # obligatoire du mainteneur) : TAURI_SIGNING_PRIVATE_KEY (clé minisign
@@ -66,12 +65,22 @@ jobs:
         env:
           TAG: ${{ github.ref_name }}
         run: |
-          version="$(python3 -c 'import json; print(json.load(open("app/src-tauri/tauri.conf.json"))["version"])')"
+          version="$(python3 -I -c 'import json; print(json.load(open("app/src-tauri/tauri.conf.json"))["version"])')"
           test "v$version" = "$TAG" || { echo "tag $TAG ≠ version $version" >&2; exit 1; }
           # Semver, éventuelle préversion : la version entre dans les noms des
           # fichiers publiés et l'identité vérifiée de l'attestation.
           [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || { echo "version invalide : $version" >&2; exit 1; }
           echo "version=$version" >> "$GITHUB_OUTPUT"
+          # Note de version AppStream (installée par les paquets .deb et
+          # .rpm) : la première entrée est celle de cette version, une
+          # préversion notée avec un tilde (« 1.2.4~beta.1 »).
+          VERSION="$version" python3 -I -c '
+          import os, sys, xml.etree.ElementTree as ET
+          note = os.environ["VERSION"].replace("-", "~", 1)
+          releases = ET.parse("packaging/linux/io.github.gbourquet.Norelly.metainfo.xml").findall("releases/release")
+          if not releases or releases[0].get("version") != note:
+              sys.exit(f"AppStream : la première note n’est pas celle de la version {note}")
+          '
           # Préversion (semver : suffixe après un tiret) : pas de .rpm, dont
           # la version refuse le tiret ; brouillon marqué préversion, que le
           # site ne suit pas.

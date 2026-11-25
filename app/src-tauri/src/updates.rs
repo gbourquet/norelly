@@ -247,7 +247,7 @@ mod tests {
         }
     }
 
-    /// Sans la fonctionnalité `updater` (Flathub, .deb, .rpm) : rien
+    /// Sans la fonctionnalité `updater` (.deb, .rpm) : rien
     /// n'est proposé ; avec, rien à installer tant que rien n'est trouvé.
     #[tokio::test]
     async fn nothing_is_installed_without_a_verified_update() {

@@ -102,8 +102,7 @@ Uninstalling Norelly may leave its data folder in place. To erase
 everything, delete that folder after uninstalling:
 
 - on Windows: `%APPDATA%\io.github.gbourquet.Norelly`;
-- on Linux: `~/.local/share/io.github.gbourquet.Norelly` (or
-  `~/.var/app/io.github.gbourquet.Norelly` with Flathub).
+- on Linux: `~/.local/share/io.github.gbourquet.Norelly`.
 
 Passwords stored in the system keyring are erased when you remove the
 account in Norelly; remove your accounts before uninstalling.
@@ -114,4 +113,4 @@ Norelly is free software developed by Guillaume Bourquet —
 contact: contact@norelly.fr.
 Source code: https://github.com/gbourquet/norelly
 
-*Last updated: 22 November 2026.*
+*Last updated: 25 November 2026.*
